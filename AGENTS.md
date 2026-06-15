@@ -6,16 +6,35 @@ Local-first observability + recommendation layer for AI coding sessions ("Missio
 
 ## State of the repo
 
-APM project bootstrapped — agent skills, hooks, and plugins are installed via [APM](https://github.com/anthropics/apm) in `orkworks/`. The Electron app, Rust sidecar, and metadata protocol are not yet implemented.
+APM project bootstrapped — agent skills, hooks, and plugins are installed via [APM](https://github.com/anthropics/apm) in `orkworks/`. M1 (Electron app shell + Rust sidecar scaffold) is implemented. Subsequent milestones are tracked as GitHub issues.
+
+## Package manager
+
+Use **pnpm** for all Node.js package management. Do not use npm or yarn for project package management tasks.
+
+```bash
+# Install pnpm if missing
+corepack enable
+corepack prepare pnpm@latest --activate
+
+# Install deps
+cd apps/desktop && pnpm install
+
+# Run dev
+pnpm dev
+```
 
 ## Issue board
 
-All implementation work is tracked as GitHub issues: https://github.com/Rambolarsen/orkworks/issues
+All implementation work is tracked as GitHub issues: [https://github.com/Rambolarsen/orkworks/issues](https://github.com/Rambolarsen/orkworks/issues)
 
 - **Pick new work** from the issue board. Start with M1 issues and work through milestones in order.
 - **Add future work** as new issues. Break down into scoped, deliverable-sized issues with checkbox acceptance criteria.
 - **Keep issues in sync** with the codebase — close when done, update when scope changes.
+- If the issue board is inaccessible, do not guess at priorities. Stop and inform the user that issue board access is required before picking or closing work.
 - Specs remain authoritative for product scope; issues track implementation progress.
+- If an issue describes work not covered by the specs, do not implement it. Add a comment on the issue noting the gap and ask for a spec update.
+- If the specs describe work with no corresponding issue, create one before implementing.
 
 ## Authoritative specs
 
@@ -24,14 +43,17 @@ All implementation work is tracked as GitHub issues: https://github.com/Rambolar
 
 Read both before starting any implementation work.
 
+If either spec file is missing or unreadable, stop and notify the user before proceeding. Do not infer scope from context alone.
+
 ## Decision tracking
 
 Architecture decisions are captured as ADRs in `docs/adr/`. Each significant architectural, stack, protocol, or boundary decision gets a numbered markdown file with context, decision, and consequences.
 
 - **Template**: `docs/adr/template.md`
 - **Index**: `docs/adr/README.md`
-- **Create an ADR** when making a decision that shapes the architecture, stack, or protocol — before or alongside the implementation.
-- **Supersede** old ADRs (don't delete) when a decision is reversed or replaced. Mark status `superseded` and reference the new ADR.
+- **Create an ADR** before writing any implementation code for a decision that shapes the architecture, stack, or protocol. If the decision only becomes clear during implementation, pause, write the ADR, and continue.
+- A decision is reversed or replaced when: (a) a new ADR explicitly contradicts a prior ADR, or (b) implementation diverges from what an existing ADR records.
+- **Supersede** old ADRs (don't delete) when a decision is reversed or replaced. In case (b), write the new ADR first, then update the old ADR status to `superseded` and reference the new ADR number.
 - **Keep the index updated** — add each new ADR to the `docs/adr/README.md` table.
 
 ADRs are complementary to specs: specs define what we're building; ADRs record why we chose to build it that way.
@@ -39,7 +61,7 @@ ADRs are complementary to specs: specs define what we're building; ADRs record w
 ## Key naming
 
 | Term | Meaning |
-|------|---------|
+| ---- | ------- |
 | OrkWorks | Product |
 | `orkworksd` | Rust backend sidecar |
 | Peon | Low-cost metadata observer |
@@ -47,7 +69,7 @@ ADRs are complementary to specs: specs define what we're building; ADRs record w
 
 ## Planned architecture
 
-```
+```text
 orkworks/
 ├─ apps/desktop/          # Electron + React/TypeScript + xterm.js
 ├─ crates/orkworksd/      # Rust sidecar (Axum HTTP/WS, PTY via portable-pty)
@@ -72,6 +94,7 @@ orkworks/
 
 - Do **not** expand fantasy naming beyond "Peon" — use normal engineering terms
 - MVP does not own git workflow, worktree management, merging, or task decomposition
+- If asked to implement something listed as a non-goal in the specs, decline and explain which non-goal applies. Do not implement it even partially.
 - Harness voice is pass-through only — OrkWorks never captures/proxies/stores audio for native voice
 - Start every session metadata source and confidence where possible
 - Capacity states: healthy, degraded, capped, unknown, disabled
@@ -82,7 +105,7 @@ orkworks/
 Dependencies are managed by [APM](https://github.com/anthropics/apm) in the `orkworks/` directory. The `apm.yml` defines targets (claude, codex, copilot, opencode) and dependencies. Running `apm install` populates:
 
 | Path | Contents |
-|------|----------|
+| ---- | -------- |
 | `orkworks/apm_modules/` | Cloned dependency sources (gitignored) |
 | `orkworks/apm.lock.yaml` | Resolved lock file (gitignored) |
 | `orkworks/.agents/skills/` | Skills for all targets |
@@ -127,4 +150,4 @@ Ponytail also ships its own `AGENTS.md` — if cross-referenced from this repo's
 
 ## Maintaining AGENTS.md and README.md
 
-Keep both files current as the project evolves. After any significant change (new dependencies, new architecture, new conventions, changed workflows), update these docs to match reality. Treat stale docs as a bug — if you notice something out of date while working, fix it.
+Keep both files current as the project evolves. Update AGENTS.md and README.md whenever any of the following occur: a new runtime dependency is added or removed, a directory in the planned architecture changes, a new agent target is added to `apm.yml`, a convention or workflow listed in this file changes, or a new ADR is created. Treat stale docs as a bug — if you notice something out of date while working, fix it.

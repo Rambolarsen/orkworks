@@ -8,7 +8,7 @@ APM project bootstrapped — agent skills, hooks, and plugins are installed via 
 
 ## Architecture
 
-```
+```text
 orkworks/
 ├─ apps/desktop/          # Electron + React/TypeScript + xterm.js
 ├─ crates/orkworksd/      # Rust sidecar (Axum HTTP/WS, PTY via portable-pty)
@@ -42,7 +42,7 @@ apm install
 Managed via APM in `orkworks/apm.yml`. Running `apm install` populates skills and hooks for all configured targets (claude, codex, copilot, opencode).
 
 | Plugin | Description |
-|--------|-------------|
+| ------ | ----------- |
 | [obra/superpowers](https://github.com/obra/superpowers) | Agentic skills framework & methodology |
 | [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail) | YAGNI-minimalist ruleset |
 | [thedotmack/claude-mem](https://github.com/thedotmack/claude-mem) | Persistent memory for Claude |
@@ -52,18 +52,18 @@ Managed via APM in `orkworks/apm.yml`. Running `apm install` populates skills an
 The `skills/` directory contains repo-level agent skills that are committed with the project. These follow the [Agent Skills standard](https://agentskills.io/specification) — each skill is a directory with a `SKILL.md` file (YAML frontmatter + markdown body).
 
 | Skill | Description |
-|-------|-------------|
+| ----- | ----------- |
 | [writing-skills](skills/writing-skills/SKILL.md) | TDD-based skill creation following the Agent Skills standard |
 | [clean-ddd-hexagonal](skills/clean-ddd-hexagonal/SKILL.md) | Clean Architecture + DDD + Hexagonal patterns, language-agnostic |
 
 ## Issue board
 
-https://github.com/Rambolarsen/orkworks/issues
+[https://github.com/Rambolarsen/orkworks/issues](https://github.com/Rambolarsen/orkworks/issues)
 
 ## Key naming
 
 | Term | Meaning |
-|------|---------|
+| ---- | ------- |
 | OrkWorks | Product |
 | `orkworksd` | Rust backend sidecar |
 | Peon | Low-cost metadata observer |
