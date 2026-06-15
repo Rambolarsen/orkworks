@@ -1,0 +1,17 @@
+# Rust
+target/
+
+# Node / Electron
+node_modules/
+dist/
+dist-electron/
+package-lock.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+*.swp
+*.swo
+.idea/

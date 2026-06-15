@@ -1,0 +1,22 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "build:rust",
+      "type": "shell",
+      "command": "cargo build --manifest-path crates/orkworksd/Cargo.toml"
+    },
+    {
+      "label": "build:electron",
+      "type": "shell",
+      "command": "pnpm exec tsc -p tsconfig.node.json",
+      "options": { "cwd": "${workspaceFolder}/apps/desktop" },
+      "problemMatcher": ["$tsc"]
+    },
+    {
+      "label": "build-all",
+      "dependsOrder": "sequence",
+      "dependsOn": ["build:rust", "build:electron"]
+    }
+  ]
+}

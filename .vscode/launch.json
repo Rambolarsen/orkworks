@@ -1,0 +1,29 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Launch OrkWorks",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/apps/desktop",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["dev"],
+      "console": "integratedTerminal",
+      "preLaunchTask": "build-all",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "name": "Launch Electron (attach renderer)",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/apps/desktop",
+      "runtimeExecutable": "${workspaceFolder}/apps/desktop/node_modules/.bin/electron",
+      "runtimeArgs": ["."],
+      "env": {
+        "VITE_DEV_SERVER_URL": "http://localhost:5173"
+      },
+      "console": "integratedTerminal",
+      "preLaunchTask": "build-all"
+    }
+  ]
+}
