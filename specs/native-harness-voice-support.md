@@ -4,11 +4,11 @@
 
 Some AI terminal harnesses may support voice input directly. OrkWorks should support this by making sure the harness process can access the operating system microphone, while keeping the voice feature owned by the harness itself.
 
-Native harness voice is not Cockpit dictation.
+Native harness voice is not OrkWorks dictation.
 
 ```text
 Native harness voice = the harness uses the OS microphone directly
-Cockpit dictation = OrkWorks captures speech, transcribes it, and sends text to a terminal
+OrkWorks dictation = OrkWorks captures speech, transcribes it, and sends text to a terminal
 ```
 
 For the MVP, native harness voice should be handled as a pass-through capability.
@@ -23,7 +23,7 @@ When a harness supports voice, OrkWorks should:
 - launch the harness process in an environment where OS microphone access can work
 - surface microphone permission problems in the UI
 - avoid intercepting, recording, storing, or forwarding audio by default
-- treat native voice as a harness capability, not as a Cockpit-owned feature
+- treat native voice as a harness capability, not as an OrkWorks-owned feature
 
 OrkWorks should not:
 
@@ -57,7 +57,7 @@ Recommended process structure:
 
 ```text
 OrkWorks.app
-└── cockpitd
+└── orkworksd
     └── harness process
         └── OS microphone API
 ```
@@ -68,7 +68,7 @@ The terminal remains responsible for text input/output:
 OrkWorks frontend
 └── xterm.js
     └── WebSocket
-        └── cockpitd
+        └── orkworksd
             └── PTY
                 └── harness stdin/stdout/stderr
 ```
@@ -95,8 +95,8 @@ Harnesses should be able to declare native voice support in configuration.
   "capabilities": {
     "nativeVoice": true,
     "requiresMicrophonePermission": true,
-    "cockpitDictation": false,
-    "cockpitVoiceCommands": false
+    "orkworksDictation": false,
+    "orkworksVoiceCommands": false
   }
 }
 ```
@@ -107,8 +107,8 @@ Suggested capability fields:
 | --- | --- |
 | `nativeVoice` | The harness has its own voice mode. |
 | `requiresMicrophonePermission` | The harness needs OS microphone access. |
-| `cockpitDictation` | OrkWorks may offer its own dictation layer for this harness. Separate from native voice. |
-| `cockpitVoiceCommands` | OrkWorks may interpret voice commands for Cockpit itself. Separate from native voice. |
+| `orkworksDictation` | OrkWorks may offer its own dictation layer for this harness. Separate from native voice. |
+| `orkworksVoiceCommands` | OrkWorks may interpret voice commands for OrkWorks itself. Separate from native voice. |
 
 ## Session Metadata
 
@@ -212,15 +212,15 @@ Voice access depends on the desktop environment, PipeWire/PulseAudio configurati
 
 If OrkWorks is packaged as Flatpak, Snap, or another sandboxed format, explicit microphone permissions may be required.
 
-## Native Voice vs Cockpit Voice
+## Native Voice vs OrkWorks Voice
 
-Native harness voice and Cockpit voice should remain separate concepts.
+Native harness voice and OrkWorks voice should remain separate concepts.
 
 | Feature | Owner | Audio captured by OrkWorks? | Sends text to terminal? |
 | --- | --- | --- | --- |
 | Native harness voice | Harness | No | No, unless the harness itself does it |
-| Cockpit dictation | OrkWorks | Yes | Only after user confirmation |
-| Cockpit voice commands | OrkWorks | Yes | Not by default; acts on Cockpit UI/actions |
+| OrkWorks dictation | OrkWorks | Yes | Only after user confirmation |
+| OrkWorks voice commands | OrkWorks | Yes | Not by default; acts on OrkWorks UI/actions |
 
 For MVP native voice support, OrkWorks should only support the first row.
 
@@ -245,8 +245,8 @@ For MVP native voice support, OrkWorks should only support the first row.
 
 - Harness-specific voice detection.
 - Automated child-process microphone probe.
-- Cockpit dictation mode.
-- Cockpit voice commands.
+- OrkWorks dictation mode.
+- OrkWorks voice commands.
 - Push-to-talk overlay.
 - Voice transcript drafts.
 
