@@ -13,6 +13,8 @@ orkworks/
 ├─ apps/desktop/          # Electron + React/TypeScript + xterm.js
 ├─ crates/orkworksd/      # Rust sidecar (Axum HTTP/WS, PTY via portable-pty)
 ├─ docs/
+│  └─ adr/                # Architecture Decision Records
+├─ skills/                # Repo-level agent skills
 └─ examples/
 ```
 
@@ -44,6 +46,15 @@ Managed via APM in `orkworks/apm.yml`. Running `apm install` populates skills an
 | [obra/superpowers](https://github.com/obra/superpowers) | Agentic skills framework & methodology |
 | [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail) | YAGNI-minimalist ruleset |
 | [thedotmack/claude-mem](https://github.com/thedotmack/claude-mem) | Persistent memory for Claude |
+
+## Repo skills
+
+The `skills/` directory contains repo-level agent skills that are committed with the project. These follow the [Agent Skills standard](https://agentskills.io/specification) — each skill is a directory with a `SKILL.md` file (YAML frontmatter + markdown body).
+
+| Skill | Description |
+|-------|-------------|
+| [writing-skills](skills/writing-skills/SKILL.md) | TDD-based skill creation following the Agent Skills standard |
+| [clean-ddd-hexagonal](skills/clean-ddd-hexagonal/SKILL.md) | Clean Architecture + DDD + Hexagonal patterns, language-agnostic |
 
 ## Issue board
 
