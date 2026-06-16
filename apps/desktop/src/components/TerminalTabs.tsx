@@ -15,11 +15,11 @@ export interface TerminalTabsHandle {
 interface TerminalTabsProps {
   backendStatus: string;
   activeSessionId: string | null;
-  sessionLabel: string;
+  sessions: Array<{ id: string; label: string }>;
 }
 
 const TerminalTabs = forwardRef<TerminalTabsHandle, TerminalTabsProps>(
-  function TerminalTabs({ backendStatus, activeSessionId, sessionLabel }, ref) {
+  function TerminalTabs({ backendStatus, activeSessionId, sessions }, ref) {
     const [tabs, setTabs] = useState<Tab[]>([]);
     const [activeTabId, setActiveTabId] = useState<string | null>(null);
 
@@ -53,15 +53,18 @@ const TerminalTabs = forwardRef<TerminalTabsHandle, TerminalTabsProps>(
       );
     }
 
+    const activeSession = sessions.find((s) => s.id === activeSessionId);
     const displayTabId = activeTabId && tabs.some((t) => t.id === activeTabId) ? activeTabId : null;
 
     return (
       <div className="terminal-tabs">
         <div className="terminal-tab-bar">
-          <div className={`terminal-tab ${!displayTabId ? "terminal-tab--active" : ""}`}>
-            <span className="terminal-tab-dot" />
-            <span className="terminal-tab-label">{sessionLabel}</span>
-          </div>
+          {activeSession && (
+            <div className="terminal-tab terminal-tab--active">
+              <span className="terminal-tab-dot" />
+              <span className="terminal-tab-label">{activeSession.label}</span>
+            </div>
+          )}
           {tabs.map((tab) => (
             <div
               key={tab.id}
@@ -74,12 +77,22 @@ const TerminalTabs = forwardRef<TerminalTabsHandle, TerminalTabsProps>(
         </div>
         <div className="terminal-tab-content">
           {!displayTabId ? (
-            <CenterPanel
-              key={activeSessionId}
-              backendStatus={backendStatus}
-              sessionId={activeSessionId}
-              embedded
-            />
+            sessions.map((s) => (
+              <div
+                key={s.id}
+                style={{
+                  display: s.id === activeSessionId ? "flex" : "none",
+                  flex: 1,
+                  minHeight: 0,
+                }}
+              >
+                <CenterPanel
+                  backendStatus={backendStatus}
+                  sessionId={s.id}
+                  embedded
+                />
+              </div>
+            ))
           ) : (
             <div className="terminal-tabs-empty">
               <p style={{ color: "#858585", fontSize: 12 }}>{displayTabId}</p>

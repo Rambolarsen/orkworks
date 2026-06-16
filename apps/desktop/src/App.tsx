@@ -168,7 +168,7 @@ function App() {
             ref={terminalTabsRef}
             backendStatus={backendStatus}
             activeSessionId={activeSessionId}
-            sessionLabel={sessions.find((s) => s.id === activeSessionId)?.label ?? ""}
+            sessions={sessions.map((s) => ({ id: s.id, label: s.label }))}
           />
         </main>
         <aside className="panel right-sidebar">
