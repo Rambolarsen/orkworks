@@ -8,6 +8,7 @@ import { orkworksTerminalTheme } from "../terminalTheme";
 interface CenterPanelProps {
   backendStatus: string;
   sessionId: string | null;
+  embedded?: boolean;
 }
 
 import { type WorkspaceInfo } from "../api";
@@ -28,7 +29,7 @@ interface TerminalHandle {
   ended: boolean;
 }
 
-function CenterPanel({ backendStatus, sessionId }: CenterPanelProps) {
+function CenterPanel({ backendStatus, sessionId, embedded }: CenterPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalsRef = useRef<Map<string, TerminalHandle>>(new Map());
   const activeIdRef = useRef<string | null>(null);
@@ -211,14 +212,16 @@ function CenterPanel({ backendStatus, sessionId }: CenterPanelProps) {
 
   return (
     <div className="terminal-shell" onClick={() => terminalsRef.current.get(activeIdRef.current ?? "")?.terminal.focus()}>
-      <div className="terminal-toolbar">
-        <div>
-          <div className="terminal-title">
-            {sessionId ? `Session ${sessionId.slice(0, 8)}` : "No session"}
+      {!embedded && (
+        <div className="terminal-toolbar">
+          <div>
+            <div className="terminal-title">
+              {sessionId ? `Session ${sessionId.slice(0, 8)}` : "No session"}
+            </div>
+            <div className="terminal-subtitle">{terminalStatus}</div>
           </div>
-          <div className="terminal-subtitle">{terminalStatus}</div>
         </div>
-      </div>
+      )}
       <div
         ref={containerRef}
         className={`terminal-container${ended ? " terminal-container--ended" : ""}`}
