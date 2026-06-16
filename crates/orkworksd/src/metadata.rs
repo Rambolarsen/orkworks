@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use tracing::warn;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionMetadata {
@@ -24,7 +25,7 @@ pub struct SessionMetadata {
     pub metadata_confidence: f64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Event {
     #[serde(rename = "type")]
     pub event_type: String,
@@ -53,11 +54,30 @@ impl MetadataStore {
 
     pub fn write_session(&self, meta: &SessionMetadata) {
         let dir = self.sessions_dir();
-        let _ = fs::create_dir_all(&dir);
-        let path = dir.join(format!("{}.json", meta.id));
-        if let Ok(json) = serde_json::to_string_pretty(meta) {
-            let _ = fs::write(&path, json);
+        if let Err(e) = fs::create_dir_all(&dir) {
+            warn!("failed to create sessions dir {:?}: {e}", dir);
+            return;
         }
+        let path = dir.join(format!("{}.json", meta.id));
+        match serde_json::to_string_pretty(meta) {
+            Ok(json) => {
+                if let Err(e) = fs::write(&path, json) {
+                    warn!("failed to write session {}: {e}", meta.id);
+                }
+            }
+            Err(e) => warn!("failed to serialize session {}: {e}", meta.id),
+        }
+    }
+
+    pub fn read_events(&self, id: &str) -> Vec<Event> {
+        let path = self.events_dir().join(format!("{}.ndjson", id));
+        let data = match fs::read_to_string(&path) {
+            Ok(d) => d,
+            Err(_) => return vec![],
+        };
+        data.lines()
+            .filter_map(|line| serde_json::from_str::<Event>(line).ok())
+            .collect()
     }
 
     pub fn read_session(&self, id: &str) -> Option<SessionMetadata> {
@@ -68,12 +88,21 @@ impl MetadataStore {
 
     pub fn append_event(&self, id: &str, event: &Event) {
         let dir = self.events_dir();
-        let _ = fs::create_dir_all(&dir);
+        if let Err(e) = fs::create_dir_all(&dir) {
+            warn!("failed to create events dir {:?}: {e}", dir);
+            return;
+        }
         let path = dir.join(format!("{}.ndjson", id));
-        if let Ok(json) = serde_json::to_string(event) {
-            if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(&path) {
-                let _ = writeln!(file, "{json}");
-            }
+        match serde_json::to_string(event) {
+            Ok(json) => match fs::OpenOptions::new().create(true).append(true).open(&path) {
+                Ok(mut file) => {
+                    if let Err(e) = writeln!(file, "{json}") {
+                        warn!("failed to write event to {id}: {e}");
+                    }
+                }
+                Err(e) => warn!("failed to open event file for {id}: {e}"),
+            },
+            Err(e) => warn!("failed to serialize event for {id}: {e}"),
         }
     }
 }
@@ -123,5 +152,33 @@ mod tests {
         let path = store.events_dir().join("test-2.ndjson");
         let contents = fs::read_to_string(&path).unwrap();
         assert_eq!(contents.lines().count(), 2);
+    }
+
+    #[test]
+    fn read_events_returns_deserialized_events() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        store.append_event("test-3", &Event {
+            event_type: "session.created".into(),
+            timestamp: "t1".into(),
+            status: "creating".into(),
+        });
+        store.append_event("test-3", &Event {
+            event_type: "session.status".into(),
+            timestamp: "t2".into(),
+            status: "running".into(),
+        });
+        let events = store.read_events("test-3");
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].event_type, "session.created");
+        assert_eq!(events[1].status, "running");
+    }
+
+    #[test]
+    fn read_events_returns_empty_for_missing_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let events = store.read_events("nonexistent");
+        assert!(events.is_empty());
     }
 }
