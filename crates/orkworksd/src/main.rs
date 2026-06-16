@@ -71,6 +71,30 @@ fn terminal_env_overrides() -> [(&'static str, &'static str); 5] {
     ]
 }
 
+#[derive(Debug, PartialEq)]
+enum TerminalAction {
+    Input(String),
+    Resize { rows: u16, cols: u16 },
+    Kill,
+    Noop,
+}
+
+fn dispatch_terminal_message(msg: &serde_json::Value) -> TerminalAction {
+    match msg["type"].as_str() {
+        Some("input") => {
+            let data = msg["data"].as_str().unwrap_or("").to_string();
+            TerminalAction::Input(data)
+        }
+        Some("resize") => {
+            let rows = msg["rows"].as_u64().unwrap_or(24) as u16;
+            let cols = msg["cols"].as_u64().unwrap_or(80) as u16;
+            TerminalAction::Resize { rows, cols }
+        }
+        Some("kill") => TerminalAction::Kill,
+        _ => TerminalAction::Noop,
+    }
+}
+
 fn should_forward_terminal_env(key: &str) -> bool {
     key != "NODE_OPTIONS"
         && key != "VSCODE_INSPECTOR_OPTIONS"
@@ -107,6 +131,34 @@ mod tests {
         assert!(should_forward_terminal_env("HOME"));
         assert!(should_forward_terminal_env("SHELL"));
         assert!(should_forward_terminal_env("ANTHROPIC_API_KEY"));
+    }
+
+    #[test]
+    fn terminal_message_dispatches_kill() {
+        let msg = serde_json::json!({"type": "kill"});
+        let action = dispatch_terminal_message(&msg);
+        assert_eq!(action, TerminalAction::Kill);
+    }
+
+    #[test]
+    fn terminal_message_dispatches_input() {
+        let msg = serde_json::json!({"type": "input", "data": "hello"});
+        let action = dispatch_terminal_message(&msg);
+        assert_eq!(action, TerminalAction::Input("hello".into()));
+    }
+
+    #[test]
+    fn terminal_message_dispatches_resize() {
+        let msg = serde_json::json!({"type": "resize", "rows": 40, "cols": 120});
+        let action = dispatch_terminal_message(&msg);
+        assert_eq!(action, TerminalAction::Resize { rows: 40, cols: 120 });
+    }
+
+    #[test]
+    fn terminal_message_dispatches_unknown_as_noop() {
+        let msg = serde_json::json!({"type": "unknown"});
+        let action = dispatch_terminal_message(&msg);
+        assert_eq!(action, TerminalAction::Noop);
     }
 }
 
@@ -147,7 +199,7 @@ async fn handle_terminal(mut ws: WebSocket) {
         cmd.env(key, value);
     }
 
-    let _child = match pair.slave.spawn_command(cmd) {
+    let mut child = match pair.slave.spawn_command(cmd) {
         Ok(c) => c,
         Err(e) => {
             tracing::error!("failed to spawn shell: {e}");
@@ -205,16 +257,12 @@ async fn handle_terminal(mut ws: WebSocket) {
                             Ok(v) => v,
                             Err(_) => continue,
                         };
-                        match val["type"].as_str() {
-                            Some("input") => {
-                                if let Some(data) = val["data"].as_str() {
-                                    let _ = writer.write_all(data.as_bytes());
-                                    let _ = writer.flush();
-                                }
+                        match dispatch_terminal_message(&val) {
+                            TerminalAction::Input(data) => {
+                                let _ = writer.write_all(data.as_bytes());
+                                let _ = writer.flush();
                             }
-                            Some("resize") => {
-                                let rows = val["rows"].as_u64().unwrap_or(24) as u16;
-                                let cols = val["cols"].as_u64().unwrap_or(80) as u16;
+                            TerminalAction::Resize { rows, cols } => {
                                 if let Err(e) = pair.master.resize(PtySize {
                                     rows,
                                     cols,
@@ -224,11 +272,22 @@ async fn handle_terminal(mut ws: WebSocket) {
                                     tracing::warn!("PTY resize error: {e}");
                                 }
                             }
-                            _ => {}
+                            TerminalAction::Kill => {
+                                tracing::info!("kill received, terminating child");
+                                let _ = child.kill();
+                                break;
+                            }
+                            TerminalAction::Noop => {}
                         }
                     }
-                    Some(Ok(Message::Close(_))) | None => break,
-                    _ => break,
+                    Some(Ok(Message::Close(_))) | None => {
+                        let _ = child.kill();
+                        break;
+                    }
+                    _ => {
+                        let _ = child.kill();
+                        break;
+                    }
                 }
             }
         }
