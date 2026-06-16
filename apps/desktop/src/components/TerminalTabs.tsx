@@ -21,11 +21,10 @@ export interface TerminalTabsHandle {
 
 interface TerminalTabsProps {
   backendStatus: string;
-  onKillSession: (id: string) => void;
 }
 
 const TerminalTabs = forwardRef<TerminalTabsHandle, TerminalTabsProps>(
-  function TerminalTabs({ backendStatus, onKillSession }, ref) {
+  function TerminalTabs({ backendStatus }, ref) {
     const [groups, setGroups] = useState<SessionTabs[]>([]);
     const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
 
@@ -56,15 +55,6 @@ const TerminalTabs = forwardRef<TerminalTabsHandle, TerminalTabsProps>(
 
     const activeGroup = groups.find((g) => g.sessionId === activeSessionId);
 
-    const handleTabClose = useCallback(
-      (sessionId: string, e: React.MouseEvent) => {
-        e.stopPropagation();
-        closeSession(sessionId);
-        onKillSession(sessionId);
-      },
-      [closeSession, onKillSession],
-    );
-
     if (groups.length === 0) {
       return (
         <div className="terminal-tabs-empty">
@@ -87,14 +77,6 @@ const TerminalTabs = forwardRef<TerminalTabsHandle, TerminalTabsProps>(
             >
               <span className="terminal-tab-dot" />
               <span className="terminal-tab-label">{g.label}</span>
-              <button
-                className="terminal-tab-close"
-                type="button"
-                onClick={(e) => handleTabClose(g.sessionId, e)}
-                title="Close session"
-              >
-                &times;
-              </button>
             </div>
           ))}
         </div>
