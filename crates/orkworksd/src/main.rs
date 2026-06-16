@@ -22,6 +22,7 @@ use portable_pty::win::conpty::ConPtySystem;
 
 mod metadata;
 mod watcher;
+mod git;
 
 #[derive(Clone, Debug, Serialize)]
 struct SessionInfo {
