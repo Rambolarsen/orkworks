@@ -562,11 +562,12 @@ async fn peon_loop(state: Arc<AppState>) {
                             tracing::debug!("Peon: skipping {id}, higher-priority source exists");
                         }
                     }
+
+                    let mut last_inf = state_clone.peon.last_inference.write().unwrap();
+                    last_inf.insert(id.clone(), now_iso);
+                    drop(last_inf);
                 }
 
-                let mut last_inf = state_clone.peon.last_inference.write().unwrap();
-                last_inf.insert(id.clone(), now_iso);
-                drop(last_inf);
                 state_clone.peon.in_flight.write().unwrap().remove(&id);
             });
         }

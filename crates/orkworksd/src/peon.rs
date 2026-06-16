@@ -34,7 +34,7 @@ impl PeonConfig {
                     .ok()
                     .map(|raw| raw.split_whitespace().map(|arg| arg.to_string()).collect())
             })
-            .unwrap_or_else(|| vec!["--print".into()]);
+            .unwrap_or_else(|| vec!["run".into(), "--pure".into()]);
 
         Self {
             harness: std::env::var("PEON_HARNESS").unwrap_or_else(|_| "opencode".into()),
@@ -360,7 +360,7 @@ mod tests {
         let config = PeonConfig::from_env();
         assert!(config.enabled);
         assert_eq!(config.harness, "opencode");
-        assert_eq!(config.harness_args, vec!["--print"]);
+        assert_eq!(config.harness_args, vec!["run", "--pure"]);
         assert!(config.model.is_none());
         assert_eq!(config.interval_secs, 5);
         assert_eq!(config.max_lines, 200);
