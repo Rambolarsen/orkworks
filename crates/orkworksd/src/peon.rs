@@ -1,6 +1,9 @@
 use std::collections::VecDeque;
+use std::process::{Command, Stdio};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
+use tracing::warn;
 
 #[derive(Clone, Debug)]
 pub struct PeonConfig {
@@ -87,6 +90,23 @@ impl RingBuffer {
         self.lines.len()
     }
 }
+
+const SYSTEM_PROMPT: &str = "\
+You are a terminal output analyzer. Analyze the following terminal session output and return a JSON object describing the session state. Only include fields you are confident about. Return ONLY valid JSON, no other text.
+
+Available fields:
+- status: one of \"waiting_for_input\", \"blocked\", \"failed\", \"done\", \"stale\", \"working\", \"idle\"
+- phase: short description of current work phase
+- summary: one-line summary of what's happening
+- nextAction: suggested next step
+- needsUserInput: boolean, true if the terminal is prompting for user input
+- detectedQuestion: the question the user needs to answer
+- suggestedOptions: array of possible answers
+- blockerDescription: what's blocking progress
+- failedCommand: the command that failed
+- failedTest: the test that failed
+- capacityHints: array of cap/rate-limit related strings found in output
+- confidence: number 0.0 to 1.0 indicating your confidence in this analysis";
 
 const VALID_STATUSES: &[&str] = &[
     "waiting_for_input", "blocked", "failed", "done",
@@ -176,6 +196,84 @@ pub fn should_overwrite(source: &str, last_modified_secs_ago: Option<u64>) -> bo
         "peon" | "backend_inference" | "process" | "unknown" | "" => true,
         _ => true, // unknown source type, allow overwrite
     }
+}
+
+fn build_prompt(output: &[String]) -> String {
+    let output_text: String = output.iter()
+        .map(|l| l.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let truncated: String = if output_text.len() > 4096 {
+        output_text.chars().take(4096).collect()
+    } else {
+        output_text
+    };
+
+    format!("{SYSTEM_PROMPT}\n\nTerminal output:\n```\n{truncated}\n```")
+}
+
+pub fn run_inference(config: &PeonConfig, output: &[String]) -> Option<PeonInference> {
+    let prompt = build_prompt(output);
+
+    let args: Vec<&str> = config.harness_args.split_whitespace().collect();
+    let mut cmd = Command::new(&config.harness);
+
+    for arg in &args {
+        cmd.arg(arg);
+    }
+    cmd.arg(&prompt);
+
+    cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::piped());
+
+    let child = match cmd.spawn() {
+        Ok(c) => c,
+        Err(e) => {
+            warn!("Peon: failed to spawn harness {}: {e}", config.harness);
+            return None;
+        }
+    };
+
+    let timeout = Duration::from_secs(config.timeout_secs);
+    let pid = child.id();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(child.wait_with_output());
+    });
+
+    let output = match rx.recv_timeout(timeout) {
+        Ok(Ok(output)) => output,
+        _ => {
+            let _ = Command::new("kill").arg(pid.to_string()).output();
+            warn!("Peon: harness {} timed out or failed", config.harness);
+            return None;
+        }
+    };
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        warn!("Peon: harness {} exited with {}: {}", config.harness, output.status, stderr);
+        return None;
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json_str = extract_json(&stdout)?;
+
+    let inference: PeonInference = match serde_json::from_str(&json_str) {
+        Ok(inf) => inf,
+        Err(e) => {
+            warn!("Peon: failed to parse JSON from harness output: {e}. Raw: {stdout}");
+            return None;
+        }
+    };
+
+    if let Err(e) = validate_inference(&inference) {
+        warn!("Peon: inference validation failed: {e}");
+        return None;
+    }
+
+    Some(inference)
 }
 
 #[cfg(test)]
@@ -394,5 +492,46 @@ mod tests {
         assert!(should_overwrite("process", None));
         assert!(should_overwrite("unknown", None));
         assert!(should_overwrite("", None));             // absent source
+    }
+
+    #[test]
+    fn test_run_inference_success() {
+        let harness = std::env::current_dir()
+            .unwrap()
+            .join("tests/mock-peon-harness.sh");
+        let config = PeonConfig {
+            harness: harness.display().to_string(),
+            harness_args: format!("--print -p"),
+            model: None,
+            interval_secs: 5,
+            max_lines: 200,
+            timeout_secs: 30,
+            enabled: true,
+        };
+        let output = vec![
+            "running cargo test...".to_string(),
+            "test result: ok. 5 passed; 0 failed;".to_string(),
+        ];
+        let result = run_inference(&config, &output);
+        assert!(result.is_some());
+        let inf = result.unwrap();
+        assert_eq!(inf.status, Some("working".into()));
+        assert!((inf.confidence - 0.85).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_run_inference_harness_not_found() {
+        let config = PeonConfig {
+            harness: "/nonexistent/harness".into(),
+            harness_args: "--print -p".into(),
+            model: None,
+            interval_secs: 5,
+            max_lines: 200,
+            timeout_secs: 30,
+            enabled: true,
+        };
+        let output = vec!["some output".to_string()];
+        let result = run_inference(&config, &output);
+        assert!(result.is_none());
     }
 }
