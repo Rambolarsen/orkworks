@@ -60,8 +60,8 @@ async fn main() {
         .route("/health", get(health_check))
         .route("/sessions", post(create_session))
         .route("/sessions", get(list_sessions))
-        .route("/sessions/{id}", delete(delete_session))
-        .route("/sessions/{id}/terminal", get(session_terminal_handler))
+        .route("/sessions/:id", delete(delete_session))
+        .route("/sessions/:id/terminal", get(session_terminal_handler))
         .layer(cors)
         .with_state(state);
 
@@ -113,12 +113,21 @@ async fn delete_session(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
-    let sessions = state.sessions.lock().unwrap();
-    match sessions.get(&id) {
-        Some(handle) => {
-            let _ = handle.kill_tx.send(true);
+    let handle = {
+        let sessions = state.sessions.lock().unwrap();
+        sessions.get(&id).map(|h| h.kill_tx.clone())
+    };
+    match handle {
+        Some(kill_tx) => {
+            let _ = kill_tx.send(true);
         }
         None => return axum::http::StatusCode::NOT_FOUND,
+    }
+    {
+        let mut sessions = state.sessions.lock().unwrap();
+        if let Some(h) = sessions.get_mut(&id) {
+            h.info.status = "killed".to_string();
+        }
     }
     axum::http::StatusCode::OK
 }

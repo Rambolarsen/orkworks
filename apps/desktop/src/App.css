@@ -153,6 +153,11 @@ html, body, #root {
   padding: 4px;
 }
 
+.terminal-container--ended {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
 .center-placeholder {
   flex: 1;
   display: flex;
@@ -293,7 +298,6 @@ html, body, #root {
 
 .panel-content {
   flex: 1;
-  padding: 8px 12px;
   overflow-y: auto;
 }
 
@@ -301,4 +305,5 @@ html, body, #root {
   color: #666;
   font-size: 12px;
   font-style: italic;
+  padding: 8px 12px;
 }

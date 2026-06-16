@@ -51,10 +51,24 @@ function App() {
     };
   }, []);
 
+  const stateOrder: Record<string, number> = {
+    creating: 0,
+    running: 1,
+    ended: 2,
+    killed: 3,
+    error: 4,
+  };
+
   const refreshSessions = useCallback(async () => {
     try {
       const baseUrl = await window.orkworks.getBackendUrl();
       const list = await listSessions(baseUrl);
+      list.sort((a, b) => {
+        const sa = stateOrder[a.status] ?? 5;
+        const sb = stateOrder[b.status] ?? 5;
+        if (sa !== sb) return sa - sb;
+        return a.label.localeCompare(b.label);
+      });
       setSessions(list);
     } catch {
       /* backend not ready */
@@ -88,15 +102,12 @@ function App() {
       try {
         const baseUrl = await window.orkworks.getBackendUrl();
         await deleteSession(baseUrl, id);
-        if (activeSessionId === id) {
-          setActiveSessionId(null);
-        }
         await refreshSessions();
       } catch {
         /* ignore */
       }
     },
-    [activeSessionId, refreshSessions],
+    [refreshSessions],
   );
 
   return (

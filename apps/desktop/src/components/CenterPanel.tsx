@@ -22,13 +22,14 @@ interface TerminalHandle {
   terminal: Terminal;
   ws: WebSocket;
   fitAddon: FitAddon;
+  ended: boolean;
 }
 
 function CenterPanel({ backendStatus, sessionId }: CenterPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalsRef = useRef<Map<string, TerminalHandle>>(new Map());
   const activeIdRef = useRef<string | null>(null);
-  const [terminalStatus, setTerminalStatus] = useState("terminal starting");
+  const [terminalStatus, setTerminalStatus] = useState("");
   const pendingInputRef = useRef<Map<string, string>>(new Map());
 
   const sendResize = useCallback((ws: WebSocket, term: Terminal) => {
@@ -41,26 +42,34 @@ function CenterPanel({ backendStatus, sessionId }: CenterPanelProps) {
     );
   }, []);
 
-  const attachTerminal = useCallback    (
+  const attachTerminal = useCallback(
     (id: string) => {
       const handle = terminalsRef.current.get(id);
       const container = containerRef.current;
-      if (!handle || !container || !handle.terminal.element) return;
+      if (!handle || !container) return;
+
+      if (!handle.terminal.element) {
+        handle.terminal.open(container);
+      } else if (handle.terminal.element.parentElement !== container) {
+        container.appendChild(handle.terminal.element);
+      }
 
       if (activeIdRef.current && activeIdRef.current !== id) {
         const prev = terminalsRef.current.get(activeIdRef.current);
         prev?.terminal.element?.remove();
       }
 
-      container.appendChild(handle.terminal.element);
       activeIdRef.current = id;
+      setTerminalStatus(handle.ended ? "session ended" : handle.ws.readyState === WebSocket.OPEN ? "terminal ready" : "terminal connecting");
 
       try {
         handle.fitAddon.fit();
       } catch {
         /* ignore */
       }
-      handle.terminal.focus();
+      if (!handle.ended) {
+        handle.terminal.focus();
+      }
     },
     [],
   );
@@ -82,7 +91,7 @@ function CenterPanel({ backendStatus, sessionId }: CenterPanelProps) {
       const ws = new WebSocket(wsUrl);
       ws.binaryType = "arraybuffer";
 
-      const handle: TerminalHandle = { terminal: term, ws, fitAddon };
+      const handle: TerminalHandle = { terminal: term, ws, fitAddon, ended: false };
       terminalsRef.current.set(id, handle);
 
       setTerminalStatus("terminal connecting");
@@ -105,13 +114,12 @@ function CenterPanel({ backendStatus, sessionId }: CenterPanelProps) {
       };
 
       ws.onclose = () => {
-        if (cancelled()) return;
-        terminalsRef.current.delete(id);
-        if (activeIdRef.current === id) {
-          activeIdRef.current = null;
+        term.options.disableStdin = true;
+        term.options.cursorBlink = false;
+        handle.ended = true;
+        if (!cancelled()) {
+          setTerminalStatus("session ended");
         }
-        term.dispose();
-        setTerminalStatus("terminal disconnected");
       };
 
       term.onData((data) => {
@@ -196,6 +204,8 @@ function CenterPanel({ backendStatus, sessionId }: CenterPanelProps) {
     );
   }
 
+  const ended = sessionId ? terminalsRef.current.get(sessionId)?.ended : false;
+
   return (
     <div className="terminal-shell" onClick={() => terminalsRef.current.get(activeIdRef.current ?? "")?.terminal.focus()}>
       <div className="terminal-toolbar">
@@ -206,7 +216,10 @@ function CenterPanel({ backendStatus, sessionId }: CenterPanelProps) {
           <div className="terminal-subtitle">{terminalStatus}</div>
         </div>
       </div>
-      <div ref={containerRef} className="terminal-container" />
+      <div
+        ref={containerRef}
+        className={`terminal-container${ended ? " terminal-container--ended" : ""}`}
+      />
     </div>
   );
 }

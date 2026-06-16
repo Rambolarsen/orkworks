@@ -101,9 +101,21 @@ app.on("window-all-closed", () => {
   }
 });
 
-app.on("before-quit", () => {
+function killSidecar(): void {
   if (sidecarProcess) {
     sidecarProcess.kill();
     sidecarProcess = null;
   }
+}
+
+app.on("before-quit", killSidecar);
+
+process.on("SIGTERM", () => {
+  killSidecar();
+  app.quit();
+});
+
+process.on("SIGINT", () => {
+  killSidecar();
+  app.quit();
 });
