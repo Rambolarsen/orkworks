@@ -1169,4 +1169,129 @@ mod tests {
         let warnings = detect_conflicts(&sessions);
         assert!(warnings.is_empty());
     }
+
+    #[tokio::test]
+    async fn test_peon_inference_writes_metadata() {
+        let dir = tempfile::tempdir().unwrap();
+        let orkworks = dir.path().join(".orkworks");
+        std::fs::create_dir_all(orkworks.join("sessions")).unwrap();
+        std::fs::create_dir_all(orkworks.join("events")).unwrap();
+
+        // Create a mock harness script that echoes known JSON
+        let harness_path = dir.path().join("mock-harness.sh");
+        std::fs::write(&harness_path, "#!/bin/bash\necho '{\"status\":\"working\",\"summary\":\"test\",\"confidence\":0.85}'\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&harness_path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        let state = Arc::new(AppState {
+            sessions: Mutex::new(HashMap::new()),
+            workspace: Mutex::new(Some(WorkspaceState {
+                path: dir.path().to_path_buf(),
+                metadata: metadata::MetadataStore::new(&orkworks),
+                watcher: watcher::MetadataWatcher::start(&orkworks.join("sessions")),
+            })),
+            peon: PeonState {
+                last_output: StdRwLock::new(HashMap::new()),
+                last_inference: StdRwLock::new(HashMap::new()),
+                config: peon::PeonConfig {
+                    harness: harness_path.display().to_string(),
+                    harness_args: format!("--print -p"),
+                    model: None,
+                    interval_secs: 1,
+                    max_lines: 200,
+                    timeout_secs: 10,
+                    enabled: true,
+                },
+            },
+        });
+
+        // Create a session with some output in the ring buffer
+        let session_id = "peon-test-1".to_string();
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let (kill_tx, _) = tokio::sync::watch::channel(false);
+            let mut handle = SessionHandle {
+                info: SessionInfo {
+                    id: session_id.clone(),
+                    label: "Test".into(),
+                    status: "running".into(),
+                    cwd: dir.path().display().to_string(),
+                    created_at: "now".into(),
+                    metadata_source: Some("process".into()),
+                    metadata_confidence: Some(1.0),
+                    repo_root: None,
+                    branch: None,
+                    dirty: None,
+                    changed_files: None,
+                    is_worktree: None,
+                    conflict_warning: None,
+                    recommendation: None,
+                    peon_last_inference: None,
+                },
+                kill_tx,
+                output_buffer: peon::RingBuffer::new(200),
+            };
+            handle.output_buffer.push("running cargo test...".into());
+            handle.output_buffer.push("test result: ok. 5 passed; 0 failed;".into());
+            sessions.insert(session_id.clone(), handle);
+        }
+
+        // Write initial metadata
+        {
+            let ws = state.workspace.lock().unwrap();
+            if let Some(ref ws) = *ws {
+                ws.metadata.write_session(&metadata::SessionMetadata {
+                    id: session_id.clone(),
+                    label: "Test".into(),
+                    workspace: dir.path().display().to_string(),
+                    task: "".into(),
+                    harness: "".into(),
+                    model: "".into(),
+                    cwd: dir.path().display().to_string(),
+                    status: "running".into(),
+                    phase: "".into(),
+                    created_at: "now".into(),
+                    last_activity: "now".into(),
+                    metadata_source: "process".into(),
+                    metadata_confidence: 1.0,
+                    repo_root: None,
+                    branch: None,
+                    dirty: None,
+                    changed_files: None,
+                    is_worktree: None,
+                });
+            }
+        }
+
+        // Set last_output to trigger inference (5s ago = past debounce interval)
+        state.peon.last_output.write().unwrap().insert(
+            session_id.clone(),
+            tokio::time::Instant::now() - std::time::Duration::from_secs(5),
+        );
+
+        // Run peon_loop in background
+        tokio::spawn(peon_loop(state.clone()));
+
+        // Wait for metadata to be updated (poll up to 10 seconds)
+        for _ in 0..100 {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            let ws = state.workspace.lock().unwrap();
+            if let Some(ref ws) = *ws {
+                if let Some(meta) = ws.metadata.read_session("peon-test-1") {
+                    if meta.metadata_source == "peon" {
+                        // Verify metadata was updated correctly
+                        assert_eq!(meta.status, "working");
+                        assert_eq!(meta.metadata_source, "peon");
+                        assert!((meta.metadata_confidence - 0.85).abs() < 0.001);
+                        return; // test passes
+                    }
+                }
+            }
+        }
+
+        panic!("Peon did not update metadata within 10 seconds");
+    }
 }
