@@ -27,6 +27,35 @@ function RightSidebar({ sessions, activeSessionId }: RightSidebarProps) {
         <div className="session-detail-label">Directory</div>
         <div className="session-detail-value">{active.cwd.split("/").pop() || active.cwd}</div>
       </div>
+      {active.branch && (
+        <div className="session-detail-section">
+          <div className="session-detail-label">Git</div>
+          <div className="session-detail-value">
+            {active.branch}
+            {active.isWorktree && (
+              <span style={{ color: "#4ec94e", marginLeft: 6, fontSize: 10 }}>worktree</span>
+            )}
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 2, fontSize: 10 }}>
+            <span style={{ color: active.dirty ? "#d4d44e" : "#4ec94e" }}>
+              {active.dirty ? "dirty" : "clean"}
+            </span>
+            {active.changedFiles !== undefined && active.changedFiles > 0 && (
+              <span style={{ color: "#858585" }}>{active.changedFiles} files changed</span>
+            )}
+          </div>
+        </div>
+      )}
+      {active.conflictWarning && (
+        <div className="session-detail-section">
+          <div className="conflict-warning">&#x26A0; {active.conflictWarning}</div>
+        </div>
+      )}
+      {active.recommendation && (
+        <div className="session-detail-section">
+          <div className="recommendation-text">{active.recommendation}</div>
+        </div>
+      )}
       {active.metadataSource && (
         <div className="session-detail-section">
           <div className="session-detail-label">Source</div>
