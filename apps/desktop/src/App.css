@@ -69,11 +69,14 @@ html, body, #root {
 }
 
 .left-sidebar {
+  width: 260px;
+  min-width: 180px;
   background: #252526;
   border-right: 1px solid #3c3c3c;
 }
 
 .center-panel {
+  flex: 1;
   background: #1e1e1e;
   display: flex;
   flex-direction: column;
@@ -164,20 +167,10 @@ html, body, #root {
 }
 
 .right-sidebar {
+  width: 300px;
+  min-width: 220px;
   background: #252526;
   border-left: 1px solid #3c3c3c;
-}
-
-.panel-resize-handle {
-  width: 4px;
-  background: #3c3c3c;
-  transition: background-color 0.15s;
-  cursor: col-resize;
-}
-
-.panel-resize-handle:hover,
-.panel-resize-handle[data-resize-handle-active] {
-  background: #5a9fd4;
 }
 
 .terminal-tabs {
