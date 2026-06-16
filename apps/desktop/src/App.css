@@ -165,6 +165,32 @@ html, body, #root {
   background: #252526;
 }
 
+.panel-resize-handle {
+  width: 3px;
+  background: #3c3c3c;
+  transition: background 0.15s;
+  outline: none;
+}
+
+.panel-resize-handle:hover,
+.panel-resize-handle[data-resize-handle-active] {
+  background: #4b6b7f;
+}
+
+.titlebar-cycle-button {
+  border: none;
+  background: none;
+  color: #999;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.titlebar-cycle-button:hover {
+  color: #d4d4d4;
+}
+
 .panel-header {
   display: flex;
   align-items: center;
