@@ -43,6 +43,12 @@ Managed via APM in `orkworks/apm.yml`. Running `apm install` populates skills an
 
 Development agents should follow `AGENTS.md`, including the requirement to invoke and follow relevant Superpowers skills before implementation, debugging, review, verification, commit, push, or PR work.
 
+OpenCode must be started from the repo root, or with the repo root as the project path, so it loads the project `opencode.json`:
+
+```bash
+opencode /Users/froomiebot/workspace/orkworks
+```
+
 | Plugin | Description |
 | ------ | ----------- |
 | [obra/superpowers](https://github.com/obra/superpowers) | Agentic skills framework & methodology |

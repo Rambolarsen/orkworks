@@ -2,7 +2,8 @@
   "$schema": "https://opencode.ai/config.json",
   "skills": {
     "paths": [
-      "orkworks/.agents/skills"
+      "orkworks/.agents/skills",
+      "skills"
     ]
   },
   "plugin": [

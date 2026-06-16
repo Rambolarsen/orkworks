@@ -60,6 +60,18 @@ Agents doing development work in this repo must use the installed Superpowers sk
 
 These workflow requirements constrain how agents work in this repository. They do not expand OrkWorks product scope or override the MVP non-goals.
 
+### OpenCode requirement
+
+OpenCode must load the project-level `opencode.json` at the repo root. Start OpenCode with the repo root as the project, for example:
+
+```bash
+opencode /Users/froomiebot/workspace/orkworks
+```
+
+Do not use `--pure` for development work in this repo; it disables external plugins. The root `opencode.json` loads the APM-managed Superpowers and Ponytail plugins and exposes both `orkworks/.agents/skills` and committed repo skills from `skills/`.
+
+Before OpenCode implementation work, verify that the skill tool lists Superpowers skills such as `superpowers/using-superpowers` and `superpowers/brainstorming`. If they are missing, stop, run `cd orkworks && apm install`, restart OpenCode from the repo root, and verify again before editing code.
+
 ## Decision tracking
 
 Architecture decisions are captured as ADRs in `docs/adr/`. Each significant architectural, stack, protocol, or boundary decision gets a numbered markdown file with context, decision, and consequences.
@@ -149,21 +161,21 @@ The `skills/` directory contains repo-level agent skills committed with the proj
 
 ### Superpowers
 
-[obra/superpowers](https://github.com/obra/superpowers) — agentic skills framework & software development methodology. Installed per-harness (Claude Code, Codex, OpenCode, etc.). OpenCode install:
+[obra/superpowers](https://github.com/obra/superpowers) — agentic skills framework & software development methodology. Installed per-harness (Claude Code, Codex, OpenCode, etc.). OpenCode is configured through the repo-root `opencode.json`:
 
 ```json
 {
-  "plugin": [".opencode/plugins/superpowers.mjs"]
+  "plugin": ["orkworks/apm_modules/obra/superpowers/.opencode/plugins/superpowers.js"]
 }
 ```
 
 ### Ponytail
 
-[DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail) — minimalist ruleset that enforces YAGNI: check necessity, stdlib, platform feature, dependency, one-liner before writing code. OpenCode install:
+[DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail) — minimalist ruleset that enforces YAGNI: check necessity, stdlib, platform feature, dependency, one-liner before writing code. OpenCode is configured through the repo-root `opencode.json`:
 
 ```json
 {
-  "plugin": [".opencode/plugins/ponytail.mjs"]
+  "plugin": ["orkworks/apm_modules/DietrichGebert/ponytail/.opencode/plugins/ponytail.mjs"]
 }
 ```
 
