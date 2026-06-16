@@ -756,4 +756,73 @@ mod tests {
         let rx = kill_tx.subscribe();
         assert!(!*rx.borrow());
     }
+
+    #[test]
+    fn workspace_request_deserializes_path() {
+        let json = r#"{"path": "/home/user/project"}"#;
+        let req: WorkspaceRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.path, "/home/user/project");
+    }
+
+    #[test]
+    fn workspace_response_serializes_all_fields() {
+        let resp = WorkspaceResponse {
+            path: "/tmp".into(),
+            repo_root: Some("/tmp".into()),
+            branch: Some("main".into()),
+            dirty: Some(false),
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        assert!(json.contains("\"path\":\"/tmp\""));
+        assert!(json.contains("\"repo_root\":\"/tmp\""));
+        assert!(json.contains("\"branch\":\"main\""));
+        assert!(json.contains("\"dirty\":false"));
+    }
+
+    #[test]
+    fn workspace_response_without_git() {
+        let resp = WorkspaceResponse {
+            path: "/tmp".into(),
+            repo_root: None,
+            branch: None,
+            dirty: None,
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        assert!(json.contains("\"path\":\"/tmp\""));
+        assert!(json.contains("\"repo_root\":null"));
+        assert!(json.contains("\"branch\":null"));
+        assert!(json.contains("\"dirty\":null"));
+    }
+
+    #[test]
+    fn session_info_includes_metadata_fields() {
+        let info = SessionInfo {
+            id: "test".into(),
+            label: "Test".into(),
+            status: "running".into(),
+            cwd: "/tmp".into(),
+            created_at: "now".into(),
+            metadata_source: Some("process".into()),
+            metadata_confidence: Some(1.0),
+        };
+        let json = serde_json::to_string(&info).unwrap();
+        assert!(json.contains("\"metadataSource\":\"process\""));
+        assert!(json.contains("\"metadataConfidence\":1.0"));
+    }
+
+    #[test]
+    fn session_info_without_metadata_is_valid() {
+        let info = SessionInfo {
+            id: "test".into(),
+            label: "Test".into(),
+            status: "creating".into(),
+            cwd: "/tmp".into(),
+            created_at: "now".into(),
+            metadata_source: None,
+            metadata_confidence: None,
+        };
+        let json = serde_json::to_string(&info).unwrap();
+        assert!(json.contains("\"metadataSource\":null"));
+        assert!(json.contains("\"metadataConfidence\":null"));
+    }
 }
