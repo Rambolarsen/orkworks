@@ -29,6 +29,10 @@ mod peon;
 struct SessionInfo {
     id: String,
     label: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    harness: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    model: Option<String>,
     status: String,
     cwd: String,
     created_at: String,
@@ -218,6 +222,8 @@ async fn create_session(State(state): State<Arc<AppState>>) -> impl IntoResponse
     let info = SessionInfo {
         id: id.clone(),
         label: format!("Session {}", &id[..8]),
+        harness: None,
+        model: None,
         status: "creating".into(),
         cwd,
         created_at: iso_now(),
@@ -355,7 +361,9 @@ async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse 
     let mut infos: Vec<SessionInfo> = session_data.into_iter().map(|(id, label, status, cwd, created_at)| {
         SessionInfo {
             id: id.clone(),
-            label,
+            label: metadata_map.get(&id).map(|m| m.label.clone()).unwrap_or(label),
+            harness: metadata_map.get(&id).and_then(|m| (!m.harness.is_empty()).then(|| m.harness.clone())),
+            model: metadata_map.get(&id).and_then(|m| (!m.model.is_empty()).then(|| m.model.clone())),
             status,
             cwd,
             created_at,
@@ -963,6 +971,8 @@ mod tests {
         let info = SessionInfo {
             id: id.clone(),
             label: "Test".into(),
+            harness: None,
+            model: None,
             status: "creating".into(),
             cwd: "/tmp".into(),
             created_at: "now".into(),
@@ -1021,6 +1031,8 @@ mod tests {
                 info: SessionInfo {
                     id: id.clone(),
                     label: "Test".into(),
+                    harness: None,
+                    model: None,
                     status: "creating".into(),
                     cwd: "/tmp".into(),
                     created_at: "now".into(),
@@ -1139,6 +1151,8 @@ mod tests {
         let info = SessionInfo {
             id: "test".into(),
             label: "Test".into(),
+            harness: None,
+            model: None,
             status: "running".into(),
             cwd: "/tmp".into(),
             created_at: "now".into(),
@@ -1175,6 +1189,8 @@ mod tests {
         let info = SessionInfo {
             id: "test".into(),
             label: "Test".into(),
+            harness: None,
+            model: None,
             status: "creating".into(),
             cwd: "/tmp".into(),
             created_at: "now".into(),
@@ -1208,7 +1224,7 @@ mod tests {
     fn detect_conflicts_warns_on_multiple_dirty_sessions() {
         let sessions = vec![
             SessionInfo {
-                id: "a".into(), label: "A".into(), status: "running".into(),
+                id: "a".into(), label: "A".into(), harness: None, model: None, status: "running".into(),
                 cwd: "/repo".into(), created_at: "now".into(),
                 observed_status: None, summary: None, next_action: None,
                 needs_user_input: None, detected_question: None, suggested_options: None,
@@ -1222,7 +1238,7 @@ mod tests {
                 peon_last_inference: None,
             },
             SessionInfo {
-                id: "b".into(), label: "B".into(), status: "running".into(),
+                id: "b".into(), label: "B".into(), harness: None, model: None, status: "running".into(),
                 cwd: "/repo".into(), created_at: "now".into(),
                 observed_status: None, summary: None, next_action: None,
                 needs_user_input: None, detected_question: None, suggested_options: None,
@@ -1249,7 +1265,7 @@ mod tests {
     fn detect_conflicts_no_warning_on_clean_sessions() {
         let sessions = vec![
             SessionInfo {
-                id: "a".into(), label: "A".into(), status: "running".into(),
+                id: "a".into(), label: "A".into(), harness: None, model: None, status: "running".into(),
                 cwd: "/repo".into(), created_at: "now".into(),
                 observed_status: None, summary: None, next_action: None,
                 needs_user_input: None, detected_question: None, suggested_options: None,
@@ -1263,7 +1279,7 @@ mod tests {
                 peon_last_inference: None,
             },
             SessionInfo {
-                id: "b".into(), label: "B".into(), status: "running".into(),
+                id: "b".into(), label: "B".into(), harness: None, model: None, status: "running".into(),
                 cwd: "/repo".into(), created_at: "now".into(),
                 observed_status: None, summary: None, next_action: None,
                 needs_user_input: None, detected_question: None, suggested_options: None,
@@ -1285,7 +1301,7 @@ mod tests {
     fn detect_conflicts_no_warning_when_dirty_is_none() {
         let sessions = vec![
             SessionInfo {
-                id: "a".into(), label: "A".into(), status: "running".into(),
+                id: "a".into(), label: "A".into(), harness: None, model: None, status: "running".into(),
                 cwd: "/repo".into(), created_at: "now".into(),
                 observed_status: None, summary: None, next_action: None,
                 needs_user_input: None, detected_question: None, suggested_options: None,
@@ -1299,7 +1315,7 @@ mod tests {
                 peon_last_inference: None,
             },
             SessionInfo {
-                id: "b".into(), label: "B".into(), status: "running".into(),
+                id: "b".into(), label: "B".into(), harness: None, model: None, status: "running".into(),
                 cwd: "/repo".into(), created_at: "now".into(),
                 observed_status: None, summary: None, next_action: None,
                 needs_user_input: None, detected_question: None, suggested_options: None,
@@ -1365,6 +1381,8 @@ mod tests {
                 info: SessionInfo {
                     id: session_id.clone(),
                     label: "Test".into(),
+                    harness: None,
+                    model: None,
                     status: "running".into(),
                     cwd: dir.path().display().to_string(),
                     created_at: "now".into(),
@@ -1519,6 +1537,8 @@ mod tests {
                 info: SessionInfo {
                     id: session_id.clone(),
                     label: "Test".into(),
+                    harness: None,
+                    model: None,
                     status: "running".into(),
                     cwd: dir.path().display().to_string(),
                     created_at: "now".into(),

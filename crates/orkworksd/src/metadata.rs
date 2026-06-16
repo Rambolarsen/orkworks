@@ -164,6 +164,29 @@ impl MetadataStore {
         meta.failed_command = inf.failed_command.clone().or(meta.failed_command);
         meta.failed_test = inf.failed_test.clone().or(meta.failed_test);
         meta.capacity_hints = inf.capacity_hints.clone().or(meta.capacity_hints);
+
+        let had_harness = !meta.harness.is_empty();
+        let had_model = !meta.model.is_empty();
+        if let Some(ref h) = inf.detected_harness {
+            if meta.harness.is_empty() {
+                meta.harness = h.clone();
+            }
+        }
+        if let Some(ref m) = inf.detected_model {
+            if meta.model.is_empty() {
+                meta.model = m.clone();
+            }
+        }
+        let now_has_harness = !meta.harness.is_empty();
+        let now_has_model = !meta.model.is_empty();
+        if now_has_harness && (!had_harness || (!had_model && now_has_model)) {
+            meta.label = if now_has_model {
+                format!("{} ({})", meta.harness, meta.model)
+            } else {
+                meta.harness.clone()
+            };
+        }
+
         meta.peon_last_inference = Some(timestamp.to_string());
         meta.metadata_source = "peon".into();
         meta.metadata_confidence = inf.confidence;
@@ -280,6 +303,80 @@ mod tests {
     }
 
     #[test]
+    fn merge_peon_inference_renames_session_when_harness_detected() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        store.write_session(&SessionMetadata {
+            id: "rename-test".into(),
+            label: "Session abc12345".into(),
+            workspace: "/tmp".into(),
+            task: "".into(),
+            harness: "".into(),
+            model: "".into(),
+            cwd: "/tmp".into(),
+            status: "running".into(),
+            phase: "".into(),
+            observed_status: None,
+            summary: None,
+            next_action: None,
+            needs_user_input: None,
+            detected_question: None,
+            suggested_options: None,
+            blocker_description: None,
+            failed_command: None,
+            failed_test: None,
+            capacity_hints: None,
+            peon_last_inference: None,
+            created_at: "now".into(),
+            last_activity: "now".into(),
+            metadata_source: "process".into(),
+            metadata_confidence: 1.0,
+            repo_root: None,
+            branch: None,
+            dirty: None,
+            changed_files: None,
+            is_worktree: None,
+        });
+
+        // First inference: harness detected, no model
+        let inf = crate::peon::PeonInference {
+            observed_status: Some("working".into()),
+            phase: None, summary: None, next_action: None,
+            needs_user_input: None, detected_question: None, suggested_options: None,
+            blocker_description: None, failed_command: None, failed_test: None,
+            capacity_hints: None, confidence: 0.8,
+            detected_harness: Some("claude-code".into()),
+            detected_model: None,
+        };
+        store.merge_peon_inference("rename-test", &inf, "t1");
+        let meta = store.read_session("rename-test").unwrap();
+        assert_eq!(meta.label, "claude-code");
+        assert_eq!(meta.harness, "claude-code");
+        assert_eq!(meta.model, "");
+
+        // Second inference: model also detected, label updates to include it
+        let inf2 = crate::peon::PeonInference {
+            observed_status: Some("working".into()),
+            phase: None, summary: None, next_action: None,
+            needs_user_input: None, detected_question: None, suggested_options: None,
+            blocker_description: None, failed_command: None, failed_test: None,
+            capacity_hints: None, confidence: 0.9,
+            detected_harness: Some("claude-code".into()),
+            detected_model: Some("claude-sonnet-4-5".into()),
+        };
+        store.merge_peon_inference("rename-test", &inf2, "t2");
+        let meta2 = store.read_session("rename-test").unwrap();
+        assert_eq!(meta2.label, "claude-code (claude-sonnet-4-5)");
+        assert_eq!(meta2.harness, "claude-code");
+        assert_eq!(meta2.model, "claude-sonnet-4-5");
+
+        // Third inference: same harness/model again — label should NOT be re-overwritten
+        store.merge_peon_inference("rename-test", &inf2, "t3");
+        let meta3 = store.read_session("rename-test").unwrap();
+        assert_eq!(meta3.label, "claude-code (claude-sonnet-4-5)");
+    }
+
+    #[test]
     fn merge_peon_inference_preserves_lifecycle_status_and_writes_observer_status() {
         let dir = tempfile::tempdir().unwrap();
         let store = MetadataStore::new(dir.path());
@@ -328,6 +425,8 @@ mod tests {
             failed_test: None,
             capacity_hints: None,
             confidence: 0.82,
+            detected_harness: None,
+            detected_model: None,
         };
 
         store.merge_peon_inference("test-peon-observer", &inf, "later");
