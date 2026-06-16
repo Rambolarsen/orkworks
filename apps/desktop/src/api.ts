@@ -4,6 +4,8 @@ export interface SessionInfo {
   status: string;
   cwd: string;
   created_at: string;
+  metadataSource?: string;
+  metadataConfidence?: number;
 }
 
 export async function createSession(
@@ -30,4 +32,24 @@ export async function deleteSession(
     method: "DELETE",
   });
   if (!resp.ok) throw new Error(`delete session failed: ${resp.status}`);
+}
+
+export interface WorkspaceInfo {
+  path: string;
+  repo_root: string | null;
+  branch: string | null;
+  dirty: boolean | null;
+}
+
+export async function setWorkspace(
+  baseUrl: string,
+  path: string,
+): Promise<WorkspaceInfo> {
+  const resp = await fetch(`${baseUrl}/workspace`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path }),
+  });
+  if (!resp.ok) throw new Error(`set workspace failed: ${resp.status}`);
+  return resp.json();
 }
