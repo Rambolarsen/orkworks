@@ -27,3 +27,6 @@ pnpm-debug.log*
 
 # Electron
 out/
+
+# Superpowers (brainstorming artifacts)
+.superpowers/
