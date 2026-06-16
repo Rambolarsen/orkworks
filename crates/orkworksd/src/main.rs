@@ -20,6 +20,7 @@ use portable_pty::unix::UnixPtySystem;
 use portable_pty::win::conpty::ConPtySystem;
 
 mod metadata;
+mod watcher;
 
 #[derive(Clone, Debug, Serialize)]
 struct SessionInfo {
