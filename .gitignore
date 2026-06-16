@@ -30,3 +30,6 @@ out/
 
 # Superpowers (brainstorming artifacts)
 .superpowers/
+
+# OrkWorks metadata protocol
+.orkworks/
