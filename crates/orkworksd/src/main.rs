@@ -483,8 +483,7 @@ async fn peon_loop(state: Arc<AppState>) {
                             .unwrap_or(true);
 
                         if should_write {
-                            // TODO: merge_peon_inference — Task 7
-                            tracing::debug!("Peon: would write inference for {id}: status={:?}", inf.status);
+                            ws.metadata.merge_peon_inference(&id, &inf, &now_iso);
                         } else {
                             tracing::debug!("Peon: skipping {id}, higher-priority source exists");
                         }

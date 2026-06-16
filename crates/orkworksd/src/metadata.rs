@@ -114,6 +114,31 @@ impl MetadataStore {
             Err(e) => warn!("failed to serialize event for {id}: {e}"),
         }
     }
+
+    pub fn merge_peon_inference(&self, id: &str, inf: &crate::peon::PeonInference, timestamp: &str) {
+        let mut meta = match self.read_session(id) {
+            Some(m) => m,
+            None => return,
+        };
+
+        if let Some(ref status) = inf.status {
+            meta.status = status.clone();
+        }
+        if let Some(ref phase) = inf.phase {
+            meta.phase = phase.clone();
+        }
+        meta.metadata_source = "peon".into();
+        meta.metadata_confidence = inf.confidence;
+        meta.last_activity = timestamp.to_string();
+
+        self.write_session(&meta);
+
+        self.append_event(id, &Event {
+            event_type: "peon.inference".into(),
+            timestamp: timestamp.to_string(),
+            status: inf.status.clone().unwrap_or_else(|| meta.status.clone()),
+        });
+    }
 }
 
 #[cfg(test)]
