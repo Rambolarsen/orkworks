@@ -4,6 +4,7 @@ import CenterPanel from "./components/CenterPanel";
 import RightSidebar from "./components/RightSidebar";
 import {
   type SessionInfo,
+  type WorkspaceInfo,
   createSession,
   listSessions,
   deleteSession,
@@ -13,6 +14,7 @@ declare global {
   interface Window {
     orkworks: {
       getBackendUrl: () => Promise<string>;
+      openWorkspace: () => Promise<WorkspaceInfo | null>;
     };
   }
 }
@@ -21,6 +23,7 @@ function App() {
   const [backendStatus, setBackendStatus] = useState<string>("connecting…");
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [workspace, setWorkspaceState] = useState<WorkspaceInfo | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -82,6 +85,20 @@ function App() {
     return () => clearInterval(interval);
   }, [backendStatus, refreshSessions]);
 
+  const handleOpenWorkspace = useCallback(async () => {
+    try {
+      const info = await window.orkworks.openWorkspace();
+      if (info) {
+        setWorkspaceState(info);
+        setBackendStatus("connecting…");
+        setSessions([]);
+        setActiveSessionId(null);
+      }
+    } catch {
+      /* user cancelled */
+    }
+  }, []);
+
   const handleCreateSession = useCallback(async () => {
     try {
       const baseUrl = await window.orkworks.getBackendUrl();
@@ -123,6 +140,8 @@ function App() {
       <div className="app-layout">
         <aside className="panel left-sidebar">
           <LeftSidebar
+            workspace={workspace}
+            onOpenWorkspace={handleOpenWorkspace}
             sessions={sessions}
             activeSessionId={activeSessionId}
             onSelectSession={handleSelectSession}
@@ -137,7 +156,11 @@ function App() {
           />
         </main>
         <aside className="panel right-sidebar">
-          <RightSidebar />
+          <RightSidebar
+            sessions={sessions}
+            activeSessionId={activeSessionId}
+            onSelectSession={handleSelectSession}
+          />
         </aside>
       </div>
     </div>

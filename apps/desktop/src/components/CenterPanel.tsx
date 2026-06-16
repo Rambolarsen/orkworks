@@ -10,10 +10,13 @@ interface CenterPanelProps {
   sessionId: string | null;
 }
 
+import { type WorkspaceInfo } from "../api";
+
 declare global {
   interface Window {
     orkworks: {
       getBackendUrl: () => Promise<string>;
+      openWorkspace: () => Promise<WorkspaceInfo | null>;
     };
   }
 }
