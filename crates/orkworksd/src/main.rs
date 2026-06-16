@@ -19,6 +19,8 @@ use portable_pty::unix::UnixPtySystem;
 #[cfg(windows)]
 use portable_pty::win::conpty::ConPtySystem;
 
+mod metadata;
+
 #[derive(Clone, Debug, Serialize)]
 struct SessionInfo {
     id: String,
