@@ -169,6 +169,9 @@ html, body, #root {
 }
 
 .panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   padding: 8px 12px;
   font-size: 11px;
   font-weight: 600;
@@ -176,6 +179,116 @@ html, body, #root {
   letter-spacing: 0.5px;
   color: #999;
   border-bottom: 1px solid #3c3c3c;
+}
+
+.session-new-button {
+  border: none;
+  background: none;
+  color: #999;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.session-new-button:hover {
+  color: #d4d4d4;
+}
+
+.session-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.session-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  cursor: pointer;
+  border-bottom: 1px solid #2a2a2b;
+}
+
+.session-item:hover {
+  background: #2a2a2b;
+}
+
+.session-item--active {
+  background: #37373d;
+}
+
+.session-item--active:hover {
+  background: #37373d;
+}
+
+.session-item-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.session-status {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.session-status--running {
+  background: #4ec94e;
+}
+
+.session-status--creating {
+  background: #d4d44e;
+}
+
+.session-status--ended {
+  background: #666;
+}
+
+.session-status--killed {
+  background: #cc4444;
+}
+
+.session-status--error {
+  background: #cc4444;
+}
+
+.session-item-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.session-item-label {
+  font-size: 13px;
+  color: #d4d4d4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.session-item-meta {
+  font-size: 11px;
+  color: #858585;
+}
+
+.session-kill-button {
+  border: none;
+  background: none;
+  color: #666;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.session-kill-button:hover {
+  color: #cc4444;
 }
 
 .panel-content {

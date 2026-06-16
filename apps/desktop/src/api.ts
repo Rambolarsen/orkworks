@@ -1,0 +1,33 @@
+export interface SessionInfo {
+  id: string;
+  label: string;
+  status: string;
+  cwd: string;
+  created_at: string;
+}
+
+export async function createSession(
+  baseUrl: string,
+): Promise<SessionInfo> {
+  const resp = await fetch(`${baseUrl}/sessions`, { method: "POST" });
+  if (!resp.ok) throw new Error(`create session failed: ${resp.status}`);
+  return resp.json();
+}
+
+export async function listSessions(
+  baseUrl: string,
+): Promise<SessionInfo[]> {
+  const resp = await fetch(`${baseUrl}/sessions`);
+  if (!resp.ok) throw new Error(`list sessions failed: ${resp.status}`);
+  return resp.json();
+}
+
+export async function deleteSession(
+  baseUrl: string,
+  id: string,
+): Promise<void> {
+  const resp = await fetch(`${baseUrl}/sessions/${id}`, {
+    method: "DELETE",
+  });
+  if (!resp.ok) throw new Error(`delete session failed: ${resp.status}`);
+}

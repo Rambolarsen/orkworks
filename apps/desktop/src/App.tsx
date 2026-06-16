@@ -1,7 +1,13 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import LeftSidebar from "./components/LeftSidebar";
 import CenterPanel from "./components/CenterPanel";
 import RightSidebar from "./components/RightSidebar";
+import {
+  type SessionInfo,
+  createSession,
+  listSessions,
+  deleteSession,
+} from "./api";
 
 declare global {
   interface Window {
@@ -13,6 +19,8 @@ declare global {
 
 function App() {
   const [backendStatus, setBackendStatus] = useState<string>("connecting…");
+  const [sessions, setSessions] = useState<SessionInfo[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -38,23 +46,84 @@ function App() {
     }
 
     checkHealth();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, []);
+
+  const refreshSessions = useCallback(async () => {
+    try {
+      const baseUrl = await window.orkworks.getBackendUrl();
+      const list = await listSessions(baseUrl);
+      setSessions(list);
+    } catch {
+      /* backend not ready */
+    }
+  }, []);
+
+  useEffect(() => {
+    if (backendStatus !== "connected") return;
+    refreshSessions();
+    const interval = setInterval(refreshSessions, 2000);
+    return () => clearInterval(interval);
+  }, [backendStatus, refreshSessions]);
+
+  const handleCreateSession = useCallback(async () => {
+    try {
+      const baseUrl = await window.orkworks.getBackendUrl();
+      const session = await createSession(baseUrl);
+      setSessions((prev) => [...prev, session]);
+      setActiveSessionId(session.id);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const handleSelectSession = useCallback((id: string) => {
+    setActiveSessionId(id);
+  }, []);
+
+  const handleKillSession = useCallback(
+    async (id: string) => {
+      try {
+        const baseUrl = await window.orkworks.getBackendUrl();
+        await deleteSession(baseUrl, id);
+        if (activeSessionId === id) {
+          setActiveSessionId(null);
+        }
+        await refreshSessions();
+      } catch {
+        /* ignore */
+      }
+    },
+    [activeSessionId, refreshSessions],
+  );
 
   return (
     <div className="app-shell">
       <div className="titlebar">
         <span className="titlebar-text">OrkWorks</span>
-        <span className={`status-badge ${backendStatus === "connected" ? "ok" : "warn"}`}>
+        <span
+          className={`status-badge ${backendStatus === "connected" ? "ok" : "warn"}`}
+        >
           {backendStatus}
         </span>
       </div>
       <div className="app-layout">
         <aside className="panel left-sidebar">
-          <LeftSidebar />
+          <LeftSidebar
+            sessions={sessions}
+            activeSessionId={activeSessionId}
+            onSelectSession={handleSelectSession}
+            onCreateSession={handleCreateSession}
+            onKillSession={handleKillSession}
+          />
         </aside>
         <main className="panel center-panel">
-          <CenterPanel backendStatus={backendStatus} />
+          <CenterPanel
+            backendStatus={backendStatus}
+            sessionId={activeSessionId}
+          />
         </main>
         <aside className="panel right-sidebar">
           <RightSidebar />
