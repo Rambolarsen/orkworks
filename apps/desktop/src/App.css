@@ -505,3 +505,20 @@ html, body, #root {
   padding: 1px 5px;
   border-radius: 3px;
 }
+
+.conflict-warning {
+  background: #3a2a1a;
+  border: 1px solid #5a3a1a;
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-size: 10px;
+  color: #d4d44e;
+  line-height: 1.4;
+}
+
+.recommendation-text {
+  font-size: 11px;
+  color: #858585;
+  font-style: italic;
+  line-height: 1.4;
+}
