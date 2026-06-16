@@ -26,6 +26,7 @@ function App() {
   const [workspace, setWorkspaceState] = useState<WorkspaceInfo | null>(null);
 
   useEffect(() => {
+    if (backendStatus !== "connecting…") return;
     let cancelled = false;
 
     async function checkHealth() {
@@ -52,7 +53,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [backendStatus]);
 
   const stateOrder: Record<string, number> = {
     creating: 0,
