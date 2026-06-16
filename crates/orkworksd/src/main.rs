@@ -23,6 +23,7 @@ use portable_pty::win::conpty::ConPtySystem;
 mod metadata;
 mod watcher;
 mod git;
+mod peon;
 
 #[derive(Clone, Debug, Serialize)]
 struct SessionInfo {
@@ -238,10 +239,10 @@ fn detect_conflicts(sessions: &[SessionInfo]) -> Vec<(String, String)> {
         if group.len() >= 2 {
             if let Some(s) = group.first() {
                 if s.dirty.unwrap_or(false) {
-                    warnings.push((
-                        group[0].id.clone(),
-                        format!("{} sessions in this dirty workspace", group.len()),
-                    ));
+                    let warning = format!("{} sessions in this dirty workspace", group.len());
+                    for session in group {
+                        warnings.push((session.id.clone(), warning.clone()));
+                    }
                 }
             }
         }
@@ -291,7 +292,6 @@ async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse 
     }).collect();
     drop(ws_guard);
 
-    let conflict_warnings = detect_conflicts(&infos);
     let mut cwd_counts: HashMap<String, usize> = HashMap::new();
     for info in &infos {
         if info.status == "running" || info.status == "creating" {
@@ -301,16 +301,19 @@ async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse 
     for info in &mut infos {
         let ctx = git::detect(&PathBuf::from(&info.cwd));
         let count = cwd_counts.get(&info.cwd).copied().unwrap_or(1);
-        let recommendation = session_recommendation(&ctx, count);
+        info.recommendation = session_recommendation(&ctx, count);
         info.repo_root = ctx.repo_root;
         info.branch = ctx.branch;
         info.dirty = Some(ctx.dirty);
         info.changed_files = Some(ctx.changed_files);
         info.is_worktree = Some(ctx.is_worktree);
+    }
+
+    let conflict_warnings = detect_conflicts(&infos);
+    for info in &mut infos {
         info.conflict_warning = conflict_warnings.iter()
             .find(|(id, _)| id == &info.id)
             .map(|(_, w)| w.clone());
-        info.recommendation = recommendation;
     }
     Json(infos)
 }
@@ -358,20 +361,30 @@ async fn session_terminal_handler(
     Path(id): Path<String>,
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
-    let exists = {
+    let session_status = {
         let sessions = state.sessions.lock().unwrap();
-        sessions.contains_key(&id)
+        sessions.get(&id).map(|h| h.info.status.clone())
     };
 
-    if exists {
-        ws.on_upgrade(move |ws| handle_session_terminal(ws, id, state))
-    } else {
-        ws.on_upgrade(|mut ws| async move {
-            let _ = ws
-                .send(Message::Text("session not found".into()))
-                .await;
-            let _ = ws.close().await;
-        })
+    match session_status {
+        None => {
+            ws.on_upgrade(|mut ws| async move {
+                let _ = ws
+                    .send(Message::Text("session not found".into()))
+                    .await;
+                let _ = ws.close().await;
+            })
+        }
+        Some(ref status) if status == "killed" || status == "ended" || status == "error" => {
+            let msg = format!("session {status}");
+            ws.on_upgrade(move |mut ws| async move {
+                let _ = ws.send(Message::Text(msg.into())).await;
+                let _ = ws.close().await;
+            })
+        }
+        Some(_) => {
+            ws.on_upgrade(move |ws| handle_session_terminal(ws, id, state))
+        }
     }
 }
 
@@ -482,6 +495,24 @@ async fn handle_session_terminal(mut ws: WebSocket, id: String, state: Arc<AppSt
         set_session_status(&state, &id, "killed");
         let _ = ws.close().await;
         return;
+    }
+
+    {
+        let should_reject = {
+            let sessions = state.sessions.lock().unwrap();
+            sessions
+                .get(&id)
+                .map(|h| {
+                    let s = &h.info.status;
+                    s == "killed" || s == "ended" || s == "error"
+                })
+                .unwrap_or(false)
+        };
+        if should_reject {
+            tracing::warn!("rejected terminal WebSocket for {id}: session in terminal state");
+            let _ = ws.close().await;
+            return;
+        }
     }
 
     let pty_sys = make_pty_system();
@@ -909,5 +940,88 @@ mod tests {
         let json = serde_json::to_string(&info).unwrap();
         assert!(json.contains("\"metadataSource\":null"));
         assert!(json.contains("\"metadataConfidence\":null"));
+    }
+
+    #[test]
+    fn detect_conflicts_warns_on_multiple_dirty_sessions() {
+        let sessions = vec![
+            SessionInfo {
+                id: "a".into(), label: "A".into(), status: "running".into(),
+                cwd: "/repo".into(), created_at: "now".into(),
+                metadata_source: None, metadata_confidence: None,
+                repo_root: None, branch: None,
+                dirty: Some(true),
+                changed_files: None, is_worktree: None,
+                conflict_warning: None, recommendation: None,
+            },
+            SessionInfo {
+                id: "b".into(), label: "B".into(), status: "running".into(),
+                cwd: "/repo".into(), created_at: "now".into(),
+                metadata_source: None, metadata_confidence: None,
+                repo_root: None, branch: None,
+                dirty: Some(true),
+                changed_files: None, is_worktree: None,
+                conflict_warning: None, recommendation: None,
+            },
+        ];
+        let warnings = detect_conflicts(&sessions);
+        assert_eq!(warnings.len(), 2);
+        assert!(warnings.iter().any(|(id, _)| id == "a"));
+        assert!(warnings.iter().any(|(id, _)| id == "b"));
+        for (_, w) in &warnings {
+            assert!(w.contains("2 sessions"));
+        }
+    }
+
+    #[test]
+    fn detect_conflicts_no_warning_on_clean_sessions() {
+        let sessions = vec![
+            SessionInfo {
+                id: "a".into(), label: "A".into(), status: "running".into(),
+                cwd: "/repo".into(), created_at: "now".into(),
+                metadata_source: None, metadata_confidence: None,
+                repo_root: None, branch: None,
+                dirty: Some(false),
+                changed_files: None, is_worktree: None,
+                conflict_warning: None, recommendation: None,
+            },
+            SessionInfo {
+                id: "b".into(), label: "B".into(), status: "running".into(),
+                cwd: "/repo".into(), created_at: "now".into(),
+                metadata_source: None, metadata_confidence: None,
+                repo_root: None, branch: None,
+                dirty: Some(false),
+                changed_files: None, is_worktree: None,
+                conflict_warning: None, recommendation: None,
+            },
+        ];
+        let warnings = detect_conflicts(&sessions);
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn detect_conflicts_no_warning_when_dirty_is_none() {
+        let sessions = vec![
+            SessionInfo {
+                id: "a".into(), label: "A".into(), status: "running".into(),
+                cwd: "/repo".into(), created_at: "now".into(),
+                metadata_source: None, metadata_confidence: None,
+                repo_root: None, branch: None,
+                dirty: None,
+                changed_files: None, is_worktree: None,
+                conflict_warning: None, recommendation: None,
+            },
+            SessionInfo {
+                id: "b".into(), label: "B".into(), status: "running".into(),
+                cwd: "/repo".into(), created_at: "now".into(),
+                metadata_source: None, metadata_confidence: None,
+                repo_root: None, branch: None,
+                dirty: None,
+                changed_files: None, is_worktree: None,
+                conflict_warning: None, recommendation: None,
+            },
+        ];
+        let warnings = detect_conflicts(&sessions);
+        assert!(warnings.is_empty());
     }
 }
