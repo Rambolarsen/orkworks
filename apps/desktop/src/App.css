@@ -165,18 +165,6 @@ html, body, #root {
   background: #252526;
 }
 
-.panel-resize-handle {
-  width: 3px;
-  background: #3c3c3c;
-  transition: background 0.15s;
-  outline: none;
-}
-
-.panel-resize-handle:hover,
-.panel-resize-handle[data-resize-handle-active] {
-  background: #4b6b7f;
-}
-
 .panel-header {
   display: flex;
   align-items: center;

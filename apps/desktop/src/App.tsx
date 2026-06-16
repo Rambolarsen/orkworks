@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { Group, Panel, Separator } from "react-resizable-panels";
+import { Mosaic, MosaicWindow } from "react-mosaic-component";
+import type { MosaicNode } from "react-mosaic-component";
+import "react-mosaic-component/react-mosaic-component.css";
 import LeftSidebar from "./components/LeftSidebar";
 import CenterPanel from "./components/CenterPanel";
 import RightSidebar from "./components/RightSidebar";
@@ -129,6 +131,64 @@ function App() {
     [refreshSessions],
   );
 
+  const TILE_IDS = {
+    leftSidebar: "left-sidebar",
+    terminal: "terminal",
+    rightSidebar: "right-sidebar",
+  } as const;
+
+  const initialLayout: MosaicNode<string> = {
+    type: "split",
+    direction: "row",
+    children: [
+      {
+        type: "tabs",
+        tabs: [TILE_IDS.leftSidebar],
+        activeTabIndex: 0,
+      },
+      {
+        type: "tabs",
+        tabs: [TILE_IDS.terminal],
+        activeTabIndex: 0,
+      },
+      {
+        type: "tabs",
+        tabs: [TILE_IDS.rightSidebar],
+        activeTabIndex: 0,
+      },
+    ],
+  };
+
+  const renderContent = (id: string) => {
+    if (id === TILE_IDS.leftSidebar) {
+      return (
+        <LeftSidebar
+          workspace={workspace}
+          onOpenWorkspace={handleOpenWorkspace}
+          sessions={sessions}
+          activeSessionId={activeSessionId}
+          onSelectSession={handleSelectSession}
+          onCreateSession={handleCreateSession}
+          onKillSession={handleKillSession}
+        />
+      );
+    }
+    if (id === TILE_IDS.terminal) {
+      return (
+        <CenterPanel
+          backendStatus={backendStatus}
+          sessionId={activeSessionId}
+        />
+      );
+    }
+    return (
+      <RightSidebar
+        sessions={sessions}
+        activeSessionId={activeSessionId}
+      />
+    );
+  };
+
   return (
     <div className="app-shell">
       <div className="titlebar">
@@ -140,33 +200,14 @@ function App() {
         </span>
       </div>
       <div className="app-layout">
-        <Group orientation="horizontal">
-          <Panel defaultSize={20} minSize={14} className="panel left-sidebar">
-            <LeftSidebar
-              workspace={workspace}
-              onOpenWorkspace={handleOpenWorkspace}
-              sessions={sessions}
-              activeSessionId={activeSessionId}
-              onSelectSession={handleSelectSession}
-              onCreateSession={handleCreateSession}
-              onKillSession={handleKillSession}
-            />
-          </Panel>
-          <Separator className="panel-resize-handle" />
-          <Panel defaultSize={58} minSize={30} className="panel center-panel">
-            <CenterPanel
-              backendStatus={backendStatus}
-              sessionId={activeSessionId}
-            />
-          </Panel>
-          <Separator className="panel-resize-handle" />
-          <Panel defaultSize={22} minSize={16} className="panel right-sidebar">
-            <RightSidebar
-              sessions={sessions}
-              activeSessionId={activeSessionId}
-            />
-          </Panel>
-        </Group>
+        <Mosaic<string>
+          renderTile={(id, path) => (
+            <MosaicWindow<string> title="" path={path} toolbarControls={[]}>
+              {renderContent(id)}
+            </MosaicWindow>
+          )}
+          initialValue={initialLayout}
+        />
       </div>
     </div>
   );
