@@ -28,7 +28,7 @@ pnpm dev
 
 All implementation work is tracked as GitHub issues: [https://github.com/Rambolarsen/orkworks/issues](https://github.com/Rambolarsen/orkworks/issues)
 
-- **Pick new work** from the issue board. Start with M1 issues and work through milestones in order.
+- **Pick new work** from the issue board. Start with the lowest incomplete milestone and work through milestones in order.
 - **Add future work** as new issues. Break down into scoped, deliverable-sized issues with checkbox acceptance criteria.
 - **Keep issues in sync** with the codebase — close when done, update when scope changes.
 - If the issue board is inaccessible, do not guess at priorities. Stop and inform the user that issue board access is required before picking or closing work.
@@ -75,6 +75,7 @@ orkworks/
 ├─ crates/orkworksd/      # Rust sidecar (Axum HTTP/WS, PTY via portable-pty)
 ├─ docs/
 │  └─ adr/                # Architecture Decision Records
+├─ skills/                # Repo-level agent skills
 └─ examples/
 ```
 
@@ -102,7 +103,7 @@ orkworks/
 
 ## APM
 
-Dependencies are managed by [APM](https://github.com/anthropics/apm) in the `orkworks/` directory. The `apm.yml` defines targets (claude, codex, copilot, opencode) and dependencies. Running `apm install` populates:
+Dependencies are managed by [APM](https://github.com/anthropics/apm) in the `orkworks/` directory. The `apm.yml` defines targets (claude, codex, copilot, opencode) and dependencies. Running `apm install` populates generated agent assets, commonly including:
 
 | Path | Contents |
 | ---- | -------- |
@@ -111,12 +112,21 @@ Dependencies are managed by [APM](https://github.com/anthropics/apm) in the `ork
 | `orkworks/.agents/skills/` | Skills for all targets |
 | `orkworks/.claude/` | Claude Code hooks + skills |
 | `orkworks/.codex/` | Codex hooks |
-| `orkworks/.github/hooks/` | Copilot hooks |
+| `orkworks/.github/hooks/` | Copilot hooks, when generated for the configured target |
 | `orkworks/.opencode/` | OpenCode target |
 
 ## Agent plugins / skills
 
 These are harness-level tools — OrkWorks hosts the terminal session; plugins run inside the agent in that session.
+
+## Repo-level skills
+
+The `skills/` directory contains repo-level agent skills committed with the project. These follow the Agent Skills standard: each skill is a directory with a `SKILL.md` file using YAML frontmatter and a markdown body.
+
+| Skill | Description |
+| ----- | ----------- |
+| `writing-skills` | TDD-based skill creation following the Agent Skills standard |
+| `clean-ddd-hexagonal` | Clean Architecture + DDD + Hexagonal patterns, language-agnostic |
 
 ### Anthropic Agent Skills (standard)
 

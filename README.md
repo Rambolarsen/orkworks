@@ -4,7 +4,7 @@ Local-first observability + recommendation layer for AI coding sessions ("Missio
 
 ## State
 
-APM project bootstrapped — agent skills, hooks, and plugins are installed via [APM](https://github.com/anthropics/apm) in `orkworks/`. The Electron app, Rust sidecar, and metadata protocol are not yet implemented.
+APM project bootstrapped — agent skills, hooks, and plugins are installed via [APM](https://github.com/anthropics/apm) in `orkworks/`. M1 (Electron app shell + Rust sidecar scaffold) is implemented. Subsequent milestones are tracked as GitHub issues.
 
 ## Architecture
 
