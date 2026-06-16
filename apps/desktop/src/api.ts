@@ -6,6 +6,13 @@ export interface SessionInfo {
   created_at: string;
   metadataSource?: string;
   metadataConfidence?: number;
+  repoRoot?: string;
+  branch?: string;
+  dirty?: boolean;
+  changedFiles?: number;
+  isWorktree?: boolean;
+  conflictWarning?: string;
+  recommendation?: string;
 }
 
 export async function createSession(
