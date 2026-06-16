@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain } from "electron";
 import { spawn, type ChildProcess } from "child_process";
 import * as path from "path";
+import { getDevRepoRoot, getDevSidecarPath } from "./paths";
 
 let mainWindow: BrowserWindow | null = null;
 let sidecarProcess: ChildProcess | null = null;
@@ -14,15 +15,17 @@ function getSidecarPath(): string {
   if (app.isPackaged) {
     return path.join(process.resourcesPath, "orkworksd");
   }
-  const repoRoot = path.resolve(__dirname, "..", "..", "..");
-  return path.join(repoRoot, "crates", "orkworksd", "target", "debug", "orkworksd");
+  return getDevSidecarPath(__dirname);
 }
 
 function startSidecar(): void {
   const binaryPath = getSidecarPath();
+  const sidecarCwd = app.isPackaged ? app.getPath("home") : getDevRepoRoot(__dirname);
   console.log(`[main] starting sidecar: ${binaryPath}`);
+  console.log(`[main] sidecar cwd: ${sidecarCwd}`);
 
   sidecarProcess = spawn(binaryPath, [], {
+    cwd: sidecarCwd,
     stdio: ["ignore", "pipe", "pipe"],
   });
 
