@@ -41,6 +41,8 @@ apm install
 
 Managed via APM in `orkworks/apm.yml`. Running `apm install` populates skills and hooks for all configured targets (claude, codex, copilot, opencode).
 
+Development agents should follow `AGENTS.md`, including the requirement to invoke and follow relevant Superpowers skills before implementation, debugging, review, verification, commit, push, or PR work.
+
 | Plugin | Description |
 | ------ | ----------- |
 | [obra/superpowers](https://github.com/obra/superpowers) | Agentic skills framework & methodology |

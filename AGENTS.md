@@ -45,6 +45,21 @@ Read both before starting any implementation work.
 
 If either spec file is missing or unreadable, stop and notify the user before proceeding. Do not infer scope from context alone.
 
+## Development workflow
+
+Agents doing development work in this repo must use the installed Superpowers skills as workflow guardrails, not just mention them as available tools. Before acting, check whether a relevant skill applies and load/follow it through the harness skill mechanism.
+
+- Start each task by checking for applicable skills; if one might apply, invoke it before responding or editing.
+- Use `brainstorming` before creating features, building components, adding functionality, or modifying behavior.
+- Use `writing-plans` for multi-step implementation work after scope is understood.
+- Use `test-driven-development` for feature and bugfix implementation unless the change is docs-only, config-only, or the user explicitly opts out.
+- Use `systematic-debugging` before fixing bugs, test failures, or unexpected behavior.
+- Use `receiving-code-review` when responding to review feedback.
+- Use `verification-before-completion` before claiming work is complete, committing, pushing, or opening a PR.
+- Use `requesting-code-review` for substantial implementation work before merge/PR handoff.
+
+These workflow requirements constrain how agents work in this repository. They do not expand OrkWorks product scope or override the MVP non-goals.
+
 ## Decision tracking
 
 Architecture decisions are captured as ADRs in `docs/adr/`. Each significant architectural, stack, protocol, or boundary decision gets a numbered markdown file with context, decision, and consequences.
