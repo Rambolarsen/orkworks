@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Group, Panel, Separator } from "react-resizable-panels";
 import LeftSidebar from "./components/LeftSidebar";
 import RightSidebar from "./components/RightSidebar";
 import TerminalTabs from "./components/TerminalTabs";
@@ -150,30 +151,34 @@ function App() {
         </span>
       </div>
       <div className="app-layout">
-        <aside className="panel left-sidebar">
-          <LeftSidebar
-            workspace={workspace}
-            onOpenWorkspace={handleOpenWorkspace}
-            sessions={sessions}
-            activeSessionId={activeSessionId}
-            onSelectSession={handleSelectSession}
-            onCreateSession={handleCreateSession}
-            onKillSession={handleKillSession}
-          />
-        </aside>
-        <main className="panel center-panel">
-          <TerminalTabs
-            ref={terminalTabsRef}
-            backendStatus={backendStatus}
-            onKillSession={handleKillSession}
-          />
-        </main>
-        <aside className="panel right-sidebar">
-          <RightSidebar
-            sessions={sessions}
-            activeSessionId={activeSessionId}
-          />
-        </aside>
+        <Group orientation="horizontal">
+          <Panel defaultSize="20%" minSize="12%" className="panel left-sidebar">
+            <LeftSidebar
+              workspace={workspace}
+              onOpenWorkspace={handleOpenWorkspace}
+              sessions={sessions}
+              activeSessionId={activeSessionId}
+              onSelectSession={handleSelectSession}
+              onCreateSession={handleCreateSession}
+              onKillSession={handleKillSession}
+            />
+          </Panel>
+          <Separator className="panel-resize-handle" />
+          <Panel defaultSize="58%" minSize="30%" className="panel center-panel">
+            <TerminalTabs
+              ref={terminalTabsRef}
+              backendStatus={backendStatus}
+              onKillSession={handleKillSession}
+            />
+          </Panel>
+          <Separator className="panel-resize-handle" />
+          <Panel defaultSize="22%" minSize="12%" className="panel right-sidebar">
+            <RightSidebar
+              sessions={sessions}
+              activeSessionId={activeSessionId}
+            />
+          </Panel>
+        </Group>
       </div>
     </div>
   );

@@ -102,6 +102,11 @@ function CenterPanel({ backendStatus, sessionId, embedded }: CenterPanelProps) {
 
       ws.onopen = () => {
         setTerminalStatus("terminal ready");
+        try {
+          fitAddon.fit();
+        } catch {
+          /* ignore */
+        }
         sendResize(ws, term);
 
         const pending = pendingInputRef.current.get(id);

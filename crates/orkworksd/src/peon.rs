@@ -9,6 +9,7 @@ use tracing::warn;
 pub struct PeonConfig {
     pub harness: String,
     pub harness_args: String,
+    #[allow(dead_code)]
     pub model: Option<String>,
     pub interval_secs: u64,
     pub max_lines: usize,
@@ -82,10 +83,12 @@ impl RingBuffer {
         self.lines.iter().cloned().collect()
     }
 
+    #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.lines.is_empty()
     }
 
+    #[allow(dead_code)]
     pub fn len(&self) -> usize {
         self.lines.len()
     }

@@ -20,8 +20,28 @@ corepack prepare pnpm@latest --activate
 # Install deps
 cd apps/desktop && pnpm install
 
-# Run dev
-pnpm dev
+# Run dev (Vite + Electron, auto-launches Rust sidecar)
+cd apps/desktop && pnpm dev
+
+# Build Electron app
+cd apps/desktop && pnpm build
+
+# Build Rust sidecar
+cd apps/desktop && pnpm build:rust
+# or directly:
+cargo build --manifest-path crates/orkworksd/Cargo.toml
+
+# TypeScript type-check
+cd apps/desktop && npx tsc --noEmit
+
+# Run frontend tests (Node built-in test runner)
+cd apps/desktop && node --experimental-strip-types --test tests/*.test.ts tests/*.test.mjs
+
+# Run a single test file
+cd apps/desktop && node --experimental-strip-types --test tests/api.test.ts
+
+# Run Rust tests
+cargo test --manifest-path crates/orkworksd/Cargo.toml
 ```
 
 ## Issue board
@@ -94,21 +114,11 @@ ADRs are complementary to specs: specs define what we're building; ADRs record w
 | Peon | Low-cost metadata observer |
 | `.orkworks/` | Per-repo protocol directory (sessions/, events/, capacity/, skills/) |
 
-## Planned architecture
+## Architecture
 
-```text
-orkworks/
-├─ apps/desktop/          # Electron + React/TypeScript + xterm.js
-├─ crates/orkworksd/      # Rust sidecar (Axum HTTP/WS, PTY via portable-pty)
-├─ docs/
-│  └─ adr/                # Architecture Decision Records
-├─ skills/                # Repo-level agent skills
-└─ examples/
-```
+Electron + React/TypeScript frontend (`apps/desktop/`) communicates with a Rust sidecar (`crates/orkworksd/`) over a dynamic localhost HTTP/WebSocket port. The sidecar manages PTY sessions, git context, and the `.orkworks/` metadata protocol.
 
-- Electron launches Rust sidecar; UI talks to it over localhost HTTP/WebSocket
-- `nodeIntegration: false`, `contextIsolation: true`
-- PTY handles only text I/O; voice (native harness) bypasses PTY entirely
+See [`docs/agents/architecture.md`](docs/agents/architecture.md) for the full inter-component breakdown (port discovery, preload bridge, API data flow, Rust modules, panel layout).
 
 ## Metadata protocol
 
@@ -128,62 +138,25 @@ orkworks/
 - Capacity states: healthy, degraded, capped, unknown, disabled
 - Cost tiers: local, low, medium, high, premium
 
-## APM
+## APM and agent plugins
 
-Dependencies are managed by [APM](https://github.com/anthropics/apm) in the `orkworks/` directory. The `apm.yml` defines targets (claude, codex, copilot, opencode) and dependencies. Running `apm install` populates generated agent assets, commonly including:
+Agent dependencies (Superpowers, Ponytail, Claude Mem) are managed by [APM](https://github.com/anthropics/apm) in the `orkworks/` directory. Run `cd orkworks && apm install` to populate skills and hooks for all configured targets (claude, codex, copilot, opencode).
 
-| Path | Contents |
-| ---- | -------- |
-| `orkworks/apm_modules/` | Cloned dependency sources (gitignored) |
-| `orkworks/apm.lock.yaml` | Resolved lock file (gitignored) |
-| `orkworks/.agents/skills/` | Skills for all targets |
-| `orkworks/.claude/` | Claude Code hooks + skills |
-| `orkworks/.codex/` | Codex hooks |
-| `orkworks/.github/hooks/` | Copilot hooks, when generated for the configured target |
-| `orkworks/.opencode/` | OpenCode target |
-
-## Agent plugins / skills
-
-These are harness-level tools — OrkWorks hosts the terminal session; plugins run inside the agent in that session.
+See [`docs/agents/apm.md`](docs/agents/apm.md) for the full plugin list, generated path layout, and OpenCode configuration.
 
 ## Repo-level skills
 
-The `skills/` directory contains repo-level agent skills committed with the project. These follow the Agent Skills standard: each skill is a directory with a `SKILL.md` file using YAML frontmatter and a markdown body.
+The `skills/` directory contains committed repo skills (`writing-skills`, `clean-ddd-hexagonal`). Each is a directory with a `SKILL.md` following the [Agent Skills standard](https://agentskills.io/specification).
 
-| Skill | Description |
-| ----- | ----------- |
-| `writing-skills` | TDD-based skill creation following the Agent Skills standard |
-| `clean-ddd-hexagonal` | Clean Architecture + DDD + Hexagonal patterns, language-agnostic |
+## Doc currency check
 
-### Anthropic Agent Skills (standard)
+Before ending any session, run:
 
-[anthropics/skills](https://github.com/anthropics/skills) — reference implementation of the Agent Skills standard. Defines the `SKILL.md` format (YAML frontmatter with `name` + `description`, markdown body). Contains `spec/`, `skills/` (examples), `template/`. OpenCode has native built-in skill discovery from `.opencode/skills/`, `~/.config/opencode/skills/`, and Claude-compatible paths.
-
-### Superpowers
-
-[obra/superpowers](https://github.com/obra/superpowers) — agentic skills framework & software development methodology. Installed per-harness (Claude Code, Codex, OpenCode, etc.). OpenCode is configured through the repo-root `opencode.json`:
-
-```json
-{
-  "plugin": ["orkworks/apm_modules/obra/superpowers/.opencode/plugins/superpowers.js"]
-}
+```bash
+bash .claude/hooks/doc-check.sh
 ```
 
-### Ponytail
-
-[DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail) — minimalist ruleset that enforces YAGNI: check necessity, stdlib, platform feature, dependency, one-liner before writing code. OpenCode is configured through the repo-root `opencode.json`:
-
-```json
-{
-  "plugin": ["orkworks/apm_modules/DietrichGebert/ponytail/.opencode/plugins/ponytail.mjs"]
-}
-```
-
-Ponytail also ships its own `AGENTS.md` — if cross-referenced from this repo's clone, OpenCode loads both automatically.
-
-### Claude Mem
-
-[thedotmack/claude-mem](https://github.com/thedotmack/claude-mem) — persistent memory for Claude using simple YAML files.
+This checks git diff against known triggers and lists any doc files that likely need updating. Address all flagged files before closing. Claude Code runs this automatically via a Stop hook; all other agents must run it manually as part of `verification-before-completion`.
 
 ## Maintaining AGENTS.md and README.md
 

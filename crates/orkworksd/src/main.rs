@@ -748,7 +748,7 @@ async fn handle_session_terminal(mut ws: WebSocket, id: String, state: Arc<AppSt
                     // Clear last_inference so Peon will re-observe after new output
                     state.peon.last_inference.write().unwrap().remove(&id);
                 }
-                if ws.send(Message::Binary(data.into())).await.is_err() {
+                if ws.send(Message::Binary(data)).await.is_err() {
                     break;
                 }
             }

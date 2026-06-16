@@ -39,7 +39,7 @@ pub fn detect(cwd: &Path) -> GitContext {
     let mut dirty = false;
 
     let mut opts = git2::StatusOptions::new();
-    opts.include_untracked(false).include_ignored(false);
+    opts.include_untracked(true).include_ignored(false);
     if let Ok(statuses) = repo.statuses(Some(&mut opts)) {
         changed_files = statuses.len();
         dirty = changed_files > 0;

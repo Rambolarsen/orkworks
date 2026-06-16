@@ -1,3 +1,4 @@
+
 # M5: Git Context Detection — Design
 
 ## Overview
