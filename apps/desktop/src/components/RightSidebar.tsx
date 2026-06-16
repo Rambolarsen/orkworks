@@ -67,6 +67,14 @@ function RightSidebar({ sessions, activeSessionId }: RightSidebarProps) {
           </span>
         </div>
       )}
+      {active.peonLastInference && (
+        <div className="session-detail-section">
+          <div className="session-detail-label">Peon</div>
+          <span className="session-detail-value" style={{ color: '#57c7ff' }}>
+            observed {active.peonLastInference}
+          </span>
+        </div>
+      )}
     </div>
   );
 }

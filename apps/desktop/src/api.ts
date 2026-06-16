@@ -13,6 +13,7 @@ export interface SessionInfo {
   isWorktree?: boolean;
   conflictWarning?: string;
   recommendation?: string;
+  peonLastInference?: string;
 }
 
 export async function createSession(
