@@ -1,47 +1,16 @@
 import type { SessionInfo } from "../api";
+import {
+  needsAttention,
+  isLive,
+  borderColor,
+  sourceColor,
+  sortSessions,
+} from "./RightSidebarHelpers.ts";
 
 interface RightSidebarProps {
   sessions: SessionInfo[];
   activeSessionId: string | null;
   onSelectSession: (id: string) => void;
-}
-
-const PRIORITY: Record<string, number> = {
-  waiting_for_input: 0,
-  blocked: 1,
-  failed: 2,
-  running: 3,
-  creating: 4,
-  idle: 5,
-};
-
-function needsAttention(status: string): boolean {
-  return status === "blocked" || status === "failed" || status === "waiting_for_input";
-}
-
-function isLive(status: string): boolean {
-  return status === "running" || status === "creating";
-}
-
-function borderColor(status: string): string {
-  if (status === "running" || status === "creating") return "#4ec94e";
-  if (status === "blocked" || status === "waiting_for_input") return "#d4d44e";
-  if (status === "failed") return "#cc4444";
-  return "#666";
-}
-
-function sourceColor(source: string | undefined): string {
-  if (source === "agent") return "#4ec94e";
-  if (source === "peon") return "#57c7ff";
-  return "#858585";
-}
-
-function sortSessions(list: SessionInfo[]): SessionInfo[] {
-  return [...list].sort((a, b) => {
-    const pa = PRIORITY[a.status] ?? 9;
-    const pb = PRIORITY[b.status] ?? 9;
-    return pa - pb;
-  });
 }
 
 function RightSidebar({ sessions, activeSessionId, onSelectSession }: RightSidebarProps) {
