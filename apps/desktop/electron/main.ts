@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from "electron";
+import { app, BrowserWindow, dialog, ipcMain } from "electron";
 import { spawn, type ChildProcess } from "child_process";
 import * as path from "path";
 import { getDevRepoRoot, getDevSidecarPath } from "./paths";
@@ -7,9 +7,11 @@ let mainWindow: BrowserWindow | null = null;
 let sidecarProcess: ChildProcess | null = null;
 let backendPort: number | null = null;
 let portResolve: ((port: number) => void) | null = null;
-const portPromise = new Promise<number>((resolve) => {
+let portPromise = new Promise<number>((resolve) => {
   portResolve = resolve;
 });
+
+let workspacePath: string | null = null;
 
 function getSidecarPath(): string {
   if (app.isPackaged) {
@@ -83,6 +85,65 @@ app.whenReady().then(() => {
   ipcMain.handle("get-backend-url", async () => {
     const port = await portPromise;
     return `http://127.0.0.1:${port}`;
+  });
+
+  ipcMain.handle("open-workspace", async () => {
+    const result = await dialog.showOpenDialog({
+      properties: ["openDirectory"],
+      title: "Select Workspace",
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+
+    const dirPath = result.filePaths[0];
+    workspacePath = dirPath;
+
+    if (sidecarProcess) {
+      sidecarProcess.kill();
+      sidecarProcess = null;
+    }
+    backendPort = null;
+    portPromise = new Promise<number>((resolve) => {
+      portResolve = resolve;
+    });
+
+    sidecarProcess = spawn(getSidecarPath(), [], {
+      cwd: dirPath,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    sidecarProcess.stdout?.on("data", (data: Buffer) => {
+      const line = data.toString().trim();
+      console.log(`[orkworksd] ${line}`);
+      const match = line.match(/ORKWORKSD_PORT=(\d+)/);
+      if (match) {
+        backendPort = parseInt(match[1], 10);
+        console.log(`[main] sidecar ready on port ${backendPort}`);
+        if (portResolve) {
+          portResolve(backendPort);
+          portResolve = null;
+        }
+      }
+    });
+
+    sidecarProcess.stderr?.on("data", (data: Buffer) => {
+      console.error(`[orkworksd:err] ${data.toString().trim()}`);
+    });
+
+    sidecarProcess.on("exit", (code) => {
+      console.log(`[main] sidecar exited with code ${code}`);
+      sidecarProcess = null;
+    });
+
+    const port = await portPromise;
+
+    const resp = await fetch(`http://127.0.0.1:${port}/workspace`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: dirPath }),
+    });
+
+    if (!resp.ok) return null;
+    return resp.json();
   });
 
   startSidecar();
