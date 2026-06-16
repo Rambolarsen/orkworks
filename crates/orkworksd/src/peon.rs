@@ -1,6 +1,43 @@
 use std::collections::VecDeque;
 
 #[derive(Clone, Debug)]
+pub struct PeonConfig {
+    pub harness: String,
+    pub harness_args: String,
+    pub model: Option<String>,
+    pub interval_secs: u64,
+    pub max_lines: usize,
+    pub timeout_secs: u64,
+    pub enabled: bool,
+}
+
+impl PeonConfig {
+    pub fn from_env() -> Self {
+        Self {
+            harness: std::env::var("PEON_HARNESS").unwrap_or_else(|_| "opencode".into()),
+            harness_args: std::env::var("PEON_HARNESS_ARGS").unwrap_or_else(|_| "--print -p".into()),
+            model: std::env::var("PEON_MODEL").ok(),
+            interval_secs: std::env::var("PEON_INTERVAL")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(5),
+            max_lines: std::env::var("PEON_MAX_LINES")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(200),
+            timeout_secs: std::env::var("PEON_TIMEOUT")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(30),
+            enabled: std::env::var("PEON_ENABLED")
+                .ok()
+                .map(|v| v != "false" && v != "0")
+                .unwrap_or(true),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct RingBuffer {
     lines: VecDeque<String>,
     capacity: usize,
@@ -34,6 +71,9 @@ impl RingBuffer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn test_ring_buffer_push_and_snapshot() {
@@ -62,5 +102,57 @@ mod tests {
         assert_eq!(buf.len(), 0);
         let snapshot = buf.snapshot();
         assert!(snapshot.is_empty());
+    }
+
+    #[test]
+    fn test_peon_config_defaults() {
+        let _guard = ENV_LOCK.lock().unwrap();
+
+        std::env::remove_var("PEON_ENABLED");
+        std::env::remove_var("PEON_HARNESS");
+        std::env::remove_var("PEON_HARNESS_ARGS");
+        std::env::remove_var("PEON_MODEL");
+        std::env::remove_var("PEON_INTERVAL");
+        std::env::remove_var("PEON_MAX_LINES");
+        std::env::remove_var("PEON_TIMEOUT");
+
+        let config = PeonConfig::from_env();
+        assert!(config.enabled);
+        assert_eq!(config.harness, "opencode");
+        assert_eq!(config.harness_args, "--print -p");
+        assert!(config.model.is_none());
+        assert_eq!(config.interval_secs, 5);
+        assert_eq!(config.max_lines, 200);
+        assert_eq!(config.timeout_secs, 30);
+    }
+
+    #[test]
+    fn test_peon_config_from_env() {
+        let _guard = ENV_LOCK.lock().unwrap();
+
+        std::env::set_var("PEON_ENABLED", "false");
+        std::env::set_var("PEON_HARNESS", "claude");
+        std::env::set_var("PEON_HARNESS_ARGS", "-p --print");
+        std::env::set_var("PEON_MODEL", "haiku");
+        std::env::set_var("PEON_INTERVAL", "10");
+        std::env::set_var("PEON_MAX_LINES", "100");
+        std::env::set_var("PEON_TIMEOUT", "60");
+
+        let config = PeonConfig::from_env();
+        assert!(!config.enabled);
+        assert_eq!(config.harness, "claude");
+        assert_eq!(config.harness_args, "-p --print");
+        assert_eq!(config.model, Some("haiku".into()));
+        assert_eq!(config.interval_secs, 10);
+        assert_eq!(config.max_lines, 100);
+        assert_eq!(config.timeout_secs, 60);
+
+        std::env::remove_var("PEON_ENABLED");
+        std::env::remove_var("PEON_HARNESS");
+        std::env::remove_var("PEON_HARNESS_ARGS");
+        std::env::remove_var("PEON_MODEL");
+        std::env::remove_var("PEON_INTERVAL");
+        std::env::remove_var("PEON_MAX_LINES");
+        std::env::remove_var("PEON_TIMEOUT");
     }
 }
