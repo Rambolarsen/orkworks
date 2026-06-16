@@ -1,5 +1,7 @@
 use std::collections::VecDeque;
 
+use serde::{Deserialize, Serialize};
+
 #[derive(Clone, Debug)]
 pub struct PeonConfig {
     pub harness: String,
@@ -84,6 +86,81 @@ impl RingBuffer {
     pub fn len(&self) -> usize {
         self.lines.len()
     }
+}
+
+const VALID_STATUSES: &[&str] = &[
+    "waiting_for_input", "blocked", "failed", "done",
+    "stale", "working", "idle",
+];
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PeonInference {
+    pub status: Option<String>,
+    pub phase: Option<String>,
+    pub summary: Option<String>,
+    #[serde(rename = "nextAction")]
+    pub next_action: Option<String>,
+    #[serde(rename = "needsUserInput")]
+    pub needs_user_input: Option<bool>,
+    #[serde(rename = "detectedQuestion")]
+    pub detected_question: Option<String>,
+    #[serde(rename = "suggestedOptions")]
+    pub suggested_options: Option<Vec<String>>,
+    #[serde(rename = "blockerDescription")]
+    pub blocker_description: Option<String>,
+    #[serde(rename = "failedCommand")]
+    pub failed_command: Option<String>,
+    #[serde(rename = "failedTest")]
+    pub failed_test: Option<String>,
+    #[serde(rename = "capacityHints")]
+    pub capacity_hints: Option<Vec<String>>,
+    pub confidence: f64,
+}
+
+pub fn extract_json(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+
+    if trimmed.starts_with('{') {
+        return Some(trimmed.to_string());
+    }
+
+    let without_fences = trimmed
+        .strip_prefix("```json\n")
+        .or_else(|| trimmed.strip_prefix("```json"))
+        .or_else(|| trimmed.strip_prefix("```\n"))
+        .or_else(|| trimmed.strip_prefix("```"))
+        .unwrap_or(trimmed);
+
+    let without_suffix = without_fences
+        .strip_suffix("\n```")
+        .or_else(|| without_fences.strip_suffix("```"))
+        .unwrap_or(without_fences);
+
+    if without_suffix.trim().starts_with('{') {
+        Some(without_suffix.trim().to_string())
+    } else {
+        None
+    }
+}
+
+pub fn validate_inference(inf: &PeonInference) -> Result<(), String> {
+    if inf.confidence < 0.0 || inf.confidence > 1.0 {
+        return Err(format!(
+            "confidence {} out of range [0.0, 1.0]",
+            inf.confidence
+        ));
+    }
+
+    if let Some(ref status) = inf.status {
+        if !VALID_STATUSES.contains(&status.as_str()) {
+            return Err(format!(
+                "invalid status '{}', must be one of {:?}",
+                status, VALID_STATUSES
+            ));
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -172,5 +249,111 @@ mod tests {
         std::env::remove_var("PEON_INTERVAL");
         std::env::remove_var("PEON_MAX_LINES");
         std::env::remove_var("PEON_TIMEOUT");
+    }
+
+    #[test]
+    fn test_extract_json_plain() {
+        let raw = r#"{"status": "working", "confidence": 0.9}"#;
+        let result = extract_json(raw);
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn test_extract_json_with_markdown_fences() {
+        let raw = "```json\n{\"status\": \"working\", \"confidence\": 0.8}\n```";
+        let result = extract_json(raw);
+        let parsed: PeonInference = serde_json::from_str(&result.unwrap()).unwrap();
+        assert_eq!(parsed.status, Some("working".into()));
+        assert!((parsed.confidence - 0.8).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_extract_json_non_json_returns_none() {
+        let raw = "just some terminal output, no json here";
+        assert!(extract_json(raw).is_none());
+    }
+
+    #[test]
+    fn test_validate_inference_valid() {
+        let inf = PeonInference {
+            status: Some("working".into()),
+            phase: None,
+            summary: None,
+            next_action: None,
+            needs_user_input: None,
+            detected_question: None,
+            suggested_options: None,
+            blocker_description: None,
+            failed_command: None,
+            failed_test: None,
+            capacity_hints: None,
+            confidence: 0.85,
+        };
+        assert!(validate_inference(&inf).is_ok());
+    }
+
+    #[test]
+    fn test_validate_inference_invalid_status() {
+        let inf = PeonInference {
+            status: Some("invalid_status".into()),
+            phase: None,
+            summary: None,
+            next_action: None,
+            needs_user_input: None,
+            detected_question: None,
+            suggested_options: None,
+            blocker_description: None,
+            failed_command: None,
+            failed_test: None,
+            capacity_hints: None,
+            confidence: 0.5,
+        };
+        assert!(validate_inference(&inf).is_err());
+    }
+
+    #[test]
+    fn test_validate_inference_confidence_out_of_range() {
+        let inf = PeonInference {
+            status: None,
+            phase: None,
+            summary: None,
+            next_action: None,
+            needs_user_input: None,
+            detected_question: None,
+            suggested_options: None,
+            blocker_description: None,
+            failed_command: None,
+            failed_test: None,
+            capacity_hints: None,
+            confidence: 1.5,
+        };
+        assert!(validate_inference(&inf).is_err());
+
+        let inf2 = PeonInference {
+            status: None,
+            phase: None,
+            summary: None,
+            next_action: None,
+            needs_user_input: None,
+            detected_question: None,
+            suggested_options: None,
+            blocker_description: None,
+            failed_command: None,
+            failed_test: None,
+            capacity_hints: None,
+            confidence: -0.1,
+        };
+        assert!(validate_inference(&inf2).is_err());
+    }
+
+    #[test]
+    fn test_peon_inference_deserialization() {
+        let json = r#"{"status": "blocked", "summary": "test is failing", "needsUserInput": true, "confidence": 0.7}"#;
+        let inf: PeonInference = serde_json::from_str(json).unwrap();
+        assert_eq!(inf.status, Some("blocked".into()));
+        assert_eq!(inf.summary, Some("test is failing".into()));
+        assert_eq!(inf.needs_user_input, Some(true));
+        assert!((inf.confidence - 0.7).abs() < 0.001);
+        assert!(inf.phase.is_none());
     }
 }
