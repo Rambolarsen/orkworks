@@ -15,6 +15,7 @@ portable-pty = "0.8"
 uuid = { version = "1", features = ["v4"] }
 notify = { version = "7", features = ["macos_kqueue"] }
 chrono = { version = "0.4", features = ["clock"] }
+git2 = "0.19"
 
 [dev-dependencies]
 tempfile = "3"
