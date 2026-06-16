@@ -3,6 +3,7 @@ use std::path::Path;
 use std::sync::mpsc;
 use tokio::sync::broadcast;
 
+#[allow(dead_code)]
 pub struct MetadataWatcher {
     tx: broadcast::Sender<String>,
 }
@@ -38,6 +39,7 @@ impl MetadataWatcher {
         Self { tx }
     }
 
+    #[allow(dead_code)]
     pub fn subscribe(&self) -> broadcast::Receiver<String> {
         self.tx.subscribe()
     }

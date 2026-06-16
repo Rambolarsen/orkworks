@@ -69,6 +69,7 @@ impl MetadataStore {
         }
     }
 
+    #[allow(dead_code)]
     pub fn read_events(&self, id: &str) -> Vec<Event> {
         let path = self.events_dir().join(format!("{}.ndjson", id));
         let data = match fs::read_to_string(&path) {

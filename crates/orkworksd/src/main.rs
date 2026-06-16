@@ -6,10 +6,11 @@ use axum::{
     Json, Router,
 };
 use portable_pty::{CommandBuilder, PtySize, PtySystem};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -29,6 +30,10 @@ struct SessionInfo {
     status: String,
     cwd: String,
     created_at: String,
+    #[serde(rename = "metadataSource")]
+    metadata_source: Option<String>,
+    #[serde(rename = "metadataConfidence")]
+    metadata_confidence: Option<f64>,
 }
 
 struct SessionHandle {
@@ -36,8 +41,16 @@ struct SessionHandle {
     kill_tx: tokio::sync::watch::Sender<bool>,
 }
 
+struct WorkspaceState {
+    path: PathBuf,
+    metadata: metadata::MetadataStore,
+    #[allow(dead_code)]
+    watcher: watcher::MetadataWatcher,
+}
+
 struct AppState {
     sessions: Mutex<HashMap<String, SessionHandle>>,
+    workspace: Mutex<Option<WorkspaceState>>,
 }
 
 #[tokio::main]
@@ -52,6 +65,7 @@ async fn main() {
 
     let state = Arc::new(AppState {
         sessions: Mutex::new(HashMap::new()),
+        workspace: Mutex::new(None),
     });
 
     let cors = CorsLayer::new()
@@ -61,6 +75,7 @@ async fn main() {
 
     let app = Router::new()
         .route("/health", get(health_check))
+        .route("/workspace", post(set_workspace))
         .route("/sessions", post(create_session))
         .route("/sessions", get(list_sessions))
         .route("/sessions/:id", delete(delete_session))
@@ -77,6 +92,59 @@ async fn main() {
     tracing::info!("orkworksd listening on {}", bound_addr);
 
     axum::serve(listener, app).await.unwrap();
+}
+
+#[derive(Deserialize)]
+struct WorkspaceRequest {
+    path: String,
+}
+
+#[derive(Serialize)]
+struct WorkspaceResponse {
+    path: String,
+    repo_root: Option<String>,
+    branch: Option<String>,
+    dirty: Option<bool>,
+}
+
+async fn set_workspace(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<WorkspaceRequest>,
+) -> impl IntoResponse {
+    let ws_path = PathBuf::from(&req.path);
+    if !ws_path.is_dir() {
+        return (axum::http::StatusCode::BAD_REQUEST, "not a directory").into_response();
+    }
+
+    let orkworks_dir = ws_path.join(".orkworks");
+    for dir in &["sessions", "events", "capacity", "skills"] {
+        if let Err(e) = std::fs::create_dir_all(orkworks_dir.join(dir)) {
+            tracing::warn!("failed to create .orkworks/{}: {e}", dir);
+        }
+    }
+
+    let store = metadata::MetadataStore::new(&orkworks_dir);
+    let watch_dir = orkworks_dir.join("sessions");
+    let watcher = watcher::MetadataWatcher::start(&watch_dir);
+
+    let mut ws = state.workspace.lock().unwrap();
+    *ws = Some(WorkspaceState {
+        path: ws_path.clone(),
+        metadata: store,
+        watcher,
+    });
+
+    let repo_root = git_repo_root(&ws_path);
+    let branch = repo_root.as_ref().and_then(|r| git_branch(r));
+    let dirty = repo_root.as_ref().map(|r| git_dirty(r)).unwrap_or(false);
+
+    Json(WorkspaceResponse {
+        path: req.path,
+        repo_root,
+        branch,
+        dirty: Some(dirty),
+    })
+    .into_response()
 }
 
 async fn health_check() -> &'static str {
@@ -96,19 +164,65 @@ async fn create_session(State(state): State<Arc<AppState>>) -> impl IntoResponse
         label: format!("Session {}", &id[..8]),
         status: "creating".into(),
         cwd,
-        created_at: chrono_now(),
+        created_at: iso_now(),
+        metadata_source: None,
+        metadata_confidence: None,
     };
 
     let handle = SessionHandle { info: info.clone(), kill_tx };
 
-    state.sessions.lock().unwrap().insert(id, handle);
+    state.sessions.lock().unwrap().insert(id.clone(), handle);
+
+    let now = iso_now();
+    let ws_guard = state.workspace.lock().unwrap();
+    if let Some(ref ws) = *ws_guard {
+        ws.metadata.write_session(&metadata::SessionMetadata {
+            id: id.clone(),
+            label: info.label.clone(),
+            workspace: ws.path.display().to_string(),
+            task: String::new(),
+            harness: String::new(),
+            model: String::new(),
+            cwd: info.cwd.clone(),
+            status: "creating".into(),
+            phase: String::new(),
+            created_at: now.clone(),
+            last_activity: now.clone(),
+            metadata_source: "process".into(),
+            metadata_confidence: 1.0,
+        });
+        ws.metadata.append_event(&id, &metadata::Event {
+            event_type: "session.created".into(),
+            timestamp: now,
+            status: "creating".into(),
+        });
+    }
+    drop(ws_guard);
 
     Json(info)
 }
 
 async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let sessions = state.sessions.lock().unwrap();
-    let infos: Vec<SessionInfo> = sessions.values().map(|h| h.info.clone()).collect();
+    let session_data: Vec<(String, String, String, String, String)> = {
+        let sessions = state.sessions.lock().unwrap();
+        sessions.values().map(|h| {
+            (h.info.id.clone(), h.info.label.clone(), h.info.status.clone(), h.info.cwd.clone(), h.info.created_at.clone())
+        }).collect()
+    };
+
+    let ws_guard = state.workspace.lock().unwrap();
+    let infos: Vec<SessionInfo> = session_data.into_iter().map(|(id, label, status, cwd, created_at)| {
+        let (source, confidence) = ws_guard.as_ref()
+            .and_then(|ws| ws.metadata.read_session(&id))
+            .map(|m| (Some(m.metadata_source), Some(m.metadata_confidence)))
+            .unwrap_or((None, None));
+        SessionInfo {
+            id, label, status, cwd, created_at,
+            metadata_source: source,
+            metadata_confidence: confidence,
+        }
+    }).collect();
+    drop(ws_guard);
     Json(infos)
 }
 
@@ -132,6 +246,21 @@ async fn delete_session(
             h.info.status = "killed".to_string();
         }
     }
+    let now = iso_now();
+    let ws_guard = state.workspace.lock().unwrap();
+    if let Some(ref ws) = *ws_guard {
+        if let Some(mut meta) = ws.metadata.read_session(&id) {
+            meta.status = "killed".to_string();
+            meta.last_activity = now.clone();
+            ws.metadata.write_session(&meta);
+        }
+        ws.metadata.append_event(&id, &metadata::Event {
+            event_type: "session.killed".into(),
+            timestamp: now,
+            status: "killed".into(),
+        });
+    }
+    drop(ws_guard);
     axum::http::StatusCode::OK
 }
 
@@ -157,14 +286,40 @@ async fn session_terminal_handler(
     }
 }
 
-fn chrono_now() -> String {
-    let now = std::time::SystemTime::now();
-    let since_epoch = now
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default();
-    let secs = since_epoch.as_secs();
-    // ponytail: gmtime fallback; add chrono crate if full ISO-8601 needed
-    format!("epoch-{}", secs)
+fn git_repo_root(path: &std::path::Path) -> Option<String> {
+    let output = std::process::Command::new("git")
+        .args(["-C", &path.to_string_lossy(), "rev-parse", "--show-toplevel"])
+        .output()
+        .ok()?;
+    if output.status.success() {
+        Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    } else {
+        None
+    }
+}
+
+fn git_branch(repo_root: &str) -> Option<String> {
+    let output = std::process::Command::new("git")
+        .args(["-C", repo_root, "rev-parse", "--abbrev-ref", "HEAD"])
+        .output()
+        .ok()?;
+    if output.status.success() {
+        Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    } else {
+        None
+    }
+}
+
+fn git_dirty(repo_root: &str) -> bool {
+    std::process::Command::new("git")
+        .args(["-C", repo_root, "diff", "--quiet"])
+        .status()
+        .map(|s| !s.success())
+        .unwrap_or(false)
+}
+
+fn iso_now() -> String {
+    chrono::Utc::now().to_rfc3339()
 }
 
 fn shell_cmd() -> (String, Vec<String>) {
@@ -230,9 +385,25 @@ fn make_pty_system() -> ConPtySystem {
 }
 
 fn set_session_status(state: &Arc<AppState>, id: &str, status: &str) {
-    let mut sessions = state.sessions.lock().unwrap();
-    if let Some(handle) = sessions.get_mut(id) {
-        handle.info.status = status.to_string();
+    {
+        let mut sessions = state.sessions.lock().unwrap();
+        if let Some(handle) = sessions.get_mut(id) {
+            handle.info.status = status.to_string();
+        }
+    }
+    let now = iso_now();
+    let ws_guard = state.workspace.lock().unwrap();
+    if let Some(ref ws) = *ws_guard {
+        if let Some(mut meta) = ws.metadata.read_session(id) {
+            meta.status = status.to_string();
+            meta.last_activity = now.clone();
+            ws.metadata.write_session(&meta);
+        }
+        ws.metadata.append_event(id, &metadata::Event {
+            event_type: "session.status".into(),
+            timestamp: now,
+            status: status.to_string(),
+        });
     }
 }
 
@@ -485,6 +656,7 @@ mod tests {
     fn session_registry_create_and_list() {
         let state = Arc::new(AppState {
             sessions: Mutex::new(HashMap::new()),
+            workspace: Mutex::new(None),
         });
 
         assert!(state.sessions.lock().unwrap().is_empty());
@@ -497,6 +669,8 @@ mod tests {
             status: "creating".into(),
             cwd: "/tmp".into(),
             created_at: "now".into(),
+            metadata_source: None,
+            metadata_confidence: None,
         };
         state
             .sessions
@@ -515,6 +689,7 @@ mod tests {
     fn set_session_status_updates_registry() {
         let state = Arc::new(AppState {
             sessions: Mutex::new(HashMap::new()),
+            workspace: Mutex::new(None),
         });
 
         let (kill_tx, _) = tokio::sync::watch::channel(false);
@@ -528,6 +703,8 @@ mod tests {
                     status: "creating".into(),
                     cwd: "/tmp".into(),
                     created_at: "now".into(),
+                    metadata_source: None,
+                    metadata_confidence: None,
                 },
                 kill_tx,
             },
