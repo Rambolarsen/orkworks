@@ -116,7 +116,7 @@ function App() {
       const baseUrl = await window.orkworks.getBackendUrl();
       const session = await createSession(baseUrl);
       setSessions((prev) => [...prev, session]);
-      terminalTabsRef.current?.open(session.id, session.label);
+      terminalTabsRef.current?.openSession(session.id, session.label);
       setActiveSessionId(session.id);
     } catch {
       /* ignore */
@@ -126,7 +126,7 @@ function App() {
   const handleSelectSession = useCallback((id: string) => {
     const session = sessions.find((s) => s.id === id);
     if (session) {
-      terminalTabsRef.current?.open(id, session.label);
+      terminalTabsRef.current?.openSession(id, session.label);
     }
     setActiveSessionId(id);
   }, [sessions]);
@@ -136,7 +136,7 @@ function App() {
       try {
         const baseUrl = await window.orkworks.getBackendUrl();
         await deleteSession(baseUrl, id);
-        terminalTabsRef.current?.close(id);
+        terminalTabsRef.current?.closeSession(id);
         if (activeSessionId === id) {
           setActiveSessionId(null);
         }
