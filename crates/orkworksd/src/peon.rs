@@ -163,6 +163,21 @@ pub fn validate_inference(inf: &PeonInference) -> Result<(), String> {
     Ok(())
 }
 
+/// Returns true if Peon is allowed to overwrite the given metadata source.
+/// `last_modified_secs_ago`: seconds since the metadata file was last modified.
+/// None means the file doesn't exist or has no timestamp.
+pub fn should_overwrite(source: &str, last_modified_secs_ago: Option<u64>) -> bool {
+    match source {
+        "user" => false,
+        "agent" => {
+            // Overwrite agent metadata only if stale (> 5 minutes since last modify)
+            last_modified_secs_ago.map(|s| s > 300).unwrap_or(true)
+        }
+        "peon" | "backend_inference" | "process" | "unknown" | "" => true,
+        _ => true, // unknown source type, allow overwrite
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -355,5 +370,29 @@ mod tests {
         assert_eq!(inf.needs_user_input, Some(true));
         assert!((inf.confidence - 0.7).abs() < 0.001);
         assert!(inf.phase.is_none());
+    }
+
+    #[test]
+    fn test_should_overwrite_user_never() {
+        assert!(!should_overwrite("user", None));       // no last_modified
+        assert!(!should_overwrite("user", Some(0)));    // stale
+    }
+
+    #[test]
+    fn test_should_overwrite_agent_stale_vs_fresh() {
+        // agent metadata modified 10 minutes ago (stale) -> overwrite
+        assert!(should_overwrite("agent", Some(600)));
+        // agent metadata modified 1 minute ago (fresh) -> skip
+        assert!(!should_overwrite("agent", Some(60)));
+    }
+
+    #[test]
+    fn test_should_overwrite_lower_priority() {
+        assert!(should_overwrite("peon", None));
+        assert!(should_overwrite("peon", Some(9999)));  // always overwrite peon
+        assert!(should_overwrite("backend_inference", None));
+        assert!(should_overwrite("process", None));
+        assert!(should_overwrite("unknown", None));
+        assert!(should_overwrite("", None));             // absent source
     }
 }
