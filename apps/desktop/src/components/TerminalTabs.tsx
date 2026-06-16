@@ -1,4 +1,4 @@
-import { useState, useCallback, forwardRef, useImperativeHandle, useEffect } from "react";
+import { useState, useCallback, forwardRef, useImperativeHandle } from "react";
 import CenterPanel from "./CenterPanel";
 
 interface Tab {
@@ -6,88 +6,84 @@ interface Tab {
   label: string;
 }
 
-interface SessionTabs {
-  sessionId: string;
-  label: string;
-  tabs: Tab[];
-  activeTabId: string | null;
-}
-
 export interface TerminalTabsHandle {
-  openSession: (id: string, label: string) => void;
-  closeSession: (id: string) => void;
-  focusSession: (id: string) => void;
+  addTab: (sessionId: string, tab: Tab) => void;
+  removeTab: (sessionId: string, tabId: string) => void;
+  setActiveTab: (sessionId: string, tabId: string) => void;
 }
 
 interface TerminalTabsProps {
   backendStatus: string;
+  activeSessionId: string | null;
+  sessionLabel: string;
 }
 
 const TerminalTabs = forwardRef<TerminalTabsHandle, TerminalTabsProps>(
-  function TerminalTabs({ backendStatus }, ref) {
-    const [groups, setGroups] = useState<SessionTabs[]>([]);
-    const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  function TerminalTabs({ backendStatus, activeSessionId, sessionLabel }, ref) {
+    const [tabs, setTabs] = useState<Tab[]>([]);
+    const [activeTabId, setActiveTabId] = useState<string | null>(null);
 
-    const openSession = useCallback((id: string, label: string) => {
-      setGroups((prev) => {
-        if (prev.some((g) => g.sessionId === id)) return prev;
-        return [...prev, { sessionId: id, label, tabs: [], activeTabId: null }];
+    const addTab = useCallback((_sessionId: string, tab: Tab) => {
+      setTabs((prev) => {
+        if (prev.some((t) => t.id === tab.id)) return prev;
+        return [...prev, tab];
       });
-      setActiveSessionId(id);
+      setActiveTabId(tab.id);
     }, []);
 
-    const closeSession = useCallback((id: string) => {
-      setGroups((prev) => prev.filter((g) => g.sessionId !== id));
-      setActiveSessionId((prev) => (prev === id ? null : prev));
+    const removeTab = useCallback((_sessionId: string, tabId: string) => {
+      setTabs((prev) => prev.filter((t) => t.id !== tabId));
+      setActiveTabId((prev) => (prev === tabId ? null : prev));
     }, []);
 
-    const focusSession = useCallback((id: string) => {
-      setActiveSessionId(id);
+    const setActiveTab = useCallback((_sessionId: string, tabId: string) => {
+      setActiveTabId(tabId);
     }, []);
 
-    useImperativeHandle(ref, () => ({ openSession, closeSession, focusSession }), [openSession, closeSession, focusSession]);
+    useImperativeHandle(ref, () => ({ addTab, removeTab, setActiveTab }), [addTab, removeTab, setActiveTab]);
 
-    useEffect(() => {
-      if (activeSessionId === null && groups.length > 0) {
-        setActiveSessionId(groups[groups.length - 1].sessionId);
-      }
-    }, [activeSessionId, groups]);
-
-    const activeGroup = groups.find((g) => g.sessionId === activeSessionId);
-
-    if (groups.length === 0) {
+    if (!activeSessionId) {
       return (
         <div className="terminal-tabs-empty">
-          <p style={{ color: "#666", fontSize: 12 }}>No terminal sessions</p>
+          <p style={{ color: "#666", fontSize: 12 }}>No session selected</p>
           <p style={{ color: "#555", fontSize: 11, marginTop: 4 }}>
-            Create a session to get started
+            Select or create a session to get started
           </p>
         </div>
       );
     }
 
+    const displayTabId = activeTabId && tabs.some((t) => t.id === activeTabId) ? activeTabId : null;
+
     return (
       <div className="terminal-tabs">
         <div className="terminal-tab-bar">
-          {groups.map((g) => (
+          <div className={`terminal-tab ${!displayTabId ? "terminal-tab--active" : ""}`}>
+            <span className="terminal-tab-dot" />
+            <span className="terminal-tab-label">{sessionLabel}</span>
+          </div>
+          {tabs.map((tab) => (
             <div
-              key={g.sessionId}
-              className={`terminal-tab ${g.sessionId === activeSessionId ? "terminal-tab--active" : ""}`}
-              onClick={() => setActiveSessionId(g.sessionId)}
+              key={tab.id}
+              className={`terminal-tab ${tab.id === displayTabId ? "terminal-tab--active" : ""}`}
+              onClick={() => setActiveTabId(tab.id)}
             >
-              <span className="terminal-tab-dot" />
-              <span className="terminal-tab-label">{g.label}</span>
+              <span className="terminal-tab-label">{tab.label}</span>
             </div>
           ))}
         </div>
         <div className="terminal-tab-content">
-          {activeGroup && (
+          {!displayTabId ? (
             <CenterPanel
-              key={activeGroup.sessionId}
+              key={activeSessionId}
               backendStatus={backendStatus}
-              sessionId={activeGroup.sessionId}
+              sessionId={activeSessionId}
               embedded
             />
+          ) : (
+            <div className="terminal-tabs-empty">
+              <p style={{ color: "#858585", fontSize: 12 }}>{displayTabId}</p>
+            </div>
           )}
         </div>
       </div>
