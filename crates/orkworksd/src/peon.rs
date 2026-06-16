@@ -17,21 +17,39 @@ impl PeonConfig {
             harness: std::env::var("PEON_HARNESS").unwrap_or_else(|_| "opencode".into()),
             harness_args: std::env::var("PEON_HARNESS_ARGS").unwrap_or_else(|_| "--print -p".into()),
             model: std::env::var("PEON_MODEL").ok(),
-            interval_secs: std::env::var("PEON_INTERVAL")
-                .ok()
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(5),
-            max_lines: std::env::var("PEON_MAX_LINES")
-                .ok()
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(200),
-            timeout_secs: std::env::var("PEON_TIMEOUT")
-                .ok()
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(30),
+            interval_secs: match std::env::var("PEON_INTERVAL") {
+                Ok(raw) => match raw.parse() {
+                    Ok(v) => v,
+                    Err(_) => {
+                        tracing::warn!("PEON_INTERVAL is not a valid number, using default 5");
+                        5
+                    }
+                },
+                Err(_) => 5,
+            },
+            max_lines: match std::env::var("PEON_MAX_LINES") {
+                Ok(raw) => match raw.parse() {
+                    Ok(v) => v,
+                    Err(_) => {
+                        tracing::warn!("PEON_MAX_LINES is not a valid number, using default 200");
+                        200
+                    }
+                },
+                Err(_) => 200,
+            },
+            timeout_secs: match std::env::var("PEON_TIMEOUT") {
+                Ok(raw) => match raw.parse() {
+                    Ok(v) => v,
+                    Err(_) => {
+                        tracing::warn!("PEON_TIMEOUT is not a valid number, using default 30");
+                        30
+                    }
+                },
+                Err(_) => 30,
+            },
             enabled: std::env::var("PEON_ENABLED")
                 .ok()
-                .map(|v| v != "false" && v != "0")
+                .map(|v| v == "true" || v == "1")
                 .unwrap_or(true),
         }
     }
