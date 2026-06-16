@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock as StdRwLock};
 use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -47,11 +47,14 @@ struct SessionInfo {
     #[serde(rename = "conflictWarning")]
     conflict_warning: Option<String>,
     recommendation: Option<String>,
+    #[serde(rename = "peonLastInference")]
+    peon_last_inference: Option<String>,
 }
 
 struct SessionHandle {
     info: SessionInfo,
     kill_tx: tokio::sync::watch::Sender<bool>,
+    output_buffer: peon::RingBuffer,
 }
 
 struct WorkspaceState {
@@ -61,9 +64,16 @@ struct WorkspaceState {
     watcher: watcher::MetadataWatcher,
 }
 
+struct PeonState {
+    last_output: StdRwLock<HashMap<String, tokio::time::Instant>>,
+    last_inference: StdRwLock<HashMap<String, String>>,
+    config: peon::PeonConfig,
+}
+
 struct AppState {
     sessions: Mutex<HashMap<String, SessionHandle>>,
     workspace: Mutex<Option<WorkspaceState>>,
+    peon: PeonState,
 }
 
 #[tokio::main]
@@ -79,7 +89,20 @@ async fn main() {
     let state = Arc::new(AppState {
         sessions: Mutex::new(HashMap::new()),
         workspace: Mutex::new(None),
+        peon: PeonState {
+            last_output: StdRwLock::new(HashMap::new()),
+            last_inference: StdRwLock::new(HashMap::new()),
+            config: peon::PeonConfig::from_env(),
+        },
     });
+
+    // Start Peon background task
+    if state.peon.config.enabled {
+        let peon_state = state.clone();
+        tokio::spawn(async move {
+            peon_loop(peon_state).await;
+        });
+    }
 
     let cors = CorsLayer::new()
         .allow_origin(Any)
@@ -186,9 +209,10 @@ async fn create_session(State(state): State<Arc<AppState>>) -> impl IntoResponse
         is_worktree: Some(git_ctx.is_worktree),
         conflict_warning: None,
         recommendation: None,
+        peon_last_inference: None,
     };
 
-    let handle = SessionHandle { info: info.clone(), kill_tx };
+    let handle = SessionHandle { info: info.clone(), kill_tx, output_buffer: peon::RingBuffer::new(state.peon.config.max_lines) };
 
     state.sessions.lock().unwrap().insert(id.clone(), handle);
 
@@ -272,15 +296,30 @@ async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse 
     };
 
     let ws_guard = state.workspace.lock().unwrap();
+    let (source_map, confidence_map) = ws_guard.as_ref().map(|ws| {
+        let mut sources = HashMap::new();
+        let mut confidences = HashMap::new();
+        for (id, _, _, _, _) in &session_data {
+            if let Some(meta) = ws.metadata.read_session(id) {
+                sources.insert(id.clone(), meta.metadata_source);
+                confidences.insert(id.clone(), meta.metadata_confidence);
+            }
+        }
+        (sources, confidences)
+    }).unwrap_or_default();
+    drop(ws_guard);
+
+    let peon_times = state.peon.last_inference.read().unwrap();
     let mut infos: Vec<SessionInfo> = session_data.into_iter().map(|(id, label, status, cwd, created_at)| {
-        let (source, confidence) = ws_guard.as_ref()
-            .and_then(|ws| ws.metadata.read_session(&id))
-            .map(|m| (Some(m.metadata_source), Some(m.metadata_confidence)))
-            .unwrap_or((None, None));
         SessionInfo {
-            id, label, status, cwd, created_at,
-            metadata_source: source,
-            metadata_confidence: confidence,
+            id: id.clone(),
+            label,
+            status,
+            cwd,
+            created_at,
+            metadata_source: source_map.get(&id).cloned(),
+            metadata_confidence: confidence_map.get(&id).copied(),
+            peon_last_inference: peon_times.get(&id).cloned(),
             repo_root: None,
             branch: None,
             dirty: None,
@@ -290,7 +329,6 @@ async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse 
             recommendation: None,
         }
     }).collect();
-    drop(ws_guard);
 
     let mut cwd_counts: HashMap<String, usize> = HashMap::new();
     for info in &infos {
@@ -353,6 +391,8 @@ async fn delete_session(
         });
     }
     drop(ws_guard);
+    state.peon.last_output.write().unwrap().remove(&id);
+    state.peon.last_inference.write().unwrap().remove(&id);
     axum::http::StatusCode::OK
 }
 
@@ -390,6 +430,72 @@ async fn session_terminal_handler(
 
 fn iso_now() -> String {
     chrono::Utc::now().to_rfc3339()
+}
+
+async fn peon_loop(state: Arc<AppState>) {
+    let interval = state.peon.config.interval_secs;
+    tracing::info!("Peon started (interval={interval}s, harness={})", state.peon.config.harness);
+
+    loop {
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+
+        let now = tokio::time::Instant::now();
+        let deadline = now - std::time::Duration::from_secs(interval);
+
+        // Find sessions with new output that has gone silent
+        let candidates: Vec<String> = {
+            let last_output = state.peon.last_output.read().unwrap();
+            let last_inference = state.peon.last_inference.read().unwrap();
+
+            last_output.iter()
+                .filter(|(id, &t)| {
+                    if t > deadline { return false; }
+                    !last_inference.contains_key(*id)
+                })
+                .map(|(id, _)| id.clone())
+                .collect()
+        };
+
+        for session_id in candidates {
+            let output_snapshot = {
+                let sessions = state.sessions.lock().unwrap();
+                match sessions.get(&session_id) {
+                    Some(handle) => handle.output_buffer.snapshot(),
+                    None => continue,
+                }
+            };
+
+            if output_snapshot.is_empty() { continue; }
+
+            let config = state.peon.config.clone();
+            let state_clone = state.clone();
+            let id = session_id.clone();
+
+            tokio::task::spawn_blocking(move || {
+                let inference = peon::run_inference(&config, &output_snapshot);
+                let now_iso = iso_now();
+
+                if let Some(inf) = inference {
+                    let ws_guard = state_clone.workspace.lock().unwrap();
+                    if let Some(ref ws) = *ws_guard {
+                        let should_write = ws.metadata.read_session(&id)
+                            .map(|m| peon::should_overwrite(&m.metadata_source, None))
+                            .unwrap_or(true);
+
+                        if should_write {
+                            // TODO: merge_peon_inference — Task 7
+                            tracing::debug!("Peon: would write inference for {id}: status={:?}", inf.status);
+                        } else {
+                            tracing::debug!("Peon: skipping {id}, higher-priority source exists");
+                        }
+                    }
+                }
+
+                let mut last_inf = state_clone.peon.last_inference.write().unwrap();
+                last_inf.insert(id, now_iso);
+            });
+        }
+    }
 }
 
 fn shell_cmd() -> (String, Vec<String>) {
@@ -624,6 +730,25 @@ async fn handle_session_terminal(mut ws: WebSocket, id: String, state: Arc<AppSt
                 }
             }
             Some(data) = rx.recv() => {
+                // Feed ring buffer for Peon
+                if state.peon.config.enabled {
+                    let text = String::from_utf8_lossy(&data);
+                    let mut sessions = state.sessions.lock().unwrap();
+                    if let Some(handle) = sessions.get_mut(&id) {
+                        for line in text.lines() {
+                            let trimmed = line.trim();
+                            if !trimmed.is_empty() {
+                                handle.output_buffer.push(trimmed.to_string());
+                            }
+                        }
+                    }
+                    drop(sessions);
+                    let mut last_output = state.peon.last_output.write().unwrap();
+                    last_output.insert(id.clone(), tokio::time::Instant::now());
+                    drop(last_output);
+                    // Clear last_inference so Peon will re-observe after new output
+                    state.peon.last_inference.write().unwrap().remove(&id);
+                }
                 if ws.send(Message::Binary(data.into())).await.is_err() {
                     break;
                 }
@@ -745,6 +870,11 @@ mod tests {
         let state = Arc::new(AppState {
             sessions: Mutex::new(HashMap::new()),
             workspace: Mutex::new(None),
+            peon: PeonState {
+                last_output: StdRwLock::new(HashMap::new()),
+                last_inference: StdRwLock::new(HashMap::new()),
+                config: peon::PeonConfig::from_env(),
+            },
         });
 
         assert!(state.sessions.lock().unwrap().is_empty());
@@ -766,12 +896,13 @@ mod tests {
             is_worktree: None,
             conflict_warning: None,
             recommendation: None,
+            peon_last_inference: None,
         };
         state
             .sessions
             .lock()
             .unwrap()
-            .insert(id, SessionHandle { info: info.clone(), kill_tx });
+            .insert(id, SessionHandle { info: info.clone(), kill_tx, output_buffer: peon::RingBuffer::new(200) });
 
         let sessions = state.sessions.lock().unwrap();
         assert_eq!(sessions.len(), 1);
@@ -785,6 +916,11 @@ mod tests {
         let state = Arc::new(AppState {
             sessions: Mutex::new(HashMap::new()),
             workspace: Mutex::new(None),
+            peon: PeonState {
+                last_output: StdRwLock::new(HashMap::new()),
+                last_inference: StdRwLock::new(HashMap::new()),
+                config: peon::PeonConfig::from_env(),
+            },
         });
 
         let (kill_tx, _) = tokio::sync::watch::channel(false);
@@ -807,8 +943,10 @@ mod tests {
                     is_worktree: None,
                     conflict_warning: None,
                     recommendation: None,
+                    peon_last_inference: None,
                 },
                 kill_tx,
+                output_buffer: peon::RingBuffer::new(200),
             },
         );
 
@@ -913,6 +1051,7 @@ mod tests {
             is_worktree: None,
             conflict_warning: None,
             recommendation: None,
+            peon_last_inference: None,
         };
         let json = serde_json::to_string(&info).unwrap();
         assert!(json.contains("\"metadataSource\":\"process\""));
@@ -936,6 +1075,7 @@ mod tests {
             is_worktree: None,
             conflict_warning: None,
             recommendation: None,
+            peon_last_inference: None,
         };
         let json = serde_json::to_string(&info).unwrap();
         assert!(json.contains("\"metadataSource\":null"));
@@ -953,6 +1093,7 @@ mod tests {
                 dirty: Some(true),
                 changed_files: None, is_worktree: None,
                 conflict_warning: None, recommendation: None,
+                peon_last_inference: None,
             },
             SessionInfo {
                 id: "b".into(), label: "B".into(), status: "running".into(),
@@ -962,6 +1103,7 @@ mod tests {
                 dirty: Some(true),
                 changed_files: None, is_worktree: None,
                 conflict_warning: None, recommendation: None,
+                peon_last_inference: None,
             },
         ];
         let warnings = detect_conflicts(&sessions);
@@ -984,6 +1126,7 @@ mod tests {
                 dirty: Some(false),
                 changed_files: None, is_worktree: None,
                 conflict_warning: None, recommendation: None,
+                peon_last_inference: None,
             },
             SessionInfo {
                 id: "b".into(), label: "B".into(), status: "running".into(),
@@ -993,6 +1136,7 @@ mod tests {
                 dirty: Some(false),
                 changed_files: None, is_worktree: None,
                 conflict_warning: None, recommendation: None,
+                peon_last_inference: None,
             },
         ];
         let warnings = detect_conflicts(&sessions);
@@ -1010,6 +1154,7 @@ mod tests {
                 dirty: None,
                 changed_files: None, is_worktree: None,
                 conflict_warning: None, recommendation: None,
+                peon_last_inference: None,
             },
             SessionInfo {
                 id: "b".into(), label: "B".into(), status: "running".into(),
@@ -1019,6 +1164,7 @@ mod tests {
                 dirty: None,
                 changed_files: None, is_worktree: None,
                 conflict_warning: None, recommendation: None,
+                peon_last_inference: None,
             },
         ];
         let warnings = detect_conflicts(&sessions);
