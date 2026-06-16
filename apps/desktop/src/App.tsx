@@ -4,6 +4,7 @@ import LeftSidebar from "./components/LeftSidebar";
 import RightSidebar from "./components/RightSidebar";
 import TerminalTabs from "./components/TerminalTabs";
 import type { TerminalTabsHandle } from "./components/TerminalTabs";
+import { sessionAttentionStatus } from "./components/RightSidebarHelpers";
 import {
   type SessionInfo,
   type WorkspaceInfo,
@@ -59,11 +60,18 @@ function App() {
   }, [backendStatus]);
 
   const stateOrder: Record<string, number> = {
-    creating: 0,
-    running: 1,
-    ended: 2,
-    killed: 3,
-    error: 4,
+    waiting_for_input: 0,
+    blocked: 1,
+    failed: 2,
+    creating: 3,
+    running: 4,
+    working: 5,
+    idle: 6,
+    done: 7,
+    stale: 8,
+    ended: 9,
+    killed: 10,
+    error: 11,
   };
 
   const refreshSessions = useCallback(async () => {
@@ -71,8 +79,8 @@ function App() {
       const baseUrl = await window.orkworks.getBackendUrl();
       const list = await listSessions(baseUrl);
       list.sort((a, b) => {
-        const sa = stateOrder[a.status] ?? 5;
-        const sb = stateOrder[b.status] ?? 5;
+        const sa = stateOrder[sessionAttentionStatus(a)] ?? 5;
+        const sb = stateOrder[sessionAttentionStatus(b)] ?? 5;
         if (sa !== sb) return sa - sb;
         return a.label.localeCompare(b.label);
       });

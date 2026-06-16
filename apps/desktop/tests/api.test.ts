@@ -10,11 +10,24 @@ test("SessionInfo type accepts metadata fields", () => {
     status: "running",
     cwd: "/tmp",
     created_at: "now",
+    observedStatus: "waiting_for_input",
+    summary: "Needs approval",
+    nextAction: "Choose an option",
+    needsUserInput: true,
+    detectedQuestion: "Proceed?",
+    suggestedOptions: ["yes", "no"],
+    blockerDescription: "Waiting on user",
+    failedCommand: "cargo test",
+    failedTest: "integration",
+    capacityHints: ["capped"],
+    peonLastInference: "2026-06-16T12:00:00Z",
     metadataSource: "process",
     metadataConfidence: 1.0,
   };
   assert.equal(session.metadataSource, "process");
   assert.equal(session.metadataConfidence, 1.0);
+  assert.equal(session.observedStatus, "waiting_for_input");
+  assert.equal(session.needsUserInput, true);
 });
 
 test("WorkspaceInfo type has expected shape", () => {

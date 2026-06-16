@@ -7,6 +7,7 @@ import {
   borderColor,
   sourceColor,
   sortSessions,
+  sessionAttentionStatus,
 } from "../src/components/RightSidebarHelpers.ts";
 import type { SessionInfo } from "../src/api.ts";
 
@@ -57,4 +58,35 @@ test("sortSessions sorts by priority then label", () => {
   assert.equal(sorted[1].id, "4"); // failed second
   assert.equal(sorted[2].id, "1"); // running, label "B session"
   assert.equal(sorted[3].id, "3"); // running, label "C session"
+});
+
+test("sessionAttentionStatus prefers observed status over lifecycle status", () => {
+  const session: SessionInfo = {
+    id: "1",
+    label: "Running session needing input",
+    status: "running",
+    observedStatus: "waiting_for_input",
+    cwd: "/tmp",
+    created_at: "now",
+  };
+
+  assert.equal(sessionAttentionStatus(session), "waiting_for_input");
+  assert.equal(needsAttention(sessionAttentionStatus(session)), true);
+});
+
+test("sortSessions uses observed status for attention priority", () => {
+  const sessions: SessionInfo[] = [
+    { id: "1", label: "Active", status: "running", cwd: "/tmp", created_at: "now" },
+    {
+      id: "2",
+      label: "Needs input",
+      status: "running",
+      observedStatus: "waiting_for_input",
+      cwd: "/tmp",
+      created_at: "now",
+    },
+  ];
+
+  const sorted = sortSessions(sessions);
+  assert.equal(sorted[0].id, "2");
 });

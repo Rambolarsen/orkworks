@@ -21,6 +21,7 @@ orkworks/
 - Electron launches Rust sidecar; UI talks to it over localhost HTTP/WebSocket
 - `nodeIntegration: false`, `contextIsolation: true`
 - Three-panel layout with resizable drag handles via react-resizable-panels
+- Peon writes observer metadata such as `observedStatus` without replacing runtime lifecycle `status`
 - PTY handles only text I/O; voice (native harness) bypasses PTY entirely
 
 ## Metadata protocol

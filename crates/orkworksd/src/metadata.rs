@@ -15,6 +15,27 @@ pub struct SessionMetadata {
     pub cwd: String,
     pub status: String,
     pub phase: String,
+    #[serde(rename = "observedStatus")]
+    pub observed_status: Option<String>,
+    pub summary: Option<String>,
+    #[serde(rename = "nextAction")]
+    pub next_action: Option<String>,
+    #[serde(rename = "needsUserInput")]
+    pub needs_user_input: Option<bool>,
+    #[serde(rename = "detectedQuestion")]
+    pub detected_question: Option<String>,
+    #[serde(rename = "suggestedOptions")]
+    pub suggested_options: Option<Vec<String>>,
+    #[serde(rename = "blockerDescription")]
+    pub blocker_description: Option<String>,
+    #[serde(rename = "failedCommand")]
+    pub failed_command: Option<String>,
+    #[serde(rename = "failedTest")]
+    pub failed_test: Option<String>,
+    #[serde(rename = "capacityHints")]
+    pub capacity_hints: Option<Vec<String>>,
+    #[serde(rename = "peonLastInference")]
+    pub peon_last_inference: Option<String>,
     #[serde(rename = "createdAt")]
     pub created_at: String,
     #[serde(rename = "lastActivity")]
@@ -39,6 +60,9 @@ pub struct Event {
     pub event_type: String,
     pub timestamp: String,
     pub status: String,
+    #[serde(rename = "observedStatus")]
+    pub observed_status: Option<String>,
+    pub confidence: Option<f64>,
 }
 
 pub struct MetadataStore {
@@ -95,6 +119,12 @@ impl MetadataStore {
         serde_json::from_str(&data).ok()
     }
 
+    pub fn session_modified_secs_ago(&self, id: &str) -> Option<u64> {
+        let path = self.sessions_dir().join(format!("{}.json", id));
+        let modified = fs::metadata(path).ok()?.modified().ok()?;
+        modified.elapsed().ok().map(|elapsed| elapsed.as_secs())
+    }
+
     pub fn append_event(&self, id: &str, event: &Event) {
         let dir = self.events_dir();
         if let Err(e) = fs::create_dir_all(&dir) {
@@ -121,22 +151,31 @@ impl MetadataStore {
             None => return,
         };
 
-        if let Some(ref status) = inf.status {
-            meta.status = status.clone();
-        }
+        meta.observed_status = inf.observed_status.clone().or(meta.observed_status);
         if let Some(ref phase) = inf.phase {
             meta.phase = phase.clone();
         }
+        meta.summary = inf.summary.clone().or(meta.summary);
+        meta.next_action = inf.next_action.clone().or(meta.next_action);
+        meta.needs_user_input = inf.needs_user_input.or(meta.needs_user_input);
+        meta.detected_question = inf.detected_question.clone().or(meta.detected_question);
+        meta.suggested_options = inf.suggested_options.clone().or(meta.suggested_options);
+        meta.blocker_description = inf.blocker_description.clone().or(meta.blocker_description);
+        meta.failed_command = inf.failed_command.clone().or(meta.failed_command);
+        meta.failed_test = inf.failed_test.clone().or(meta.failed_test);
+        meta.capacity_hints = inf.capacity_hints.clone().or(meta.capacity_hints);
+        meta.peon_last_inference = Some(timestamp.to_string());
         meta.metadata_source = "peon".into();
         meta.metadata_confidence = inf.confidence;
-        meta.last_activity = timestamp.to_string();
 
         self.write_session(&meta);
 
         self.append_event(id, &Event {
             event_type: "peon.inference".into(),
             timestamp: timestamp.to_string(),
-            status: inf.status.clone().unwrap_or_else(|| meta.status.clone()),
+            status: meta.status.clone(),
+            observed_status: inf.observed_status.clone(),
+            confidence: Some(inf.confidence),
         });
     }
 }
@@ -159,6 +198,17 @@ mod tests {
             cwd: "/tmp".into(),
             status: "running".into(),
             phase: "implementation".into(),
+            observed_status: None,
+            summary: None,
+            next_action: None,
+            needs_user_input: None,
+            detected_question: None,
+            suggested_options: None,
+            blocker_description: None,
+            failed_command: None,
+            failed_test: None,
+            capacity_hints: None,
+            peon_last_inference: None,
             created_at: "now".into(),
             last_activity: "now".into(),
             metadata_source: "process".into(),
@@ -182,11 +232,15 @@ mod tests {
             event_type: "session.created".into(),
             timestamp: "now".into(),
             status: "creating".into(),
+            observed_status: None,
+            confidence: None,
         });
         store.append_event("test-2", &Event {
             event_type: "session.status".into(),
             timestamp: "later".into(),
             status: "running".into(),
+            observed_status: None,
+            confidence: None,
         });
         let path = store.events_dir().join("test-2.ndjson");
         let contents = fs::read_to_string(&path).unwrap();
@@ -201,11 +255,15 @@ mod tests {
             event_type: "session.created".into(),
             timestamp: "t1".into(),
             status: "creating".into(),
+            observed_status: None,
+            confidence: None,
         });
         store.append_event("test-3", &Event {
             event_type: "session.status".into(),
             timestamp: "t2".into(),
             status: "running".into(),
+            observed_status: None,
+            confidence: None,
         });
         let events = store.read_events("test-3");
         assert_eq!(events.len(), 2);
@@ -219,5 +277,70 @@ mod tests {
         let store = MetadataStore::new(dir.path());
         let events = store.read_events("nonexistent");
         assert!(events.is_empty());
+    }
+
+    #[test]
+    fn merge_peon_inference_preserves_lifecycle_status_and_writes_observer_status() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        store.write_session(&SessionMetadata {
+            id: "test-peon-observer".into(),
+            label: "Test".into(),
+            workspace: "/tmp".into(),
+            task: "".into(),
+            harness: "".into(),
+            model: "".into(),
+            cwd: "/tmp".into(),
+            status: "running".into(),
+            phase: "".into(),
+            observed_status: None,
+            summary: None,
+            next_action: None,
+            needs_user_input: None,
+            detected_question: None,
+            suggested_options: None,
+            blocker_description: None,
+            failed_command: None,
+            failed_test: None,
+            capacity_hints: None,
+            peon_last_inference: None,
+            created_at: "now".into(),
+            last_activity: "now".into(),
+            metadata_source: "process".into(),
+            metadata_confidence: 1.0,
+            repo_root: None,
+            branch: None,
+            dirty: None,
+            changed_files: None,
+            is_worktree: None,
+        });
+
+        let inf = crate::peon::PeonInference {
+            observed_status: Some("waiting_for_input".into()),
+            phase: Some("review".into()),
+            summary: Some("Needs a decision".into()),
+            next_action: Some("Pick an option".into()),
+            needs_user_input: Some(true),
+            detected_question: Some("Proceed?".into()),
+            suggested_options: Some(vec!["yes".into(), "no".into()]),
+            blocker_description: None,
+            failed_command: None,
+            failed_test: None,
+            capacity_hints: None,
+            confidence: 0.82,
+        };
+
+        store.merge_peon_inference("test-peon-observer", &inf, "later");
+
+        let meta = store.read_session("test-peon-observer").unwrap();
+        assert_eq!(meta.status, "running");
+
+        let path = store.sessions_dir().join("test-peon-observer.json");
+        let raw: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+        assert_eq!(raw["observedStatus"], "waiting_for_input");
+        assert_eq!(raw["summary"], "Needs a decision");
+        assert_eq!(raw["needsUserInput"], true);
+        assert_eq!(raw["peonLastInference"], "later");
     }
 }

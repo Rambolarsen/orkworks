@@ -7,7 +7,7 @@ use axum::{
 };
 use portable_pty::{CommandBuilder, PtySize, PtySystem};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -32,6 +32,25 @@ struct SessionInfo {
     status: String,
     cwd: String,
     created_at: String,
+    #[serde(rename = "observedStatus")]
+    observed_status: Option<String>,
+    pub summary: Option<String>,
+    #[serde(rename = "nextAction")]
+    next_action: Option<String>,
+    #[serde(rename = "needsUserInput")]
+    needs_user_input: Option<bool>,
+    #[serde(rename = "detectedQuestion")]
+    detected_question: Option<String>,
+    #[serde(rename = "suggestedOptions")]
+    suggested_options: Option<Vec<String>>,
+    #[serde(rename = "blockerDescription")]
+    blocker_description: Option<String>,
+    #[serde(rename = "failedCommand")]
+    failed_command: Option<String>,
+    #[serde(rename = "failedTest")]
+    failed_test: Option<String>,
+    #[serde(rename = "capacityHints")]
+    capacity_hints: Option<Vec<String>>,
     #[serde(rename = "metadataSource")]
     metadata_source: Option<String>,
     #[serde(rename = "metadataConfidence")]
@@ -67,6 +86,7 @@ struct WorkspaceState {
 struct PeonState {
     last_output: StdRwLock<HashMap<String, tokio::time::Instant>>,
     last_inference: StdRwLock<HashMap<String, String>>,
+    in_flight: StdRwLock<HashSet<String>>,
     config: peon::PeonConfig,
 }
 
@@ -92,6 +112,7 @@ async fn main() {
         peon: PeonState {
             last_output: StdRwLock::new(HashMap::new()),
             last_inference: StdRwLock::new(HashMap::new()),
+            in_flight: StdRwLock::new(HashSet::new()),
             config: peon::PeonConfig::from_env(),
         },
     });
@@ -200,6 +221,16 @@ async fn create_session(State(state): State<Arc<AppState>>) -> impl IntoResponse
         status: "creating".into(),
         cwd,
         created_at: iso_now(),
+        observed_status: None,
+        summary: None,
+        next_action: None,
+        needs_user_input: None,
+        detected_question: None,
+        suggested_options: None,
+        blocker_description: None,
+        failed_command: None,
+        failed_test: None,
+        capacity_hints: None,
         metadata_source: None,
         metadata_confidence: None,
         repo_root: git_ctx.repo_root.clone(),
@@ -230,6 +261,17 @@ async fn create_session(State(state): State<Arc<AppState>>) -> impl IntoResponse
             cwd: info.cwd.clone(),
             status: "creating".into(),
             phase: String::new(),
+            observed_status: None,
+            summary: None,
+            next_action: None,
+            needs_user_input: None,
+            detected_question: None,
+            suggested_options: None,
+            blocker_description: None,
+            failed_command: None,
+            failed_test: None,
+            capacity_hints: None,
+            peon_last_inference: None,
             created_at: now.clone(),
             last_activity: now.clone(),
             metadata_source: "process".into(),
@@ -244,6 +286,8 @@ async fn create_session(State(state): State<Arc<AppState>>) -> impl IntoResponse
             event_type: "session.created".into(),
             timestamp: now,
             status: "creating".into(),
+            observed_status: None,
+            confidence: None,
         });
     }
     drop(ws_guard);
@@ -296,16 +340,14 @@ async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse 
     };
 
     let ws_guard = state.workspace.lock().unwrap();
-    let (source_map, confidence_map) = ws_guard.as_ref().map(|ws| {
-        let mut sources = HashMap::new();
-        let mut confidences = HashMap::new();
+    let metadata_map = ws_guard.as_ref().map(|ws| {
+        let mut metadata = HashMap::new();
         for (id, _, _, _, _) in &session_data {
             if let Some(meta) = ws.metadata.read_session(id) {
-                sources.insert(id.clone(), meta.metadata_source);
-                confidences.insert(id.clone(), meta.metadata_confidence);
+                metadata.insert(id.clone(), meta);
             }
         }
-        (sources, confidences)
+        metadata
     }).unwrap_or_default();
     drop(ws_guard);
 
@@ -317,9 +359,22 @@ async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse 
             status,
             cwd,
             created_at,
-            metadata_source: source_map.get(&id).cloned(),
-            metadata_confidence: confidence_map.get(&id).copied(),
-            peon_last_inference: peon_times.get(&id).cloned(),
+            observed_status: metadata_map.get(&id).and_then(|m| m.observed_status.clone()),
+            summary: metadata_map.get(&id).and_then(|m| m.summary.clone()),
+            next_action: metadata_map.get(&id).and_then(|m| m.next_action.clone()),
+            needs_user_input: metadata_map.get(&id).and_then(|m| m.needs_user_input),
+            detected_question: metadata_map.get(&id).and_then(|m| m.detected_question.clone()),
+            suggested_options: metadata_map.get(&id).and_then(|m| m.suggested_options.clone()),
+            blocker_description: metadata_map.get(&id).and_then(|m| m.blocker_description.clone()),
+            failed_command: metadata_map.get(&id).and_then(|m| m.failed_command.clone()),
+            failed_test: metadata_map.get(&id).and_then(|m| m.failed_test.clone()),
+            capacity_hints: metadata_map.get(&id).and_then(|m| m.capacity_hints.clone()),
+            metadata_source: metadata_map.get(&id).map(|m| m.metadata_source.clone()),
+            metadata_confidence: metadata_map.get(&id).map(|m| m.metadata_confidence),
+            peon_last_inference: metadata_map
+                .get(&id)
+                .and_then(|m| m.peon_last_inference.clone())
+                .or_else(|| peon_times.get(&id).cloned()),
             repo_root: None,
             branch: None,
             dirty: None,
@@ -388,6 +443,8 @@ async fn delete_session(
             event_type: "session.killed".into(),
             timestamp: now,
             status: "killed".into(),
+            observed_status: None,
+            confidence: None,
         });
     }
     drop(ws_guard);
@@ -446,26 +503,40 @@ async fn peon_loop(state: Arc<AppState>) {
         let candidates: Vec<String> = {
             let last_output = state.peon.last_output.read().unwrap();
             let last_inference = state.peon.last_inference.read().unwrap();
+            let in_flight = state.peon.in_flight.read().unwrap();
 
             last_output.iter()
                 .filter(|(id, &t)| {
                     if t > deadline { return false; }
-                    !last_inference.contains_key(*id)
+                    !last_inference.contains_key(*id) && !in_flight.contains(*id)
                 })
                 .map(|(id, _)| id.clone())
                 .collect()
         };
 
         for session_id in candidates {
+            {
+                let mut in_flight = state.peon.in_flight.write().unwrap();
+                if !in_flight.insert(session_id.clone()) {
+                    continue;
+                }
+            }
+
             let output_snapshot = {
                 let sessions = state.sessions.lock().unwrap();
                 match sessions.get(&session_id) {
                     Some(handle) => handle.output_buffer.snapshot(),
-                    None => continue,
+                    None => {
+                        state.peon.in_flight.write().unwrap().remove(&session_id);
+                        continue;
+                    }
                 }
             };
 
-            if output_snapshot.is_empty() { continue; }
+            if output_snapshot.is_empty() {
+                state.peon.in_flight.write().unwrap().remove(&session_id);
+                continue;
+            }
 
             let config = state.peon.config.clone();
             let state_clone = state.clone();
@@ -479,7 +550,10 @@ async fn peon_loop(state: Arc<AppState>) {
                     let ws_guard = state_clone.workspace.lock().unwrap();
                     if let Some(ref ws) = *ws_guard {
                         let should_write = ws.metadata.read_session(&id)
-                            .map(|m| peon::should_overwrite(&m.metadata_source, None))
+                            .map(|m| {
+                                let age = ws.metadata.session_modified_secs_ago(&id);
+                                peon::should_overwrite(&m.metadata_source, age)
+                            })
                             .unwrap_or(true);
 
                         if should_write {
@@ -491,7 +565,9 @@ async fn peon_loop(state: Arc<AppState>) {
                 }
 
                 let mut last_inf = state_clone.peon.last_inference.write().unwrap();
-                last_inf.insert(id, now_iso);
+                last_inf.insert(id.clone(), now_iso);
+                drop(last_inf);
+                state_clone.peon.in_flight.write().unwrap().remove(&id);
             });
         }
     }
@@ -578,6 +654,8 @@ fn set_session_status(state: &Arc<AppState>, id: &str, status: &str) {
             event_type: "session.status".into(),
             timestamp: now,
             status: status.to_string(),
+            observed_status: None,
+            confidence: None,
         });
     }
 }
@@ -872,6 +950,7 @@ mod tests {
             peon: PeonState {
                 last_output: StdRwLock::new(HashMap::new()),
                 last_inference: StdRwLock::new(HashMap::new()),
+                in_flight: StdRwLock::new(HashSet::new()),
                 config: peon::PeonConfig::from_env(),
             },
         });
@@ -886,6 +965,16 @@ mod tests {
             status: "creating".into(),
             cwd: "/tmp".into(),
             created_at: "now".into(),
+            observed_status: None,
+            summary: None,
+            next_action: None,
+            needs_user_input: None,
+            detected_question: None,
+            suggested_options: None,
+            blocker_description: None,
+            failed_command: None,
+            failed_test: None,
+            capacity_hints: None,
             metadata_source: None,
             metadata_confidence: None,
             repo_root: None,
@@ -918,6 +1007,7 @@ mod tests {
             peon: PeonState {
                 last_output: StdRwLock::new(HashMap::new()),
                 last_inference: StdRwLock::new(HashMap::new()),
+                in_flight: StdRwLock::new(HashSet::new()),
                 config: peon::PeonConfig::from_env(),
             },
         });
@@ -933,6 +1023,16 @@ mod tests {
                     status: "creating".into(),
                     cwd: "/tmp".into(),
                     created_at: "now".into(),
+                    observed_status: None,
+                    summary: None,
+                    next_action: None,
+                    needs_user_input: None,
+                    detected_question: None,
+                    suggested_options: None,
+                    blocker_description: None,
+                    failed_command: None,
+                    failed_test: None,
+                    capacity_hints: None,
                     metadata_source: None,
                     metadata_confidence: None,
                     repo_root: None,
@@ -1041,6 +1141,16 @@ mod tests {
             status: "running".into(),
             cwd: "/tmp".into(),
             created_at: "now".into(),
+            observed_status: Some("waiting_for_input".into()),
+            summary: Some("Needs approval".into()),
+            next_action: Some("Choose an option".into()),
+            needs_user_input: Some(true),
+            detected_question: Some("Proceed?".into()),
+            suggested_options: Some(vec!["yes".into(), "no".into()]),
+            blocker_description: None,
+            failed_command: None,
+            failed_test: None,
+            capacity_hints: None,
             metadata_source: Some("process".into()),
             metadata_confidence: Some(1.0),
             repo_root: None,
@@ -1055,6 +1165,8 @@ mod tests {
         let json = serde_json::to_string(&info).unwrap();
         assert!(json.contains("\"metadataSource\":\"process\""));
         assert!(json.contains("\"metadataConfidence\":1.0"));
+        assert!(json.contains("\"observedStatus\":\"waiting_for_input\""));
+        assert!(json.contains("\"needsUserInput\":true"));
     }
 
     #[test]
@@ -1065,6 +1177,16 @@ mod tests {
             status: "creating".into(),
             cwd: "/tmp".into(),
             created_at: "now".into(),
+            observed_status: None,
+            summary: None,
+            next_action: None,
+            needs_user_input: None,
+            detected_question: None,
+            suggested_options: None,
+            blocker_description: None,
+            failed_command: None,
+            failed_test: None,
+            capacity_hints: None,
             metadata_source: None,
             metadata_confidence: None,
             repo_root: None,
@@ -1087,6 +1209,10 @@ mod tests {
             SessionInfo {
                 id: "a".into(), label: "A".into(), status: "running".into(),
                 cwd: "/repo".into(), created_at: "now".into(),
+                observed_status: None, summary: None, next_action: None,
+                needs_user_input: None, detected_question: None, suggested_options: None,
+                blocker_description: None, failed_command: None, failed_test: None,
+                capacity_hints: None,
                 metadata_source: None, metadata_confidence: None,
                 repo_root: None, branch: None,
                 dirty: Some(true),
@@ -1097,6 +1223,10 @@ mod tests {
             SessionInfo {
                 id: "b".into(), label: "B".into(), status: "running".into(),
                 cwd: "/repo".into(), created_at: "now".into(),
+                observed_status: None, summary: None, next_action: None,
+                needs_user_input: None, detected_question: None, suggested_options: None,
+                blocker_description: None, failed_command: None, failed_test: None,
+                capacity_hints: None,
                 metadata_source: None, metadata_confidence: None,
                 repo_root: None, branch: None,
                 dirty: Some(true),
@@ -1120,6 +1250,10 @@ mod tests {
             SessionInfo {
                 id: "a".into(), label: "A".into(), status: "running".into(),
                 cwd: "/repo".into(), created_at: "now".into(),
+                observed_status: None, summary: None, next_action: None,
+                needs_user_input: None, detected_question: None, suggested_options: None,
+                blocker_description: None, failed_command: None, failed_test: None,
+                capacity_hints: None,
                 metadata_source: None, metadata_confidence: None,
                 repo_root: None, branch: None,
                 dirty: Some(false),
@@ -1130,6 +1264,10 @@ mod tests {
             SessionInfo {
                 id: "b".into(), label: "B".into(), status: "running".into(),
                 cwd: "/repo".into(), created_at: "now".into(),
+                observed_status: None, summary: None, next_action: None,
+                needs_user_input: None, detected_question: None, suggested_options: None,
+                blocker_description: None, failed_command: None, failed_test: None,
+                capacity_hints: None,
                 metadata_source: None, metadata_confidence: None,
                 repo_root: None, branch: None,
                 dirty: Some(false),
@@ -1148,6 +1286,10 @@ mod tests {
             SessionInfo {
                 id: "a".into(), label: "A".into(), status: "running".into(),
                 cwd: "/repo".into(), created_at: "now".into(),
+                observed_status: None, summary: None, next_action: None,
+                needs_user_input: None, detected_question: None, suggested_options: None,
+                blocker_description: None, failed_command: None, failed_test: None,
+                capacity_hints: None,
                 metadata_source: None, metadata_confidence: None,
                 repo_root: None, branch: None,
                 dirty: None,
@@ -1158,6 +1300,10 @@ mod tests {
             SessionInfo {
                 id: "b".into(), label: "B".into(), status: "running".into(),
                 cwd: "/repo".into(), created_at: "now".into(),
+                observed_status: None, summary: None, next_action: None,
+                needs_user_input: None, detected_question: None, suggested_options: None,
+                blocker_description: None, failed_command: None, failed_test: None,
+                capacity_hints: None,
                 metadata_source: None, metadata_confidence: None,
                 repo_root: None, branch: None,
                 dirty: None,
@@ -1196,9 +1342,10 @@ mod tests {
             peon: PeonState {
                 last_output: StdRwLock::new(HashMap::new()),
                 last_inference: StdRwLock::new(HashMap::new()),
+                in_flight: StdRwLock::new(HashSet::new()),
                 config: peon::PeonConfig {
                     harness: harness_path.display().to_string(),
-                    harness_args: format!("--print -p"),
+                    harness_args: vec!["--print".into(), "-p".into()],
                     model: None,
                     interval_secs: 1,
                     max_lines: 200,
@@ -1220,6 +1367,16 @@ mod tests {
                     status: "running".into(),
                     cwd: dir.path().display().to_string(),
                     created_at: "now".into(),
+                    observed_status: None,
+                    summary: None,
+                    next_action: None,
+                    needs_user_input: None,
+                    detected_question: None,
+                    suggested_options: None,
+                    blocker_description: None,
+                    failed_command: None,
+                    failed_test: None,
+                    capacity_hints: None,
                     metadata_source: Some("process".into()),
                     metadata_confidence: Some(1.0),
                     repo_root: None,
@@ -1253,6 +1410,17 @@ mod tests {
                     cwd: dir.path().display().to_string(),
                     status: "running".into(),
                     phase: "".into(),
+                    observed_status: None,
+                    summary: None,
+                    next_action: None,
+                    needs_user_input: None,
+                    detected_question: None,
+                    suggested_options: None,
+                    blocker_description: None,
+                    failed_command: None,
+                    failed_test: None,
+                    capacity_hints: None,
+                    peon_last_inference: None,
                     created_at: "now".into(),
                     last_activity: "now".into(),
                     metadata_source: "process".into(),
@@ -1283,7 +1451,10 @@ mod tests {
                 if let Some(meta) = ws.metadata.read_session("peon-test-1") {
                     if meta.metadata_source == "peon" {
                         // Verify metadata was updated correctly
-                        assert_eq!(meta.status, "working");
+                        assert_eq!(meta.status, "running");
+                        assert_eq!(meta.observed_status, Some("working".into()));
+                        assert_eq!(meta.summary, Some("test".into()));
+                        assert_eq!(meta.peon_last_inference.is_some(), true);
                         assert_eq!(meta.metadata_source, "peon");
                         assert!((meta.metadata_confidence - 0.85).abs() < 0.001);
                         return; // test passes
@@ -1293,5 +1464,105 @@ mod tests {
         }
 
         panic!("Peon did not update metadata within 10 seconds");
+    }
+
+    #[tokio::test]
+    async fn peon_loop_does_not_start_duplicate_inference_while_in_flight() {
+        let dir = tempfile::tempdir().unwrap();
+        let orkworks = dir.path().join(".orkworks");
+        std::fs::create_dir_all(orkworks.join("sessions")).unwrap();
+        std::fs::create_dir_all(orkworks.join("events")).unwrap();
+
+        let count_path = dir.path().join("count.txt");
+        let harness_path = dir.path().join("slow-harness.sh");
+        std::fs::write(
+            &harness_path,
+            format!(
+                "#!/bin/bash\ncount_file='{}'\ncount=$(cat \"$count_file\" 2>/dev/null || echo 0)\ncount=$((count + 1))\necho \"$count\" > \"$count_file\"\nsleep 3\necho '{{\"observedStatus\":\"working\",\"confidence\":0.85}}'\n",
+                count_path.display()
+            ),
+        ).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&harness_path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        let state = Arc::new(AppState {
+            sessions: Mutex::new(HashMap::new()),
+            workspace: Mutex::new(Some(WorkspaceState {
+                path: dir.path().to_path_buf(),
+                metadata: metadata::MetadataStore::new(&orkworks),
+                watcher: watcher::MetadataWatcher::start(&orkworks.join("sessions")),
+            })),
+            peon: PeonState {
+                last_output: StdRwLock::new(HashMap::new()),
+                last_inference: StdRwLock::new(HashMap::new()),
+                in_flight: StdRwLock::new(HashSet::new()),
+                config: peon::PeonConfig {
+                    harness: harness_path.display().to_string(),
+                    harness_args: vec!["--print".into()],
+                    model: None,
+                    interval_secs: 1,
+                    max_lines: 200,
+                    timeout_secs: 10,
+                    enabled: true,
+                },
+            },
+        });
+
+        let session_id = "peon-duplicate-test".to_string();
+        {
+            let (kill_tx, _) = tokio::sync::watch::channel(false);
+            let mut handle = SessionHandle {
+                info: SessionInfo {
+                    id: session_id.clone(),
+                    label: "Test".into(),
+                    status: "running".into(),
+                    cwd: dir.path().display().to_string(),
+                    created_at: "now".into(),
+                    observed_status: None,
+                    summary: None,
+                    next_action: None,
+                    needs_user_input: None,
+                    detected_question: None,
+                    suggested_options: None,
+                    blocker_description: None,
+                    failed_command: None,
+                    failed_test: None,
+                    capacity_hints: None,
+                    metadata_source: Some("process".into()),
+                    metadata_confidence: Some(1.0),
+                    repo_root: None,
+                    branch: None,
+                    dirty: None,
+                    changed_files: None,
+                    is_worktree: None,
+                    conflict_warning: None,
+                    recommendation: None,
+                    peon_last_inference: None,
+                },
+                kill_tx,
+                output_buffer: peon::RingBuffer::new(200),
+            };
+            handle.output_buffer.push("quiet output".into());
+            state.sessions.lock().unwrap().insert(session_id.clone(), handle);
+        }
+
+        state.peon.last_output.write().unwrap().insert(
+            session_id,
+            tokio::time::Instant::now() - std::time::Duration::from_secs(5),
+        );
+
+        let task = tokio::spawn(peon_loop(state.clone()));
+        tokio::time::sleep(std::time::Duration::from_millis(2300)).await;
+        task.abort();
+
+        let count = std::fs::read_to_string(count_path)
+            .unwrap_or_else(|_| "0".into())
+            .trim()
+            .parse::<usize>()
+            .unwrap();
+        assert_eq!(count, 1);
     }
 }

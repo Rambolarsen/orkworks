@@ -27,7 +27,7 @@ Electron runs with `nodeIntegration: false` and `contextIsolation: true` (ADR 00
 Single binary, four modules:
 
 - `main.rs` — Axum router, `AppState` (sessions + workspace), all HTTP/WS handlers, PTY lifecycle
-- `git.rs` — git2-based context detection (repo root, branch, dirty check on tracked files only — excludes untracked to avoid false dirty state)
+- `git.rs` — git2-based context detection (repo root, branch, dirty check including untracked files while excluding ignored files)
 - `metadata.rs` — reads/writes `.orkworks/sessions/<id>.json` files
 - `watcher.rs` — `notify`-based file watcher for `.orkworks/` changes
 

@@ -1,4 +1,5 @@
 use std::collections::VecDeque;
+use std::io::Write;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
@@ -8,7 +9,7 @@ use tracing::warn;
 #[derive(Clone, Debug)]
 pub struct PeonConfig {
     pub harness: String,
-    pub harness_args: String,
+    pub harness_args: Vec<String>,
     #[allow(dead_code)]
     pub model: Option<String>,
     pub interval_secs: u64,
@@ -19,9 +20,25 @@ pub struct PeonConfig {
 
 impl PeonConfig {
     pub fn from_env() -> Self {
+        let harness_args = std::env::var("PEON_HARNESS_ARGS_JSON")
+            .ok()
+            .and_then(|raw| match serde_json::from_str::<Vec<String>>(&raw) {
+                Ok(args) => Some(args),
+                Err(e) => {
+                    tracing::warn!("PEON_HARNESS_ARGS_JSON is not a valid JSON string array: {e}");
+                    None
+                }
+            })
+            .or_else(|| {
+                std::env::var("PEON_HARNESS_ARGS")
+                    .ok()
+                    .map(|raw| raw.split_whitespace().map(|arg| arg.to_string()).collect())
+            })
+            .unwrap_or_else(|| vec!["--print".into()]);
+
         Self {
             harness: std::env::var("PEON_HARNESS").unwrap_or_else(|_| "opencode".into()),
-            harness_args: std::env::var("PEON_HARNESS_ARGS").unwrap_or_else(|_| "--print -p".into()),
+            harness_args,
             model: std::env::var("PEON_MODEL").ok(),
             interval_secs: match std::env::var("PEON_INTERVAL") {
                 Ok(raw) => match raw.parse() {
@@ -98,7 +115,7 @@ const SYSTEM_PROMPT: &str = "\
 You are a terminal output analyzer. Analyze the following terminal session output and return a JSON object describing the session state. Only include fields you are confident about. Return ONLY valid JSON, no other text.
 
 Available fields:
-- status: one of \"waiting_for_input\", \"blocked\", \"failed\", \"done\", \"stale\", \"working\", \"idle\"
+- observedStatus: one of \"waiting_for_input\", \"blocked\", \"failed\", \"done\", \"stale\", \"working\", \"idle\"
 - phase: short description of current work phase
 - summary: one-line summary of what's happening
 - nextAction: suggested next step
@@ -118,7 +135,8 @@ const VALID_STATUSES: &[&str] = &[
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PeonInference {
-    pub status: Option<String>,
+    #[serde(rename = "observedStatus", alias = "status")]
+    pub observed_status: Option<String>,
     pub phase: Option<String>,
     pub summary: Option<String>,
     #[serde(rename = "nextAction")]
@@ -174,7 +192,7 @@ pub fn validate_inference(inf: &PeonInference) -> Result<(), String> {
         ));
     }
 
-    if let Some(ref status) = inf.status {
+    if let Some(ref status) = inf.observed_status {
         if !VALID_STATUSES.contains(&status.as_str()) {
             return Err(format!(
                 "invalid status '{}', must be one of {:?}",
@@ -194,7 +212,7 @@ pub fn should_overwrite(source: &str, last_modified_secs_ago: Option<u64>) -> bo
         "user" => false,
         "agent" => {
             // Overwrite agent metadata only if stale (> 5 minutes since last modify)
-            last_modified_secs_ago.map(|s| s > 300).unwrap_or(true)
+            last_modified_secs_ago.map(|s| s > 300).unwrap_or(false)
         }
         "peon" | "backend_inference" | "process" | "unknown" | "" => true,
         _ => true, // unknown source type, allow overwrite
@@ -219,24 +237,36 @@ fn build_prompt(output: &[String]) -> String {
 pub fn run_inference(config: &PeonConfig, output: &[String]) -> Option<PeonInference> {
     let prompt = build_prompt(output);
 
-    let args: Vec<&str> = config.harness_args.split_whitespace().collect();
     let mut cmd = Command::new(&config.harness);
 
-    for arg in &args {
+    for arg in &config.harness_args {
         cmd.arg(arg);
     }
-    cmd.arg(&prompt);
 
+    cmd.stdin(Stdio::piped());
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
 
-    let child = match cmd.spawn() {
+    let mut child = match cmd.spawn() {
         Ok(c) => c,
         Err(e) => {
             warn!("Peon: failed to spawn harness {}: {e}", config.harness);
             return None;
         }
     };
+
+    match child.stdin.take() {
+        Some(mut stdin) => {
+            if let Err(e) = stdin.write_all(prompt.as_bytes()) {
+                warn!("Peon: failed to write prompt to harness stdin: {e}");
+                return None;
+            }
+        }
+        None => {
+            warn!("Peon: harness stdin was unavailable");
+            return None;
+        }
+    }
 
     let timeout = Duration::from_secs(config.timeout_secs);
     let pid = child.id();
@@ -330,7 +360,7 @@ mod tests {
         let config = PeonConfig::from_env();
         assert!(config.enabled);
         assert_eq!(config.harness, "opencode");
-        assert_eq!(config.harness_args, "--print -p");
+        assert_eq!(config.harness_args, vec!["--print"]);
         assert!(config.model.is_none());
         assert_eq!(config.interval_secs, 5);
         assert_eq!(config.max_lines, 200);
@@ -343,7 +373,7 @@ mod tests {
 
         std::env::set_var("PEON_ENABLED", "false");
         std::env::set_var("PEON_HARNESS", "claude");
-        std::env::set_var("PEON_HARNESS_ARGS", "-p --print");
+        std::env::set_var("PEON_HARNESS_ARGS_JSON", r#"["-p","--print"]"#);
         std::env::set_var("PEON_MODEL", "haiku");
         std::env::set_var("PEON_INTERVAL", "10");
         std::env::set_var("PEON_MAX_LINES", "100");
@@ -352,7 +382,7 @@ mod tests {
         let config = PeonConfig::from_env();
         assert!(!config.enabled);
         assert_eq!(config.harness, "claude");
-        assert_eq!(config.harness_args, "-p --print");
+        assert_eq!(config.harness_args, vec!["-p", "--print"]);
         assert_eq!(config.model, Some("haiku".into()));
         assert_eq!(config.interval_secs, 10);
         assert_eq!(config.max_lines, 100);
@@ -361,6 +391,7 @@ mod tests {
         std::env::remove_var("PEON_ENABLED");
         std::env::remove_var("PEON_HARNESS");
         std::env::remove_var("PEON_HARNESS_ARGS");
+        std::env::remove_var("PEON_HARNESS_ARGS_JSON");
         std::env::remove_var("PEON_MODEL");
         std::env::remove_var("PEON_INTERVAL");
         std::env::remove_var("PEON_MAX_LINES");
@@ -369,17 +400,17 @@ mod tests {
 
     #[test]
     fn test_extract_json_plain() {
-        let raw = r#"{"status": "working", "confidence": 0.9}"#;
+        let raw = r#"{"observedStatus": "working", "confidence": 0.9}"#;
         let result = extract_json(raw);
         assert!(result.is_some());
     }
 
     #[test]
     fn test_extract_json_with_markdown_fences() {
-        let raw = "```json\n{\"status\": \"working\", \"confidence\": 0.8}\n```";
+        let raw = "```json\n{\"observedStatus\": \"working\", \"confidence\": 0.8}\n```";
         let result = extract_json(raw);
         let parsed: PeonInference = serde_json::from_str(&result.unwrap()).unwrap();
-        assert_eq!(parsed.status, Some("working".into()));
+        assert_eq!(parsed.observed_status, Some("working".into()));
         assert!((parsed.confidence - 0.8).abs() < 0.001);
     }
 
@@ -392,7 +423,7 @@ mod tests {
     #[test]
     fn test_validate_inference_valid() {
         let inf = PeonInference {
-            status: Some("working".into()),
+            observed_status: Some("working".into()),
             phase: None,
             summary: None,
             next_action: None,
@@ -411,7 +442,7 @@ mod tests {
     #[test]
     fn test_validate_inference_invalid_status() {
         let inf = PeonInference {
-            status: Some("invalid_status".into()),
+            observed_status: Some("invalid_status".into()),
             phase: None,
             summary: None,
             next_action: None,
@@ -430,7 +461,7 @@ mod tests {
     #[test]
     fn test_validate_inference_confidence_out_of_range() {
         let inf = PeonInference {
-            status: None,
+            observed_status: None,
             phase: None,
             summary: None,
             next_action: None,
@@ -446,7 +477,7 @@ mod tests {
         assert!(validate_inference(&inf).is_err());
 
         let inf2 = PeonInference {
-            status: None,
+            observed_status: None,
             phase: None,
             summary: None,
             next_action: None,
@@ -466,7 +497,7 @@ mod tests {
     fn test_peon_inference_deserialization() {
         let json = r#"{"status": "blocked", "summary": "test is failing", "needsUserInput": true, "confidence": 0.7}"#;
         let inf: PeonInference = serde_json::from_str(json).unwrap();
-        assert_eq!(inf.status, Some("blocked".into()));
+        assert_eq!(inf.observed_status, Some("blocked".into()));
         assert_eq!(inf.summary, Some("test is failing".into()));
         assert_eq!(inf.needs_user_input, Some(true));
         assert!((inf.confidence - 0.7).abs() < 0.001);
@@ -485,6 +516,8 @@ mod tests {
         assert!(should_overwrite("agent", Some(600)));
         // agent metadata modified 1 minute ago (fresh) -> skip
         assert!(!should_overwrite("agent", Some(60)));
+        // missing file age should be treated conservatively for agent metadata
+        assert!(!should_overwrite("agent", None));
     }
 
     #[test]
@@ -504,7 +537,7 @@ mod tests {
             .join("tests/mock-peon-harness.sh");
         let config = PeonConfig {
             harness: harness.display().to_string(),
-            harness_args: format!("--print -p"),
+            harness_args: vec!["--print".into(), "-p".into()],
             model: None,
             interval_secs: 5,
             max_lines: 200,
@@ -518,7 +551,7 @@ mod tests {
         let result = run_inference(&config, &output);
         assert!(result.is_some());
         let inf = result.unwrap();
-        assert_eq!(inf.status, Some("working".into()));
+        assert_eq!(inf.observed_status, Some("working".into()));
         assert!((inf.confidence - 0.85).abs() < 0.001);
     }
 
@@ -526,7 +559,7 @@ mod tests {
     fn test_run_inference_harness_not_found() {
         let config = PeonConfig {
             harness: "/nonexistent/harness".into(),
-            harness_args: "--print -p".into(),
+            harness_args: vec!["--print".into(), "-p".into()],
             model: None,
             interval_secs: 5,
             max_lines: 200,
@@ -536,5 +569,57 @@ mod tests {
         let output = vec!["some output".to_string()];
         let result = run_inference(&config, &output);
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_peon_config_uses_json_argv_env() {
+        let _guard = ENV_LOCK.lock().unwrap();
+
+        std::env::remove_var("PEON_HARNESS_ARGS");
+        std::env::set_var("PEON_HARNESS_ARGS_JSON", r#"["--print","--model","haiku"]"#);
+
+        let config = PeonConfig::from_env();
+        assert_eq!(config.harness_args, vec!["--print", "--model", "haiku"]);
+
+        std::env::remove_var("PEON_HARNESS_ARGS_JSON");
+    }
+
+    #[test]
+    fn test_run_inference_sends_prompt_on_stdin_not_argv() {
+        let dir = tempfile::tempdir().unwrap();
+        let harness = dir.path().join("stdin-harness.sh");
+        std::fs::write(
+            &harness,
+            r#"#!/bin/bash
+if [ "$#" -ne 1 ] || [ "$1" != "--print" ]; then
+  echo "unexpected args: $*" >&2
+  exit 2
+fi
+input="$(cat)"
+if ! printf '%s' "$input" | grep -q "Terminal output:"; then
+  echo "missing stdin prompt" >&2
+  exit 3
+fi
+echo '{"status":"working","confidence":0.9}'
+"#,
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&harness, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        let config = PeonConfig {
+            harness: harness.display().to_string(),
+            harness_args: vec!["--print".into()],
+            model: None,
+            interval_secs: 5,
+            max_lines: 200,
+            timeout_secs: 30,
+            enabled: true,
+        };
+        let result = run_inference(&config, &["hello from terminal".to_string()]);
+        assert!(result.is_some());
     }
 }

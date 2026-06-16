@@ -23,6 +23,24 @@ function RightSidebar({ sessions, activeSessionId }: RightSidebarProps) {
         <div className="session-detail-label">Status</div>
         <div className="session-detail-value">{active.status}</div>
       </div>
+      {active.observedStatus && (
+        <div className="session-detail-section">
+          <div className="session-detail-label">Observed</div>
+          <div className="session-detail-value">{active.observedStatus}</div>
+        </div>
+      )}
+      {active.summary && (
+        <div className="session-detail-section">
+          <div className="session-detail-label">Summary</div>
+          <div className="session-detail-value">{active.summary}</div>
+        </div>
+      )}
+      {active.detectedQuestion && (
+        <div className="session-detail-section">
+          <div className="session-detail-label">Question</div>
+          <div className="session-detail-value">{active.detectedQuestion}</div>
+        </div>
+      )}
       <div className="session-detail-section">
         <div className="session-detail-label">Directory</div>
         <div className="session-detail-value">{active.cwd.split("/").pop() || active.cwd}</div>

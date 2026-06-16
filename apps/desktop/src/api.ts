@@ -4,6 +4,17 @@ export interface SessionInfo {
   status: string;
   cwd: string;
   created_at: string;
+  observedStatus?: string;
+  summary?: string;
+  nextAction?: string;
+  needsUserInput?: boolean;
+  detectedQuestion?: string;
+  suggestedOptions?: string[];
+  blockerDescription?: string;
+  failedCommand?: string;
+  failedTest?: string;
+  capacityHints?: string[];
+  peonLastInference?: string;
   metadataSource?: string;
   metadataConfidence?: number;
   repoRoot?: string;
@@ -13,7 +24,6 @@ export interface SessionInfo {
   isWorktree?: boolean;
   conflictWarning?: string;
   recommendation?: string;
-  peonLastInference?: string;
 }
 
 export async function createSession(

@@ -13,6 +13,10 @@ export function needsAttention(status: string): boolean {
   return status === "blocked" || status === "failed" || status === "waiting_for_input";
 }
 
+export function sessionAttentionStatus(session: SessionInfo): string {
+  return session.observedStatus ?? session.status;
+}
+
 export function isLive(status: string): boolean {
   return status === "running" || status === "creating";
 }
@@ -32,8 +36,8 @@ export function sourceColor(source: string | undefined): string {
 
 export function sortSessions(list: SessionInfo[]): SessionInfo[] {
   return [...list].sort((a, b) => {
-    const pa = PRIORITY[a.status] ?? 9;
-    const pb = PRIORITY[b.status] ?? 9;
+    const pa = PRIORITY[sessionAttentionStatus(a)] ?? 9;
+    const pb = PRIORITY[sessionAttentionStatus(b)] ?? 9;
     if (pa !== pb) return pa - pb;
     return a.label < b.label ? -1 : a.label > b.label ? 1 : 0;
   });
