@@ -23,6 +23,14 @@ pub struct SessionMetadata {
     pub metadata_source: String,
     #[serde(rename = "metadataConfidence")]
     pub metadata_confidence: f64,
+    #[serde(rename = "repoRoot")]
+    pub repo_root: Option<String>,
+    pub branch: Option<String>,
+    pub dirty: Option<bool>,
+    #[serde(rename = "changedFiles")]
+    pub changed_files: Option<usize>,
+    #[serde(rename = "isWorktree")]
+    pub is_worktree: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -130,6 +138,11 @@ mod tests {
             last_activity: "now".into(),
             metadata_source: "process".into(),
             metadata_confidence: 1.0,
+            repo_root: Some("/tmp".into()),
+            branch: Some("main".into()),
+            dirty: Some(false),
+            changed_files: Some(0),
+            is_worktree: Some(false),
         };
         store.write_session(&meta);
         let read = store.read_session("test-1").unwrap();

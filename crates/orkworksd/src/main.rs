@@ -35,6 +35,17 @@ struct SessionInfo {
     metadata_source: Option<String>,
     #[serde(rename = "metadataConfidence")]
     metadata_confidence: Option<f64>,
+    #[serde(rename = "repoRoot")]
+    repo_root: Option<String>,
+    branch: Option<String>,
+    dirty: Option<bool>,
+    #[serde(rename = "changedFiles")]
+    changed_files: Option<usize>,
+    #[serde(rename = "isWorktree")]
+    is_worktree: Option<bool>,
+    #[serde(rename = "conflictWarning")]
+    conflict_warning: Option<String>,
+    recommendation: Option<String>,
 }
 
 struct SessionHandle {
@@ -135,15 +146,13 @@ async fn set_workspace(
         watcher,
     });
 
-    let repo_root = git_repo_root(&ws_path);
-    let branch = repo_root.as_ref().and_then(|r| git_branch(r));
-    let dirty = repo_root.as_ref().map(|r| git_dirty(r)).unwrap_or(false);
+    let git_ctx = git::detect(&ws_path);
 
     Json(WorkspaceResponse {
         path: req.path,
-        repo_root,
-        branch,
-        dirty: Some(dirty),
+        repo_root: git_ctx.repo_root,
+        branch: git_ctx.branch,
+        dirty: Some(git_ctx.dirty),
     })
     .into_response()
 }
@@ -160,6 +169,7 @@ async fn create_session(State(state): State<Arc<AppState>>) -> impl IntoResponse
 
     let (kill_tx, _kill_rx) = tokio::sync::watch::channel(false);
 
+    let git_ctx = git::detect(&PathBuf::from(&cwd));
     let info = SessionInfo {
         id: id.clone(),
         label: format!("Session {}", &id[..8]),
@@ -168,6 +178,13 @@ async fn create_session(State(state): State<Arc<AppState>>) -> impl IntoResponse
         created_at: iso_now(),
         metadata_source: None,
         metadata_confidence: None,
+        repo_root: git_ctx.repo_root.clone(),
+        branch: git_ctx.branch.clone(),
+        dirty: Some(git_ctx.dirty),
+        changed_files: Some(git_ctx.changed_files),
+        is_worktree: Some(git_ctx.is_worktree),
+        conflict_warning: None,
+        recommendation: None,
     };
 
     let handle = SessionHandle { info: info.clone(), kill_tx };
@@ -177,6 +194,7 @@ async fn create_session(State(state): State<Arc<AppState>>) -> impl IntoResponse
     let now = iso_now();
     let ws_guard = state.workspace.lock().unwrap();
     if let Some(ref ws) = *ws_guard {
+        let meta_git_ctx = git::detect(&ws.path);
         ws.metadata.write_session(&metadata::SessionMetadata {
             id: id.clone(),
             label: info.label.clone(),
@@ -191,6 +209,11 @@ async fn create_session(State(state): State<Arc<AppState>>) -> impl IntoResponse
             last_activity: now.clone(),
             metadata_source: "process".into(),
             metadata_confidence: 1.0,
+            repo_root: meta_git_ctx.repo_root.clone(),
+            branch: meta_git_ctx.branch.clone(),
+            dirty: Some(meta_git_ctx.dirty),
+            changed_files: Some(meta_git_ctx.changed_files),
+            is_worktree: Some(meta_git_ctx.is_worktree),
         });
         ws.metadata.append_event(&id, &metadata::Event {
             event_type: "session.created".into(),
@@ -203,6 +226,42 @@ async fn create_session(State(state): State<Arc<AppState>>) -> impl IntoResponse
     Json(info)
 }
 
+fn detect_conflicts(sessions: &[SessionInfo]) -> Vec<(String, String)> {
+    let mut cwd_groups: HashMap<&str, Vec<&SessionInfo>> = HashMap::new();
+    for s in sessions {
+        if s.status == "running" || s.status == "creating" {
+            cwd_groups.entry(&s.cwd).or_default().push(s);
+        }
+    }
+    let mut warnings = Vec::new();
+    for (_cwd, group) in &cwd_groups {
+        if group.len() >= 2 {
+            if let Some(s) = group.first() {
+                if s.dirty.unwrap_or(false) {
+                    warnings.push((
+                        group[0].id.clone(),
+                        format!("{} sessions in this dirty workspace", group.len()),
+                    ));
+                }
+            }
+        }
+    }
+    warnings
+}
+
+fn session_recommendation(ctx: &git::GitContext, session_count_in_cwd: usize) -> Option<String> {
+    if ctx.is_worktree {
+        return Some("Running in a separate worktree. Good isolation.".into());
+    }
+    if session_count_in_cwd >= 2 && ctx.dirty {
+        return Some("Multiple sessions in the same dirty workspace. Consider separate worktrees.".into());
+    }
+    if !ctx.is_worktree && ctx.dirty && ctx.branch.as_deref() != Some("main") {
+        return Some("Working outside main in a dirty workspace. A worktree may be safer.".into());
+    }
+    None
+}
+
 async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let session_data: Vec<(String, String, String, String, String)> = {
         let sessions = state.sessions.lock().unwrap();
@@ -212,7 +271,7 @@ async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse 
     };
 
     let ws_guard = state.workspace.lock().unwrap();
-    let infos: Vec<SessionInfo> = session_data.into_iter().map(|(id, label, status, cwd, created_at)| {
+    let mut infos: Vec<SessionInfo> = session_data.into_iter().map(|(id, label, status, cwd, created_at)| {
         let (source, confidence) = ws_guard.as_ref()
             .and_then(|ws| ws.metadata.read_session(&id))
             .map(|m| (Some(m.metadata_source), Some(m.metadata_confidence)))
@@ -221,9 +280,38 @@ async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse 
             id, label, status, cwd, created_at,
             metadata_source: source,
             metadata_confidence: confidence,
+            repo_root: None,
+            branch: None,
+            dirty: None,
+            changed_files: None,
+            is_worktree: None,
+            conflict_warning: None,
+            recommendation: None,
         }
     }).collect();
     drop(ws_guard);
+
+    let conflict_warnings = detect_conflicts(&infos);
+    let mut cwd_counts: HashMap<String, usize> = HashMap::new();
+    for info in &infos {
+        if info.status == "running" || info.status == "creating" {
+            *cwd_counts.entry(info.cwd.clone()).or_default() += 1;
+        }
+    }
+    for info in &mut infos {
+        let ctx = git::detect(&PathBuf::from(&info.cwd));
+        let count = cwd_counts.get(&info.cwd).copied().unwrap_or(1);
+        let recommendation = session_recommendation(&ctx, count);
+        info.repo_root = ctx.repo_root;
+        info.branch = ctx.branch;
+        info.dirty = Some(ctx.dirty);
+        info.changed_files = Some(ctx.changed_files);
+        info.is_worktree = Some(ctx.is_worktree);
+        info.conflict_warning = conflict_warnings.iter()
+            .find(|(id, _)| id == &info.id)
+            .map(|(_, w)| w.clone());
+        info.recommendation = recommendation;
+    }
     Json(infos)
 }
 
@@ -285,38 +373,6 @@ async fn session_terminal_handler(
             let _ = ws.close().await;
         })
     }
-}
-
-fn git_repo_root(path: &std::path::Path) -> Option<String> {
-    let output = std::process::Command::new("git")
-        .args(["-C", &path.to_string_lossy(), "rev-parse", "--show-toplevel"])
-        .output()
-        .ok()?;
-    if output.status.success() {
-        Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
-    } else {
-        None
-    }
-}
-
-fn git_branch(repo_root: &str) -> Option<String> {
-    let output = std::process::Command::new("git")
-        .args(["-C", repo_root, "rev-parse", "--abbrev-ref", "HEAD"])
-        .output()
-        .ok()?;
-    if output.status.success() {
-        Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
-    } else {
-        None
-    }
-}
-
-fn git_dirty(repo_root: &str) -> bool {
-    std::process::Command::new("git")
-        .args(["-C", repo_root, "diff", "--quiet"])
-        .status()
-        .map(|s| !s.success())
-        .unwrap_or(false)
 }
 
 fn iso_now() -> String {
@@ -672,6 +728,13 @@ mod tests {
             created_at: "now".into(),
             metadata_source: None,
             metadata_confidence: None,
+            repo_root: None,
+            branch: None,
+            dirty: None,
+            changed_files: None,
+            is_worktree: None,
+            conflict_warning: None,
+            recommendation: None,
         };
         state
             .sessions
@@ -706,6 +769,13 @@ mod tests {
                     created_at: "now".into(),
                     metadata_source: None,
                     metadata_confidence: None,
+                    repo_root: None,
+                    branch: None,
+                    dirty: None,
+                    changed_files: None,
+                    is_worktree: None,
+                    conflict_warning: None,
+                    recommendation: None,
                 },
                 kill_tx,
             },
@@ -805,6 +875,13 @@ mod tests {
             created_at: "now".into(),
             metadata_source: Some("process".into()),
             metadata_confidence: Some(1.0),
+            repo_root: None,
+            branch: None,
+            dirty: None,
+            changed_files: None,
+            is_worktree: None,
+            conflict_warning: None,
+            recommendation: None,
         };
         let json = serde_json::to_string(&info).unwrap();
         assert!(json.contains("\"metadataSource\":\"process\""));
@@ -821,6 +898,13 @@ mod tests {
             created_at: "now".into(),
             metadata_source: None,
             metadata_confidence: None,
+            repo_root: None,
+            branch: None,
+            dirty: None,
+            changed_files: None,
+            is_worktree: None,
+            conflict_warning: None,
+            recommendation: None,
         };
         let json = serde_json::to_string(&info).unwrap();
         assert!(json.contains("\"metadataSource\":null"));
