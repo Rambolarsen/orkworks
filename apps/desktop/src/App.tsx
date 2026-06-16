@@ -160,7 +160,6 @@ function App() {
           <RightSidebar
             sessions={sessions}
             activeSessionId={activeSessionId}
-            onSelectSession={handleSelectSession}
           />
         </aside>
       </div>

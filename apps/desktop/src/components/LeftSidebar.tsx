@@ -1,4 +1,5 @@
 import type { SessionInfo, WorkspaceInfo } from "../api";
+import { needsAttention, sourceColor } from "./RightSidebarHelpers.ts";
 import WorkspaceHeader from "./WorkspaceHeader";
 
 interface LeftSidebarProps {
@@ -52,10 +53,23 @@ function LeftSidebar({
                         className={`session-status session-status--${s.status}`}
                       />
                       <div className="session-item-info">
-                        <span className="session-item-label">{s.label}</span>
+                        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                          {needsAttention(s.status) && (
+                            <span className="session-item-alert" title="Needs attention">&#x26A0;</span>
+                          )}
+                          <span className="session-item-label">{s.label}</span>
+                        </div>
                         <span className="session-item-meta">
                           {s.status} &middot; {s.cwd.split("/").pop() || s.cwd}
                         </span>
+                        {s.metadataSource && (
+                          <span
+                            className="session-item-badge"
+                            style={{ background: sourceColor(s.metadataSource) + "22", color: sourceColor(s.metadataSource) }}
+                          >
+                            {s.metadataSource} &middot; {Math.round((s.metadataConfidence ?? 1) * 100)}%
+                          </span>
+                        )}
                       </div>
                     </div>
                     <button

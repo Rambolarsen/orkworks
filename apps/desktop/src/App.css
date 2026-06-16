@@ -469,3 +469,39 @@ html, body, #root {
   padding: 1px 5px;
   border-radius: 3px;
 }
+
+.session-detail {
+  padding: 8px 12px;
+}
+
+.session-detail-section {
+  margin-bottom: 10px;
+}
+
+.session-detail-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #999;
+  margin-bottom: 3px;
+}
+
+.session-detail-value {
+  color: #d4d4d4;
+  font-size: 12px;
+}
+
+.session-item-alert {
+  font-size: 12px;
+  margin-right: 2px;
+  flex-shrink: 0;
+}
+
+.session-item-badge {
+  display: inline-block;
+  margin-top: 2px;
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 3px;
+}
