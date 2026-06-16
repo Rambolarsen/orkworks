@@ -70,14 +70,91 @@ html, body, #root {
 
 .left-sidebar {
   width: 260px;
-  min-width: 200px;
+  min-width: 180px;
   background: #252526;
   border-right: 1px solid #3c3c3c;
 }
 
 .center-panel {
   flex: 1;
+  min-width: 720px;
   background: #1e1e1e;
+  display: flex;
+  flex-direction: column;
+}
+
+.center-panel:has(.terminal-shell) {
+  padding: 0;
+}
+
+.terminal-shell {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.terminal-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 46px;
+  padding: 7px 10px;
+  background: #252526;
+  border-bottom: 1px solid #3c3c3c;
+}
+
+.terminal-title {
+  color: #d4d4d4;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.terminal-subtitle {
+  margin-top: 2px;
+  color: #858585;
+  font-size: 11px;
+}
+
+.terminal-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.terminal-launch-button {
+  border: 1px solid #4b6b7f;
+  border-radius: 4px;
+  padding: 5px 10px;
+  color: #d8edf7;
+  background: #123241;
+  font: inherit;
+  cursor: pointer;
+}
+
+.terminal-launch-button:hover:not(:disabled) {
+  background: #16465b;
+  border-color: #5c879e;
+}
+
+.terminal-launch-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.terminal-container {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.terminal-container .xterm {
+  height: 100%;
+  padding: 4px;
+}
+
+.center-placeholder {
+  flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -86,7 +163,7 @@ html, body, #root {
 
 .right-sidebar {
   width: 300px;
-  min-width: 240px;
+  min-width: 220px;
   background: #252526;
   border-left: 1px solid #3c3c3c;
 }
