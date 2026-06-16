@@ -1,11 +1,114 @@
-function RightSidebar() {
+import type { SessionInfo } from "../api";
+
+interface RightSidebarProps {
+  sessions: SessionInfo[];
+  activeSessionId: string | null;
+  onSelectSession: (id: string) => void;
+}
+
+const PRIORITY: Record<string, number> = {
+  waiting_for_input: 0,
+  blocked: 1,
+  failed: 2,
+  running: 3,
+  creating: 4,
+  idle: 5,
+};
+
+function needsAttention(status: string): boolean {
+  return status === "blocked" || status === "failed" || status === "waiting_for_input";
+}
+
+function isLive(status: string): boolean {
+  return status === "running" || status === "creating";
+}
+
+function borderColor(status: string): string {
+  if (status === "running" || status === "creating") return "#4ec94e";
+  if (status === "blocked" || status === "waiting_for_input") return "#d4d44e";
+  if (status === "failed") return "#cc4444";
+  return "#666";
+}
+
+function sourceColor(source: string | undefined): string {
+  if (source === "agent") return "#4ec94e";
+  if (source === "peon") return "#57c7ff";
+  return "#858585";
+}
+
+function sortSessions(list: SessionInfo[]): SessionInfo[] {
+  return [...list].sort((a, b) => {
+    const pa = PRIORITY[a.status] ?? 9;
+    const pb = PRIORITY[b.status] ?? 9;
+    return pa - pb;
+  });
+}
+
+function RightSidebar({ sessions, activeSessionId, onSelectSession }: RightSidebarProps) {
+  const sorted = sortSessions(sessions);
+  const live = sorted.filter((s) => isLive(s.status));
+  const done = sorted.filter((s) => !isLive(s.status));
+
+  if (sessions.length === 0) return null;
+
   return (
-    <>
-      <div className="panel-header">Overview</div>
-      <div className="panel-content">
-        <p className="empty-state">Start a session to see details</p>
-      </div>
-    </>
+    <div className="overview-list">
+      {live.length > 0 && (
+        <div className="overview-group">
+          <div className="overview-group-header">
+            Working &middot; {live.length}
+          </div>
+          {live.map((s) => (
+            <div
+              key={s.id}
+              className={`overview-card ${s.id === activeSessionId ? "overview-card--active" : ""}`}
+              style={{ borderLeftColor: borderColor(s.status) }}
+              onClick={() => onSelectSession(s.id)}
+            >
+              <div className="overview-card-main">
+                {needsAttention(s.status) && (
+                  <span className="overview-alert" title="Needs attention">&#x26A0;</span>
+                )}
+                <span className="overview-card-label">{s.label}</span>
+              </div>
+              <div className="overview-card-meta">
+                {s.status}
+              </div>
+              {s.metadataSource && (
+                <span
+                  className="overview-card-badge"
+                  style={{ background: sourceColor(s.metadataSource) + "22", color: sourceColor(s.metadataSource) }}
+                >
+                  {s.metadataSource} &middot; {Math.round((s.metadataConfidence ?? 1) * 100)}%
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      {done.length > 0 && (
+        <div className="overview-group">
+          <div className="overview-group-header overview-group-header--done">
+            Done &middot; {done.length}
+          </div>
+          {done.map((s) => (
+            <div
+              key={s.id}
+              className={`overview-card overview-card--done ${s.id === activeSessionId ? "overview-card--active" : ""}`}
+              style={{ borderLeftColor: borderColor(s.status) }}
+              onClick={() => onSelectSession(s.id)}
+            >
+              <div className="overview-card-main">
+                <span className="overview-card-label">{s.label}</span>
+              </div>
+              <div className="overview-card-meta">
+                {s.status}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
