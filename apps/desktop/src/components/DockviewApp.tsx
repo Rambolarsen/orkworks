@@ -1,5 +1,5 @@
 import { createContext, useContext, useRef } from "react";
-import { DockviewReact, type DockviewReadyEvent } from "dockview-react";
+import { DockviewReact, type DockviewReadyEvent, type DockviewApi } from "dockview-react";
 import type { SessionInfo, WorkspaceInfo } from "../api";
 import SessionListPanel from "./SessionListPanel";
 import SessionDetailPanel from "./SessionDetailPanel";
@@ -17,6 +17,7 @@ interface DockviewAppData {
   onCreateSession: () => void;
   onKillSession: (id: string) => void;
   onResumeSession: (id: string) => void;
+  dockviewApiRef: React.MutableRefObject<DockviewApi | null>;
 }
 
 const DockviewContext = createContext<DockviewAppData>(null!);
@@ -76,12 +77,44 @@ const COMPONENTS = {
   recommendations: RecPanel,
 };
 
+export interface PanelDefault {
+  component: string;
+  title: string;
+  position?: { referencePanel: string; direction: "below" | "right" | "left" | "above" };
+}
+
+export const PANEL_DEFAULTS: Record<string, PanelDefault> = {
+  sessions:        { component: "sessions", title: "Sessions" },
+  detail:          { component: "detail", title: "Detail", position: { referencePanel: "sessions", direction: "below" } },
+  terminal:        { component: "terminal", title: "Terminal", position: { referencePanel: "sessions", direction: "right" } },
+  capacity:        { component: "capacity", title: "Capacity", position: { referencePanel: "terminal", direction: "right" } },
+  recommendations: { component: "recommendations", title: "Recommendations", position: { referencePanel: "capacity", direction: "below" } },
+};
+
 function DockviewApp(props: DockviewAppData) {
-  const { backendStatus, workspace, sessions, activeSessionId, onOpenWorkspace, onSelectSession, onCreateSession, onKillSession, onResumeSession } = props;
+  const { backendStatus, workspace, sessions, activeSessionId, onOpenWorkspace, onSelectSession, onCreateSession, onKillSession, onResumeSession, dockviewApiRef } = props;
 
-  const ctxValue: DockviewAppData = { backendStatus, workspace, sessions, activeSessionId, onOpenWorkspace, onSelectSession, onCreateSession, onKillSession, onResumeSession };
+  const ctxValue: DockviewAppData = { backendStatus, workspace, sessions, activeSessionId, onOpenWorkspace, onSelectSession, onCreateSession, onKillSession, onResumeSession, dockviewApiRef };
 
-  const onReadyRef = useRef(false);
+  const initializedRef = useRef(false);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function buildDefaultLayout(api: DockviewApi) {
+    api.addPanel({
+      id: PANEL_DEFAULTS.sessions.component,
+      component: PANEL_DEFAULTS.sessions.component,
+    });
+    for (const id of ["detail", "terminal", "capacity", "recommendations"]) {
+      const def = PANEL_DEFAULTS[id];
+      if (def.position) {
+        api.addPanel({
+          id: def.component,
+          component: def.component,
+          position: { referencePanel: def.position.referencePanel, direction: def.position.direction },
+        });
+      }
+    }
+  }
 
   return (
     <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
@@ -90,36 +123,29 @@ function DockviewApp(props: DockviewAppData) {
           components={COMPONENTS}
           className="orkworks-dockview"
           onReady={(event: DockviewReadyEvent) => {
-            if (onReadyRef.current) return;
-            onReadyRef.current = true;
+            if (initializedRef.current) return;
+            initializedRef.current = true;
 
-            const sessionsPanel = event.api.addPanel({
-              id: "sessions",
-              component: "sessions",
+            const api = event.api;
+            dockviewApiRef.current = api;
+
+            window.orkworks.getLayout().then((layout) => {
+              if (layout) {
+                try {
+                  api.fromJSON(JSON.parse(layout));
+                  return;
+                } catch (e) {
+                  console.warn("[DockviewApp] failed to restore layout, using default", e);
+                }
+              }
+              buildDefaultLayout(api);
             });
 
-            event.api.addPanel({
-              id: "detail",
-              component: "detail",
-              position: { referencePanel: sessionsPanel, direction: "below" },
-            });
-
-            const terminalPanel = event.api.addPanel({
-              id: "terminal",
-              component: "terminal",
-              position: { referencePanel: sessionsPanel, direction: "right" },
-            });
-
-            const capacityPanel = event.api.addPanel({
-              id: "capacity",
-              component: "capacity",
-              position: { referencePanel: terminalPanel, direction: "right" },
-            });
-
-            event.api.addPanel({
-              id: "recommendations",
-              component: "recommendations",
-              position: { referencePanel: capacityPanel, direction: "below" },
+            api.onDidLayoutChange(() => {
+              if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+              saveTimerRef.current = setTimeout(() => {
+                window.orkworks.saveLayout(JSON.stringify(api.toJSON()));
+              }, 500);
             });
           }}
         />
