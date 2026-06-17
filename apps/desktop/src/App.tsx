@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import DockviewApp from "./components/DockviewApp";
 import { sortSessions } from "./components/RightSidebarHelpers";
 import {
@@ -10,6 +10,8 @@ import {
   resumeSession,
   setActiveWorkspaceSession,
 } from "./api";
+import type { DockviewApi } from "dockview-react";
+import ViewMenu from "./components/ViewMenu";
 
 declare global {
   interface Window {
@@ -17,6 +19,8 @@ declare global {
       getBackendUrl: () => Promise<string>;
       getInitialWorkspace: () => Promise<WorkspaceInfo | null>;
       openWorkspace: () => Promise<WorkspaceInfo | null>;
+      getLayout: () => Promise<string | null>;
+      saveLayout: (json: string) => Promise<void>;
     };
   }
 }
@@ -26,6 +30,7 @@ function App() {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [workspace, setWorkspaceState] = useState<WorkspaceInfo | null>(null);
+  const dockviewApiRef = useRef<DockviewApi | null>(null);
 
   useEffect(() => {
     if (backendStatus !== "connecting…") return;
@@ -81,7 +86,7 @@ function App() {
         setWorkspaceState(info);
         setBackendStatus("connecting…");
         setSessions([]);
-        setActiveSessionId(null);
+        setActiveSessionId(info.lastActiveSessionId ?? null);
       }
     } catch {
       /* user cancelled */
@@ -134,6 +139,9 @@ function App() {
       if (!cancelled && info) {
         setWorkspaceState(info);
         await refreshSessions();
+        if (info.lastActiveSessionId) {
+          setActiveSessionId(info.lastActiveSessionId);
+        }
       }
     }
     loadInitialWorkspace();
@@ -158,11 +166,14 @@ function App() {
     <div className="app-shell">
       <div className="titlebar">
         <span className="titlebar-text">OrkWorks</span>
-        <span
-          className={`status-badge ${backendStatus === "connected" ? "ok" : "warn"}`}
-        >
-          {backendStatus}
-        </span>
+        <div className="titlebar-right">
+          <ViewMenu dockviewApiRef={dockviewApiRef} />
+          <span
+            className={`status-badge ${backendStatus === "connected" ? "ok" : "warn"}`}
+          >
+            {backendStatus}
+          </span>
+        </div>
       </div>
       <DockviewApp
         backendStatus={backendStatus}
@@ -174,6 +185,7 @@ function App() {
         onCreateSession={handleCreateSession}
         onKillSession={handleKillSession}
         onResumeSession={handleResumeSession}
+        dockviewApiRef={dockviewApiRef}
       />
     </div>
   );

@@ -19,6 +19,8 @@ declare global {
       getBackendUrl: () => Promise<string>;
       getInitialWorkspace: () => Promise<WorkspaceInfo | null>;
       openWorkspace: () => Promise<WorkspaceInfo | null>;
+      getLayout: () => Promise<string | null>;
+      saveLayout: (json: string) => Promise<void>;
     };
   }
 }
