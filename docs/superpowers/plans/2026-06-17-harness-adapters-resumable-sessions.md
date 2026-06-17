@@ -778,13 +778,13 @@ fn default_shell_command(cwd: String) -> harness::CommandSpec {
 fn default_capabilities() -> harness::HarnessCapabilities {
     harness::HarnessCapabilities {
         launch: true,
-        resume_exact: true,
-        resume_latest_in_cwd: true,
+        resume_exact: false,
+        resume_latest_in_cwd: false,
         resume_latest_in_repo: false,
-        detect_session_id: true,
-        detect_model: true,
-        detect_context_usage: true,
-        detect_capacity: true,
+        detect_session_id: false,
+        detect_model: false,
+        detect_context_usage: false,
+        detect_capacity: false,
         native_voice: false,
     }
 }
@@ -800,11 +800,8 @@ fn default_shell_adapter() -> harness::HarnessAdapter {
             command: program.clone(),
             args: args.clone(),
         },
-        Some(harness::CommandTemplate {
-            command: program.clone(),
-            args: args.clone(),
-        }),
-        Some(harness::CommandTemplate { command: program, args }),
+        None,
+        None,
     )
 }
 
@@ -994,7 +991,7 @@ async fn resume_session(
 }
 ```
 
-This first resume command uses the generic shell adapter so tests and UI behavior land before verified harness-specific command flags. Task 1's `HarnessAdapterConfig` keeps custom command templates data-driven; wiring repo-local harness config can build on that type without changing the resume strategy or session memory shape.
+The generic shell adapter is launch-only. It must not advertise exact or latest resume support because a shell restart is not a harness continuation mechanism. Task 1's `HarnessAdapterConfig` keeps custom command templates data-driven; wiring repo-local harness config can enable resume only after the harness-specific command flags are verified.
 
 - [ ] **Step 6: Include remembered sessions in `list_sessions`**
 
