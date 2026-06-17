@@ -60,55 +60,60 @@ function DockviewApp(props: DockviewAppProps) {
       <DockviewReact
         components={components}
         className="orkworks-dockview"
-        defaultLayout={{
-          grid: {
-            root: {
-              type: "branch" as const,
-              data: [
-                {
-                  type: "branch" as const,
-                  size: 260,
-                  data: [
-                    {
-                      type: "leaf" as const,
-                      data: { views: ["sessions"], activeView: "sessions" },
-                      size: 300,
-                    },
-                    {
-                      type: "leaf" as const,
-                      data: { views: ["detail"], activeView: "detail" },
-                      size: 300,
-                    },
-                  ],
-                },
-                {
-                  type: "leaf" as const,
-                  data: { views: ["terminal"], activeView: "terminal" },
-                  size: 800,
-                },
-                {
-                  type: "branch" as const,
-                  size: 250,
-                  data: [
-                    {
-                      type: "leaf" as const,
-                      data: { views: ["capacity"], activeView: "capacity" },
-                      size: 200,
-                    },
-                    {
-                      type: "leaf" as const,
-                      data: { views: ["recommendations"], activeView: "recommendations" },
-                      size: 200,
-                    },
-                  ],
-                },
-              ],
-            },
-          },
-          orientation: "horizontal" as const,
-        }}
         onReady={(event: DockviewReadyEvent) => {
-          // Layout initialized
+          event.api.fromJSON({
+            grid: {
+              root: {
+                type: "branch" as const,
+                data: [
+                  {
+                    type: "branch" as const,
+                    size: 260,
+                    data: [
+                      {
+                        type: "leaf" as const,
+                        data: { views: ["sessions"], activeView: "sessions" },
+                        size: 300,
+                      },
+                      {
+                        type: "leaf" as const,
+                        data: { views: ["detail"], activeView: "detail" },
+                        size: 300,
+                      },
+                    ],
+                  },
+                  {
+                    type: "leaf" as const,
+                    data: { views: ["terminal"], activeView: "terminal" },
+                    size: 800,
+                  },
+                  {
+                    type: "branch" as const,
+                    size: 250,
+                    data: [
+                      {
+                        type: "leaf" as const,
+                        data: { views: ["capacity"], activeView: "capacity" },
+                        size: 200,
+                      },
+                      {
+                        type: "leaf" as const,
+                        data: { views: ["recommendations"], activeView: "recommendations" },
+                        size: 200,
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+            panels: {
+              sessions: {},
+              detail: {},
+              terminal: {},
+              capacity: {},
+              recommendations: {},
+            },
+          });
         }}
       />
     </div>
