@@ -10,7 +10,7 @@ APM project bootstrapped — agent skills, hooks, and plugins are installed via 
 
 ```text
 orkworks/
-├─ apps/desktop/          # Electron + React/TypeScript + xterm.js + react-resizable-panels
+├─ apps/desktop/          # Electron + React/TypeScript + Dockview + xterm.js desktop UI
 ├─ crates/orkworksd/      # Rust sidecar (Axum HTTP/WS, PTY via portable-pty)
 ├─ docs/
 │  └─ adr/                # Architecture Decision Records
@@ -20,7 +20,7 @@ orkworks/
 
 - Electron launches Rust sidecar; UI talks to it over localhost HTTP/WebSocket
 - `nodeIntegration: false`, `contextIsolation: true`
-- Three-panel layout with resizable drag handles via react-resizable-panels
+- Desktop UI uses Dockview draggable panels for sessions, detail, terminal, capacity, and recommendations
 - Peon writes observer metadata such as `observedStatus` without replacing runtime lifecycle `status`
 - PTY handles only text I/O; voice (native harness) bypasses PTY entirely
 

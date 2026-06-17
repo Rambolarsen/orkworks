@@ -18,3 +18,4 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 | [0008](./0008-git-context-detection-not-control.md) | Git context detection first, not workflow control | accepted |
 | [0009](./0009-electron-security-posture.md) | Electron security posture | accepted |
 | [0010](./0010-pty-portable-pty-xtermjs.md) | PTY management via `portable-pty`, terminal via `xterm.js` | accepted |
+| [0011](./0011-dockview-panel-layout.md) | Replace `react-resizable-panels` with `dockview` for draggable panel layout | accepted |
