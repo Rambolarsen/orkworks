@@ -21,6 +21,8 @@ declare global {
       openWorkspace: () => Promise<WorkspaceInfo | null>;
       getLayout: () => Promise<string | null>;
       saveLayout: (json: string) => Promise<void>;
+      onMenuCommand: (callback: (data: { action: string; panelId?: string }) => void) => () => void;
+      notifyPanelVisibility: (panelId: string, visible: boolean) => void;
     };
   }
 }

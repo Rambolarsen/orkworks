@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { DockviewApi } from "dockview-react";
 import DockviewApp from "./components/DockviewApp";
 import { sortSessions } from "./components/RightSidebarHelpers";
+import { PANEL_DEFAULTS } from "./components/DockviewApp";
 import {
   type SessionInfo,
   type WorkspaceInfo,
@@ -10,8 +12,6 @@ import {
   resumeSession,
   setActiveWorkspaceSession,
 } from "./api";
-import type { DockviewApi } from "dockview-react";
-import ViewMenu from "./components/ViewMenu";
 
 declare global {
   interface Window {
@@ -21,6 +21,8 @@ declare global {
       openWorkspace: () => Promise<WorkspaceInfo | null>;
       getLayout: () => Promise<string | null>;
       saveLayout: (json: string) => Promise<void>;
+      onMenuCommand: (callback: (data: { action: string; panelId?: string }) => void) => () => void;
+      notifyPanelVisibility: (panelId: string, visible: boolean) => void;
     };
   }
 }
@@ -162,18 +164,51 @@ function App() {
     });
   }, [activeSessionId, backendStatus]);
 
+  useEffect(() => {
+    return window.orkworks.onMenuCommand(({ action, panelId }) => {
+      const api = dockviewApiRef.current;
+      if (!api) return;
+
+      if (action === "toggle" && panelId) {
+        const def = PANEL_DEFAULTS[panelId];
+        if (!def) return;
+        const existing = api.getPanel(def.component);
+        if (existing) {
+          existing.api.close();
+        } else {
+          const options: { id: string; component: string; position?: { referencePanel: string; direction: "below" | "right" | "left" | "above" } } = {
+            id: def.component,
+            component: def.component,
+          };
+          if (def.position && api.getPanel(def.position.referencePanel)) {
+            options.position = { referencePanel: def.position.referencePanel, direction: def.position.direction };
+          }
+          api.addPanel(options);
+        }
+      } else if (action === "reset-layout") {
+        api.clear();
+        api.addPanel({ id: PANEL_DEFAULTS.sessions.component, component: PANEL_DEFAULTS.sessions.component });
+        for (const id of ["detail", "terminal", "capacity", "recommendations"]) {
+          const def = PANEL_DEFAULTS[id];
+          api.addPanel({
+            id: def.component,
+            component: def.component,
+            position: { referencePanel: def.position!.referencePanel, direction: def.position!.direction },
+          });
+        }
+      }
+    });
+  }, []);
+
   return (
     <div className="app-shell">
       <div className="titlebar">
         <span className="titlebar-text">OrkWorks</span>
-        <div className="titlebar-right">
-          <ViewMenu dockviewApiRef={dockviewApiRef} />
-          <span
-            className={`status-badge ${backendStatus === "connected" ? "ok" : "warn"}`}
-          >
-            {backendStatus}
-          </span>
-        </div>
+        <span
+          className={`status-badge ${backendStatus === "connected" ? "ok" : "warn"}`}
+        >
+          {backendStatus}
+        </span>
       </div>
       <DockviewApp
         backendStatus={backendStatus}

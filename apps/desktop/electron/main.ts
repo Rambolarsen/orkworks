@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu } from "electron";
 import { spawn, type ChildProcess } from "child_process";
 import { existsSync } from "fs";
 import * as path from "path";
@@ -14,7 +14,116 @@ let portPromise = new Promise<number>((resolve) => {
   portResolve = resolve;
 });
 
-let workspacePath: string | null = null;
+let menuPanelItems: Record<string, Electron.MenuItem> = {};
+
+function buildMenu(): void {
+  const panelIds = ["sessions", "detail", "terminal", "capacity", "recommendations"];
+  const panelTitles: Record<string, string> = {
+    sessions: "Sessions",
+    detail: "Detail",
+    terminal: "Terminal",
+    capacity: "Capacity",
+    recommendations: "Recommendations",
+  };
+
+  const panelItems: Electron.MenuItemConstructorOptions[] = panelIds.map((id) => ({
+    id,
+    label: panelTitles[id],
+    type: "checkbox",
+    checked: true,
+    click: () => {
+      mainWindow?.webContents.send("orkworks:menu-command", { action: "toggle", panelId: id });
+    },
+  }));
+
+  const viewSubmenu: Electron.MenuItemConstructorOptions[] = [
+    ...panelItems,
+    { type: "separator" },
+    {
+      label: "Reset Layout",
+      click: () => {
+        mainWindow?.webContents.send("orkworks:menu-command", { action: "reset-layout" });
+      },
+    },
+    { type: "separator" },
+    { role: "reload" },
+    { role: "forceReload" },
+    { role: "toggleDevTools" },
+    { type: "separator" },
+    { role: "resetZoom" },
+    { role: "zoomIn" },
+    { role: "zoomOut" },
+    { type: "separator" },
+    { role: "togglefullscreen" },
+  ];
+
+  const template: Electron.MenuItemConstructorOptions[] = [
+    {
+      label: app.name,
+      submenu: [
+        { role: "about" },
+        { type: "separator" },
+        { role: "services" },
+        { type: "separator" },
+        { role: "hide" },
+        { role: "hideOthers" },
+        { role: "unhide" },
+        { type: "separator" },
+        { role: "quit" },
+      ],
+    },
+    {
+      label: "File",
+      submenu: [{ role: "close" }],
+    },
+    {
+      label: "Edit",
+      submenu: [
+        { role: "undo" },
+        { role: "redo" },
+        { type: "separator" },
+        { role: "cut" },
+        { role: "copy" },
+        { role: "paste" },
+        { role: "selectAll" },
+      ],
+    },
+    {
+      label: "View",
+      submenu: viewSubmenu,
+    },
+    {
+      label: "Window",
+      submenu: [
+        { role: "minimize" },
+        { role: "zoom" },
+        ...(process.platform === "darwin"
+          ? [{ type: "separator" as const }, { role: "front" as const }]
+          : [{ role: "close" as const }]),
+      ],
+    },
+    {
+      role: "help",
+      submenu: [
+        {
+          label: "Learn More",
+          click: () => {
+            /* placeholder */
+          },
+        },
+      ],
+    },
+  ];
+
+  const menu = Menu.buildFromTemplate(template);
+  Menu.setApplicationMenu(menu);
+
+  menuPanelItems = {};
+  for (const id of panelIds) {
+    const item = menu.getMenuItemById(id);
+    if (item) menuPanelItems[id] = item;
+  }
+}
 
 function getSidecarPath(): string {
   if (app.isPackaged) {
@@ -177,8 +286,14 @@ app.whenReady().then(() => {
     return resp.json();
   });
 
+  ipcMain.on("orkworks:panel-visibility", (_event, data: { panelId: string; visible: boolean }) => {
+    const item = menuPanelItems[data.panelId];
+    if (item) item.checked = data.visible;
+  });
+
   startSidecar(initialWorkspacePath ?? undefined);
   createWindow();
+  buildMenu();
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {

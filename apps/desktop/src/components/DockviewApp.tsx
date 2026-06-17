@@ -99,6 +99,13 @@ function DockviewApp(props: DockviewAppData) {
   const initializedRef = useRef(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  function reportVisibility(api: DockviewApi) {
+    for (const [id, def] of Object.entries(PANEL_DEFAULTS)) {
+      const visible = api.getPanel(def.component) != null;
+      window.orkworks.notifyPanelVisibility(id, visible);
+    }
+  }
+
   function buildDefaultLayout(api: DockviewApi) {
     api.addPanel({
       id: PANEL_DEFAULTS.sessions.component,
@@ -133,15 +140,18 @@ function DockviewApp(props: DockviewAppData) {
               if (layout) {
                 try {
                   api.fromJSON(JSON.parse(layout));
+                  reportVisibility(api);
                   return;
                 } catch (e) {
                   console.warn("[DockviewApp] failed to restore layout, using default", e);
                 }
               }
               buildDefaultLayout(api);
+              reportVisibility(api);
             });
 
             api.onDidLayoutChange(() => {
+              reportVisibility(api);
               if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
               saveTimerRef.current = setTimeout(() => {
                 window.orkworks.saveLayout(JSON.stringify(api.toJSON()));
