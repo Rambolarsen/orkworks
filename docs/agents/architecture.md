@@ -2,7 +2,7 @@
 
 ```text
 orkworks/
-├─ apps/desktop/          # Electron + React/TypeScript + xterm.js + react-resizable-panels
+├─ apps/desktop/          # Electron + React/TypeScript + Dockview + xterm.js
 ├─ crates/orkworksd/      # Rust sidecar (Axum HTTP/WS, PTY via portable-pty)
 ├─ docs/
 │  └─ adr/                # Architecture Decision Records
@@ -16,24 +16,29 @@ orkworks/
 
 ## Preload bridge (security boundary)
 
-Electron runs with `nodeIntegration: false` and `contextIsolation: true` (ADR 0009). The renderer cannot call Node APIs directly. All privileged operations go through `electron/preload.ts`, which exposes `window.orkworks` with only `getBackendUrl()` and `openWorkspace()`. Adding new capabilities requires extending the preload, not relaxing context isolation.
+Electron runs with `nodeIntegration: false` and `contextIsolation: true` (ADR 0009). The renderer cannot call Node APIs directly. All privileged operations go through `electron/preload.ts`, which exposes `window.orkworks` with `getBackendUrl()`, `getInitialWorkspace()`, and `openWorkspace()`. Adding new capabilities requires extending the preload, not relaxing context isolation.
 
 ## Frontend → backend API
 
 `apps/desktop/src/api.ts` defines TypeScript types and fetch wrappers for the REST API. `App.tsx` polls `/sessions` every 2 seconds and sorts by status (`creating → running → ended → killed → error`). Session state flows: Rust structs → JSON API → `SessionInfo` TS type → React state → components.
 
+Key endpoints: `POST /workspace`, `POST /workspace/active-session`, `GET/POST /sessions`, `DELETE /sessions/:id`, `POST /sessions/:id/resume`, `WS /sessions/:id/terminal`.
+
+`electron/workspaceMemory.ts` persists the last workspace path and recent workspace directories to the Electron user data directory, enabling session resume on relaunch.
+
 ## Rust sidecar (`crates/orkworksd/src/`)
 
-Single binary, four modules:
+Single binary, five modules:
 
-- `main.rs` — Axum router, `AppState` (sessions + workspace), all HTTP/WS handlers, PTY lifecycle
+- `main.rs` — Axum router, `AppState` (sessions + workspace), all HTTP/WS handlers, PTY lifecycle, session resume
 - `git.rs` — git2-based context detection (repo root, branch, dirty check including untracked files while excluding ignored files)
-- `metadata.rs` — reads/writes `.orkworks/sessions/<id>.json` files
+- `harness.rs` — harness adapter types, command templates, resume strategy selection, capability flags
+- `metadata.rs` — reads/writes `.orkworks/sessions/<id>.json` and `.orkworks/workspace.json` files
 - `watcher.rs` — `notify`-based file watcher for `.orkworks/` changes
 
-## Three-panel layout
+## Dockview panel layout
 
-Left sidebar: workspace + session list. Center: `TerminalTabs` (xterm.js tabs, one PTY per session, WebSocket to backend). Right sidebar: session overview grouped by status (Needs You / Blocked / Failed / Done / Stale / Working / Idle / Capacity). Panel sizes via `react-resizable-panels`.
+The renderer uses Dockview for a five-panel workspace: sessions, session detail, terminal, capacity, and recommendations. `DockviewApp` owns the panel registration and passes app state through a React context to panel components. `TerminalPanel` hosts the active live PTY session through `CenterPanel` and xterm.js over the backend WebSocket.
 
 - PTY handles only text I/O; voice (native harness) bypasses PTY entirely
 
