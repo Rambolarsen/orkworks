@@ -23,6 +23,7 @@ use portable_pty::win::conpty::ConPtySystem;
 mod metadata;
 mod watcher;
 mod git;
+mod harness;
 mod peon;
 
 #[derive(Clone, Debug, Serialize)]
@@ -72,12 +73,30 @@ struct SessionInfo {
     recommendation: Option<String>,
     #[serde(rename = "peonLastInference")]
     peon_last_inference: Option<String>,
+    #[serde(rename = "memoryState")]
+    memory_state: MemoryState,
+    #[serde(rename = "resumeStrategy")]
+    resume_strategy: harness::ResumeStrategy,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    resume: Option<harness::ResumeMemory>,
+    #[serde(rename = "resumedFrom", skip_serializing_if = "Option::is_none")]
+    resumed_from: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum MemoryState {
+    Live,
+    Remembered,
+    Resumable,
+    Unsupported,
 }
 
 struct SessionHandle {
     info: SessionInfo,
     kill_tx: tokio::sync::watch::Sender<bool>,
     output_buffer: peon::RingBuffer,
+    command: harness::CommandSpec,
 }
 
 struct WorkspaceState {
@@ -137,9 +156,11 @@ async fn main() {
     let app = Router::new()
         .route("/health", get(health_check))
         .route("/workspace", post(set_workspace))
+        .route("/workspace/active-session", post(set_active_session))
         .route("/sessions", post(create_session))
         .route("/sessions", get(list_sessions))
         .route("/sessions/:id", delete(delete_session))
+        .route("/sessions/:id/resume", post(resume_session))
         .route("/sessions/:id/terminal", get(session_terminal_handler))
         .layer(cors)
         .with_state(state);
@@ -158,6 +179,12 @@ async fn main() {
 #[derive(Deserialize)]
 struct WorkspaceRequest {
     path: String,
+}
+
+#[derive(Deserialize)]
+struct ActiveSessionRequest {
+    #[serde(rename = "sessionId")]
+    session_id: String,
 }
 
 #[derive(Serialize)]
@@ -210,6 +237,106 @@ async fn health_check() -> &'static str {
     "ok"
 }
 
+async fn set_active_session(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<ActiveSessionRequest>,
+) -> impl IntoResponse {
+    let now = iso_now();
+    let ws_guard = state.workspace.lock().unwrap();
+    if let Some(ref ws) = *ws_guard {
+        ws.metadata.write_workspace_memory(&metadata::WorkspaceMemory {
+            last_active_session_id: Some(req.session_id),
+            last_active_at: Some(now),
+        });
+        return axum::http::StatusCode::OK;
+    }
+    axum::http::StatusCode::CONFLICT
+}
+
+async fn resume_session(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    let now = iso_now();
+    let (meta, command, strategy) = {
+        let ws_guard = state.workspace.lock().unwrap();
+        let Some(ref ws) = *ws_guard else {
+            return axum::http::StatusCode::CONFLICT.into_response();
+        };
+        let Some(meta) = ws.metadata.read_session(&id) else {
+            return axum::http::StatusCode::NOT_FOUND.into_response();
+        };
+        let Some(resume) = meta.resume.as_ref() else {
+            return axum::http::StatusCode::BAD_REQUEST.into_response();
+        };
+        let capabilities = default_capabilities();
+        let strategy = harness::select_resume_strategy(resume, &capabilities);
+        if strategy == harness::ResumeStrategy::None {
+            return axum::http::StatusCode::BAD_REQUEST.into_response();
+        }
+        let adapter = default_shell_adapter();
+        let request = harness::ResumeRequest {
+            strategy: strategy.clone(),
+            cwd: meta.cwd.clone(),
+            repo_root: meta.repo_root.clone(),
+            harness_session_id: resume.harness_session_id.clone(),
+            model: (!meta.model.is_empty()).then(|| meta.model.clone()),
+        };
+        let Some(command) = adapter.build_resume_command(&request) else {
+            return axum::http::StatusCode::BAD_REQUEST.into_response();
+        };
+        (meta, command, strategy)
+    };
+
+    let new_id = uuid::Uuid::new_v4().to_string();
+    let (kill_tx, _kill_rx) = tokio::sync::watch::channel(false);
+    let info = SessionInfo {
+        id: new_id.clone(),
+        label: format!("{} resumed", meta.label),
+        harness: (!meta.harness.is_empty()).then(|| meta.harness.clone()),
+        model: (!meta.model.is_empty()).then(|| meta.model.clone()),
+        status: "creating".into(),
+        cwd: command.cwd.clone(),
+        created_at: now.clone(),
+        observed_status: None,
+        summary: meta.summary.clone(),
+        next_action: meta.next_action.clone(),
+        needs_user_input: None,
+        detected_question: None,
+        suggested_options: None,
+        blocker_description: None,
+        failed_command: None,
+        failed_test: None,
+        capacity_hints: None,
+        metadata_source: Some("process".into()),
+        metadata_confidence: Some(1.0),
+        repo_root: meta.repo_root.clone(),
+        branch: meta.branch.clone(),
+        dirty: meta.dirty,
+        changed_files: meta.changed_files,
+        is_worktree: meta.is_worktree,
+        conflict_warning: None,
+        recommendation: None,
+        peon_last_inference: None,
+        memory_state: MemoryState::Live,
+        resume_strategy: strategy,
+        resume: meta.resume.clone(),
+        resumed_from: Some(id.clone()),
+    };
+
+    state.sessions.lock().unwrap().insert(
+        new_id.clone(),
+        SessionHandle {
+            info: info.clone(),
+            kill_tx,
+            output_buffer: peon::RingBuffer::new(state.peon.config.max_lines),
+            command,
+        },
+    );
+
+    Json(info).into_response()
+}
+
 async fn create_session(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let id = uuid::Uuid::new_v4().to_string();
     let cwd = std::env::current_dir()
@@ -219,6 +346,7 @@ async fn create_session(State(state): State<Arc<AppState>>) -> impl IntoResponse
     let (kill_tx, _kill_rx) = tokio::sync::watch::channel(false);
 
     let git_ctx = git::detect(&PathBuf::from(&cwd));
+    let now = iso_now();
     let info = SessionInfo {
         id: id.clone(),
         label: format!("Session {}", &id[..8]),
@@ -226,7 +354,7 @@ async fn create_session(State(state): State<Arc<AppState>>) -> impl IntoResponse
         model: None,
         status: "creating".into(),
         cwd,
-        created_at: iso_now(),
+        created_at: now.clone(),
         observed_status: None,
         summary: None,
         next_action: None,
@@ -247,9 +375,19 @@ async fn create_session(State(state): State<Arc<AppState>>) -> impl IntoResponse
         conflict_warning: None,
         recommendation: None,
         peon_last_inference: None,
+        memory_state: MemoryState::Live,
+        resume_strategy: harness::ResumeStrategy::None,
+        resume: Some(harness::ResumeMemory {
+            state: harness::ResumeState::Available,
+            preferred_strategy: harness::ResumeStrategy::LatestCwd,
+            harness_session_id: None,
+            latest_fallback: true,
+            last_seen_at: Some(now.clone()),
+        }),
+        resumed_from: None,
     };
 
-    let handle = SessionHandle { info: info.clone(), kill_tx, output_buffer: peon::RingBuffer::new(state.peon.config.max_lines) };
+    let handle = SessionHandle { info: info.clone(), kill_tx, output_buffer: peon::RingBuffer::new(state.peon.config.max_lines), command: default_shell_command(info.cwd.clone()) };
 
     state.sessions.lock().unwrap().insert(id.clone(), handle);
 
@@ -287,6 +425,8 @@ async fn create_session(State(state): State<Arc<AppState>>) -> impl IntoResponse
             dirty: Some(meta_git_ctx.dirty),
             changed_files: Some(meta_git_ctx.changed_files),
             is_worktree: Some(meta_git_ctx.is_worktree),
+            resume: None,
+            resumed_from: None,
         });
         ws.metadata.append_event(&id, &metadata::Event {
             event_type: "session.created".into(),
@@ -346,6 +486,7 @@ async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse 
     };
 
     let ws_guard = state.workspace.lock().unwrap();
+    let capabilities = default_capabilities();
     let metadata_map = ws_guard.as_ref().map(|ws| {
         let mut metadata = HashMap::new();
         for (id, _, _, _, _) in &session_data {
@@ -355,32 +496,38 @@ async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse 
         }
         metadata
     }).unwrap_or_default();
+
+    let all_metadata_sessions = ws_guard.as_ref().map(|ws| ws.metadata.read_all_sessions()).unwrap_or_default();
     drop(ws_guard);
+
+    let live_ids: HashSet<String> = session_data.iter().map(|(id, _, _, _, _)| id.clone()).collect();
 
     let peon_times = state.peon.last_inference.read().unwrap();
     let mut infos: Vec<SessionInfo> = session_data.into_iter().map(|(id, label, status, cwd, created_at)| {
+        let meta = metadata_map.get(&id);
+        let (memory_state, resume_strategy) =
+            derive_memory_state(true, meta.and_then(|m| m.resume.as_ref()), &capabilities);
         SessionInfo {
             id: id.clone(),
-            label: metadata_map.get(&id).map(|m| m.label.clone()).unwrap_or(label),
-            harness: metadata_map.get(&id).and_then(|m| (!m.harness.is_empty()).then(|| m.harness.clone())),
-            model: metadata_map.get(&id).and_then(|m| (!m.model.is_empty()).then(|| m.model.clone())),
+            label: meta.map(|m| m.label.clone()).unwrap_or(label),
+            harness: meta.and_then(|m| (!m.harness.is_empty()).then(|| m.harness.clone())),
+            model: meta.and_then(|m| (!m.model.is_empty()).then(|| m.model.clone())),
             status,
             cwd,
             created_at,
-            observed_status: metadata_map.get(&id).and_then(|m| m.observed_status.clone()),
-            summary: metadata_map.get(&id).and_then(|m| m.summary.clone()),
-            next_action: metadata_map.get(&id).and_then(|m| m.next_action.clone()),
-            needs_user_input: metadata_map.get(&id).and_then(|m| m.needs_user_input),
-            detected_question: metadata_map.get(&id).and_then(|m| m.detected_question.clone()),
-            suggested_options: metadata_map.get(&id).and_then(|m| m.suggested_options.clone()),
-            blocker_description: metadata_map.get(&id).and_then(|m| m.blocker_description.clone()),
-            failed_command: metadata_map.get(&id).and_then(|m| m.failed_command.clone()),
-            failed_test: metadata_map.get(&id).and_then(|m| m.failed_test.clone()),
-            capacity_hints: metadata_map.get(&id).and_then(|m| m.capacity_hints.clone()),
-            metadata_source: metadata_map.get(&id).map(|m| m.metadata_source.clone()),
-            metadata_confidence: metadata_map.get(&id).map(|m| m.metadata_confidence),
-            peon_last_inference: metadata_map
-                .get(&id)
+            observed_status: meta.and_then(|m| m.observed_status.clone()),
+            summary: meta.and_then(|m| m.summary.clone()),
+            next_action: meta.and_then(|m| m.next_action.clone()),
+            needs_user_input: meta.and_then(|m| m.needs_user_input),
+            detected_question: meta.and_then(|m| m.detected_question.clone()),
+            suggested_options: meta.and_then(|m| m.suggested_options.clone()),
+            blocker_description: meta.and_then(|m| m.blocker_description.clone()),
+            failed_command: meta.and_then(|m| m.failed_command.clone()),
+            failed_test: meta.and_then(|m| m.failed_test.clone()),
+            capacity_hints: meta.and_then(|m| m.capacity_hints.clone()),
+            metadata_source: meta.map(|m| m.metadata_source.clone()),
+            metadata_confidence: meta.map(|m| m.metadata_confidence),
+            peon_last_inference: meta
                 .and_then(|m| m.peon_last_inference.clone())
                 .or_else(|| peon_times.get(&id).cloned()),
             repo_root: None,
@@ -390,8 +537,54 @@ async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse 
             is_worktree: None,
             conflict_warning: None,
             recommendation: None,
+            memory_state,
+            resume_strategy,
+            resume: meta.and_then(|m| m.resume.clone()),
+            resumed_from: meta.and_then(|m| m.resumed_from.clone()),
         }
     }).collect();
+
+    // Append remembered (non-live) sessions from metadata
+    for meta in &all_metadata_sessions {
+        if live_ids.contains(&meta.id) {
+            continue;
+        }
+        let (memory_state, resume_strategy) =
+            derive_memory_state(false, meta.resume.as_ref(), &capabilities);
+        infos.push(SessionInfo {
+            id: meta.id.clone(),
+            label: meta.label.clone(),
+            harness: (!meta.harness.is_empty()).then(|| meta.harness.clone()),
+            model: (!meta.model.is_empty()).then(|| meta.model.clone()),
+            status: "ended".into(),
+            cwd: meta.cwd.clone(),
+            created_at: meta.created_at.clone(),
+            observed_status: meta.observed_status.clone(),
+            summary: meta.summary.clone(),
+            next_action: meta.next_action.clone(),
+            needs_user_input: meta.needs_user_input,
+            detected_question: meta.detected_question.clone(),
+            suggested_options: meta.suggested_options.clone(),
+            blocker_description: meta.blocker_description.clone(),
+            failed_command: meta.failed_command.clone(),
+            failed_test: meta.failed_test.clone(),
+            capacity_hints: meta.capacity_hints.clone(),
+            metadata_source: Some(meta.metadata_source.clone()),
+            metadata_confidence: Some(meta.metadata_confidence),
+            peon_last_inference: meta.peon_last_inference.clone(),
+            repo_root: meta.repo_root.clone(),
+            branch: meta.branch.clone(),
+            dirty: meta.dirty,
+            changed_files: meta.changed_files,
+            is_worktree: meta.is_worktree,
+            conflict_warning: None,
+            recommendation: None,
+            memory_state,
+            resume_strategy,
+            resume: meta.resume.clone(),
+            resumed_from: meta.resumed_from.clone(),
+        });
+    }
 
     let mut cwd_counts: HashMap<String, usize> = HashMap::new();
     for info in &infos {
@@ -571,11 +764,11 @@ async fn peon_loop(state: Arc<AppState>) {
                         }
                     }
 
-                    let mut last_inf = state_clone.peon.last_inference.write().unwrap();
-                    last_inf.insert(id.clone(), now_iso);
-                    drop(last_inf);
                 }
 
+                let mut last_inf = state_clone.peon.last_inference.write().unwrap();
+                last_inf.insert(id.clone(), now_iso);
+                drop(last_inf);
                 state_clone.peon.in_flight.write().unwrap().remove(&id);
             });
         }
@@ -602,6 +795,60 @@ fn terminal_env_overrides() -> [(&'static str, &'static str); 5] {
         ("CLICOLOR", "1"),
         ("TERM_PROGRAM", "OrkWorks"),
     ]
+}
+
+fn default_shell_command(cwd: String) -> harness::CommandSpec {
+    let (program, args) = shell_cmd();
+    harness::CommandSpec { program, args, cwd }
+}
+
+fn default_capabilities() -> harness::HarnessCapabilities {
+    harness::HarnessCapabilities {
+        launch: true,
+        resume_exact: false,
+        resume_latest_in_cwd: false,
+        resume_latest_in_repo: false,
+        detect_session_id: false,
+        detect_model: false,
+        detect_context_usage: false,
+        detect_capacity: false,
+        native_voice: false,
+    }
+}
+
+fn default_shell_adapter() -> harness::HarnessAdapter {
+    let (program, args) = shell_cmd();
+    let capabilities = default_capabilities();
+    harness::HarnessAdapter::template(
+        "generic-shell",
+        "Generic Shell",
+        capabilities,
+        harness::CommandTemplate {
+            command: program.clone(),
+            args: args.clone(),
+        },
+        None,
+        None,
+    )
+}
+
+fn derive_memory_state(
+    is_live: bool,
+    resume: Option<&harness::ResumeMemory>,
+    capabilities: &harness::HarnessCapabilities,
+) -> (MemoryState, harness::ResumeStrategy) {
+    if is_live {
+        return (MemoryState::Live, harness::ResumeStrategy::None);
+    }
+    let Some(resume) = resume else {
+        return (MemoryState::Remembered, harness::ResumeStrategy::None);
+    };
+    let strategy = harness::select_resume_strategy(resume, capabilities);
+    if strategy == harness::ResumeStrategy::None {
+        (MemoryState::Unsupported, strategy)
+    } else {
+        (MemoryState::Resumable, strategy)
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -737,10 +984,17 @@ async fn handle_session_terminal(mut ws: WebSocket, id: String, state: Arc<AppSt
             })
     };
 
-    let (shell_bin, shell_args) = shell_cmd();
-    let mut cmd = CommandBuilder::new(&shell_bin);
-    cmd.args(&shell_args);
-    cmd.cwd(&cwd);
+    let command = {
+        let sessions = state.sessions.lock().unwrap();
+        sessions
+            .get(&id)
+            .map(|h| h.command.clone())
+            .unwrap_or_else(|| default_shell_command(cwd.clone()))
+    };
+
+    let mut cmd = CommandBuilder::new(&command.program);
+    cmd.args(&command.args);
+    cmd.cwd(&command.cwd);
     for (key, value) in std::env::vars() {
         if should_forward_terminal_env(&key) {
             cmd.env(&key, &value);
@@ -996,12 +1250,17 @@ mod tests {
             conflict_warning: None,
             recommendation: None,
             peon_last_inference: None,
+            memory_state: MemoryState::Live,
+            resume_strategy: harness::ResumeStrategy::None,
+            resume: None,
+            resumed_from: None,
         };
+
         state
             .sessions
             .lock()
             .unwrap()
-            .insert(id, SessionHandle { info: info.clone(), kill_tx, output_buffer: peon::RingBuffer::new(200) });
+            .insert(id, SessionHandle { info: info.clone(), kill_tx, output_buffer: peon::RingBuffer::new(200), command: default_shell_command("/tmp".into()) });
 
         let sessions = state.sessions.lock().unwrap();
         assert_eq!(sessions.len(), 1);
@@ -1056,9 +1315,14 @@ mod tests {
                     conflict_warning: None,
                     recommendation: None,
                     peon_last_inference: None,
+                    memory_state: MemoryState::Live,
+                    resume_strategy: harness::ResumeStrategy::None,
+                    resume: None,
+                    resumed_from: None,
                 },
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
+                command: harness::CommandSpec { program: "/bin/sh".into(), args: vec!["-i".into(), "-l".into()], cwd: "/tmp".into() },
             },
         );
 
@@ -1176,6 +1440,10 @@ mod tests {
             conflict_warning: None,
             recommendation: None,
             peon_last_inference: None,
+            memory_state: MemoryState::Live,
+            resume_strategy: harness::ResumeStrategy::None,
+            resume: None,
+            resumed_from: None,
         };
         let json = serde_json::to_string(&info).unwrap();
         assert!(json.contains("\"metadataSource\":\"process\""));
@@ -1214,6 +1482,10 @@ mod tests {
             conflict_warning: None,
             recommendation: None,
             peon_last_inference: None,
+            memory_state: MemoryState::Live,
+            resume_strategy: harness::ResumeStrategy::None,
+            resume: None,
+            resumed_from: None,
         };
         let json = serde_json::to_string(&info).unwrap();
         assert!(json.contains("\"metadataSource\":null"));
@@ -1235,8 +1507,12 @@ mod tests {
                 dirty: Some(true),
                 changed_files: None, is_worktree: None,
                 conflict_warning: None, recommendation: None,
-                peon_last_inference: None,
-            },
+            peon_last_inference: None,
+            memory_state: MemoryState::Live,
+            resume_strategy: harness::ResumeStrategy::None,
+            resume: None,
+            resumed_from: None,
+        },
             SessionInfo {
                 id: "b".into(), label: "B".into(), harness: None, model: None, status: "running".into(),
                 cwd: "/repo".into(), created_at: "now".into(),
@@ -1249,8 +1525,12 @@ mod tests {
                 dirty: Some(true),
                 changed_files: None, is_worktree: None,
                 conflict_warning: None, recommendation: None,
-                peon_last_inference: None,
-            },
+            peon_last_inference: None,
+            memory_state: MemoryState::Live,
+            resume_strategy: harness::ResumeStrategy::None,
+            resume: None,
+            resumed_from: None,
+        },
         ];
         let warnings = detect_conflicts(&sessions);
         assert_eq!(warnings.len(), 2);
@@ -1276,8 +1556,12 @@ mod tests {
                 dirty: Some(false),
                 changed_files: None, is_worktree: None,
                 conflict_warning: None, recommendation: None,
-                peon_last_inference: None,
-            },
+            peon_last_inference: None,
+            memory_state: MemoryState::Live,
+            resume_strategy: harness::ResumeStrategy::None,
+            resume: None,
+            resumed_from: None,
+        },
             SessionInfo {
                 id: "b".into(), label: "B".into(), harness: None, model: None, status: "running".into(),
                 cwd: "/repo".into(), created_at: "now".into(),
@@ -1290,8 +1574,12 @@ mod tests {
                 dirty: Some(false),
                 changed_files: None, is_worktree: None,
                 conflict_warning: None, recommendation: None,
-                peon_last_inference: None,
-            },
+            peon_last_inference: None,
+            memory_state: MemoryState::Live,
+            resume_strategy: harness::ResumeStrategy::None,
+            resume: None,
+            resumed_from: None,
+        },
         ];
         let warnings = detect_conflicts(&sessions);
         assert!(warnings.is_empty());
@@ -1312,8 +1600,12 @@ mod tests {
                 dirty: None,
                 changed_files: None, is_worktree: None,
                 conflict_warning: None, recommendation: None,
-                peon_last_inference: None,
-            },
+            peon_last_inference: None,
+            memory_state: MemoryState::Live,
+            resume_strategy: harness::ResumeStrategy::None,
+            resume: None,
+            resumed_from: None,
+        },
             SessionInfo {
                 id: "b".into(), label: "B".into(), harness: None, model: None, status: "running".into(),
                 cwd: "/repo".into(), created_at: "now".into(),
@@ -1326,8 +1618,12 @@ mod tests {
                 dirty: None,
                 changed_files: None, is_worktree: None,
                 conflict_warning: None, recommendation: None,
-                peon_last_inference: None,
-            },
+            peon_last_inference: None,
+            memory_state: MemoryState::Live,
+            resume_strategy: harness::ResumeStrategy::None,
+            resume: None,
+            resumed_from: None,
+        },
         ];
         let warnings = detect_conflicts(&sessions);
         assert!(warnings.is_empty());
@@ -1406,9 +1702,14 @@ mod tests {
                     conflict_warning: None,
                     recommendation: None,
                     peon_last_inference: None,
+                    memory_state: MemoryState::Live,
+                    resume_strategy: harness::ResumeStrategy::None,
+                    resume: None,
+                    resumed_from: None,
                 },
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
+                command: harness::CommandSpec { program: "/bin/sh".into(), args: vec!["-i".into(), "-l".into()], cwd: "/tmp".into() },
             };
             handle.output_buffer.push("running cargo test...".into());
             handle.output_buffer.push("test result: ok. 5 passed; 0 failed;".into());
@@ -1449,6 +1750,8 @@ mod tests {
                     dirty: None,
                     changed_files: None,
                     is_worktree: None,
+                    resume: None,
+                    resumed_from: None,
                 });
             }
         }
@@ -1562,9 +1865,14 @@ mod tests {
                     conflict_warning: None,
                     recommendation: None,
                     peon_last_inference: None,
+                    memory_state: MemoryState::Live,
+                    resume_strategy: harness::ResumeStrategy::None,
+                    resume: None,
+                    resumed_from: None,
                 },
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
+                command: harness::CommandSpec { program: "/bin/sh".into(), args: vec!["-i".into(), "-l".into()], cwd: "/tmp".into() },
             };
             handle.output_buffer.push("quiet output".into());
             state.sessions.lock().unwrap().insert(session_id.clone(), handle);
@@ -1585,5 +1893,160 @@ mod tests {
             .parse::<usize>()
             .unwrap();
         assert_eq!(count, 1);
+    }
+
+    #[tokio::test]
+    async fn peon_loop_records_failed_inference_attempt() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let state = Arc::new(AppState {
+            sessions: Mutex::new(HashMap::new()),
+            workspace: Mutex::new(None),
+            peon: PeonState {
+                last_output: StdRwLock::new(HashMap::new()),
+                last_inference: StdRwLock::new(HashMap::new()),
+                in_flight: StdRwLock::new(HashSet::new()),
+                config: peon::PeonConfig {
+                    harness: dir.path().join("missing-harness").display().to_string(),
+                    harness_args: vec!["--print".into()],
+                    model: None,
+                    interval_secs: 1,
+                    max_lines: 200,
+                    timeout_secs: 10,
+                    enabled: true,
+                },
+            },
+        });
+
+        let session_id = "peon-failed-attempt-test".to_string();
+        {
+            let (kill_tx, _) = tokio::sync::watch::channel(false);
+            let mut handle = SessionHandle {
+                info: SessionInfo {
+                    id: session_id.clone(),
+                    label: "Test".into(),
+                    harness: None,
+                    model: None,
+                    status: "running".into(),
+                    cwd: dir.path().display().to_string(),
+                    created_at: "now".into(),
+                    observed_status: None,
+                    summary: None,
+                    next_action: None,
+                    needs_user_input: None,
+                    detected_question: None,
+                    suggested_options: None,
+                    blocker_description: None,
+                    failed_command: None,
+                    failed_test: None,
+                    capacity_hints: None,
+                    metadata_source: Some("process".into()),
+                    metadata_confidence: Some(1.0),
+                    repo_root: None,
+                    branch: None,
+                    dirty: None,
+                    changed_files: None,
+                    is_worktree: None,
+                    conflict_warning: None,
+                    recommendation: None,
+                    peon_last_inference: None,
+                    memory_state: MemoryState::Live,
+                    resume_strategy: harness::ResumeStrategy::None,
+                    resume: None,
+                    resumed_from: None,
+                },
+                kill_tx,
+                output_buffer: peon::RingBuffer::new(200),
+                command: default_shell_command(dir.path().display().to_string()),
+            };
+            handle.output_buffer.push("quiet output".into());
+            state.sessions.lock().unwrap().insert(session_id.clone(), handle);
+        }
+
+        state.peon.last_output.write().unwrap().insert(
+            session_id.clone(),
+            tokio::time::Instant::now() - std::time::Duration::from_secs(5),
+        );
+
+        let task = tokio::spawn(peon_loop(state.clone()));
+        tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+        task.abort();
+
+        assert!(
+            state.peon.last_inference.read().unwrap().contains_key(&session_id),
+            "failed Peon attempts should still be recorded to avoid tight retry loops"
+        );
+    }
+
+    #[test]
+    fn memory_state_marks_absent_session_as_resumable_when_strategy_exists() {
+        let caps = harness::HarnessCapabilities {
+            launch: true,
+            resume_exact: true,
+            resume_latest_in_cwd: true,
+            resume_latest_in_repo: false,
+            detect_session_id: true,
+            detect_model: true,
+            detect_context_usage: false,
+            detect_capacity: false,
+            native_voice: false,
+        };
+        let resume = harness::ResumeMemory {
+            state: harness::ResumeState::Available,
+            preferred_strategy: harness::ResumeStrategy::Exact,
+            harness_session_id: Some("sess-1".into()),
+            latest_fallback: true,
+            last_seen_at: None,
+        };
+
+        let (memory_state, strategy) = derive_memory_state(false, Some(&resume), &caps);
+
+        assert_eq!(memory_state, MemoryState::Resumable);
+        assert_eq!(strategy, harness::ResumeStrategy::Exact);
+    }
+
+    #[test]
+    fn memory_state_marks_active_session_as_live() {
+        let caps = harness::HarnessCapabilities {
+            launch: true,
+            resume_exact: false,
+            resume_latest_in_cwd: false,
+            resume_latest_in_repo: false,
+            detect_session_id: false,
+            detect_model: false,
+            detect_context_usage: false,
+            detect_capacity: false,
+            native_voice: false,
+        };
+
+        let (memory_state, strategy) = derive_memory_state(true, None, &caps);
+
+        assert_eq!(memory_state, MemoryState::Live);
+        assert_eq!(strategy, harness::ResumeStrategy::None);
+    }
+
+    #[test]
+    fn generic_shell_memory_state_is_not_resumable() {
+        let capabilities = default_capabilities();
+        let resume = harness::ResumeMemory {
+            state: harness::ResumeState::Available,
+            preferred_strategy: harness::ResumeStrategy::Exact,
+            harness_session_id: Some("sess-1".into()),
+            latest_fallback: true,
+            last_seen_at: None,
+        };
+
+        let (memory_state, strategy) = derive_memory_state(false, Some(&resume), &capabilities);
+        let command = default_shell_adapter().build_resume_command(&harness::ResumeRequest {
+            strategy: harness::ResumeStrategy::Exact,
+            cwd: "/tmp".into(),
+            repo_root: Some("/tmp".into()),
+            harness_session_id: Some("sess-1".into()),
+            model: None,
+        });
+
+        assert_eq!(memory_state, MemoryState::Unsupported);
+        assert_eq!(strategy, harness::ResumeStrategy::None);
+        assert!(command.is_none());
     }
 }

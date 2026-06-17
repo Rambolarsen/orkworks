@@ -1,3 +1,4 @@
+use crate::harness::ResumeMemory;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::Write;
@@ -52,6 +53,10 @@ pub struct SessionMetadata {
     pub changed_files: Option<usize>,
     #[serde(rename = "isWorktree")]
     pub is_worktree: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resume: Option<ResumeMemory>,
+    #[serde(rename = "resumedFrom", skip_serializing_if = "Option::is_none")]
+    pub resumed_from: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -63,6 +68,14 @@ pub struct Event {
     #[serde(rename = "observedStatus")]
     pub observed_status: Option<String>,
     pub confidence: Option<f64>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct WorkspaceMemory {
+    #[serde(rename = "lastActiveSessionId", skip_serializing_if = "Option::is_none")]
+    pub last_active_session_id: Option<String>,
+    #[serde(rename = "lastActiveAt", skip_serializing_if = "Option::is_none")]
+    pub last_active_at: Option<String>,
 }
 
 pub struct MetadataStore {
@@ -82,6 +95,47 @@ impl MetadataStore {
 
     pub fn events_dir(&self) -> PathBuf {
         self.root.join("events")
+    }
+
+    pub fn workspace_memory_path(&self) -> PathBuf {
+        self.root.join("workspace.json")
+    }
+
+    pub fn read_workspace_memory(&self) -> Option<WorkspaceMemory> {
+        let data = fs::read_to_string(self.workspace_memory_path()).ok()?;
+        serde_json::from_str(&data).ok()
+    }
+
+    pub fn write_workspace_memory(&self, memory: &WorkspaceMemory) {
+        if let Err(e) = fs::create_dir_all(&self.root) {
+            warn!("failed to create metadata root {:?}: {e}", self.root);
+            return;
+        }
+        let path = self.workspace_memory_path();
+        match serde_json::to_string_pretty(memory) {
+            Ok(json) => {
+                if let Err(e) = fs::write(&path, json) {
+                    warn!("failed to write workspace memory {:?}: {e}", path);
+                }
+            }
+            Err(e) => warn!("failed to serialize workspace memory: {e}"),
+        }
+    }
+
+    pub fn read_all_sessions(&self) -> Vec<SessionMetadata> {
+        let dir = self.sessions_dir();
+        let entries = match fs::read_dir(&dir) {
+            Ok(entries) => entries,
+            Err(_) => return vec![],
+        };
+        let mut sessions: Vec<SessionMetadata> = entries
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| entry.path().extension().and_then(|e| e.to_str()) == Some("json"))
+            .filter_map(|entry| fs::read_to_string(entry.path()).ok())
+            .filter_map(|data| serde_json::from_str::<SessionMetadata>(&data).ok())
+            .collect();
+        sessions.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+        sessions
     }
 
     pub fn write_session(&self, meta: &SessionMetadata) {
@@ -241,6 +295,8 @@ mod tests {
             dirty: Some(false),
             changed_files: Some(0),
             is_worktree: Some(false),
+            resume: None,
+            resumed_from: None,
         };
         store.write_session(&meta);
         let read = store.read_session("test-1").unwrap();
@@ -336,6 +392,8 @@ mod tests {
             dirty: None,
             changed_files: None,
             is_worktree: None,
+            resume: None,
+            resumed_from: None,
         });
 
         // First inference: harness detected, no model
@@ -410,6 +468,8 @@ mod tests {
             dirty: None,
             changed_files: None,
             is_worktree: None,
+            resume: None,
+            resumed_from: None,
         });
 
         let inf = crate::peon::PeonInference {
@@ -441,5 +501,79 @@ mod tests {
         assert_eq!(raw["summary"], "Needs a decision");
         assert_eq!(raw["needsUserInput"], true);
         assert_eq!(raw["peonLastInference"], "later");
+    }
+
+    fn test_metadata(id: &str) -> SessionMetadata {
+        SessionMetadata {
+            id: id.into(),
+            label: "Test".into(),
+            workspace: "/tmp".into(),
+            task: "".into(),
+            harness: "".into(),
+            model: "".into(),
+            cwd: "/tmp".into(),
+            status: "running".into(),
+            phase: "".into(),
+            observed_status: None,
+            summary: None,
+            next_action: None,
+            needs_user_input: None,
+            detected_question: None,
+            suggested_options: None,
+            blocker_description: None,
+            failed_command: None,
+            failed_test: None,
+            capacity_hints: None,
+            peon_last_inference: None,
+            created_at: "now".into(),
+            last_activity: "now".into(),
+            metadata_source: "process".into(),
+            metadata_confidence: 1.0,
+            repo_root: None,
+            branch: None,
+            dirty: None,
+            changed_files: None,
+            is_worktree: None,
+            resume: None,
+            resumed_from: None,
+        }
+    }
+
+    #[test]
+    fn write_and_read_workspace_memory() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+
+        store.write_workspace_memory(&WorkspaceMemory {
+            last_active_session_id: Some("session-1".into()),
+            last_active_at: Some("2026-06-17T12:00:00Z".into()),
+        });
+
+        let memory = store.read_workspace_memory().unwrap();
+        assert_eq!(memory.last_active_session_id.as_deref(), Some("session-1"));
+        assert_eq!(memory.last_active_at.as_deref(), Some("2026-06-17T12:00:00Z"));
+    }
+
+    #[test]
+    fn read_all_sessions_includes_resume_memory() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let mut meta = test_metadata("remembered");
+        meta.resume = Some(crate::harness::ResumeMemory {
+            state: crate::harness::ResumeState::Available,
+            preferred_strategy: crate::harness::ResumeStrategy::Exact,
+            harness_session_id: Some("sess-abc".into()),
+            latest_fallback: true,
+            last_seen_at: Some("2026-06-17T12:00:00Z".into()),
+        });
+        store.write_session(&meta);
+
+        let all = store.read_all_sessions();
+
+        assert_eq!(all.len(), 1);
+        assert_eq!(
+            all[0].resume.as_ref().and_then(|r| r.harness_session_id.as_deref()),
+            Some("sess-abc"),
+        );
     }
 }
