@@ -1,7 +1,9 @@
 import { app, BrowserWindow, dialog, ipcMain } from "electron";
 import { spawn, type ChildProcess } from "child_process";
+import { existsSync } from "fs";
 import * as path from "path";
 import { getDevRepoRoot, getDevSidecarPath } from "./paths";
+import { readWorkspaceMemory, rememberWorkspacePath } from "./workspaceMemory";
 
 let mainWindow: BrowserWindow | null = null;
 let sidecarProcess: ChildProcess | null = null;
@@ -20,9 +22,9 @@ function getSidecarPath(): string {
   return getDevSidecarPath(__dirname);
 }
 
-function startSidecar(): void {
+function startSidecar(cwdOverride?: string): void {
   const binaryPath = getSidecarPath();
-  const sidecarCwd = app.isPackaged ? app.getPath("home") : getDevRepoRoot(__dirname);
+  const sidecarCwd = cwdOverride ?? (app.isPackaged ? app.getPath("home") : getDevRepoRoot(__dirname));
   console.log(`[main] starting sidecar: ${binaryPath}`);
   console.log(`[main] sidecar cwd: ${sidecarCwd}`);
 
@@ -82,9 +84,27 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
+  const appMemory = readWorkspaceMemory(app.getPath("userData"));
+  const initialWorkspacePath =
+    appMemory.lastWorkspacePath && existsSync(appMemory.lastWorkspacePath)
+      ? appMemory.lastWorkspacePath
+      : null;
+
   ipcMain.handle("get-backend-url", async () => {
     const port = await portPromise;
     return `http://127.0.0.1:${port}`;
+  });
+
+  ipcMain.handle("get-initial-workspace", async () => {
+    if (!initialWorkspacePath) return null;
+    const port = await portPromise;
+    const resp = await fetch(`http://127.0.0.1:${port}/workspace`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: initialWorkspacePath }),
+    });
+    if (!resp.ok) return null;
+    return resp.json();
   });
 
   ipcMain.handle("open-workspace", async () => {
@@ -96,6 +116,8 @@ app.whenReady().then(() => {
 
     const dirPath = result.filePaths[0];
     workspacePath = dirPath;
+
+    rememberWorkspacePath(app.getPath("userData"), dirPath);
 
     if (sidecarProcess) {
       sidecarProcess.kill();
@@ -146,7 +168,7 @@ app.whenReady().then(() => {
     return resp.json();
   });
 
-  startSidecar();
+  startSidecar(initialWorkspacePath ?? undefined);
   createWindow();
 
   app.on("activate", () => {
