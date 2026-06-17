@@ -42,3 +42,21 @@ export function sortSessions(list: SessionInfo[]): SessionInfo[] {
     return a.label < b.label ? -1 : a.label > b.label ? 1 : 0;
   });
 }
+
+export function statusDotColor(status: string): string {
+  if (status === "waiting_for_input") return "#cc4444";
+  if (status === "blocked") return "#d4d44e";
+  if (status === "failed") return "#cc4444";
+  if (status === "done") return "#4ec94e";
+  if (status === "stale" || status === "idle") return "#666";
+  if (status === "working" || status === "running" || status === "creating") return "#4ec94e";
+  return "#666";
+}
+
+export function attentionBorderColor(status: string): string {
+  if (status === "waiting_for_input" || status === "failed") return "#cc4444";
+  if (status === "blocked") return "#d4d44e";
+  if (status === "done") return "#4ec94e";
+  if (status === "stale" || status === "idle") return "#4a4a4a";
+  return "#3c3c3c";
+}
