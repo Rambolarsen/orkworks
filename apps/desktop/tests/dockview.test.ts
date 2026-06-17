@@ -14,7 +14,7 @@ test("DockviewApp registers panels through onReady", () => {
 
   assert.match(source, /onReady=\{\(event: DockviewReadyEvent\) =>/);
   assert.doesNotMatch(source, /defaultLayout=/);
-  assert.match(source, /event\.api\.(fromJSON|addPanel)/);
+  assert.match(source, /api\.(fromJSON|addPanel)/);
 });
 
 test("App renders DockviewApp instead of the legacy three-panel layout", () => {
@@ -101,4 +101,20 @@ test("session list marks remembered sessions separately from live sessions", () 
 
   assert.match(source, /memoryState/);
   assert.match(source, /session-item--remembered/);
+});
+
+test("session list only offers kill for live sessions", () => {
+  const source = readFileSync(
+    new URL("../src/components/SessionListPanel.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(source, /s\.memoryState === "live" && \(\s*<button[\s\S]*session-kill-button/);
+});
+
+test("App restores the last active session from the initial workspace", () => {
+  const source = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /info\.lastActiveSessionId/);
+  assert.match(source, /setActiveSessionId\(info\.lastActiveSessionId\)/);
 });
