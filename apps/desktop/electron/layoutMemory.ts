@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 const fileName = "layout.json";
 
-function layoutMemoryPath(userDataPath: string): string {
+export function layoutMemoryPath(userDataPath: string): string {
   return join(userDataPath, fileName);
 }
 
