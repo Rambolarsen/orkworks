@@ -4,6 +4,7 @@ import { existsSync } from "fs";
 import * as path from "path";
 import { getDevRepoRoot, getDevSidecarPath } from "./paths";
 import { readWorkspaceMemory, rememberWorkspacePath } from "./workspaceMemory";
+import { readLayoutMemory, writeLayoutMemory } from "./layoutMemory";
 
 let mainWindow: BrowserWindow | null = null;
 let sidecarProcess: ChildProcess | null = null;
@@ -93,6 +94,14 @@ app.whenReady().then(() => {
   ipcMain.handle("get-backend-url", async () => {
     const port = await portPromise;
     return `http://127.0.0.1:${port}`;
+  });
+
+  ipcMain.handle("get-layout", async () => {
+    return readLayoutMemory(app.getPath("userData"));
+  });
+
+  ipcMain.handle("save-layout", async (_event, json: string) => {
+    writeLayoutMemory(app.getPath("userData"), json);
   });
 
   ipcMain.handle("get-initial-workspace", async () => {
