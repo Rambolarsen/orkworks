@@ -17,6 +17,7 @@ declare global {
   interface Window {
     orkworks: {
       getBackendUrl: () => Promise<string>;
+      getInitialWorkspace: () => Promise<WorkspaceInfo | null>;
       openWorkspace: () => Promise<WorkspaceInfo | null>;
     };
   }

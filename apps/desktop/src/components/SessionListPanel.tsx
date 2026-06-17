@@ -50,11 +50,15 @@ function SessionListPanel({
               <ul className="session-list">
                 {sessions.map((s) => {
                   const attn = sessionAttentionStatus(s);
-                  const isActive = s.id === activeSessionId;
                   return (
                     <li
                       key={s.id}
-                      className={`session-item${isActive ? " session-item--active" : ""}`}
+                      className={[
+                        "session-item",
+                        s.id === activeSessionId ? "session-item--active" : "",
+                        s.memoryState !== "live" ? "session-item--remembered" : "",
+                        s.memoryState === "resumable" ? "session-item--resumable" : "",
+                      ].filter(Boolean).join(" ")}
                       style={{ borderLeft: `3px solid ${attentionBorderColor(attn)}` }}
                       onClick={() => onSelectSession(s.id)}
                     >
@@ -82,6 +86,11 @@ function SessionListPanel({
                               }}
                             >
                               {s.metadataSource} &middot; {Math.round((s.metadataConfidence ?? 1) * 100)}%
+                            </span>
+                          )}
+                          {s.memoryState !== "live" && (
+                            <span className="session-memory-badge">
+                              {s.memoryState === "resumable" ? "resumable" : "remembered"}
                             </span>
                           )}
                         </div>

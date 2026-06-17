@@ -1,3 +1,14 @@
+export type MemoryState = "live" | "remembered" | "resumable" | "unsupported";
+export type ResumeStrategy = "exact" | "latest_cwd" | "latest_repo" | "none";
+
+export interface ResumeMemory {
+  state: "available" | "unavailable";
+  preferredStrategy: ResumeStrategy;
+  harnessSessionId?: string;
+  latestFallback: boolean;
+  lastSeenAt?: string;
+}
+
 export interface SessionInfo {
   id: string;
   label: string;
@@ -24,6 +35,10 @@ export interface SessionInfo {
   isWorktree?: boolean;
   conflictWarning?: string;
   recommendation?: string;
+  memoryState: MemoryState;
+  resumeStrategy: ResumeStrategy;
+  resume?: ResumeMemory;
+  resumedFrom?: string;
 }
 
 export async function createSession(
@@ -69,5 +84,28 @@ export async function setWorkspace(
     body: JSON.stringify({ path }),
   });
   if (!resp.ok) throw new Error(`set workspace failed: ${resp.status}`);
+  return resp.json();
+}
+
+export async function setActiveWorkspaceSession(
+  baseUrl: string,
+  sessionId: string,
+): Promise<void> {
+  const resp = await fetch(`${baseUrl}/workspace/active-session`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sessionId }),
+  });
+  if (!resp.ok) throw new Error(`set active session failed: ${resp.status}`);
+}
+
+export async function resumeSession(
+  baseUrl: string,
+  id: string,
+): Promise<SessionInfo> {
+  const resp = await fetch(`${baseUrl}/sessions/${id}/resume`, {
+    method: "POST",
+  });
+  if (!resp.ok) throw new Error(`resume session failed: ${resp.status}`);
   return resp.json();
 }

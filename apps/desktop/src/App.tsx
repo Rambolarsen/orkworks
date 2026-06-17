@@ -1,21 +1,21 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import LeftSidebar from "./components/LeftSidebar";
-import RightSidebar from "./components/RightSidebar";
-import TerminalTabs from "./components/TerminalTabs";
-import type { TerminalTabsHandle } from "./components/TerminalTabs";
-import { sessionAttentionStatus } from "./components/RightSidebarHelpers";
+import { useCallback, useEffect, useState } from "react";
+import DockviewApp from "./components/DockviewApp";
+import { sortSessions } from "./components/RightSidebarHelpers";
 import {
   type SessionInfo,
   type WorkspaceInfo,
   createSession,
   listSessions,
   deleteSession,
+  resumeSession,
+  setActiveWorkspaceSession,
 } from "./api";
 
 declare global {
   interface Window {
     orkworks: {
       getBackendUrl: () => Promise<string>;
+      getInitialWorkspace: () => Promise<WorkspaceInfo | null>;
       openWorkspace: () => Promise<WorkspaceInfo | null>;
     };
   }
@@ -26,7 +26,6 @@ function App() {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [workspace, setWorkspaceState] = useState<WorkspaceInfo | null>(null);
-  const terminalTabsRef = useRef<TerminalTabsHandle>(null);
 
   useEffect(() => {
     if (backendStatus !== "connecting…") return;
@@ -58,32 +57,11 @@ function App() {
     };
   }, [backendStatus]);
 
-  const stateOrder: Record<string, number> = {
-    waiting_for_input: 0,
-    blocked: 1,
-    failed: 2,
-    creating: 3,
-    running: 4,
-    working: 5,
-    idle: 6,
-    done: 7,
-    stale: 8,
-    ended: 9,
-    killed: 10,
-    error: 11,
-  };
-
   const refreshSessions = useCallback(async () => {
     try {
       const baseUrl = await window.orkworks.getBackendUrl();
       const list = await listSessions(baseUrl);
-      list.sort((a, b) => {
-        const sa = stateOrder[sessionAttentionStatus(a)] ?? 5;
-        const sb = stateOrder[sessionAttentionStatus(b)] ?? 5;
-        if (sa !== sb) return sa - sb;
-        return a.label.localeCompare(b.label);
-      });
-      setSessions(list);
+      setSessions(sortSessions(list));
     } catch {
       /* backend not ready */
     }
@@ -141,6 +119,41 @@ function App() {
     [activeSessionId, refreshSessions],
   );
 
+  const handleResumeSession = useCallback(async (id: string) => {
+    const baseUrl = await window.orkworks.getBackendUrl();
+    const session = await resumeSession(baseUrl, id);
+    setSessions((prev) => [...prev, session]);
+    setActiveSessionId(session.id);
+  }, []);
+
+  useEffect(() => {
+    if (backendStatus !== "connected" || workspace) return;
+    let cancelled = false;
+    async function loadInitialWorkspace() {
+      const info = await window.orkworks.getInitialWorkspace();
+      if (!cancelled && info) {
+        setWorkspaceState(info);
+        await refreshSessions();
+      }
+    }
+    loadInitialWorkspace();
+    return () => {
+      cancelled = true;
+    };
+  }, [backendStatus, refreshSessions, workspace]);
+
+  useEffect(() => {
+    if (backendStatus !== "connected" || !activeSessionId) return;
+    const sid = activeSessionId;
+    async function persistActiveSession() {
+      const baseUrl = await window.orkworks.getBackendUrl();
+      await setActiveWorkspaceSession(baseUrl, sid);
+    }
+    persistActiveSession().catch(() => {
+      /* backend not ready */
+    });
+  }, [activeSessionId, backendStatus]);
+
   return (
     <div className="app-shell">
       <div className="titlebar">
@@ -151,33 +164,17 @@ function App() {
           {backendStatus}
         </span>
       </div>
-      <div className="app-layout">
-        <aside className="panel left-sidebar">
-          <LeftSidebar
-            workspace={workspace}
-            onOpenWorkspace={handleOpenWorkspace}
-            sessions={sessions}
-            activeSessionId={activeSessionId}
-            onSelectSession={handleSelectSession}
-            onCreateSession={handleCreateSession}
-            onKillSession={handleKillSession}
-          />
-        </aside>
-        <main className="panel center-panel">
-          <TerminalTabs
-            ref={terminalTabsRef}
-            backendStatus={backendStatus}
-            activeSessionId={activeSessionId}
-            sessions={sessions.map((s) => ({ id: s.id, label: s.label }))}
-          />
-        </main>
-        <aside className="panel right-sidebar">
-          <RightSidebar
-            sessions={sessions}
-            activeSessionId={activeSessionId}
-          />
-        </aside>
-      </div>
+      <DockviewApp
+        backendStatus={backendStatus}
+        workspace={workspace}
+        sessions={sessions}
+        activeSessionId={activeSessionId}
+        onOpenWorkspace={handleOpenWorkspace}
+        onSelectSession={handleSelectSession}
+        onCreateSession={handleCreateSession}
+        onKillSession={handleKillSession}
+        onResumeSession={handleResumeSession}
+      />
     </div>
   );
 }

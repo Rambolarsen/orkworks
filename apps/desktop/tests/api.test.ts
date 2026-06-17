@@ -23,11 +23,25 @@ test("SessionInfo type accepts metadata fields", () => {
     peonLastInference: "2026-06-16T12:00:00Z",
     metadataSource: "process",
     metadataConfidence: 1.0,
+    memoryState: "resumable",
+    resumeStrategy: "exact",
+    resume: {
+      state: "available",
+      preferredStrategy: "exact",
+      harnessSessionId: "sess-123",
+      latestFallback: true,
+      lastSeenAt: "2026-06-17T12:00:00Z",
+    },
+    resumedFrom: "older-session",
   };
   assert.equal(session.metadataSource, "process");
   assert.equal(session.metadataConfidence, 1.0);
   assert.equal(session.observedStatus, "waiting_for_input");
   assert.equal(session.needsUserInput, true);
+  assert.equal(session.memoryState, "resumable");
+  assert.equal(session.resumeStrategy, "exact");
+  assert.equal(session.resume?.harnessSessionId, "sess-123");
+  assert.equal(session.resumedFrom, "older-session");
 });
 
 test("WorkspaceInfo type has expected shape", () => {

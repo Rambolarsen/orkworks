@@ -1,12 +1,13 @@
 import type { SessionInfo } from "../api";
-import { sessionAttentionStatus, sourceColor } from "./RightSidebarHelpers.ts";
+import { sessionAttentionStatus, sourceColor, statusDotColor } from "./RightSidebarHelpers.ts";
 
 interface SessionDetailPanelProps {
   sessions: SessionInfo[];
   activeSessionId: string | null;
+  onResumeSession: (id: string) => void;
 }
 
-function SessionDetailPanel({ sessions, activeSessionId }: SessionDetailPanelProps) {
+function SessionDetailPanel({ sessions, activeSessionId, onResumeSession }: SessionDetailPanelProps) {
   const active = sessions.find((s) => s.id === activeSessionId);
 
   if (!active) {
@@ -18,6 +19,15 @@ function SessionDetailPanel({ sessions, activeSessionId }: SessionDetailPanelPro
   }
 
   const attn = sessionAttentionStatus(active);
+  const canResume = active.memoryState === "resumable" && active.resumeStrategy !== "none";
+  const resumeLabel =
+    active.resumeStrategy === "exact"
+      ? "Resume exact session"
+      : active.resumeStrategy === "latest_cwd"
+        ? "Resume latest in folder"
+        : active.resumeStrategy === "latest_repo"
+          ? "Resume latest in repo"
+          : "Resume unavailable";
 
   return (
     <div style={{ padding: "8px 12px", height: "100%", overflowY: "auto" }}>
@@ -78,6 +88,15 @@ function SessionDetailPanel({ sessions, activeSessionId }: SessionDetailPanelPro
         </div>
       )}
 
+      <div className="session-detail-section">
+        <div className="detail-row">
+          <span className="detail-label">Memory</span>
+          <span className="detail-value">
+            {active.memoryState} · {active.resumeStrategy}
+          </span>
+        </div>
+      </div>
+
       {active.metadataSource && (
         <div className="session-detail-section">
           <div className="session-detail-label">Source</div>
@@ -101,17 +120,18 @@ function SessionDetailPanel({ sessions, activeSessionId }: SessionDetailPanelPro
           </span>
         </div>
       )}
+
+      <button
+        className="session-resume-button"
+        type="button"
+        disabled={!canResume}
+        onClick={() => onResumeSession(active.id)}
+        title={resumeLabel}
+      >
+        {resumeLabel}
+      </button>
     </div>
   );
-}
-
-function statusDotColor(status: string): string {
-  if (status === "waiting_for_input" || status === "failed") return "#cc4444";
-  if (status === "blocked") return "#d4d44e";
-  if (status === "done") return "#4ec94e";
-  if (status === "stale" || status === "idle") return "#666";
-  if (status === "working" || status === "running" || status === "creating") return "#4ec94e";
-  return "#666";
 }
 
 export default SessionDetailPanel;

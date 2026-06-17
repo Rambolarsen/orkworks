@@ -56,35 +56,7 @@ html, body, #root {
   color: #d4d44e;
 }
 
-.app-layout {
-  display: flex;
-  flex: 1;
-  overflow: hidden;
-}
 
-.panel {
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.left-sidebar {
-  width: 260px;
-  min-width: 180px;
-  background: #252526;
-  border-right: 1px solid #3c3c3c;
-}
-
-.center-panel {
-  flex: 1;
-  background: #1e1e1e;
-  display: flex;
-  flex-direction: column;
-}
-
-.center-panel:has(.terminal-shell) {
-  padding: 0;
-}
 
 .terminal-shell {
   display: flex;
@@ -166,92 +138,7 @@ html, body, #root {
   justify-content: center;
 }
 
-.right-sidebar {
-  width: 300px;
-  min-width: 220px;
-  background: #252526;
-  border-left: 1px solid #3c3c3c;
-}
 
-.terminal-tabs {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-}
-
-.terminal-tabs-empty {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-}
-
-.terminal-tab-bar {
-  display: flex;
-  align-items: stretch;
-  background: #252526;
-  border-bottom: 1px solid #3c3c3c;
-  min-height: 30px;
-  overflow-x: auto;
-}
-
-.terminal-tab {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  cursor: pointer;
-  border-right: 1px solid #2a2a2b;
-  font-size: 12px;
-  color: #858585;
-  white-space: nowrap;
-  user-select: none;
-}
-
-.terminal-tab:hover {
-  background: #2a2a2b;
-  color: #d4d4d4;
-}
-
-.terminal-tab--active {
-  background: #1e1e1e;
-  color: #d4d4d4;
-  border-bottom: 1px solid #1e1e1e;
-}
-
-.terminal-tab-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #4ec94e;
-  flex-shrink: 0;
-}
-
-.terminal-tab-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.terminal-tab-close {
-  border: none;
-  background: none;
-  color: #666;
-  cursor: pointer;
-  font-size: 14px;
-  padding: 0 2px;
-  line-height: 1;
-}
-
-.terminal-tab-close:hover {
-  color: #cc4444;
-}
-
-.terminal-tab-content {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-}
 
 /* session detail + conflict warning styles below */
 
@@ -474,76 +361,6 @@ html, body, #root {
 .workspace-dirty {
   color: #d4d44e;
 }
-
-.overview-list {
-  flex: 1;
-  overflow-y: auto;
-}
-
-.overview-group {
-  padding: 0;
-}
-
-.overview-group-header {
-  padding: 8px 12px 4px;
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: #4ec94e;
-}
-
-.overview-group-header--done {
-  color: #666;
-}
-
-.overview-card {
-  margin: 0 8px 4px;
-  padding: 6px 10px;
-  background: #2d2d2d;
-  border-radius: 4px;
-  cursor: pointer;
-  border-left: 2px solid #4ec94e;
-}
-
-.overview-card:hover {
-  background: #333;
-}
-
-.overview-card--active {
-  background: #37373d;
-}
-
-.overview-card--done {
-  opacity: 0.6;
-}
-
-.overview-card-main {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.overview-alert {
-  font-size: 12px;
-  flex-shrink: 0;
-}
-
-.overview-card-label {
-  color: #d4d4d4;
-  font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.overview-card-meta {
-  color: #858585;
-  font-size: 10px;
-  margin-top: 2px;
-}
-
 .overview-card-badge {
   display: inline-block;
   margin-top: 4px;
@@ -603,4 +420,66 @@ html, body, #root {
   color: #858585;
   font-style: italic;
   line-height: 1.4;
+}
+
+.session-item--remembered {
+  opacity: 0.78;
+}
+
+.session-item--resumable {
+  border-left-color: #6aa6ff;
+}
+
+.session-memory-badge {
+  color: #9fb7d7;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.session-resume-button {
+  border: 1px solid #3d5f8f;
+  background: #1d2f49;
+  color: #e8f0ff;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+.session-resume-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+/* dockview dark theme overrides */
+.orkworks-dockview {
+  --dv-background-color: #1e1e1e;
+  --dv-paneview-active-outline-color: #4b6b7f;
+  --dv-active-group-visible-border-color: #3c3c3c;
+  --dv-drag-over-background-color: #2a2a2b;
+  --dv-drag-over-border-color: #4b6b7f;
+  --dv-tabs-and-actions-container-background-color: #252526;
+  --dv-tab-divider-color: #2a2a2b;
+  --dv-active-tab-background-color: transparent;
+  --dv-inactive-tab-background-color: transparent;
+  --dv-tab-font-size: 12px;
+  --dv-tab-font-weight: 400;
+  --dv-active-tab-color: #d4d4d4;
+  --dv-inactive-tab-color: #858585;
+  --dv-separator-border: #3c3c3c;
+  --dv-paneview-separator-border-color: #3c3c3c;
+  --dv-tabs-and-actions-container-font-size: 12px;
+  --dv-sash-size: 4px;
+  --dv-sash-hover-size: 4px;
+}
+
+.orkworks-dockview .dv-groupview {
+  background: #1e1e1e;
+}
+
+.orkworks-dockview .dv-tab {
+  text-transform: none;
+}
+
+.orkworks-dockview .dv-resize-handle {
+  background: #3c3c3c;
 }
