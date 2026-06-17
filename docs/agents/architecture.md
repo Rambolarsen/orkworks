@@ -16,21 +16,23 @@ orkworks/
 
 ## Preload bridge (security boundary)
 
-Electron runs with `nodeIntegration: false` and `contextIsolation: true` (ADR 0009). The renderer cannot call Node APIs directly. All privileged operations go through `electron/preload.ts`, which exposes `window.orkworks` with `getBackendUrl()`, `getInitialWorkspace()`, and `openWorkspace()`. Adding new capabilities requires extending the preload, not relaxing context isolation.
+Electron runs with `nodeIntegration: false` and `contextIsolation: true` (ADR 0009). The renderer cannot call Node APIs directly. All privileged operations go through `electron/preload.ts`, which exposes `window.orkworks` with `getBackendUrl()`, `getInitialWorkspace()`, `openWorkspace()`, `getLayout()`, and `saveLayout()`. Adding new capabilities requires extending the preload, not relaxing context isolation.
+
+`electron/layoutMemory.ts` persists the Dockview panel layout to `layout.json` in the Electron user data directory, using the same pattern as `workspaceMemory.ts`. Layout is serialized via Dockview's `toJSON()`/`fromJSON()` on every layout change (debounced 500ms) and restored on startup.
 
 ## Frontend → backend API
 
-`apps/desktop/src/api.ts` defines TypeScript types and fetch wrappers for the REST API. `App.tsx` polls `/sessions` every 2 seconds and sorts by status (`creating → running → ended → killed → error`). Session state flows: Rust structs → JSON API → `SessionInfo` TS type → React state → components.
+`apps/desktop/src/api.ts` defines TypeScript types and fetch wrappers for the REST API. `App.tsx` polls `/sessions` every 2 seconds, sorts by attention state, and restores the last active workspace session when `POST /workspace` returns `lastActiveSessionId`. Session state flows: Rust structs → JSON API → `SessionInfo`/`WorkspaceInfo` TS types → React state → components.
 
 Key endpoints: `POST /workspace`, `POST /workspace/active-session`, `GET/POST /sessions`, `DELETE /sessions/:id`, `POST /sessions/:id/resume`, `WS /sessions/:id/terminal`.
 
-`electron/workspaceMemory.ts` persists the last workspace path and recent workspace directories to the Electron user data directory, enabling session resume on relaunch.
+`electron/workspaceMemory.ts` persists the last workspace path and recent workspace directories to the Electron user data directory, enabling workspace restore on relaunch. The sidecar persists repo-local active session memory in `.orkworks/workspace.json`.
 
 ## Rust sidecar (`crates/orkworksd/src/`)
 
 Single binary, five modules:
 
-- `main.rs` — Axum router, `AppState` (sessions + workspace), all HTTP/WS handlers, PTY lifecycle, session resume
+- `main.rs` — Axum router, `AppState` (sessions + workspace + harness adapters), all HTTP/WS handlers, PTY lifecycle, session resume
 - `git.rs` — git2-based context detection (repo root, branch, dirty check including untracked files while excluding ignored files)
 - `harness.rs` — harness adapter types, command templates, resume strategy selection, capability flags
 - `metadata.rs` — reads/writes `.orkworks/sessions/<id>.json` and `.orkworks/workspace.json` files
@@ -39,6 +41,8 @@ Single binary, five modules:
 ## Dockview panel layout
 
 The renderer uses Dockview for a five-panel workspace: sessions, session detail, terminal, capacity, and recommendations. `DockviewApp` owns the panel registration and passes app state through a React context to panel components. `TerminalPanel` hosts the active live PTY session through `CenterPanel` and xterm.js over the backend WebSocket.
+
+A `ViewMenu` component in the titlebar provides per-panel visibility toggles and a "Reset Layout" action. Panel layouts persist to Electron userData via `layout.json` and restore on startup via Dockview's `toJSON()`/`fromJSON()` serialization.
 
 - PTY handles only text I/O; voice (native harness) bypasses PTY entirely
 
