@@ -35,6 +35,17 @@ test("DockviewApp registers the five expected panel ids", () => {
   }
 });
 
+test("DockviewApp exposes a right-side header action for the Sessions panel", () => {
+  const source = readFileSync(
+    new URL("../src/components/DockviewApp.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(source, /rightHeaderActionsComponent=\{SessionsHeaderActions\}/);
+  assert.match(source, /activePanel\?\.id !== PANEL_DEFAULTS\.sessions\.component/);
+  assert.match(source, /dockview-header-action/);
+});
+
 test("SessionDetailPanel includes the core detail sections", () => {
   const source = readFileSync(new URL("../src/components/SessionDetailPanel.tsx", import.meta.url), "utf8");
 
@@ -110,6 +121,17 @@ test("session list only offers kill for live sessions", () => {
   );
 
   assert.match(source, /s\.memoryState === "live" && \(\s*<button[\s\S]*session-kill-button/);
+});
+
+test("SessionListPanel no longer renders duplicate header chrome", () => {
+  const source = readFileSync(
+    new URL("../src/components/SessionListPanel.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.doesNotMatch(source, /className="panel-header"/);
+  assert.doesNotMatch(source, /className="session-new-button"/);
+  assert.doesNotMatch(source, /onCreateSession:/);
 });
 
 test("App restores the last active session from the initial workspace", () => {
