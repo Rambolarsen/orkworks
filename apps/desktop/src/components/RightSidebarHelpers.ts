@@ -29,6 +29,9 @@ export function isLive(status: string): boolean {
 
 export function sortSessions(list: SessionInfo[]): SessionInfo[] {
   return [...list].sort((a, b) => {
+    const la = a.memoryState === "live" ? 0 : 1;
+    const lb = b.memoryState === "live" ? 0 : 1;
+    if (la !== lb) return la - lb;
     const pa = ATTENTION_PRIORITY[sessionAttentionStatus(a)] ?? 99;
     const pb = ATTENTION_PRIORITY[sessionAttentionStatus(b)] ?? 99;
     if (pa !== pb) return pa - pb;

@@ -117,6 +117,7 @@ struct AppState {
     sessions: Mutex<HashMap<String, SessionHandle>>,
     workspace: Mutex<Option<WorkspaceState>>,
     peon: PeonState,
+    adapters: HashMap<String, harness::HarnessAdapter>,
 }
 
 #[tokio::main]
@@ -138,6 +139,7 @@ async fn main() {
             in_flight: StdRwLock::new(HashSet::new()),
             config: peon::PeonConfig::from_env(),
         },
+        adapters: builtin_adapters(),
     });
 
     // Start Peon background task
@@ -193,6 +195,8 @@ struct WorkspaceResponse {
     repo_root: Option<String>,
     branch: Option<String>,
     dirty: Option<bool>,
+    #[serde(rename = "lastActiveSessionId")]
+    last_active_session_id: Option<String>,
 }
 
 async fn set_workspace(
@@ -212,6 +216,9 @@ async fn set_workspace(
     }
 
     let store = metadata::MetadataStore::new(&orkworks_dir);
+    let last_active_session_id = store
+        .read_workspace_memory()
+        .and_then(|memory| memory.last_active_session_id);
     let watch_dir = orkworks_dir.join("sessions");
     let watcher = watcher::MetadataWatcher::start(&watch_dir);
 
@@ -229,6 +236,7 @@ async fn set_workspace(
         repo_root: git_ctx.repo_root,
         branch: git_ctx.branch,
         dirty: Some(git_ctx.dirty),
+        last_active_session_id,
     })
     .into_response()
 }
@@ -269,12 +277,13 @@ async fn resume_session(
         let Some(resume) = meta.resume.as_ref() else {
             return axum::http::StatusCode::BAD_REQUEST.into_response();
         };
-        let capabilities = default_capabilities();
+        let harness_id = (!meta.harness.is_empty()).then(|| meta.harness.as_str());
+        let capabilities = capabilities_for_harness(&state.adapters, harness_id);
         let strategy = harness::select_resume_strategy(resume, &capabilities);
         if strategy == harness::ResumeStrategy::None {
             return axum::http::StatusCode::BAD_REQUEST.into_response();
         }
-        let adapter = default_shell_adapter();
+        let adapter = adapter_for_harness(&state.adapters, harness_id);
         let request = harness::ResumeRequest {
             strategy: strategy.clone(),
             cwd: meta.cwd.clone(),
@@ -425,8 +434,8 @@ async fn create_session(State(state): State<Arc<AppState>>) -> impl IntoResponse
             dirty: Some(meta_git_ctx.dirty),
             changed_files: Some(meta_git_ctx.changed_files),
             is_worktree: Some(meta_git_ctx.is_worktree),
-            resume: None,
-            resumed_from: None,
+            resume: info.resume.clone(),
+            resumed_from: info.resumed_from.clone(),
         });
         ws.metadata.append_event(&id, &metadata::Event {
             event_type: "session.created".into(),
@@ -486,7 +495,6 @@ async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse 
     };
 
     let ws_guard = state.workspace.lock().unwrap();
-    let capabilities = default_capabilities();
     let metadata_map = ws_guard.as_ref().map(|ws| {
         let mut metadata = HashMap::new();
         for (id, _, _, _, _) in &session_data {
@@ -505,8 +513,10 @@ async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse 
     let peon_times = state.peon.last_inference.read().unwrap();
     let mut infos: Vec<SessionInfo> = session_data.into_iter().map(|(id, label, status, cwd, created_at)| {
         let meta = metadata_map.get(&id);
+        let harness_id = meta.and_then(|m| (!m.harness.is_empty()).then(|| m.harness.as_str()));
+        let caps = capabilities_for_harness(&state.adapters, harness_id);
         let (memory_state, resume_strategy) =
-            derive_memory_state(true, meta.and_then(|m| m.resume.as_ref()), &capabilities);
+            derive_memory_state(true, meta.and_then(|m| m.resume.as_ref()), &caps);
         SessionInfo {
             id: id.clone(),
             label: meta.map(|m| m.label.clone()).unwrap_or(label),
@@ -549,8 +559,10 @@ async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse 
         if live_ids.contains(&meta.id) {
             continue;
         }
+        let harness_id = (!meta.harness.is_empty()).then(|| meta.harness.as_str());
+        let caps = capabilities_for_harness(&state.adapters, harness_id);
         let (memory_state, resume_strategy) =
-            derive_memory_state(false, meta.resume.as_ref(), &capabilities);
+            derive_memory_state(false, meta.resume.as_ref(), &caps);
         infos.push(SessionInfo {
             id: meta.id.clone(),
             label: meta.label.clone(),
@@ -816,20 +828,102 @@ fn default_capabilities() -> harness::HarnessCapabilities {
     }
 }
 
-fn default_shell_adapter() -> harness::HarnessAdapter {
+fn builtin_adapters() -> HashMap<String, harness::HarnessAdapter> {
     let (program, args) = shell_cmd();
-    let capabilities = default_capabilities();
-    harness::HarnessAdapter::template(
+    let mut map = HashMap::new();
+
+    let generic = harness::HarnessAdapter::template(
         "generic-shell",
         "Generic Shell",
-        capabilities,
+        default_capabilities(),
         harness::CommandTemplate {
             command: program.clone(),
             args: args.clone(),
         },
         None,
         None,
-    )
+    );
+    map.insert("generic-shell".into(), generic);
+
+    let opencode_caps = harness::HarnessCapabilities {
+        launch: true,
+        resume_exact: false,
+        resume_latest_in_cwd: true,
+        resume_latest_in_repo: true,
+        detect_session_id: true,
+        detect_model: true,
+        detect_context_usage: true,
+        detect_capacity: true,
+        native_voice: false,
+    };
+    let opencode = harness::HarnessAdapter::template(
+        "opencode",
+        "OpenCode",
+        opencode_caps.clone(),
+        harness::CommandTemplate {
+            command: "opencode".into(),
+            args: vec![],
+        },
+        None,
+        Some(harness::CommandTemplate {
+            command: "opencode".into(),
+            args: vec![],
+        }),
+    );
+    map.insert("opencode".into(), opencode);
+
+    let claude_caps = harness::HarnessCapabilities {
+        launch: true,
+        resume_exact: false,
+        resume_latest_in_cwd: true,
+        resume_latest_in_repo: true,
+        detect_session_id: true,
+        detect_model: true,
+        detect_context_usage: true,
+        detect_capacity: true,
+        native_voice: false,
+    };
+    let claude = harness::HarnessAdapter::template(
+        "claude-code",
+        "Claude Code",
+        claude_caps.clone(),
+        harness::CommandTemplate {
+            command: "claude".into(),
+            args: vec![],
+        },
+        None,
+        Some(harness::CommandTemplate {
+            command: "claude".into(),
+            args: vec![],
+        }),
+    );
+    map.insert("claude-code".into(), claude);
+
+    map
+}
+
+fn capabilities_for_harness(
+    adapters: &HashMap<String, harness::HarnessAdapter>,
+    harness_id: Option<&str>,
+) -> harness::HarnessCapabilities {
+    match harness_id {
+        Some(h) if !h.is_empty() => adapters
+            .get(h)
+            .map(|a| a.capabilities.clone())
+            .unwrap_or_else(default_capabilities),
+        _ => default_capabilities(),
+    }
+}
+
+fn adapter_for_harness<'a>(
+    adapters: &'a HashMap<String, harness::HarnessAdapter>,
+    harness_id: Option<&str>,
+) -> &'a harness::HarnessAdapter {
+    match harness_id {
+        Some(h) if !h.is_empty() => adapters.get(h),
+        _ => None,
+    }
+    .unwrap_or_else(|| adapters.get("generic-shell").unwrap())
 }
 
 fn derive_memory_state(
@@ -892,18 +986,27 @@ fn make_pty_system() -> ConPtySystem {
 }
 
 fn set_session_status(state: &Arc<AppState>, id: &str, status: &str) {
-    {
+    let session_resume = {
         let mut sessions = state.sessions.lock().unwrap();
         if let Some(handle) = sessions.get_mut(id) {
             handle.info.status = status.to_string();
+            (handle.info.resume.clone(), handle.info.resumed_from.clone())
+        } else {
+            (None, None)
         }
-    }
+    };
     let now = iso_now();
     let ws_guard = state.workspace.lock().unwrap();
     if let Some(ref ws) = *ws_guard {
         if let Some(mut meta) = ws.metadata.read_session(id) {
             meta.status = status.to_string();
             meta.last_activity = now.clone();
+            if session_resume.0.is_some() {
+                meta.resume = session_resume.0;
+            }
+            if session_resume.1.is_some() {
+                meta.resumed_from = session_resume.1;
+            }
             ws.metadata.write_session(&meta);
         }
         ws.metadata.append_event(id, &metadata::Event {
@@ -1216,6 +1319,7 @@ mod tests {
                 in_flight: StdRwLock::new(HashSet::new()),
                 config: peon::PeonConfig::from_env(),
             },
+            adapters: builtin_adapters(),
         });
 
         assert!(state.sessions.lock().unwrap().is_empty());
@@ -1280,6 +1384,7 @@ mod tests {
                 in_flight: StdRwLock::new(HashSet::new()),
                 config: peon::PeonConfig::from_env(),
             },
+            adapters: builtin_adapters(),
         });
 
         let (kill_tx, _) = tokio::sync::watch::channel(false);
@@ -1387,12 +1492,14 @@ mod tests {
             repo_root: Some("/tmp".into()),
             branch: Some("main".into()),
             dirty: Some(false),
+            last_active_session_id: Some("session-1".into()),
         };
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("\"path\":\"/tmp\""));
         assert!(json.contains("\"repo_root\":\"/tmp\""));
         assert!(json.contains("\"branch\":\"main\""));
         assert!(json.contains("\"dirty\":false"));
+        assert!(json.contains("\"lastActiveSessionId\":\"session-1\""));
     }
 
     #[test]
@@ -1402,12 +1509,14 @@ mod tests {
             repo_root: None,
             branch: None,
             dirty: None,
+            last_active_session_id: None,
         };
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("\"path\":\"/tmp\""));
         assert!(json.contains("\"repo_root\":null"));
         assert!(json.contains("\"branch\":null"));
         assert!(json.contains("\"dirty\":null"));
+        assert!(json.contains("\"lastActiveSessionId\":null"));
     }
 
     #[test]
@@ -1666,6 +1775,7 @@ mod tests {
                     enabled: true,
                 },
             },
+            adapters: builtin_adapters(),
         });
 
         // Create a session with some output in the ring buffer
@@ -1831,6 +1941,7 @@ mod tests {
                     enabled: true,
                 },
             },
+            adapters: builtin_adapters(),
         });
 
         let session_id = "peon-duplicate-test".to_string();
@@ -1916,6 +2027,7 @@ mod tests {
                     enabled: true,
                 },
             },
+            adapters: builtin_adapters(),
         });
 
         let session_id = "peon-failed-attempt-test".to_string();
@@ -2037,7 +2149,7 @@ mod tests {
         };
 
         let (memory_state, strategy) = derive_memory_state(false, Some(&resume), &capabilities);
-        let command = default_shell_adapter().build_resume_command(&harness::ResumeRequest {
+        let command = builtin_adapters().get("generic-shell").unwrap().build_resume_command(&harness::ResumeRequest {
             strategy: harness::ResumeStrategy::Exact,
             cwd: "/tmp".into(),
             repo_root: Some("/tmp".into()),

@@ -50,7 +50,9 @@ test("WorkspaceInfo type has expected shape", () => {
     repo_root: "/tmp/project",
     branch: "main",
     dirty: false,
+    lastActiveSessionId: "session-1",
   };
   assert.equal(ws.path, "/tmp/project");
   assert.equal(ws.branch, "main");
+  assert.equal(ws.lastActiveSessionId, "session-1");
 });

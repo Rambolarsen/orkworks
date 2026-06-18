@@ -169,7 +169,7 @@ function App() {
       const api = dockviewApiRef.current;
       if (!api) return;
 
-      if (action === "toggle" && panelId) {
+      if (action === "focus" && panelId) {
         const def = PANEL_DEFAULTS[panelId];
         if (!def) return;
         const existing = api.getPanel(def.component);
@@ -183,7 +183,7 @@ function App() {
           if (def.position && api.getPanel(def.position.referencePanel)) {
             options.position = { referencePanel: def.position.referencePanel, direction: def.position.direction };
           }
-          api.addPanel(options);
+          api.addPanel(options)?.api.setActive();
         }
       } else if (action === "reset-layout") {
         api.clear();
@@ -203,7 +203,25 @@ function App() {
   return (
     <div className="app-shell">
       <div className="titlebar">
-        <span className="titlebar-text">OrkWorks</span>
+        <div className="titlebar-left">
+          {workspace ? (
+            <>
+              <span className="titlebar-text">
+                {workspace.path.split("/").pop() || workspace.path}
+              </span>
+              <button
+                className="titlebar-switch-button"
+                type="button"
+                onClick={handleOpenWorkspace}
+                title="Switch workspace"
+              >
+                &#x21C4;
+              </button>
+            </>
+          ) : (
+            <span className="titlebar-text">Select a workspace</span>
+          )}
+        </div>
         <span
           className={`status-badge ${backendStatus === "connected" ? "ok" : "warn"}`}
         >

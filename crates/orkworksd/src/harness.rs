@@ -14,6 +14,7 @@ pub struct CommandTemplate {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[allow(dead_code)]
 pub struct HarnessAdapterConfig {
     pub id: String,
     #[serde(rename = "displayName")]
@@ -80,12 +81,14 @@ pub struct ResumeRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[allow(dead_code)]
 pub struct LaunchRequest {
     pub cwd: String,
     pub model: Option<String>,
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct HarnessAdapter {
     pub id: String,
     pub display_name: String,
@@ -97,6 +100,7 @@ pub struct HarnessAdapter {
 }
 
 impl HarnessAdapter {
+    #[allow(dead_code)]
     pub fn from_config(config: HarnessAdapterConfig) -> Self {
         Self {
             id: config.id,
@@ -138,6 +142,7 @@ impl HarnessAdapter {
         Some(render_template(template, request))
     }
 
+    #[allow(dead_code)]
     pub fn build_launch_command(&self, request: &LaunchRequest) -> CommandSpec {
         render_launch_template(&self.launch_template, request)
     }
@@ -181,6 +186,7 @@ fn render_template(template: &CommandTemplate, request: &ResumeRequest) -> Comma
     }
 }
 
+#[allow(dead_code)]
 fn render_launch_template(template: &CommandTemplate, request: &LaunchRequest) -> CommandSpec {
     let model = request.model.as_deref().unwrap_or("");
     let args = template

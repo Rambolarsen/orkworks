@@ -14,6 +14,7 @@ let portPromise = new Promise<number>((resolve) => {
   portResolve = resolve;
 });
 
+let workspacePath: string | null = null;
 let menuPanelItems: Record<string, Electron.MenuItem> = {};
 
 function buildMenu(): void {
@@ -25,14 +26,22 @@ function buildMenu(): void {
     capacity: "Capacity",
     recommendations: "Recommendations",
   };
+  const panelAccelerators: Record<string, string> = {
+    sessions: "CmdOrCtrl+Shift+S",
+    detail: "CmdOrCtrl+Shift+D",
+    terminal: "CmdOrCtrl+Shift+T",
+    capacity: "CmdOrCtrl+Shift+C",
+    recommendations: "CmdOrCtrl+Shift+R",
+  };
 
   const panelItems: Electron.MenuItemConstructorOptions[] = panelIds.map((id) => ({
     id,
     label: panelTitles[id],
+    accelerator: panelAccelerators[id],
     type: "checkbox",
     checked: true,
     click: () => {
-      mainWindow?.webContents.send("orkworks:menu-command", { action: "toggle", panelId: id });
+      mainWindow?.webContents.send("orkworks:menu-command", { action: "focus", panelId: id });
     },
   }));
 

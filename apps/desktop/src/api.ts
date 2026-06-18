@@ -72,6 +72,7 @@ export interface WorkspaceInfo {
   repo_root: string | null;
   branch: string | null;
   dirty: boolean | null;
+  lastActiveSessionId?: string | null;
 }
 
 export async function setWorkspace(
