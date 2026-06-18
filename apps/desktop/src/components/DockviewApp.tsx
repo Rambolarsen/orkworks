@@ -1,5 +1,10 @@
 import { createContext, useContext, useRef } from "react";
-import { DockviewReact, type DockviewReadyEvent, type DockviewApi } from "dockview-react";
+import {
+  DockviewReact,
+  type DockviewReadyEvent,
+  type DockviewApi,
+  type IDockviewHeaderActionsProps,
+} from "dockview-react";
 import type { SessionInfo, WorkspaceInfo } from "../api";
 import SessionListPanel from "./SessionListPanel";
 import SessionDetailPanel from "./SessionDetailPanel";
@@ -31,9 +36,27 @@ function SessionsPanel() {
       sessions={ctx.sessions}
       activeSessionId={ctx.activeSessionId}
       onSelectSession={ctx.onSelectSession}
-      onCreateSession={ctx.onCreateSession}
       onKillSession={ctx.onKillSession}
     />
+  );
+}
+
+function SessionsHeaderActions(props: IDockviewHeaderActionsProps) {
+  const ctx = useContext(DockviewContext);
+
+  if (props.activePanel?.id !== PANEL_DEFAULTS.sessions.component) {
+    return null;
+  }
+
+  return (
+    <button
+      className="dockview-header-action"
+      type="button"
+      title="New session"
+      onClick={() => ctx.onCreateSession()}
+    >
+      +
+    </button>
   );
 }
 
@@ -110,6 +133,7 @@ function DockviewApp(props: DockviewAppData) {
     api.addPanel({
       id: PANEL_DEFAULTS.sessions.component,
       component: PANEL_DEFAULTS.sessions.component,
+      title: PANEL_DEFAULTS.sessions.title,
     });
     for (const id of ["detail", "terminal", "capacity", "recommendations"]) {
       const def = PANEL_DEFAULTS[id];
@@ -117,6 +141,7 @@ function DockviewApp(props: DockviewAppData) {
         api.addPanel({
           id: def.component,
           component: def.component,
+          title: def.title,
           position: { referencePanel: def.position.referencePanel, direction: def.position.direction },
         });
       }
@@ -129,6 +154,7 @@ function DockviewApp(props: DockviewAppData) {
         <DockviewReact
           components={COMPONENTS}
           className="orkworks-dockview"
+          rightHeaderActionsComponent={SessionsHeaderActions}
           onReady={(event: DockviewReadyEvent) => {
             if (initializedRef.current) return;
             initializedRef.current = true;
