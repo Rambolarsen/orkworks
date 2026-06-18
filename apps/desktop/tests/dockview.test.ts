@@ -46,6 +46,18 @@ test("DockviewApp exposes a right-side header action for the Sessions panel", ()
   assert.match(source, /dockview-header-action/);
 });
 
+test("Sessions header action is gated on workspace presence and panel identity", () => {
+  const source = readFileSync(
+    new URL("../src/components/DockviewApp.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(
+    source,
+    /if \(!ctx\.workspace \|\| props\.activePanel\?\.id !== PANEL_DEFAULTS\.sessions\.component\) \{\s*return null;\s*\}/,
+  );
+});
+
 test("App.css scopes dockview header chrome and header actions", () => {
   const source = readFileSync(new URL("../src/App.css", import.meta.url), "utf8");
 

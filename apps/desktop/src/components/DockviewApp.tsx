@@ -44,7 +44,7 @@ function SessionsPanel() {
 function SessionsHeaderActions(props: IDockviewHeaderActionsProps) {
   const ctx = useContext(DockviewContext);
 
-  if (props.activePanel?.id !== PANEL_DEFAULTS.sessions.component) {
+  if (!ctx.workspace || props.activePanel?.id !== PANEL_DEFAULTS.sessions.component) {
     return null;
   }
 
