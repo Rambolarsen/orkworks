@@ -46,6 +46,13 @@ test("DockviewApp exposes a right-side header action for the Sessions panel", ()
   assert.match(source, /dockview-header-action/);
 });
 
+test("App.css scopes dockview header chrome and header actions", () => {
+  const source = readFileSync(new URL("../src/App.css", import.meta.url), "utf8");
+
+  assert.match(source, /\.dockview-header-action\b/);
+  assert.match(source, /\.orkworks-dockview\s+\.dv-tabs-and-actions-container\b/);
+});
+
 test("SessionDetailPanel includes the core detail sections", () => {
   const source = readFileSync(new URL("../src/components/SessionDetailPanel.tsx", import.meta.url), "utf8");
 

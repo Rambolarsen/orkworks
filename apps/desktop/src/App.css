@@ -140,30 +140,34 @@ html, body, #root {
 
 /* session detail + conflict warning styles below */
 
-.panel-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 12px;
+.orkworks-dockview .dv-tabs-and-actions-container {
+  background: #323233;
+  border-bottom: 1px solid #3c3c3c;
+  padding-right: 8px;
+}
+
+.orkworks-dockview .dv-tab .dv-default-tab .dv-default-tab-content {
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  color: #999;
-  border-bottom: 1px solid #3c3c3c;
 }
 
-.session-new-button {
-  border: none;
-  background: none;
+.dockview-header-action {
+  border: 1px solid transparent;
+  background: transparent;
   color: #999;
-  font-size: 16px;
+  font-size: 14px;
   cursor: pointer;
-  padding: 0 4px;
+  padding: 2px 6px;
   line-height: 1;
+  border-radius: 4px;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
 }
 
-.session-new-button:hover {
+.dockview-header-action:hover {
+  background: #2a2a2b;
+  border-color: #3c3c3c;
   color: #d4d4d4;
 }
 
