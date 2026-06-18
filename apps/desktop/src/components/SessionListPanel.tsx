@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import type { SessionInfo, WorkspaceInfo } from "../api";
 import {
   needsAttention,
@@ -24,6 +24,13 @@ function SessionListPanel({
   onKillSession,
 }: SessionListPanelProps) {
   const listRef = useRef<HTMLUListElement | null>(null);
+  const itemRefs = useRef<Map<string, HTMLLIElement>>(new Map());
+
+  useEffect(() => {
+    if (!activeSessionId) return;
+    const el = itemRefs.current.get(activeSessionId);
+    el?.scrollIntoView({ block: "nearest" });
+  }, [activeSessionId]);
 
   if (!workspace) {
     return (
@@ -73,6 +80,10 @@ function SessionListPanel({
             return (
               <li
                 key={s.id}
+                ref={(el) => {
+                  if (el) itemRefs.current.set(s.id, el);
+                  else itemRefs.current.delete(s.id);
+                }}
                 className={[
                   "session-item",
                   s.id === activeSessionId ? "session-item--active" : "",
