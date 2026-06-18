@@ -206,7 +206,10 @@ function App() {
         <div className="titlebar-left">
           {workspace ? (
             <>
-              <span className="titlebar-text">
+              <span
+                className="titlebar-text"
+                title={workspace.path}
+              >
                 {workspace.path.split("/").pop() || workspace.path}
               </span>
               <button
@@ -219,7 +222,16 @@ function App() {
               </button>
             </>
           ) : (
-            <span className="titlebar-text">Select a workspace</span>
+            <>
+              <span className="titlebar-text">No workspace</span>
+              <button
+                className="titlebar-open-button"
+                type="button"
+                onClick={handleOpenWorkspace}
+              >
+                Open Folder
+              </button>
+            </>
           )}
         </div>
         <span
@@ -233,7 +245,6 @@ function App() {
         workspace={workspace}
         sessions={sessions}
         activeSessionId={activeSessionId}
-        onOpenWorkspace={handleOpenWorkspace}
         onSelectSession={handleSelectSession}
         onCreateSession={handleCreateSession}
         onKillSession={handleKillSession}
