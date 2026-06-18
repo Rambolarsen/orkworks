@@ -23,6 +23,7 @@ interface DockviewAppData {
   onCreateSession: () => void;
   onKillSession: (id: string) => void;
   onResumeSession: (id: string) => void;
+  onFocusTerminal: () => void;
   dockviewApiRef: React.MutableRefObject<DockviewApi | null>;
 }
 
@@ -37,6 +38,7 @@ function SessionsPanel() {
       activeSessionId={ctx.activeSessionId}
       onSelectSession={ctx.onSelectSession}
       onKillSession={ctx.onKillSession}
+      onFocusTerminal={ctx.onFocusTerminal}
     />
   );
 }
@@ -119,9 +121,9 @@ export const PANEL_DEFAULTS: Record<string, PanelDefault> = {
 };
 
 function DockviewApp(props: DockviewAppData) {
-  const { backendStatus, workspace, sessions, activeSessionId, onSelectSession, onCreateSession, onKillSession, onResumeSession, dockviewApiRef } = props;
+  const { backendStatus, workspace, sessions, activeSessionId, onSelectSession, onCreateSession, onKillSession, onResumeSession, onFocusTerminal, dockviewApiRef } = props;
 
-  const ctxValue: DockviewAppData = { backendStatus, workspace, sessions, activeSessionId, onSelectSession, onCreateSession, onKillSession, onResumeSession, dockviewApiRef };
+  const ctxValue: DockviewAppData = { backendStatus, workspace, sessions, activeSessionId, onSelectSession, onCreateSession, onKillSession, onResumeSession, onFocusTerminal, dockviewApiRef };
 
   const initializedRef = useRef(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);

@@ -83,7 +83,17 @@ function buildMenu(): void {
     },
     {
       label: "File",
-      submenu: [{ role: "close" }],
+      submenu: [
+        {
+          label: "New Session",
+          accelerator: "CmdOrCtrl+N",
+          click: () => {
+            mainWindow?.webContents.send("orkworks:menu-command", { action: "new-session" });
+          },
+        },
+        { type: "separator" },
+        { role: "close" },
+      ],
     },
     {
       label: "Edit",

@@ -12,6 +12,7 @@ import {
   resumeSession,
   setActiveWorkspaceSession,
 } from "./api";
+import { disposeTerminal, getTerminal } from "./terminalStore";
 
 declare global {
   interface Window {
@@ -116,6 +117,7 @@ function App() {
       try {
         const baseUrl = await window.orkworks.getBackendUrl();
         await deleteSession(baseUrl, id);
+        disposeTerminal(id);
         if (activeSessionId === id) {
           setActiveSessionId(null);
         }
@@ -126,6 +128,11 @@ function App() {
     },
     [activeSessionId, refreshSessions],
   );
+
+  const handleFocusTerminal = useCallback(() => {
+    if (!activeSessionId) return;
+    getTerminal(activeSessionId)?.terminal.focus();
+  }, [activeSessionId]);
 
   const handleResumeSession = useCallback(async (id: string) => {
     const baseUrl = await window.orkworks.getBackendUrl();
@@ -167,6 +174,11 @@ function App() {
 
   useEffect(() => {
     return window.orkworks.onMenuCommand(({ action, panelId }) => {
+      if (action === "new-session") {
+        handleCreateSession();
+        return;
+      }
+
       const api = dockviewApiRef.current;
       if (!api) return;
 
@@ -244,7 +256,7 @@ function App() {
         }
       }
     });
-  }, []);
+  }, [handleCreateSession]);
 
   return (
     <div className="app-shell">
@@ -295,6 +307,7 @@ function App() {
         onCreateSession={handleCreateSession}
         onKillSession={handleKillSession}
         onResumeSession={handleResumeSession}
+        onFocusTerminal={handleFocusTerminal}
         dockviewApiRef={dockviewApiRef}
       />
     </div>

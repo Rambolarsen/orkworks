@@ -14,6 +14,7 @@ interface SessionListPanelProps {
   activeSessionId: string | null;
   onSelectSession: (id: string) => void;
   onKillSession: (id: string) => void;
+  onFocusTerminal: () => void;
 }
 
 function SessionListPanel({
@@ -22,6 +23,7 @@ function SessionListPanel({
   activeSessionId,
   onSelectSession,
   onKillSession,
+  onFocusTerminal,
 }: SessionListPanelProps) {
   const listRef = useRef<HTMLUListElement | null>(null);
   const itemRefs = useRef<Map<string, HTMLLIElement>>(new Map());
@@ -41,6 +43,11 @@ function SessionListPanel({
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLUListElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      onFocusTerminal();
+      return;
+    }
     if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
     if (sessions.length === 0) return;
     e.preventDefault();

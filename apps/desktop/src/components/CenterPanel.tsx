@@ -1,9 +1,6 @@
 import { useEffect, useRef, useCallback, useState } from "react";
-import { Terminal } from "@xterm/xterm";
-import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
-import { terminalPtySize } from "../terminalSize";
-import { orkworksTerminalTheme } from "../terminalTheme";
+import { ensureTerminal, getTerminal } from "../terminalStore";
 
 interface CenterPanelProps {
   backendStatus: string;
@@ -27,161 +24,81 @@ declare global {
   }
 }
 
-interface TerminalHandle {
-  terminal: Terminal;
-  ws: WebSocket;
-  fitAddon: FitAddon;
-  ended: boolean;
-}
-
 function CenterPanel({ backendStatus, sessionId, embedded }: CenterPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const terminalsRef = useRef<Map<string, TerminalHandle>>(new Map());
   const activeIdRef = useRef<string | null>(null);
   const [terminalStatus, setTerminalStatus] = useState("");
-  const pendingInputRef = useRef<Map<string, string>>(new Map());
 
-  const sendResize = useCallback((ws: WebSocket, term: Terminal) => {
-    if (ws.readyState !== WebSocket.OPEN) return;
-    ws.send(
-      JSON.stringify({
-        type: "resize",
-        ...terminalPtySize({ rows: term.rows, cols: term.cols }),
-      }),
+  const attachTerminal = useCallback((id: string) => {
+    const container = containerRef.current;
+    const handle = getTerminal(id);
+    if (!container || !handle) return;
+
+    if (handle.wrapper.parentElement !== container) {
+      container.appendChild(handle.wrapper);
+    }
+    if (!handle.terminal.element) {
+      handle.terminal.open(handle.wrapper);
+    }
+
+    for (const child of Array.from(container.children) as HTMLElement[]) {
+      if (!(child instanceof HTMLDivElement)) continue;
+      child.style.visibility = child === handle.wrapper ? "visible" : "hidden";
+    }
+
+    activeIdRef.current = id;
+    setTerminalStatus(
+      handle.ended
+        ? "session ended"
+        : handle.ws.readyState === WebSocket.OPEN
+          ? "terminal ready"
+          : "terminal connecting",
     );
+
+    try {
+      handle.fitAddon.fit();
+    } catch {
+      /* ignore */
+    }
+    const listEl = document.getElementById("sessions-list");
+    const listHasFocus = !!listEl && listEl.contains(document.activeElement);
+    if (!handle.ended && !listHasFocus) {
+      handle.terminal.focus();
+    }
   }, []);
-
-  const attachTerminal = useCallback(
-    (id: string) => {
-      const handle = terminalsRef.current.get(id);
-      const container = containerRef.current;
-      if (!handle || !container) return;
-
-      if (!handle.terminal.element) {
-        handle.terminal.open(container);
-      } else if (handle.terminal.element.parentElement !== container) {
-        container.appendChild(handle.terminal.element);
-      }
-
-      if (activeIdRef.current && activeIdRef.current !== id) {
-        const prev = terminalsRef.current.get(activeIdRef.current);
-        prev?.terminal.element?.remove();
-      }
-
-      activeIdRef.current = id;
-      setTerminalStatus(handle.ended ? "session ended" : handle.ws.readyState === WebSocket.OPEN ? "terminal ready" : "terminal connecting");
-
-      try {
-        handle.fitAddon.fit();
-      } catch {
-        /* ignore */
-      }
-      if (!handle.ended) {
-        handle.terminal.focus();
-      }
-    },
-    [],
-  );
-
-  const startSession = useCallback(
-    async (id: string, baseUrl: string, cancelled: () => boolean) => {
-      const term = new Terminal({
-        cursorBlink: true,
-        fontSize: 14,
-        fontFamily: "'Menlo', 'Monaco', 'Courier New', monospace",
-        theme: orkworksTerminalTheme,
-        allowProposedApi: true,
-      });
-
-      const fitAddon = new FitAddon();
-      term.loadAddon(fitAddon);
-
-      const wsUrl = baseUrl.replace("http", "ws") + `/sessions/${id}/terminal`;
-      const ws = new WebSocket(wsUrl);
-      ws.binaryType = "arraybuffer";
-
-      const handle: TerminalHandle = { terminal: term, ws, fitAddon, ended: false };
-      terminalsRef.current.set(id, handle);
-
-      setTerminalStatus("terminal connecting");
-
-      ws.onopen = () => {
-        setTerminalStatus("terminal ready");
-        try {
-          fitAddon.fit();
-        } catch {
-          /* ignore */
-        }
-        sendResize(ws, term);
-
-        const pending = pendingInputRef.current.get(id);
-        if (pending) {
-          ws.send(JSON.stringify({ type: "input", data: pending }));
-          pendingInputRef.current.delete(id);
-        }
-      };
-
-      ws.onmessage = (e) => {
-        if (e.data instanceof ArrayBuffer) {
-          term.write(new Uint8Array(e.data));
-        }
-      };
-
-      ws.onclose = () => {
-        term.options.disableStdin = true;
-        term.options.cursorBlink = false;
-        handle.ended = true;
-        if (!cancelled()) {
-          setTerminalStatus("session ended");
-        }
-      };
-
-      term.onData((data) => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: "input", data }));
-        }
-      });
-
-      term.onResize(() => sendResize(ws, term));
-
-      attachTerminal(id);
-    },
-    [sendResize, attachTerminal],
-  );
 
   useEffect(() => {
     if (backendStatus !== "connected" || !sessionId) return;
     let cancelled = false;
 
-    if (terminalsRef.current.has(sessionId)) {
+    if (getTerminal(sessionId)) {
       attachTerminal(sessionId);
       return;
     }
 
     setTerminalStatus("terminal starting");
-
     window.orkworks.getBackendUrl().then((baseUrl) => {
       if (cancelled) return;
-      startSession(sessionId, baseUrl, () => cancelled);
+      ensureTerminal(sessionId, baseUrl);
+      attachTerminal(sessionId);
     });
 
     return () => {
       cancelled = true;
     };
-  }, [backendStatus, sessionId, startSession, attachTerminal]);
+  }, [backendStatus, sessionId, attachTerminal]);
 
   useEffect(() => {
     const handleWindowResize = () => {
       const active = activeIdRef.current;
       if (!active) return;
-      const handle = terminalsRef.current.get(active);
+      const handle = getTerminal(active);
       if (!handle) return;
       try {
         handle.fitAddon.fit();
       } catch {
         /* ignore */
       }
-      sendResize(handle.ws, handle.terminal);
     };
 
     window.addEventListener("resize", handleWindowResize);
@@ -191,16 +108,6 @@ function CenterPanel({ backendStatus, sessionId, embedded }: CenterPanelProps) {
     return () => {
       window.removeEventListener("resize", handleWindowResize);
       observer.disconnect();
-    };
-  }, [sendResize]);
-
-  useEffect(() => {
-    return () => {
-      for (const handle of terminalsRef.current.values()) {
-        handle.ws.close();
-        handle.terminal.dispose();
-      }
-      terminalsRef.current.clear();
     };
   }, []);
 
@@ -218,10 +125,13 @@ function CenterPanel({ backendStatus, sessionId, embedded }: CenterPanelProps) {
     );
   }
 
-  const ended = sessionId ? terminalsRef.current.get(sessionId)?.ended : false;
+  const ended = sessionId ? getTerminal(sessionId)?.ended : false;
 
   return (
-    <div className="terminal-shell" onClick={() => terminalsRef.current.get(activeIdRef.current ?? "")?.terminal.focus()}>
+    <div className="terminal-shell" onClick={() => {
+      const active = activeIdRef.current;
+      if (active) getTerminal(active)?.terminal.focus();
+    }}>
       {!embedded && (
         <div className="terminal-toolbar">
           <div>
