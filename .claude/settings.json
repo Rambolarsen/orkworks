@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash .claude/hooks/doc-check.sh"
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/doc-check.sh\""
           }
         ]
       }

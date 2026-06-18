@@ -60,8 +60,9 @@ All implementation work is tracked as GitHub issues: [https://github.com/Rambola
 
 - `specs/orkworks-mvp.md` — full product scope, architecture, milestones, non-goals
 - `specs/native-harness-voice-support.md` — voice support design
+- `specs/review-queue.md` — proposed repo-local review inbox for plan/spec artifacts
 
-Read both before starting any implementation work.
+Read these before starting any implementation work.
 
 If either spec file is missing or unreadable, stop and notify the user before proceeding. Do not infer scope from context alone.
 
@@ -125,6 +126,7 @@ See [`docs/agents/architecture.md`](docs/agents/architecture.md) for the full in
 - `.orkworks/sessions/<id>.json` — agent-written session state
 - `.orkworks/events/<id>.ndjson` — append-only event log
 - `.orkworks/capacity/<id>.json` — capacity per model/harness
+- `.orkworks/workspace.json` — repo-local workspace memory, including the last active session
 - Priority: user > agent > peon > backend_inference > process > unknown
 - Peon reads terminal output, writes inferred metadata, never types into terminals
 

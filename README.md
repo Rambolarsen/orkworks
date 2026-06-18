@@ -21,6 +21,7 @@ orkworks/
 - Electron launches Rust sidecar; UI talks to it over localhost HTTP/WebSocket
 - `nodeIntegration: false`, `contextIsolation: true`
 - Desktop UI uses Dockview draggable panels for sessions, detail, terminal, capacity, and recommendations
+- The app remembers the last workspace and repo-local active session for relaunch restore
 - Peon writes observer metadata such as `observedStatus` without replacing runtime lifecycle `status`
 - PTY handles only text I/O; voice (native harness) bypasses PTY entirely
 
@@ -29,6 +30,7 @@ orkworks/
 - `.orkworks/sessions/<id>.json` — agent-written session state
 - `.orkworks/events/<id>.ndjson` — append-only event log
 - `.orkworks/capacity/<id>.json` — capacity per model/harness
+- `.orkworks/workspace.json` — repo-local workspace memory, including the last active session
 - Priority: user > agent > peon > backend_inference > process > unknown
 - Peon reads terminal output, writes inferred metadata, never types into terminals
 
