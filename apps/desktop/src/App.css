@@ -33,10 +33,33 @@ html, body, #root {
   user-select: none;
 }
 
+.titlebar-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .titlebar-text {
   font-size: 12px;
   font-weight: 600;
   color: #cccccc;
+}
+
+.titlebar-switch-button {
+  -webkit-app-region: no-drag;
+  background: none;
+  border: none;
+  color: #858585;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.titlebar-switch-button:hover {
+  color: #cccccc;
+  background: #444;
 }
 
 .status-badge {
@@ -141,24 +164,39 @@ html, body, #root {
 /* session detail + conflict warning styles below */
 
 .orkworks-dockview .dv-tabs-and-actions-container {
-  background: #323233;
+  background: #262220;
   border-bottom: 1px solid #3c3c3c;
-  padding-right: 8px;
+  padding-right: 0;
+  position: relative;
 }
 
 .orkworks-dockview .dv-tab .dv-default-tab .dv-default-tab-content {
+  margin-left: 12px;
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
 
+.orkworks-dockview .dv-tabs-and-actions-container.dv-single-tab.dv-full-width-single-tab .dv-right-actions-container {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%);
+  z-index: 1;
+}
+
+.orkworks-dockview .dv-tabs-and-actions-container.dv-single-tab.dv-full-width-single-tab .dv-tab .dv-default-tab {
+  padding-right: 36px;
+}
+
 .dockview-header-action {
   border: 1px solid transparent;
   background: transparent;
   color: #999;
-  font-size: 14px;
+  font-size: 16px;
   cursor: pointer;
+  margin-right: 8px;
   padding: 2px 6px;
   line-height: 1;
   border-radius: 4px;
@@ -363,6 +401,7 @@ html, body, #root {
 .workspace-dirty {
   color: #d4d44e;
 }
+
 .overview-card-badge {
   display: inline-block;
   margin-top: 4px;
@@ -454,12 +493,16 @@ html, body, #root {
 
 /* dockview dark theme overrides */
 .orkworks-dockview {
-  --dv-background-color: #1e1e1e;
+  --dv-background-color: #211d1b;
   --dv-paneview-active-outline-color: #4b6b7f;
   --dv-active-group-visible-border-color: #3c3c3c;
   --dv-drag-over-background-color: #2a2a2b;
   --dv-drag-over-border-color: #4b6b7f;
-  --dv-tabs-and-actions-container-background-color: #252526;
+  --dv-tabs-and-actions-container-background-color: #262220;
+  --dv-activegroup-visiblepanel-tab-background-color: #262220;
+  --dv-activegroup-hiddenpanel-tab-background-color: #312c29;
+  --dv-inactivegroup-visiblepanel-tab-background-color: #262220;
+  --dv-inactivegroup-hiddenpanel-tab-background-color: #312c29;
   --dv-tab-divider-color: #2a2a2b;
   --dv-active-tab-background-color: transparent;
   --dv-inactive-tab-background-color: transparent;
@@ -475,7 +518,7 @@ html, body, #root {
 }
 
 .orkworks-dockview .dv-groupview {
-  background: #1e1e1e;
+  background: #211d1b;
 }
 
 .orkworks-dockview .dv-tab {

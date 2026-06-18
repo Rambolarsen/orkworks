@@ -1,9 +1,11 @@
 import { createContext, useContext, useRef } from "react";
 import {
+  DockviewDefaultTab,
   DockviewReact,
   type DockviewReadyEvent,
   type DockviewApi,
   type IDockviewHeaderActionsProps,
+  type IDockviewPanelHeaderProps,
 } from "dockview-react";
 import type { SessionInfo, WorkspaceInfo } from "../api";
 import SessionListPanel from "./SessionListPanel";
@@ -58,6 +60,10 @@ function SessionsHeaderActions(props: IDockviewHeaderActionsProps) {
       +
     </button>
   );
+}
+
+function DockviewTab(props: IDockviewPanelHeaderProps) {
+  return <DockviewDefaultTab {...props} hideClose />;
 }
 
 function DetailPanel() {
@@ -154,6 +160,8 @@ function DockviewApp(props: DockviewAppData) {
         <DockviewReact
           components={COMPONENTS}
           className="orkworks-dockview"
+          defaultTabComponent={DockviewTab}
+          singleTabMode="fullwidth"
           rightHeaderActionsComponent={SessionsHeaderActions}
           onReady={(event: DockviewReadyEvent) => {
             if (initializedRef.current) return;

@@ -44,6 +44,8 @@ The renderer uses Dockview for a five-panel workspace: sessions, session detail,
 
 A `ViewMenu` component in the titlebar provides per-panel visibility toggles and a "Reset Layout" action. Panel layouts persist to Electron userData via `layout.json` and restore on startup via Dockview's `toJSON()`/`fromJSON()` serialization.
 
+The Sessions panel uses Dockview's native header chrome rather than an inner duplicated panel header. In the single-tab case, `DockviewApp` enables Dockview's full-width tab/header mode and renders the "new session" action in the header's right-actions slot so the header still behaves like a tab while matching the rest of the workspace subheader styling. Dockview tabs use a shared default tab component that hides the built-in close affordance; panel visibility is managed through the View menu and shortcuts instead of per-tab close buttons.
+
 - PTY handles only text I/O; voice (native harness) bypasses PTY entirely
 
 ## Update triggers

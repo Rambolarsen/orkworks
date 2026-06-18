@@ -17,6 +17,20 @@ test("DockviewApp registers panels through onReady", () => {
   assert.match(source, /api\.(fromJSON|addPanel)/);
 });
 
+test("DockviewApp uses full-width single-tab mode so lone panels read like headers", () => {
+  const source = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /singleTabMode="fullwidth"/);
+});
+
+test("DockviewApp uses a shared default tab component that hides close controls", () => {
+  const source = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /DockviewDefaultTab/);
+  assert.match(source, /defaultTabComponent=\{DockviewTab\}/);
+  assert.match(source, /<DockviewDefaultTab\s+\{\.\.\.props\}\s+hideClose\s*\/>/);
+});
+
 test("App renders DockviewApp instead of the legacy three-panel layout", () => {
   const source = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
 
@@ -62,7 +76,26 @@ test("App.css scopes dockview header chrome and header actions", () => {
   const source = readFileSync(new URL("../src/App.css", import.meta.url), "utf8");
 
   assert.match(source, /\.dockview-header-action\b/);
+  assert.match(source, /font-size:\s*16px/);
+  assert.match(source, /margin-right:\s*8px/);
   assert.match(source, /\.orkworks-dockview\s+\.dv-tabs-and-actions-container\b/);
+  assert.match(source, /padding-right:\s*0/);
+  assert.match(source, /\.orkworks-dockview\s+\.dv-tab\s+\.dv-default-tab\s+\.dv-default-tab-content\b/);
+  assert.match(source, /margin-left:\s*12px/);
+  assert.match(
+    source,
+    /\.orkworks-dockview\s+\.dv-tabs-and-actions-container\.dv-single-tab\.dv-full-width-single-tab\s+\.dv-right-actions-container\b/,
+  );
+  assert.match(source, /right:\s*0/);
+  assert.match(source, /background:\s*#262220/);
+  assert.match(source, /--dv-background-color:\s*#211d1b/);
+  assert.match(source, /--dv-tabs-and-actions-container-background-color:\s*#262220/);
+  assert.match(source, /--dv-activegroup-visiblepanel-tab-background-color:\s*#262220/);
+  assert.match(source, /--dv-activegroup-hiddenpanel-tab-background-color:\s*#312c29/);
+  assert.match(source, /--dv-inactivegroup-visiblepanel-tab-background-color:\s*#262220/);
+  assert.match(source, /--dv-inactivegroup-hiddenpanel-tab-background-color:\s*#312c29/);
+  assert.match(source, /\.orkworks-dockview\s+\.dv-groupview\b/);
+  assert.match(source, /background:\s*#211d1b/);
 });
 
 test("SessionDetailPanel includes the core detail sections", () => {
