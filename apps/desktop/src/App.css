@@ -229,6 +229,7 @@ html, body, #root {
   list-style: none;
   padding: 0;
   margin: 0;
+  outline: none;
 }
 
 .session-item {

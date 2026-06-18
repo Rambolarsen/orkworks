@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import type { SessionInfo, WorkspaceInfo } from "../api";
 import {
   needsAttention,
@@ -22,6 +23,8 @@ function SessionListPanel({
   onSelectSession,
   onKillSession,
 }: SessionListPanelProps) {
+  const listRef = useRef<HTMLUListElement | null>(null);
+
   if (!workspace) {
     return (
       <div className="panel-content">
@@ -30,12 +33,41 @@ function SessionListPanel({
     );
   }
 
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLUListElement>) => {
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    if (sessions.length === 0) return;
+    e.preventDefault();
+    const idx = sessions.findIndex((s) => s.id === activeSessionId);
+    let next: number;
+    if (idx === -1) {
+      next = 0;
+    } else if (e.key === "ArrowDown") {
+      next = Math.min(sessions.length - 1, idx + 1);
+    } else {
+      next = Math.max(0, idx - 1);
+    }
+    if (sessions[next].id !== activeSessionId) {
+      onSelectSession(sessions[next].id);
+    }
+  };
+
+  const handleSelect = (id: string) => {
+    onSelectSession(id);
+    listRef.current?.focus();
+  };
+
   return (
     <div className="panel-content">
       {sessions.length === 0 ? (
         <p className="empty-state">No active sessions</p>
       ) : (
-        <ul className="session-list">
+        <ul
+          id="sessions-list"
+          ref={listRef}
+          className="session-list"
+          tabIndex={0}
+          onKeyDown={handleKeyDown}
+        >
           {sessions.map((s) => {
             const attn = sessionAttentionStatus(s);
             return (
@@ -48,7 +80,7 @@ function SessionListPanel({
                   s.memoryState === "resumable" ? "session-item--resumable" : "",
                 ].filter(Boolean).join(" ")}
                 style={{ borderLeft: `3px solid ${attentionBorderColor(attn)}` }}
-                onClick={() => onSelectSession(s.id)}
+                onClick={() => handleSelect(s.id)}
               >
                 <div className="session-item-main">
                   <span

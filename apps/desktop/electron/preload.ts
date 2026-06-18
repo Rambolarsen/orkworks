@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld("orkworks", {
   getLayout: (): Promise<string | null> => ipcRenderer.invoke("get-layout"),
   saveLayout: (json: string): Promise<void> => ipcRenderer.invoke("save-layout", json),
   onMenuCommand: (callback: (data: { action: string; panelId?: string }) => void) => {
+    ipcRenderer.removeAllListeners("orkworks:menu-command");
     const handler = (_event: Electron.IpcRendererEvent, data: { action: string; panelId?: string }) => callback(data);
     ipcRenderer.on("orkworks:menu-command", handler);
     return () => {

@@ -33,6 +33,7 @@ function App() {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [workspace, setWorkspaceState] = useState<WorkspaceInfo | null>(null);
   const dockviewApiRef = useRef<DockviewApi | null>(null);
+  const sessionsHiddenLayoutRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (backendStatus !== "connecting…") return;
@@ -173,6 +174,50 @@ function App() {
         const def = PANEL_DEFAULTS[panelId];
         if (!def) return;
         const existing = api.getPanel(def.component);
+
+        if (panelId === "sessions") {
+          const focusList = () => {
+            setTimeout(() => {
+              document.getElementById("sessions-list")?.focus({ preventScroll: true });
+            }, 0);
+          };
+          if (!existing) {
+            const snapshot = sessionsHiddenLayoutRef.current;
+            if (snapshot) {
+              try {
+                api.fromJSON(JSON.parse(snapshot));
+                sessionsHiddenLayoutRef.current = null;
+                focusList();
+                return;
+              } catch {
+                sessionsHiddenLayoutRef.current = null;
+              }
+            }
+            const options: { id: string; component: string; position?: { referencePanel: string; direction: "below" | "right" | "left" | "above" } } = {
+              id: def.component,
+              component: def.component,
+            };
+            if (def.position && api.getPanel(def.position.referencePanel)) {
+              options.position = { referencePanel: def.position.referencePanel, direction: def.position.direction };
+            }
+            api.addPanel(options);
+            focusList();
+            return;
+          }
+          const listEl = document.getElementById("sessions-list");
+          const isFocused = !!listEl && listEl.contains(document.activeElement);
+          if (isFocused) {
+            sessionsHiddenLayoutRef.current = JSON.stringify(api.toJSON());
+            existing.api.close();
+          } else if (!existing.api.isActive) {
+            existing.api.setActive();
+            focusList();
+          } else {
+            focusList();
+          }
+          return;
+        }
+
         if (existing) {
           existing.api.close();
         } else {
@@ -186,6 +231,7 @@ function App() {
           api.addPanel(options)?.api.setActive();
         }
       } else if (action === "reset-layout") {
+        sessionsHiddenLayoutRef.current = null;
         api.clear();
         api.addPanel({ id: PANEL_DEFAULTS.sessions.component, component: PANEL_DEFAULTS.sessions.component });
         for (const id of ["detail", "terminal", "capacity", "recommendations"]) {
