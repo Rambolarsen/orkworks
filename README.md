@@ -1,6 +1,6 @@
 # OrkWorks
 
-Local-first observability + recommendation layer for AI coding sessions ("Mission Control for AI Agents"). Observes and recommends before it controls — does not replace Claude Code, Codex, OpenCode, Gemini CLI, or Aider.
+Local-first mission control for AI coding sessions. Peons observe individual sessions; Taskmaster recommends what should happen next across harnesses, models, reviews, capacity, and Git context. OrkWorks observes and recommends before it controls — it does not replace Claude Code, Codex, OpenCode, Gemini CLI, or Aider.
 
 ## State
 
@@ -23,6 +23,7 @@ orkworks/
 - Desktop UI uses Dockview draggable panels for sessions, detail, terminal, capacity, and recommendations
 - The app remembers the last workspace and repo-local active session for relaunch restore
 - Peon writes observer metadata such as `observedStatus` without replacing runtime lifecycle `status`
+- Taskmaster consumes Peon reports and workspace context to propose the next session or user action
 - PTY handles only text I/O; voice (native harness) bypasses PTY entirely
 
 ## Metadata protocol
@@ -30,9 +31,11 @@ orkworks/
 - `.orkworks/sessions/<id>.json` — agent-written session state
 - `.orkworks/events/<id>.ndjson` — append-only event log
 - `.orkworks/capacity/<id>.json` — capacity per model/harness
+- `.orkworks/recommendations/<id>.json` — Taskmaster recommendation state and history
 - `.orkworks/workspace.json` — repo-local workspace memory, including the last active session
 - Priority: user > agent > peon > backend_inference > process > unknown
 - Peon reads terminal output, writes inferred metadata, never types into terminals
+- Taskmaster proposes cross-session transitions; every v1 transition requires explicit user approval
 
 ## Setup
 
@@ -78,10 +81,13 @@ The `skills/` directory contains repo-level agent skills that are committed with
 | ---- | ------- |
 | OrkWorks | Product |
 | `orkworksd` | Rust backend sidecar |
-| Peon | Low-cost metadata observer |
+| Peon | Low-cost session/repo metadata observer |
+| Taskmaster | Workspace-level next-step coordinator |
 | `.orkworks/` | Per-repo protocol directory |
 
 ## Specs
 
 - `specs/orkworks-mvp.md` — full product scope, architecture, milestones, non-goals
 - `specs/native-harness-voice-support.md` — voice support design
+- `specs/review-queue.md` — repo-local review inbox for plan/spec artifacts
+- `specs/taskmaster.md` — cross-session coordination and next-step recommendations
