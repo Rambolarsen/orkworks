@@ -1,6 +1,14 @@
 import type { SessionInfo } from "../api";
 import { sessionAttentionStatus } from "../sessionSort";
-import { sourceColor, statusDotColor } from "./legacyColors";
+import {
+  attentionLabel,
+  attentionTone,
+  memoryStateLabel,
+  relativeTime,
+  resumeActionLabel,
+  sourceLabel,
+  sourceWithConfidence,
+} from "../labels";
 import EmptyState from "./EmptyState";
 
 interface SessionDetailPanelProps {
@@ -17,18 +25,14 @@ function SessionDetailPanel({ sessions, activeSessionId, onResumeSession }: Sess
   }
 
   const attn = sessionAttentionStatus(active);
+  const tone = attentionTone(attn);
   const canResume = active.memoryState === "resumable" && active.resumeStrategy !== "none";
-  const resumeLabel =
-    active.resumeStrategy === "exact"
-      ? "Resume exact session"
-      : active.resumeStrategy === "latest_cwd"
-        ? "Resume latest in folder"
-        : active.resumeStrategy === "latest_repo"
-          ? "Resume latest in repo"
-          : "Resume unavailable";
+  const resumeText = resumeActionLabel(active.resumeStrategy);
+  const folder = active.cwd.split("/").pop() || active.cwd;
+  const sourceTag = active.metadataSource ?? undefined;
 
   return (
-    <div style={{ padding: "8px 12px", height: "100%", overflowY: "auto" }}>
+    <div className="session-detail">
       {active.summary && (
         <div className="session-detail-section">
           <div className="session-detail-label">Task</div>
@@ -39,19 +43,14 @@ function SessionDetailPanel({ sessions, activeSessionId, onResumeSession }: Sess
       <div className="session-detail-section">
         <div className="session-detail-label">Status</div>
         <div className="session-detail-value">
-          <span style={{
-            display: "inline-block",
-            width: 8, height: 8, borderRadius: "50%",
-            background: statusDotColor(attn), marginRight: 6,
-            verticalAlign: "middle",
-          }} />
-          {attn}
+          <span className="session-detail-dot" data-attention={tone} aria-hidden="true" />
+          {attentionLabel(attn)}
         </div>
       </div>
 
       <div className="session-detail-section">
         <div className="session-detail-label">Directory</div>
-        <div className="session-detail-value">{active.cwd.split("/").pop() || active.cwd}</div>
+        <div className="session-detail-value">{folder}</div>
       </div>
 
       {active.branch && (
@@ -60,15 +59,15 @@ function SessionDetailPanel({ sessions, activeSessionId, onResumeSession }: Sess
           <div className="session-detail-value">
             {active.branch}
             {active.isWorktree && (
-              <span style={{ color: "#4ec94e", marginLeft: 6, fontSize: 10 }}>worktree</span>
+              <span className="git-worktree-tag">worktree</span>
             )}
           </div>
-          <div style={{ display: "flex", gap: 8, marginTop: 2, fontSize: 10 }}>
-            <span style={{ color: active.dirty ? "#d4d44e" : "#4ec94e" }}>
+          <div className="git-state-row">
+            <span className="git-state" data-state={active.dirty ? "dirty" : "clean"}>
               {active.dirty ? "dirty" : "clean"}
             </span>
             {active.changedFiles !== undefined && active.changedFiles > 0 && (
-              <span style={{ color: "#858585" }}>{active.changedFiles} files changed</span>
+              <span className="git-changed">{active.changedFiles} files changed</span>
             )}
           </div>
         </div>
@@ -87,25 +86,17 @@ function SessionDetailPanel({ sessions, activeSessionId, onResumeSession }: Sess
       )}
 
       <div className="session-detail-section">
-        <div className="detail-row">
-          <span className="detail-label">Memory</span>
-          <span className="detail-value">
-            {active.memoryState} · {active.resumeStrategy}
-          </span>
+        <div className="session-detail-label">Memory</div>
+        <div className="session-detail-value">
+          {memoryStateLabel(active.memoryState)} · {resumeActionLabel(active.resumeStrategy)}
         </div>
       </div>
 
-      {active.metadataSource && (
+      {sourceTag && (
         <div className="session-detail-section">
           <div className="session-detail-label">Source</div>
-          <span
-            className="overview-card-badge"
-            style={{
-              background: sourceColor(active.metadataSource) + "22",
-              color: sourceColor(active.metadataSource),
-            }}
-          >
-            {active.metadataSource} &middot; {Math.round((active.metadataConfidence ?? 1) * 100)}%
+          <span className="source-badge" data-source={sourceLabel(sourceTag).toLowerCase()}>
+            {sourceWithConfidence(sourceTag, active.metadataConfidence)}
           </span>
         </div>
       )}
@@ -113,8 +104,8 @@ function SessionDetailPanel({ sessions, activeSessionId, onResumeSession }: Sess
       {active.peonLastInference && (
         <div className="session-detail-section">
           <div className="session-detail-label">Peon</div>
-          <span className="session-detail-value" style={{ color: "#57c7ff" }}>
-            observed {active.peonLastInference}
+          <span className="session-detail-value peon-value">
+            Observed {relativeTime(active.peonLastInference) || active.peonLastInference}
           </span>
         </div>
       )}
@@ -124,9 +115,9 @@ function SessionDetailPanel({ sessions, activeSessionId, onResumeSession }: Sess
         type="button"
         disabled={!canResume}
         onClick={() => onResumeSession(active.id)}
-        title={resumeLabel}
+        title={resumeText}
       >
-        {resumeLabel}
+        {resumeText}
       </button>
     </div>
   );

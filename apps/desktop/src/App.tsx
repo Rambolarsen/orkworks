@@ -3,6 +3,7 @@ import type { DockviewApi } from "dockview-react";
 import DockviewApp from "./components/DockviewApp";
 import { sortSessions } from "./sessionSort";
 import { PANEL_DEFAULTS, buildDefaultLayout } from "./components/DockviewApp";
+import { VOCAB } from "./labels";
 import {
   type SessionInfo,
   type WorkspaceInfo,
@@ -278,7 +279,8 @@ function App() {
                 className="titlebar-switch-button"
                 type="button"
                 onClick={handleOpenWorkspace}
-                title="Switch workspace"
+                title={VOCAB.switchWorkspace}
+                aria-label={VOCAB.switchWorkspace}
               >
                 &#x21C4;
               </button>
@@ -291,7 +293,7 @@ function App() {
                 type="button"
                 onClick={handleOpenWorkspace}
               >
-                Open Folder
+                {VOCAB.openWorkspace}
               </button>
             </>
           )}

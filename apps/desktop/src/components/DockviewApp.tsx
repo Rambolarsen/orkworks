@@ -82,13 +82,7 @@ function DetailPanel() {
 function TermPanel() {
   const ctx = useContext(DockviewContext);
   const session = ctx.sessions.find((s) => s.id === ctx.activeSessionId) ?? null;
-  return (
-    <TerminalPanel
-      backendStatus={ctx.backendStatus}
-      session={session}
-      onKillSession={ctx.onKillSession}
-    />
-  );
+  return <TerminalPanel backendStatus={ctx.backendStatus} session={session} />;
 }
 
 function CapPanel() {
@@ -123,7 +117,7 @@ export const PANEL_DEFAULTS: Record<string, PanelDefault> = {
 
 /** Single source of truth for first-launch / Reset Layout. Capacity and
  *  Recommendations are reachable via View menu hotkeys but closed by default
- *  until they carry signal (M8/M9). */
+ *  until they carry signal. */
 export const DEFAULT_LAYOUT_PANELS: ReadonlyArray<string> = ["sessions", "detail", "terminal"];
 
 export function buildDefaultLayout(api: DockviewApi): void {

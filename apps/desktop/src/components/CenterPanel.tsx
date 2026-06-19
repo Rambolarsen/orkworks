@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useState } from "react";
+import { useEffect, useRef, useCallback } from "react";
 import "@xterm/xterm/css/xterm.css";
 import { ensureTerminal, getTerminal } from "../terminalStore";
 import EmptyState from "./EmptyState";
@@ -6,29 +6,11 @@ import EmptyState from "./EmptyState";
 interface CenterPanelProps {
   backendStatus: string;
   sessionId: string | null;
-  embedded?: boolean;
 }
 
-import { type WorkspaceInfo } from "../api";
-
-declare global {
-  interface Window {
-    orkworks: {
-      getBackendUrl: () => Promise<string>;
-      getInitialWorkspace: () => Promise<WorkspaceInfo | null>;
-      openWorkspace: () => Promise<WorkspaceInfo | null>;
-      getLayout: () => Promise<string | null>;
-      saveLayout: (json: string) => Promise<void>;
-      onMenuCommand: (callback: (data: { action: string; panelId?: string }) => void) => () => void;
-      notifyPanelVisibility: (panelId: string, visible: boolean) => void;
-    };
-  }
-}
-
-function CenterPanel({ backendStatus, sessionId, embedded }: CenterPanelProps) {
+function CenterPanel({ backendStatus, sessionId }: CenterPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const activeIdRef = useRef<string | null>(null);
-  const [terminalStatus, setTerminalStatus] = useState("");
 
   const attachTerminal = useCallback((id: string) => {
     const container = containerRef.current;
@@ -48,18 +30,11 @@ function CenterPanel({ backendStatus, sessionId, embedded }: CenterPanelProps) {
     }
 
     activeIdRef.current = id;
-    setTerminalStatus(
-      handle.ended
-        ? "session ended"
-        : handle.ws.readyState === WebSocket.OPEN
-          ? "terminal ready"
-          : "terminal connecting",
-    );
 
     try {
       handle.fitAddon.fit();
     } catch {
-      /* ignore */
+      /* xterm not yet measured */
     }
     const listEl = document.getElementById("sessions-list");
     const listHasFocus = !!listEl && listEl.contains(document.activeElement);
@@ -77,7 +52,6 @@ function CenterPanel({ backendStatus, sessionId, embedded }: CenterPanelProps) {
       return;
     }
 
-    setTerminalStatus("terminal starting");
     window.orkworks.getBackendUrl().then((baseUrl) => {
       if (cancelled) return;
       ensureTerminal(sessionId, baseUrl);
@@ -98,7 +72,7 @@ function CenterPanel({ backendStatus, sessionId, embedded }: CenterPanelProps) {
       try {
         handle.fitAddon.fit();
       } catch {
-        /* ignore */
+        /* xterm not yet measured */
       }
     };
 
@@ -119,20 +93,13 @@ function CenterPanel({ backendStatus, sessionId, embedded }: CenterPanelProps) {
   const ended = sessionId ? getTerminal(sessionId)?.ended : false;
 
   return (
-    <div className="terminal-shell" onClick={() => {
-      const active = activeIdRef.current;
-      if (active) getTerminal(active)?.terminal.focus();
-    }}>
-      {!embedded && (
-        <div className="terminal-toolbar">
-          <div>
-            <div className="terminal-title">
-              {sessionId ? `Session ${sessionId.slice(0, 8)}` : "No session"}
-            </div>
-            <div className="terminal-subtitle">{terminalStatus}</div>
-          </div>
-        </div>
-      )}
+    <div
+      className="terminal-shell"
+      onClick={() => {
+        const active = activeIdRef.current;
+        if (active) getTerminal(active)?.terminal.focus();
+      }}
+    >
       <div
         ref={containerRef}
         className={`terminal-container${ended ? " terminal-container--ended" : ""}`}
