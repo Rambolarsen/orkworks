@@ -60,8 +60,13 @@ test("DockviewApp migrates pre-redesign stored layouts that referenced removed p
   const source = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
 
   assert.match(source, /layoutNeedsMigration/);
+  assert.match(source, /migrating stored layout/);
+  assert.match(source, /!\("v" in parsed\)/);
   assert.match(source, /"capacity"/);
   assert.match(source, /"recommendations"/);
+  // Post-redesign layouts are versioned, so they never match the migration
+  // predicate after the user opens Capacity/Recommendations from the View menu.
+  assert.match(source, /\{ v: 1, d: api\.toJSON\(\) \}/);
 });
 
 test("App and DockviewApp share one canonical default-layout builder", () => {

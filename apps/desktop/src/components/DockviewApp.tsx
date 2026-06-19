@@ -134,11 +134,11 @@ export function buildDefaultLayout(api: DockviewApi): void {
   }
 }
 
-/** A stored layout from the pre-redesign 5-panel default referenced the
- *  Capacity and Recommendations panel ids. Their positions cascade off
- *  removed siblings, so the cleanest cutover is to rebuild the default.
- *  One-time per existing user; new layouts will never trigger this. */
-function layoutNeedsMigration(json: unknown): boolean {
+/** Pre-redesign 5-panel default layouts referenced Capacity and/or
+ *  Recommendations panel ids. Their positions cascade off removed siblings
+ *  so the cleanest cutover is to rebuild the default. One-time per existing
+ *  user; versioned layouts never trigger this. */
+function layoutNeedsMigration(json: Record<string, unknown>): boolean {
   const text = JSON.stringify(json);
   return text.includes('"capacity"') || text.includes('"recommendations"');
 }
@@ -180,34 +180,41 @@ function DockviewApp(props: DockviewAppData) {
             const api = event.api;
             dockviewApiRef.current = api;
 
-            window.orkworks.getLayout().then((layout) => {
-              if (layout) {
-                try {
-                  const parsed = JSON.parse(layout);
-                  if (layoutNeedsMigration(parsed)) {
-                    console.info("[DockviewApp] migrating stored layout to redesigned default");
-                    buildDefaultLayout(api);
-                  } else {
-                    api.fromJSON(parsed);
+              window.orkworks.getLayout().then((layout) => {
+                if (layout) {
+                  try {
+                    const parsed = JSON.parse(layout);
+                    if (!parsed || typeof parsed !== "object") {
+                      throw new Error("unrecognized layout");
+                    }
+                    if (!("v" in parsed) && layoutNeedsMigration(parsed as Record<string, unknown>)) {
+                      console.info("[DockviewApp] migrating stored layout to redesigned default");
+                      buildDefaultLayout(api);
+                    } else {
+                      api.fromJSON(
+                        "v" in parsed ? (parsed as { d: unknown }).d : parsed,
+                      );
+                    }
+                    reportVisibility(api);
+                    setIsEmpty(api.totalPanels === 0);
+                    return;
+                  } catch (e) {
+                    console.warn("[DockviewApp] failed to restore layout, using default", e);
                   }
-                  reportVisibility(api);
-                  setIsEmpty(api.totalPanels === 0);
-                  return;
-                } catch (e) {
-                  console.warn("[DockviewApp] failed to restore layout, using default", e);
                 }
-              }
-              buildDefaultLayout(api);
-              reportVisibility(api);
-              setIsEmpty(api.totalPanels === 0);
-            });
+                buildDefaultLayout(api);
+                reportVisibility(api);
+                setIsEmpty(api.totalPanels === 0);
+              });
 
             api.onDidLayoutChange(() => {
               reportVisibility(api);
               setIsEmpty(api.totalPanels === 0);
               if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
               saveTimerRef.current = setTimeout(() => {
-                window.orkworks.saveLayout(JSON.stringify(api.toJSON()));
+                window.orkworks.saveLayout(
+                  JSON.stringify({ v: 1, d: api.toJSON() }),
+                );
               }, 500);
             });
           }}
