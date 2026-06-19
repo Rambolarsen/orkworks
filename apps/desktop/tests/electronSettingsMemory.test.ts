@@ -6,6 +6,7 @@ import { join } from "node:path";
 
 import {
   DEFAULT_HOTKEYS,
+  DEFAULT_SETTINGS,
   readSettings,
   settingsPath,
   validateHotkeys,
@@ -58,6 +59,23 @@ test("settings memory returns fresh defaults when settings.json is missing or co
   }
 });
 
+test("default settings hotkeys are isolated from default hotkeys and returned settings", () => {
+  const dir = mkdtempSync(join(tmpdir(), "orkworks-settings-"));
+  const originalDefaultHotkeys = { ...DEFAULT_HOTKEYS };
+  const originalDefaultSettingsHotkeys = { ...DEFAULT_SETTINGS.hotkeys };
+  try {
+    assert.notEqual(DEFAULT_SETTINGS.hotkeys, DEFAULT_HOTKEYS);
+
+    const settings = readSettings(dir);
+    settings.hotkeys.newSession = "CmdOrCtrl+Alt+N";
+
+    assert.deepEqual(DEFAULT_HOTKEYS, originalDefaultHotkeys);
+    assert.deepEqual(DEFAULT_SETTINGS.hotkeys, originalDefaultSettingsHotkeys);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("settings memory merges partial persisted hotkeys with defaults", () => {
   const dir = mkdtempSync(join(tmpdir(), "orkworks-settings-"));
   try {
@@ -71,6 +89,29 @@ test("settings memory merges partial persisted hotkeys with defaults", () => {
     assert.equal(settings.hotkeys.newSession, "CmdOrCtrl+Alt+N");
     assert.equal(settings.hotkeys.toggleSessionsPanel, DEFAULT_HOTKEYS.toggleSessionsPanel);
     assert.equal(settings.hotkeys.resetLayout, null);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("settings memory falls back invalid persisted hotkeys to defaults", () => {
+  const dir = mkdtempSync(join(tmpdir(), "orkworks-settings-"));
+  try {
+    writeFileSync(
+      settingsPath(dir),
+      JSON.stringify({
+        version: 1,
+        hotkeys: {
+          newSession: "NotAKey",
+          toggleDetailPanel: "CmdOrCtrl+Alt+D",
+        },
+      }),
+    );
+
+    const settings = readSettings(dir);
+
+    assert.equal(settings.hotkeys.newSession, DEFAULT_HOTKEYS.newSession);
+    assert.equal(settings.hotkeys.toggleDetailPanel, "CmdOrCtrl+Alt+D");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

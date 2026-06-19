@@ -84,7 +84,7 @@ export const DEFAULT_HOTKEYS: HotkeySettings = {
 
 export const DEFAULT_SETTINGS: AppSettings = {
   version: 1,
-  hotkeys: DEFAULT_HOTKEYS,
+  hotkeys: { ...DEFAULT_HOTKEYS },
 };
 
 const fileName = "settings.json";
@@ -176,19 +176,16 @@ export function normalizeSettings(value: unknown): AppSettings {
 export function normalizeHotkeys(value: unknown): HotkeySettings {
   const source = value && typeof value === "object" ? (value as Partial<HotkeySettings>) : {};
   return {
-    newSession: stringOrDefault(source.newSession, DEFAULT_HOTKEYS.newSession),
-    toggleSessionsPanel: stringOrDefault(source.toggleSessionsPanel, DEFAULT_HOTKEYS.toggleSessionsPanel),
-    toggleDetailPanel: stringOrDefault(source.toggleDetailPanel, DEFAULT_HOTKEYS.toggleDetailPanel),
-    toggleTerminalPanel: stringOrDefault(source.toggleTerminalPanel, DEFAULT_HOTKEYS.toggleTerminalPanel),
-    toggleCapacityPanel: stringOrDefault(source.toggleCapacityPanel, DEFAULT_HOTKEYS.toggleCapacityPanel),
-    toggleRecommendationsPanel: stringOrDefault(
+    newSession: hotkeyOrDefault(source.newSession, DEFAULT_HOTKEYS.newSession),
+    toggleSessionsPanel: hotkeyOrDefault(source.toggleSessionsPanel, DEFAULT_HOTKEYS.toggleSessionsPanel),
+    toggleDetailPanel: hotkeyOrDefault(source.toggleDetailPanel, DEFAULT_HOTKEYS.toggleDetailPanel),
+    toggleTerminalPanel: hotkeyOrDefault(source.toggleTerminalPanel, DEFAULT_HOTKEYS.toggleTerminalPanel),
+    toggleCapacityPanel: hotkeyOrDefault(source.toggleCapacityPanel, DEFAULT_HOTKEYS.toggleCapacityPanel),
+    toggleRecommendationsPanel: hotkeyOrDefault(
       source.toggleRecommendationsPanel,
       DEFAULT_HOTKEYS.toggleRecommendationsPanel,
     ),
-    resetLayout:
-      typeof source.resetLayout === "string" && source.resetLayout.trim().length > 0
-        ? source.resetLayout
-        : null,
+    resetLayout: optionalHotkeyOrNull(source.resetLayout),
   };
 }
 
@@ -247,8 +244,18 @@ function defaultSettings(): AppSettings {
   };
 }
 
-function stringOrDefault(value: unknown, fallback: string): string {
-  return typeof value === "string" && value.trim().length > 0 ? value : fallback;
+function hotkeyOrDefault(value: unknown, fallback: string): string {
+  if (typeof value !== "string") return fallback;
+  const trimmed = value.trim();
+  if (!trimmed) return fallback;
+  return acceleratorSyntaxError(trimmed) ? fallback : trimmed;
+}
+
+function optionalHotkeyOrNull(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return acceleratorSyntaxError(trimmed) ? null : trimmed;
 }
 
 function addError(errors: HotkeyValidationErrors, action: HotkeyAction, message: string): void {
