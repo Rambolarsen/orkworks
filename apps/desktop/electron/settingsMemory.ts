@@ -270,6 +270,16 @@ function acceleratorSyntaxError(accelerator: string): string | null {
   const parts = rawParts.filter(Boolean);
   if (parts.length === 0) return "Shortcut is required.";
 
+  const seenModifiers = new Set<string>();
+  for (const part of parts) {
+    if (!modifierNames.has(part)) continue;
+    const canonicalModifier = canonicalModifierNames.get(part) ?? part;
+    if (seenModifiers.has(canonicalModifier)) {
+      return `Shortcut contains duplicate modifier "${part}".`;
+    }
+    seenModifiers.add(canonicalModifier);
+  }
+
   const keyParts = parts.filter((part) => !modifierNames.has(part));
   if (keyParts.length === 0) return "Shortcut must include a non-modifier key.";
   if (keyParts.length > 1) return "Shortcut must contain only one non-modifier key.";

@@ -115,6 +115,16 @@ test("validateHotkeys rejects duplicates with reordered modifiers", () => {
   assert.deepEqual(result.errors.toggleSessionsPanel, ["Duplicate shortcut also used by New Session."]);
 });
 
+test("validateHotkeys rejects duplicate canonical modifiers", () => {
+  const result = validateHotkeys({
+    ...DEFAULT_HOTKEYS,
+    newSession: "CmdOrCtrl+CmdOrCtrl+Shift+S",
+  });
+
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.errors.newSession, ['Shortcut contains duplicate modifier "CmdOrCtrl".']);
+});
+
 test("validateHotkeys rejects invalid syntax and required empty values", () => {
   const result = validateHotkeys({
     ...DEFAULT_HOTKEYS,
