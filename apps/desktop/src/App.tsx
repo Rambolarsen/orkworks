@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DockviewApi } from "dockview-react";
 import DockviewApp from "./components/DockviewApp";
-import { sortSessions } from "./components/RightSidebarHelpers";
+import { sortSessions } from "./sessionSort";
 import { PANEL_DEFAULTS } from "./components/DockviewApp";
 import {
   type SessionInfo,

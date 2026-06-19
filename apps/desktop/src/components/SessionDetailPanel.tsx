@@ -1,5 +1,6 @@
 import type { SessionInfo } from "../api";
-import { sessionAttentionStatus, sourceColor, statusDotColor } from "./RightSidebarHelpers.ts";
+import { sessionAttentionStatus } from "../sessionSort";
+import { sourceColor, statusDotColor } from "./legacyColors";
 
 interface SessionDetailPanelProps {
   sessions: SessionInfo[];

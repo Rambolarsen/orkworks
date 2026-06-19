@@ -1,5 +1,5 @@
 import type { SessionInfo } from "../api";
-import { sourceColor } from "./RightSidebarHelpers.ts";
+import { sourceColor } from "./legacyColors";
 
 interface RightSidebarProps {
   sessions: SessionInfo[];

@@ -1,11 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef } from "react";
 import type { SessionInfo, WorkspaceInfo } from "../api";
-import {
-  needsAttention,
-  sessionAttentionStatus,
-  sourceColor,
-  attentionBorderColor,
-} from "./RightSidebarHelpers.ts";
+import { needsAttention, sessionAttentionStatus } from "../sessionSort";
+import { attentionBorderColor, sourceColor } from "./legacyColors";
 
 interface SessionListPanelProps {
   workspace: WorkspaceInfo | null;
