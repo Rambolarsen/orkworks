@@ -1,4 +1,5 @@
 import CenterPanel from "./CenterPanel";
+import EmptyState from "./EmptyState";
 import type { SessionInfo } from "../api";
 
 interface TerminalPanelProps {
@@ -13,11 +14,7 @@ function TerminalPanel({
   onKillSession,
 }: TerminalPanelProps) {
   if (!session) {
-    return (
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%" }}>
-        <p style={{ color: "#666", fontSize: 12 }}>No active terminal</p>
-      </div>
-    );
+    return <EmptyState message="Select a session to open its terminal." />;
   }
 
   return (

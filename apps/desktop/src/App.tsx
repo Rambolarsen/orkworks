@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { DockviewApi } from "dockview-react";
 import DockviewApp from "./components/DockviewApp";
 import { sortSessions } from "./sessionSort";
-import { PANEL_DEFAULTS } from "./components/DockviewApp";
+import { PANEL_DEFAULTS, buildDefaultLayout } from "./components/DockviewApp";
 import {
   type SessionInfo,
   type WorkspaceInfo,
@@ -257,15 +257,7 @@ function App() {
       } else if (action === "reset-layout") {
         sessionsHiddenLayoutRef.current = null;
         api.clear();
-        api.addPanel({ id: PANEL_DEFAULTS.sessions.component, component: PANEL_DEFAULTS.sessions.component });
-        for (const id of ["detail", "terminal", "capacity", "recommendations"]) {
-          const def = PANEL_DEFAULTS[id];
-          api.addPanel({
-            id: def.component,
-            component: def.component,
-            position: { referencePanel: def.position!.referencePanel, direction: def.position!.direction },
-          });
-        }
+        buildDefaultLayout(api);
       }
     });
   }, [handleCreateSession]);
@@ -320,6 +312,7 @@ function App() {
         onKillSession={handleKillSession}
         onResumeSession={handleResumeSession}
         onFocusTerminal={handleFocusTerminal}
+        onOpenWorkspace={handleOpenWorkspace}
         dockviewApiRef={dockviewApiRef}
       />
     </div>

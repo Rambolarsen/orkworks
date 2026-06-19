@@ -1,6 +1,7 @@
 import type { SessionInfo } from "../api";
 import { sessionAttentionStatus } from "../sessionSort";
 import { sourceColor, statusDotColor } from "./legacyColors";
+import EmptyState from "./EmptyState";
 
 interface SessionDetailPanelProps {
   sessions: SessionInfo[];
@@ -12,11 +13,7 @@ function SessionDetailPanel({ sessions, activeSessionId, onResumeSession }: Sess
   const active = sessions.find((s) => s.id === activeSessionId);
 
   if (!active) {
-    return (
-      <div style={{ padding: "12px", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <p className="empty-state">Select a session to see details</p>
-      </div>
-    );
+    return <EmptyState message="Select a session to see details." />;
   }
 
   const attn = sessionAttentionStatus(active);

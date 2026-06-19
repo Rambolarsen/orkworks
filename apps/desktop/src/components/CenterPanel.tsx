@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback, useState } from "react";
 import "@xterm/xterm/css/xterm.css";
 import { ensureTerminal, getTerminal } from "../terminalStore";
+import EmptyState from "./EmptyState";
 
 interface CenterPanelProps {
   backendStatus: string;
@@ -112,17 +113,7 @@ function CenterPanel({ backendStatus, sessionId, embedded }: CenterPanelProps) {
   }, []);
 
   if (backendStatus !== "connected") {
-    return (
-      <div className="center-placeholder">
-        <p style={{ color: "#666", fontSize: 14, marginBottom: 8 }}>OrkWorks</p>
-        <p style={{ color: "#555", fontSize: 12 }}>
-          Mission Control for AI Agents
-        </p>
-        <p style={{ color: "#444", fontSize: 11, marginTop: 12 }}>
-          backend: {backendStatus}
-        </p>
-      </div>
-    );
+    return <EmptyState message="Connecting to OrkWorks…" />;
   }
 
   const ended = sessionId ? getTerminal(sessionId)?.ended : false;

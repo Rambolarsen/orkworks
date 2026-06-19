@@ -2,6 +2,8 @@ import { Fragment, useEffect, useMemo, useRef } from "react";
 import type { SessionInfo, WorkspaceInfo } from "../api";
 import { needsAttention, sessionAttentionStatus } from "../sessionSort";
 import { attentionBorderColor, sourceColor } from "./legacyColors";
+import { VOCAB } from "../labels";
+import EmptyState from "./EmptyState";
 
 interface SessionListPanelProps {
   workspace: WorkspaceInfo | null;
@@ -10,6 +12,7 @@ interface SessionListPanelProps {
   onSelectSession: (id: string) => void;
   onKillSession: (id: string) => void;
   onFocusTerminal: () => void;
+  onOpenWorkspace: () => void;
 }
 
 type GroupKey = "today" | "week" | "earlier";
@@ -40,6 +43,7 @@ function SessionListPanel({
   onSelectSession,
   onKillSession,
   onFocusTerminal,
+  onOpenWorkspace,
 }: SessionListPanelProps) {
   const listRef = useRef<HTMLUListElement | null>(null);
   const itemRefs = useRef<Map<string, HTMLLIElement>>(new Map());
@@ -73,7 +77,10 @@ function SessionListPanel({
   if (!workspace) {
     return (
       <div className="panel-content">
-        <p className="empty-state">Open a workspace to begin</p>
+        <EmptyState
+          message="Open a workspace to see sessions."
+          action={{ label: VOCAB.openWorkspace, onClick: onOpenWorkspace }}
+        />
       </div>
     );
   }
@@ -109,7 +116,7 @@ function SessionListPanel({
   return (
     <div className="panel-content">
       {sessions.length === 0 ? (
-        <p className="empty-state">No active sessions</p>
+        <EmptyState message="No sessions yet. Press ⌘N to start one." />
       ) : (
         <ul
           id="sessions-list"

@@ -24,6 +24,7 @@ interface DockviewAppData {
   onKillSession: (id: string) => void;
   onResumeSession: (id: string) => void;
   onFocusTerminal: () => void;
+  onOpenWorkspace: () => void;
   dockviewApiRef: React.MutableRefObject<DockviewApi | null>;
 }
 
@@ -39,6 +40,7 @@ function SessionsPanel() {
       onSelectSession={ctx.onSelectSession}
       onKillSession={ctx.onKillSession}
       onFocusTerminal={ctx.onFocusTerminal}
+      onOpenWorkspace={ctx.onOpenWorkspace}
     />
   );
 }
@@ -119,10 +121,29 @@ export const PANEL_DEFAULTS: Record<string, PanelDefault> = {
   recommendations: { component: "recommendations", title: "Recommendations", position: { referencePanel: "capacity", direction: "below" } },
 };
 
-function DockviewApp(props: DockviewAppData) {
-  const { backendStatus, workspace, sessions, activeSessionId, onSelectSession, onCreateSession, onKillSession, onResumeSession, onFocusTerminal, dockviewApiRef } = props;
+/** Single source of truth for first-launch / Reset Layout. Capacity and
+ *  Recommendations are reachable via View menu hotkeys but closed by default
+ *  until they carry signal (M8/M9). */
+export const DEFAULT_LAYOUT_PANELS: ReadonlyArray<string> = ["sessions", "detail", "terminal"];
 
-  const ctxValue: DockviewAppData = { backendStatus, workspace, sessions, activeSessionId, onSelectSession, onCreateSession, onKillSession, onResumeSession, onFocusTerminal, dockviewApiRef };
+export function buildDefaultLayout(api: DockviewApi): void {
+  for (const id of DEFAULT_LAYOUT_PANELS) {
+    const def = PANEL_DEFAULTS[id];
+    api.addPanel({
+      id: def.component,
+      component: def.component,
+      title: def.title,
+      ...(def.position
+        ? { position: { referencePanel: def.position.referencePanel, direction: def.position.direction } }
+        : {}),
+    });
+  }
+}
+
+function DockviewApp(props: DockviewAppData) {
+  const { backendStatus, workspace, sessions, activeSessionId, onSelectSession, onCreateSession, onKillSession, onResumeSession, onFocusTerminal, onOpenWorkspace, dockviewApiRef } = props;
+
+  const ctxValue: DockviewAppData = { backendStatus, workspace, sessions, activeSessionId, onSelectSession, onCreateSession, onKillSession, onResumeSession, onFocusTerminal, onOpenWorkspace, dockviewApiRef };
 
   const initializedRef = useRef(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -137,25 +158,6 @@ function DockviewApp(props: DockviewAppData) {
     for (const [id, def] of Object.entries(PANEL_DEFAULTS)) {
       const visible = api.getPanel(def.component) != null;
       window.orkworks.notifyPanelVisibility(id, visible);
-    }
-  }
-
-  function buildDefaultLayout(api: DockviewApi) {
-    api.addPanel({
-      id: PANEL_DEFAULTS.sessions.component,
-      component: PANEL_DEFAULTS.sessions.component,
-      title: PANEL_DEFAULTS.sessions.title,
-    });
-    for (const id of ["detail", "terminal", "capacity", "recommendations"]) {
-      const def = PANEL_DEFAULTS[id];
-      if (def.position) {
-        api.addPanel({
-          id: def.component,
-          component: def.component,
-          title: def.title,
-          position: { referencePanel: def.position.referencePanel, direction: def.position.direction },
-        });
-      }
     }
   }
 
@@ -204,9 +206,6 @@ function DockviewApp(props: DockviewAppData) {
         {isEmpty && (
           <div className="dockview-empty-state">
             <p>All panels are closed.</p>
-            <p className="dockview-empty-hint">
-              Open one from the View menu, or
-            </p>
             <button
               type="button"
               className="dockview-empty-reset"
@@ -215,7 +214,7 @@ function DockviewApp(props: DockviewAppData) {
                 if (api) resetLayout(api);
               }}
             >
-              Reset Layout
+              Restore default layout
             </button>
           </div>
         )}
