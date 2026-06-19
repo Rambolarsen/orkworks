@@ -51,3 +51,26 @@ test("menu command handlers are suppressible during hotkey capture", () => {
 
   assert.deepEqual(commands, []);
 });
+
+test("menu template removes accelerators and native roles during hotkey capture", () => {
+  const template = buildMenuTemplate({
+    appName: "OrkWorks",
+    platform: "darwin",
+    settings: {
+      version: 1,
+      hotkeys: {
+        ...DEFAULT_SETTINGS.hotkeys,
+        resetLayout: "CmdOrCtrl+Alt+Backspace",
+      },
+    },
+    isHotkeyCaptureActive: () => true,
+    sendCommand: () => {},
+  });
+
+  assert.equal(findMenuItem(template, "new-session")?.accelerator, undefined);
+  assert.equal(findMenuItem(template, "sessions")?.accelerator, undefined);
+  assert.equal(findMenuItem(template, "reset-layout")?.accelerator, undefined);
+
+  const serializedTemplate = JSON.stringify(template);
+  assert.equal(serializedTemplate.includes('"role"'), false);
+});

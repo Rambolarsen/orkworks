@@ -6,7 +6,7 @@ import { getDevRepoRoot, getDevSidecarPath } from "./paths";
 import { readWorkspaceMemory, rememberWorkspacePath } from "./workspaceMemory";
 import { readLayoutMemory, writeLayoutMemory } from "./layoutMemory";
 import type { AppSettings, HotkeySettings } from "./settingsMemory";
-import { readSettings, validateHotkeys, writeSettings } from "./settingsMemory";
+import { readSettings, settingsWithHotkeys, validateHotkeys, writeSettings } from "./settingsMemory";
 import { buildMenuTemplate } from "./menuTemplate";
 
 let mainWindow: BrowserWindow | null = null;
@@ -161,13 +161,9 @@ app.whenReady().then(() => {
     return currentSettings;
   });
 
-  ipcMain.handle("save-hotkeys", async (_event, hotkeys: HotkeySettings) => {
+  ipcMain.handle("save-hotkeys", async (_event, hotkeys: unknown) => {
     const baseSettings = currentSettings ?? readSettings(app.getPath("userData"));
-    const nextSettings: AppSettings = {
-      ...baseSettings,
-      version: 1,
-      hotkeys,
-    };
+    const nextSettings = settingsWithHotkeys(baseSettings, hotkeys);
 
     const validation = validateHotkeys(nextSettings.hotkeys);
     if (!validation.ok) {
@@ -176,7 +172,7 @@ app.whenReady().then(() => {
 
     const nextMenu = createMenu(nextSettings);
     writeSettings(app.getPath("userData"), nextSettings);
-    currentSettings = readSettings(app.getPath("userData"));
+    currentSettings = nextSettings;
     applyMenu(nextMenu);
 
     return { ok: true, settings: currentSettings };
@@ -249,7 +245,12 @@ app.whenReady().then(() => {
   });
 
   ipcMain.on("orkworks:hotkey-capture-active", (_event, active: boolean) => {
-    hotkeyCaptureActive = active;
+    const nextActive = Boolean(active);
+    if (hotkeyCaptureActive === nextActive) return;
+
+    hotkeyCaptureActive = nextActive;
+    currentSettings = currentSettings ?? readSettings(app.getPath("userData"));
+    applyMenu(createMenu(currentSettings));
   });
 
   startSidecar(initialWorkspacePath ?? undefined);

@@ -15,6 +15,7 @@ export interface BuildMenuTemplateOptions {
 }
 
 export function buildMenuTemplate(options: BuildMenuTemplateOptions): MenuItemConstructorOptions[] {
+  const isCapturing = options.isHotkeyCaptureActive?.() ?? false;
   const panelIds = ["sessions", "detail", "terminal", "capacity", "recommendations"] as const;
   const panelTitles: Record<(typeof panelIds)[number], string> = {
     sessions: "Sessions",
@@ -31,15 +32,19 @@ export function buildMenuTemplate(options: BuildMenuTemplateOptions): MenuItemCo
     recommendations: options.settings.hotkeys.toggleRecommendationsPanel,
   };
 
+  const acceleratorUnlessCapturing = (accelerator: string | null): string | undefined =>
+    isCapturing ? undefined : (accelerator ?? undefined);
+  const nativeRole = (role: NonNullable<MenuItemConstructorOptions["role"]>, label: string): MenuItemConstructorOptions =>
+    isCapturing ? { label, enabled: false } : { role };
   const sendIfNotCapturing = (command: MenuCommand) => {
-    if (options.isHotkeyCaptureActive?.()) return;
+    if (isCapturing) return;
     options.sendCommand(command);
   };
 
   const panelItems: MenuItemConstructorOptions[] = panelIds.map((id) => ({
     id,
     label: panelTitles[id],
-    accelerator: panelAccelerators[id],
+    accelerator: acceleratorUnlessCapturing(panelAccelerators[id]),
     type: "checkbox",
     checked: true,
     click: () => sendIfNotCapturing({ action: "focus", panelId: id }),
@@ -50,23 +55,24 @@ export function buildMenuTemplate(options: BuildMenuTemplateOptions): MenuItemCo
     label: "Reset Layout",
     click: () => sendIfNotCapturing({ action: "reset-layout" }),
   };
-  if (options.settings.hotkeys.resetLayout) {
-    resetLayoutItem.accelerator = options.settings.hotkeys.resetLayout;
+  const resetLayoutAccelerator = acceleratorUnlessCapturing(options.settings.hotkeys.resetLayout);
+  if (resetLayoutAccelerator) {
+    resetLayoutItem.accelerator = resetLayoutAccelerator;
   }
 
   return [
     {
       label: options.appName,
       submenu: [
-        { role: "about" },
+        nativeRole("about", `About ${options.appName}`),
         { type: "separator" },
-        { role: "services" },
+        nativeRole("services", "Services"),
         { type: "separator" },
-        { role: "hide" },
-        { role: "hideOthers" },
-        { role: "unhide" },
+        nativeRole("hide", `Hide ${options.appName}`),
+        nativeRole("hideOthers", "Hide Others"),
+        nativeRole("unhide", "Show All"),
         { type: "separator" },
-        { role: "quit" },
+        nativeRole("quit", `Quit ${options.appName}`),
       ],
     },
     {
@@ -75,23 +81,23 @@ export function buildMenuTemplate(options: BuildMenuTemplateOptions): MenuItemCo
         {
           id: "new-session",
           label: "New Session",
-          accelerator: options.settings.hotkeys.newSession,
+          accelerator: acceleratorUnlessCapturing(options.settings.hotkeys.newSession),
           click: () => sendIfNotCapturing({ action: "new-session" }),
         },
         { type: "separator" },
-        { role: "close" },
+        nativeRole("close", "Close"),
       ],
     },
     {
       label: "Edit",
       submenu: [
-        { role: "undo" },
-        { role: "redo" },
+        nativeRole("undo", "Undo"),
+        nativeRole("redo", "Redo"),
         { type: "separator" },
-        { role: "cut" },
-        { role: "copy" },
-        { role: "paste" },
-        { role: "selectAll" },
+        nativeRole("cut", "Cut"),
+        nativeRole("copy", "Copy"),
+        nativeRole("paste", "Paste"),
+        nativeRole("selectAll", "Select All"),
       ],
     },
     {
@@ -101,29 +107,29 @@ export function buildMenuTemplate(options: BuildMenuTemplateOptions): MenuItemCo
         { type: "separator" },
         resetLayoutItem,
         { type: "separator" },
-        { role: "reload" },
-        { role: "forceReload" },
-        { role: "toggleDevTools" },
+        nativeRole("reload", "Reload"),
+        nativeRole("forceReload", "Force Reload"),
+        nativeRole("toggleDevTools", "Toggle Developer Tools"),
         { type: "separator" },
-        { role: "resetZoom" },
-        { role: "zoomIn" },
-        { role: "zoomOut" },
+        nativeRole("resetZoom", "Actual Size"),
+        nativeRole("zoomIn", "Zoom In"),
+        nativeRole("zoomOut", "Zoom Out"),
         { type: "separator" },
-        { role: "togglefullscreen" },
+        nativeRole("togglefullscreen", "Toggle Full Screen"),
       ],
     },
     {
       label: "Window",
       submenu: [
-        { role: "minimize" },
-        { role: "zoom" },
+        nativeRole("minimize", "Minimize"),
+        nativeRole("zoom", "Zoom"),
         ...(options.platform === "darwin"
-          ? [{ type: "separator" as const }, { role: "front" as const }]
-          : [{ role: "close" as const }]),
+          ? [{ type: "separator" as const }, nativeRole("front", "Bring All to Front")]
+          : [nativeRole("close", "Close")]),
       ],
     },
     {
-      role: "help",
+      ...(isCapturing ? { label: "Help" } : { role: "help" as const }),
       submenu: [
         {
           label: "Learn More",

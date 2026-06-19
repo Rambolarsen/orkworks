@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 export interface AppSettings {
+  [key: string]: unknown;
   version: 1;
   hotkeys: HotkeySettings;
 }
@@ -163,14 +164,22 @@ export function settingsPath(userDataPath: string): string {
 }
 
 export function normalizeSettings(value: unknown): AppSettings {
-  if (!value || typeof value !== "object") {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
     return defaultSettings();
   }
-  const parsed = value as Partial<AppSettings>;
+  const parsed = value as Record<string, unknown>;
   return {
+    ...parsed,
     version: 1,
     hotkeys: normalizeHotkeys(parsed.hotkeys),
   };
+}
+
+export function settingsWithHotkeys(baseSettings: AppSettings, hotkeys: unknown): AppSettings {
+  return normalizeSettings({
+    ...baseSettings,
+    hotkeys: hotkeysForSave(hotkeys),
+  });
 }
 
 export function normalizeHotkeys(value: unknown): HotkeySettings {
@@ -259,6 +268,29 @@ function optionalHotkeyOrNull(value: unknown): string | null {
   return acceleratorSyntaxError(trimmed) ? null : trimmed;
 }
 
+function hotkeysForSave(value: unknown): HotkeySettings {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? (value as Partial<HotkeySettings>) : {};
+  return {
+    newSession: requiredHotkeyForSave(source.newSession),
+    toggleSessionsPanel: requiredHotkeyForSave(source.toggleSessionsPanel),
+    toggleDetailPanel: requiredHotkeyForSave(source.toggleDetailPanel),
+    toggleTerminalPanel: requiredHotkeyForSave(source.toggleTerminalPanel),
+    toggleCapacityPanel: requiredHotkeyForSave(source.toggleCapacityPanel),
+    toggleRecommendationsPanel: requiredHotkeyForSave(source.toggleRecommendationsPanel),
+    resetLayout: optionalHotkeyForSave(source.resetLayout),
+  };
+}
+
+function requiredHotkeyForSave(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function optionalHotkeyForSave(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
 function sanitizeDuplicateHotkeys(hotkeys: HotkeySettings): HotkeySettings {
   const next = { ...hotkeys };
   const groups = new Map<string, HotkeyAction[]>();
@@ -338,6 +370,7 @@ function acceleratorSyntaxError(accelerator: string): string | null {
   const keyParts = parts.filter((part) => !modifierNames.has(part));
   if (keyParts.length === 0) return "Shortcut must include a non-modifier key.";
   if (keyParts.length > 1) return "Shortcut must contain only one non-modifier key.";
+  if (seenModifiers.size === 0 && !isFunctionKey(keyParts[0])) return "Shortcut must include a modifier.";
 
   return isSupportedKey(keyParts[0]) ? null : `Unsupported key "${keyParts[0]}".`;
 }
@@ -358,6 +391,10 @@ function canonicalAccelerator(accelerator: string): string {
 
 function isSupportedKey(key: string): boolean {
   if (/^[A-Z0-9]$/.test(key)) return true;
-  if (/^F([1-9]|1[0-9]|2[0-4])$/.test(key)) return true;
+  if (isFunctionKey(key)) return true;
   return namedKeys.has(key);
+}
+
+function isFunctionKey(key: string): boolean {
+  return /^F([1-9]|1[0-9]|2[0-4])$/.test(key);
 }

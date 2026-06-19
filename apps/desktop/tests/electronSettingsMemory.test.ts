@@ -9,6 +9,7 @@ import {
   DEFAULT_SETTINGS,
   readSettings,
   settingsPath,
+  settingsWithHotkeys,
   validateHotkeys,
   writeSettings,
 } from "../electron/settingsMemory.ts";
@@ -161,6 +162,57 @@ test("settings memory writes canonical settings JSON", () => {
   }
 });
 
+test("settings memory preserves future top-level settings sections", () => {
+  const dir = mkdtempSync(join(tmpdir(), "orkworks-settings-"));
+  try {
+    writeFileSync(
+      settingsPath(dir),
+      JSON.stringify({
+        version: 1,
+        hotkeys: { newSession: "CmdOrCtrl+Alt+N" },
+        ui: { theme: "sepia", density: "compact" },
+      }),
+    );
+
+    const settings = readSettings(dir);
+    assert.deepEqual(settings.ui, { theme: "sepia", density: "compact" });
+
+    writeSettings(dir, {
+      ...settings,
+      hotkeys: {
+        ...settings.hotkeys,
+        toggleTerminalPanel: "CmdOrCtrl+Alt+T",
+      },
+    });
+
+    const persisted = JSON.parse(readFileSync(settingsPath(dir), "utf8"));
+    assert.deepEqual(persisted.ui, { theme: "sepia", density: "compact" });
+    assert.equal(persisted.hotkeys.newSession, "CmdOrCtrl+Alt+N");
+    assert.equal(persisted.hotkeys.toggleTerminalPanel, "CmdOrCtrl+Alt+T");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("settingsWithHotkeys returns one canonical settings object for validation menu and disk", () => {
+  const baseSettings = {
+    version: 1 as const,
+    hotkeys: DEFAULT_HOTKEYS,
+    ui: { theme: "sepia" },
+  };
+
+  const nextSettings = settingsWithHotkeys(baseSettings, {
+    ...DEFAULT_HOTKEYS,
+    newSession: "  CmdOrCtrl+Alt+N  ",
+    resetLayout: {},
+  });
+
+  assert.equal(nextSettings.hotkeys.newSession, "CmdOrCtrl+Alt+N");
+  assert.equal(nextSettings.hotkeys.resetLayout, null);
+  assert.deepEqual(nextSettings.ui, { theme: "sepia" });
+  assert.deepEqual(validateHotkeys(nextSettings.hotkeys), { ok: true, errors: {} });
+});
+
 test("validateHotkeys rejects duplicates", () => {
   const result = validateHotkeys({
     ...DEFAULT_HOTKEYS,
@@ -221,6 +273,18 @@ test("validateHotkeys rejects trailing separator syntax", () => {
 
   assert.equal(result.ok, false);
   assert.deepEqual(result.errors.toggleDetailPanel, ["Shortcut has invalid separator syntax."]);
+});
+
+test("validateHotkeys rejects unmodified ordinary keys", () => {
+  const result = validateHotkeys({
+    ...DEFAULT_HOTKEYS,
+    newSession: "N",
+    toggleDetailPanel: "A",
+  });
+
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.errors.newSession, ["Shortcut must include a modifier."]);
+  assert.deepEqual(result.errors.toggleDetailPanel, ["Shortcut must include a modifier."]);
 });
 
 test("validateHotkeys allows optional resetLayout to be unset", () => {

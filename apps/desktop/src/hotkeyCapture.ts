@@ -23,9 +23,16 @@ export function acceleratorFromKeyboardEvent(event: KeyboardEvent): string | nul
   if (event.metaKey || event.ctrlKey) parts.push("CmdOrCtrl");
   if (event.altKey) parts.push("Alt");
   if (event.shiftKey) parts.push("Shift");
+  if (parts.length === 0 && !isFunctionKey(key)) {
+    return null;
+  }
   parts.push(key);
 
   return parts.join("+");
+}
+
+function isFunctionKey(key: string): boolean {
+  return /^F([1-9]|1[0-9]|2[0-4])$/.test(key);
 }
 
 function normalizeKey(key: string): string | null {

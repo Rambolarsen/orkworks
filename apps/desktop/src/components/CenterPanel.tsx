@@ -1,31 +1,11 @@
 import { useEffect, useRef, useCallback, useState } from "react";
 import "@xterm/xterm/css/xterm.css";
 import { ensureTerminal, getTerminal } from "../terminalStore";
-import type { AppSettings, HotkeySettings, SaveHotkeysResult } from "../appSettingsTypes";
 
 interface CenterPanelProps {
   backendStatus: string;
   sessionId: string | null;
   embedded?: boolean;
-}
-
-import { type WorkspaceInfo } from "../api";
-
-declare global {
-  interface Window {
-    orkworks: {
-      getBackendUrl: () => Promise<string>;
-      getInitialWorkspace: () => Promise<WorkspaceInfo | null>;
-      openWorkspace: () => Promise<WorkspaceInfo | null>;
-      getLayout: () => Promise<string | null>;
-      saveLayout: (json: string) => Promise<void>;
-      getSettings: () => Promise<AppSettings>;
-      saveHotkeys: (hotkeys: HotkeySettings) => Promise<SaveHotkeysResult>;
-      setHotkeyCaptureActive: (active: boolean) => void;
-      onMenuCommand: (callback: (data: { action: string; panelId?: string }) => void) => () => void;
-      notifyPanelVisibility: (panelId: string, visible: boolean) => void;
-    };
-  }
 }
 
 function CenterPanel({ backendStatus, sessionId, embedded }: CenterPanelProps) {

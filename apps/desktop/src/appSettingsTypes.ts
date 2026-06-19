@@ -9,6 +9,7 @@ export interface HotkeySettings {
 }
 
 export interface AppSettings {
+  [key: string]: unknown;
   version: 1;
   hotkeys: HotkeySettings;
 }

@@ -34,3 +34,9 @@ test("acceleratorFromKeyboardEvent supports named keys", () => {
   assert.equal(acceleratorFromKeyboardEvent(event(" ", { ctrlKey: true })), "CmdOrCtrl+Space");
   assert.equal(acceleratorFromKeyboardEvent(event("ArrowLeft", { ctrlKey: true })), "CmdOrCtrl+Left");
 });
+
+test("acceleratorFromKeyboardEvent ignores unmodified ordinary keys", () => {
+  assert.equal(acceleratorFromKeyboardEvent(event("n")), null);
+  assert.equal(acceleratorFromKeyboardEvent(event("a")), null);
+  assert.equal(acceleratorFromKeyboardEvent(event("F2")), "F2");
+});
