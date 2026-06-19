@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import type { SessionInfo, WorkspaceInfo } from "../api";
 import { sessionAttentionStatus } from "../sessionSort";
 import {
@@ -64,8 +64,13 @@ function SessionListPanel({
     el?.scrollIntoView({ block: "nearest" });
   }, [activeSessionId]);
 
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const interval = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(interval);
+  }, []);
+
   const grouped = useMemo(() => {
-    const now = new Date();
     const buckets: Record<GroupKey, SessionInfo[]> = {
       today: [],
       week: [],
@@ -122,8 +127,6 @@ function SessionListPanel({
     onSelectSession(id);
     listRef.current?.focus();
   };
-
-  const now = new Date();
 
   return (
     <div className="panel-content">

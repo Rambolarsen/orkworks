@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import type { SessionInfo } from "../api";
 import { sessionAttentionStatus } from "../sessionSort";
 import {
@@ -18,6 +19,12 @@ interface SessionDetailPanelProps {
 }
 
 function SessionDetailPanel({ sessions, activeSessionId, onResumeSession }: SessionDetailPanelProps) {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const interval = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(interval);
+  }, []);
+
   const active = sessions.find((s) => s.id === activeSessionId);
 
   if (!active) {
@@ -105,7 +112,7 @@ function SessionDetailPanel({ sessions, activeSessionId, onResumeSession }: Sess
         <div className="session-detail-section">
           <div className="session-detail-label">Peon</div>
           <span className="session-detail-value peon-value">
-            Observed {relativeTime(active.peonLastInference) || active.peonLastInference}
+            Observed {relativeTime(active.peonLastInference, now) || active.peonLastInference}
           </span>
         </div>
       )}
