@@ -2,7 +2,7 @@
 
 ## Identity
 
-Local-first observability + recommendation layer for AI coding sessions ("Mission Control for AI Agents"). Observes and recommends before it controls — does not replace Claude Code, Codex, OpenCode, Gemini CLI, or Aider.
+Local-first mission control for AI coding sessions. Peons observe individual sessions; Taskmaster recommends what should happen next across harnesses, models, reviews, capacity, and Git context. OrkWorks observes and recommends before it controls — it does not replace Claude Code, Codex, OpenCode, Gemini CLI, or Aider.
 
 ## State of the repo
 
@@ -61,10 +61,11 @@ All implementation work is tracked as GitHub issues: [https://github.com/Rambola
 - `specs/orkworks-mvp.md` — full product scope, architecture, milestones, non-goals
 - `specs/native-harness-voice-support.md` — voice support design
 - `specs/review-queue.md` — proposed repo-local review inbox for plan/spec artifacts
+- `specs/taskmaster.md` — proposed cross-session coordination and next-step recommendation layer
 
 Read these before starting any implementation work.
 
-If either spec file is missing or unreadable, stop and notify the user before proceeding. Do not infer scope from context alone.
+If any authoritative spec file is missing or unreadable, stop and notify the user before proceeding. Do not infer scope from context alone.
 
 ## Development workflow
 
@@ -112,12 +113,15 @@ ADRs are complementary to specs: specs define what we're building; ADRs record w
 | ---- | ------- |
 | OrkWorks | Product |
 | `orkworksd` | Rust backend sidecar |
-| Peon | Low-cost metadata observer |
-| `.orkworks/` | Per-repo protocol directory (sessions/, events/, capacity/, skills/) |
+| Peon | Low-cost session/repo metadata observer |
+| Taskmaster | Workspace-level next-step coordinator |
+| `.orkworks/` | Per-repo protocol directory (sessions/, events/, capacity/, recommendations/, skills/) |
+
+Use normal engineering terminology for all other concepts. Peon and Taskmaster are the two intentional product-specific worker names; do not expand the fantasy naming further without an explicit spec update.
 
 ## Architecture
 
-Electron + React/TypeScript frontend (`apps/desktop/`) communicates with a Rust sidecar (`crates/orkworksd/`) over a dynamic localhost HTTP/WebSocket port. The desktop UI uses Dockview draggable panels around xterm.js terminal sessions. The sidecar manages PTY sessions, git context, and the `.orkworks/` metadata protocol.
+Electron + React/TypeScript frontend (`apps/desktop/`) communicates with a Rust sidecar (`crates/orkworksd/`) over a dynamic localhost HTTP/WebSocket port. The desktop UI uses Dockview draggable panels around xterm.js terminal sessions. The sidecar manages PTY sessions, Git context, the `.orkworks/` metadata protocol, Peon observation, and Taskmaster recommendation state.
 
 See [`docs/agents/architecture.md`](docs/agents/architecture.md) for the full inter-component breakdown (port discovery, preload bridge, API data flow, Rust modules, panel layout).
 
@@ -126,17 +130,20 @@ See [`docs/agents/architecture.md`](docs/agents/architecture.md) for the full in
 - `.orkworks/sessions/<id>.json` — agent-written session state
 - `.orkworks/events/<id>.ndjson` — append-only event log
 - `.orkworks/capacity/<id>.json` — capacity per model/harness
+- `.orkworks/recommendations/<id>.json` — Taskmaster recommendation state and history
 - `.orkworks/workspace.json` — repo-local workspace memory, including the last active session
 - Priority: user > agent > peon > backend_inference > process > unknown
 - Peon reads terminal output, writes inferred metadata, never types into terminals
+- Taskmaster consumes normalized metadata and proposes cross-session transitions; v1 requires explicit user approval for every action
 
 ## Key conventions from specs
 
-- Do **not** expand fantasy naming beyond "Peon" — use normal engineering terms
-- MVP does not own git workflow, worktree management, merging, or task decomposition
+- Do **not** expand fantasy naming beyond Peon and Taskmaster — use normal engineering terms everywhere else
+- MVP does not own Git workflow, worktree management, merging, or arbitrary task decomposition
+- Taskmaster may recommend session transitions but must not start sessions without explicit user approval in v1
 - If asked to implement something listed as a non-goal in the specs, decline and explain which non-goal applies. Do not implement it even partially.
 - Harness voice is pass-through only — OrkWorks never captures/proxies/stores audio for native voice
-- Start every session metadata source and confidence where possible
+- Store metadata source and confidence where possible
 - Capacity states: healthy, degraded, capped, unknown, disabled
 - Cost tiers: local, low, medium, high, premium
 
