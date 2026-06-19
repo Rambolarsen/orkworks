@@ -175,7 +175,7 @@ export function normalizeSettings(value: unknown): AppSettings {
 
 export function normalizeHotkeys(value: unknown): HotkeySettings {
   const source = value && typeof value === "object" ? (value as Partial<HotkeySettings>) : {};
-  return {
+  const hotkeys: HotkeySettings = {
     newSession: hotkeyOrDefault(source.newSession, DEFAULT_HOTKEYS.newSession),
     toggleSessionsPanel: hotkeyOrDefault(source.toggleSessionsPanel, DEFAULT_HOTKEYS.toggleSessionsPanel),
     toggleDetailPanel: hotkeyOrDefault(source.toggleDetailPanel, DEFAULT_HOTKEYS.toggleDetailPanel),
@@ -187,6 +187,7 @@ export function normalizeHotkeys(value: unknown): HotkeySettings {
     ),
     resetLayout: optionalHotkeyOrNull(source.resetLayout),
   };
+  return sanitizeDuplicateHotkeys(hotkeys);
 }
 
 export function readSettings(userDataPath: string): AppSettings {
@@ -256,6 +257,53 @@ function optionalHotkeyOrNull(value: unknown): string | null {
   const trimmed = value.trim();
   if (!trimmed) return null;
   return acceleratorSyntaxError(trimmed) ? null : trimmed;
+}
+
+function sanitizeDuplicateHotkeys(hotkeys: HotkeySettings): HotkeySettings {
+  const next = { ...hotkeys };
+  const groups = new Map<string, HotkeyAction[]>();
+
+  for (const definition of HOTKEY_DEFINITIONS) {
+    const value = next[definition.action];
+    if (!value) continue;
+    const key = canonicalAccelerator(value);
+    groups.set(key, [...(groups.get(key) ?? []), definition.action]);
+  }
+
+  for (const actions of groups.values()) {
+    if (actions.length <= 1) continue;
+    for (const action of actions) {
+      resetHotkeyToDefault(next, action);
+    }
+  }
+
+  return next;
+}
+
+function resetHotkeyToDefault(hotkeys: HotkeySettings, action: HotkeyAction): void {
+  switch (action) {
+    case "newSession":
+      hotkeys.newSession = DEFAULT_HOTKEYS.newSession;
+      return;
+    case "toggleSessionsPanel":
+      hotkeys.toggleSessionsPanel = DEFAULT_HOTKEYS.toggleSessionsPanel;
+      return;
+    case "toggleDetailPanel":
+      hotkeys.toggleDetailPanel = DEFAULT_HOTKEYS.toggleDetailPanel;
+      return;
+    case "toggleTerminalPanel":
+      hotkeys.toggleTerminalPanel = DEFAULT_HOTKEYS.toggleTerminalPanel;
+      return;
+    case "toggleCapacityPanel":
+      hotkeys.toggleCapacityPanel = DEFAULT_HOTKEYS.toggleCapacityPanel;
+      return;
+    case "toggleRecommendationsPanel":
+      hotkeys.toggleRecommendationsPanel = DEFAULT_HOTKEYS.toggleRecommendationsPanel;
+      return;
+    case "resetLayout":
+      hotkeys.resetLayout = DEFAULT_HOTKEYS.resetLayout;
+      return;
+  }
 }
 
 function addError(errors: HotkeyValidationErrors, action: HotkeyAction, message: string): void {

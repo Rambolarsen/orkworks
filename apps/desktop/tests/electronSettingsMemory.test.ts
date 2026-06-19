@@ -117,6 +117,31 @@ test("settings memory falls back invalid persisted hotkeys to defaults", () => {
   }
 });
 
+test("settings memory falls back duplicate persisted hotkeys to defaults", () => {
+  const dir = mkdtempSync(join(tmpdir(), "orkworks-settings-"));
+  try {
+    writeFileSync(
+      settingsPath(dir),
+      JSON.stringify({
+        version: 1,
+        hotkeys: {
+          newSession: "CmdOrCtrl+Shift+S",
+          toggleSessionsPanel: "Shift+CmdOrCtrl+S",
+          toggleDetailPanel: "CmdOrCtrl+Alt+D",
+        },
+      }),
+    );
+
+    const settings = readSettings(dir);
+
+    assert.equal(settings.hotkeys.newSession, DEFAULT_HOTKEYS.newSession);
+    assert.equal(settings.hotkeys.toggleSessionsPanel, DEFAULT_HOTKEYS.toggleSessionsPanel);
+    assert.equal(settings.hotkeys.toggleDetailPanel, "CmdOrCtrl+Alt+D");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("settings memory writes canonical settings JSON", () => {
   const dir = mkdtempSync(join(tmpdir(), "orkworks-settings-"));
   try {
