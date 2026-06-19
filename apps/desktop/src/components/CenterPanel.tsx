@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback, useState } from "react";
 import "@xterm/xterm/css/xterm.css";
 import { ensureTerminal, getTerminal } from "../terminalStore";
+import type { AppSettings, HotkeySettings, SaveHotkeysResult } from "../appSettingsTypes";
 
 interface CenterPanelProps {
   backendStatus: string;
@@ -18,6 +19,9 @@ declare global {
       openWorkspace: () => Promise<WorkspaceInfo | null>;
       getLayout: () => Promise<string | null>;
       saveLayout: (json: string) => Promise<void>;
+      getSettings: () => Promise<AppSettings>;
+      saveHotkeys: (hotkeys: HotkeySettings) => Promise<SaveHotkeysResult>;
+      setHotkeyCaptureActive: (active: boolean) => void;
       onMenuCommand: (callback: (data: { action: string; panelId?: string }) => void) => () => void;
       notifyPanelVisibility: (panelId: string, visible: boolean) => void;
     };

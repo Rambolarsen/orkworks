@@ -192,3 +192,14 @@ test("App restores the last active session from the initial workspace", () => {
   assert.match(source, /info\.lastActiveSessionId/);
   assert.match(source, /setActiveSessionId\(info\.lastActiveSessionId\)/);
 });
+
+test("preload exposes settings and hotkey capture APIs", () => {
+  const source = readFileSync(new URL("../electron/preload.ts", import.meta.url), "utf8");
+
+  assert.match(source, /getSettings:\s*\(\)/);
+  assert.match(source, /ipcRenderer\.invoke\("get-settings"\)/);
+  assert.match(source, /saveHotkeys:\s*\(hotkeys:/);
+  assert.match(source, /ipcRenderer\.invoke\("save-hotkeys", hotkeys\)/);
+  assert.match(source, /setHotkeyCaptureActive:\s*\(active:/);
+  assert.match(source, /ipcRenderer\.send\("orkworks:hotkey-capture-active", active\)/);
+});
