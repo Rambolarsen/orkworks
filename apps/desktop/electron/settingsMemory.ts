@@ -259,6 +259,13 @@ function acceleratorSyntaxError(accelerator: string): string | null {
   const rawParts = accelerator.split("+").map((part) => part.trim());
   const hasEmptyMiddleSegment = rawParts.slice(0, -1).some((part) => part.length === 0);
   if (hasEmptyMiddleSegment) return "Shortcut has invalid separator syntax.";
+  if (
+    rawParts.length > 1 &&
+    rawParts[rawParts.length - 1] === "" &&
+    rawParts.slice(0, -1).some((part) => !modifierNames.has(part))
+  ) {
+    return "Shortcut has invalid separator syntax.";
+  }
 
   const parts = rawParts.filter(Boolean);
   if (parts.length === 0) return "Shortcut is required.";
