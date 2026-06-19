@@ -235,15 +235,120 @@ html, body, #root {
   margin: 0;
 }
 
-.session-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+.session-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas:
+    "primary   meta"
+    "secondary secondary"
+    "action    action"
+    "source    source"
+    "memory    memory";
+  gap: var(--space-1);
   padding: var(--space-3) var(--space-5);
-  cursor: pointer;
+  border-left: 3px solid transparent;
   border-bottom: 1px solid var(--border-subtle);
+  cursor: pointer;
   scroll-margin-top: 26px;
   scroll-margin-bottom: var(--space-2);
+}
+
+.session-row:hover { background: var(--border-subtle); }
+.session-row[aria-selected="true"] { background: var(--surface-active); }
+.session-row[aria-selected="true"]:hover { background: var(--surface-active); }
+.session-row--remembered { opacity: 0.78; }
+
+.session-row[data-attention="needs-you"] { border-left-color: var(--attention-needs-you); }
+.session-row[data-attention="blocked"]   { border-left-color: var(--attention-blocked); }
+.session-row[data-attention="done"]      { border-left-color: var(--attention-done); }
+.session-row[data-attention="working"]   { border-left-color: var(--attention-working); }
+.session-row[data-attention="idle"]      { border-left-color: var(--attention-idle); }
+.session-row[data-attention="needs-you"] .session-row-label { font-weight: 600; }
+
+.session-row-primary {
+  grid-area: primary;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.session-row-label {
+  font-size: var(--text-lg);
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.session-row-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: currentColor;
+}
+
+.session-row[data-attention="needs-you"] .session-row-dot { color: var(--attention-needs-you); }
+.session-row[data-attention="blocked"]   .session-row-dot { color: var(--attention-blocked); }
+.session-row[data-attention="done"]      .session-row-dot { color: var(--attention-done); }
+.session-row[data-attention="working"]   .session-row-dot { color: var(--attention-working); }
+.session-row[data-attention="idle"]      .session-row-dot { color: var(--attention-idle); }
+
+.session-row-meta {
+  grid-area: meta;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.session-row-time {
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.session-row-kill {
+  border: none;
+  background: none;
+  color: var(--text-faint);
+  font-size: var(--text-xl);
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 var(--space-2);
+}
+
+.session-row-kill:hover { color: var(--state-error); }
+
+.session-row-secondary {
+  grid-area: secondary;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.session-row-action {
+  grid-area: action;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  font-style: italic;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.session-row-source {
+  grid-area: source;
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+
+.session-row-memory {
+  grid-area: memory;
+  font-size: var(--text-xs);
+  color: var(--text-faint);
 }
 
 .session-group-header {
@@ -294,60 +399,6 @@ html, body, #root {
 
 .dockview-empty-reset:hover {
   background: var(--surface-active);
-}
-
-.session-item:hover {
-  background: var(--border-subtle);
-}
-
-.session-item--active {
-  background: var(--surface-active);
-}
-
-.session-item--active:hover {
-  background: var(--surface-active);
-}
-
-.session-item-main {
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-  min-width: 0;
-  flex: 1;
-}
-
-.session-item-info {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.session-item-label {
-  font-size: var(--text-lg);
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.session-item-meta {
-  font-size: var(--text-sm);
-  color: var(--text-muted);
-}
-
-.session-kill-button {
-  border: none;
-  background: none;
-  color: var(--text-faint);
-  font-size: var(--text-xl);
-  cursor: pointer;
-  padding: 0 var(--space-2);
-  line-height: 1;
-  flex-shrink: 0;
-}
-
-.session-kill-button:hover {
-  color: var(--state-error);
 }
 
 .panel-content {
@@ -425,20 +476,6 @@ html, body, #root {
   font-size: var(--text-md);
 }
 
-.session-item-alert {
-  font-size: var(--text-md);
-  margin-right: var(--space-1);
-  flex-shrink: 0;
-}
-
-.session-item-badge {
-  display: inline-block;
-  margin-top: var(--space-1);
-  font-size: 9px;
-  padding: 1px var(--space-3);
-  border-radius: var(--radius-sm);
-}
-
 .conflict-warning {
   background: var(--state-error-bg);
   border: 1px solid var(--state-error-border);
@@ -454,20 +491,6 @@ html, body, #root {
   color: var(--text-muted);
   font-style: italic;
   line-height: 1.4;
-}
-
-.session-item--remembered {
-  opacity: 0.78;
-}
-
-.session-item--resumable {
-  border-left-color: var(--accent-focus);
-}
-
-.session-memory-badge {
-  color: var(--text-muted);
-  font-size: var(--text-sm);
-  line-height: 1;
 }
 
 .session-resume-button {
