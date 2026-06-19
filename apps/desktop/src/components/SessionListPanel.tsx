@@ -1,11 +1,15 @@
 import { Fragment, useEffect, useMemo, useRef } from "react";
 import type { SessionInfo, WorkspaceInfo } from "../api";
+import { sessionAttentionStatus } from "../sessionSort";
 import {
-  needsAttention,
-  sessionAttentionStatus,
-  sourceColor,
-  attentionBorderColor,
-} from "./RightSidebarHelpers.ts";
+  VOCAB,
+  attentionLabel,
+  attentionTone,
+  memoryStateLabel,
+  relativeTime,
+  sourceWithConfidence,
+} from "../labels";
+import EmptyState from "./EmptyState";
 
 interface SessionListPanelProps {
   workspace: WorkspaceInfo | null;
@@ -14,6 +18,7 @@ interface SessionListPanelProps {
   onSelectSession: (id: string) => void;
   onKillSession: (id: string) => void;
   onFocusTerminal: () => void;
+  onOpenWorkspace: () => void;
 }
 
 type GroupKey = "today" | "week" | "earlier";
@@ -37,6 +42,10 @@ function groupForSession(s: SessionInfo, now: Date): GroupKey {
   return "earlier";
 }
 
+function lastActivity(s: SessionInfo, now: Date): string {
+  return relativeTime(s.peonLastInference, now) || relativeTime(s.created_at, now);
+}
+
 function SessionListPanel({
   workspace,
   sessions,
@@ -44,6 +53,7 @@ function SessionListPanel({
   onSelectSession,
   onKillSession,
   onFocusTerminal,
+  onOpenWorkspace,
 }: SessionListPanelProps) {
   const listRef = useRef<HTMLUListElement | null>(null);
   const itemRefs = useRef<Map<string, HTMLLIElement>>(new Map());
@@ -77,7 +87,10 @@ function SessionListPanel({
   if (!workspace) {
     return (
       <div className="panel-content">
-        <p className="empty-state">Open a workspace to begin</p>
+        <EmptyState
+          message="Open a workspace to see sessions."
+          action={{ label: VOCAB.openWorkspace, onClick: onOpenWorkspace }}
+        />
       </div>
     );
   }
@@ -110,15 +123,19 @@ function SessionListPanel({
     listRef.current?.focus();
   };
 
+  const now = new Date();
+
   return (
     <div className="panel-content">
       {sessions.length === 0 ? (
-        <p className="empty-state">No active sessions</p>
+        <EmptyState message="No sessions yet. Press ⌘N to start one." />
       ) : (
         <ul
           id="sessions-list"
           ref={listRef}
           className="session-list"
+          role="listbox"
+          aria-label="Sessions"
           tabIndex={0}
           onKeyDown={handleKeyDown}
         >
@@ -128,67 +145,67 @@ function SessionListPanel({
                 {group.label}
               </li>
               {group.items.map((s) => {
-            const attn = sessionAttentionStatus(s);
-            return (
-              <li
-                key={s.id}
-                ref={(el) => {
-                  if (el) itemRefs.current.set(s.id, el);
-                  else itemRefs.current.delete(s.id);
-                }}
-                className={[
-                  "session-item",
-                  s.id === activeSessionId ? "session-item--active" : "",
-                  s.memoryState !== "live" ? "session-item--remembered" : "",
-                  s.memoryState === "resumable" ? "session-item--resumable" : "",
-                ].filter(Boolean).join(" ")}
-                style={{ borderLeft: `3px solid ${attentionBorderColor(attn)}` }}
-                onClick={() => handleSelect(s.id)}
-              >
-                <div className="session-item-main">
-                  <div className="session-item-info">
-                    <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                      {needsAttention(attn) && (
-                        <span className="session-item-alert" title="Needs attention">&#x26A0;</span>
+                const attn = sessionAttentionStatus(s);
+                const tone = attentionTone(attn);
+                const folder = s.cwd.split("/").pop() || s.cwd;
+                const dirtyText = s.dirty && s.changedFiles ? ` · ${s.changedFiles} files` : "";
+                const action = s.summary || s.nextAction;
+                return (
+                  <li
+                    key={s.id}
+                    ref={(el) => {
+                      if (el) itemRefs.current.set(s.id, el);
+                      else itemRefs.current.delete(s.id);
+                    }}
+                    className={[
+                      "session-row",
+                      s.memoryState !== "live" ? "session-row--remembered" : "",
+                    ].filter(Boolean).join(" ")}
+                    role="option"
+                    aria-selected={s.id === activeSessionId}
+                    data-attention={tone}
+                    onClick={() => handleSelect(s.id)}
+                  >
+                    <div className="session-row-primary">
+                      {tone !== "neutral" && (
+                        <span className="session-row-dot" aria-hidden="true" />
                       )}
-                      <span className="session-item-label">{s.label}</span>
+                      <span className="session-row-label">{s.label}</span>
                     </div>
-                    <span className="session-item-meta">
-                      {attn} &middot; {s.cwd.split("/").pop() || s.cwd}
-                    </span>
+                    <div className="session-row-meta">
+                      <span className="session-row-time">{lastActivity(s, now)}</span>
+                      {s.memoryState === "live" && (
+                        <button
+                          className="session-row-kill"
+                          type="button"
+                          aria-label="Kill session"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onKillSession(s.id);
+                          }}
+                        >
+                          &times;
+                        </button>
+                      )}
+                    </div>
+                    <div className="session-row-secondary">
+                      {attentionLabel(attn)} · {folder}{dirtyText}
+                    </div>
+                    {action && (
+                      <div className="session-row-action">{action}</div>
+                    )}
                     {s.metadataSource && (
-                      <span
-                        className="session-item-badge"
-                        style={{
-                          background: sourceColor(s.metadataSource) + "22",
-                          color: sourceColor(s.metadataSource),
-                        }}
-                      >
-                        {s.metadataSource} &middot; {Math.round((s.metadataConfidence ?? 1) * 100)}%
-                      </span>
+                      <div className="session-row-source">
+                        {sourceWithConfidence(s.metadataSource, s.metadataConfidence)}
+                      </div>
                     )}
                     {s.memoryState !== "live" && (
-                      <span className="session-memory-badge">
-                        {s.memoryState === "resumable" ? "resumable" : "remembered"}
-                      </span>
+                      <div className="session-row-memory">
+                        {memoryStateLabel(s.memoryState)}
+                      </div>
                     )}
-                  </div>
-                </div>
-                {s.memoryState === "live" && (
-                  <button
-                    className="session-kill-button"
-                    type="button"
-                    title="Kill session"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onKillSession(s.id);
-                    }}
-                  >
-                    &times;
-                  </button>
-                )}
-              </li>
-            );
+                  </li>
+                );
               })}
             </Fragment>
           ))}
