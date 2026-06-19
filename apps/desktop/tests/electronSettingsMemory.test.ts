@@ -127,6 +127,16 @@ test("validateHotkeys rejects invalid syntax and required empty values", () => {
   assert.deepEqual(result.errors.toggleDetailPanel, ["Shortcut must include a non-modifier key."]);
 });
 
+test("validateHotkeys rejects malformed separator syntax", () => {
+  const result = validateHotkeys({
+    ...DEFAULT_HOTKEYS,
+    toggleDetailPanel: "CmdOrCtrl++N",
+  });
+
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.errors.toggleDetailPanel, ["Shortcut has invalid separator syntax."]);
+});
+
 test("validateHotkeys allows optional resetLayout to be unset", () => {
   const result = validateHotkeys({
     ...DEFAULT_HOTKEYS,

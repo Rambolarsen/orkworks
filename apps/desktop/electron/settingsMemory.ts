@@ -256,10 +256,11 @@ function addError(errors: HotkeyValidationErrors, action: HotkeyAction, message:
 }
 
 function acceleratorSyntaxError(accelerator: string): string | null {
-  const parts = accelerator
-    .split("+")
-    .map((part) => part.trim())
-    .filter(Boolean);
+  const rawParts = accelerator.split("+").map((part) => part.trim());
+  const hasEmptyMiddleSegment = rawParts.slice(0, -1).some((part) => part.length === 0);
+  if (hasEmptyMiddleSegment) return "Shortcut has invalid separator syntax.";
+
+  const parts = rawParts.filter(Boolean);
   if (parts.length === 0) return "Shortcut is required.";
 
   const keyParts = parts.filter((part) => !modifierNames.has(part));
