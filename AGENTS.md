@@ -147,6 +147,13 @@ See [`docs/agents/architecture.md`](docs/agents/architecture.md) for the full in
 - Capacity states: healthy, degraded, capped, unknown, disabled
 - Cost tiers: local, low, medium, high, premium
 
+## Product design principles
+
+These are load-bearing UX decisions. Treat them as constraints on any feature, design, or plan that touches the desktop UI.
+
+- **Session = context. Switching sessions is the context-switch primitive.** The sessions list is the multi-view across N sessions; the active terminal is single by design. Do not propose, plan, or build multi-terminal, tiled, split, stacked, or picture-in-picture terminal views. Showing many terminals at once is context degradation, not visibility — it divides attention and consumes screen real estate without adding situational awareness. Situational awareness belongs in the sessions list (legibility, attention state, last activity, agent action summary) and the detail panel — not in parallel terminal rendering. The same logic extends to any other context-bearing surface added later (editors, agent transcripts): one active, switch deliberately. See [ADR 0013](docs/adr/0013-single-active-context-primitive.md) for context and consequences.
+- Fast context-switching (keyboard nav, MRU ordering, jump-to-session search) is the right axis to improve when situational awareness or task throughput is the goal. Parallel visibility is the wrong axis.
+
 ## APM and agent plugins
 
 Agent dependencies (Superpowers, Ponytail, Claude Mem) are managed by [APM](https://github.com/anthropics/apm) in the `orkworks/` directory. Run `cd orkworks && apm install` to populate skills and hooks for all configured targets (claude, codex, copilot, opencode).
