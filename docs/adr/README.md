@@ -20,3 +20,4 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 | [0010](./0010-pty-portable-pty-xtermjs.md) | PTY management via `portable-pty`, terminal via `xterm.js` | accepted |
 | [0011](./0011-dockview-panel-layout.md) | Replace `react-resizable-panels` with `dockview` for draggable panel layout | accepted |
 | [0012](./0012-peon-repo-scope.md) | Peon scope expands to per-repo | accepted |
+| [0013](./0013-main-process-owned-app-settings.md) | Main-process-owned app settings and menu accelerators | accepted |
