@@ -203,3 +203,22 @@ test("preload exposes settings and hotkey capture APIs", () => {
   assert.match(source, /setHotkeyCaptureActive:\s*\(active:/);
   assert.match(source, /ipcRenderer\.send\("orkworks:hotkey-capture-active", active\)/);
 });
+
+test("App exposes a settings titlebar entry and renders SettingsModal", () => {
+  const source = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /import SettingsModal from "\.\/components\/SettingsModal"/);
+  assert.match(source, /setSettingsOpen\(true\)/);
+  assert.match(source, /<SettingsModal/);
+});
+
+test("SettingsModal contains hotkey edit reset default cancel and save flows", () => {
+  const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
+
+  for (const text of ["Hotkeys", "Edit", "Reset", "Restore defaults", "Cancel", "Save"]) {
+    assert.match(source, new RegExp(text));
+  }
+  assert.match(source, /acceleratorFromKeyboardEvent/);
+  assert.match(source, /setHotkeyCaptureActive\(true\)/);
+  assert.match(source, /setHotkeyCaptureActive\(false\)/);
+});

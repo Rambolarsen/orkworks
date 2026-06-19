@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DockviewApi } from "dockview-react";
 import DockviewApp from "./components/DockviewApp";
+import SettingsModal from "./components/SettingsModal";
 import { sortSessions } from "./components/RightSidebarHelpers";
 import { PANEL_DEFAULTS } from "./components/DockviewApp";
 import {
@@ -37,6 +38,8 @@ function App() {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [workspace, setWorkspaceState] = useState<WorkspaceInfo | null>(null);
+  const [settings, setSettings] = useState<AppSettings | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const dockviewApiRef = useRef<DockviewApi | null>(null);
   const sessionsHiddenLayoutRef = useRef<string | null>(null);
 
@@ -99,6 +102,12 @@ function App() {
     } catch {
       /* user cancelled */
     }
+  }, []);
+
+  const openSettings = useCallback(async () => {
+    const loaded = await window.orkworks.getSettings();
+    setSettings(loaded);
+    setSettingsOpen(true);
   }, []);
 
   const handleCreateSession = useCallback(async () => {
@@ -296,11 +305,21 @@ function App() {
             </>
           )}
         </div>
-        <span
-          className={`status-badge ${backendStatus === "connected" ? "ok" : "warn"}`}
-        >
-          {backendStatus}
-        </span>
+        <div className="titlebar-right">
+          <button
+            className="titlebar-settings-button"
+            type="button"
+            onClick={openSettings}
+            title="Settings"
+          >
+            Settings
+          </button>
+          <span
+            className={`status-badge ${backendStatus === "connected" ? "ok" : "warn"}`}
+          >
+            {backendStatus}
+          </span>
+        </div>
       </div>
       <DockviewApp
         backendStatus={backendStatus}
@@ -314,6 +333,13 @@ function App() {
         onFocusTerminal={handleFocusTerminal}
         dockviewApiRef={dockviewApiRef}
       />
+      {settingsOpen && settings && (
+        <SettingsModal
+          initialSettings={settings}
+          onClose={() => setSettingsOpen(false)}
+          onSaved={(nextSettings) => setSettings(nextSettings)}
+        />
+      )}
     </div>
   );
 }

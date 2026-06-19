@@ -39,6 +39,13 @@ html, body, #root {
   gap: 6px;
 }
 
+.titlebar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  -webkit-app-region: no-drag;
+}
+
 .titlebar-text {
   font-size: 12px;
   font-weight: 600;
@@ -78,6 +85,21 @@ html, body, #root {
   background: #16465b;
 }
 
+.titlebar-settings-button {
+  border: 1px solid #4a4a4a;
+  border-radius: 4px;
+  padding: 2px 8px;
+  color: #d4d4d4;
+  background: #252526;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.titlebar-settings-button:hover {
+  background: #3a3a3b;
+}
+
 .status-badge {
   font-size: 11px;
   padding: 1px 8px;
@@ -93,6 +115,151 @@ html, body, #root {
 .status-badge.warn {
   background: #3a3a1a;
   color: #d4d44e;
+}
+
+.settings-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.settings-modal {
+  width: min(720px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  border: 1px solid #484848;
+  border-radius: 10px;
+  background: #211f1e;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.45);
+}
+
+.settings-modal-header,
+.settings-modal-footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  border-color: #363331;
+}
+
+.settings-modal-header {
+  justify-content: space-between;
+  border-bottom: 1px solid #363331;
+}
+
+.settings-modal-header h2,
+.settings-section h3 {
+  margin: 0;
+  color: #f0e7dc;
+}
+
+.settings-modal-header p,
+.settings-section-copy {
+  margin: 4px 0 0;
+  color: #9b928a;
+}
+
+.settings-icon-button {
+  border: 0;
+  color: #d4d4d4;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+
+.settings-section {
+  padding: 16px;
+}
+
+.hotkey-list {
+  margin-top: 14px;
+  border: 1px solid #363331;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.hotkey-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) minmax(140px, auto) auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid #363331;
+}
+
+.hotkey-row:last-child {
+  border-bottom: 0;
+}
+
+.hotkey-row--capturing {
+  background: #2d3428;
+}
+
+.hotkey-label {
+  color: #e6dfd7;
+  font-weight: 600;
+}
+
+.hotkey-error {
+  margin-top: 3px;
+  color: #ff8f7a;
+  font-size: 11px;
+}
+
+.settings-save-error {
+  margin-top: 12px;
+  color: #ff8f7a;
+  font-size: 12px;
+}
+
+.hotkey-value {
+  justify-self: end;
+  border: 1px solid #4b4743;
+  border-radius: 5px;
+  padding: 4px 7px;
+  color: #f0e7dc;
+  background: #151413;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+}
+
+.hotkey-row button,
+.settings-modal-footer button {
+  border: 1px solid #4b4743;
+  border-radius: 4px;
+  padding: 5px 9px;
+  color: #e6dfd7;
+  background: #2a2826;
+  font: inherit;
+  cursor: pointer;
+}
+
+.hotkey-row button:hover,
+.settings-modal-footer button:hover:not(:disabled) {
+  background: #383431;
+}
+
+.settings-modal-footer {
+  border-top: 1px solid #363331;
+}
+
+.settings-footer-spacer {
+  flex: 1;
+}
+
+.settings-primary-button {
+  border-color: #5c879e !important;
+  color: #d8edf7 !important;
+  background: #123241 !important;
+}
+
+.settings-primary-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
 }
 
 .terminal-shell {
