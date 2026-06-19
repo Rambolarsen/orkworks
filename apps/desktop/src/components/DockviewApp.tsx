@@ -134,6 +134,15 @@ export function buildDefaultLayout(api: DockviewApi): void {
   }
 }
 
+/** A stored layout from the pre-redesign 5-panel default referenced the
+ *  Capacity and Recommendations panel ids. Their positions cascade off
+ *  removed siblings, so the cleanest cutover is to rebuild the default.
+ *  One-time per existing user; new layouts will never trigger this. */
+function layoutNeedsMigration(json: unknown): boolean {
+  const text = JSON.stringify(json);
+  return text.includes('"capacity"') || text.includes('"recommendations"');
+}
+
 function DockviewApp(props: DockviewAppData) {
   const { backendStatus, workspace, sessions, activeSessionId, onSelectSession, onCreateSession, onKillSession, onResumeSession, onFocusTerminal, onOpenWorkspace, dockviewApiRef } = props;
 
@@ -174,7 +183,13 @@ function DockviewApp(props: DockviewAppData) {
             window.orkworks.getLayout().then((layout) => {
               if (layout) {
                 try {
-                  api.fromJSON(JSON.parse(layout));
+                  const parsed = JSON.parse(layout);
+                  if (layoutNeedsMigration(parsed)) {
+                    console.info("[DockviewApp] migrating stored layout to redesigned default");
+                    buildDefaultLayout(api);
+                  } else {
+                    api.fromJSON(parsed);
+                  }
                   reportVisibility(api);
                   setIsEmpty(api.totalPanels === 0);
                   return;
