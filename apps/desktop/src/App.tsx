@@ -151,10 +151,14 @@ function App() {
   }, [activeSessionId]);
 
   const handleResumeSession = useCallback(async (id: string) => {
-    const baseUrl = await window.orkworks.getBackendUrl();
-    const session = await resumeSession(baseUrl, id);
-    setSessions((prev) => [...prev, session]);
-    setActiveSessionId(session.id);
+    try {
+      const baseUrl = await window.orkworks.getBackendUrl();
+      const session = await resumeSession(baseUrl, id);
+      setSessions((prev) => [...prev, session]);
+      setActiveSessionId(session.id);
+    } catch {
+      pushToast("error", "Couldn't resume session.");
+    }
   }, []);
 
   useEffect(() => {

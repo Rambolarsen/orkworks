@@ -83,12 +83,13 @@ export function sourceLabel(source: string | undefined): string {
   return source.charAt(0).toUpperCase() + source.slice(1);
 }
 
-/** "Agent · 100% confidence" */
+/** "Agent · 95% confidence" or "Agent" when confidence is unknown. */
 export function sourceWithConfidence(
   source: string | undefined,
   confidence: number | undefined,
 ): string {
-  const c = Math.round((confidence ?? 1) * 100);
+  if (confidence === undefined) return sourceLabel(source);
+  const c = Math.round(confidence * 100);
   return `${sourceLabel(source)} · ${c}% confidence`;
 }
 

@@ -73,7 +73,8 @@ test("sourceWithConfidence renders the confidence as a percentage", () => {
   assert.equal(sourceWithConfidence("agent", 1), "Agent · 100% confidence");
   assert.equal(sourceWithConfidence("agent", 0.95), "Agent · 95% confidence");
   assert.equal(sourceWithConfidence("peon", 0.512), "Peon · 51% confidence");
-  assert.equal(sourceWithConfidence("agent", undefined), "Agent · 100% confidence");
+  assert.equal(sourceWithConfidence("agent", undefined), "Agent");
+  assert.equal(sourceWithConfidence(undefined, undefined), "Unknown");
 });
 
 test("relativeTime buckets recent timestamps into human-readable spans", () => {
