@@ -94,6 +94,28 @@ Do not use `--pure` for development work in this repo; it disables external plug
 
 Before OpenCode implementation work, verify that the skill tool lists Superpowers skills such as `superpowers/using-superpowers` and `superpowers/brainstorming`. If they are missing, stop, run `cd orkworks && apm install`, restart OpenCode from the repo root, and verify again before editing code.
 
+## Branch and PR workflow
+
+`main` is the trunk, not the workspace. Use branches and PRs for code; keep main fast for low-risk writing.
+
+When starting any task that will produce code changes, invoke the `starting-work` skill (in `skills/starting-work/`) before editing. It walks through the branch-vs-worktree decision, naming convention, and per-checkout setup that operationalize the rules in this section.
+
+**Direct to `main` is allowed for:**
+- Docs-only changes: `docs/`, `specs/`, ADRs, `README.md`, `AGENTS.md`, `CLAUDE.md`, and other `*.md` outside `apps/`/`crates/`.
+- Trivial code fixes under ~20 lines (typos, comment edits, single-line config tweaks). When in doubt, branch.
+
+**Everything else requires a branch + PR**, including any change to `apps/desktop/src/`, `apps/desktop/electron/`, `apps/desktop/tests/`, or `crates/orkworksd/`, regardless of commit-type prefix.
+
+**One PR per logical unit of work.** A burst of 5–10 small commits in a few minutes that share a feature name is one PR, not ten commits on main. Squash or rebase locally before opening it.
+
+**Review gate:** PRs that touch code under `apps/desktop/` or `crates/orkworksd/` must have a `/code-review` run (medium effort or higher) before merge. Address findings or note why each is intentional in the PR description.
+
+**Squash-merge by default.** Preserve multiple commits only when the history tells a story worth keeping (e.g. a refactor followed by a focused fix on top).
+
+**Stranded branches:** branches that go >7 days without merging must either be rebased and progressed, or closed with a one-line reason in the PR. No long-lived dev branches. The same rule applies to stranded worktrees.
+
+**Parallel work:** when more than one branch is in flight at once (multiple agents running concurrently, a hotfix on top of an in-progress feature), use `git worktree` so each branch has its own filesystem checkout — branch-switching in the main checkout will collide with other agents' uncommitted edits and build output. Invoke the `starting-work` skill before opening a worktree for the path convention, per-worktree setup, and cleanup steps.
+
 ## Decision tracking
 
 Architecture decisions are captured as ADRs in `docs/adr/`. Each significant architectural, stack, protocol, or boundary decision gets a numbered markdown file with context, decision, and consequences.
