@@ -37,6 +37,7 @@ Adopt a main-process-owned settings model:
 - implement only the `hotkeys` section in the first version
 - expose read/write access to the renderer through the preload bridge
 - rebuild the Electron menu from saved settings so menu accelerators remain the source of truth for active shortcuts
+- keep settings persistence and menu application consistent so a failed menu rebuild cannot leave disk state ahead of the active app menu
 
 This keeps settings persistence and native shortcut behavior in the same privileged layer instead of splitting responsibility between renderer-only keyboard handlers and Electron menu state.
 
@@ -69,6 +70,8 @@ Default values must match the current hard-coded accelerators exactly:
 - `toggleCapacityPanel`: `CmdOrCtrl+Shift+C`
 - `toggleRecommendationsPanel`: `CmdOrCtrl+Shift+R`
 - `resetLayout`: unset by default unless the product later assigns one intentionally
+
+`toggleSessionsPanel` has a slightly different current behavior than the other panel shortcuts: it focuses or restores the sessions list, and closes the panel only when the list is already focused. The implementation must preserve that behavior even if the settings key keeps the existing `toggleSessionsPanel` name for compatibility with the rest of the panel shortcut group.
 
 ## Settings Shape
 
@@ -110,7 +113,7 @@ The renderer should not become the source of truth for active hotkeys. Its respo
 
 - display current values
 - capture proposed edits
-- submit the full updated settings payload
+- submit only the hotkey changes it owns, or submit a versioned patch that the main process merges with the latest stored settings
 - render validation errors returned from the main process
 
 The main process should:
@@ -118,8 +121,10 @@ The main process should:
 - load settings on startup
 - merge missing values with defaults
 - validate requested changes before writing
-- persist the saved result
-- rebuild the application menu from the saved result
+- construct and validate the next application menu before committing persisted changes
+- persist the saved result and rebuild the application menu as one observable operation
+
+The main process must preserve settings sections that the current renderer did not edit. This prevents a stale settings modal from overwriting future `ui`, `terminal`, or other sections after the top-level `AppSettings` object grows.
 
 ## Persistence Model
 
@@ -137,12 +142,14 @@ Corrupt or missing settings must not block startup. The app should continue usin
 
 ## Preload and IPC
 
-Expose two new preload methods:
+Expose narrow preload methods:
 
 - `getSettings(): Promise<AppSettings>`
-- `saveSettings(settings: AppSettings): Promise<AppSettings>`
+- `saveHotkeys(hotkeys: HotkeySettings): Promise<AppSettings>`
 
-`saveSettings` should return the canonical saved document after validation/default normalization so the renderer always refreshes from the authoritative source.
+`saveHotkeys` should merge the submitted hotkey section into the latest main-process settings document, then return the canonical saved document after validation/default normalization so the renderer always refreshes from the authoritative source.
+
+If a future settings UI needs to edit multiple sections at once, use explicit patch semantics or optimistic revision checks rather than accepting an arbitrary full `AppSettings` object from the renderer.
 
 No direct filesystem access should be added to the renderer.
 
@@ -157,6 +164,17 @@ Menu construction should use a single mapping layer from settings keys to menu a
 - future additions can extend the mapping without scattering more string constants
 
 After a successful save, the main process should rebuild and reapply the application menu immediately so changes take effect without a restart.
+
+Menu rebuild must be planned before disk commit:
+
+1. normalize and validate the proposed hotkeys
+2. build the next menu template from the canonical settings
+3. build the Electron menu object successfully
+4. write canonical settings to disk
+5. apply the menu with `Menu.setApplicationMenu(menu)`
+6. return canonical settings to the renderer
+
+If steps 1-3 fail, settings are not written and the active menu remains unchanged. If persistence fails, the new menu is not applied. This avoids a common partial-apply failure where `settings.json` says one shortcut is active but the running menu still uses the previous shortcut.
 
 ## In-App Settings UI
 
@@ -200,6 +218,8 @@ Capture mode should support:
 - modifier keys combined with a non-modifier key
 - normalization to a consistent display format
 - clearing an optional shortcut such as `resetLayout`
+
+Capture mode must also prevent existing Electron menu accelerators from firing while the modal is recording a chord. For example, capturing `CmdOrCtrl+N` must not create a new session. The implementation can satisfy this by temporarily disabling OrkWorks-managed accelerators during capture, or by routing capture through main-process input handling such as `before-input-event` before normal menu command dispatch.
 
 ## Validation Rules
 
@@ -246,9 +266,10 @@ The canonical sequence is:
 
 1. renderer submits proposed settings
 2. main process validates
-3. main process writes settings
-4. main process rebuilds menu
-5. main process returns canonical saved settings
+3. main process builds the next menu object without applying it
+4. main process writes settings
+5. main process applies the rebuilt menu
+6. main process returns canonical saved settings
 
 If any earlier step fails, later steps do not run.
 
@@ -264,12 +285,15 @@ Add automated coverage for:
 - invalid accelerator rejection
 - preload IPC load/save wiring
 - menu construction using saved settings
+- save failure behavior where invalid menu construction or persistence errors do not partially apply settings
+- capture mode suppressing existing menu accelerator execution while recording a chord
 - renderer modal rendering and edit/reset/default flows
 
 Manual verification should confirm:
 
 - the settings modal opens from the titlebar
 - editing a shortcut updates the Electron menu accelerator after save
+- recording an existing shortcut such as `CmdOrCtrl+N` captures the chord without triggering the current action
 - invalid or duplicate assignments are rejected with a clear error
 - restoring defaults returns all shortcuts to the current shipped values
 - app restart preserves saved shortcuts
@@ -312,9 +336,11 @@ Current repo constraints:
 
 - the authoritative product specs do not currently cover app settings or configurable hotkeys
 - the issue board does not currently include a corresponding implementation issue
+- the project ADR workflow requires recording significant architecture, stack, protocol, or boundary decisions before implementation code
 
 Before implementation begins, the project should:
 
 1. update the authoritative product spec to include this scope
-2. create the corresponding GitHub issue
-3. then write the implementation plan and execute it under the normal TDD workflow
+2. write an ADR for the main-process-owned settings boundary and menu-source-of-truth decision, then update the ADR index
+3. create the corresponding GitHub issue
+4. then write the implementation plan and execute it under the normal TDD workflow
