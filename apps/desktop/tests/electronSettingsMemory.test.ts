@@ -34,6 +34,30 @@ test("settings memory falls back to defaults when settings.json is corrupt", () 
   }
 });
 
+test("settings memory returns fresh defaults when settings.json is missing or corrupt", () => {
+  const missingDir = mkdtempSync(join(tmpdir(), "orkworks-settings-"));
+  const corruptDir = mkdtempSync(join(tmpdir(), "orkworks-settings-"));
+  const originalNewSession = DEFAULT_HOTKEYS.newSession;
+  try {
+    const missingSettings = readSettings(missingDir);
+    missingSettings.hotkeys.newSession = "CmdOrCtrl+Alt+N";
+
+    assert.equal(readSettings(missingDir).hotkeys.newSession, originalNewSession);
+    assert.equal(DEFAULT_HOTKEYS.newSession, originalNewSession);
+
+    writeFileSync(settingsPath(corruptDir), "{not json");
+    const corruptSettings = readSettings(corruptDir);
+    corruptSettings.hotkeys.newSession = "CmdOrCtrl+Alt+N";
+
+    assert.equal(readSettings(corruptDir).hotkeys.newSession, originalNewSession);
+    assert.equal(DEFAULT_HOTKEYS.newSession, originalNewSession);
+  } finally {
+    DEFAULT_HOTKEYS.newSession = originalNewSession;
+    rmSync(missingDir, { recursive: true, force: true });
+    rmSync(corruptDir, { recursive: true, force: true });
+  }
+});
+
 test("settings memory merges partial persisted hotkeys with defaults", () => {
   const dir = mkdtempSync(join(tmpdir(), "orkworks-settings-"));
   try {
@@ -75,6 +99,16 @@ test("validateHotkeys rejects duplicates", () => {
   const result = validateHotkeys({
     ...DEFAULT_HOTKEYS,
     toggleSessionsPanel: DEFAULT_HOTKEYS.newSession,
+  });
+
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.errors.toggleSessionsPanel, ["Duplicate shortcut also used by New Session."]);
+});
+
+test("validateHotkeys rejects duplicates with reordered modifiers", () => {
+  const result = validateHotkeys({
+    ...DEFAULT_HOTKEYS,
+    newSession: "Shift+CmdOrCtrl+S",
   });
 
   assert.equal(result.ok, false);

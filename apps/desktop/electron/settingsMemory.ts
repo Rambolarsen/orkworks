@@ -88,6 +88,30 @@ export const DEFAULT_SETTINGS: AppSettings = {
 };
 
 const fileName = "settings.json";
+const modifierOrder = [
+  "CommandOrControl",
+  "Command",
+  "Control",
+  "Alt",
+  "AltGr",
+  "Shift",
+  "Super",
+  "Meta",
+];
+const canonicalModifierNames = new Map([
+  ["Command", "Command"],
+  ["Cmd", "Command"],
+  ["Control", "Control"],
+  ["Ctrl", "Control"],
+  ["CommandOrControl", "CommandOrControl"],
+  ["CmdOrCtrl", "CommandOrControl"],
+  ["Alt", "Alt"],
+  ["Option", "Alt"],
+  ["AltGr", "AltGr"],
+  ["Shift", "Shift"],
+  ["Super", "Super"],
+  ["Meta", "Meta"],
+]);
 const modifierNames = new Set([
   "Command",
   "Cmd",
@@ -140,7 +164,7 @@ export function settingsPath(userDataPath: string): string {
 
 export function normalizeSettings(value: unknown): AppSettings {
   if (!value || typeof value !== "object") {
-    return DEFAULT_SETTINGS;
+    return defaultSettings();
   }
   const parsed = value as Partial<AppSettings>;
   return {
@@ -171,12 +195,12 @@ export function normalizeHotkeys(value: unknown): HotkeySettings {
 export function readSettings(userDataPath: string): AppSettings {
   const path = settingsPath(userDataPath);
   if (!existsSync(path)) {
-    return DEFAULT_SETTINGS;
+    return defaultSettings();
   }
   try {
     return normalizeSettings(JSON.parse(readFileSync(path, "utf8")));
   } catch {
-    return DEFAULT_SETTINGS;
+    return defaultSettings();
   }
 }
 
@@ -204,7 +228,7 @@ export function validateHotkeys(hotkeys: HotkeySettings): HotkeyValidationResult
       continue;
     }
 
-    const key = trimmed.toLowerCase();
+    const key = canonicalAccelerator(trimmed);
     const duplicate = seen.get(key);
     if (duplicate) {
       addError(errors, definition.action, `Duplicate shortcut also used by ${duplicate.label}.`);
@@ -214,6 +238,13 @@ export function validateHotkeys(hotkeys: HotkeySettings): HotkeyValidationResult
   }
 
   return Object.keys(errors).length === 0 ? { ok: true, errors } : { ok: false, errors };
+}
+
+function defaultSettings(): AppSettings {
+  return {
+    version: 1,
+    hotkeys: { ...DEFAULT_HOTKEYS },
+  };
 }
 
 function stringOrDefault(value: unknown, fallback: string): string {
@@ -236,6 +267,20 @@ function acceleratorSyntaxError(accelerator: string): string | null {
   if (keyParts.length > 1) return "Shortcut must contain only one non-modifier key.";
 
   return isSupportedKey(keyParts[0]) ? null : `Unsupported key "${keyParts[0]}".`;
+}
+
+function canonicalAccelerator(accelerator: string): string {
+  const parts = accelerator
+    .split("+")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const modifiers = parts
+    .filter((part) => modifierNames.has(part))
+    .map((part) => canonicalModifierNames.get(part) ?? part)
+    .sort((a, b) => modifierOrder.indexOf(a) - modifierOrder.indexOf(b));
+  const key = parts.find((part) => !modifierNames.has(part)) ?? "";
+
+  return [...modifiers, key].join("+").toLowerCase();
 }
 
 function isSupportedKey(key: string): boolean {
