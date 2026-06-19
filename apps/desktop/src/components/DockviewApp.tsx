@@ -108,9 +108,9 @@ export interface PanelDefault {
 }
 
 export const PANEL_DEFAULTS: Record<string, PanelDefault> = {
-  sessions:        { component: "sessions", title: "Sessions" },
+  terminal:        { component: "terminal", title: "Terminal" },
+  sessions:        { component: "sessions", title: "Sessions", position: { referencePanel: "terminal", direction: "left" } },
   detail:          { component: "detail", title: "Detail", position: { referencePanel: "sessions", direction: "below" } },
-  terminal:        { component: "terminal", title: "Terminal", position: { referencePanel: "sessions", direction: "right" } },
   capacity:        { component: "capacity", title: "Capacity", position: { referencePanel: "terminal", direction: "right" } },
   recommendations: { component: "recommendations", title: "Recommendations", position: { referencePanel: "capacity", direction: "below" } },
 };
@@ -118,19 +118,21 @@ export const PANEL_DEFAULTS: Record<string, PanelDefault> = {
 /** Single source of truth for first-launch / Reset Layout. Capacity and
  *  Recommendations are reachable via View menu hotkeys but closed by default
  *  until they carry signal. */
-export const DEFAULT_LAYOUT_PANELS: ReadonlyArray<string> = ["sessions", "detail", "terminal"];
+export const DEFAULT_LAYOUT_PANELS: ReadonlyArray<string> = ["terminal", "sessions", "detail"];
 
 export function buildDefaultLayout(api: DockviewApi): void {
   for (const id of DEFAULT_LAYOUT_PANELS) {
     const def = PANEL_DEFAULTS[id];
-    api.addPanel({
+    const options: Parameters<typeof api.addPanel>[0] = {
       id: def.component,
       component: def.component,
       title: def.title,
       ...(def.position
         ? { position: { referencePanel: def.position.referencePanel, direction: def.position.direction } }
         : {}),
-    });
+    };
+    if (id === "terminal") options.minimumWidth = 400;
+    api.addPanel(options);
   }
 }
 
