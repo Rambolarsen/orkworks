@@ -240,6 +240,63 @@ html, body, #root {
   padding: 6px 12px;
   cursor: pointer;
   border-bottom: 1px solid #2a2a2b;
+  scroll-margin-top: 26px;
+  scroll-margin-bottom: 4px;
+}
+
+.session-group-header {
+  display: block;
+  padding: 8px 12px 2px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #6e6e6e;
+  cursor: default;
+  pointer-events: none;
+}
+
+.session-group-header:hover {
+  background: transparent;
+}
+
+.dockview-empty-state {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: #858585;
+  font-size: 13px;
+  user-select: none;
+  z-index: 10;
+}
+
+.dockview-empty-state p {
+  margin: 0;
+}
+
+.dockview-empty-hint {
+  color: #6e6e6e;
+  font-size: 12px;
+}
+
+.dockview-empty-reset {
+  pointer-events: auto;
+  margin-top: 4px;
+  padding: 6px 14px;
+  background: #2a2a2b;
+  border: 1px solid #3c3c3c;
+  border-radius: 4px;
+  color: #d4d4d4;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.dockview-empty-reset:hover {
+  background: #37373d;
 }
 
 .session-item:hover {
@@ -260,33 +317,6 @@ html, body, #root {
   gap: 8px;
   min-width: 0;
   flex: 1;
-}
-
-.session-status {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.session-status--running {
-  background: #4ec94e;
-}
-
-.session-status--creating {
-  background: #d4d44e;
-}
-
-.session-status--ended {
-  background: #666;
-}
-
-.session-status--killed {
-  background: #cc4444;
-}
-
-.session-status--error {
-  background: #cc4444;
 }
 
 .session-item-info {

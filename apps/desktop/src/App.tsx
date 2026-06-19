@@ -103,6 +103,12 @@ function App() {
       const session = await createSession(baseUrl);
       setSessions((prev) => [...prev, session]);
       setActiveSessionId(session.id);
+
+      const api = dockviewApiRef.current;
+      if (api) {
+        const panel = api.getPanel("terminal");
+        if (panel) panel.api.setActive();
+      }
     } catch {
       /* ignore */
     }
@@ -110,6 +116,11 @@ function App() {
 
   const handleSelectSession = useCallback((id: string) => {
     setActiveSessionId(id);
+    const api = dockviewApiRef.current;
+    if (api) {
+      const panel = api.getPanel("terminal");
+      if (panel) panel.api.setActive();
+    }
   }, []);
 
   const handleKillSession = useCallback(
@@ -118,6 +129,7 @@ function App() {
         const baseUrl = await window.orkworks.getBackendUrl();
         await deleteSession(baseUrl, id);
         disposeTerminal(id);
+
         if (activeSessionId === id) {
           setActiveSessionId(null);
         }

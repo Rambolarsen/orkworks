@@ -45,7 +45,7 @@ test("DockviewApp registers the five expected panel ids", () => {
   const source = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
 
   for (const id of ["sessions", "detail", "terminal", "capacity", "recommendations"]) {
-    assert.match(source, new RegExp(`component: "${id}"`));
+    assert.match(source, new RegExp(`\\b${id}\\b.*:.*Panel`));
   }
 });
 
@@ -191,4 +191,27 @@ test("App restores the last active session from the initial workspace", () => {
 
   assert.match(source, /info\.lastActiveSessionId/);
   assert.match(source, /setActiveSessionId\(info\.lastActiveSessionId\)/);
+});
+
+test("TerminalPanel no longer renders internal session tabs", () => {
+  const source = readFileSync(new URL("../src/components/TerminalPanel.tsx", import.meta.url), "utf8");
+
+  assert.doesNotMatch(source, /liveSessions\.map/);
+  assert.match(source, /session\.label/);
+  assert.match(source, /session\.id/);
+  assert.doesNotMatch(source, /onSelectSession/);
+});
+
+test("App activates shared terminal panel on session create", () => {
+  const source = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /api\.getPanel\("terminal"\)/);
+  assert.match(source, /panel\.api\.setActive\(\)/);
+});
+
+test("TermPanel in DockviewApp passes a single session to TerminalPanel", () => {
+  const source = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /session=\{session\}/);
+  assert.match(source, /TermPanel/);
 });

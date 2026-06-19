@@ -244,6 +244,29 @@ The first useful MVP should include:
 - `nodeIntegration: false`
 - `contextIsolation: true`
 
+#### App Settings and Hotkeys
+
+- persist app-level settings in Electron user data
+- use a versioned app settings object that can grow over time
+- implement `hotkeys` as the first settings section
+- support the currently implemented shortcuts only:
+  - new session
+  - sessions panel shortcut
+  - detail panel shortcut
+  - terminal panel shortcut
+  - capacity panel shortcut
+  - recommendations panel shortcut
+  - reset layout shortcut
+- default hotkeys must match the shipped accelerators
+- build Electron menu accelerators from saved settings rather than hard-coded constants
+- expose an in-app settings entry point in the desktop UI
+- provide a settings modal with a Hotkeys section
+- support edit, per-hotkey reset, restore defaults, cancel, and save
+- validate invalid, duplicate, and required hotkey values before persisting changes
+- prevent existing accelerators from firing while a replacement hotkey chord is being captured
+- preserve the current Sessions panel shortcut behavior when that shortcut is customized
+- saved hotkeys must survive app restart
+
 #### Rust Backend
 
 - Rust sidecar process

@@ -1,10 +1,9 @@
-import { useEffect, useRef } from "react";
+import { Fragment, useEffect, useMemo, useRef } from "react";
 import type { SessionInfo, WorkspaceInfo } from "../api";
 import {
   needsAttention,
   sessionAttentionStatus,
   sourceColor,
-  statusDotColor,
   attentionBorderColor,
 } from "./RightSidebarHelpers.ts";
 
@@ -15,6 +14,27 @@ interface SessionListPanelProps {
   onSelectSession: (id: string) => void;
   onKillSession: (id: string) => void;
   onFocusTerminal: () => void;
+}
+
+type GroupKey = "today" | "week" | "earlier";
+
+const GROUP_LABELS: Record<GroupKey, string> = {
+  today: "Today",
+  week: "This week",
+  earlier: "Earlier",
+};
+
+function groupForSession(s: SessionInfo, now: Date): GroupKey {
+  const created = new Date(s.created_at);
+  if (Number.isNaN(created.getTime())) return "earlier";
+  const sameDay =
+    created.getFullYear() === now.getFullYear() &&
+    created.getMonth() === now.getMonth() &&
+    created.getDate() === now.getDate();
+  if (sameDay) return "today";
+  const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+  if (now.getTime() - created.getTime() < sevenDaysMs) return "week";
+  return "earlier";
 }
 
 function SessionListPanel({
@@ -34,6 +54,26 @@ function SessionListPanel({
     el?.scrollIntoView({ block: "nearest" });
   }, [activeSessionId]);
 
+  const grouped = useMemo(() => {
+    const now = new Date();
+    const buckets: Record<GroupKey, SessionInfo[]> = {
+      today: [],
+      week: [],
+      earlier: [],
+    };
+    for (const s of sessions) {
+      buckets[groupForSession(s, now)].push(s);
+    }
+    return (["today", "week", "earlier"] as GroupKey[])
+      .filter((k) => buckets[k].length > 0)
+      .map((k) => ({ key: k, label: GROUP_LABELS[k], items: buckets[k] }));
+  }, [sessions]);
+
+  const orderedSessions = useMemo(
+    () => grouped.flatMap((g) => g.items),
+    [grouped],
+  );
+
   if (!workspace) {
     return (
       <div className="panel-content">
@@ -49,19 +89,19 @@ function SessionListPanel({
       return;
     }
     if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
-    if (sessions.length === 0) return;
+    if (orderedSessions.length === 0) return;
     e.preventDefault();
-    const idx = sessions.findIndex((s) => s.id === activeSessionId);
+    const idx = orderedSessions.findIndex((s) => s.id === activeSessionId);
     let next: number;
     if (idx === -1) {
       next = 0;
     } else if (e.key === "ArrowDown") {
-      next = Math.min(sessions.length - 1, idx + 1);
+      next = Math.min(orderedSessions.length - 1, idx + 1);
     } else {
       next = Math.max(0, idx - 1);
     }
-    if (sessions[next].id !== activeSessionId) {
-      onSelectSession(sessions[next].id);
+    if (orderedSessions[next].id !== activeSessionId) {
+      onSelectSession(orderedSessions[next].id);
     }
   };
 
@@ -82,7 +122,12 @@ function SessionListPanel({
           tabIndex={0}
           onKeyDown={handleKeyDown}
         >
-          {sessions.map((s) => {
+          {grouped.map((group) => (
+            <Fragment key={group.key}>
+              <li className="session-group-header" aria-hidden="true">
+                {group.label}
+              </li>
+              {group.items.map((s) => {
             const attn = sessionAttentionStatus(s);
             return (
               <li
@@ -101,10 +146,6 @@ function SessionListPanel({
                 onClick={() => handleSelect(s.id)}
               >
                 <div className="session-item-main">
-                  <span
-                    className="session-status"
-                    style={{ background: statusDotColor(attn) }}
-                  />
                   <div className="session-item-info">
                     <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
                       {needsAttention(attn) && (
@@ -148,7 +189,9 @@ function SessionListPanel({
                 )}
               </li>
             );
-          })}
+              })}
+            </Fragment>
+          ))}
         </ul>
       )}
     </div>

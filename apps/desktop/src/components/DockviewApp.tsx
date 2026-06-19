@@ -1,4 +1,4 @@
-import { createContext, useContext, useRef } from "react";
+import { createContext, useContext, useRef, useState } from "react";
 import {
   DockviewDefaultTab,
   DockviewReact,
@@ -79,12 +79,11 @@ function DetailPanel() {
 
 function TermPanel() {
   const ctx = useContext(DockviewContext);
+  const session = ctx.sessions.find((s) => s.id === ctx.activeSessionId) ?? null;
   return (
     <TerminalPanel
       backendStatus={ctx.backendStatus}
-      sessions={ctx.sessions}
-      activeSessionId={ctx.activeSessionId}
-      onSelectSession={ctx.onSelectSession}
+      session={session}
       onKillSession={ctx.onKillSession}
     />
   );
@@ -127,6 +126,12 @@ function DockviewApp(props: DockviewAppData) {
 
   const initializedRef = useRef(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [isEmpty, setIsEmpty] = useState(false);
+
+  function resetLayout(api: DockviewApi) {
+    api.clear();
+    buildDefaultLayout(api);
+  }
 
   function reportVisibility(api: DockviewApi) {
     for (const [id, def] of Object.entries(PANEL_DEFAULTS)) {
@@ -155,7 +160,7 @@ function DockviewApp(props: DockviewAppData) {
   }
 
   return (
-    <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+    <div style={{ flex: 1, display: "flex", overflow: "hidden", position: "relative" }}>
       <DockviewContext.Provider value={ctxValue}>
         <DockviewReact
           components={COMPONENTS}
@@ -175,6 +180,7 @@ function DockviewApp(props: DockviewAppData) {
                 try {
                   api.fromJSON(JSON.parse(layout));
                   reportVisibility(api);
+                  setIsEmpty(api.totalPanels === 0);
                   return;
                 } catch (e) {
                   console.warn("[DockviewApp] failed to restore layout, using default", e);
@@ -182,10 +188,12 @@ function DockviewApp(props: DockviewAppData) {
               }
               buildDefaultLayout(api);
               reportVisibility(api);
+              setIsEmpty(api.totalPanels === 0);
             });
 
             api.onDidLayoutChange(() => {
               reportVisibility(api);
+              setIsEmpty(api.totalPanels === 0);
               if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
               saveTimerRef.current = setTimeout(() => {
                 window.orkworks.saveLayout(JSON.stringify(api.toJSON()));
@@ -193,6 +201,24 @@ function DockviewApp(props: DockviewAppData) {
             });
           }}
         />
+        {isEmpty && (
+          <div className="dockview-empty-state">
+            <p>All panels are closed.</p>
+            <p className="dockview-empty-hint">
+              Open one from the View menu, or
+            </p>
+            <button
+              type="button"
+              className="dockview-empty-reset"
+              onClick={() => {
+                const api = dockviewApiRef.current;
+                if (api) resetLayout(api);
+              }}
+            >
+              Reset Layout
+            </button>
+          </div>
+        )}
       </DockviewContext.Provider>
     </div>
   );
