@@ -8,11 +8,16 @@ html, body, #root {
   height: 100%;
   width: 100%;
   overflow: hidden;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen,
-    Ubuntu, Cantarell, "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
-  font-size: 13px;
-  color: #cccccc;
-  background: #1e1e1e;
+  font-family: var(--font-ui);
+  font-size: var(--text-lg);
+  color: var(--text-secondary);
+  background: var(--surface-0);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent-focus);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
 }
 
 .app-shell {
@@ -25,10 +30,10 @@ html, body, #root {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 12px;
+  padding: 0 var(--space-5);
   height: 30px;
-  background: #323233;
-  border-bottom: 1px solid #3c3c3c;
+  background: var(--surface-titlebar);
+  border-bottom: 1px solid var(--border-default);
   -webkit-app-region: drag;
   user-select: none;
 }
@@ -36,63 +41,63 @@ html, body, #root {
 .titlebar-left {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-3);
 }
 
 .titlebar-text {
-  font-size: 12px;
+  font-size: var(--text-md);
   font-weight: 600;
-  color: #cccccc;
+  color: var(--text-secondary);
 }
 
 .titlebar-switch-button {
   -webkit-app-region: no-drag;
   background: none;
   border: none;
-  color: #858585;
+  color: var(--text-muted);
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--text-xl);
   line-height: 1;
-  padding: 2px 4px;
-  border-radius: 4px;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-md);
 }
 
 .titlebar-switch-button:hover {
-  color: #cccccc;
-  background: #444;
+  color: var(--text-secondary);
+  background: var(--surface-3);
 }
 
 .titlebar-open-button {
   -webkit-app-region: no-drag;
-  border: 1px solid #4b6b7f;
-  border-radius: 4px;
-  padding: 2px 8px;
-  color: #d8edf7;
-  background: #123241;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-md);
+  padding: var(--space-1) var(--space-4);
+  color: var(--text-on-accent);
+  background: var(--accent-bg);
   font: inherit;
-  font-size: 11px;
+  font-size: var(--text-sm);
   cursor: pointer;
 }
 
 .titlebar-open-button:hover {
-  background: #16465b;
+  background: var(--accent-bg-hover);
 }
 
 .status-badge {
-  font-size: 11px;
-  padding: 1px 8px;
+  font-size: var(--text-sm);
+  padding: 1px var(--space-4);
   border-radius: 10px;
-  background: #555;
+  background: var(--border-default);
 }
 
 .status-badge.ok {
-  background: #1a3a1a;
-  color: #4ec94e;
+  background: var(--state-ok-bg);
+  color: var(--state-ok);
 }
 
 .status-badge.warn {
-  background: #3a3a1a;
-  color: #d4d44e;
+  background: var(--state-warn-bg);
+  color: var(--state-warn);
 }
 
 .terminal-shell {
@@ -106,43 +111,43 @@ html, body, #root {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-5);
   min-height: 46px;
-  padding: 7px 10px;
-  background: #252526;
-  border-bottom: 1px solid #3c3c3c;
+  padding: 7px var(--space-5);
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border-default);
 }
 
 .terminal-title {
-  color: #d4d4d4;
-  font-size: 12px;
+  color: var(--text-primary);
+  font-size: var(--text-md);
   font-weight: 600;
 }
 
 .terminal-subtitle {
-  margin-top: 2px;
-  color: #858585;
-  font-size: 11px;
+  margin-top: var(--space-1);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
 }
 
 .terminal-actions {
   display: flex;
-  gap: 8px;
+  gap: var(--space-4);
 }
 
 .terminal-launch-button {
-  border: 1px solid #4b6b7f;
-  border-radius: 4px;
-  padding: 5px 10px;
-  color: #d8edf7;
-  background: #123241;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-5);
+  color: var(--text-on-accent);
+  background: var(--accent-bg);
   font: inherit;
   cursor: pointer;
 }
 
 .terminal-launch-button:hover:not(:disabled) {
-  background: #16465b;
-  border-color: #5c879e;
+  background: var(--accent-bg-hover);
+  border-color: var(--accent-strong);
 }
 
 .terminal-launch-button:disabled {
@@ -154,7 +159,7 @@ html, body, #root {
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  padding: 4px;
+  padding: var(--space-2);
   position: relative;
 }
 
@@ -176,20 +181,18 @@ html, body, #root {
   justify-content: center;
 }
 
-
-
 /* session detail + conflict warning styles below */
 
 .orkworks-dockview .dv-tabs-and-actions-container {
-  background: #262220;
-  border-bottom: 1px solid #3c3c3c;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border-default);
   padding-right: 0;
   position: relative;
 }
 
 .orkworks-dockview .dv-tab .dv-default-tab .dv-default-tab-content {
-  margin-left: 12px;
-  font-size: 11px;
+  margin-left: var(--space-5);
+  font-size: var(--text-sm);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -210,48 +213,47 @@ html, body, #root {
 .dockview-header-action {
   border: 1px solid transparent;
   background: transparent;
-  color: #999;
-  font-size: 16px;
+  color: var(--text-faint);
+  font-size: var(--text-xl);
   cursor: pointer;
-  margin-right: 8px;
-  padding: 2px 6px;
+  margin-right: var(--space-4);
+  padding: var(--space-1) var(--space-3);
   line-height: 1;
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
 }
 
 .dockview-header-action:hover {
-  background: #2a2a2b;
-  border-color: #3c3c3c;
-  color: #d4d4d4;
+  background: var(--border-subtle);
+  border-color: var(--border-default);
+  color: var(--text-primary);
 }
 
 .session-list {
   list-style: none;
   padding: 0;
   margin: 0;
-  outline: none;
 }
 
 .session-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 12px;
+  padding: var(--space-3) var(--space-5);
   cursor: pointer;
-  border-bottom: 1px solid #2a2a2b;
+  border-bottom: 1px solid var(--border-subtle);
   scroll-margin-top: 26px;
-  scroll-margin-bottom: 4px;
+  scroll-margin-bottom: var(--space-2);
 }
 
 .session-group-header {
   display: block;
-  padding: 8px 12px 2px;
-  font-size: 10px;
+  padding: var(--space-4) var(--space-5) var(--space-1);
+  font-size: var(--text-xs);
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: #6e6e6e;
+  color: var(--text-faint);
   cursor: default;
   pointer-events: none;
 }
@@ -267,9 +269,9 @@ html, body, #root {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  color: #858585;
-  font-size: 13px;
+  gap: var(--space-4);
+  color: var(--text-muted);
+  font-size: var(--text-lg);
   user-select: none;
   z-index: 10;
 }
@@ -279,42 +281,42 @@ html, body, #root {
 }
 
 .dockview-empty-hint {
-  color: #6e6e6e;
-  font-size: 12px;
+  color: var(--text-faint);
+  font-size: var(--text-md);
 }
 
 .dockview-empty-reset {
   pointer-events: auto;
-  margin-top: 4px;
-  padding: 6px 14px;
-  background: #2a2a2b;
-  border: 1px solid #3c3c3c;
-  border-radius: 4px;
-  color: #d4d4d4;
-  font-size: 12px;
+  margin-top: var(--space-2);
+  padding: var(--space-3) var(--space-6);
+  background: var(--border-subtle);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: var(--text-md);
   cursor: pointer;
 }
 
 .dockview-empty-reset:hover {
-  background: #37373d;
+  background: var(--surface-active);
 }
 
 .session-item:hover {
-  background: #2a2a2b;
+  background: var(--border-subtle);
 }
 
 .session-item--active {
-  background: #37373d;
+  background: var(--surface-active);
 }
 
 .session-item--active:hover {
-  background: #37373d;
+  background: var(--surface-active);
 }
 
 .session-item-main {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-4);
   min-width: 0;
   flex: 1;
 }
@@ -326,31 +328,31 @@ html, body, #root {
 }
 
 .session-item-label {
-  font-size: 13px;
-  color: #d4d4d4;
+  font-size: var(--text-lg);
+  color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .session-item-meta {
-  font-size: 11px;
-  color: #858585;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
 }
 
 .session-kill-button {
   border: none;
   background: none;
-  color: #666;
-  font-size: 16px;
+  color: var(--text-faint);
+  font-size: var(--text-xl);
   cursor: pointer;
-  padding: 0 4px;
+  padding: 0 var(--space-2);
   line-height: 1;
   flex-shrink: 0;
 }
 
 .session-kill-button:hover {
-  color: #cc4444;
+  color: var(--state-error);
 }
 
 .panel-content {
@@ -359,22 +361,22 @@ html, body, #root {
 }
 
 .empty-state {
-  color: #666;
-  font-size: 12px;
+  color: var(--text-faint);
+  font-size: var(--text-md);
   font-style: italic;
-  padding: 8px 12px;
+  padding: var(--space-4) var(--space-5);
 }
 
 .overview-card-badge {
   display: inline-block;
-  margin-top: 4px;
+  margin-top: var(--space-2);
   font-size: 9px;
-  padding: 1px 5px;
-  border-radius: 3px;
+  padding: 1px var(--space-3);
+  border-radius: var(--radius-sm);
 }
 
 .session-detail {
-  padding: 8px 12px;
+  padding: var(--space-4) var(--space-5);
 }
 
 .session-detail-section {
@@ -382,46 +384,46 @@ html, body, #root {
 }
 
 .session-detail-label {
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  color: #999;
+  color: var(--text-faint);
   margin-bottom: 3px;
 }
 
 .session-detail-value {
-  color: #d4d4d4;
-  font-size: 12px;
+  color: var(--text-primary);
+  font-size: var(--text-md);
 }
 
 .session-item-alert {
-  font-size: 12px;
-  margin-right: 2px;
+  font-size: var(--text-md);
+  margin-right: var(--space-1);
   flex-shrink: 0;
 }
 
 .session-item-badge {
   display: inline-block;
-  margin-top: 2px;
+  margin-top: var(--space-1);
   font-size: 9px;
-  padding: 1px 5px;
-  border-radius: 3px;
+  padding: 1px var(--space-3);
+  border-radius: var(--radius-sm);
 }
 
 .conflict-warning {
-  background: #3a2a1a;
-  border: 1px solid #5a3a1a;
-  border-radius: 4px;
-  padding: 6px 8px;
-  font-size: 10px;
-  color: #d4d44e;
+  background: var(--state-error-bg);
+  border: 1px solid var(--state-error-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-xs);
+  color: var(--state-warn);
   line-height: 1.4;
 }
 
 .recommendation-text {
-  font-size: 11px;
-  color: #858585;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
   font-style: italic;
   line-height: 1.4;
 }
@@ -431,22 +433,22 @@ html, body, #root {
 }
 
 .session-item--resumable {
-  border-left-color: #6aa6ff;
+  border-left-color: var(--accent-focus);
 }
 
 .session-memory-badge {
-  color: #9fb7d7;
-  font-size: 11px;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
   line-height: 1;
 }
 
 .session-resume-button {
-  border: 1px solid #3d5f8f;
-  background: #1d2f49;
-  color: #e8f0ff;
-  border-radius: 6px;
-  padding: 6px 10px;
-  font-size: 12px;
+  border: 1px solid var(--accent);
+  background: var(--state-info-bg);
+  color: var(--text-on-accent);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3) var(--space-5);
+  font-size: var(--text-md);
 }
 
 .session-resume-button:disabled {
@@ -454,34 +456,34 @@ html, body, #root {
   opacity: 0.45;
 }
 
-/* dockview dark theme overrides */
+/* dockview dark theme overrides — re-pointed at tokens */
 .orkworks-dockview {
-  --dv-background-color: #211d1b;
-  --dv-paneview-active-outline-color: #4b6b7f;
-  --dv-active-group-visible-border-color: #3c3c3c;
-  --dv-drag-over-background-color: #2a2a2b;
-  --dv-drag-over-border-color: #4b6b7f;
-  --dv-tabs-and-actions-container-background-color: #262220;
-  --dv-activegroup-visiblepanel-tab-background-color: #262220;
-  --dv-activegroup-hiddenpanel-tab-background-color: #312c29;
-  --dv-inactivegroup-visiblepanel-tab-background-color: #262220;
-  --dv-inactivegroup-hiddenpanel-tab-background-color: #312c29;
-  --dv-tab-divider-color: #2a2a2b;
+  --dv-background-color: var(--surface-1);
+  --dv-paneview-active-outline-color: var(--accent);
+  --dv-active-group-visible-border-color: var(--border-default);
+  --dv-drag-over-background-color: var(--border-subtle);
+  --dv-drag-over-border-color: var(--accent);
+  --dv-tabs-and-actions-container-background-color: var(--surface-2);
+  --dv-activegroup-visiblepanel-tab-background-color: var(--surface-2);
+  --dv-activegroup-hiddenpanel-tab-background-color: var(--surface-3);
+  --dv-inactivegroup-visiblepanel-tab-background-color: var(--surface-2);
+  --dv-inactivegroup-hiddenpanel-tab-background-color: var(--surface-3);
+  --dv-tab-divider-color: var(--border-subtle);
   --dv-active-tab-background-color: transparent;
   --dv-inactive-tab-background-color: transparent;
-  --dv-tab-font-size: 12px;
+  --dv-tab-font-size: var(--text-md);
   --dv-tab-font-weight: 400;
-  --dv-active-tab-color: #d4d4d4;
-  --dv-inactive-tab-color: #858585;
-  --dv-separator-border: #3c3c3c;
-  --dv-paneview-separator-border-color: #3c3c3c;
-  --dv-tabs-and-actions-container-font-size: 12px;
+  --dv-active-tab-color: var(--text-primary);
+  --dv-inactive-tab-color: var(--text-muted);
+  --dv-separator-border: var(--border-default);
+  --dv-paneview-separator-border-color: var(--border-default);
+  --dv-tabs-and-actions-container-font-size: var(--text-md);
   --dv-sash-size: 4px;
   --dv-sash-hover-size: 4px;
 }
 
 .orkworks-dockview .dv-groupview {
-  background: #211d1b;
+  background: var(--surface-1);
 }
 
 .orkworks-dockview .dv-tab {
@@ -489,5 +491,5 @@ html, body, #root {
 }
 
 .orkworks-dockview .dv-resize-handle {
-  background: #3c3c3c;
+  background: var(--border-default);
 }
