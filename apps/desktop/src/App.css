@@ -493,6 +493,55 @@ html, body, #root {
   opacity: 0.45;
 }
 
+.toast-rack {
+  position: fixed;
+  top: var(--space-5);
+  right: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  z-index: 100;
+  pointer-events: none;
+  max-width: 360px;
+}
+
+.toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-default);
+  background: var(--surface-2);
+  color: var(--text-primary);
+  font-size: var(--text-md);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+.toast[data-tone="info"]  { border-color: var(--state-info);  background: var(--state-info-bg); }
+.toast[data-tone="warn"]  { border-color: var(--state-warn);  background: var(--state-warn-bg); }
+.toast[data-tone="error"] { border-color: var(--state-error); background: var(--state-error-bg); color: var(--text-primary); }
+
+.toast-message {
+  flex: 1;
+  line-height: 1.4;
+}
+
+.toast-dismiss {
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: var(--text-lg);
+  cursor: pointer;
+  line-height: 1;
+  padding: 0 var(--space-1);
+}
+
+.toast-dismiss:hover {
+  color: var(--text-primary);
+}
+
 /* dockview dark theme overrides — re-pointed at tokens */
 .orkworks-dockview {
   --dv-background-color: var(--surface-1);

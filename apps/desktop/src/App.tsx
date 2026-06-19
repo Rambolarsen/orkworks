@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DockviewApi } from "dockview-react";
 import DockviewApp from "./components/DockviewApp";
+import ToastRack from "./components/ToastRack";
 import { sortSessions } from "./sessionSort";
 import { PANEL_DEFAULTS, buildDefaultLayout } from "./components/DockviewApp";
 import { VOCAB } from "./labels";
+import { pushToast } from "./feedback";
 import {
   type SessionInfo,
   type WorkspaceInfo,
@@ -73,7 +75,8 @@ function App() {
       const list = await listSessions(baseUrl);
       setSessions(sortSessions(list));
     } catch {
-      /* backend not ready */
+      // Silent: polled every 2s; transient failures are reflected by the
+      // backendStatus badge, not by spamming toasts.
     }
   }, []);
 
@@ -94,7 +97,7 @@ function App() {
         setActiveSessionId(info.lastActiveSessionId ?? null);
       }
     } catch {
-      /* user cancelled */
+      pushToast("error", "Couldn't open workspace.");
     }
   }, []);
 
@@ -111,7 +114,7 @@ function App() {
         if (panel) panel.api.setActive();
       }
     } catch {
-      /* ignore */
+      pushToast("error", "Couldn't start a new session.");
     }
   }, []);
 
@@ -136,7 +139,7 @@ function App() {
         }
         await refreshSessions();
       } catch {
-        /* ignore */
+        pushToast("error", "Couldn't end session.");
       }
     },
     [activeSessionId, refreshSessions],
@@ -181,7 +184,8 @@ function App() {
       await setActiveWorkspaceSession(baseUrl, sid);
     }
     persistActiveSession().catch(() => {
-      /* backend not ready */
+      // Silent: backend may not be ready yet on first load; the next active-
+      // session change will retry.
     });
   }, [activeSessionId, backendStatus]);
 
@@ -265,6 +269,7 @@ function App() {
 
   return (
     <div className="app-shell">
+      <ToastRack />
       <div className="titlebar">
         <div className="titlebar-left">
           {workspace ? (
