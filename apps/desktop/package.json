@@ -9,7 +9,7 @@
     "build": "tsc -p tsconfig.node.json && vite build",
     "build:rust": "cargo build --manifest-path ../../crates/orkworksd/Cargo.toml",
     "build:rust:release": "cargo build --release --manifest-path ../../crates/orkworksd/Cargo.toml",
-    "dist": "npm run build:rust:release && npm run build && electron-builder",
+    "dist": "cargo build --release --manifest-path ../../crates/orkworksd/Cargo.toml && tsc -p tsconfig.node.json && vite build && electron-builder",
     "preview": "vite preview"
   },
   "dependencies": {
