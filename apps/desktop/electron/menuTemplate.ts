@@ -2,7 +2,7 @@ import type { MenuItemConstructorOptions } from "electron";
 import type { AppSettings } from "./settingsMemory";
 
 export interface MenuCommand {
-  action: "new-session" | "focus" | "reset-layout";
+  action: "new-session" | "focus" | "reset-layout" | "open-settings";
   panelId?: string;
 }
 
@@ -132,6 +132,13 @@ export function buildMenuTemplate(options: BuildMenuTemplateOptions): MenuItemCo
     {
       ...(isCapturing ? { label: "Help" } : { role: "help" as const }),
       submenu: [
+        {
+          id: "open-settings",
+          label: "Settings…",
+          accelerator: acceleratorUnlessCapturing("CmdOrCtrl+,"),
+          click: () => sendIfNotCapturing({ action: "open-settings" }),
+        },
+        { type: "separator" },
         {
           label: "Learn More",
           click: () => {},

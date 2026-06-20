@@ -198,6 +198,11 @@ function App() {
 
   useEffect(() => {
     return window.orkworks.onMenuCommand(({ action, panelId }) => {
+      if (action === "open-settings") {
+        openSettings();
+        return;
+      }
+
       if (action === "new-session") {
         handleCreateSession();
         return;
@@ -311,14 +316,6 @@ function App() {
           )}
         </div>
         <div className="titlebar-right">
-          <button
-            className="titlebar-settings-button"
-            type="button"
-            onClick={openSettings}
-            title="Settings"
-          >
-            Settings
-          </button>
           <span
             className={`status-badge ${backendStatus === "connected" ? "ok" : "warn"}`}
           >
