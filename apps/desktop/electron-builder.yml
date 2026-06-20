@@ -18,17 +18,20 @@ mac:
       to: orkworksd
 win:
   target:
-    - nsis
-  artifactName: OrkWorks-${version}-win.${ext}
+    - target: nsis
+      arch: [x64]
+  artifactName: OrkWorks-${version}-win-${arch}.${ext}
   extraResources:
     - from: ../../crates/orkworksd/target/release/orkworksd.exe
       to: orkworksd.exe
 linux:
   category: Development
   target:
-    - AppImage
-    - deb
-  artifactName: OrkWorks-${version}-linux.${ext}
+    - target: AppImage
+      arch: [x64]
+    - target: deb
+      arch: [x64]
+  artifactName: OrkWorks-${version}-linux-${arch}.${ext}
   extraResources:
     - from: ../../crates/orkworksd/target/release/orkworksd
       to: orkworksd
