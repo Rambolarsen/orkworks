@@ -128,7 +128,8 @@ Available fields:
 - capacityHints: array of cap/rate-limit related strings found in output
 - confidence: number 0.0 to 1.0 indicating your confidence in this analysis
 - detectedHarness: name of the AI coding harness visible in the terminal (e.g. \"claude-code\", \"opencode\", \"codex\", \"aider\", \"gemini-cli\"), or omit if not detectable
-- detectedModel: model identifier visible in the terminal output (e.g. \"claude-sonnet-4-5\", \"gpt-4o\"), or omit if not detectable";
+- detectedModel: model identifier visible in the terminal output (e.g. \"claude-sonnet-4-5\", \"gpt-4o\"), or omit if not detectable
+- harnessSessionId: the harness's internal session identifier visible in terminal output (e.g. a UUID, session hex string, or ID shown in a \"resume\" or \"continue\" prompt), or omit if not detectable";
 
 const VALID_STATUSES: &[&str] = &[
     "waiting_for_input", "blocked", "failed", "done",
@@ -162,6 +163,8 @@ pub struct PeonInference {
     pub detected_harness: Option<String>,
     #[serde(rename = "detectedModel", default)]
     pub detected_model: Option<String>,
+    #[serde(rename = "harnessSessionId", default)]
+    pub harness_session_id: Option<String>,
 }
 
 pub fn extract_json(raw: &str) -> Option<String> {
@@ -443,6 +446,7 @@ mod tests {
             confidence: 0.85,
             detected_harness: None,
             detected_model: None,
+            harness_session_id: None,
         };
         assert!(validate_inference(&inf).is_ok());
     }
@@ -464,6 +468,7 @@ mod tests {
             confidence: 0.5,
             detected_harness: None,
             detected_model: None,
+            harness_session_id: None,
         };
         assert!(validate_inference(&inf).is_err());
     }
@@ -485,6 +490,7 @@ mod tests {
             confidence: 1.5,
             detected_harness: None,
             detected_model: None,
+            harness_session_id: None,
         };
         assert!(validate_inference(&inf).is_err());
 
@@ -503,19 +509,22 @@ mod tests {
             confidence: -0.1,
             detected_harness: None,
             detected_model: None,
+            harness_session_id: None,
         };
         assert!(validate_inference(&inf2).is_err());
     }
 
     #[test]
     fn test_peon_inference_deserialization() {
-        let json = r#"{"status": "blocked", "summary": "test is failing", "needsUserInput": true, "confidence": 0.7}"#;
+        let json = r#"{"status": "blocked", "summary": "test is failing", "needsUserInput": true, "confidence": 0.7, "harnessSessionId": "sess-abc123", "detectedHarness": "claude-code"}"#;
         let inf: PeonInference = serde_json::from_str(json).unwrap();
         assert_eq!(inf.observed_status, Some("blocked".into()));
         assert_eq!(inf.summary, Some("test is failing".into()));
         assert_eq!(inf.needs_user_input, Some(true));
         assert!((inf.confidence - 0.7).abs() < 0.001);
         assert!(inf.phase.is_none());
+        assert_eq!(inf.harness_session_id.as_deref(), Some("sess-abc123"));
+        assert_eq!(inf.detected_harness.as_deref(), Some("claude-code"));
     }
 
     #[test]

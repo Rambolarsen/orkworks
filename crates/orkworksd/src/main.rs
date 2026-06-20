@@ -164,6 +164,7 @@ async fn main() {
         .route("/sessions/:id", delete(delete_session))
         .route("/sessions/:id/resume", post(resume_session))
         .route("/sessions/:id/terminal", get(session_terminal_handler))
+        .route("/sessions/:id/terminal-output", get(get_terminal_output))
         .layer(cors)
         .with_state(state);
 
@@ -659,11 +660,37 @@ async fn delete_session(
             observed_status: None,
             confidence: None,
         });
+        // Preserve persisted terminal output: the session metadata file remains
+        // (status=killed), so the scrollback should remain accessible for the
+        // resulting remembered session.
     }
     drop(ws_guard);
     state.peon.last_output.write().unwrap().remove(&id);
     state.peon.last_inference.write().unwrap().remove(&id);
     axum::http::StatusCode::OK
+}
+
+#[derive(Serialize)]
+struct TerminalOutputResponse {
+    lines: Vec<String>,
+}
+
+async fn get_terminal_output(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    let state_clone = state.clone();
+    let id_clone = id.clone();
+    let lines = tokio::task::spawn_blocking(move || {
+        let ws_guard = state_clone.workspace.lock().unwrap();
+        match &*ws_guard {
+            Some(ws) => ws.metadata.read_terminal_output(&id_clone, metadata::TERMINAL_OUTPUT_MAX_LINES),
+            None => Vec::new(),
+        }
+    })
+    .await
+    .unwrap_or_default();
+    Json(TerminalOutputResponse { lines })
 }
 
 async fn session_terminal_handler(
@@ -847,7 +874,7 @@ fn builtin_adapters() -> HashMap<String, harness::HarnessAdapter> {
 
     let opencode_caps = harness::HarnessCapabilities {
         launch: true,
-        resume_exact: false,
+        resume_exact: true,
         resume_latest_in_cwd: true,
         resume_latest_in_repo: true,
         detect_session_id: true,
@@ -864,17 +891,20 @@ fn builtin_adapters() -> HashMap<String, harness::HarnessAdapter> {
             command: "opencode".into(),
             args: vec![],
         },
-        None,
         Some(harness::CommandTemplate {
             command: "opencode".into(),
-            args: vec![],
+            args: vec!["--session".into(), "{harnessSessionId}".into()],
+        }),
+        Some(harness::CommandTemplate {
+            command: "opencode".into(),
+            args: vec!["--continue".into()],
         }),
     );
     map.insert("opencode".into(), opencode);
 
     let claude_caps = harness::HarnessCapabilities {
         launch: true,
-        resume_exact: false,
+        resume_exact: true,
         resume_latest_in_cwd: true,
         resume_latest_in_repo: true,
         detect_session_id: true,
@@ -891,10 +921,13 @@ fn builtin_adapters() -> HashMap<String, harness::HarnessAdapter> {
             command: "claude".into(),
             args: vec![],
         },
-        None,
         Some(harness::CommandTemplate {
             command: "claude".into(),
-            args: vec![],
+            args: vec!["--resume".into(), "{harnessSessionId}".into()],
+        }),
+        Some(harness::CommandTemplate {
+            command: "claude".into(),
+            args: vec!["--continue".into()],
         }),
     );
     map.insert("claude-code".into(), claude);
@@ -1146,7 +1179,7 @@ async fn handle_session_terminal(mut ws: WebSocket, id: String, state: Arc<AppSt
 
     tokio::task::spawn_blocking(move || {
         let mut buf = [0u8; 4096];
-        loop {
+    loop {
             match reader.read(&mut buf) {
                 Ok(0) => break,
                 Ok(n) => {
@@ -1162,6 +1195,32 @@ async fn handle_session_terminal(mut ws: WebSocket, id: String, state: Arc<AppSt
         }
     });
 
+    // Serial persistence writer: drains lines from an unbounded channel so that
+    // append + trim never race and chunks are persisted in arrival order.
+    let (persist_tx, mut persist_rx) =
+        tokio::sync::mpsc::unbounded_channel::<Vec<String>>();
+    let persist_state = state.clone();
+    let persist_id = id.clone();
+    let persist_writer = tokio::spawn(async move {
+        while let Some(lines) = persist_rx.recv().await {
+            let st = persist_state.clone();
+            let i = persist_id.clone();
+            let _ = tokio::task::spawn_blocking(move || {
+                let ws_guard = st.workspace.lock().unwrap();
+                if let Some(ref ws) = *ws_guard {
+                    ws.metadata.append_terminal_output_lines(&i, &lines);
+                }
+            })
+            .await;
+        }
+    });
+
+    // Byte-level buffer of unflushed terminal output. We split on raw '\n' so a
+    // chunk that splits a multi-byte UTF-8 sequence or breaks a line in the middle
+    // doesn't corrupt persistence: only complete lines are written, the rest
+    // stays here until more bytes arrive.
+    let mut persist_buffer: Vec<u8> = Vec::new();
+
     loop {
         tokio::select! {
             _ = kill_rx.changed() => {
@@ -1173,25 +1232,45 @@ async fn handle_session_terminal(mut ws: WebSocket, id: String, state: Arc<AppSt
                 }
             }
             Some(data) = rx.recv() => {
-                // Feed ring buffer for Peon
+                persist_buffer.extend_from_slice(&data);
+
+                let mut raw_persist_lines: Vec<String> = Vec::new();
+                while let Some(nl) = persist_buffer.iter().position(|&b| b == b'\n') {
+                    let line: Vec<u8> = persist_buffer.drain(..=nl).collect();
+                    // Strip the trailing \n (and a preceding \r if present) so persisted
+                    // lines are bare content; replay re-adds line terminators.
+                    let end = if line.ends_with(b"\r\n") {
+                        line.len() - 2
+                    } else {
+                        line.len() - 1
+                    };
+                    raw_persist_lines.push(String::from_utf8_lossy(&line[..end]).into_owned());
+                }
+
                 if state.peon.config.enabled {
-                    let text = String::from_utf8_lossy(&data);
                     let mut sessions = state.sessions.lock().unwrap();
                     if let Some(handle) = sessions.get_mut(&id) {
-                        for line in text.lines() {
-                            let trimmed = line.trim();
+                        for raw in &raw_persist_lines {
+                            let trimmed = raw.trim();
                             if !trimmed.is_empty() {
                                 handle.output_buffer.push(trimmed.to_string());
                             }
                         }
                     }
-                    drop(sessions);
-                    let mut last_output = state.peon.last_output.write().unwrap();
-                    last_output.insert(id.clone(), tokio::time::Instant::now());
-                    drop(last_output);
-                    // Clear last_inference so Peon will re-observe after new output
+                }
+
+                // Any PTY traffic at all counts as activity for Peon debounce —
+                // including chunks that haven't yet completed a line.
+                if state.peon.config.enabled {
+                    state.peon.last_output.write().unwrap()
+                        .insert(id.clone(), tokio::time::Instant::now());
                     state.peon.last_inference.write().unwrap().remove(&id);
                 }
+
+                if !raw_persist_lines.is_empty() {
+                    let _ = persist_tx.send(raw_persist_lines);
+                }
+
                 if ws.send(Message::Binary(data)).await.is_err() {
                     break;
                 }
@@ -1207,6 +1286,12 @@ async fn handle_session_terminal(mut ws: WebSocket, id: String, state: Arc<AppSt
                             TerminalAction::Input(data) => {
                                 let _ = writer.write_all(data.as_bytes());
                                 let _ = writer.flush();
+
+                                if state.peon.config.enabled && !data.is_empty() {
+                                    state.peon.last_output.write().unwrap()
+                                        .insert(id.clone(), tokio::time::Instant::now());
+                                    state.peon.last_inference.write().unwrap().remove(&id);
+                                }
                             }
                             TerminalAction::Resize { rows, cols } => {
                                 if let Err(e) = pair.master.resize(PtySize {
@@ -1244,6 +1329,27 @@ async fn handle_session_terminal(mut ws: WebSocket, id: String, state: Arc<AppSt
                 }
             }
         }
+    }
+
+    {
+        // Flush any unterminated tail so the user's last visible line survives.
+        if !persist_buffer.is_empty() {
+            let tail = String::from_utf8_lossy(&persist_buffer).into_owned();
+            let _ = persist_tx.send(vec![tail]);
+        }
+        // Close the channel and let the serial writer drain all pending appends
+        // before the trim runs, so trimming never races with a write.
+        drop(persist_tx);
+        let _ = persist_writer.await;
+
+        let state_clone = state.clone();
+        let id_clone = id.clone();
+        tokio::task::spawn_blocking(move || {
+            let ws_guard = state_clone.workspace.lock().unwrap();
+            if let Some(ref ws) = *ws_guard {
+                ws.metadata.trim_terminal_output(&id_clone, metadata::TERMINAL_OUTPUT_MAX_LINES);
+            }
+        });
     }
 
     tracing::info!("session {} terminal ended", id);
