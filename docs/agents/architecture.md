@@ -30,12 +30,13 @@ Key endpoints: `POST /workspace`, `POST /workspace/active-session`, `GET/POST /s
 
 ## Rust sidecar (`crates/orkworksd/src/`)
 
-Single binary, five modules:
+Single binary, six modules:
 
 - `main.rs` — Axum router, `AppState` (sessions + workspace + harness adapters), all HTTP/WS handlers, PTY lifecycle, session resume
 - `git.rs` — git2-based context detection (repo root, branch, dirty check including untracked files while excluding ignored files)
 - `harness.rs` — harness adapter types, command templates, resume strategy selection, capability flags
 - `metadata.rs` — reads/writes `.orkworks/sessions/<id>.json` and `.orkworks/workspace.json` files
+- `peon.rs` — observer config, ring buffer, harness invocation, inference parsing/validation, source-priority overwrite rules (driven by the debounce loop in `main.rs`; tuning knobs documented in `README.md`)
 - `watcher.rs` — `notify`-based file watcher for `.orkworks/` changes
 
 ## Dockview panel layout

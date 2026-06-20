@@ -44,6 +44,22 @@ cd orkworks
 apm install
 ```
 
+## Peon configuration
+
+Peon runs in the Rust sidecar as a background task. After a session's terminal goes quiet for `PEON_INTERVAL` seconds (default `5`), Peon shells out to a configurable harness, asks it to classify the recent output, and writes the result to `.orkworks/sessions/<id>.json`. User input into the terminal also resets this debounce window — typing counts as activity. While an inference is in flight for a session, a second one is not launched for the same session.
+
+Tune via environment variables on `orkworksd`:
+
+| Variable | Default | Purpose |
+| -------- | ------- | ------- |
+| `PEON_ENABLED` | `true` | Set to `false`/`0` to disable Peon entirely |
+| `PEON_INTERVAL` | `5` | Seconds of terminal silence before inference fires |
+| `PEON_HARNESS` | `opencode` | Binary Peon shells out to for classification |
+| `PEON_HARNESS_ARGS_JSON` | `["run","--pure"]` | JSON array of args passed to the harness (falls back to space-split `PEON_HARNESS_ARGS`) |
+| `PEON_MODEL` | unset | Reserved for harness model selection |
+| `PEON_MAX_LINES` | `200` | Ring-buffer size of terminal lines fed to the harness |
+| `PEON_TIMEOUT` | `30` | Seconds before a harness invocation is killed |
+
 ## Agent plugins
 
 Managed via APM in `orkworks/apm.yml`. Running `apm install` populates skills and hooks for all configured targets (claude, codex, copilot, opencode).
