@@ -183,6 +183,18 @@ impl MetadataStore {
         Ok(())
     }
 
+    pub fn clear_last_active_session_if_matches(&self, id: &str) -> std::io::Result<()> {
+        let Some(mut memory) = self.read_workspace_memory() else {
+            return Ok(());
+        };
+        if memory.last_active_session_id.as_deref() == Some(id) {
+            memory.last_active_session_id = None;
+            memory.last_active_at = None;
+            self.write_workspace_memory(&memory);
+        }
+        Ok(())
+    }
+
     #[allow(dead_code)]
     pub fn read_events(&self, id: &str) -> Vec<Event> {
         let path = self.events_dir().join(format!("{}.ndjson", id));
