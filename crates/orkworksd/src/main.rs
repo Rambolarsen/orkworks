@@ -164,6 +164,7 @@ async fn main() {
         .route("/sessions/:id", delete(delete_session))
         .route("/sessions/:id/resume", post(resume_session))
         .route("/sessions/:id/terminal", get(session_terminal_handler))
+        .route("/sessions/:id/terminal-output", get(get_terminal_output))
         .layer(cors)
         .with_state(state);
 
@@ -659,11 +660,35 @@ async fn delete_session(
             observed_status: None,
             confidence: None,
         });
+        ws.metadata.delete_terminal_output(&id);
     }
     drop(ws_guard);
     state.peon.last_output.write().unwrap().remove(&id);
     state.peon.last_inference.write().unwrap().remove(&id);
     axum::http::StatusCode::OK
+}
+
+#[derive(Serialize)]
+struct TerminalOutputResponse {
+    lines: Vec<String>,
+}
+
+async fn get_terminal_output(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    let state_clone = state.clone();
+    let id_clone = id.clone();
+    let lines = tokio::task::spawn_blocking(move || {
+        let ws_guard = state_clone.workspace.lock().unwrap();
+        match &*ws_guard {
+            Some(ws) => ws.metadata.read_terminal_output(&id_clone, metadata::TERMINAL_OUTPUT_MAX_LINES),
+            None => Vec::new(),
+        }
+    })
+    .await
+    .unwrap_or_default();
+    Json(TerminalOutputResponse { lines })
 }
 
 async fn session_terminal_handler(
@@ -847,7 +872,7 @@ fn builtin_adapters() -> HashMap<String, harness::HarnessAdapter> {
 
     let opencode_caps = harness::HarnessCapabilities {
         launch: true,
-        resume_exact: false,
+        resume_exact: true,
         resume_latest_in_cwd: true,
         resume_latest_in_repo: true,
         detect_session_id: true,
@@ -864,17 +889,20 @@ fn builtin_adapters() -> HashMap<String, harness::HarnessAdapter> {
             command: "opencode".into(),
             args: vec![],
         },
-        None,
         Some(harness::CommandTemplate {
             command: "opencode".into(),
-            args: vec![],
+            args: vec!["--session".into(), "{harnessSessionId}".into()],
+        }),
+        Some(harness::CommandTemplate {
+            command: "opencode".into(),
+            args: vec!["--continue".into()],
         }),
     );
     map.insert("opencode".into(), opencode);
 
     let claude_caps = harness::HarnessCapabilities {
         launch: true,
-        resume_exact: false,
+        resume_exact: true,
         resume_latest_in_cwd: true,
         resume_latest_in_repo: true,
         detect_session_id: true,
@@ -891,10 +919,13 @@ fn builtin_adapters() -> HashMap<String, harness::HarnessAdapter> {
             command: "claude".into(),
             args: vec![],
         },
-        None,
         Some(harness::CommandTemplate {
             command: "claude".into(),
-            args: vec![],
+            args: vec!["--resume".into(), "{harnessSessionId}".into()],
+        }),
+        Some(harness::CommandTemplate {
+            command: "claude".into(),
+            args: vec!["--continue".into()],
         }),
     );
     map.insert("claude-code".into(), claude);
@@ -1173,25 +1204,43 @@ async fn handle_session_terminal(mut ws: WebSocket, id: String, state: Arc<AppSt
                 }
             }
             Some(data) = rx.recv() => {
-                // Feed ring buffer for Peon
-                if state.peon.config.enabled {
-                    let text = String::from_utf8_lossy(&data);
+                let text = String::from_utf8_lossy(&data);
+                let mut persist_lines: Vec<String> = Vec::new();
+
+                {
                     let mut sessions = state.sessions.lock().unwrap();
                     if let Some(handle) = sessions.get_mut(&id) {
                         for line in text.lines() {
                             let trimmed = line.trim();
                             if !trimmed.is_empty() {
-                                handle.output_buffer.push(trimmed.to_string());
+                                persist_lines.push(trimmed.to_string());
+                                if state.peon.config.enabled {
+                                    handle.output_buffer.push(trimmed.to_string());
+                                }
                             }
                         }
                     }
-                    drop(sessions);
+                }
+
+                if state.peon.config.enabled && !persist_lines.is_empty() {
                     let mut last_output = state.peon.last_output.write().unwrap();
                     last_output.insert(id.clone(), tokio::time::Instant::now());
                     drop(last_output);
                     // Clear last_inference so Peon will re-observe after new output
                     state.peon.last_inference.write().unwrap().remove(&id);
                 }
+
+                if !persist_lines.is_empty() {
+                    let state_clone = state.clone();
+                    let id_clone = id.clone();
+                    tokio::task::spawn_blocking(move || {
+                        let ws_guard = state_clone.workspace.lock().unwrap();
+                        if let Some(ref ws) = *ws_guard {
+                            ws.metadata.append_terminal_output_lines(&id_clone, &persist_lines);
+                        }
+                    });
+                }
+
                 if ws.send(Message::Binary(data)).await.is_err() {
                     break;
                 }
@@ -1244,6 +1293,17 @@ async fn handle_session_terminal(mut ws: WebSocket, id: String, state: Arc<AppSt
                 }
             }
         }
+    }
+
+    {
+        let state_clone = state.clone();
+        let id_clone = id.clone();
+        tokio::task::spawn_blocking(move || {
+            let ws_guard = state_clone.workspace.lock().unwrap();
+            if let Some(ref ws) = *ws_guard {
+                ws.metadata.trim_terminal_output(&id_clone, metadata::TERMINAL_OUTPUT_MAX_LINES);
+            }
+        });
     }
 
     tracing::info!("session {} terminal ended", id);

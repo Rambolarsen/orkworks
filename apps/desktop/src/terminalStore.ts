@@ -2,6 +2,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { terminalPtySize } from "./terminalSize";
 import { orkworksTerminalTheme } from "./terminalTheme";
+import { getTerminalOutput } from "./api";
 
 export interface TerminalHandle {
   id: string;
@@ -71,6 +72,8 @@ export function ensureTerminal(id: string, baseUrl: string): TerminalHandle {
   };
   terminals.set(id, handle);
 
+  let receivedData = false;
+
   ws.onopen = () => {
     try {
       fitAddon.fit();
@@ -85,6 +88,7 @@ export function ensureTerminal(id: string, baseUrl: string): TerminalHandle {
   };
 
   ws.onmessage = (e) => {
+    receivedData = true;
     if (e.data instanceof ArrayBuffer) {
       term.write(new Uint8Array(e.data));
     }
@@ -94,6 +98,15 @@ export function ensureTerminal(id: string, baseUrl: string): TerminalHandle {
     term.options.disableStdin = true;
     term.options.cursorBlink = false;
     handle.ended = true;
+    if (!receivedData) {
+      getTerminalOutput(baseUrl, id).then((lines) => {
+        if (lines.length > 0) {
+          term.writeln(lines.join("\n"));
+        }
+      }).catch(() => {
+        /* silently ignore fetch failures */
+      });
+    }
   };
 
   term.onData((data) => {

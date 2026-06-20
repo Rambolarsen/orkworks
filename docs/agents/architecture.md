@@ -24,7 +24,7 @@ Electron runs with `nodeIntegration: false` and `contextIsolation: true` (ADR 00
 
 `apps/desktop/src/api.ts` defines TypeScript types and fetch wrappers for the REST API. `App.tsx` polls `/sessions` every 2 seconds, restores the last active workspace session when `POST /workspace` returns `lastActiveSessionId`, and persists the newly selected active session back through `POST /workspace/active-session`. Session state flows: Rust structs → JSON API → `SessionInfo`/`WorkspaceInfo` TS types → React state → components.
 
-Key endpoints: `POST /workspace`, `POST /workspace/active-session`, `GET/POST /sessions`, `DELETE /sessions/:id`, `POST /sessions/:id/resume`, `WS /sessions/:id/terminal`.
+Key endpoints: `POST /workspace`, `POST /workspace/active-session`, `GET/POST /sessions`, `DELETE /sessions/:id`, `POST /sessions/:id/resume`, `GET /sessions/:id/terminal-output`, `WS /sessions/:id/terminal`.
 
 `electron/workspaceMemory.ts` persists the last workspace path and recent workspace directories to the Electron user data directory, enabling workspace restore on relaunch. The sidecar persists repo-local active session memory in `.orkworks/workspace.json`.
 
@@ -35,7 +35,7 @@ Single binary, six modules:
 - `main.rs` — Axum router, `AppState` (sessions + workspace + harness adapters), all HTTP/WS handlers, PTY lifecycle, session resume
 - `git.rs` — git2-based context detection (repo root, branch, dirty check including untracked files while excluding ignored files)
 - `harness.rs` — harness adapter types, command templates, resume strategy selection, capability flags
-- `metadata.rs` — reads/writes `.orkworks/sessions/<id>.json` and `.orkworks/workspace.json` files
+- `metadata.rs` — reads/writes `.orkworks/sessions/<id>.json`, `.orkworks/workspace.json`, and `.orkworks/events/<id>.terminal` (terminal output ring buffer) files
 - `peon.rs` — observer config, ring buffer, harness invocation, inference parsing/validation, source-priority overwrite rules (driven by the debounce loop in `main.rs`; tuning knobs documented in `README.md`)
 - `watcher.rs` — `notify`-based file watcher for `.orkworks/` changes
 

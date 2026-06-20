@@ -1,9 +1,11 @@
-use crate::harness::ResumeMemory;
+use crate::harness::{ResumeMemory, ResumeState, ResumeStrategy};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use tracing::warn;
+
+pub const TERMINAL_OUTPUT_MAX_LINES: usize = 10_000;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionMetadata {
@@ -241,6 +243,24 @@ impl MetadataStore {
             };
         }
 
+        if let Some(ref sid) = inf.harness_session_id {
+            if !sid.is_empty() {
+                let mut resume = meta.resume.take().unwrap_or_else(|| ResumeMemory {
+                    state: ResumeState::Available,
+                    preferred_strategy: ResumeStrategy::None,
+                    harness_session_id: None,
+                    latest_fallback: true,
+                    last_seen_at: None,
+                });
+                resume.harness_session_id = Some(sid.clone());
+                resume.last_seen_at = Some(timestamp.to_string());
+                if resume.preferred_strategy == ResumeStrategy::None {
+                    resume.preferred_strategy = ResumeStrategy::Exact;
+                }
+                meta.resume = Some(resume);
+            }
+        }
+
         meta.peon_last_inference = Some(timestamp.to_string());
         meta.metadata_source = "peon".into();
         meta.metadata_confidence = inf.confidence;
@@ -254,6 +274,68 @@ impl MetadataStore {
             observed_status: inf.observed_status.clone(),
             confidence: Some(inf.confidence),
         });
+    }
+
+    fn terminal_output_path(&self, id: &str) -> PathBuf {
+        self.events_dir().join(format!("{}.terminal", id))
+    }
+
+    pub fn append_terminal_output_lines(&self, id: &str, lines: &[String]) {
+        if lines.is_empty() {
+            return;
+        }
+        if let Err(e) = fs::create_dir_all(&self.events_dir()) {
+            warn!("failed to create events dir for terminal output: {e}");
+            return;
+        }
+        let path = self.terminal_output_path(id);
+        let mut file = match fs::OpenOptions::new().create(true).append(true).open(&path) {
+            Ok(f) => f,
+            Err(e) => {
+                warn!("failed to open terminal output file for {id}: {e}");
+                return;
+            }
+        };
+        for line in lines {
+            let _ = writeln!(file, "{line}");
+        }
+    }
+
+    pub fn read_terminal_output(&self, id: &str, max_lines: usize) -> Vec<String> {
+        let path = self.terminal_output_path(id);
+        let data = match fs::read_to_string(&path) {
+            Ok(d) => d,
+            Err(_) => return Vec::new(),
+        };
+        let all: Vec<&str> = data.lines().collect();
+        let start = if all.len() > max_lines { all.len() - max_lines } else { 0 };
+        all[start..].iter().map(|s| s.to_string()).collect()
+    }
+
+    pub fn delete_terminal_output(&self, id: &str) {
+        let path = self.terminal_output_path(id);
+        if let Err(e) = fs::remove_file(&path) {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                warn!("failed to delete terminal output for {id}: {e}");
+            }
+        }
+    }
+
+    pub fn trim_terminal_output(&self, id: &str, max_lines: usize) {
+        let path = self.terminal_output_path(id);
+        let data = match fs::read_to_string(&path) {
+            Ok(d) => d,
+            Err(_) => return,
+        };
+        let all: Vec<&str> = data.lines().collect();
+        if all.len() <= max_lines {
+            return;
+        }
+        let start = all.len() - max_lines;
+        match fs::write(&path, all[start..].join("\n") + "\n") {
+            Ok(_) => {}
+            Err(e) => warn!("failed to trim terminal output for {id}: {e}"),
+        }
     }
 }
 
@@ -405,6 +487,7 @@ mod tests {
             capacity_hints: None, confidence: 0.8,
             detected_harness: Some("claude-code".into()),
             detected_model: None,
+            harness_session_id: None,
         };
         store.merge_peon_inference("rename-test", &inf, "t1");
         let meta = store.read_session("rename-test").unwrap();
@@ -421,6 +504,7 @@ mod tests {
             capacity_hints: None, confidence: 0.9,
             detected_harness: Some("claude-code".into()),
             detected_model: Some("claude-sonnet-4-5".into()),
+            harness_session_id: None,
         };
         store.merge_peon_inference("rename-test", &inf2, "t2");
         let meta2 = store.read_session("rename-test").unwrap();
@@ -487,6 +571,7 @@ mod tests {
             confidence: 0.82,
             detected_harness: None,
             detected_model: None,
+            harness_session_id: None,
         };
 
         store.merge_peon_inference("test-peon-observer", &inf, "later");

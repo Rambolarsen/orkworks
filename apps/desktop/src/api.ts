@@ -110,3 +110,13 @@ export async function resumeSession(
   if (!resp.ok) throw new Error(`resume session failed: ${resp.status}`);
   return resp.json();
 }
+
+export async function getTerminalOutput(
+  baseUrl: string,
+  id: string,
+): Promise<string[]> {
+  const resp = await fetch(`${baseUrl}/sessions/${id}/terminal-output`);
+  if (!resp.ok) throw new Error(`get terminal output failed: ${resp.status}`);
+  const data = await resp.json();
+  return data.lines ?? [];
+}
