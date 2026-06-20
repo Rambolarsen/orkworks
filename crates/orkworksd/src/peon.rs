@@ -516,13 +516,15 @@ mod tests {
 
     #[test]
     fn test_peon_inference_deserialization() {
-        let json = r#"{"status": "blocked", "summary": "test is failing", "needsUserInput": true, "confidence": 0.7}"#;
+        let json = r#"{"status": "blocked", "summary": "test is failing", "needsUserInput": true, "confidence": 0.7, "harnessSessionId": "sess-abc123", "detectedHarness": "claude-code"}"#;
         let inf: PeonInference = serde_json::from_str(json).unwrap();
         assert_eq!(inf.observed_status, Some("blocked".into()));
         assert_eq!(inf.summary, Some("test is failing".into()));
         assert_eq!(inf.needs_user_input, Some(true));
         assert!((inf.confidence - 0.7).abs() < 0.001);
         assert!(inf.phase.is_none());
+        assert_eq!(inf.harness_session_id.as_deref(), Some("sess-abc123"));
+        assert_eq!(inf.detected_harness.as_deref(), Some("claude-code"));
     }
 
     #[test]

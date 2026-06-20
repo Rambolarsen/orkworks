@@ -88,8 +88,8 @@ export function ensureTerminal(id: string, baseUrl: string): TerminalHandle {
   };
 
   ws.onmessage = (e) => {
-    receivedData = true;
     if (e.data instanceof ArrayBuffer) {
+      receivedData = true;
       term.write(new Uint8Array(e.data));
     }
   };

@@ -244,7 +244,7 @@ impl MetadataStore {
         }
 
         if let Some(ref sid) = inf.harness_session_id {
-            if !sid.is_empty() {
+            if !sid.is_empty() && sid.len() >= 3 && !sid.contains(char::is_whitespace) {
                 let mut resume = meta.resume.take().unwrap_or_else(|| ResumeMemory {
                     state: ResumeState::Available,
                     preferred_strategy: ResumeStrategy::None,
@@ -298,6 +298,14 @@ impl MetadataStore {
         };
         for line in lines {
             let _ = writeln!(file, "{line}");
+        }
+        // Inline trim when the file exceeds 1.5x max_lines to prevent unbounded growth
+        // during long-running sessions. Only check approximate size via metadata.
+        let len_hint = file.metadata().map(|m| m.len()).unwrap_or(0);
+        drop(file);
+        // Rough estimate: 100 bytes per line, so 1.5x MAX_LINES ≈ 150 * MAX_LINES bytes
+        if len_hint > (TERMINAL_OUTPUT_MAX_LINES as u64 * 150) {
+            let _ = self.trim_terminal_output(id, TERMINAL_OUTPUT_MAX_LINES);
         }
     }
 
@@ -660,5 +668,136 @@ mod tests {
             all[0].resume.as_ref().and_then(|r| r.harness_session_id.as_deref()),
             Some("sess-abc"),
         );
+    }
+
+    #[test]
+    fn peon_inference_writes_harness_session_id_to_resume_memory() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let meta = test_metadata("session-id-test");
+        store.write_session(&meta);
+
+        let inf = crate::peon::PeonInference {
+            observed_status: Some("working".into()),
+            phase: None, summary: None, next_action: None,
+            needs_user_input: None, detected_question: None, suggested_options: None,
+            blocker_description: None, failed_command: None, failed_test: None,
+            capacity_hints: None, confidence: 0.9,
+            detected_harness: Some("claude-code".into()),
+            detected_model: Some("claude-sonnet-4-5".into()),
+            harness_session_id: Some("sess-abc123".into()),
+        };
+        store.merge_peon_inference("session-id-test", &inf, "2026-06-20T12:00:00Z");
+
+        let updated = store.read_session("session-id-test").unwrap();
+        let resume = updated.resume.unwrap();
+        assert_eq!(resume.state, ResumeState::Available);
+        assert_eq!(resume.preferred_strategy, ResumeStrategy::Exact);
+        assert_eq!(resume.harness_session_id.as_deref(), Some("sess-abc123"));
+        assert_eq!(resume.last_seen_at.as_deref(), Some("2026-06-20T12:00:00Z"));
+        assert!(resume.latest_fallback);
+    }
+
+    #[test]
+    fn peon_inference_ignores_empty_harness_session_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let meta = test_metadata("empty-sid-test");
+        store.write_session(&meta);
+
+        let inf = crate::peon::PeonInference {
+            observed_status: Some("working".into()),
+            phase: None, summary: None, next_action: None,
+            needs_user_input: None, detected_question: None, suggested_options: None,
+            blocker_description: None, failed_command: None, failed_test: None,
+            capacity_hints: None, confidence: 0.9,
+            detected_harness: None,
+            detected_model: None,
+            harness_session_id: Some("".into()),
+        };
+        store.merge_peon_inference("empty-sid-test", &inf, "2026-06-20T12:00:00Z");
+
+        let updated = store.read_session("empty-sid-test").unwrap();
+        assert!(updated.resume.is_none());
+    }
+
+    #[test]
+    fn peon_inference_rejects_invalid_harness_session_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+
+        // Too short
+        {
+            let meta = test_metadata("short-sid");
+            store.write_session(&meta);
+            let inf = crate::peon::PeonInference {
+                observed_status: Some("working".into()),
+                phase: None, summary: None, next_action: None,
+                needs_user_input: None, detected_question: None, suggested_options: None,
+                blocker_description: None, failed_command: None, failed_test: None,
+                capacity_hints: None, confidence: 0.9,
+                detected_harness: None,
+                detected_model: None,
+                harness_session_id: Some("ab".into()),
+            };
+            store.merge_peon_inference("short-sid", &inf, "2026-06-20T12:00:00Z");
+            assert!(store.read_session("short-sid").unwrap().resume.is_none());
+        }
+
+        // Contains whitespace
+        {
+            let meta = test_metadata("whitespace-sid");
+            store.write_session(&meta);
+            let inf = crate::peon::PeonInference {
+                observed_status: Some("working".into()),
+                phase: None, summary: None, next_action: None,
+                needs_user_input: None, detected_question: None, suggested_options: None,
+                blocker_description: None, failed_command: None, failed_test: None,
+                capacity_hints: None, confidence: 0.9,
+                detected_harness: None,
+                detected_model: None,
+                harness_session_id: Some("not an id".into()),
+            };
+            store.merge_peon_inference("whitespace-sid", &inf, "2026-06-20T12:00:00Z");
+            assert!(store.read_session("whitespace-sid").unwrap().resume.is_none());
+        }
+    }
+
+    #[test]
+    fn terminal_output_round_trip_and_trim() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+
+        let lines: Vec<String> = (0..100).map(|i| format!("line {}", i)).collect();
+        store.append_terminal_output_lines("test-session", &lines);
+
+        let read = store.read_terminal_output("test-session", 50);
+        assert_eq!(read.len(), 50);
+        assert_eq!(read[0], "line 50");
+        assert_eq!(read[49], "line 99");
+
+        // Write more lines, trigger inline trim
+        let more: Vec<String> = (100..200).map(|i| format!("line {}", i)).collect();
+        store.append_terminal_output_lines("test-session", &more);
+
+        // trim to 50
+        store.trim_terminal_output("test-session", 50);
+        let after_trim = store.read_terminal_output("test-session", 100);
+        assert_eq!(after_trim.len(), 50);
+        assert_eq!(after_trim[0], "line 150");
+        assert_eq!(after_trim[49], "line 199");
+
+        // Delete and verify
+        store.delete_terminal_output("test-session");
+        let after_delete = store.read_terminal_output("test-session", 100);
+        assert!(after_delete.is_empty());
+    }
+
+    #[test]
+    fn terminal_output_empty_session_returns_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let lines = store.read_terminal_output("nonexistent", 50);
+        assert!(lines.is_empty());
     }
 }

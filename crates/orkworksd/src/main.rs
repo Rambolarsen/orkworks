@@ -1177,7 +1177,7 @@ async fn handle_session_terminal(mut ws: WebSocket, id: String, state: Arc<AppSt
 
     tokio::task::spawn_blocking(move || {
         let mut buf = [0u8; 4096];
-        loop {
+    loop {
             match reader.read(&mut buf) {
                 Ok(0) => break,
                 Ok(n) => {
@@ -1192,6 +1192,8 @@ async fn handle_session_terminal(mut ws: WebSocket, id: String, state: Arc<AppSt
             }
         }
     });
+
+    let mut last_persist: Option<tokio::task::JoinHandle<()>> = None;
 
     loop {
         tokio::select! {
@@ -1233,12 +1235,12 @@ async fn handle_session_terminal(mut ws: WebSocket, id: String, state: Arc<AppSt
                 if !persist_lines.is_empty() {
                     let state_clone = state.clone();
                     let id_clone = id.clone();
-                    tokio::task::spawn_blocking(move || {
+                    last_persist = Some(tokio::task::spawn_blocking(move || {
                         let ws_guard = state_clone.workspace.lock().unwrap();
                         if let Some(ref ws) = *ws_guard {
                             ws.metadata.append_terminal_output_lines(&id_clone, &persist_lines);
                         }
-                    });
+                    }));
                 }
 
                 if ws.send(Message::Binary(data)).await.is_err() {
@@ -1296,6 +1298,10 @@ async fn handle_session_terminal(mut ws: WebSocket, id: String, state: Arc<AppSt
     }
 
     {
+        // Await in-flight output persistence before trimming to avoid race
+        if let Some(handle) = last_persist {
+            let _ = handle.await;
+        }
         let state_clone = state.clone();
         let id_clone = id.clone();
         tokio::task::spawn_blocking(move || {
