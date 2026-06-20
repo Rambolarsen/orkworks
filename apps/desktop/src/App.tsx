@@ -92,9 +92,13 @@ function App() {
   }, []);
 
   const openSettings = useCallback(async () => {
-    const loaded = await window.orkworks.getSettings();
-    setSettings(loaded);
-    setSettingsOpen(true);
+    try {
+      const loaded = await window.orkworks.getSettings();
+      setSettings(loaded);
+      setSettingsOpen(true);
+    } catch {
+      pushToast("error", "Couldn't open settings.");
+    }
   }, []);
 
   const handleCreateSession = useCallback(async () => {

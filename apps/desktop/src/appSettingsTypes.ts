@@ -12,6 +12,7 @@ export interface AppSettings {
   [key: string]: unknown;
   version: 1;
   hotkeys: HotkeySettings;
+  defaultHotkeys: HotkeySettings;
 }
 
 export type SaveHotkeysResult =

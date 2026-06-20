@@ -309,9 +309,22 @@ test("App routes user-facing error catches through the toast feedback primitive"
 
   assert.match(source, /import \{ pushToast \} from "\.\/feedback"/);
   assert.match(source, /pushToast\("error", "Couldn't open workspace\."\)/);
+  assert.match(source, /pushToast\("error", "Couldn't open settings\."\)/);
   assert.match(source, /pushToast\("error", "Couldn't start a new session\."\)/);
   assert.match(source, /pushToast\("error", "Couldn't end session\."\)/);
   assert.doesNotMatch(source, /\/\* ignore \*\//);
+});
+
+test("SettingsModal uses default hotkeys from the main-process settings response", () => {
+  const modal = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
+  const types = readFileSync(new URL("../src/appSettingsTypes.ts", import.meta.url), "utf8");
+  const main = readFileSync(new URL("../electron/main.ts", import.meta.url), "utf8");
+
+  assert.match(types, /defaultHotkeys:\s*HotkeySettings/);
+  assert.match(main, /DEFAULT_HOTKEYS/);
+  assert.match(main, /defaultHotkeys:\s*\{\s*\.\.\.DEFAULT_HOTKEYS\s*\}/);
+  assert.match(modal, /const defaultHotkeys = initialSettings\.defaultHotkeys/);
+  assert.doesNotMatch(modal, /const defaultHotkeys:\s*HotkeySettings\s*=\s*\{/);
 });
 
 test("App titlebar uses the canonical workspace vocabulary (no 'Folder' drift)", () => {

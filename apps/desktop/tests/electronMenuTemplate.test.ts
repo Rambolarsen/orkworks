@@ -70,6 +70,8 @@ test("menu template removes accelerators and native roles during hotkey capture"
   assert.equal(findMenuItem(template, "new-session")?.accelerator, undefined);
   assert.equal(findMenuItem(template, "sessions")?.accelerator, undefined);
   assert.equal(findMenuItem(template, "reset-layout")?.accelerator, undefined);
+  assert.equal(findMenuItem(template, "sessions")?.enabled, false);
+  assert.equal(findMenuItem(template, "detail")?.enabled, false);
 
   const serializedTemplate = JSON.stringify(template);
   assert.equal(serializedTemplate.includes('"role"'), false);

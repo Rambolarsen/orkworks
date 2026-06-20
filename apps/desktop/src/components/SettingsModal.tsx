@@ -10,16 +10,6 @@ interface SettingsModalProps {
   onSaved: (settings: AppSettings) => void;
 }
 
-const defaultHotkeys: HotkeySettings = {
-  newSession: "CmdOrCtrl+N",
-  toggleSessionsPanel: "CmdOrCtrl+Shift+S",
-  toggleDetailPanel: "CmdOrCtrl+Shift+D",
-  toggleTerminalPanel: "CmdOrCtrl+Shift+T",
-  toggleCapacityPanel: "CmdOrCtrl+Shift+C",
-  toggleRecommendationsPanel: "CmdOrCtrl+Shift+R",
-  resetLayout: null,
-};
-
 const hotkeyRows: Array<{ action: HotkeyAction; label: string; optional?: boolean }> = [
   { action: "newSession", label: "New Session" },
   { action: "toggleSessionsPanel", label: "Sessions Panel" },
@@ -31,6 +21,7 @@ const hotkeyRows: Array<{ action: HotkeyAction; label: string; optional?: boolea
 ];
 
 export default function SettingsModal({ initialSettings, onClose, onSaved }: SettingsModalProps) {
+  const defaultHotkeys = initialSettings.defaultHotkeys;
   const [draft, setDraft] = useState<HotkeySettings>(initialSettings.hotkeys);
   const [capturing, setCapturing] = useState<HotkeyAction | null>(null);
   const [errors, setErrors] = useState<Partial<Record<HotkeyAction, string[]>>>({});
@@ -134,7 +125,7 @@ export default function SettingsModal({ initialSettings, onClose, onSaved }: Set
         </div>
 
         <footer className="settings-modal-footer">
-          <button type="button" onClick={() => setDraft(defaultHotkeys)}>Restore defaults</button>
+          <button type="button" onClick={() => setDraft({ ...defaultHotkeys })}>Restore defaults</button>
           <span className="settings-footer-spacer" />
           <button type="button" onClick={onClose}>Cancel</button>
           <button type="button" className="settings-primary-button" disabled={saving} onClick={save}>

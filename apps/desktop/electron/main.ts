@@ -5,8 +5,8 @@ import * as path from "path";
 import { getDevRepoRoot, getDevSidecarPath } from "./paths";
 import { readWorkspaceMemory, rememberWorkspacePath } from "./workspaceMemory";
 import { readLayoutMemory, writeLayoutMemory } from "./layoutMemory";
-import type { AppSettings, HotkeySettings } from "./settingsMemory";
-import { readSettings, settingsWithHotkeys, validateHotkeys, writeSettings } from "./settingsMemory";
+import type { AppSettings } from "./settingsMemory";
+import { DEFAULT_HOTKEYS, readSettings, settingsWithHotkeys, validateHotkeys, writeSettings } from "./settingsMemory";
 import { buildMenuTemplate } from "./menuTemplate";
 
 let mainWindow: BrowserWindow | null = null;
@@ -22,6 +22,13 @@ let menuPanelItems: Record<string, Electron.MenuItem> = {};
 let currentSettings: AppSettings | null = null;
 let hotkeyCaptureActive = false;
 const menuPanelIds = ["sessions", "detail", "terminal", "capacity", "recommendations"];
+
+function rendererSettings(settings: AppSettings): AppSettings & { defaultHotkeys: typeof DEFAULT_HOTKEYS } {
+  return {
+    ...settings,
+    defaultHotkeys: { ...DEFAULT_HOTKEYS },
+  };
+}
 
 function createMenu(settings: AppSettings): Electron.Menu {
   const template = buildMenuTemplate({
@@ -158,7 +165,7 @@ app.whenReady().then(() => {
 
   ipcMain.handle("get-settings", async () => {
     currentSettings = readSettings(app.getPath("userData"));
-    return currentSettings;
+    return rendererSettings(currentSettings);
   });
 
   ipcMain.handle("save-hotkeys", async (_event, hotkeys: unknown) => {
@@ -175,7 +182,7 @@ app.whenReady().then(() => {
     currentSettings = nextSettings;
     applyMenu(nextMenu);
 
-    return { ok: true, settings: currentSettings };
+    return { ok: true, settings: rendererSettings(currentSettings) };
   });
 
   ipcMain.handle("open-workspace", async () => {
