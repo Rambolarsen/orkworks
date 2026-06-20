@@ -157,6 +157,32 @@ impl MetadataStore {
         }
     }
 
+    pub fn delete_session(&self, id: &str) -> std::io::Result<()> {
+        let path = self.sessions_dir().join(format!("{}.json", id));
+        match fs::remove_file(&path) {
+            Ok(_) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(e),
+        }
+    }
+
+    pub fn delete_events(&self, id: &str) -> std::io::Result<()> {
+        let ndjson_path = self.events_dir().join(format!("{}.ndjson", id));
+        let terminal_path = self.terminal_output_path(id);
+
+        if let Err(e) = fs::remove_file(&ndjson_path) {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                return Err(e);
+            }
+        }
+        if let Err(e) = fs::remove_file(&terminal_path) {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                return Err(e);
+            }
+        }
+        Ok(())
+    }
+
     #[allow(dead_code)]
     pub fn read_events(&self, id: &str) -> Vec<Event> {
         let path = self.events_dir().join(format!("{}.ndjson", id));
@@ -802,5 +828,56 @@ mod tests {
         let store = MetadataStore::new(dir.path());
         let lines = store.read_terminal_output("nonexistent", 50);
         assert!(lines.is_empty());
+    }
+
+    #[test]
+    fn delete_session_removes_json_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let meta = test_metadata("delete-me");
+        store.write_session(&meta);
+        assert!(store.read_session("delete-me").is_some());
+
+        store.delete_session("delete-me").unwrap();
+        assert!(store.read_session("delete-me").is_none());
+    }
+
+    #[test]
+    fn delete_session_is_idempotent() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        // Should not error if file doesn't exist
+        assert!(store.delete_session("nonexistent").is_ok());
+    }
+
+    #[test]
+    fn delete_events_removes_ndjson_and_terminal() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        store.append_event("del-test", &Event {
+            event_type: "session.created".into(),
+            timestamp: "t1".into(),
+            status: "creating".into(),
+            observed_status: None,
+            confidence: None,
+        });
+        store.append_terminal_output_lines("del-test", &["line 1".into(), "line 2".into()]);
+
+        let ndjson_path = store.events_dir().join("del-test.ndjson");
+        let terminal_path = store.events_dir().join("del-test.terminal");
+        assert!(ndjson_path.exists());
+        assert!(terminal_path.exists());
+
+        store.delete_events("del-test").unwrap();
+
+        assert!(!ndjson_path.exists());
+        assert!(!terminal_path.exists());
+    }
+
+    #[test]
+    fn delete_events_is_idempotent() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        assert!(store.delete_events("nonexistent").is_ok());
     }
 }
