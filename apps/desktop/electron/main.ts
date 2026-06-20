@@ -64,7 +64,8 @@ function applyMenu(menu: Electron.Menu): void {
 
 function getSidecarPath(): string {
   if (app.isPackaged) {
-    return path.join(process.resourcesPath, "orkworksd");
+    const binaryName = process.platform === "win32" ? "orkworksd.exe" : "orkworksd";
+    return path.join(process.resourcesPath, binaryName);
   }
   return getDevSidecarPath(__dirname);
 }
