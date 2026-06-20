@@ -557,15 +557,19 @@ async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse 
     let all_metadata_sessions = ws_guard.as_ref().map(|ws| ws.metadata.read_all_sessions()).unwrap_or_default();
     drop(ws_guard);
 
-    let live_ids: HashSet<String> = session_data.iter().map(|(id, _, _, _, _)| id.clone()).collect();
+    let live_ids: HashSet<String> = session_data.iter()
+        .filter(|(_, _, status, _, _)| status != "killed" && status != "ended" && status != "error")
+        .map(|(id, _, _, _, _)| id.clone())
+        .collect();
 
     let peon_times = state.peon.last_inference.read().unwrap();
     let mut infos: Vec<SessionInfo> = session_data.into_iter().map(|(id, label, status, cwd, created_at)| {
         let meta = metadata_map.get(&id);
         let harness_id = meta.and_then(|m| (!m.harness.is_empty()).then(|| m.harness.as_str()));
         let caps = capabilities_for_harness(&state.adapters, harness_id);
+        let is_live = status != "killed" && status != "ended" && status != "error";
         let (memory_state, resume_strategy) =
-            derive_memory_state(true, meta.and_then(|m| m.resume.as_ref()), &caps);
+            derive_memory_state(is_live, meta.and_then(|m| m.resume.as_ref()), &caps);
         SessionInfo {
             id: id.clone(),
             label: meta.map(|m| m.label.clone()).unwrap_or(label),
@@ -751,6 +755,7 @@ async fn forget_session(
     let _ = ws.metadata.clear_last_active_session_if_matches(&id);
     drop(ws_guard);
 
+    state.sessions.lock().unwrap().remove(&id);
     state.peon.last_output.write().unwrap().remove(&id);
     state.peon.last_inference.write().unwrap().remove(&id);
 

@@ -267,6 +267,18 @@ app.whenReady().then(() => {
     });
 
     if (!resp.ok) return null;
+
+    try {
+      const retention = currentSettings?.retention ?? DEFAULT_RETENTION;
+      await fetch(`http://127.0.0.1:${port}/settings/retention`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(retention),
+      });
+    } catch {
+      // Non-fatal: sidecar will use defaults until next save-retention
+    }
+
     return resp.json();
   });
 
