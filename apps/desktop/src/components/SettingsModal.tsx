@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { acceleratorFromKeyboardEvent } from "../hotkeyCapture";
-import type { AppSettings, HotkeySettings, SaveHotkeysResult } from "../appSettingsTypes";
+import type { AppSettings, HotkeySettings, RetentionSettings, SaveHotkeysResult } from "../appSettingsTypes";
 
 type HotkeyAction = keyof HotkeySettings;
 
@@ -27,6 +27,8 @@ export default function SettingsModal({ initialSettings, onClose, onSaved }: Set
   const [errors, setErrors] = useState<Partial<Record<HotkeyAction, string[]>>>({});
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [retention, setRetention] = useState<RetentionSettings>(initialSettings.retention);
+  const [retentionSaveStatus, setRetentionSaveStatus] = useState<string | null>(null);
 
   useEffect(() => {
     if (!capturing) return;
@@ -62,6 +64,16 @@ export default function SettingsModal({ initialSettings, onClose, onSaved }: Set
       window.orkworks.setHotkeyCaptureActive(false);
     };
   }, [capturing]);
+
+  async function saveRetention(rt: RetentionSettings) {
+    setRetentionSaveStatus(null);
+    try {
+      await window.orkworks.saveRetention(rt);
+      setRetentionSaveStatus("Saved");
+    } catch {
+      setRetentionSaveStatus("Couldn't save retention settings.");
+    }
+  }
 
   async function save() {
     setSaving(true);
@@ -122,6 +134,59 @@ export default function SettingsModal({ initialSettings, onClose, onSaved }: Set
             ))}
           </div>
           {saveError && <div className="settings-save-error">{saveError}</div>}
+        </div>
+
+        <div className="settings-section">
+          <h3>Session Retention</h3>
+          <p className="settings-section-copy">
+            Live sessions are never auto-deleted. Changes apply immediately.
+          </p>
+
+          <div className="retention-list">
+            <div className="retention-row">
+              <div className="retention-label">Max sessions to keep</div>
+              <input
+                className="retention-input"
+                type="number"
+                min={0}
+                max={999}
+                value={retention.maxSessions}
+                onChange={(e) => {
+                  const v = parseInt(e.target.value, 10);
+                  if (!Number.isNaN(v)) {
+                    setRetention((r) => ({ ...r, maxSessions: Math.max(0, Math.min(999, v)) }));
+                  }
+                }}
+                onBlur={() => saveRetention(retention)}
+              />
+              <span className="retention-hint">0 = unlimited</span>
+            </div>
+
+            <div className="retention-row">
+              <div className="retention-label">Auto-delete sessions older than (days)</div>
+              <input
+                className="retention-input"
+                type="number"
+                min={0}
+                max={999}
+                value={retention.maxAgeDays}
+                onChange={(e) => {
+                  const v = parseInt(e.target.value, 10);
+                  if (!Number.isNaN(v)) {
+                    setRetention((r) => ({ ...r, maxAgeDays: Math.max(0, Math.min(999, v)) }));
+                  }
+                }}
+                onBlur={() => saveRetention(retention)}
+              />
+              <span className="retention-hint">0 = never</span>
+            </div>
+          </div>
+
+          {retentionSaveStatus && (
+            <div className={`retention-status ${retentionSaveStatus === "Saved" ? "retention-status--ok" : ""}`}>
+              {retentionSaveStatus}
+            </div>
+          )}
         </div>
 
         <footer className="settings-modal-footer">

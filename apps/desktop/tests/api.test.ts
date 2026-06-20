@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import type { SessionInfo, WorkspaceInfo } from "../src/api.ts";
+import { forgetSession } from "../src/api.ts";
 
 test("SessionInfo type accepts metadata fields", () => {
   const session: SessionInfo = {
@@ -55,4 +56,26 @@ test("WorkspaceInfo type has expected shape", () => {
   assert.equal(ws.path, "/tmp/project");
   assert.equal(ws.branch, "main");
   assert.equal(ws.lastActiveSessionId, "session-1");
+});
+
+test("forgetSession throws on non-ok response", async () => {
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = (_url: string | URL | Request, _init?: RequestInit) =>
+    Promise.resolve(new Response(null, { status: 409 }));
+  try {
+    await assert.rejects(() => forgetSession("http://localhost:0", "test-id"), /forget session failed: 409/);
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+});
+
+test("forgetSession resolves on 200", async () => {
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = (_url: string | URL | Request, _init?: RequestInit) =>
+    Promise.resolve(new Response(null, { status: 200 }));
+  try {
+    await assert.doesNotReject(() => forgetSession("http://localhost:0", "test-id"));
+  } finally {
+    globalThis.fetch = origFetch;
+  }
 });

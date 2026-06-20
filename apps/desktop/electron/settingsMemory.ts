@@ -1,10 +1,16 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+export interface RetentionSettings {
+  maxSessions: number;
+  maxAgeDays: number;
+}
+
 export interface AppSettings {
   [key: string]: unknown;
   version: 1;
   hotkeys: HotkeySettings;
+  retention: RetentionSettings;
 }
 
 export interface HotkeySettings {
@@ -83,9 +89,15 @@ export const DEFAULT_HOTKEYS: HotkeySettings = {
   resetLayout: null,
 };
 
+export const DEFAULT_RETENTION: RetentionSettings = {
+  maxSessions: 0,
+  maxAgeDays: 0,
+};
+
 export const DEFAULT_SETTINGS: AppSettings = {
   version: 1,
   hotkeys: { ...DEFAULT_HOTKEYS },
+  retention: { ...DEFAULT_RETENTION },
 };
 
 const fileName = "settings.json";
@@ -172,7 +184,24 @@ export function normalizeSettings(value: unknown): AppSettings {
     ...parsed,
     version: 1,
     hotkeys: normalizeHotkeys(parsed.hotkeys),
+    retention: normalizeRetention(parsed.retention),
   };
+}
+
+export function normalizeRetention(value: unknown): RetentionSettings {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return { ...DEFAULT_RETENTION };
+  }
+  const raw = value as Record<string, unknown>;
+  return {
+    maxSessions: clampInt(raw.maxSessions, 0, 999, DEFAULT_RETENTION.maxSessions),
+    maxAgeDays: clampInt(raw.maxAgeDays, 0, 999, DEFAULT_RETENTION.maxAgeDays),
+  };
+}
+
+function clampInt(v: unknown, min: number, max: number, fallback: number): number {
+  if (typeof v !== "number" || !Number.isFinite(v)) return fallback;
+  return Math.max(min, Math.min(max, Math.round(v)));
 }
 
 export function settingsWithHotkeys(baseSettings: AppSettings, hotkeys: unknown): AppSettings {
@@ -252,6 +281,7 @@ function defaultSettings(): AppSettings {
   return {
     version: 1,
     hotkeys: { ...DEFAULT_HOTKEYS },
+    retention: { ...DEFAULT_RETENTION },
   };
 }
 

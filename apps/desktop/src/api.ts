@@ -67,6 +67,16 @@ export async function deleteSession(
   if (!resp.ok) throw new Error(`delete session failed: ${resp.status}`);
 }
 
+export async function forgetSession(
+  baseUrl: string,
+  id: string,
+): Promise<void> {
+  const resp = await fetch(`${baseUrl}/sessions/${id}/forget`, {
+    method: "DELETE",
+  });
+  if (!resp.ok) throw new Error(`forget session failed: ${resp.status}`);
+}
+
 export interface WorkspaceInfo {
   path: string;
   repo_root: string | null;

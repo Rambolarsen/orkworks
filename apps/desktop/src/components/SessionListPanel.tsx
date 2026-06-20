@@ -17,6 +17,7 @@ interface SessionListPanelProps {
   activeSessionId: string | null;
   onSelectSession: (id: string) => void;
   onKillSession: (id: string) => void;
+  onForgetSession: (id: string) => void;
   onFocusTerminal: () => void;
   onOpenWorkspace: () => void;
 }
@@ -52,6 +53,7 @@ function SessionListPanel({
   activeSessionId,
   onSelectSession,
   onKillSession,
+  onForgetSession,
   onFocusTerminal,
   onOpenWorkspace,
 }: SessionListPanelProps) {
@@ -188,6 +190,21 @@ function SessionListPanel({
                           }}
                         >
                           &times;
+                        </button>
+                      )}
+                      {s.memoryState !== "live" && (
+                        <button
+                          className="session-row-forget"
+                          type="button"
+                          aria-label="Delete session"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (window.confirm("Permanently delete this session? The session record, events, and saved terminal scrollback cannot be restored.")) {
+                              onForgetSession(s.id);
+                            }
+                          }}
+                        >
+                          &#x1F5D1;
                         </button>
                       )}
                     </div>
