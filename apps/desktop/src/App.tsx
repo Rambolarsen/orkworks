@@ -26,6 +26,7 @@ function App() {
   const [workspace, setWorkspaceState] = useState<WorkspaceInfo | null>(null);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [resumeTick, setResumeTick] = useState(0);
   const dockviewApiRef = useRef<DockviewApi | null>(null);
   const sessionsHiddenLayoutRef = useRef<string | null>(null);
 
@@ -152,10 +153,12 @@ function App() {
 
   const handleResumeSession = useCallback(async (id: string) => {
     try {
+      disposeTerminal(id);
       const baseUrl = await window.orkworks.getBackendUrl();
       const session = await resumeSession(baseUrl, id);
-      setSessions((prev) => [...prev, session]);
+      setSessions((prev) => prev.map(s => s.id === id ? session : s));
       setActiveSessionId(session.id);
+      setResumeTick(t => t + 1);
     } catch {
       pushToast("error", "Couldn't resume session.");
     }
@@ -328,6 +331,7 @@ function App() {
         workspace={workspace}
         sessions={sessions}
         activeSessionId={activeSessionId}
+        resumeTick={resumeTick}
         onSelectSession={handleSelectSession}
         onCreateSession={handleCreateSession}
         onKillSession={handleKillSession}

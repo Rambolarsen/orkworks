@@ -298,16 +298,15 @@ async fn resume_session(
         (meta, command, strategy)
     };
 
-    let new_id = uuid::Uuid::new_v4().to_string();
     let (kill_tx, _kill_rx) = tokio::sync::watch::channel(false);
     let info = SessionInfo {
-        id: new_id.clone(),
-        label: format!("{} resumed", meta.label),
+        id: id.clone(),
+        label: meta.label.clone(),
         harness: (!meta.harness.is_empty()).then(|| meta.harness.clone()),
         model: (!meta.model.is_empty()).then(|| meta.model.clone()),
         status: "creating".into(),
         cwd: command.cwd.clone(),
-        created_at: now.clone(),
+        created_at: meta.created_at.clone(),
         observed_status: None,
         summary: meta.summary.clone(),
         next_action: meta.next_action.clone(),
@@ -331,18 +330,47 @@ async fn resume_session(
         memory_state: MemoryState::Live,
         resume_strategy: strategy,
         resume: meta.resume.clone(),
-        resumed_from: Some(id.clone()),
+        resumed_from: meta.resumed_from.clone(),
     };
 
-    state.sessions.lock().unwrap().insert(
-        new_id.clone(),
-        SessionHandle {
-            info: info.clone(),
-            kill_tx,
-            output_buffer: peon::RingBuffer::new(state.peon.config.max_lines),
-            command,
-        },
-    );
+    {
+        let mut sessions = state.sessions.lock().unwrap();
+        if let Some(handle) = sessions.get_mut(&id) {
+            handle.info = info.clone();
+            handle.kill_tx = kill_tx;
+            handle.output_buffer = peon::RingBuffer::new(state.peon.config.max_lines);
+            handle.command = command;
+        } else {
+            sessions.insert(
+                id.clone(),
+                SessionHandle {
+                    info: info.clone(),
+                    kill_tx,
+                    output_buffer: peon::RingBuffer::new(state.peon.config.max_lines),
+                    command,
+                },
+            );
+        }
+    }
+
+    {
+        let ws_guard = state.workspace.lock().unwrap();
+        if let Some(ref ws) = *ws_guard {
+            if let Some(mut stored_meta) = ws.metadata.read_session(&id) {
+                stored_meta.status = "creating".to_string();
+                stored_meta.resume = meta.resume.clone();
+                stored_meta.resumed_from = meta.resumed_from.clone();
+                ws.metadata.write_session(&stored_meta);
+            }
+            ws.metadata.append_event(&id, &metadata::Event {
+                event_type: "session.resumed".into(),
+                timestamp: now,
+                status: "creating".into(),
+                observed_status: None,
+                confidence: None,
+            });
+        }
+    }
 
     Json(info).into_response()
 }

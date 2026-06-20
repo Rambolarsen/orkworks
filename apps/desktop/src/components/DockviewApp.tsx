@@ -19,6 +19,7 @@ interface DockviewAppData {
   workspace: WorkspaceInfo | null;
   sessions: SessionInfo[];
   activeSessionId: string | null;
+  resumeTick: number;
   onSelectSession: (id: string) => void;
   onCreateSession: () => void;
   onKillSession: (id: string) => void;
@@ -82,7 +83,7 @@ function DetailPanel() {
 function TermPanel() {
   const ctx = useContext(DockviewContext);
   const session = ctx.sessions.find((s) => s.id === ctx.activeSessionId) ?? null;
-  return <TerminalPanel backendStatus={ctx.backendStatus} session={session} />;
+  return <TerminalPanel key={`${session?.id ?? 'none'}-${ctx.resumeTick}`} backendStatus={ctx.backendStatus} session={session} />;
 }
 
 function CapPanel() {
@@ -146,9 +147,9 @@ function layoutNeedsMigration(json: Record<string, unknown>): boolean {
 }
 
 function DockviewApp(props: DockviewAppData) {
-  const { backendStatus, workspace, sessions, activeSessionId, onSelectSession, onCreateSession, onKillSession, onResumeSession, onFocusTerminal, onOpenWorkspace, dockviewApiRef } = props;
+  const { backendStatus, workspace, sessions, activeSessionId, resumeTick, onSelectSession, onCreateSession, onKillSession, onResumeSession, onFocusTerminal, onOpenWorkspace, dockviewApiRef } = props;
 
-  const ctxValue: DockviewAppData = { backendStatus, workspace, sessions, activeSessionId, onSelectSession, onCreateSession, onKillSession, onResumeSession, onFocusTerminal, onOpenWorkspace, dockviewApiRef };
+  const ctxValue: DockviewAppData = { backendStatus, workspace, sessions, activeSessionId, resumeTick, onSelectSession, onCreateSession, onKillSession, onResumeSession, onFocusTerminal, onOpenWorkspace, dockviewApiRef };
 
   const initializedRef = useRef(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
