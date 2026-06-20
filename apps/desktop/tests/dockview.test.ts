@@ -6,8 +6,7 @@ import {
   needsAttention,
   sessionAttentionStatus,
   sortSessions,
-  statusDotColor,
-} from "../src/components/RightSidebarHelpers.ts";
+} from "../src/sessionSort.ts";
 
 test("DockviewApp registers panels through onReady", () => {
   const source = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
@@ -41,12 +40,42 @@ test("App renders DockviewApp instead of the legacy three-panel layout", () => {
   assert.doesNotMatch(source, /<RightSidebar/);
 });
 
-test("DockviewApp registers the five expected panel ids", () => {
+test("DockviewApp keeps all five panel ids registered (View menu hotkeys depend on it)", () => {
   const source = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
 
   for (const id of ["sessions", "detail", "terminal", "capacity", "recommendations"]) {
-    assert.match(source, new RegExp(`component: "${id}"`));
+    assert.match(source, new RegExp(`\\b${id}\\b.*:.*Panel`));
   }
+});
+
+test("DockviewApp default layout opens sessions/detail/terminal only (Capacity & Recommendations closed until they carry signal)", () => {
+  const source = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /DEFAULT_LAYOUT_PANELS:\s*ReadonlyArray<string>\s*=\s*\["terminal",\s*"sessions",\s*"detail"\]/);
+  assert.doesNotMatch(source, /DEFAULT_LAYOUT_PANELS[^=]*=[^;]*capacity/);
+  assert.doesNotMatch(source, /DEFAULT_LAYOUT_PANELS[^=]*=[^;]*recommendations/);
+});
+
+test("DockviewApp migrates pre-redesign stored layouts that referenced removed panels", () => {
+  const source = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /layoutNeedsMigration/);
+  assert.match(source, /migrating stored layout/);
+  assert.match(source, /!\("v" in parsed\)/);
+  assert.match(source, /"capacity"/);
+  assert.match(source, /"recommendations"/);
+  // Post-redesign layouts are versioned, so they never match the migration
+  // predicate after the user opens Capacity/Recommendations from the View menu.
+  assert.match(source, /\{ v: 1, d: api\.toJSON\(\) \}/);
+});
+
+test("App and DockviewApp share one canonical default-layout builder", () => {
+  const dockview = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
+  const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+
+  assert.match(dockview, /export function buildDefaultLayout\(/);
+  assert.match(app, /buildDefaultLayout\s*\}\s*from\s*"\.\/components\/DockviewApp"/);
+  assert.match(app, /buildDefaultLayout\(api\)/);
 });
 
 test("DockviewApp exposes a right-side header action for the Sessions panel", () => {
@@ -72,39 +101,59 @@ test("Sessions header action is gated on workspace presence and panel identity",
   );
 });
 
-test("App.css scopes dockview header chrome and header actions", () => {
+test("App.css resolves dockview overrides through tokens, not raw hex literals", () => {
   const source = readFileSync(new URL("../src/App.css", import.meta.url), "utf8");
 
   assert.match(source, /\.dockview-header-action\b/);
-  assert.match(source, /font-size:\s*16px/);
-  assert.match(source, /margin-right:\s*8px/);
   assert.match(source, /\.orkworks-dockview\s+\.dv-tabs-and-actions-container\b/);
-  assert.match(source, /padding-right:\s*0/);
   assert.match(source, /\.orkworks-dockview\s+\.dv-tab\s+\.dv-default-tab\s+\.dv-default-tab-content\b/);
-  assert.match(source, /margin-left:\s*12px/);
   assert.match(
     source,
     /\.orkworks-dockview\s+\.dv-tabs-and-actions-container\.dv-single-tab\.dv-full-width-single-tab\s+\.dv-right-actions-container\b/,
   );
-  assert.match(source, /right:\s*0/);
-  assert.match(source, /background:\s*#262220/);
-  assert.match(source, /--dv-background-color:\s*#211d1b/);
-  assert.match(source, /--dv-tabs-and-actions-container-background-color:\s*#262220/);
-  assert.match(source, /--dv-activegroup-visiblepanel-tab-background-color:\s*#262220/);
-  assert.match(source, /--dv-activegroup-hiddenpanel-tab-background-color:\s*#312c29/);
-  assert.match(source, /--dv-inactivegroup-visiblepanel-tab-background-color:\s*#262220/);
-  assert.match(source, /--dv-inactivegroup-hiddenpanel-tab-background-color:\s*#312c29/);
+  assert.match(source, /--dv-background-color:\s*var\(--surface-1\)/);
+  assert.match(source, /--dv-tabs-and-actions-container-background-color:\s*var\(--surface-2\)/);
+  assert.match(source, /--dv-activegroup-visiblepanel-tab-background-color:\s*var\(--surface-2\)/);
+  assert.match(source, /--dv-activegroup-hiddenpanel-tab-background-color:\s*var\(--surface-3\)/);
   assert.match(source, /\.orkworks-dockview\s+\.dv-groupview\b/);
-  assert.match(source, /background:\s*#211d1b/);
+  assert.match(source, /background:\s*var\(--surface-1\)/);
+  assert.doesNotMatch(source, /#[0-9a-fA-F]{3,8}\b/);
 });
 
-test("SessionDetailPanel includes the core detail sections", () => {
+test("tokens.css defines the substrate scale (color / space / state)", () => {
+  const source = readFileSync(new URL("../src/styles/tokens.css", import.meta.url), "utf8");
+
+  for (const tok of [
+    "--surface-0", "--surface-1", "--surface-2",
+    "--text-primary", "--text-muted", "--text-faint",
+    "--state-ok", "--state-warn", "--state-error", "--state-info",
+    "--attention-needs-you", "--attention-blocked", "--attention-done", "--attention-working", "--attention-idle",
+    "--space-1", "--space-6",
+    "--text-xs", "--text-xl",
+    "--accent-focus",
+  ]) {
+    assert.match(source, new RegExp(`${tok}\\s*:`));
+  }
+});
+
+test("global :focus-visible ring is defined and .session-list does not suppress outline", () => {
+  const source = readFileSync(new URL("../src/App.css", import.meta.url), "utf8");
+
+  assert.match(source, /:focus-visible\s*\{[^}]*outline:\s*2px\s+solid\s+var\(--accent-focus\)/);
+  assert.doesNotMatch(source, /\.session-list[^}]*outline:\s*none/);
+});
+
+test("SessionDetailPanel includes the core detail sections via labels module", () => {
   const source = readFileSync(new URL("../src/components/SessionDetailPanel.tsx", import.meta.url), "utf8");
 
-  for (const label of ["Task", "Status", "Directory", "Git", "Source", "Peon"]) {
+  for (const label of ["Task", "Status", "Directory", "Git", "Memory", "Source", "Peon"]) {
     assert.match(source, new RegExp(`>${label}<`));
   }
   assert.match(source, /Select a session to see details/);
+  assert.match(source, /attentionLabel/);
+  assert.match(source, /memoryStateLabel/);
+  assert.match(source, /resumeActionLabel/);
+  assert.match(source, /sourceWithConfidence/);
 });
 
 test("session list sorts by attention priority with lifecycle fallback", () => {
@@ -125,24 +174,18 @@ test("session list sorts by attention priority with lifecycle fallback", () => {
   assert.equal(sorted[5].id, "3"); // ended
 });
 
-test("ended sessions do not have live status dot", () => {
-  assert.equal(statusDotColor("ended"), "#666");
-  assert.equal(statusDotColor("killed"), "#666");
-  assert.equal(statusDotColor("error"), "#666");
+test("needsAttention lifecycle statuses do not trigger from raw lifecycle", () => {
+  assert.equal(needsAttention("running"), false);
+  assert.equal(needsAttention("ended"), false);
+  assert.equal(needsAttention("creating"), false);
 });
 
-test("sessionAttentionStatus falls back to lifecycle status", () => {
+test("sessionAttentionStatus falls back to lifecycle status when no observed", () => {
   const session: SessionInfo = {
     id: "1", label: "test", status: "running", cwd: "/tmp", created_at: "now",
     memoryState: "live", resumeStrategy: "none",
   };
   assert.equal(sessionAttentionStatus(session), "running");
-});
-
-test("needsAttention lifecycle statuses do not trigger from raw lifecycle", () => {
-  assert.equal(needsAttention("running"), false);
-  assert.equal(needsAttention("ended"), false);
-  assert.equal(needsAttention("creating"), false);
 });
 
 test("session detail exposes resumable session action", () => {
@@ -163,7 +206,7 @@ test("session list marks remembered sessions separately from live sessions", () 
   );
 
   assert.match(source, /memoryState/);
-  assert.match(source, /session-item--remembered/);
+  assert.match(source, /session-row--remembered/);
 });
 
 test("session list only offers kill for live sessions", () => {
@@ -172,18 +215,34 @@ test("session list only offers kill for live sessions", () => {
     "utf8",
   );
 
-  assert.match(source, /s\.memoryState === "live" && \(\s*<button[\s\S]*session-kill-button/);
+  assert.match(source, /s\.memoryState === "live" && \(\s*<button[\s\S]*session-row-kill/);
 });
 
-test("SessionListPanel no longer renders duplicate header chrome", () => {
+test("session list routes attention/source/memory through the labels module instead of raw enums", () => {
   const source = readFileSync(
     new URL("../src/components/SessionListPanel.tsx", import.meta.url),
     "utf8",
   );
 
-  assert.doesNotMatch(source, /className="panel-header"/);
-  assert.doesNotMatch(source, /className="session-new-button"/);
-  assert.doesNotMatch(source, /onCreateSession:/);
+  assert.match(source, /attentionLabel/);
+  assert.match(source, /attentionTone/);
+  assert.match(source, /memoryStateLabel/);
+  assert.match(source, /sourceWithConfidence/);
+  // The row uses data-attention to drive border/dot color, never inline hex.
+  assert.match(source, /data-attention=\{tone\}/);
+  assert.doesNotMatch(source, /style=\{\{[^}]*#[0-9a-fA-F]{3,8}/);
+});
+
+test("EmptyState is the single empty-state primitive across the app", () => {
+  const list = readFileSync(new URL("../src/components/SessionListPanel.tsx", import.meta.url), "utf8");
+  const detail = readFileSync(new URL("../src/components/SessionDetailPanel.tsx", import.meta.url), "utf8");
+  const terminal = readFileSync(new URL("../src/components/TerminalPanel.tsx", import.meta.url), "utf8");
+  const center = readFileSync(new URL("../src/components/CenterPanel.tsx", import.meta.url), "utf8");
+
+  for (const source of [list, detail, terminal, center]) {
+    assert.match(source, /import EmptyState from "\.\/EmptyState"/);
+    assert.match(source, /<EmptyState\s+message=/);
+  }
 });
 
 test("App restores the last active session from the initial workspace", () => {
@@ -221,4 +280,44 @@ test("SettingsModal contains hotkey edit reset default cancel and save flows", (
   assert.match(source, /acceleratorFromKeyboardEvent/);
   assert.match(source, /setHotkeyCaptureActive\(true\)/);
   assert.match(source, /setHotkeyCaptureActive\(false\)/);
+});
+
+test("TerminalPanel no longer renders internal session tabs or duplicate kill controls", () => {
+  const source = readFileSync(new URL("../src/components/TerminalPanel.tsx", import.meta.url), "utf8");
+
+  assert.doesNotMatch(source, /liveSessions\.map/);
+  assert.doesNotMatch(source, /onKillSession/);
+  assert.match(source, /<CenterPanel/);
+});
+
+test("App activates shared terminal panel on session create", () => {
+  const source = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /api\.getPanel\("terminal"\)/);
+  assert.match(source, /panel\.api\.setActive\(\)/);
+});
+
+test("TermPanel in DockviewApp passes a single session to TerminalPanel", () => {
+  const source = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /session=\{session\}/);
+  assert.match(source, /TermPanel/);
+});
+
+test("App routes user-facing error catches through the toast feedback primitive", () => {
+  const source = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /import \{ pushToast \} from "\.\/feedback"/);
+  assert.match(source, /pushToast\("error", "Couldn't open workspace\."\)/);
+  assert.match(source, /pushToast\("error", "Couldn't start a new session\."\)/);
+  assert.match(source, /pushToast\("error", "Couldn't end session\."\)/);
+  assert.doesNotMatch(source, /\/\* ignore \*\//);
+});
+
+test("App titlebar uses the canonical workspace vocabulary (no 'Folder' drift)", () => {
+  const source = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /import \{ VOCAB \} from "\.\/labels"/);
+  assert.match(source, /\{VOCAB\.openWorkspace\}/);
+  assert.doesNotMatch(source, /Open Folder/);
 });

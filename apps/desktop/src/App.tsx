@@ -2,8 +2,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { DockviewApi } from "dockview-react";
 import DockviewApp from "./components/DockviewApp";
 import SettingsModal from "./components/SettingsModal";
-import { sortSessions } from "./components/RightSidebarHelpers";
-import { PANEL_DEFAULTS } from "./components/DockviewApp";
+import ToastRack from "./components/ToastRack";
+import { sortSessions } from "./sessionSort";
+import { PANEL_DEFAULTS, buildDefaultLayout } from "./components/DockviewApp";
+import { VOCAB } from "./labels";
+import { pushToast } from "./feedback";
 import {
   type SessionInfo,
   type WorkspaceInfo,
@@ -62,7 +65,8 @@ function App() {
       const list = await listSessions(baseUrl);
       setSessions(sortSessions(list));
     } catch {
-      /* backend not ready */
+      // Silent: polled every 2s; transient failures are reflected by the
+      // backendStatus badge, not by spamming toasts.
     }
   }, []);
 
@@ -83,7 +87,7 @@ function App() {
         setActiveSessionId(info.lastActiveSessionId ?? null);
       }
     } catch {
-      /* user cancelled */
+      pushToast("error", "Couldn't open workspace.");
     }
   }, []);
 
@@ -99,13 +103,24 @@ function App() {
       const session = await createSession(baseUrl);
       setSessions((prev) => [...prev, session]);
       setActiveSessionId(session.id);
+
+      const api = dockviewApiRef.current;
+      if (api) {
+        const panel = api.getPanel("terminal");
+        if (panel) panel.api.setActive();
+      }
     } catch {
-      /* ignore */
+      pushToast("error", "Couldn't start a new session.");
     }
   }, []);
 
   const handleSelectSession = useCallback((id: string) => {
     setActiveSessionId(id);
+    const api = dockviewApiRef.current;
+    if (api) {
+      const panel = api.getPanel("terminal");
+      if (panel) panel.api.setActive();
+    }
   }, []);
 
   const handleKillSession = useCallback(
@@ -114,12 +129,13 @@ function App() {
         const baseUrl = await window.orkworks.getBackendUrl();
         await deleteSession(baseUrl, id);
         disposeTerminal(id);
+
         if (activeSessionId === id) {
           setActiveSessionId(null);
         }
         await refreshSessions();
       } catch {
-        /* ignore */
+        pushToast("error", "Couldn't end session.");
       }
     },
     [activeSessionId, refreshSessions],
@@ -131,10 +147,14 @@ function App() {
   }, [activeSessionId]);
 
   const handleResumeSession = useCallback(async (id: string) => {
-    const baseUrl = await window.orkworks.getBackendUrl();
-    const session = await resumeSession(baseUrl, id);
-    setSessions((prev) => [...prev, session]);
-    setActiveSessionId(session.id);
+    try {
+      const baseUrl = await window.orkworks.getBackendUrl();
+      const session = await resumeSession(baseUrl, id);
+      setSessions((prev) => [...prev, session]);
+      setActiveSessionId(session.id);
+    } catch {
+      pushToast("error", "Couldn't resume session.");
+    }
   }, []);
 
   useEffect(() => {
@@ -164,7 +184,8 @@ function App() {
       await setActiveWorkspaceSession(baseUrl, sid);
     }
     persistActiveSession().catch(() => {
-      /* backend not ready */
+      // Silent: backend may not be ready yet on first load; the next active-
+      // session change will retry.
     });
   }, [activeSessionId, backendStatus]);
 
@@ -241,21 +262,14 @@ function App() {
       } else if (action === "reset-layout") {
         sessionsHiddenLayoutRef.current = null;
         api.clear();
-        api.addPanel({ id: PANEL_DEFAULTS.sessions.component, component: PANEL_DEFAULTS.sessions.component });
-        for (const id of ["detail", "terminal", "capacity", "recommendations"]) {
-          const def = PANEL_DEFAULTS[id];
-          api.addPanel({
-            id: def.component,
-            component: def.component,
-            position: { referencePanel: def.position!.referencePanel, direction: def.position!.direction },
-          });
-        }
+        buildDefaultLayout(api);
       }
     });
   }, [handleCreateSession]);
 
   return (
     <div className="app-shell">
+      <ToastRack />
       <div className="titlebar">
         <div className="titlebar-left">
           {workspace ? (
@@ -270,7 +284,8 @@ function App() {
                 className="titlebar-switch-button"
                 type="button"
                 onClick={handleOpenWorkspace}
-                title="Switch workspace"
+                title={VOCAB.switchWorkspace}
+                aria-label={VOCAB.switchWorkspace}
               >
                 &#x21C4;
               </button>
@@ -283,7 +298,7 @@ function App() {
                 type="button"
                 onClick={handleOpenWorkspace}
               >
-                Open Folder
+                {VOCAB.openWorkspace}
               </button>
             </>
           )}
@@ -314,6 +329,7 @@ function App() {
         onKillSession={handleKillSession}
         onResumeSession={handleResumeSession}
         onFocusTerminal={handleFocusTerminal}
+        onOpenWorkspace={handleOpenWorkspace}
         dockviewApiRef={dockviewApiRef}
       />
       {settingsOpen && settings && (

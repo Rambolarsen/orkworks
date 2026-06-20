@@ -1,0 +1,75 @@
+:root {
+  /* Surfaces (dark, single mode for now) */
+  --surface-0: #1e1e1e;
+  --surface-1: #211d1b;
+  --surface-2: #262220;
+  --surface-3: #312c29;
+  --surface-active: #37373d;
+  --surface-titlebar: #323233;
+
+  /* Text */
+  --text-primary: #d4d4d4;
+  --text-secondary: #cccccc;
+  --text-muted: #858585;
+  --text-faint: #6e6e6e;
+  --text-on-accent: #d8edf7;
+
+  /* Borders / separators */
+  --border-default: #3c3c3c;
+  --border-subtle: #2a2a2b;
+
+  /* State */
+  --state-ok: #4ec94e;
+  --state-ok-bg: #1a3a1a;
+  --state-warn: #d4d44e;
+  --state-warn-bg: #3a3a1a;
+  --state-error: #cc4444;
+  --state-error-bg: #3a2a1a;
+  --state-error-border: #5a3a1a;
+  --state-info: #57c7ff;
+  --state-info-bg: #1d2f49;
+
+  /* Attention (semantic alias of state) */
+  --attention-needs-you: var(--state-error);
+  --attention-blocked: var(--state-warn);
+  --attention-done: var(--state-ok);
+  --attention-working: var(--state-ok);
+  --attention-idle: #4a4a4a;
+  --attention-neutral: var(--border-default);
+
+  /* Source */
+  --source-agent: var(--state-ok);
+  --source-peon: var(--state-info);
+  --source-other: var(--text-muted);
+
+  /* Accent / focus */
+  --accent: #4b6b7f;
+  --accent-strong: #5c879e;
+  --accent-bg: #123241;
+  --accent-bg-hover: #16465b;
+  --accent-focus: #6aa6ff;
+
+  /* Spacing scale */
+  --space-1: 2px;
+  --space-2: 4px;
+  --space-3: 6px;
+  --space-4: 8px;
+  --space-5: 12px;
+  --space-6: 16px;
+
+  /* Type scale */
+  --text-xs: 10px;
+  --text-sm: 11px;
+  --text-md: 12px;
+  --text-lg: 13px;
+  --text-xl: 14px;
+
+  /* Radius */
+  --radius-sm: 3px;
+  --radius-md: 4px;
+  --radius-lg: 6px;
+
+  /* Font face */
+  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen,
+             Ubuntu, Cantarell, "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
+}

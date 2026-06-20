@@ -1,0 +1,92 @@
+---
+name: starting-work
+description: Use when starting a new piece of work in OrkWorks — picks the right branching strategy (main vs branch vs worktree), creates the working environment, and primes the per-checkout setup so parallel agents do not collide.
+---
+
+# Starting Work
+
+## Overview
+
+OrkWorks is built to coordinate parallel AI sessions, and the dev workflow is parallel AI sessions. This skill is the procedural counterpart to the **Branch and PR workflow** section in `AGENTS.md` — that section defines the rules, this skill walks through executing them when you sit down to start a task.
+
+Use this skill at the start of any task that will produce code changes. Skip it for pure conversation, exploration, or read-only investigation.
+
+## Decide where the work lives
+
+Pick the lowest-overhead option that satisfies the rules in `AGENTS.md`.
+
+| Change shape | Where to work |
+| ------------ | ------------- |
+| Docs-only (`docs/`, `specs/`, ADRs, `*.md` outside `apps/`/`crates/`) or trivial code fix <~20 lines | Directly on `main` in the primary checkout |
+| Code change in `apps/desktop/` or `crates/orkworksd/`, no other agent active | Branch in the primary checkout |
+| Code change while another branch is already in flight in the primary checkout, or another agent is running | Worktree |
+| Parallel agents on independent tasks | One worktree per agent, always |
+
+The trigger for a worktree is **concurrency**, not branch existence. A solo single-branch day does not need one.
+
+## Path and naming convention
+
+- Branches: short kebab-case, scoped to the unit of work. Examples: `app-settings-hotkeys`, `peon-status-lifecycle`, `taskmaster-spec`.
+- Worktrees: sibling directory next to the primary checkout, named `../orkworks-<branch-slug>`.
+  - Keeps `ls` legible.
+  - Prevents Vite, Electron, and `pnpm` from following symlinks into nested worktrees.
+  - Cleanup tooling and agent prompts can assume this path.
+
+## Create a branch (no worktree)
+
+```bash
+git switch -c <branch-slug>
+```
+
+That is it. The primary checkout's `node_modules` and Cargo `target/` are reused.
+
+## Create a worktree
+
+```bash
+git worktree add ../orkworks-<branch-slug> -b <branch-slug>
+cd ../orkworks-<branch-slug>
+cd apps/desktop && pnpm install
+```
+
+Notes:
+
+- `pnpm install` is per-worktree — `node_modules` is not shared across worktrees.
+- Cargo manages its own `target/` per worktree automatically; no extra step.
+- If the branch already exists (e.g. another agent created it), drop `-b <branch-slug>` and use `git worktree add ../orkworks-<branch-slug> <branch-slug>`.
+- Run any agent (Claude Code, Codex, OpenCode, Aider) from inside the worktree directory, not the primary checkout. Treat the worktree as the project root for that task.
+
+## While the work is in flight
+
+- Commit frequently inside the worktree or branch; rebase onto `main` rather than merging `main` in.
+- Do not edit the same files from the primary checkout and a worktree at the same time — git will let you, the build tools will not.
+- If you start a second concurrent task, open a second worktree. Do not branch-switch inside an existing worktree mid-task.
+
+## Wrapping up
+
+When the branch merges (squash-merge by default per `AGENTS.md`):
+
+```bash
+# from anywhere
+git worktree remove ../orkworks-<branch-slug>
+git worktree prune
+git branch -d <branch-slug>          # local cleanup
+```
+
+Stranded worktrees follow the 7-day stranded-branch rule. If a worktree has gone >7 days without progress, either rebase and continue or remove it and close its PR with a one-line reason.
+
+## Quick reference
+
+```bash
+# list active worktrees
+git worktree list
+
+# create a new worktree on a new branch
+git worktree add ../orkworks-my-feature -b my-feature
+
+# create a worktree on an existing branch
+git worktree add ../orkworks-my-feature my-feature
+
+# remove a finished worktree
+git worktree remove ../orkworks-my-feature
+git worktree prune
+```

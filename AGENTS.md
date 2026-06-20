@@ -2,7 +2,7 @@
 
 ## Identity
 
-Local-first observability + recommendation layer for AI coding sessions ("Mission Control for AI Agents"). Observes and recommends before it controls — does not replace Claude Code, Codex, OpenCode, Gemini CLI, or Aider.
+Local-first mission control for AI coding sessions. Peons observe individual sessions; Taskmaster recommends what should happen next across harnesses, models, reviews, capacity, and Git context. OrkWorks observes and recommends before it controls — it does not replace Claude Code, Codex, OpenCode, Gemini CLI, or Aider.
 
 ## State of the repo
 
@@ -61,10 +61,11 @@ All implementation work is tracked as GitHub issues: [https://github.com/Rambola
 - `specs/orkworks-mvp.md` — full product scope, architecture, milestones, non-goals
 - `specs/native-harness-voice-support.md` — voice support design
 - `specs/review-queue.md` — proposed repo-local review inbox for plan/spec artifacts
+- `specs/taskmaster.md` — proposed cross-session coordination and next-step recommendation layer
 
 Read these before starting any implementation work.
 
-If either spec file is missing or unreadable, stop and notify the user before proceeding. Do not infer scope from context alone.
+If any authoritative spec file is missing or unreadable, stop and notify the user before proceeding. Do not infer scope from context alone.
 
 ## Development workflow
 
@@ -93,6 +94,28 @@ Do not use `--pure` for development work in this repo; it disables external plug
 
 Before OpenCode implementation work, verify that the skill tool lists Superpowers skills such as `superpowers/using-superpowers` and `superpowers/brainstorming`. If they are missing, stop, run `cd orkworks && apm install`, restart OpenCode from the repo root, and verify again before editing code.
 
+## Branch and PR workflow
+
+`main` is the trunk, not the workspace. Use branches and PRs for code; keep main fast for low-risk writing.
+
+When starting any task that will produce code changes, invoke the `starting-work` skill (in `skills/starting-work/`) before editing. It walks through the branch-vs-worktree decision, naming convention, and per-checkout setup that operationalize the rules in this section.
+
+**Direct to `main` is allowed for:**
+- Docs-only changes: `docs/`, `specs/`, ADRs, `README.md`, `AGENTS.md`, `CLAUDE.md`, and other `*.md` outside `apps/`/`crates/`.
+- Trivial code fixes under ~20 lines (typos, comment edits, single-line config tweaks). When in doubt, branch.
+
+**Everything else requires a branch + PR**, including any change to `apps/desktop/src/`, `apps/desktop/electron/`, `apps/desktop/tests/`, or `crates/orkworksd/`, regardless of commit-type prefix.
+
+**One PR per logical unit of work.** A burst of 5–10 small commits in a few minutes that share a feature name is one PR, not ten commits on main. Squash or rebase locally before opening it.
+
+**Review gate:** PRs that touch code under `apps/desktop/` or `crates/orkworksd/` must have a `/code-review` run (medium effort or higher) before merge. Address findings or note why each is intentional in the PR description.
+
+**Squash-merge by default.** Preserve multiple commits only when the history tells a story worth keeping (e.g. a refactor followed by a focused fix on top).
+
+**Stranded branches:** branches that go >7 days without merging must either be rebased and progressed, or closed with a one-line reason in the PR. No long-lived dev branches. The same rule applies to stranded worktrees.
+
+**Parallel work:** when more than one branch is in flight at once (multiple agents running concurrently, a hotfix on top of an in-progress feature), use `git worktree` so each branch has its own filesystem checkout — branch-switching in the main checkout will collide with other agents' uncommitted edits and build output. Invoke the `starting-work` skill before opening a worktree for the path convention, per-worktree setup, and cleanup steps.
+
 ## Decision tracking
 
 Architecture decisions are captured as ADRs in `docs/adr/`. Each significant architectural, stack, protocol, or boundary decision gets a numbered markdown file with context, decision, and consequences.
@@ -112,12 +135,15 @@ ADRs are complementary to specs: specs define what we're building; ADRs record w
 | ---- | ------- |
 | OrkWorks | Product |
 | `orkworksd` | Rust backend sidecar |
-| Peon | Low-cost metadata observer |
-| `.orkworks/` | Per-repo protocol directory (sessions/, events/, capacity/, skills/) |
+| Peon | Low-cost session/repo metadata observer |
+| Taskmaster | Workspace-level next-step coordinator |
+| `.orkworks/` | Per-repo protocol directory (sessions/, events/, capacity/, recommendations/, skills/) |
+
+Use normal engineering terminology for all other concepts. Peon and Taskmaster are the two intentional product-specific worker names; do not expand the fantasy naming further without an explicit spec update.
 
 ## Architecture
 
-Electron + React/TypeScript frontend (`apps/desktop/`) communicates with a Rust sidecar (`crates/orkworksd/`) over a dynamic localhost HTTP/WebSocket port. The desktop UI uses Dockview draggable panels around xterm.js terminal sessions. The sidecar manages PTY sessions, git context, and the `.orkworks/` metadata protocol.
+Electron + React/TypeScript frontend (`apps/desktop/`) communicates with a Rust sidecar (`crates/orkworksd/`) over a dynamic localhost HTTP/WebSocket port. The desktop UI uses Dockview draggable panels around xterm.js terminal sessions. The sidecar manages PTY sessions, Git context, the `.orkworks/` metadata protocol, Peon observation, and Taskmaster recommendation state.
 
 See [`docs/agents/architecture.md`](docs/agents/architecture.md) for the full inter-component breakdown (port discovery, preload bridge, API data flow, Rust modules, panel layout).
 
@@ -126,19 +152,29 @@ See [`docs/agents/architecture.md`](docs/agents/architecture.md) for the full in
 - `.orkworks/sessions/<id>.json` — agent-written session state
 - `.orkworks/events/<id>.ndjson` — append-only event log
 - `.orkworks/capacity/<id>.json` — capacity per model/harness
+- `.orkworks/recommendations/<id>.json` — Taskmaster recommendation state and history
 - `.orkworks/workspace.json` — repo-local workspace memory, including the last active session
 - Priority: user > agent > peon > backend_inference > process > unknown
 - Peon reads terminal output, writes inferred metadata, never types into terminals
+- Taskmaster consumes normalized metadata and proposes cross-session transitions; v1 requires explicit user approval for every action
 
 ## Key conventions from specs
 
-- Do **not** expand fantasy naming beyond "Peon" — use normal engineering terms
-- MVP does not own git workflow, worktree management, merging, or task decomposition
+- Do **not** expand fantasy naming beyond Peon and Taskmaster — use normal engineering terms everywhere else
+- MVP does not own Git workflow, worktree management, merging, or arbitrary task decomposition
+- Taskmaster may recommend session transitions but must not start sessions without explicit user approval in v1
 - If asked to implement something listed as a non-goal in the specs, decline and explain which non-goal applies. Do not implement it even partially.
 - Harness voice is pass-through only — OrkWorks never captures/proxies/stores audio for native voice
-- Start every session metadata source and confidence where possible
+- Store metadata source and confidence where possible
 - Capacity states: healthy, degraded, capped, unknown, disabled
 - Cost tiers: local, low, medium, high, premium
+
+## Product design principles
+
+These are load-bearing UX decisions. Treat them as constraints on any feature, design, or plan that touches the desktop UI.
+
+- **Session = context. Switching sessions is the context-switch primitive.** The sessions list is the multi-view across N sessions; the active terminal is single by design. Do not propose, plan, or build multi-terminal, tiled, split, stacked, or picture-in-picture terminal views. Showing many terminals at once is context degradation, not visibility — it divides attention and consumes screen real estate without adding situational awareness. Situational awareness belongs in the sessions list (legibility, attention state, last activity, agent action summary) and the detail panel — not in parallel terminal rendering. The same logic extends to any other context-bearing surface added later (editors, agent transcripts): one active, switch deliberately. See [ADR 0013](docs/adr/0013-single-active-context-primitive.md) for context and consequences.
+- Fast context-switching (keyboard nav, MRU ordering, jump-to-session search) is the right axis to improve when situational awareness or task throughput is the goal. Parallel visibility is the wrong axis.
 
 ## APM and agent plugins
 

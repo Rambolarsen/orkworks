@@ -1,6 +1,6 @@
 # OrkWorks
 
-Local-first observability + recommendation layer for AI coding sessions ("Mission Control for AI Agents"). Observes and recommends before it controls — does not replace Claude Code, Codex, OpenCode, Gemini CLI, or Aider.
+Local-first mission control for AI coding sessions. Peons observe individual sessions; Taskmaster recommends what should happen next across harnesses, models, reviews, capacity, and Git context. OrkWorks observes and recommends before it controls — it does not replace Claude Code, Codex, OpenCode, Gemini CLI, or Aider.
 
 ## State
 
@@ -24,6 +24,7 @@ orkworks/
 - The app remembers the last workspace and repo-local active session for relaunch restore
 - The Electron main process owns app-level settings in `userData`, including persisted hotkeys that drive native menu accelerators
 - Peon writes observer metadata such as `observedStatus` without replacing runtime lifecycle `status`
+- Taskmaster consumes Peon reports and workspace context to propose the next session or user action
 - PTY handles only text I/O; voice (native harness) bypasses PTY entirely
 
 ## Metadata protocol
@@ -31,9 +32,11 @@ orkworks/
 - `.orkworks/sessions/<id>.json` — agent-written session state
 - `.orkworks/events/<id>.ndjson` — append-only event log
 - `.orkworks/capacity/<id>.json` — capacity per model/harness
+- `.orkworks/recommendations/<id>.json` — Taskmaster recommendation state and history
 - `.orkworks/workspace.json` — repo-local workspace memory, including the last active session
 - Priority: user > agent > peon > backend_inference > process > unknown
 - Peon reads terminal output, writes inferred metadata, never types into terminals
+- Taskmaster proposes cross-session transitions; every v1 transition requires explicit user approval
 
 ## Setup
 
@@ -41,6 +44,22 @@ orkworks/
 cd orkworks
 apm install
 ```
+
+## Peon configuration
+
+Peon runs in the Rust sidecar as a background task. After a session's terminal goes quiet for `PEON_INTERVAL` seconds (default `5`), Peon shells out to a configurable harness, asks it to classify the recent output, and writes the result to `.orkworks/sessions/<id>.json`. User input into the terminal also resets this debounce window — typing counts as activity. While an inference is in flight for a session, a second one is not launched for the same session.
+
+Tune via environment variables on `orkworksd`:
+
+| Variable | Default | Purpose |
+| -------- | ------- | ------- |
+| `PEON_ENABLED` | `true` | Set to `false`/`0` to disable Peon entirely |
+| `PEON_INTERVAL` | `5` | Seconds of terminal silence before inference fires |
+| `PEON_HARNESS` | `opencode` | Binary Peon shells out to for classification |
+| `PEON_HARNESS_ARGS_JSON` | `["run","--pure"]` | JSON array of args passed to the harness (falls back to space-split `PEON_HARNESS_ARGS`) |
+| `PEON_MODEL` | unset | Reserved for harness model selection |
+| `PEON_MAX_LINES` | `200` | Ring-buffer size of terminal lines fed to the harness |
+| `PEON_TIMEOUT` | `30` | Seconds before a harness invocation is killed |
 
 ## Agent plugins
 
@@ -79,10 +98,13 @@ The `skills/` directory contains repo-level agent skills that are committed with
 | ---- | ------- |
 | OrkWorks | Product |
 | `orkworksd` | Rust backend sidecar |
-| Peon | Low-cost metadata observer |
+| Peon | Low-cost session/repo metadata observer |
+| Taskmaster | Workspace-level next-step coordinator |
 | `.orkworks/` | Per-repo protocol directory |
 
 ## Specs
 
 - `specs/orkworks-mvp.md` — full product scope, architecture, milestones, non-goals
 - `specs/native-harness-voice-support.md` — voice support design
+- `specs/review-queue.md` — repo-local review inbox for plan/spec artifacts
+- `specs/taskmaster.md` — cross-session coordination and next-step recommendations
