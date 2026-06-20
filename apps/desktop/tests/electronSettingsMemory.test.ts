@@ -213,6 +213,35 @@ test("settingsWithHotkeys returns one canonical settings object for validation m
   assert.deepEqual(validateHotkeys(nextSettings.hotkeys), { ok: true, errors: {} });
 });
 
+test("settingsWithHotkeys preserves invalid save payloads for validation", () => {
+  const nextSettings = settingsWithHotkeys(DEFAULT_SETTINGS, {
+    ...DEFAULT_HOTKEYS,
+    newSession: "N",
+    toggleDetailPanel: "",
+  });
+
+  assert.equal(nextSettings.hotkeys.newSession, "N");
+  assert.equal(nextSettings.hotkeys.toggleDetailPanel, "");
+
+  const result = validateHotkeys(nextSettings.hotkeys);
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.errors.newSession, ["Shortcut must include a modifier."]);
+  assert.deepEqual(result.errors.toggleDetailPanel, ["Shortcut is required."]);
+});
+
+test("settingsWithHotkeys preserves duplicate save payloads for validation", () => {
+  const nextSettings = settingsWithHotkeys(DEFAULT_SETTINGS, {
+    ...DEFAULT_HOTKEYS,
+    toggleSessionsPanel: "  CmdOrCtrl+N  ",
+  });
+
+  assert.equal(nextSettings.hotkeys.toggleSessionsPanel, "CmdOrCtrl+N");
+
+  const result = validateHotkeys(nextSettings.hotkeys);
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.errors.toggleSessionsPanel, ["Duplicate shortcut also used by New Session."]);
+});
+
 test("validateHotkeys rejects duplicates", () => {
   const result = validateHotkeys({
     ...DEFAULT_HOTKEYS,

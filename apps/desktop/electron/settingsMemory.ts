@@ -176,10 +176,11 @@ export function normalizeSettings(value: unknown): AppSettings {
 }
 
 export function settingsWithHotkeys(baseSettings: AppSettings, hotkeys: unknown): AppSettings {
-  return normalizeSettings({
+  return {
     ...baseSettings,
+    version: 1,
     hotkeys: hotkeysForSave(hotkeys),
-  });
+  };
 }
 
 export function normalizeHotkeys(value: unknown): HotkeySettings {
