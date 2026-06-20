@@ -5,9 +5,6 @@ on:
     tags:
       - "v*"
 
-permissions:
-  contents: write
-
 jobs:
   build:
     strategy:
@@ -15,15 +12,13 @@ jobs:
         include:
           - os: macos-latest
             target: mac
-            artifact: mac
           - os: windows-latest
             target: win
-            artifact: win
           - os: ubuntu-latest
             target: linux
-            artifact: linux
       fail-fast: false
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -54,26 +49,32 @@ jobs:
           cache-dependency-path: apps/desktop/pnpm-lock.yaml
 
       - name: Install frontend deps
-        run: cd apps/desktop && pnpm install --frozen-lockfile
+        working-directory: apps/desktop
+        run: pnpm install --frozen-lockfile
 
       - name: Build frontend
-        run: cd apps/desktop && pnpm build
+        working-directory: apps/desktop
+        run: pnpm build
 
       - name: Package (electron-builder)
-        run: cd apps/desktop && npx electron-builder --${{ matrix.target }} --publish never
+        working-directory: apps/desktop
+        run: npx electron-builder --${{ matrix.target }} --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: release-${{ matrix.artifact }}
+          name: release-${{ matrix.target }}
           path: apps/desktop/release/*
           if-no-files-found: error
 
   publish:
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
     steps:
       - uses: actions/download-artifact@v4
         with:
