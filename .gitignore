@@ -33,3 +33,6 @@ out/
 
 # OrkWorks metadata protocol
 .orkworks/
+
+# Git worktrees
+.worktrees/
