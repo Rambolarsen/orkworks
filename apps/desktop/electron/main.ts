@@ -5,6 +5,9 @@ import * as path from "path";
 import { getDevRepoRoot, getDevSidecarPath } from "./paths";
 import { readWorkspaceMemory, rememberWorkspacePath } from "./workspaceMemory";
 import { readLayoutMemory, writeLayoutMemory } from "./layoutMemory";
+import type { AppSettings } from "./settingsMemory";
+import { DEFAULT_HOTKEYS, readSettings, settingsWithHotkeys, validateHotkeys, writeSettings } from "./settingsMemory";
+import { buildMenuTemplate } from "./menuTemplate";
 
 let mainWindow: BrowserWindow | null = null;
 let sidecarProcess: ChildProcess | null = null;
@@ -16,131 +19,46 @@ let portPromise = new Promise<number>((resolve) => {
 
 let workspacePath: string | null = null;
 let menuPanelItems: Record<string, Electron.MenuItem> = {};
+let currentSettings: AppSettings | null = null;
+let hotkeyCaptureActive = false;
+const menuPanelIds = ["sessions", "detail", "terminal", "capacity", "recommendations"];
 
-function buildMenu(): void {
-  const panelIds = ["sessions", "detail", "terminal", "capacity", "recommendations"];
-  const panelTitles: Record<string, string> = {
-    sessions: "Sessions",
-    detail: "Detail",
-    terminal: "Terminal",
-    capacity: "Capacity",
-    recommendations: "Recommendations",
+function rendererSettings(settings: AppSettings): AppSettings & { defaultHotkeys: typeof DEFAULT_HOTKEYS } {
+  return {
+    ...settings,
+    defaultHotkeys: { ...DEFAULT_HOTKEYS },
   };
-  const panelAccelerators: Record<string, string> = {
-    sessions: "CmdOrCtrl+Shift+S",
-    detail: "CmdOrCtrl+Shift+D",
-    terminal: "CmdOrCtrl+Shift+T",
-    capacity: "CmdOrCtrl+Shift+C",
-    recommendations: "CmdOrCtrl+Shift+R",
-  };
+}
 
-  const panelItems: Electron.MenuItemConstructorOptions[] = panelIds.map((id) => ({
-    id,
-    label: panelTitles[id],
-    accelerator: panelAccelerators[id],
-    type: "checkbox",
-    checked: true,
-    click: () => {
-      mainWindow?.webContents.send("orkworks:menu-command", { action: "focus", panelId: id });
+function createMenu(settings: AppSettings): Electron.Menu {
+  const template = buildMenuTemplate({
+    appName: app.name,
+    platform: process.platform,
+    settings,
+    isHotkeyCaptureActive: () => hotkeyCaptureActive,
+    sendCommand: (command) => {
+      mainWindow?.webContents.send("orkworks:menu-command", command);
     },
-  }));
+  });
+  return Menu.buildFromTemplate(template);
+}
 
-  const viewSubmenu: Electron.MenuItemConstructorOptions[] = [
-    ...panelItems,
-    { type: "separator" },
-    {
-      label: "Reset Layout",
-      click: () => {
-        mainWindow?.webContents.send("orkworks:menu-command", { action: "reset-layout" });
-      },
-    },
-    { type: "separator" },
-    { role: "reload" },
-    { role: "forceReload" },
-    { role: "toggleDevTools" },
-    { type: "separator" },
-    { role: "resetZoom" },
-    { role: "zoomIn" },
-    { role: "zoomOut" },
-    { type: "separator" },
-    { role: "togglefullscreen" },
-  ];
+function applyMenu(menu: Electron.Menu): void {
+  const previousPanelChecked: Record<string, boolean> = {};
+  for (const id of menuPanelIds) {
+    const item = menuPanelItems[id];
+    if (item) previousPanelChecked[id] = item.checked;
+  }
 
-  const template: Electron.MenuItemConstructorOptions[] = [
-    {
-      label: app.name,
-      submenu: [
-        { role: "about" },
-        { type: "separator" },
-        { role: "services" },
-        { type: "separator" },
-        { role: "hide" },
-        { role: "hideOthers" },
-        { role: "unhide" },
-        { type: "separator" },
-        { role: "quit" },
-      ],
-    },
-    {
-      label: "File",
-      submenu: [
-        {
-          label: "New Session",
-          accelerator: "CmdOrCtrl+N",
-          click: () => {
-            mainWindow?.webContents.send("orkworks:menu-command", { action: "new-session" });
-          },
-        },
-        { type: "separator" },
-        { role: "close" },
-      ],
-    },
-    {
-      label: "Edit",
-      submenu: [
-        { role: "undo" },
-        { role: "redo" },
-        { type: "separator" },
-        { role: "cut" },
-        { role: "copy" },
-        { role: "paste" },
-        { role: "selectAll" },
-      ],
-    },
-    {
-      label: "View",
-      submenu: viewSubmenu,
-    },
-    {
-      label: "Window",
-      submenu: [
-        { role: "minimize" },
-        { role: "zoom" },
-        ...(process.platform === "darwin"
-          ? [{ type: "separator" as const }, { role: "front" as const }]
-          : [{ role: "close" as const }]),
-      ],
-    },
-    {
-      role: "help",
-      submenu: [
-        {
-          label: "Learn More",
-          click: () => {
-            /* placeholder */
-          },
-        },
-      ],
-    },
-  ];
-
-  const menu = Menu.buildFromTemplate(template);
   Menu.setApplicationMenu(menu);
 
   menuPanelItems = {};
-  for (const id of panelIds) {
+  for (const id of menuPanelIds) {
     const item = menu.getMenuItemById(id);
-    if (item) menuPanelItems[id] = item;
+    if (item) {
+      if (id in previousPanelChecked) item.checked = previousPanelChecked[id];
+      menuPanelItems[id] = item;
+    }
   }
 }
 
@@ -218,6 +136,7 @@ app.whenReady().then(() => {
     appMemory.lastWorkspacePath && existsSync(appMemory.lastWorkspacePath)
       ? appMemory.lastWorkspacePath
       : null;
+  currentSettings = readSettings(app.getPath("userData"));
 
   ipcMain.handle("get-backend-url", async () => {
     const port = await portPromise;
@@ -242,6 +161,28 @@ app.whenReady().then(() => {
     });
     if (!resp.ok) return null;
     return resp.json();
+  });
+
+  ipcMain.handle("get-settings", async () => {
+    currentSettings = readSettings(app.getPath("userData"));
+    return rendererSettings(currentSettings);
+  });
+
+  ipcMain.handle("save-hotkeys", async (_event, hotkeys: unknown) => {
+    const baseSettings = currentSettings ?? readSettings(app.getPath("userData"));
+    const nextSettings = settingsWithHotkeys(baseSettings, hotkeys);
+
+    const validation = validateHotkeys(nextSettings.hotkeys);
+    if (!validation.ok) {
+      return { ok: false, errors: validation.errors };
+    }
+
+    const nextMenu = createMenu(nextSettings);
+    writeSettings(app.getPath("userData"), nextSettings);
+    currentSettings = nextSettings;
+    applyMenu(nextMenu);
+
+    return { ok: true, settings: rendererSettings(currentSettings) };
   });
 
   ipcMain.handle("open-workspace", async () => {
@@ -310,9 +251,18 @@ app.whenReady().then(() => {
     if (item) item.checked = data.visible;
   });
 
+  ipcMain.on("orkworks:hotkey-capture-active", (_event, active: boolean) => {
+    const nextActive = Boolean(active);
+    if (hotkeyCaptureActive === nextActive) return;
+
+    hotkeyCaptureActive = nextActive;
+    currentSettings = currentSettings ?? readSettings(app.getPath("userData"));
+    applyMenu(createMenu(currentSettings));
+  });
+
   startSidecar(initialWorkspacePath ?? undefined);
   createWindow();
-  buildMenu();
+  applyMenu(createMenu(currentSettings));
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {

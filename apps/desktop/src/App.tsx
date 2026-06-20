@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DockviewApi } from "dockview-react";
 import DockviewApp from "./components/DockviewApp";
+import SettingsModal from "./components/SettingsModal";
 import ToastRack from "./components/ToastRack";
 import { sortSessions } from "./sessionSort";
 import { PANEL_DEFAULTS, buildDefaultLayout } from "./components/DockviewApp";
@@ -16,26 +17,15 @@ import {
   setActiveWorkspaceSession,
 } from "./api";
 import { disposeTerminal, getTerminal } from "./terminalStore";
-
-declare global {
-  interface Window {
-    orkworks: {
-      getBackendUrl: () => Promise<string>;
-      getInitialWorkspace: () => Promise<WorkspaceInfo | null>;
-      openWorkspace: () => Promise<WorkspaceInfo | null>;
-      getLayout: () => Promise<string | null>;
-      saveLayout: (json: string) => Promise<void>;
-      onMenuCommand: (callback: (data: { action: string; panelId?: string }) => void) => () => void;
-      notifyPanelVisibility: (panelId: string, visible: boolean) => void;
-    };
-  }
-}
+import type { AppSettings } from "./appSettingsTypes";
 
 function App() {
   const [backendStatus, setBackendStatus] = useState<string>("connecting…");
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [workspace, setWorkspaceState] = useState<WorkspaceInfo | null>(null);
+  const [settings, setSettings] = useState<AppSettings | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const dockviewApiRef = useRef<DockviewApi | null>(null);
   const sessionsHiddenLayoutRef = useRef<string | null>(null);
 
@@ -98,6 +88,16 @@ function App() {
       }
     } catch {
       pushToast("error", "Couldn't open workspace.");
+    }
+  }, []);
+
+  const openSettings = useCallback(async () => {
+    try {
+      const loaded = await window.orkworks.getSettings();
+      setSettings(loaded);
+      setSettingsOpen(true);
+    } catch {
+      pushToast("error", "Couldn't open settings.");
     }
   }, []);
 
@@ -307,11 +307,21 @@ function App() {
             </>
           )}
         </div>
-        <span
-          className={`status-badge ${backendStatus === "connected" ? "ok" : "warn"}`}
-        >
-          {backendStatus}
-        </span>
+        <div className="titlebar-right">
+          <button
+            className="titlebar-settings-button"
+            type="button"
+            onClick={openSettings}
+            title="Settings"
+          >
+            Settings
+          </button>
+          <span
+            className={`status-badge ${backendStatus === "connected" ? "ok" : "warn"}`}
+          >
+            {backendStatus}
+          </span>
+        </div>
       </div>
       <DockviewApp
         backendStatus={backendStatus}
@@ -326,6 +336,13 @@ function App() {
         onOpenWorkspace={handleOpenWorkspace}
         dockviewApiRef={dockviewApiRef}
       />
+      {settingsOpen && settings && (
+        <SettingsModal
+          initialSettings={settings}
+          onClose={() => setSettingsOpen(false)}
+          onSaved={(nextSettings) => setSettings(nextSettings)}
+        />
+      )}
     </div>
   );
 }

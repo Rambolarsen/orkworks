@@ -252,6 +252,36 @@ test("App restores the last active session from the initial workspace", () => {
   assert.match(source, /setActiveSessionId\(info\.lastActiveSessionId\)/);
 });
 
+test("preload exposes settings and hotkey capture APIs", () => {
+  const source = readFileSync(new URL("../electron/preload.ts", import.meta.url), "utf8");
+
+  assert.match(source, /getSettings:\s*\(\)/);
+  assert.match(source, /ipcRenderer\.invoke\("get-settings"\)/);
+  assert.match(source, /saveHotkeys:\s*\(hotkeys:/);
+  assert.match(source, /ipcRenderer\.invoke\("save-hotkeys", hotkeys\)/);
+  assert.match(source, /setHotkeyCaptureActive:\s*\(active:/);
+  assert.match(source, /ipcRenderer\.send\("orkworks:hotkey-capture-active", active\)/);
+});
+
+test("App exposes a settings titlebar entry and renders SettingsModal", () => {
+  const source = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /import SettingsModal from "\.\/components\/SettingsModal"/);
+  assert.match(source, /setSettingsOpen\(true\)/);
+  assert.match(source, /<SettingsModal/);
+});
+
+test("SettingsModal contains hotkey edit reset default cancel and save flows", () => {
+  const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
+
+  for (const text of ["Hotkeys", "Edit", "Reset", "Restore defaults", "Cancel", "Save"]) {
+    assert.match(source, new RegExp(text));
+  }
+  assert.match(source, /acceleratorFromKeyboardEvent/);
+  assert.match(source, /setHotkeyCaptureActive\(true\)/);
+  assert.match(source, /setHotkeyCaptureActive\(false\)/);
+});
+
 test("TerminalPanel no longer renders internal session tabs or duplicate kill controls", () => {
   const source = readFileSync(new URL("../src/components/TerminalPanel.tsx", import.meta.url), "utf8");
 
@@ -279,9 +309,22 @@ test("App routes user-facing error catches through the toast feedback primitive"
 
   assert.match(source, /import \{ pushToast \} from "\.\/feedback"/);
   assert.match(source, /pushToast\("error", "Couldn't open workspace\."\)/);
+  assert.match(source, /pushToast\("error", "Couldn't open settings\."\)/);
   assert.match(source, /pushToast\("error", "Couldn't start a new session\."\)/);
   assert.match(source, /pushToast\("error", "Couldn't end session\."\)/);
   assert.doesNotMatch(source, /\/\* ignore \*\//);
+});
+
+test("SettingsModal uses default hotkeys from the main-process settings response", () => {
+  const modal = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
+  const types = readFileSync(new URL("../src/appSettingsTypes.ts", import.meta.url), "utf8");
+  const main = readFileSync(new URL("../electron/main.ts", import.meta.url), "utf8");
+
+  assert.match(types, /defaultHotkeys:\s*HotkeySettings/);
+  assert.match(main, /DEFAULT_HOTKEYS/);
+  assert.match(main, /defaultHotkeys:\s*\{\s*\.\.\.DEFAULT_HOTKEYS\s*\}/);
+  assert.match(modal, /const defaultHotkeys = initialSettings\.defaultHotkeys/);
+  assert.doesNotMatch(modal, /const defaultHotkeys:\s*HotkeySettings\s*=\s*\{/);
 });
 
 test("App titlebar uses the canonical workspace vocabulary (no 'Folder' drift)", () => {

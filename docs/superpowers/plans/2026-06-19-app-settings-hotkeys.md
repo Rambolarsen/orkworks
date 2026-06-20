@@ -19,8 +19,8 @@
 
 ## File Structure
 
-- Create `docs/adr/0013-main-process-owned-app-settings.md`: records the settings ownership and menu-source-of-truth decision.
-- Modify `docs/adr/README.md`: adds ADR 0013 to the index.
+- Create `docs/adr/0014-main-process-owned-app-settings.md`: records the settings ownership and menu-source-of-truth decision.
+- Modify `docs/adr/README.md`: adds ADR 0014 to the index.
 - Create `apps/desktop/electron/settingsMemory.ts`: defines `AppSettings`, hotkey defaults, normalization, validation, and `settings.json` read/write.
 - Create `apps/desktop/electron/menuTemplate.ts`: builds the Electron menu template from `AppSettings` and command handlers.
 - Modify `apps/desktop/electron/main.ts`: loads settings, builds menu from settings, adds settings IPC, suppresses OrkWorks menu commands during capture.
@@ -41,13 +41,13 @@
 ### Task 1: Record the Architecture Decision
 
 **Files:**
-- Create: `docs/adr/0013-main-process-owned-app-settings.md`
+- Create: `docs/adr/0014-main-process-owned-app-settings.md`
 - Modify: `docs/adr/README.md`
 - Test: documentation inspection
 
-- [ ] **Step 1: Create ADR 0013**
+- [ ] **Step 1: Create ADR 0014**
 
-Add `docs/adr/0013-main-process-owned-app-settings.md` with this content:
+Add `docs/adr/0014-main-process-owned-app-settings.md` with this content:
 
 ```markdown
 # Main-process-owned app settings and menu accelerators
@@ -88,7 +88,7 @@ The Electron application menu is built from canonical settings. Hotkey saves val
 Add this row to `docs/adr/README.md` after ADR 0012:
 
 ```markdown
-| [0013](./0013-main-process-owned-app-settings.md) | Main-process-owned app settings and menu accelerators | accepted |
+| [0014](./0014-main-process-owned-app-settings.md) | Main-process-owned app settings and menu accelerators | accepted |
 ```
 
 - [ ] **Step 3: Verify ADR files**
@@ -96,7 +96,7 @@ Add this row to `docs/adr/README.md` after ADR 0012:
 Run:
 
 ```bash
-rg -n "0013|Main-process-owned app settings" docs/adr
+rg -n "0014|Main-process-owned app settings" docs/adr
 ```
 
 Expected: output includes the ADR file title and the README index row.
@@ -104,7 +104,7 @@ Expected: output includes the ADR file title and the README index row.
 - [ ] **Step 4: Commit**
 
 ```bash
-git add docs/adr/0013-main-process-owned-app-settings.md docs/adr/README.md
+git add docs/adr/0014-main-process-owned-app-settings.md docs/adr/README.md
 git commit -m "docs: record app settings ownership decision"
 ```
 
@@ -1519,7 +1519,7 @@ Run:
 bash .claude/hooks/doc-check.sh
 ```
 
-Expected: no required documentation updates are listed. If the hook flags README or AGENTS because ADR 0013 was added, update their ADR/spec lists consistently and rerun this command.
+Expected: no required documentation updates are listed. If the hook flags README or AGENTS because ADR 0014 was added, update their ADR/spec lists consistently and rerun this command.
 
 - [ ] **Step 5: Manual verification**
 
