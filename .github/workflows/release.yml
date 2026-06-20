@@ -1,0 +1,89 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            target: mac
+            artifact: mac
+          - os: windows-latest
+            target: win
+            artifact: win
+          - os: ubuntu-latest
+            target: linux
+            artifact: linux
+      fail-fast: false
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Guard tag/version drift
+        run: |
+          TAG="$GITHUB_REF_NAME"
+          PKG_VERSION="v$(jq -r .version apps/desktop/package.json)"
+          if [ "$TAG" != "$PKG_VERSION" ]; then
+            echo "Tag $TAG does not match package.json version $PKG_VERSION"
+            exit 1
+          fi
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/orkworksd
+
+      - name: Build Rust sidecar (release)
+        run: cargo build --release --manifest-path crates/orkworksd/Cargo.toml
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/desktop/pnpm-lock.yaml
+
+      - name: Install frontend deps
+        run: cd apps/desktop && pnpm install --frozen-lockfile
+
+      - name: Build frontend
+        run: cd apps/desktop && pnpm build
+
+      - name: Package (electron-builder)
+        run: cd apps/desktop && npx electron-builder --${{ matrix.target }} --publish never
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.artifact }}
+          path: apps/desktop/release/*
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: release-*
+          merge-multiple: true
+
+      - name: Publish draft GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: artifacts/*
+          fail_on_unmatched_files: true
