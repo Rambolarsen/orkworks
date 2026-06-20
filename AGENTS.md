@@ -26,6 +26,9 @@ cd apps/desktop && pnpm dev
 # Build Electron app
 cd apps/desktop && pnpm build
 
+# Package a host-arch release artifact locally
+cd apps/desktop && pnpm package:release
+
 # Build Rust sidecar
 cd apps/desktop && pnpm build:rust
 # or directly:
@@ -60,6 +63,7 @@ All implementation work is tracked as GitHub issues: [https://github.com/Rambola
 
 - `specs/orkworks-mvp.md` — full product scope, architecture, milestones, non-goals
 - `specs/native-harness-voice-support.md` — voice support design
+- `specs/release-pipeline.md` — alpha desktop packaging and GitHub Releases workflow
 - `specs/review-queue.md` — proposed repo-local review inbox for plan/spec artifacts
 - `specs/taskmaster.md` — proposed cross-session coordination and next-step recommendation layer
 
@@ -184,7 +188,7 @@ See [`docs/agents/apm.md`](docs/agents/apm.md) for the full plugin list, generat
 
 ## Repo-level skills
 
-The `skills/` directory contains committed repo skills (`writing-skills`, `clean-ddd-hexagonal`). Each is a directory with a `SKILL.md` following the [Agent Skills standard](https://agentskills.io/specification).
+The `skills/` directory contains committed repo skills (`starting-work`, `cutting-release`, `writing-skills`, `clean-ddd-hexagonal`). Each is a directory with a `SKILL.md` following the [Agent Skills standard](https://agentskills.io/specification).
 
 ## Doc currency check
 

@@ -4,7 +4,7 @@ Local-first mission control for AI coding sessions. Peons observe individual ses
 
 ## State
 
-APM project bootstrapped — agent skills, hooks, and plugins are installed via [APM](https://github.com/anthropics/apm) in `orkworks/`. M1 (Electron app shell + Rust sidecar scaffold) is implemented. Subsequent milestones are tracked as GitHub issues.
+APM project bootstrapped — agent skills, hooks, and plugins are installed via [APM](https://github.com/anthropics/apm) in `orkworks/`. M1 (Electron app shell + Rust sidecar scaffold) is implemented, and the alpha release pipeline now packages desktop artifacts through GitHub Actions + electron-builder. Subsequent milestones are tracked as GitHub issues.
 
 ## Architecture
 
@@ -44,6 +44,26 @@ orkworks/
 cd orkworks
 apm install
 ```
+
+## Build and release
+
+```bash
+# frontend + Electron build
+cd apps/desktop && pnpm build
+
+# Rust sidecar
+cd apps/desktop && pnpm build:rust
+
+# package a host-arch desktop artifact locally
+cd apps/desktop && pnpm package:release
+```
+
+GitHub Releases are tag-driven. Pushing `vX.Y.Z` runs `.github/workflows/release.yml`, which builds:
+
+- macOS x64 on `macos-13`
+- macOS arm64 on `macos-latest`
+- Windows x64 on `windows-latest`
+- Linux x64 on `ubuntu-latest`
 
 ## Peon configuration
 
@@ -85,6 +105,8 @@ The `skills/` directory contains repo-level agent skills that are committed with
 
 | Skill | Description |
 | ----- | ----------- |
+| [starting-work](skills/starting-work/SKILL.md) | Branch/worktree setup and per-checkout workflow for new code changes |
+| [cutting-release](skills/cutting-release/SKILL.md) | Version bump, tag push, CI monitoring, and release verification workflow |
 | [writing-skills](skills/writing-skills/SKILL.md) | TDD-based skill creation following the Agent Skills standard |
 | [clean-ddd-hexagonal](skills/clean-ddd-hexagonal/SKILL.md) | Clean Architecture + DDD + Hexagonal patterns, language-agnostic |
 
@@ -106,5 +128,6 @@ The `skills/` directory contains repo-level agent skills that are committed with
 
 - `specs/orkworks-mvp.md` — full product scope, architecture, milestones, non-goals
 - `specs/native-harness-voice-support.md` — voice support design
+- `specs/release-pipeline.md` — alpha desktop packaging and GitHub Releases workflow
 - `specs/review-queue.md` — repo-local review inbox for plan/spec artifacts
 - `specs/taskmaster.md` — cross-session coordination and next-step recommendations

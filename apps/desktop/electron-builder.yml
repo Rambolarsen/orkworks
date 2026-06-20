@@ -10,16 +10,14 @@ files:
 mac:
   category: public.app-category.developer-tools
   target:
-    - target: dmg
-      arch: [x64, arm64]
+    - dmg
   artifactName: OrkWorks-${version}-mac-${arch}.${ext}
   extraResources:
     - from: ../../crates/orkworksd/target/release/orkworksd
       to: orkworksd
 win:
   target:
-    - target: nsis
-      arch: [x64]
+    - nsis
   artifactName: OrkWorks-${version}-win-${arch}.${ext}
   extraResources:
     - from: ../../crates/orkworksd/target/release/orkworksd.exe
@@ -27,10 +25,8 @@ win:
 linux:
   category: Development
   target:
-    - target: AppImage
-      arch: [x64]
-    - target: deb
-      arch: [x64]
+    - AppImage
+    - deb
   artifactName: OrkWorks-${version}-linux-${arch}.${ext}
   extraResources:
     - from: ../../crates/orkworksd/target/release/orkworksd

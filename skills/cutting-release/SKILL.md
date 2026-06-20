@@ -59,7 +59,7 @@ git push origin "$TAG"
 The tag push triggers `.github/workflows/release.yml`. Watch it:
 - Go to https://github.com/Rambolarsen/orkworks/actions
 - Find the "Release" workflow run for the tag
-- Wait for all three matrix jobs (mac, win, linux) to complete
+- Wait for all four build jobs to complete (`macos-13` x64, `macos-latest` arm64, `windows-latest` x64, `ubuntu-latest` x64)
 - If any job fails, fix the issue, delete the tag (`git push --delete origin v0.2.0; git tag -d v0.2.0`), and retry after fixing
 
 ### 5. Verify the draft release

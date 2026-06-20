@@ -28,25 +28,21 @@ OrkWorks needs installable artifacts for early testers on macOS, Windows, and Li
 ## Architecture
 
 ```
-git tag vX.Y.Z ──> GitHub Actions (release.yml) ──> 3 parallel matrix jobs
+git tag vX.Y.Z ──> GitHub Actions (release.yml) ──> 4 parallel matrix jobs
                                                          │
-                            ┌────────────────────────────┼──────────────────────────┐
-                            ▼                            ▼                          ▼
-                       macos-latest               windows-latest              ubuntu-latest
-                            │                            │                          │
-                    cargo build --release      cargo build --release      cargo build --release
-                            │                            │                          │
-                    pnpm install && build      pnpm install && build      pnpm install && build
-                            │                            │                          │
-                    electron-builder --mac      electron-builder --win     electron-builder --linux
-                            │                            │                          │
-                            ▼                            ▼                          ▼
-                       OrkWorks-*.dmg           OrkWorks-*.exe           OrkWorks-*.AppImage
-                                                                         OrkWorks-*.deb
-                            │                            │                          │
-                            └────────────────────────────┼──────────────────────────┘
-                                                         ▼
-                                                GitHub Release (draft)
+                  ┌───────────────────────┬──────────────┼──────────────┬──────────────────────┐
+                  ▼                       ▼              ▼              ▼                      ▼
+             macos-13                macos-latest   windows-latest  ubuntu-latest       publish job
+             (mac x64)               (mac arm64)       (win x64)      (linux x64)         (draft)
+                  │                       │              │              │
+      pnpm install && build    pnpm install && build    │              │
+                  │                       │              │              │
+         pnpm package:release   pnpm package:release  pnpm package:release  pnpm package:release
+                  │                       │              │              │
+                  ▼                       ▼              ▼              ▼
+       OrkWorks-*-mac-x64.dmg  OrkWorks-*-mac-arm64.dmg OrkWorks-*-win-x64.exe
+                                                               OrkWorks-*-linux-x64.AppImage
+                                                               OrkWorks-*-linux-x64.deb
 ```
 
 ## File Changes
@@ -66,8 +62,7 @@ files:
 mac:
   category: public.app-category.developer-tools
   target:
-    - target: dmg
-      arch: [x64, arm64]
+    - dmg
   artifactName: OrkWorks-${version}-mac-${arch}.${ext}
   extraResources:
     - from: ../../crates/orkworksd/target/release/orkworksd
@@ -75,7 +70,7 @@ mac:
 win:
   target:
     - nsis
-  artifactName: OrkWorks-${version}-win.${ext}
+  artifactName: OrkWorks-${version}-win-${arch}.${ext}
   extraResources:
     - from: ../../crates/orkworksd/target/release/orkworksd.exe
       to: orkworksd.exe
@@ -84,7 +79,7 @@ linux:
   target:
     - AppImage
     - deb
-  artifactName: OrkWorks-${version}-linux.${ext}
+  artifactName: OrkWorks-${version}-linux-${arch}.${ext}
   extraResources:
     - from: ../../crates/orkworksd/target/release/orkworksd
       to: orkworksd
@@ -95,15 +90,20 @@ nsis:
 
 ### New: `.github/workflows/release.yml`
 
-Triggered on tag push matching `v*`. Uses a matrix strategy for OS-specific jobs. Each job:
+Triggered on tag push matching `v*`. Uses a matrix strategy for OS/arch jobs. Each build job:
 
 1. Checks out the repo
-2. **Guards tag/version drift**: `[[ "v$(jq -r .version apps/desktop/package.json)" == "$GITHUB_REF_NAME" ]] || exit 1`
-3. Installs Rust via `dtolnay/rust-toolchain` and primes the cargo cache via `Swatinem/rust-cache@v2`
-4. Builds the sidecar: `cargo build --release --manifest-path crates/orkworksd/Cargo.toml` (output lands in `crates/orkworksd/target/release/` — there is no workspace `Cargo.toml`, so the target dir is per-crate)
-5. Installs pnpm via corepack
+2. Installs Node 22
+3. **Guards tag/version drift** with Node, not `jq`, so the check works on Windows and Unix runners:
+   `TAG="$GITHUB_REF_NAME"; PKG_VERSION="$(node -e "process.stdout.write('v' + require('./apps/desktop/package.json').version)")"`
+4. Installs Rust via `dtolnay/rust-toolchain` and primes the cargo cache via `Swatinem/rust-cache@v2`
+5. Installs pnpm
 6. Installs deps with frozen lockfile and builds the frontend: `cd apps/desktop && pnpm install --frozen-lockfile && pnpm build`
-7. Runs `npx electron-builder --publish never` (platform-specific; macOS leg uses `--mac --x64 --arm64` to emit both arches)
+7. Runs `pnpm package:release`, which:
+   - maps the host platform/arch to the matching Rust target triple
+   - builds the sidecar for that exact target
+   - stages the built binary into `crates/orkworksd/target/release/`
+   - runs `electron-builder` with the matching CLI arch flag
 8. Uploads platform artifacts via `actions/upload-artifact`
 
 After all matrix jobs complete, a `publish` job downloads all artifacts and creates/updates a draft GitHub Release via `softprops/action-gh-release@v2`. Requires `permissions: { contents: write }` at the workflow level.
@@ -113,7 +113,8 @@ After all matrix jobs complete, a `publish` job downloads all artifacts and crea
 Additions to `scripts`:
 ```json
 "build:rust:release": "cargo build --release --manifest-path ../../crates/orkworksd/Cargo.toml",
-"dist": "npm run build:rust:release && npm run build && electron-builder"
+"package:release": "node scripts/package-release.mjs",
+"dist": "tsc -p tsconfig.node.json && vite build && node scripts/package-release.mjs"
 ```
 
 Addition to `devDependencies`:
@@ -146,7 +147,7 @@ function getSidecarPath(): string {
 }
 ```
 
-electron-builder's per-platform `extraResources` blocks (see config above) copy the right binary name into the app's `resources/` directory, matching `process.resourcesPath`. The binary is platform-specific from `cargo build --release`, so each CI job produces the correct binary for its OS.
+electron-builder's per-platform `extraResources` blocks (see config above) copy the right binary name into the app's `resources/` directory, matching `process.resourcesPath`. The packaging script builds and stages the sidecar for the current host arch before invoking electron-builder, so each CI job produces an app bundle whose sidecar matches the bundled Electron arch.
 
 ## Version Management
 
@@ -165,6 +166,7 @@ electron-builder's per-platform `extraResources` blocks (see config above) copy 
 | Windows unsigned NSIS | SmartScreen shows warning; user clicks "More info" → "Run anyway" |
 | Linux AppImage | Requires `fuse` (pre-installed on ubuntu-latest runner); user may need `--appimage-extract-and-run` on systems without fuse |
 | Linux arm64 | Not built — `ubuntu-latest` is x86_64. Linux arm64 testers are unsupported for alpha |
+| Local mac packaging | `pnpm package:release` builds the host arch only. Dual-arch mac output comes from two CI jobs (`macos-13` x64 and `macos-latest` arm64), not from one local host cross-compiling both sidecars |
 | Sidecar binary missing | `electron-builder` fails with a clear error if `cargo build --release` hasn't run |
 | CI runner missing Rust | `dtolnay/rust-toolchain` action installs it; no manual setup needed |
 | Tag push without version bump | CI guard (workflow step 2) compares `$GITHUB_REF_NAME` to `apps/desktop/package.json` and fails the job, so a stale tag never produces artifacts |
