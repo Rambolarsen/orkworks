@@ -100,9 +100,7 @@ export function ensureTerminal(id: string, baseUrl: string): TerminalHandle {
     handle.ended = true;
     if (!receivedData) {
       getTerminalOutput(baseUrl, id).then((lines) => {
-        if (lines.length > 0) {
-          term.writeln(lines.join("\n"));
-        }
+        for (const line of lines) term.writeln(line);
       }).catch(() => {
         /* silently ignore fetch failures */
       });

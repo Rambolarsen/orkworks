@@ -297,7 +297,10 @@ impl MetadataStore {
             }
         };
         for line in lines {
-            let _ = writeln!(file, "{line}");
+            if let Err(e) = writeln!(file, "{line}") {
+                warn!("failed to append terminal output for {id}: {e}");
+                return;
+            }
         }
         // Inline trim when the file exceeds 1.5x max_lines to prevent unbounded growth
         // during long-running sessions. Only check approximate size via metadata.
