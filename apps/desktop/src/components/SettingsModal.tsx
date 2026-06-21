@@ -8,6 +8,7 @@ interface SettingsModalProps {
   initialSettings: AppSettings;
   onClose: () => void;
   onSaved: (settings: AppSettings) => void;
+  onOpenProviders: () => void;
 }
 
 const hotkeyRows: Array<{ action: HotkeyAction; label: string; optional?: boolean }> = [
@@ -20,7 +21,7 @@ const hotkeyRows: Array<{ action: HotkeyAction; label: string; optional?: boolea
   { action: "resetLayout", label: "Reset Layout", optional: true },
 ];
 
-export default function SettingsModal({ initialSettings, onClose, onSaved }: SettingsModalProps) {
+export default function SettingsModal({ initialSettings, onClose, onSaved, onOpenProviders }: SettingsModalProps) {
   const defaultHotkeys = initialSettings.defaultHotkeys;
   const [draft, setDraft] = useState<HotkeySettings>(initialSettings.hotkeys);
   const [capturing, setCapturing] = useState<HotkeyAction | null>(null);
@@ -193,6 +194,16 @@ export default function SettingsModal({ initialSettings, onClose, onSaved }: Set
               {retentionSaveStatus}
             </div>
           )}
+        </div>
+
+        <div className="settings-section">
+          <h3>Providers</h3>
+          <p className="settings-section-copy">
+            Provider defaults, overrides, fallback order, and Peon models live in the Providers panel.
+          </p>
+          <button type="button" onClick={onOpenProviders}>
+            Open Providers Panel
+          </button>
         </div>
 
         <footer className="settings-modal-footer">

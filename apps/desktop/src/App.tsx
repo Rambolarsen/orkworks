@@ -11,7 +11,9 @@ import { pushToast } from "./feedback";
 import {
   type SessionInfo,
   type WorkspaceInfo,
+  type ProviderRuntimeResponse,
   createSession,
+  getProviders,
   listHarnesses,
   listSessions,
   deleteSession,
@@ -19,6 +21,7 @@ import {
   resumeSession,
   setActiveWorkspaceSession,
 } from "./api";
+import type { ProviderSettings } from "./providerTypes";
 import { disposeTerminal, getTerminal } from "./terminalStore";
 import type { AppSettings } from "./appSettingsTypes";
 import type { HarnessConfig, CreateSessionOptions } from "./harnessTypes";
@@ -29,6 +32,7 @@ function App() {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [workspace, setWorkspaceState] = useState<WorkspaceInfo | null>(null);
   const [settings, setSettings] = useState<AppSettings | null>(null);
+  const [providerRuntime, setProviderRuntime] = useState<ProviderRuntimeResponse | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [resumeTick, setResumeTick] = useState(0);
   const [harnesses, setHarnesses] = useState<HarnessConfig[]>([]);
@@ -47,7 +51,10 @@ function App() {
           try {
             const resp = await fetch(`${baseUrl}/health`);
             if (resp.ok) {
-              if (!cancelled) setBackendStatus("connected");
+              if (!cancelled) {
+                setBackendStatus("connected");
+                refreshProviders();
+              }
               return;
             }
           } catch {
@@ -112,6 +119,31 @@ function App() {
     }
   }, []);
 
+  useEffect(() => {
+    window.orkworks.getSettings().then(setSettings).catch(() => {
+      pushToast("error", "Couldn't load app settings.");
+    });
+  }, []);
+
+  const refreshProviders = useCallback(async () => {
+    try {
+      const baseUrl = await window.orkworks.getBackendUrl();
+      setProviderRuntime(await getProviders(baseUrl));
+    } catch {
+      // Silent polling failure; stale badge handles visibility.
+    }
+  }, []);
+
+  const saveProviderSettings = useCallback(async (providers: ProviderSettings) => {
+    try {
+      const result = await window.orkworks.saveProviderSettings(providers);
+      setSettings(result.settings);
+      await refreshProviders();
+    } catch {
+      pushToast("error", "Couldn't save provider settings.");
+    }
+  }, [refreshProviders]);
+
   const openSettings = useCallback(async () => {
     try {
       const loaded = await window.orkworks.getSettings();
@@ -119,6 +151,19 @@ function App() {
       setSettingsOpen(true);
     } catch {
       pushToast("error", "Couldn't open settings.");
+    }
+  }, []);
+
+  const openProvidersPanel = useCallback(() => {
+    setSettingsOpen(false);
+    const api = dockviewApiRef.current;
+    if (!api) return;
+    const def = PANEL_DEFAULTS["capacity"];
+    const existing = api.getPanel(def.component);
+    if (!existing) {
+      api.addPanel({ id: def.component, component: def.component, title: def.title });
+    } else {
+      existing.focus();
     }
   }, []);
 
@@ -377,6 +422,9 @@ function App() {
         onFocusTerminal={handleFocusTerminal}
         onOpenWorkspace={handleOpenWorkspace}
         dockviewApiRef={dockviewApiRef}
+        providerSettings={settings?.providers ?? null}
+        providerRuntime={providerRuntime}
+        onSaveProviderSettings={saveProviderSettings}
       />
       {newSessionDialogOpen && (
         <NewSessionDialog
@@ -390,6 +438,7 @@ function App() {
           initialSettings={settings}
           onClose={() => setSettingsOpen(false)}
           onSaved={(nextSettings) => setSettings(nextSettings)}
+          onOpenProviders={openProvidersPanel}
         />
       )}
     </div>

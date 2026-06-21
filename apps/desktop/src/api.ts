@@ -1,3 +1,5 @@
+import type { ProviderEffectiveState } from "./providerTypes.ts";
+
 export type MemoryState = "live" | "remembered" | "resumable" | "unsupported";
 export type ResumeStrategy = "exact" | "latest_cwd" | "latest_repo" | "none";
 
@@ -142,4 +144,29 @@ export async function getTerminalOutput(
   if (!resp.ok) throw new Error(`get terminal output failed: ${resp.status}`);
   const data = await resp.json();
   return data.lines ?? [];
+}
+
+export interface ProviderRuntimeEntry {
+  id: string;
+  label: string;
+  enabled: boolean;
+  fallbackOrder: number;
+  effectiveState: ProviderEffectiveState;
+  peonModel: string | null;
+  runtime: {
+    fallbackStep: number | null;
+    lastErrorSummary: string | null;
+    resetHint: string | null;
+  };
+}
+
+export interface ProviderRuntimeResponse {
+  appliedRevision: number | null;
+  providers: ProviderRuntimeEntry[];
+}
+
+export async function getProviders(baseUrl: string): Promise<ProviderRuntimeResponse> {
+  const resp = await fetch(`${baseUrl}/providers`);
+  if (!resp.ok) throw new Error(`get providers failed: ${resp.status}`);
+  return resp.json();
 }
