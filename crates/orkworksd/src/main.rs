@@ -25,6 +25,7 @@ mod watcher;
 mod git;
 mod harness;
 mod peon;
+mod providers;
 
 #[derive(Clone, Debug, Serialize)]
 struct SessionInfo {
@@ -154,6 +155,7 @@ struct AppState {
     sessions: Mutex<HashMap<String, SessionHandle>>,
     workspace: Mutex<Option<WorkspaceState>>,
     peon: PeonState,
+    providers: providers::ProviderManager,
     adapters: HashMap<String, harness::HarnessAdapter>,
     retention_config: tokio::sync::RwLock<RetentionConfig>,
     harnesses: tokio::sync::RwLock<Vec<HarnessConfig>>,
@@ -178,6 +180,7 @@ async fn main() {
             in_flight: StdRwLock::new(HashSet::new()),
             config: peon::PeonConfig::from_env(),
         },
+        providers: providers::ProviderManager::new(),
         adapters: builtin_adapters(),
         retention_config: tokio::sync::RwLock::new(RetentionConfig::default()),
         harnesses: tokio::sync::RwLock::new(load_harnesses()),
@@ -206,6 +209,8 @@ async fn main() {
 
     let app = Router::new()
         .route("/health", get(health_check))
+        .route("/providers", get(get_providers))
+        .route("/settings/providers", post(set_provider_settings))
         .route("/workspace", post(set_workspace))
         .route("/workspace/active-session", post(set_active_session))
         .route("/sessions", post(create_session))
@@ -859,6 +864,18 @@ async fn set_retention(
     axum::http::StatusCode::OK
 }
 
+async fn get_providers(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    axum::Json(state.providers.get_providers_response())
+}
+
+async fn set_provider_settings(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<providers::ProviderSettingsPayload>,
+) -> impl IntoResponse {
+    let status = state.providers.apply_settings(payload);
+    axum::Json(status)
+}
+
 async fn retention_cleanup_task(state: Arc<AppState>) {
     loop {
         tokio::time::sleep(std::time::Duration::from_secs(300)).await;
@@ -1067,12 +1084,12 @@ async fn peon_loop(state: Arc<AppState>) {
                 continue;
             }
 
-            let config = state.peon.config.clone();
             let state_clone = state.clone();
             let id = session_id.clone();
 
             tokio::task::spawn_blocking(move || {
-                let inference = peon::run_inference(&config, &output_snapshot);
+                let provider_result = state_clone.providers.run_inference(providers::PeonScope::Session, &output_snapshot);
+                let inference = provider_result.inference;
                 let now_iso = iso_now();
 
                 if let Some(inf) = inference {
@@ -1887,6 +1904,8 @@ mod tests {
             },
             adapters: builtin_adapters(),
             retention_config: tokio::sync::RwLock::new(RetentionConfig::default()),
+            harnesses: tokio::sync::RwLock::new(vec![]),
+            providers: providers::ProviderManager::new(),
         });
 
         assert!(state.sessions.lock().unwrap().is_empty());
@@ -1953,6 +1972,8 @@ mod tests {
             },
             adapters: builtin_adapters(),
             retention_config: tokio::sync::RwLock::new(RetentionConfig::default()),
+            harnesses: tokio::sync::RwLock::new(vec![]),
+            providers: providers::ProviderManager::new(),
         });
 
         let (kill_tx, _) = tokio::sync::watch::channel(false);
@@ -2334,18 +2355,27 @@ mod tests {
                 last_output: StdRwLock::new(HashMap::new()),
                 last_inference: StdRwLock::new(HashMap::new()),
                 in_flight: StdRwLock::new(HashSet::new()),
-                config: peon::PeonConfig {
-                    harness: harness_path.display().to_string(),
-                    harness_args: vec!["--print".into(), "-p".into()],
-                    model: None,
-                    interval_secs: 1,
-                    max_lines: 200,
-                    timeout_secs: 10,
-                    enabled: true,
-                },
+                config: peon::PeonConfig::from_env(),
             },
             adapters: builtin_adapters(),
             retention_config: tokio::sync::RwLock::new(RetentionConfig::default()),
+            harnesses: tokio::sync::RwLock::new(vec![]),
+            providers: providers::ProviderManager::for_tests(
+                providers::ProviderSettingsPayload {
+                    version: 1,
+                    revision: 1,
+                    providers: vec![providers::ProviderSettingsEntry {
+                        id: "opencode".to_string(),
+                        enabled: true,
+                        fallback_order: 0,
+                        peon_model: None,
+                        default_state: providers::ProviderCapacityState::Healthy,
+                        override_state: None,
+                    }],
+                },
+                vec![providers::FakeProvider::new("opencode")
+                    .stdout(r#"{"status":"working","summary":"test","confidence":0.85}"#)],
+            ),
         });
 
         // Create a session with some output in the ring buffer
@@ -2476,20 +2506,7 @@ mod tests {
         std::fs::create_dir_all(orkworks.join("sessions")).unwrap();
         std::fs::create_dir_all(orkworks.join("events")).unwrap();
 
-        let count_path = dir.path().join("count.txt");
-        let harness_path = dir.path().join("slow-harness.sh");
-        std::fs::write(
-            &harness_path,
-            format!(
-                "#!/bin/bash\ncount_file='{}'\ncount=$(cat \"$count_file\" 2>/dev/null || echo 0)\ncount=$((count + 1))\necho \"$count\" > \"$count_file\"\nsleep 3\necho '{{\"observedStatus\":\"working\",\"confidence\":0.85}}'\n",
-                count_path.display()
-            ),
-        ).unwrap();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&harness_path, std::fs::Permissions::from_mode(0o755)).unwrap();
-        }
+        let call_counter = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
 
         let state = Arc::new(AppState {
             sessions: Mutex::new(HashMap::new()),
@@ -2502,18 +2519,29 @@ mod tests {
                 last_output: StdRwLock::new(HashMap::new()),
                 last_inference: StdRwLock::new(HashMap::new()),
                 in_flight: StdRwLock::new(HashSet::new()),
-                config: peon::PeonConfig {
-                    harness: harness_path.display().to_string(),
-                    harness_args: vec!["--print".into()],
-                    model: None,
-                    interval_secs: 1,
-                    max_lines: 200,
-                    timeout_secs: 10,
-                    enabled: true,
-                },
+                config: peon::PeonConfig::from_env(),
             },
             adapters: builtin_adapters(),
             retention_config: tokio::sync::RwLock::new(RetentionConfig::default()),
+            harnesses: tokio::sync::RwLock::new(vec![]),
+            providers: providers::ProviderManager::for_tests(
+                providers::ProviderSettingsPayload {
+                    version: 1,
+                    revision: 1,
+                    providers: vec![providers::ProviderSettingsEntry {
+                        id: "opencode".to_string(),
+                        enabled: true,
+                        fallback_order: 0,
+                        peon_model: None,
+                        default_state: providers::ProviderCapacityState::Healthy,
+                        override_state: None,
+                    }],
+                },
+                vec![providers::FakeProvider::new("opencode")
+                    .stdout(r#"{"observedStatus":"working","confidence":0.85}"#)
+                    .sleep_ms(3000)
+                    .with_counter(call_counter.clone())],
+            ),
         });
 
         let session_id = "peon-duplicate-test".to_string();
@@ -2571,11 +2599,7 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(2300)).await;
         task.abort();
 
-        let count = std::fs::read_to_string(count_path)
-            .unwrap_or_else(|_| "0".into())
-            .trim()
-            .parse::<usize>()
-            .unwrap();
+        let count = call_counter.load(std::sync::atomic::Ordering::SeqCst);
         assert_eq!(count, 1);
     }
 
@@ -2602,6 +2626,8 @@ mod tests {
             },
             adapters: builtin_adapters(),
             retention_config: tokio::sync::RwLock::new(RetentionConfig::default()),
+            harnesses: tokio::sync::RwLock::new(vec![]),
+            providers: providers::ProviderManager::new(),
         });
 
         let session_id = "peon-failed-attempt-test".to_string();
@@ -2644,6 +2670,7 @@ mod tests {
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
                 command: default_shell_command(dir.path().display().to_string()),
+                initial_prompt: None,
             };
             handle.output_buffer.push("quiet output".into());
             state.sessions.lock().unwrap().insert(session_id.clone(), handle);
