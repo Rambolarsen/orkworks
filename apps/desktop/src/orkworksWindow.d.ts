@@ -1,5 +1,6 @@
 import type { WorkspaceInfo } from "./api";
 import type { AppSettings, HotkeySettings, RetentionSettings, SaveHotkeysResult } from "./appSettingsTypes";
+import type { ProviderSettings } from "./providerTypes";
 
 declare global {
   interface Window {
@@ -12,6 +13,7 @@ declare global {
       getSettings: () => Promise<AppSettings>;
       saveHotkeys: (hotkeys: HotkeySettings) => Promise<SaveHotkeysResult>;
       saveRetention: (retention: RetentionSettings) => Promise<{ ok: boolean }>;
+      saveProviderSettings: (providers: ProviderSettings) => Promise<{ ok: true; settings: AppSettings }>;
       setHotkeyCaptureActive: (active: boolean) => void;
       onMenuCommand: (callback: (data: { action: string; panelId?: string }) => void) => () => void;
       notifyPanelVisibility: (panelId: string, visible: boolean) => void;
