@@ -6,7 +6,7 @@ import { getDevRepoRoot, getDevSidecarPath } from "./paths";
 import { readWorkspaceMemory, rememberWorkspacePath } from "./workspaceMemory";
 import { readLayoutMemory, writeLayoutMemory } from "./layoutMemory";
 import type { AppSettings } from "./settingsMemory";
-import { DEFAULT_HOTKEYS, readSettings, settingsWithHotkeys, validateHotkeys, writeSettings } from "./settingsMemory";
+import { DEFAULT_HOTKEYS, DEFAULT_RETENTION, normalizeRetention, readSettings, settingsWithHotkeys, validateHotkeys, writeSettings } from "./settingsMemory";
 import { buildMenuTemplate } from "./menuTemplate";
 
 let mainWindow: BrowserWindow | null = null;
@@ -185,6 +185,30 @@ app.whenReady().then(() => {
     return { ok: true, settings: rendererSettings(currentSettings) };
   });
 
+  ipcMain.handle("save-retention", async (_event, retention: unknown) => {
+    const baseSettings = currentSettings ?? readSettings(app.getPath("userData"));
+    const nextSettings: AppSettings = {
+      ...baseSettings,
+      version: 1,
+      retention: normalizeRetention(retention),
+    };
+    writeSettings(app.getPath("userData"), nextSettings);
+    currentSettings = nextSettings;
+
+    try {
+      const port = await portPromise;
+      await fetch(`http://127.0.0.1:${port}/settings/retention`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(nextSettings.retention),
+      });
+    } catch {
+      console.warn("[main] failed to push retention to sidecar (will retry on next save)");
+    }
+
+    return { ok: true };
+  });
+
   ipcMain.handle("open-workspace", async () => {
     const result = await dialog.showOpenDialog({
       properties: ["openDirectory"],
@@ -243,6 +267,18 @@ app.whenReady().then(() => {
     });
 
     if (!resp.ok) return null;
+
+    try {
+      const retention = currentSettings?.retention ?? DEFAULT_RETENTION;
+      await fetch(`http://127.0.0.1:${port}/settings/retention`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(retention),
+      });
+    } catch {
+      // Non-fatal: sidecar will use defaults until next save-retention
+    }
+
     return resp.json();
   });
 
@@ -263,6 +299,19 @@ app.whenReady().then(() => {
   startSidecar(initialWorkspacePath ?? undefined);
   createWindow();
   applyMenu(createMenu(currentSettings));
+
+  portPromise.then(async (port) => {
+    try {
+      const retention = currentSettings?.retention ?? DEFAULT_RETENTION;
+      await fetch(`http://127.0.0.1:${port}/settings/retention`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(retention),
+      });
+    } catch {
+      // Sidecar may not be ready yet; will be pushed on next save-retention
+    }
+  });
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {

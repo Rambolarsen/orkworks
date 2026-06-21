@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld("orkworks", {
   saveLayout: (json: string): Promise<void> => ipcRenderer.invoke("save-layout", json),
   getSettings: (): Promise<unknown> => ipcRenderer.invoke("get-settings"),
   saveHotkeys: (hotkeys: unknown): Promise<unknown> => ipcRenderer.invoke("save-hotkeys", hotkeys),
+  saveRetention: (retention: unknown): Promise<unknown> => ipcRenderer.invoke("save-retention", retention),
   setHotkeyCaptureActive: (active: boolean) => {
     ipcRenderer.send("orkworks:hotkey-capture-active", active);
   },

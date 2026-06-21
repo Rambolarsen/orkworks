@@ -113,11 +113,20 @@ struct PeonState {
     config: peon::PeonConfig,
 }
 
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+struct RetentionConfig {
+    #[serde(rename = "maxSessions", default)]
+    max_sessions: usize,
+    #[serde(rename = "maxAgeDays", default)]
+    max_age_days: u32,
+}
+
 struct AppState {
     sessions: Mutex<HashMap<String, SessionHandle>>,
     workspace: Mutex<Option<WorkspaceState>>,
     peon: PeonState,
     adapters: HashMap<String, harness::HarnessAdapter>,
+    retention_config: tokio::sync::RwLock<RetentionConfig>,
 }
 
 #[tokio::main]
@@ -140,6 +149,7 @@ async fn main() {
             config: peon::PeonConfig::from_env(),
         },
         adapters: builtin_adapters(),
+        retention_config: tokio::sync::RwLock::new(RetentionConfig::default()),
     });
 
     // Start Peon background task
@@ -147,6 +157,14 @@ async fn main() {
         let peon_state = state.clone();
         tokio::spawn(async move {
             peon_loop(peon_state).await;
+        });
+    }
+
+    // Start retention cleanup background task
+    {
+        let retention_state = state.clone();
+        tokio::spawn(async move {
+            retention_cleanup_task(retention_state).await;
         });
     }
 
@@ -162,7 +180,9 @@ async fn main() {
         .route("/sessions", post(create_session))
         .route("/sessions", get(list_sessions))
         .route("/sessions/:id", delete(delete_session))
+        .route("/sessions/:id/forget", delete(forget_session))
         .route("/sessions/:id/resume", post(resume_session))
+        .route("/settings/retention", post(set_retention))
         .route("/sessions/:id/terminal", get(session_terminal_handler))
         .route("/sessions/:id/terminal-output", get(get_terminal_output))
         .layer(cors)
@@ -537,15 +557,19 @@ async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse 
     let all_metadata_sessions = ws_guard.as_ref().map(|ws| ws.metadata.read_all_sessions()).unwrap_or_default();
     drop(ws_guard);
 
-    let live_ids: HashSet<String> = session_data.iter().map(|(id, _, _, _, _)| id.clone()).collect();
+    let live_ids: HashSet<String> = session_data.iter()
+        .filter(|(_, _, status, _, _)| status != "killed" && status != "ended" && status != "error")
+        .map(|(id, _, _, _, _)| id.clone())
+        .collect();
 
     let peon_times = state.peon.last_inference.read().unwrap();
     let mut infos: Vec<SessionInfo> = session_data.into_iter().map(|(id, label, status, cwd, created_at)| {
         let meta = metadata_map.get(&id);
         let harness_id = meta.and_then(|m| (!m.harness.is_empty()).then(|| m.harness.as_str()));
         let caps = capabilities_for_harness(&state.adapters, harness_id);
+        let is_live = status != "killed" && status != "ended" && status != "error";
         let (memory_state, resume_strategy) =
-            derive_memory_state(true, meta.and_then(|m| m.resume.as_ref()), &caps);
+            derive_memory_state(is_live, meta.and_then(|m| m.resume.as_ref()), &caps);
         SessionInfo {
             id: id.clone(),
             label: meta.map(|m| m.label.clone()).unwrap_or(label),
@@ -696,6 +720,169 @@ async fn delete_session(
     state.peon.last_output.write().unwrap().remove(&id);
     state.peon.last_inference.write().unwrap().remove(&id);
     axum::http::StatusCode::OK
+}
+
+async fn forget_session(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    {
+        let sessions = state.sessions.lock().unwrap();
+        if let Some(h) = sessions.get(&id) {
+            if h.info.status == "live" || h.info.status == "creating" || h.info.status == "running" {
+                return (axum::http::StatusCode::CONFLICT, "Cannot forget a live session. Kill it first.").into_response();
+            }
+        }
+    }
+
+    let ws_guard = state.workspace.lock().unwrap();
+    let ws = match &*ws_guard {
+        Some(ws) => ws,
+        None => return axum::http::StatusCode::CONFLICT.into_response(),
+    };
+
+    if ws.metadata.read_session(&id).is_none() {
+        return axum::http::StatusCode::NOT_FOUND.into_response();
+    }
+
+    if let Err(e) = ws.metadata.delete_session(&id) {
+        tracing::error!("failed to delete session {id}: {e}");
+        return axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    }
+    if let Err(e) = ws.metadata.delete_events(&id) {
+        tracing::error!("failed to delete events for {id}: {e}");
+    }
+    let _ = ws.metadata.clear_last_active_session_if_matches(&id);
+    drop(ws_guard);
+
+    state.sessions.lock().unwrap().remove(&id);
+    state.peon.last_output.write().unwrap().remove(&id);
+    state.peon.last_inference.write().unwrap().remove(&id);
+
+    axum::http::StatusCode::OK.into_response()
+}
+
+#[derive(Deserialize)]
+struct RetentionRequest {
+    #[serde(rename = "maxSessions", default)]
+    max_sessions: usize,
+    #[serde(rename = "maxAgeDays", default)]
+    max_age_days: u32,
+}
+
+async fn set_retention(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<RetentionRequest>,
+) -> impl IntoResponse {
+    let mut config = state.retention_config.write().await;
+    config.max_sessions = req.max_sessions;
+    config.max_age_days = req.max_age_days;
+    tracing::info!(
+        "retention config updated: max_sessions={} max_age_days={}",
+        config.max_sessions,
+        config.max_age_days
+    );
+    axum::http::StatusCode::OK
+}
+
+async fn retention_cleanup_task(state: Arc<AppState>) {
+    loop {
+        tokio::time::sleep(std::time::Duration::from_secs(300)).await;
+
+        let config = state.retention_config.read().await.clone();
+        if config.max_sessions == 0 && config.max_age_days == 0 {
+            continue;
+        }
+
+        let all_sessions = {
+            let ws_guard = state.workspace.lock().unwrap();
+            match &*ws_guard {
+                Some(ws) => ws.metadata.read_all_sessions(),
+                None => continue,
+            }
+        };
+
+        let live_ids: std::collections::HashSet<String> = {
+            let sessions = state.sessions.lock().unwrap();
+            sessions
+                .iter()
+                .filter(|(_, h)| {
+                    h.info.status == "live"
+                        || h.info.status == "creating"
+                        || h.info.status == "running"
+                })
+                .map(|(id, _)| id.clone())
+                .collect()
+        };
+
+        let mut candidates: Vec<_> = all_sessions
+            .into_iter()
+            .filter(|s| !live_ids.contains(&s.id))
+            .collect();
+
+        if candidates.is_empty() {
+            continue;
+        }
+
+        candidates.sort_by(|a, b| a.last_activity.cmp(&b.last_activity));
+
+        let mut all_deleted: Vec<String> = Vec::new();
+
+        if config.max_age_days > 0 {
+            let cutoff = chrono::Utc::now()
+                - chrono::Duration::days(config.max_age_days as i64);
+            let mut expired: Vec<String> = Vec::new();
+            for s in &candidates {
+                if let Ok(parsed) = chrono::DateTime::parse_from_rfc3339(&s.last_activity) {
+                    if parsed < cutoff {
+                        expired.push(s.id.clone());
+                    }
+                }
+            }
+            if !expired.is_empty() {
+                let ws_guard = state.workspace.lock().unwrap();
+                if let Some(ref ws) = *ws_guard {
+                    for id in &expired {
+                        tracing::info!("retention: deleting expired session {id}");
+                        let _ = ws.metadata.delete_session(id);
+                        let _ = ws.metadata.delete_events(id);
+                        let _ = ws.metadata.clear_last_active_session_if_matches(id);
+                    }
+                }
+                all_deleted.extend(expired.iter().cloned());
+                candidates.retain(|s| !expired.contains(&s.id));
+            }
+        }
+
+        if config.max_sessions > 0 && candidates.len() > config.max_sessions {
+            let to_delete = candidates.len() - config.max_sessions;
+            let ws_guard = state.workspace.lock().unwrap();
+            if let Some(ref ws) = *ws_guard {
+                for s in candidates.iter().take(to_delete) {
+                    tracing::info!(
+                        "retention: deleting session {} (exceeds max {})",
+                        s.id,
+                        config.max_sessions
+                    );
+                    let _ = ws.metadata.delete_session(&s.id);
+                    let _ = ws.metadata.delete_events(&s.id);
+                    let _ = ws.metadata.clear_last_active_session_if_matches(&s.id);
+                    all_deleted.push(s.id.clone());
+                }
+            }
+        }
+
+        if !all_deleted.is_empty() {
+            let mut sessions = state.sessions.lock().unwrap();
+            let mut peon_output = state.peon.last_output.write().unwrap();
+            let mut peon_inference = state.peon.last_inference.write().unwrap();
+            for id in &all_deleted {
+                sessions.remove(id);
+                peon_output.remove(id);
+                peon_inference.remove(id);
+            }
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -1454,6 +1641,7 @@ mod tests {
                 config: peon::PeonConfig::from_env(),
             },
             adapters: builtin_adapters(),
+            retention_config: tokio::sync::RwLock::new(RetentionConfig::default()),
         });
 
         assert!(state.sessions.lock().unwrap().is_empty());
@@ -1519,6 +1707,7 @@ mod tests {
                 config: peon::PeonConfig::from_env(),
             },
             adapters: builtin_adapters(),
+            retention_config: tokio::sync::RwLock::new(RetentionConfig::default()),
         });
 
         let (kill_tx, _) = tokio::sync::watch::channel(false);
@@ -1910,6 +2099,7 @@ mod tests {
                 },
             },
             adapters: builtin_adapters(),
+            retention_config: tokio::sync::RwLock::new(RetentionConfig::default()),
         });
 
         // Create a session with some output in the ring buffer
@@ -2076,6 +2266,7 @@ mod tests {
                 },
             },
             adapters: builtin_adapters(),
+            retention_config: tokio::sync::RwLock::new(RetentionConfig::default()),
         });
 
         let session_id = "peon-duplicate-test".to_string();
@@ -2162,6 +2353,7 @@ mod tests {
                 },
             },
             adapters: builtin_adapters(),
+            retention_config: tokio::sync::RwLock::new(RetentionConfig::default()),
         });
 
         let session_id = "peon-failed-attempt-test".to_string();

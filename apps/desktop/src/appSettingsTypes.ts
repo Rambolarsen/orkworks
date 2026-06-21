@@ -1,3 +1,8 @@
+export interface RetentionSettings {
+  maxSessions: number;
+  maxAgeDays: number;
+}
+
 export interface HotkeySettings {
   newSession: string;
   toggleSessionsPanel: string;
@@ -13,6 +18,7 @@ export interface AppSettings {
   version: 1;
   hotkeys: HotkeySettings;
   defaultHotkeys: HotkeySettings;
+  retention: RetentionSettings;
 }
 
 export type SaveHotkeysResult =

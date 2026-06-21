@@ -23,6 +23,7 @@ interface DockviewAppData {
   onSelectSession: (id: string) => void;
   onCreateSession: () => void;
   onKillSession: (id: string) => void;
+  onForgetSession: (id: string) => void;
   onResumeSession: (id: string) => void;
   onFocusTerminal: () => void;
   onOpenWorkspace: () => void;
@@ -40,6 +41,7 @@ function SessionsPanel() {
       activeSessionId={ctx.activeSessionId}
       onSelectSession={ctx.onSelectSession}
       onKillSession={ctx.onKillSession}
+      onForgetSession={ctx.onForgetSession}
       onFocusTerminal={ctx.onFocusTerminal}
       onOpenWorkspace={ctx.onOpenWorkspace}
     />
@@ -147,9 +149,9 @@ function layoutNeedsMigration(json: Record<string, unknown>): boolean {
 }
 
 function DockviewApp(props: DockviewAppData) {
-  const { backendStatus, workspace, sessions, activeSessionId, resumeTick, onSelectSession, onCreateSession, onKillSession, onResumeSession, onFocusTerminal, onOpenWorkspace, dockviewApiRef } = props;
+  const { backendStatus, workspace, sessions, activeSessionId, resumeTick, onSelectSession, onCreateSession, onKillSession, onForgetSession, onResumeSession, onFocusTerminal, onOpenWorkspace, dockviewApiRef } = props;
 
-  const ctxValue: DockviewAppData = { backendStatus, workspace, sessions, activeSessionId, resumeTick, onSelectSession, onCreateSession, onKillSession, onResumeSession, onFocusTerminal, onOpenWorkspace, dockviewApiRef };
+  const ctxValue: DockviewAppData = { backendStatus, workspace, sessions, activeSessionId, resumeTick, onSelectSession, onCreateSession, onKillSession, onForgetSession, onResumeSession, onFocusTerminal, onOpenWorkspace, dockviewApiRef };
 
   const initializedRef = useRef(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);

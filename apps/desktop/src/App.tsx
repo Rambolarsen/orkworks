@@ -13,6 +13,7 @@ import {
   createSession,
   listSessions,
   deleteSession,
+  forgetSession,
   resumeSession,
   setActiveWorkspaceSession,
 } from "./api";
@@ -141,6 +142,21 @@ function App() {
         await refreshSessions();
       } catch {
         pushToast("error", "Couldn't end session.");
+      }
+    },
+    [activeSessionId, refreshSessions],
+  );
+
+  const handleForgetSession = useCallback(
+    async (id: string) => {
+      try {
+        const baseUrl = await window.orkworks.getBackendUrl();
+        await forgetSession(baseUrl, id);
+        disposeTerminal(id);
+        if (activeSessionId === id) setActiveSessionId(null);
+        await refreshSessions();
+      } catch {
+        pushToast("error", "Couldn't delete session.");
       }
     },
     [activeSessionId, refreshSessions],
@@ -332,6 +348,7 @@ function App() {
         onSelectSession={handleSelectSession}
         onCreateSession={handleCreateSession}
         onKillSession={handleKillSession}
+        onForgetSession={handleForgetSession}
         onResumeSession={handleResumeSession}
         onFocusTerminal={handleFocusTerminal}
         onOpenWorkspace={handleOpenWorkspace}

@@ -221,6 +221,62 @@ html, body, #root {
   font-size: 12px;
 }
 
+.retention-list {
+  margin-top: 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.retention-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) 80px auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.retention-row:last-child {
+  border-bottom: 0;
+}
+
+.retention-label {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.retention-input {
+  width: 100%;
+  border: 1px solid var(--border-default);
+  border-radius: 5px;
+  padding: 4px 7px;
+  color: var(--text-primary);
+  background: var(--surface-0);
+  font: inherit;
+  font-size: 13px;
+}
+
+.retention-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.retention-hint {
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+.retention-status {
+  margin-top: 8px;
+  color: var(--state-warn);
+  font-size: 12px;
+}
+
+.retention-status--ok {
+  color: var(--state-ok);
+}
+
 .hotkey-value {
   justify-self: end;
   border: 1px solid var(--border-default);
@@ -431,6 +487,23 @@ html, body, #root {
 }
 
 .session-row-kill:hover { color: var(--state-error); }
+
+.session-row-forget {
+  border: none;
+  background: none;
+  color: var(--text-faint);
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 var(--space-2);
+  opacity: 0.6;
+  display: flex;
+  align-items: center;
+}
+
+.session-row-forget:hover {
+  color: var(--state-error);
+  opacity: 1;
+}
 
 .session-row-secondary {
   grid-area: secondary;

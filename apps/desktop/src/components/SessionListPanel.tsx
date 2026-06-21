@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Trash2 } from "lucide-react";
 import type { SessionInfo, WorkspaceInfo } from "../api";
 import { sessionAttentionStatus } from "../sessionSort";
 import {
@@ -17,6 +18,7 @@ interface SessionListPanelProps {
   activeSessionId: string | null;
   onSelectSession: (id: string) => void;
   onKillSession: (id: string) => void;
+  onForgetSession: (id: string) => void;
   onFocusTerminal: () => void;
   onOpenWorkspace: () => void;
 }
@@ -52,6 +54,7 @@ function SessionListPanel({
   activeSessionId,
   onSelectSession,
   onKillSession,
+  onForgetSession,
   onFocusTerminal,
   onOpenWorkspace,
 }: SessionListPanelProps) {
@@ -188,6 +191,21 @@ function SessionListPanel({
                           }}
                         >
                           &times;
+                        </button>
+                      )}
+                      {s.memoryState !== "live" && (
+                        <button
+                          className="session-row-forget"
+                          type="button"
+                          aria-label="Delete session"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (window.confirm("Permanently delete this session? The session record, events, and saved terminal scrollback cannot be restored.")) {
+                              onForgetSession(s.id);
+                            }
+                          }}
+                        >
+                          <Trash2 size={12} />
                         </button>
                       )}
                     </div>
