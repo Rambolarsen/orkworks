@@ -1,0 +1,36 @@
+appId: ai.orkworks.desktop
+productName: OrkWorks
+directories:
+  output: release
+  buildResources: build
+files:
+  - dist/**/*
+  - dist-electron/**/*
+  - package.json
+mac:
+  category: public.app-category.developer-tools
+  target:
+    - dmg
+  artifactName: OrkWorks-${version}-mac-${arch}.${ext}
+  extraResources:
+    - from: ../../crates/orkworksd/target/release/orkworksd
+      to: orkworksd
+win:
+  target:
+    - nsis
+  artifactName: OrkWorks-${version}-win-${arch}.${ext}
+  extraResources:
+    - from: ../../crates/orkworksd/target/release/orkworksd.exe
+      to: orkworksd.exe
+linux:
+  category: Development
+  target:
+    - AppImage
+    - deb
+  artifactName: OrkWorks-${version}-linux-${arch}.${ext}
+  extraResources:
+    - from: ../../crates/orkworksd/target/release/orkworksd
+      to: orkworksd
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true

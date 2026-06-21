@@ -2,7 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, Menu } from "electron";
 import { spawn, type ChildProcess } from "child_process";
 import { existsSync } from "fs";
 import * as path from "path";
-import { getDevRepoRoot, getDevSidecarPath } from "./paths";
+import { getDevRepoRoot, getDevSidecarPath, getPackagedSidecarPath } from "./paths";
 import { readWorkspaceMemory, rememberWorkspacePath } from "./workspaceMemory";
 import { readLayoutMemory, writeLayoutMemory } from "./layoutMemory";
 import type { AppSettings } from "./settingsMemory";
@@ -64,7 +64,7 @@ function applyMenu(menu: Electron.Menu): void {
 
 function getSidecarPath(): string {
   if (app.isPackaged) {
-    return path.join(process.resourcesPath, "orkworksd");
+    return getPackagedSidecarPath(process.resourcesPath, process.platform);
   }
   return getDevSidecarPath(__dirname);
 }

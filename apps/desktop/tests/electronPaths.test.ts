@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
 
-import { getDevRepoRoot } from "../electron/paths.ts";
+import { getDevRepoRoot, getPackagedSidecarPath } from "../electron/paths.ts";
 
 test("resolves the repo root from the compiled Electron directory", () => {
   const compiledElectronDir = path.join(
@@ -13,4 +13,11 @@ test("resolves the repo root from the compiled Electron directory", () => {
   );
 
   assert.equal(getDevRepoRoot(compiledElectronDir), "/Users/example/workspace/orkworks");
+});
+
+test("uses the .exe suffix for packaged Windows sidecars", () => {
+  assert.equal(
+    getPackagedSidecarPath("C:\\Users\\example\\AppData\\Local\\Programs\\OrkWorks\\resources", "win32"),
+    path.join("C:\\Users\\example\\AppData\\Local\\Programs\\OrkWorks\\resources", "orkworksd.exe"),
+  );
 });
