@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DockviewApi } from "dockview-react";
 import DockviewApp from "./components/DockviewApp";
+import NewSessionDialog from "./components/NewSessionDialog";
 import SettingsModal from "./components/SettingsModal";
 import ToastRack from "./components/ToastRack";
 import { sortSessions } from "./sessionSort";
@@ -11,6 +12,7 @@ import {
   type SessionInfo,
   type WorkspaceInfo,
   createSession,
+  listHarnesses,
   listSessions,
   deleteSession,
   forgetSession,
@@ -19,6 +21,7 @@ import {
 } from "./api";
 import { disposeTerminal, getTerminal } from "./terminalStore";
 import type { AppSettings } from "./appSettingsTypes";
+import type { HarnessConfig, CreateSessionOptions } from "./harnessTypes";
 
 function App() {
   const [backendStatus, setBackendStatus] = useState<string>("connecting…");
@@ -28,6 +31,8 @@ function App() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [resumeTick, setResumeTick] = useState(0);
+  const [harnesses, setHarnesses] = useState<HarnessConfig[]>([]);
+  const [newSessionDialogOpen, setNewSessionDialogOpen] = useState(false);
   const dockviewApiRef = useRef<DockviewApi | null>(null);
   const sessionsHiddenLayoutRef = useRef<string | null>(null);
 
@@ -79,6 +84,20 @@ function App() {
     return () => clearInterval(interval);
   }, [backendStatus, refreshSessions]);
 
+  useEffect(() => {
+    if (backendStatus !== "connected") return;
+    async function loadHarnesses() {
+      try {
+        const baseUrl = await window.orkworks.getBackendUrl();
+        const list = await listHarnesses(baseUrl);
+        setHarnesses(list);
+      } catch {
+        // Non-fatal: dialog will show empty list, user can still create bare sessions
+      }
+    }
+    loadHarnesses();
+  }, [backendStatus]);
+
   const handleOpenWorkspace = useCallback(async () => {
     try {
       const info = await window.orkworks.openWorkspace();
@@ -103,10 +122,15 @@ function App() {
     }
   }, []);
 
-  const handleCreateSession = useCallback(async () => {
+  const handleCreateSession = useCallback(() => {
+    setNewSessionDialogOpen(true);
+  }, []);
+
+  const handleConfirmNewSession = useCallback(async (opts: CreateSessionOptions) => {
+    setNewSessionDialogOpen(false);
     try {
       const baseUrl = await window.orkworks.getBackendUrl();
-      const session = await createSession(baseUrl);
+      const session = await createSession(baseUrl, opts);
       setSessions((prev) => [...prev, session]);
       setActiveSessionId(session.id);
 
@@ -354,6 +378,13 @@ function App() {
         onOpenWorkspace={handleOpenWorkspace}
         dockviewApiRef={dockviewApiRef}
       />
+      {newSessionDialogOpen && (
+        <NewSessionDialog
+          harnesses={harnesses}
+          onConfirm={handleConfirmNewSession}
+          onCancel={() => setNewSessionDialogOpen(false)}
+        />
+      )}
       {settingsOpen && settings && (
         <SettingsModal
           initialSettings={settings}

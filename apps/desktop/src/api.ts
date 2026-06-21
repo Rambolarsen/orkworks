@@ -12,6 +12,8 @@ export interface ResumeMemory {
 export interface SessionInfo {
   id: string;
   label: string;
+  harness?: string;
+  model?: string;
   status: string;
   cwd: string;
   created_at: string;
@@ -43,9 +45,20 @@ export interface SessionInfo {
 
 export async function createSession(
   baseUrl: string,
+  opts?: { harnessId?: string; model?: string; initialPrompt?: string },
 ): Promise<SessionInfo> {
-  const resp = await fetch(`${baseUrl}/sessions`, { method: "POST" });
+  const resp = await fetch(`${baseUrl}/sessions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(opts ?? {}),
+  });
   if (!resp.ok) throw new Error(`create session failed: ${resp.status}`);
+  return resp.json();
+}
+
+export async function listHarnesses(baseUrl: string) {
+  const resp = await fetch(`${baseUrl}/harnesses`);
+  if (!resp.ok) throw new Error(`list harnesses failed: ${resp.status}`);
   return resp.json();
 }
 
