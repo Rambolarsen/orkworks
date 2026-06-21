@@ -51,6 +51,8 @@ jobs:
           workspaces: crates/orkworksd
 
       - uses: pnpm/action-setup@v4
+        with:
+          version: "11"
 
       - name: Install frontend deps
         working-directory: apps/desktop
