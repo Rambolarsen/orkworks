@@ -24,7 +24,7 @@ Electron runs with `nodeIntegration: false` and `contextIsolation: true` (ADR 00
 
 `electron/layoutMemory.ts` persists the Dockview panel layout to `layout.json` in the Electron user data directory, using the same pattern as `workspaceMemory.ts`. Layout is serialized via Dockview's `toJSON()`/`fromJSON()` on every layout change (debounced 500ms) and restored on startup.
 
-`electron/settingsMemory.ts` owns app-level settings in Electron `userData`, including hotkey validation, default hotkeys, and persisted menu accelerators. `getSettings()` and successful `saveHotkeys()` responses include a renderer-facing `defaultHotkeys` copy sourced from the main process, so the settings UI can restore defaults without duplicating canonical accelerators.
+`electron/settingsMemory.ts` owns app-level settings in Electron `userData`, including hotkey validation, default hotkeys, persisted menu accelerators, and durable provider settings (`ProviderSettings`). `getSettings()` and successful `saveHotkeys()` responses include a renderer-facing `defaultHotkeys` copy sourced from the main process, so the settings UI can restore defaults without duplicating canonical accelerators. Electron settings now push both retention and provider settings into the sidecar after port discovery. `electron/providerSettingsSync.ts` handles the `POST /settings/providers` push on startup, workspace switch, and explicit save.
 
 ## Frontend → backend API
 
@@ -36,18 +36,19 @@ Key endpoints: `POST /workspace`, `POST /workspace/active-session`, `GET/POST /s
 
 ## Rust sidecar (`crates/orkworksd/src/`)
 
-Single binary, six modules:
+Single binary, seven modules:
 
-- `main.rs` — Axum router, `AppState` (sessions + workspace + harness adapters), all HTTP/WS handlers, PTY lifecycle, session resume
+- `main.rs` — Axum router, `AppState` (sessions + workspace + harness adapters + `ProviderManager`), all HTTP/WS handlers, PTY lifecycle, session resume
 - `git.rs` — git2-based context detection (repo root, branch, dirty check including untracked files while excluding ignored files)
 - `harness.rs` — harness adapter types, command templates, resume strategy selection, capability flags
 - `metadata.rs` — reads/writes `.orkworks/sessions/<id>.json`, `.orkworks/workspace.json`, and `.orkworks/events/<id>.terminal` (terminal output ring buffer) files
-- `peon.rs` — observer config, ring buffer, harness invocation, inference parsing/validation, source-priority overwrite rules (driven by the debounce loop in `main.rs`; tuning knobs documented in `README.md`)
+- `peon.rs` — observer config, ring buffer, prompt building, inference parsing/validation, source-priority overwrite rules (driven by the debounce loop in `main.rs`; tuning knobs documented in `README.md`)
+- `providers.rs` — fixed provider registry, applied-settings store, runtime state, fallback runner (`run_inference` skips disabled/capped providers in fallback order). Exposes `GET /providers` for live runtime state and `POST /settings/providers` for durable settings application. The session Peon loop routes through `ProviderManager::run_inference`.
 - `watcher.rs` — `notify`-based file watcher for `.orkworks/` changes
 
 ## Dockview panel layout
 
-The renderer uses Dockview for a five-panel workspace: sessions, session detail, terminal, capacity, and recommendations. `DockviewApp` owns the panel registration and passes app state through a React context to panel components. `TerminalPanel` hosts the active live PTY session through `CenterPanel` and xterm.js over the backend WebSocket.
+The renderer uses Dockview for a five-panel workspace: sessions, session detail, terminal, capacity (visible label: Providers), and recommendations. `DockviewApp` owns the panel registration and passes app state through a React context to panel components. `TerminalPanel` hosts the active live PTY session through `CenterPanel` and xterm.js over the backend WebSocket. The `capacity` panel id is kept stable for layout compatibility; the visible title is "Providers".
 
 The titlebar shows the active workspace name and a workspace-switch action when a repo is open. A `ViewMenu` component in the titlebar provides per-panel shortcuts/toggles plus a "Reset Layout" action. Panel layouts persist to Electron userData via `layout.json` and restore on startup via Dockview's `toJSON()`/`fromJSON()` serialization.
 

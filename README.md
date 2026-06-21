@@ -23,6 +23,7 @@ orkworks/
 - Desktop UI uses Dockview draggable panels for sessions, detail, terminal, capacity, and recommendations
 - The app remembers the last workspace and repo-local active session for relaunch restore
 - The Electron main process owns app-level settings in `userData`, including canonical default hotkeys and persisted hotkeys that drive native menu accelerators
+- Providers panel: app-wide Peon provider order, manual overrides, and last runtime errors. If OpenCode is capped, Peon can fall back to the next enabled provider instead of failing hard.
 - Peon writes observer metadata such as `observedStatus` without replacing runtime lifecycle `status`
 - Taskmaster consumes Peon reports and workspace context to propose the next session or user action
 - PTY handles only text I/O; voice (native harness) bypasses PTY entirely
