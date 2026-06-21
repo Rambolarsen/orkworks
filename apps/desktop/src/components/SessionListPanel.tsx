@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Trash2 } from "lucide-react";
 import type { SessionInfo, WorkspaceInfo } from "../api";
 import { sessionAttentionStatus } from "../sessionSort";
 import {
@@ -204,7 +205,7 @@ function SessionListPanel({
                             }
                           }}
                         >
-                          &#x1F5D1;
+                          <Trash2 size={12} />
                         </button>
                       )}
                     </div>

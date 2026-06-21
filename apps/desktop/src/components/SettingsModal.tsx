@@ -139,7 +139,7 @@ export default function SettingsModal({ initialSettings, onClose, onSaved }: Set
         <div className="settings-section">
           <h3>Session Retention</h3>
           <p className="settings-section-copy">
-            Live sessions are never auto-deleted. Changes apply immediately.
+            Live sessions are never auto-deleted. Changes take effect within 5 minutes.
           </p>
 
           <div className="retention-list">
@@ -157,7 +157,10 @@ export default function SettingsModal({ initialSettings, onClose, onSaved }: Set
                     setRetention((r) => ({ ...r, maxSessions: Math.max(0, Math.min(999, v)) }));
                   }
                 }}
-                onBlur={() => saveRetention(retention)}
+                onBlur={(e) => {
+                  const v = parseInt(e.target.value, 10);
+                  saveRetention({ ...retention, maxSessions: Number.isNaN(v) ? 0 : Math.max(0, Math.min(999, v)) });
+                }}
               />
               <span className="retention-hint">0 = unlimited</span>
             </div>
@@ -176,7 +179,10 @@ export default function SettingsModal({ initialSettings, onClose, onSaved }: Set
                     setRetention((r) => ({ ...r, maxAgeDays: Math.max(0, Math.min(999, v)) }));
                   }
                 }}
-                onBlur={() => saveRetention(retention)}
+                onBlur={(e) => {
+                  const v = parseInt(e.target.value, 10);
+                  saveRetention({ ...retention, maxAgeDays: Number.isNaN(v) ? 0 : Math.max(0, Math.min(999, v)) });
+                }}
               />
               <span className="retention-hint">0 = never</span>
             </div>

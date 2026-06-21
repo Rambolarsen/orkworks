@@ -826,6 +826,8 @@ async fn retention_cleanup_task(state: Arc<AppState>) {
 
         candidates.sort_by(|a, b| a.last_activity.cmp(&b.last_activity));
 
+        let mut all_deleted: Vec<String> = Vec::new();
+
         if config.max_age_days > 0 {
             let cutoff = chrono::Utc::now()
                 - chrono::Duration::days(config.max_age_days as i64);
@@ -847,6 +849,7 @@ async fn retention_cleanup_task(state: Arc<AppState>) {
                         let _ = ws.metadata.clear_last_active_session_if_matches(id);
                     }
                 }
+                all_deleted.extend(expired.iter().cloned());
                 candidates.retain(|s| !expired.contains(&s.id));
             }
         }
@@ -864,7 +867,19 @@ async fn retention_cleanup_task(state: Arc<AppState>) {
                     let _ = ws.metadata.delete_session(&s.id);
                     let _ = ws.metadata.delete_events(&s.id);
                     let _ = ws.metadata.clear_last_active_session_if_matches(&s.id);
+                    all_deleted.push(s.id.clone());
                 }
+            }
+        }
+
+        if !all_deleted.is_empty() {
+            let mut sessions = state.sessions.lock().unwrap();
+            let mut peon_output = state.peon.last_output.write().unwrap();
+            let mut peon_inference = state.peon.last_inference.write().unwrap();
+            for id in &all_deleted {
+                sessions.remove(id);
+                peon_output.remove(id);
+                peon_inference.remove(id);
             }
         }
     }

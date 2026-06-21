@@ -492,11 +492,12 @@ html, body, #root {
   border: none;
   background: none;
   color: var(--text-faint);
-  font-size: 12px;
   line-height: 1;
   cursor: pointer;
   padding: 0 var(--space-2);
   opacity: 0.6;
+  display: flex;
+  align-items: center;
 }
 
 .session-row-forget:hover {
