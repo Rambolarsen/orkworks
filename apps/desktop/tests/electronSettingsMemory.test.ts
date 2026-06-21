@@ -13,6 +13,7 @@ import {
   validateHotkeys,
   writeSettings,
 } from "../electron/settingsMemory.ts";
+import type { ProviderSettings } from "../src/providerTypes.ts";
 
 test("settings memory returns defaults when settings.json is missing", () => {
   const dir = mkdtempSync(join(tmpdir(), "orkworks-settings-"));
@@ -323,4 +324,93 @@ test("validateHotkeys allows optional resetLayout to be unset", () => {
   });
 
   assert.deepEqual(result, { ok: true, errors: {} });
+});
+
+test("settings memory seeds default provider settings", () => {
+  const dir = mkdtempSync(join(tmpdir(), "orkworks-settings-"));
+  try {
+    const settings = readSettings(dir);
+    assert.deepEqual(settings.providers, {
+      version: 1,
+      revision: 0,
+      providers: [
+        {
+          id: "opencode",
+          enabled: true,
+          fallbackOrder: 0,
+          peonModel: null,
+          defaultState: "healthy",
+          overrideState: null,
+        },
+        {
+          id: "claude-code",
+          enabled: true,
+          fallbackOrder: 1,
+          peonModel: null,
+          defaultState: "unknown",
+          overrideState: null,
+        },
+      ],
+    } satisfies ProviderSettings);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("settings memory normalizes malformed provider payloads", () => {
+  const dir = mkdtempSync(join(tmpdir(), "orkworks-settings-"));
+  try {
+    writeFileSync(
+      settingsPath(dir),
+      JSON.stringify({
+        version: 1,
+        providers: {
+          version: 99,
+          revision: 4.7,
+          providers: [
+            { id: "claude-code", enabled: "yes", fallbackOrder: -10, peonModel: 42, defaultState: "bad", overrideState: "capped" },
+            { id: "unknown-provider", enabled: true, fallbackOrder: 0, peonModel: null, defaultState: "healthy", overrideState: null },
+          ],
+        },
+      }),
+    );
+
+    const settings = readSettings(dir);
+    assert.equal(settings.providers.version, 1);
+    assert.equal(settings.providers.revision, 4);
+    assert.deepEqual(settings.providers.providers.map((entry) => entry.id), ["claude-code", "opencode"]);
+    assert.equal(settings.providers.providers[0].enabled, true);
+    assert.equal(settings.providers.providers[0].fallbackOrder, 0);
+    assert.equal(settings.providers.providers[0].peonModel, null);
+    assert.equal(settings.providers.providers[0].defaultState, "unknown");
+    assert.equal(settings.providers.providers[0].overrideState, "capped");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("settings memory preserves provider revisions and canonical fallback order on write", () => {
+  const dir = mkdtempSync(join(tmpdir(), "orkworks-settings-"));
+  try {
+    writeSettings(dir, {
+      ...DEFAULT_SETTINGS,
+      providers: {
+        version: 1,
+        revision: 7,
+        providers: [
+          { id: "claude-code", enabled: true, fallbackOrder: 9, peonModel: "sonnet", defaultState: "healthy", overrideState: null },
+          { id: "opencode", enabled: false, fallbackOrder: 2, peonModel: null, defaultState: "capped", overrideState: null },
+        ],
+      },
+    });
+
+    const persisted = JSON.parse(readFileSync(settingsPath(dir), "utf8"));
+    assert.equal(persisted.providers.revision, 7);
+    assert.deepEqual(
+      persisted.providers.providers.map((entry: { id: string; fallbackOrder: number }) => [entry.id, entry.fallbackOrder]),
+      [["opencode", 0], ["claude-code", 1]],
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

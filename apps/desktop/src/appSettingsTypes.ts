@@ -1,3 +1,5 @@
+import type { ProviderSettings } from "./providerTypes.ts";
+
 export interface RetentionSettings {
   maxSessions: number;
   maxAgeDays: number;
@@ -19,6 +21,7 @@ export interface AppSettings {
   hotkeys: HotkeySettings;
   defaultHotkeys: HotkeySettings;
   retention: RetentionSettings;
+  providers: ProviderSettings;
 }
 
 export type SaveHotkeysResult =
