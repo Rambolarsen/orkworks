@@ -37,6 +37,7 @@ export default function SettingsModal({ initialSettings, onClose, onSaved }: Set
   const [providerModels, setProviderModels] = useState<Record<string, string[]>>({});
   const [providerLabels, setProviderLabels] = useState<Record<string, string>>({});
   const [providerSaveStatus, setProviderSaveStatus] = useState<string | null>(null);
+  const [peonModelDraft, setPeonModelDraft] = useState<string | null>(initialSettings.providers.peonModel);
 
   useLayoutEffect(() => {
     const modal = modalRef.current;
@@ -132,6 +133,10 @@ export default function SettingsModal({ initialSettings, onClose, onSaved }: Set
     load();
   }, []);
 
+  useEffect(() => {
+    setPeonModelDraft(providerDraft.peonModel);
+  }, [providerDraft.peonModel]);
+
   async function saveRetention(rt: RetentionSettings) {
     setRetentionSaveStatus(null);
     try {
@@ -206,10 +211,12 @@ export default function SettingsModal({ initialSettings, onClose, onSaved }: Set
                 type="text"
                 list="peon-model-suggestions"
                 placeholder="(none — let provider decide)"
-                value={providerDraft.peonModel ?? ""}
-                onChange={(e) => {
-                  const val = e.target.value.trim();
-                  savePeonModel(val || null);
+                value={peonModelDraft ?? ""}
+                onChange={(e) => setPeonModelDraft(e.target.value.trim() || null)}
+                onBlur={() => {
+                  if (peonModelDraft !== providerDraft.peonModel) {
+                    savePeonModel(peonModelDraft);
+                  }
                 }}
               />
               <datalist id="peon-model-suggestions">

@@ -103,7 +103,7 @@ function App() {
   }, [backendStatus]);
 
   const filteredHarnesses = activeHarnessIds.length === 0
-    ? harnesses
+    ? harnesses.filter((h) => h.id === "generic-shell")
     : harnesses.filter((h) => h.id === "generic-shell" || activeHarnessIds.includes(h.id));
 
   const handleSaveActiveHarnesses = useCallback(async (ids: string[]) => {

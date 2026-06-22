@@ -241,8 +241,18 @@ export function normalizeProviderSettings(value: unknown): ProviderSettings {
 }
 
 function normalizePeonModel(raw: Record<string, unknown>): string | null {
-  const v = raw.peonModel ?? raw.defaultPeonModel;
-  return typeof v === "string" && v ? v : null;
+  const top = raw.peonModel ?? raw.defaultPeonModel;
+  if (typeof top === "string" && top) return top;
+
+  const entries = Array.isArray(raw.providers) ? raw.providers : [];
+  for (const entry of entries) {
+    if (entry && typeof entry === "object") {
+      const v = (entry as Record<string, unknown>).peonModel;
+      if (typeof v === "string" && v) return v;
+    }
+  }
+
+  return null;
 }
 
 function normalizeProviderEntry(raw: Record<string, unknown>): ProviderSettingsEntry | null {
