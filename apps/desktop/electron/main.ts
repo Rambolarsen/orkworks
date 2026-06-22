@@ -8,7 +8,7 @@ import { readLayoutMemory, writeLayoutMemory } from "./layoutMemory";
 import type { AppSettings } from "./settingsMemory";
 import { DEFAULT_HOTKEYS, DEFAULT_RETENTION, normalizeProviderSettings, normalizeRetention, readSettings, settingsWithHotkeys, validateHotkeys, writeSettings } from "./settingsMemory";
 import { pushProviderSettings } from "./providerSettingsSync";
-import type { ProviderSettings } from "../src/providerTypes";
+import type { ProviderSettings } from "./providerTypes";
 import { buildMenuTemplate } from "./menuTemplate";
 
 let mainWindow: BrowserWindow | null = null;
