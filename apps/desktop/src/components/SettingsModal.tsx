@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { acceleratorFromKeyboardEvent } from "../hotkeyCapture";
 import type { AppSettings, HotkeySettings, RetentionSettings, SaveHotkeysResult } from "../appSettingsTypes";
+import type { ProviderSettings, ProviderSettingsEntry, ProviderModelsResponse } from "../providerTypes";
 
 type HotkeyAction = keyof HotkeySettings;
 
@@ -29,6 +30,9 @@ export default function SettingsModal({ initialSettings, onClose, onSaved }: Set
   const [saving, setSaving] = useState(false);
   const [retention, setRetention] = useState<RetentionSettings>(initialSettings.retention);
   const [retentionSaveStatus, setRetentionSaveStatus] = useState<string | null>(null);
+  const [providerDraft, setProviderDraft] = useState<ProviderSettings>(initialSettings.providers);
+  const [providerModels, setProviderModels] = useState<Record<string, string[]>>({});
+  const [providerSaveStatus, setProviderSaveStatus] = useState<string | null>(null);
 
   useEffect(() => {
     if (!capturing) return;
@@ -65,6 +69,23 @@ export default function SettingsModal({ initialSettings, onClose, onSaved }: Set
     };
   }, [capturing]);
 
+  useEffect(() => {
+    const ids = providerDraft.providers.map((p) => p.id);
+    async function load() {
+      const map: Record<string, string[]> = {};
+      for (const id of ids) {
+        try {
+          const resp: ProviderModelsResponse = await window.orkworks.getProviderModels(id);
+          map[id] = resp.models;
+        } catch {
+          map[id] = [];
+        }
+      }
+      setProviderModels(map);
+    }
+    load();
+  }, []);
+
   async function saveRetention(rt: RetentionSettings) {
     setRetentionSaveStatus(null);
     try {
@@ -94,6 +115,23 @@ export default function SettingsModal({ initialSettings, onClose, onSaved }: Set
     }
   }
 
+  async function saveProviderDraft(entry: ProviderSettingsEntry) {
+    setProviderSaveStatus(null);
+    const next = {
+      ...providerDraft,
+      providers: providerDraft.providers.map((p) =>
+        p.id === entry.id ? entry : p,
+      ),
+    };
+    setProviderDraft(next);
+    try {
+      await window.orkworks.saveProviderSettings(next);
+      setProviderSaveStatus("Saved");
+    } catch {
+      setProviderSaveStatus("Couldn't save provider settings.");
+    }
+  }
+
   return (
     <div className="settings-backdrop" role="presentation">
       <section className="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
@@ -106,6 +144,42 @@ export default function SettingsModal({ initialSettings, onClose, onSaved }: Set
             Close
           </button>
         </header>
+
+        <div className="settings-section">
+          <h3>Providers</h3>
+          <p className="settings-section-copy">
+            Choose which model peon uses for each provider. Changes apply immediately.
+          </p>
+
+          <div className="provider-list">
+            {[...providerDraft.providers]
+              .sort((a, b) => a.fallbackOrder - b.fallbackOrder)
+              .map((entry) => (
+                <div className="provider-card" key={entry.id}>
+                  <div className="provider-label">{entry.id === "opencode" ? "OpenCode" : entry.id === "claude-code" ? "Claude Code" : entry.id}</div>
+                  <select
+                    className="provider-model-select"
+                    value={entry.peonModel ?? ""}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      saveProviderDraft({ ...entry, peonModel: val || null });
+                    }}
+                  >
+                    <option value="">default</option>
+                    {(providerModels[entry.id] ?? []).map((m) => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+          </div>
+
+          {providerSaveStatus && (
+            <div className={`retention-status ${providerSaveStatus === "Saved" ? "retention-status--ok" : ""}`}>
+              {providerSaveStatus}
+            </div>
+          )}
+        </div>
 
         <div className="settings-section">
           <h3>Hotkeys</h3>
