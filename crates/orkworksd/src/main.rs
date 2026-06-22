@@ -74,6 +74,12 @@ struct SessionInfo {
     recommendation: Option<String>,
     #[serde(rename = "peonLastInference")]
     peon_last_inference: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    provider: Option<String>,
+    #[serde(rename = "providerModel", skip_serializing_if = "Option::is_none")]
+    provider_model: Option<String>,
+    #[serde(rename = "providerState", skip_serializing_if = "Option::is_none")]
+    provider_state: Option<String>,
     #[serde(rename = "memoryState")]
     memory_state: MemoryState,
     #[serde(rename = "resumeStrategy")]
@@ -391,6 +397,9 @@ async fn resume_session(
         resume_strategy: strategy,
         resume: meta.resume.clone(),
         resumed_from: meta.resumed_from.clone(),
+        provider: meta.provider_label.clone(),
+        provider_model: meta.provider_model.clone(),
+        provider_state: meta.provider_state.clone(),
     };
 
     {
@@ -557,6 +566,9 @@ async fn create_session(
             last_seen_at: Some(now.clone()),
         }),
         resumed_from: None,
+        provider: None,
+        provider_model: None,
+        provider_state: None,
     };
 
     let handle = SessionHandle {
@@ -594,6 +606,10 @@ async fn create_session(
             failed_test: None,
             capacity_hints: None,
             peon_last_inference: None,
+            provider_id: None,
+            provider_label: None,
+            provider_model: None,
+            provider_state: None,
             created_at: now.clone(),
             last_activity: now.clone(),
             metadata_source: "process".into(),
@@ -726,6 +742,9 @@ async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse 
             resume_strategy,
             resume: meta.and_then(|m| m.resume.clone()),
             resumed_from: meta.and_then(|m| m.resumed_from.clone()),
+            provider: meta.and_then(|m| m.provider_label.clone()),
+            provider_model: meta.and_then(|m| m.provider_model.clone()),
+            provider_state: meta.and_then(|m| m.provider_state.clone()),
         }
     }).collect();
 
@@ -771,6 +790,9 @@ async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse 
             resume_strategy,
             resume: meta.resume.clone(),
             resumed_from: meta.resumed_from.clone(),
+            provider: meta.provider_label.clone(),
+            provider_model: meta.provider_model.clone(),
+            provider_state: meta.provider_state.clone(),
         });
     }
 
@@ -1136,6 +1158,13 @@ async fn peon_loop(state: Arc<AppState>) {
                 let inference = provider_result.inference;
                 let now_iso = iso_now();
 
+                if let Some(ref obs) = provider_result.observation {
+                    let ws_guard = state_clone.workspace.lock().unwrap();
+                    if let Some(ref ws) = *ws_guard {
+                        ws.metadata.persist_provider_context(&id, obs);
+                    }
+                }
+
                 if let Some(inf) = inference {
                     let ws_guard = state_clone.workspace.lock().unwrap();
                     if let Some(ref ws) = *ws_guard {
@@ -1147,7 +1176,7 @@ async fn peon_loop(state: Arc<AppState>) {
                             .unwrap_or(true);
 
                         if should_write {
-                            ws.metadata.merge_peon_inference(&id, &inf, &now_iso);
+                            ws.metadata.merge_peon_inference(&id, &inf, &now_iso, provider_result.observation.as_ref());
                         } else {
                             tracing::debug!("Peon: skipping {id}, higher-priority source exists");
                         }
@@ -1984,6 +2013,9 @@ mod tests {
             conflict_warning: None,
             recommendation: None,
             peon_last_inference: None,
+            provider: None,
+            provider_model: None,
+            provider_state: None,
             memory_state: MemoryState::Live,
             resume_strategy: harness::ResumeStrategy::None,
             resume: None,
@@ -2053,6 +2085,9 @@ mod tests {
                     conflict_warning: None,
                     recommendation: None,
                     peon_last_inference: None,
+                    provider: None,
+                    provider_model: None,
+                    provider_state: None,
                     memory_state: MemoryState::Live,
                     resume_strategy: harness::ResumeStrategy::None,
                     resume: None,
@@ -2172,6 +2207,51 @@ mod tests {
     }
 
     #[test]
+    fn session_info_serializes_provider_fields() {
+        let info = SessionInfo {
+            id: "test".into(),
+            label: "Test".into(),
+            harness: None,
+            model: None,
+            status: "running".into(),
+            cwd: "/tmp".into(),
+            created_at: "now".into(),
+            observed_status: Some("waiting_for_input".into()),
+            summary: Some("Needs approval".into()),
+            next_action: Some("Choose an option".into()),
+            needs_user_input: Some(true),
+            detected_question: Some("Proceed?".into()),
+            suggested_options: Some(vec!["yes".into(), "no".into()]),
+            blocker_description: None,
+            failed_command: None,
+            failed_test: None,
+            capacity_hints: None,
+            metadata_source: Some("process".into()),
+            metadata_confidence: Some(1.0),
+            repo_root: None,
+            branch: None,
+            dirty: None,
+            changed_files: None,
+            is_worktree: None,
+            conflict_warning: None,
+            recommendation: None,
+            peon_last_inference: None,
+            provider: Some("Claude Code".into()),
+            provider_model: Some("sonnet".into()),
+            provider_state: Some("healthy".into()),
+            memory_state: MemoryState::Live,
+            resume_strategy: harness::ResumeStrategy::None,
+            resume: None,
+            resumed_from: None,
+        };
+
+        let json = serde_json::to_string(&info).unwrap();
+        assert!(json.contains("\"provider\":\"Claude Code\""));
+        assert!(json.contains("\"providerModel\":\"sonnet\""));
+        assert!(json.contains("\"providerState\":\"healthy\""));
+    }
+
+    #[test]
     fn session_info_includes_metadata_fields() {
         let info = SessionInfo {
             id: "test".into(),
@@ -2201,6 +2281,9 @@ mod tests {
             conflict_warning: None,
             recommendation: None,
             peon_last_inference: None,
+            provider: None,
+            provider_model: None,
+            provider_state: None,
             memory_state: MemoryState::Live,
             resume_strategy: harness::ResumeStrategy::None,
             resume: None,
@@ -2243,6 +2326,9 @@ mod tests {
             conflict_warning: None,
             recommendation: None,
             peon_last_inference: None,
+            provider: None,
+            provider_model: None,
+            provider_state: None,
             memory_state: MemoryState::Live,
             resume_strategy: harness::ResumeStrategy::None,
             resume: None,
@@ -2269,6 +2355,9 @@ mod tests {
                 changed_files: None, is_worktree: None,
                 conflict_warning: None, recommendation: None,
             peon_last_inference: None,
+            provider: None,
+            provider_model: None,
+            provider_state: None,
             memory_state: MemoryState::Live,
             resume_strategy: harness::ResumeStrategy::None,
             resume: None,
@@ -2287,6 +2376,9 @@ mod tests {
                 changed_files: None, is_worktree: None,
                 conflict_warning: None, recommendation: None,
             peon_last_inference: None,
+            provider: None,
+            provider_model: None,
+            provider_state: None,
             memory_state: MemoryState::Live,
             resume_strategy: harness::ResumeStrategy::None,
             resume: None,
@@ -2318,6 +2410,9 @@ mod tests {
                 changed_files: None, is_worktree: None,
                 conflict_warning: None, recommendation: None,
             peon_last_inference: None,
+            provider: None,
+            provider_model: None,
+            provider_state: None,
             memory_state: MemoryState::Live,
             resume_strategy: harness::ResumeStrategy::None,
             resume: None,
@@ -2336,6 +2431,9 @@ mod tests {
                 changed_files: None, is_worktree: None,
                 conflict_warning: None, recommendation: None,
             peon_last_inference: None,
+            provider: None,
+            provider_model: None,
+            provider_state: None,
             memory_state: MemoryState::Live,
             resume_strategy: harness::ResumeStrategy::None,
             resume: None,
@@ -2362,6 +2460,9 @@ mod tests {
                 changed_files: None, is_worktree: None,
                 conflict_warning: None, recommendation: None,
             peon_last_inference: None,
+            provider: None,
+            provider_model: None,
+            provider_state: None,
             memory_state: MemoryState::Live,
             resume_strategy: harness::ResumeStrategy::None,
             resume: None,
@@ -2380,6 +2481,9 @@ mod tests {
                 changed_files: None, is_worktree: None,
                 conflict_warning: None, recommendation: None,
             peon_last_inference: None,
+            provider: None,
+            provider_model: None,
+            provider_state: None,
             memory_state: MemoryState::Live,
             resume_strategy: harness::ResumeStrategy::None,
             resume: None,
@@ -2474,6 +2578,9 @@ mod tests {
                     conflict_warning: None,
                     recommendation: None,
                     peon_last_inference: None,
+                    provider: None,
+                    provider_model: None,
+                    provider_state: None,
                     memory_state: MemoryState::Live,
                     resume_strategy: harness::ResumeStrategy::None,
                     resume: None,
@@ -2514,6 +2621,10 @@ mod tests {
                     failed_test: None,
                     capacity_hints: None,
                     peon_last_inference: None,
+                    provider_id: None,
+                    provider_label: None,
+                    provider_model: None,
+                    provider_state: None,
                     created_at: "now".into(),
                     last_activity: "now".into(),
                     metadata_source: "process".into(),
@@ -2638,6 +2749,9 @@ mod tests {
                     conflict_warning: None,
                     recommendation: None,
                     peon_last_inference: None,
+                    provider: None,
+                    provider_model: None,
+                    provider_state: None,
                     memory_state: MemoryState::Live,
                     resume_strategy: harness::ResumeStrategy::None,
                     resume: None,
@@ -2724,6 +2838,9 @@ mod tests {
                     conflict_warning: None,
                     recommendation: None,
                     peon_last_inference: None,
+                    provider: None,
+                    provider_model: None,
+                    provider_state: None,
                     memory_state: MemoryState::Live,
                     resume_strategy: harness::ResumeStrategy::None,
                     resume: None,

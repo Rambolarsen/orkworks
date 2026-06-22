@@ -154,19 +154,6 @@ function App() {
     }
   }, []);
 
-  const openProvidersPanel = useCallback(() => {
-    setSettingsOpen(false);
-    const api = dockviewApiRef.current;
-    if (!api) return;
-    const def = PANEL_DEFAULTS["capacity"];
-    const existing = api.getPanel(def.component);
-    if (!existing) {
-      api.addPanel({ id: def.component, component: def.component, title: def.title });
-    } else {
-      existing.focus();
-    }
-  }, []);
-
   const handleCreateSession = useCallback(() => {
     setNewSessionDialogOpen(true);
   }, []);
@@ -422,9 +409,6 @@ function App() {
         onFocusTerminal={handleFocusTerminal}
         onOpenWorkspace={handleOpenWorkspace}
         dockviewApiRef={dockviewApiRef}
-        providerSettings={settings?.providers ?? null}
-        providerRuntime={providerRuntime}
-        onSaveProviderSettings={saveProviderSettings}
       />
       {newSessionDialogOpen && (
         <NewSessionDialog
@@ -438,7 +422,8 @@ function App() {
           initialSettings={settings}
           onClose={() => setSettingsOpen(false)}
           onSaved={(nextSettings) => setSettings(nextSettings)}
-          onOpenProviders={openProvidersPanel}
+          providerRuntime={providerRuntime}
+          onSaveProviderSettings={saveProviderSettings}
         />
       )}
     </div>

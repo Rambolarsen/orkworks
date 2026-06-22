@@ -1,6 +1,6 @@
 # Provider ops panel and app-wide Peon fallback
 
-- Status: accepted
+- Status: superseded by 0016
 - Deciders: OrkWorks maintainers
 - Date: 2026-06-21
 

@@ -7,8 +7,7 @@ import {
   type IDockviewHeaderActionsProps,
   type IDockviewPanelHeaderProps,
 } from "dockview-react";
-import type { SessionInfo, WorkspaceInfo, ProviderRuntimeResponse } from "../api";
-import type { ProviderSettings } from "../providerTypes";
+import type { SessionInfo, WorkspaceInfo } from "../api";
 import SessionListPanel from "./SessionListPanel";
 import SessionDetailPanel from "./SessionDetailPanel";
 import TerminalPanel from "./TerminalPanel";
@@ -29,9 +28,6 @@ interface DockviewAppData {
   onFocusTerminal: () => void;
   onOpenWorkspace: () => void;
   dockviewApiRef: React.MutableRefObject<DockviewApi | null>;
-  providerSettings: ProviderSettings | null;
-  providerRuntime: ProviderRuntimeResponse | null;
-  onSaveProviderSettings: (providers: ProviderSettings) => Promise<void>;
 }
 
 const DockviewContext = createContext<DockviewAppData>(null!);
@@ -93,14 +89,7 @@ function TermPanel() {
 }
 
 function CapPanel() {
-  const ctx = useContext(DockviewContext);
-  return (
-    <CapacityPanel
-      providerSettings={ctx.providerSettings}
-      providerRuntime={ctx.providerRuntime}
-      onSaveProviderSettings={ctx.onSaveProviderSettings}
-    />
-  );
+  return <CapacityPanel />;
 }
 
 function RecPanel() {
@@ -125,7 +114,7 @@ export const PANEL_DEFAULTS: Record<string, PanelDefault> = {
   terminal:        { component: "terminal", title: "Terminal" },
   sessions:        { component: "sessions", title: "Sessions", position: { referencePanel: "terminal", direction: "left" } },
   detail:          { component: "detail", title: "Detail", position: { referencePanel: "sessions", direction: "below" } },
-  capacity:        { component: "capacity", title: "Providers", position: { referencePanel: "terminal", direction: "right" } },
+  capacity:        { component: "capacity", title: "Capacity", position: { referencePanel: "terminal", direction: "right" } },
   recommendations: { component: "recommendations", title: "Recommendations", position: { referencePanel: "capacity", direction: "below" } },
 };
 
@@ -160,9 +149,9 @@ function layoutNeedsMigration(json: Record<string, unknown>): boolean {
 }
 
 function DockviewApp(props: DockviewAppData) {
-  const { backendStatus, workspace, sessions, activeSessionId, resumeTick, onSelectSession, onCreateSession, onKillSession, onForgetSession, onResumeSession, onFocusTerminal, onOpenWorkspace, dockviewApiRef, providerSettings, providerRuntime, onSaveProviderSettings } = props;
+  const { backendStatus, workspace, sessions, activeSessionId, resumeTick, onSelectSession, onCreateSession, onKillSession, onForgetSession, onResumeSession, onFocusTerminal, onOpenWorkspace, dockviewApiRef } = props;
 
-  const ctxValue: DockviewAppData = { backendStatus, workspace, sessions, activeSessionId, resumeTick, onSelectSession, onCreateSession, onKillSession, onForgetSession, onResumeSession, onFocusTerminal, onOpenWorkspace, dockviewApiRef, providerSettings, providerRuntime, onSaveProviderSettings };
+  const ctxValue: DockviewAppData = { backendStatus, workspace, sessions, activeSessionId, resumeTick, onSelectSession, onCreateSession, onKillSession, onForgetSession, onResumeSession, onFocusTerminal, onOpenWorkspace, dockviewApiRef };
 
   const initializedRef = useRef(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);

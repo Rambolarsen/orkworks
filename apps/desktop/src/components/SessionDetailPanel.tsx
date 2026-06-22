@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { SessionInfo } from "../api";
+import { sessionProviderContext } from "../sessionProviderContext";
 import { sessionAttentionStatus } from "../sessionSort";
 import {
   attentionLabel,
@@ -37,6 +38,7 @@ function SessionDetailPanel({ sessions, activeSessionId, onResumeSession }: Sess
   const resumeText = resumeActionLabel(active.resumeStrategy);
   const folder = active.cwd.split("/").pop() || active.cwd;
   const sourceTag = active.metadataSource ?? undefined;
+  const providerContext = sessionProviderContext(active);
 
   return (
     <div className="session-detail">
@@ -58,6 +60,21 @@ function SessionDetailPanel({ sessions, activeSessionId, onResumeSession }: Sess
       <div className="session-detail-section">
         <div className="session-detail-label">Directory</div>
         <div className="session-detail-value">{folder}</div>
+      </div>
+
+      <div className="session-detail-section">
+        <div className="session-detail-label">Provider</div>
+        <div className="session-detail-value">{providerContext.provider}</div>
+      </div>
+
+      <div className="session-detail-section">
+        <div className="session-detail-label">Model</div>
+        <div className="session-detail-value">{providerContext.model}</div>
+      </div>
+
+      <div className="session-detail-section">
+        <div className="session-detail-label">State</div>
+        <div className="session-detail-value">{providerContext.state}</div>
       </div>
 
       {active.branch && (

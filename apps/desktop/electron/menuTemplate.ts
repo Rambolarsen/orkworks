@@ -21,7 +21,7 @@ export function buildMenuTemplate(options: BuildMenuTemplateOptions): MenuItemCo
     sessions: "Sessions",
     detail: "Detail",
     terminal: "Terminal",
-    capacity: "Providers",
+    capacity: "Capacity",
     recommendations: "Recommendations",
   };
   const panelAccelerators: Record<(typeof panelIds)[number], string> = {

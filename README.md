@@ -20,11 +20,11 @@ orkworks/
 
 - Electron launches Rust sidecar; UI talks to it over localhost HTTP/WebSocket
 - `nodeIntegration: false`, `contextIsolation: true`
-- Desktop UI uses Dockview draggable panels for sessions, detail, terminal, capacity, and recommendations
+- Desktop UI uses Dockview draggable panels for sessions, detail, terminal, and recommendations; Capacity is a non-Providers stub surface
 - New sessions can be launched with a selected harness config, optional model override, and optional initial prompt; harness definitions are loaded from the sidecar’s built-ins plus `~/.orkworks/harnesses.json`
 - The app remembers the last workspace and repo-local active session for relaunch restore
 - The Electron main process owns app-level settings in `userData`, including canonical default hotkeys and persisted hotkeys that drive native menu accelerators
-- Providers panel: app-wide Peon provider order, manual overrides, and persisted last runtime errors/reset hints from the most recent fallback attempt. If OpenCode is capped, Peon can fall back to the next enabled provider instead of failing hard.
+- Session details show read-only `Provider`, `Model`, and `State` for the selected session. Provider editing remains app-wide in Settings. The backend fallback system (Peon skips disabled/capped providers) remains in place behind the scenes.
 - Peon writes observer metadata such as `observedStatus` without replacing runtime lifecycle `status`
 - Taskmaster consumes Peon reports and workspace context to propose the next session or user action
 - PTY handles only text I/O; voice (native harness) bypasses PTY entirely
