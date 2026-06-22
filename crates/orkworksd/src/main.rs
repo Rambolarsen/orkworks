@@ -27,6 +27,7 @@ mod harness;
 mod peon;
 mod providers;
 mod domain;
+mod application;
 
 #[derive(Clone, Debug, Serialize)]
 struct SessionInfo {
