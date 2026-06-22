@@ -56,12 +56,12 @@ test("buildProviderViewModel sorts by fallback order and marks stale applied rev
   assert.equal(model.isStale, true);
 });
 
-test("SettingsModal does not render an app-wide Providers section", () => {
+test("SettingsModal renders a Providers section", () => {
   const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
-  assert.doesNotMatch(source, /ProviderSettingsSection/);
-  assert.doesNotMatch(source, /Open Providers Panel/);
-  assert.doesNotMatch(source, /onOpenProviders/);
-  assert.doesNotMatch(source, /App-wide defaults, overrides/);
+  assert.match(source, /Providers/);
+  assert.match(source, /providerDraft/);
+  assert.match(source, /provider-model-select/);
+  assert.match(source, /getProviderModels/);
 });
 
 test("ProviderSettingsSection keeps provider editing out of Details", () => {

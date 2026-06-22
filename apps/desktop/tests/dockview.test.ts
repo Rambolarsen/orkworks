@@ -341,10 +341,10 @@ test("Dockview keeps capacity as a non-provider surface", () => {
   assert.doesNotMatch(source, /capacity.*Providers/);
 });
 
-test("SettingsModal does not include an app-wide Providers section", () => {
+test("SettingsModal includes a Providers section above Hotkeys", () => {
   const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
-
-  assert.doesNotMatch(source, /ProviderSettingsSection/);
-  assert.doesNotMatch(source, /Open Providers Panel/);
-  assert.doesNotMatch(source, /onOpenProviders/);
+  assert.match(source, /Providers/);
+  assert.match(source, /providerDraft/);
+  assert.match(source, /provider-model-select/);
+  assert.match(source, /getProviderModels/);
 });
