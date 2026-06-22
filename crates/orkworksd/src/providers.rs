@@ -674,6 +674,22 @@ impl ProviderManager {
             runner: Arc::new(FakeRunner { specs }),
         }
     }
+
+    pub fn for_tests_with_registry(
+        registry: Vec<ProviderDefinition>,
+        settings: ProviderSettingsPayload,
+        fakes: Vec<FakeProvider>,
+    ) -> Self {
+        let specs: HashMap<String, FakeProvider> =
+            fakes.into_iter().map(|f| (f.id.to_string(), f)).collect();
+        Self {
+            registry,
+            settings: Arc::new(RwLock::new(settings)),
+            applied_revision: Arc::new(RwLock::new(None)),
+            runtime: Arc::new(RwLock::new(HashMap::new())),
+            runner: Arc::new(FakeRunner { specs }),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -806,5 +822,38 @@ mod tests {
 
         let claude = response.providers.iter().find(|provider| provider.id == "claude-code").unwrap();
         assert_eq!(claude.runtime.fallback_step, Some(2));
+    }
+
+    #[test]
+    fn list_models_returns_empty_when_no_list_command_configured() {
+        let manager = ProviderManager::for_tests_with_registry(
+            vec![ProviderDefinition {
+                id: "test-provider",
+                label: "Test",
+                command: "test",
+                default_args: &[],
+                model_arg_template: None,
+                supports_model: false,
+                timeout_secs: 30,
+                list_models_command: None,
+                list_models_args: &[],
+            }],
+            sample_settings(vec![]),
+            vec![],
+        );
+
+        let result = manager.list_models("test-provider").unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn list_models_returns_error_for_unknown_provider() {
+        let manager = ProviderManager::for_tests(
+            sample_settings(vec![]),
+            vec![],
+        );
+
+        let err = manager.list_models("nonexistent").unwrap_err();
+        assert!(err.contains("unknown provider"));
     }
 }
