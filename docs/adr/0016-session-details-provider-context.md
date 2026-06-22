@@ -1,6 +1,6 @@
 # Session details provider context
 
-- Status: accepted
+- Status: superseded by 0017 (Settings surface)
 - Supersedes: 0015 (UI surface only)
 - Date: 2026-06-22
 - Deciders: OrkWorks maintainers
