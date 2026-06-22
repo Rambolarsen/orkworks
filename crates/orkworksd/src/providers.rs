@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::io::Read;
 use std::io::Write as IoWrite;
 use std::process::{Command, Stdio};
 use std::sync::{Arc, RwLock};
@@ -350,23 +351,51 @@ impl ProviderManager {
             _ => return Ok(Vec::new()),
         };
 
-        let output = std::process::Command::new(command)
+        let mut child = std::process::Command::new(command)
             .args(args)
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
-            .output()
+            .spawn()
             .map_err(|e| format!("failed to run {command}: {e}"))?;
 
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let mut child_stdout = child.stdout.take().unwrap();
+        let mut child_stderr = child.stderr.take().unwrap();
+        let timeout = std::time::Duration::from_secs(definition.timeout_secs);
+        let start = std::time::Instant::now();
+
+        let exit_status = loop {
+            match child.try_wait() {
+                Ok(Some(status)) => break status,
+                Ok(None) => {
+                    if start.elapsed() >= timeout {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        return Err(format!("{command} timed out after {}s", definition.timeout_secs));
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                }
+                Err(e) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(format!("failed to wait on {command}: {e}"));
+                }
+            }
+        };
+
+        let mut stdout = String::new();
+        let mut stderr = String::new();
+        child_stdout.read_to_string(&mut stdout).unwrap_or_default();
+        child_stderr.read_to_string(&mut stderr).unwrap_or_default();
+
+        if !exit_status.success() {
+            let stderr = stderr.trim().to_string();
             return Err(if stderr.is_empty() {
-                format!("{command} exited with status {}", output.status)
+                format!("{command} exited with status {}", exit_status)
             } else {
                 stderr
             });
         }
 
-        let stdout = String::from_utf8_lossy(&output.stdout);
         let trimmed = stdout.trim();
         let models: Vec<String> = if trimmed.starts_with('[') {
             serde_json::from_str::<Vec<String>>(trimmed)
