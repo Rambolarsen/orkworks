@@ -39,6 +39,14 @@ pub struct SessionMetadata {
     pub capacity_hints: Option<Vec<String>>,
     #[serde(rename = "peonLastInference")]
     pub peon_last_inference: Option<String>,
+    #[serde(rename = "providerId", skip_serializing_if = "Option::is_none")]
+    pub provider_id: Option<String>,
+    #[serde(rename = "providerLabel", skip_serializing_if = "Option::is_none")]
+    pub provider_label: Option<String>,
+    #[serde(rename = "providerModel", skip_serializing_if = "Option::is_none")]
+    pub provider_model: Option<String>,
+    #[serde(rename = "providerState", skip_serializing_if = "Option::is_none")]
+    pub provider_state: Option<String>,
     #[serde(rename = "createdAt")]
     pub created_at: String,
     #[serde(rename = "lastActivity")]
@@ -239,7 +247,13 @@ impl MetadataStore {
         }
     }
 
-    pub fn merge_peon_inference(&self, id: &str, inf: &crate::peon::PeonInference, timestamp: &str) {
+    pub fn merge_peon_inference(
+        &self,
+        id: &str,
+        inf: &crate::peon::PeonInference,
+        timestamp: &str,
+        provider: Option<&crate::providers::ProviderObservation>,
+    ) {
         let mut meta = match self.read_session(id) {
             Some(m) => m,
             None => return,
@@ -302,6 +316,13 @@ impl MetadataStore {
         meta.peon_last_inference = Some(timestamp.to_string());
         meta.metadata_source = "peon".into();
         meta.metadata_confidence = inf.confidence;
+
+        if let Some(p) = provider {
+            meta.provider_id = Some(p.provider_id.clone());
+            meta.provider_label = Some(p.provider_label.clone());
+            meta.provider_model = p.provider_model.clone();
+            meta.provider_state = Some(p.provider_state.clone());
+        }
 
         self.write_session(&meta);
 
@@ -417,6 +438,10 @@ mod tests {
             failed_test: None,
             capacity_hints: None,
             peon_last_inference: None,
+            provider_id: None,
+            provider_label: None,
+            provider_model: None,
+            provider_state: None,
             created_at: "now".into(),
             last_activity: "now".into(),
             metadata_source: "process".into(),
@@ -514,6 +539,10 @@ mod tests {
             failed_test: None,
             capacity_hints: None,
             peon_last_inference: None,
+            provider_id: None,
+            provider_label: None,
+            provider_model: None,
+            provider_state: None,
             created_at: "now".into(),
             last_activity: "now".into(),
             metadata_source: "process".into(),
@@ -538,7 +567,7 @@ mod tests {
             detected_model: None,
             harness_session_id: None,
         };
-        store.merge_peon_inference("rename-test", &inf, "t1");
+        store.merge_peon_inference("rename-test", &inf, "t1", None);
         let meta = store.read_session("rename-test").unwrap();
         assert_eq!(meta.label, "claude-code");
         assert_eq!(meta.harness, "claude-code");
@@ -555,14 +584,14 @@ mod tests {
             detected_model: Some("claude-sonnet-4-5".into()),
             harness_session_id: None,
         };
-        store.merge_peon_inference("rename-test", &inf2, "t2");
+        store.merge_peon_inference("rename-test", &inf2, "t2", None);
         let meta2 = store.read_session("rename-test").unwrap();
         assert_eq!(meta2.label, "claude-code (claude-sonnet-4-5)");
         assert_eq!(meta2.harness, "claude-code");
         assert_eq!(meta2.model, "claude-sonnet-4-5");
 
         // Third inference: same harness/model again — label should NOT be re-overwritten
-        store.merge_peon_inference("rename-test", &inf2, "t3");
+        store.merge_peon_inference("rename-test", &inf2, "t3", None);
         let meta3 = store.read_session("rename-test").unwrap();
         assert_eq!(meta3.label, "claude-code (claude-sonnet-4-5)");
     }
@@ -592,6 +621,10 @@ mod tests {
             failed_test: None,
             capacity_hints: None,
             peon_last_inference: None,
+            provider_id: None,
+            provider_label: None,
+            provider_model: None,
+            provider_state: None,
             created_at: "now".into(),
             last_activity: "now".into(),
             metadata_source: "process".into(),
@@ -623,7 +656,7 @@ mod tests {
             harness_session_id: None,
         };
 
-        store.merge_peon_inference("test-peon-observer", &inf, "later");
+        store.merge_peon_inference("test-peon-observer", &inf, "later", None);
 
         let meta = store.read_session("test-peon-observer").unwrap();
         assert_eq!(meta.status, "running");
@@ -659,6 +692,10 @@ mod tests {
             failed_test: None,
             capacity_hints: None,
             peon_last_inference: None,
+            provider_id: None,
+            provider_label: None,
+            provider_model: None,
+            provider_state: None,
             created_at: "now".into(),
             last_activity: "now".into(),
             metadata_source: "process".into(),
@@ -728,7 +765,7 @@ mod tests {
             detected_model: Some("claude-sonnet-4-5".into()),
             harness_session_id: Some("sess-abc123".into()),
         };
-        store.merge_peon_inference("session-id-test", &inf, "2026-06-20T12:00:00Z");
+        store.merge_peon_inference("session-id-test", &inf, "2026-06-20T12:00:00Z", None);
 
         let updated = store.read_session("session-id-test").unwrap();
         let resume = updated.resume.unwrap();
@@ -756,7 +793,7 @@ mod tests {
             detected_model: None,
             harness_session_id: Some("".into()),
         };
-        store.merge_peon_inference("empty-sid-test", &inf, "2026-06-20T12:00:00Z");
+        store.merge_peon_inference("empty-sid-test", &inf, "2026-06-20T12:00:00Z", None);
 
         let updated = store.read_session("empty-sid-test").unwrap();
         assert!(updated.resume.is_none());
@@ -781,7 +818,7 @@ mod tests {
                 detected_model: None,
                 harness_session_id: Some("ab".into()),
             };
-            store.merge_peon_inference("short-sid", &inf, "2026-06-20T12:00:00Z");
+            store.merge_peon_inference("short-sid", &inf, "2026-06-20T12:00:00Z", None);
             assert!(store.read_session("short-sid").unwrap().resume.is_none());
         }
 
@@ -799,7 +836,7 @@ mod tests {
                 detected_model: None,
                 harness_session_id: Some("not an id".into()),
             };
-            store.merge_peon_inference("whitespace-sid", &inf, "2026-06-20T12:00:00Z");
+            store.merge_peon_inference("whitespace-sid", &inf, "2026-06-20T12:00:00Z", None);
             assert!(store.read_session("whitespace-sid").unwrap().resume.is_none());
         }
     }
@@ -891,5 +928,45 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = MetadataStore::new(dir.path());
         assert!(store.delete_events("nonexistent").is_ok());
+    }
+
+    #[test]
+    fn merge_peon_inference_persists_provider_context() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        store.write_session(&test_metadata("provider-context"));
+
+        let inf = crate::peon::PeonInference {
+            observed_status: Some("working".into()),
+            phase: None,
+            summary: Some("still working".into()),
+            next_action: None,
+            needs_user_input: None,
+            detected_question: None,
+            suggested_options: None,
+            blocker_description: None,
+            failed_command: None,
+            failed_test: None,
+            capacity_hints: None,
+            confidence: 0.9,
+            detected_harness: None,
+            detected_model: None,
+            harness_session_id: None,
+        };
+
+        let provider = crate::providers::ProviderObservation {
+            provider_id: "claude-code".into(),
+            provider_label: "Claude Code".into(),
+            provider_model: Some("sonnet".into()),
+            provider_state: "healthy".into(),
+        };
+
+        store.merge_peon_inference("provider-context", &inf, "later", Some(&provider));
+
+        let meta = store.read_session("provider-context").unwrap();
+        assert_eq!(meta.provider_id.as_deref(), Some("claude-code"));
+        assert_eq!(meta.provider_label.as_deref(), Some("Claude Code"));
+        assert_eq!(meta.provider_model.as_deref(), Some("sonnet"));
+        assert_eq!(meta.provider_state.as_deref(), Some("healthy"));
     }
 }

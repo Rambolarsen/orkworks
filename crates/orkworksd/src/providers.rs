@@ -145,6 +145,18 @@ pub struct ProviderRuntimeEntry {
     pub reset_hint: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProviderObservation {
+    #[serde(rename = "providerId")]
+    pub provider_id: String,
+    #[serde(rename = "providerLabel")]
+    pub provider_label: String,
+    #[serde(rename = "providerModel")]
+    pub provider_model: Option<String>,
+    #[serde(rename = "providerState")]
+    pub provider_state: String,
+}
+
 pub struct AttemptRecord {
     pub provider_id: String,
     pub outcome: AttemptOutcome,
@@ -154,6 +166,7 @@ pub struct AttemptRecord {
 pub struct ProviderRunResult {
     pub inference: Option<peon::PeonInference>,
     pub winning_provider_id: Option<String>,
+    pub observation: Option<ProviderObservation>,
     pub attempts: Vec<AttemptRecord>,
     pub runtime: HashMap<String, ProviderRuntimeEntry>,
 }
@@ -386,9 +399,24 @@ impl ProviderManager {
                     });
                     runtime.insert(entry.id.clone(), rt_entry);
                     *self.runtime.write().unwrap() = runtime.clone();
+                    let effective = entry.effective_state();
+                    let state_str = match effective {
+                        ProviderEffectiveState::Healthy => "healthy",
+                        ProviderEffectiveState::Degraded => "degraded",
+                        ProviderEffectiveState::Capped => "capped",
+                        ProviderEffectiveState::Unknown => "unknown",
+                        ProviderEffectiveState::Disabled => "disabled",
+                    };
+                    let observation = ProviderObservation {
+                        provider_id: entry.id.clone(),
+                        provider_label: definition.label.to_string(),
+                        provider_model: entry.peon_model.clone(),
+                        provider_state: state_str.to_string(),
+                    };
                     return ProviderRunResult {
                         inference: Some(inference),
                         winning_provider_id: Some(entry.id.clone()),
+                        observation: Some(observation),
                         attempts,
                         runtime,
                     };
@@ -416,7 +444,7 @@ impl ProviderManager {
         }
 
         *self.runtime.write().unwrap() = runtime.clone();
-        ProviderRunResult { inference: None, winning_provider_id: None, attempts, runtime }
+        ProviderRunResult { inference: None, winning_provider_id: None, observation: None, attempts, runtime }
     }
 }
 
