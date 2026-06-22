@@ -1158,6 +1158,13 @@ async fn peon_loop(state: Arc<AppState>) {
                 let inference = provider_result.inference;
                 let now_iso = iso_now();
 
+                if let Some(ref obs) = provider_result.observation {
+                    let ws_guard = state_clone.workspace.lock().unwrap();
+                    if let Some(ref ws) = *ws_guard {
+                        ws.metadata.persist_provider_context(&id, obs);
+                    }
+                }
+
                 if let Some(inf) = inference {
                     let ws_guard = state_clone.workspace.lock().unwrap();
                     if let Some(ref ws) = *ws_guard {

@@ -45,12 +45,12 @@ Single binary, seven modules:
 - `harness.rs` — harness adapter types, command templates, resume strategy selection, capability flags
 - `metadata.rs` — reads/writes `.orkworks/sessions/<id>.json`, `.orkworks/workspace.json`, and `.orkworks/events/<id>.terminal` (terminal output ring buffer) files
 - `peon.rs` — observer config, ring buffer, prompt building, inference parsing/validation, source-priority overwrite rules (driven by the debounce loop in `main.rs`; tuning knobs documented in `README.md`)
-- `providers.rs` — fixed provider registry, applied-settings store, persisted runtime state, fallback runner (`run_inference` skips disabled/capped providers in fallback order). Exposes `GET /providers` for live runtime state and `POST /settings/providers` for durable settings application. The session Peon loop routes through `ProviderManager::run_inference`, and the last fallback/error details are retained for session detail readout.
+- `providers.rs` — fixed provider registry, applied-settings store, persisted runtime state, fallback runner (`run_inference` skips disabled/capped providers in fallback order). Exposes `GET /providers` for live runtime state and `POST /settings/providers` for durable settings application. The session Peon loop routes through `ProviderManager::run_inference`. Provider configuration is managed app-wide through Settings.
 - `watcher.rs` — `notify`-based file watcher for `.orkworks/` changes
 
 ## Dockview panel layout
 
-The renderer uses Dockview for a four-panel workspace: sessions, session detail, terminal, and recommendations. `DockviewApp` owns the panel registration and passes app state through a React context to panel components. `TerminalPanel` hosts the active live PTY session through `CenterPanel` and xterm.js over the backend WebSocket. The session detail panel includes read-only `Provider`, `Model`, and `State` fields for the selected session.
+The renderer uses Dockview for a four-panel workspace: sessions, session detail, terminal, and recommendations. The capacity panel exists as a non-Providers stub, closed by default. `DockviewApp` owns the panel registration and passes app state through a React context to panel components. `TerminalPanel` hosts the active live PTY session through `CenterPanel` and xterm.js over the backend WebSocket. The session detail panel includes read-only `Provider`, `Model`, and `State` fields for the selected session.
 
 The titlebar shows the active workspace name and a workspace-switch action when a repo is open. A `ViewMenu` component in the titlebar provides per-panel shortcuts/toggles plus a "Reset Layout" action. Panel layouts persist to Electron userData via `layout.json` and restore on startup via Dockview's `toJSON()`/`fromJSON()` serialization.
 

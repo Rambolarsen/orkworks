@@ -247,6 +247,22 @@ impl MetadataStore {
         }
     }
 
+    pub fn persist_provider_context(
+        &self,
+        id: &str,
+        provider: &crate::providers::ProviderObservation,
+    ) {
+        let mut meta = match self.read_session(id) {
+            Some(m) => m,
+            None => return,
+        };
+        meta.provider_id = Some(provider.provider_id.clone());
+        meta.provider_label = Some(provider.provider_label.clone());
+        meta.provider_model = provider.provider_model.clone();
+        meta.provider_state = Some(provider.provider_state.clone());
+        self.write_session(&meta);
+    }
+
     pub fn merge_peon_inference(
         &self,
         id: &str,
