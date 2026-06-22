@@ -6,7 +6,7 @@ Local-first mission control for AI coding sessions. Peons observe individual ses
 
 ## State of the repo
 
-APM project bootstrapped — agent skills, hooks, and plugins are installed via [APM](https://github.com/anthropics/apm) in `orkworks/`. M1 (Electron app shell + Rust sidecar scaffold) is implemented. Subsequent milestones are tracked as GitHub issues.
+APM project bootstrapped — agent skills, hooks, and plugins are installed via [APM](https://github.com/anthropics/apm) at the repo root. M1 (Electron app shell + Rust sidecar scaffold) is implemented. Subsequent milestones are tracked as GitHub issues.
 
 ## Package manager
 
@@ -102,9 +102,9 @@ OpenCode must load the project-level `opencode.json` at the repo root. Start Ope
 opencode /Users/froomiebot/workspace/orkworks
 ```
 
-Do not use `--pure` for development work in this repo; it disables external plugins. The root `opencode.json` loads the APM-managed Superpowers and Ponytail plugins and exposes both `orkworks/.agents/skills` and committed repo skills from `skills/`.
+Do not use `--pure` for development work in this repo; it disables external plugins. The root `opencode.json` loads the APM-managed Superpowers and Ponytail plugins and exposes both `.agents/skills` and committed repo skills from `skills/`.
 
-Before OpenCode implementation work, verify that the skill tool lists Superpowers skills such as `superpowers/using-superpowers` and `superpowers/brainstorming`. If they are missing, stop, run `cd orkworks && apm install`, restart OpenCode from the repo root, and verify again before editing code.
+Before OpenCode implementation work, verify that the skill tool lists Superpowers skills such as `superpowers/using-superpowers` and `superpowers/brainstorming`. If they are missing, stop, run `apm install` from the repo root, restart OpenCode from the repo root, and verify again before editing code.
 
 ## Branch and PR workflow
 
@@ -192,7 +192,7 @@ These are load-bearing UX decisions. Treat them as constraints on any feature, d
 
 ## APM and agent plugins
 
-Agent dependencies (Superpowers, Ponytail, Claude Mem) are managed by [APM](https://github.com/anthropics/apm) in the `orkworks/` directory. Run `cd orkworks && apm install` to populate skills and hooks for all configured targets (claude, codex, copilot, opencode).
+Agent dependencies (Superpowers, Ponytail, Claude Mem) are managed by [APM](https://github.com/anthropics/apm) at the repo root (`apm.yml`). Run `apm install` from the repo root to populate skills and hooks for all configured targets (claude, codex, copilot, opencode).
 
 See [`docs/agents/apm.md`](docs/agents/apm.md) for the full plugin list, generated path layout, and OpenCode configuration.
 
