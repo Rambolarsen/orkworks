@@ -22,3 +22,7 @@ export interface ProviderApplyStatus {
   appliedAt: string | null;
   lastApplyError: string | null;
 }
+
+export interface ProviderModelsResponse {
+  models: string[];
+}
