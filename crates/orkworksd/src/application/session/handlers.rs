@@ -12,7 +12,6 @@ pub struct CreateSessionHandler;
 
 impl CreateSessionHandler {
     pub fn handle(
-        lifecycle: &SessionLifecycle,
         cmd: &CreateSessionCommand,
         id: &SessionId,
         label: &str,
@@ -30,7 +29,7 @@ impl CreateSessionHandler {
             last_seen_at: Some(created_at.to_string()),
         };
 
-        lifecycle.create(
+        SessionLifecycle::create(
             id.clone(),
             workspace_path.clone(),
             label.to_string(),
@@ -50,14 +49,13 @@ pub struct KillSessionHandler;
 impl KillSessionHandler {
     pub fn handle(
         repo: &dyn SessionRepository,
-        lifecycle: &SessionLifecycle,
         cmd: &KillSessionCommand,
         killed_at: &str,
     ) -> Result<(Session, Vec<DomainEvent>), String> {
         let mut session = repo.load(&cmd.session_id)?
             .ok_or_else(|| format!("session {} not found", cmd.session_id))?;
 
-        let events = lifecycle.kill(&mut session, killed_at.to_string());
+        let events = SessionLifecycle::kill(&mut session, killed_at.to_string());
         if events.is_empty() {
             return Err("session already killed".into());
         }
@@ -72,14 +70,13 @@ pub struct ResumeSessionHandler;
 impl ResumeSessionHandler {
     pub fn handle(
         repo: &dyn SessionRepository,
-        lifecycle: &SessionLifecycle,
         cmd: &ResumeSessionCommand,
         resumed_at: &str,
     ) -> Result<(Session, Vec<DomainEvent>), String> {
         let session = repo.load(&cmd.session_id)?
             .ok_or_else(|| format!("session {} not found", cmd.session_id))?;
 
-        let events = lifecycle.resume(&session, resumed_at.to_string());
+        let events = SessionLifecycle::resume(&session, resumed_at.to_string());
         Ok((session, events))
     }
 }
