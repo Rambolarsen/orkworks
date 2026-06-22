@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { HarnessConfig, CreateSessionOptions } from "../harnessTypes";
+import { canStartNewSession, syncDraftWithHarnesses } from "../newSessionDialogState";
 
 interface NewSessionDialogProps {
   harnesses: HarnessConfig[];
@@ -9,20 +10,28 @@ interface NewSessionDialogProps {
 
 export default function NewSessionDialog({ harnesses, onConfirm, onCancel }: NewSessionDialogProps) {
   const defaultHarness = harnesses[0] ?? null;
-  const [harnessId, setHarnessId] = useState(defaultHarness?.id ?? "");
-  const [model, setModel] = useState(defaultHarness?.defaultModel ?? "");
+  const [draft, setDraft] = useState(() => ({
+    harnessId: defaultHarness?.id ?? "",
+    model: defaultHarness?.defaultModel ?? "",
+  }));
   const [initialPrompt, setInitialPrompt] = useState("");
 
+  useEffect(() => {
+    setDraft((current) => syncDraftWithHarnesses(current, harnesses));
+  }, [harnesses]);
+
   function handleHarnessChange(id: string) {
-    setHarnessId(id);
     const h = harnesses.find((h) => h.id === id);
-    if (h) setModel(h.defaultModel);
+    setDraft({
+      harnessId: id,
+      model: h?.defaultModel ?? "",
+    });
   }
 
   function handleConfirm() {
     onConfirm({
-      harnessId: harnessId || undefined,
-      model: model.trim() || undefined,
+      harnessId: draft.harnessId || undefined,
+      model: draft.model.trim() || undefined,
       initialPrompt: initialPrompt.trim() || undefined,
     });
   }
@@ -44,12 +53,17 @@ export default function NewSessionDialog({ harnesses, onConfirm, onCancel }: New
             <select
               id="nsd-harness"
               className="new-session-select"
-              value={harnessId}
+              value={draft.harnessId}
               onChange={(e) => handleHarnessChange(e.target.value)}
+              disabled={harnesses.length === 0}
             >
-              {harnesses.map((h) => (
-                <option key={h.id} value={h.id}>{h.name}</option>
-              ))}
+              {harnesses.length === 0 ? (
+                <option value="">Default shell</option>
+              ) : (
+                harnesses.map((h) => (
+                  <option key={h.id} value={h.id}>{h.name}</option>
+                ))
+              )}
             </select>
           </div>
 
@@ -59,8 +73,8 @@ export default function NewSessionDialog({ harnesses, onConfirm, onCancel }: New
               id="nsd-model"
               className="new-session-input"
               type="text"
-              value={model}
-              onChange={(e) => setModel(e.target.value)}
+              value={draft.model}
+              onChange={(e) => setDraft((current) => ({ ...current, model: e.target.value }))}
               placeholder="default"
             />
           </div>
@@ -84,7 +98,7 @@ export default function NewSessionDialog({ harnesses, onConfirm, onCancel }: New
             type="button"
             className="new-session-confirm"
             onClick={handleConfirm}
-            disabled={!harnessId}
+            disabled={!canStartNewSession(harnesses, draft.harnessId)}
           >
             Start
           </button>

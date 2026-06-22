@@ -325,6 +325,7 @@ async fn resume_session(
     Path(id): Path<String>,
 ) -> impl IntoResponse {
     let now = iso_now();
+    let harnesses = state.harnesses.read().await.clone();
     let (meta, command, strategy) = {
         let ws_guard = state.workspace.lock().unwrap();
         let Some(ref ws) = *ws_guard else {
@@ -336,13 +337,14 @@ async fn resume_session(
         let Some(resume) = meta.resume.as_ref() else {
             return axum::http::StatusCode::BAD_REQUEST.into_response();
         };
-        let harness_id = (!meta.harness.is_empty()).then(|| meta.harness.as_str());
-        let capabilities = capabilities_for_harness(&state.adapters, harness_id);
+        let session_harness_id = (!meta.harness.is_empty()).then(|| meta.harness.as_str());
+        let adapter_harness_id = resolve_adapter_harness_id(&harnesses, session_harness_id);
+        let capabilities = capabilities_for_harness(&state.adapters, adapter_harness_id.as_deref());
         let strategy = harness::select_resume_strategy(resume, &capabilities);
         if strategy == harness::ResumeStrategy::None {
             return axum::http::StatusCode::BAD_REQUEST.into_response();
         }
-        let adapter = adapter_for_harness(&state.adapters, harness_id);
+        let adapter = adapter_for_harness(&state.adapters, adapter_harness_id.as_deref());
         let request = harness::ResumeRequest {
             strategy: strategy.clone(),
             cwd: meta.cwd.clone(),
@@ -444,6 +446,61 @@ struct CreateSessionRequest {
     initial_prompt: Option<String>,
 }
 
+struct ResolvedSessionLaunch {
+    session_harness_id: Option<String>,
+    adapter_harness_id: Option<String>,
+    model: Option<String>,
+    command: harness::CommandSpec,
+}
+
+fn resolve_session_launch(
+    harnesses: &[HarnessConfig],
+    req: &CreateSessionRequest,
+    cwd: String,
+) -> ResolvedSessionLaunch {
+    if let Some(ref harness_id) = req.harness_id {
+        if let Some(config) = harnesses.iter().find(|h| h.id == *harness_id) {
+            let model = req.model.clone().or_else(|| {
+                (!config.default_model.is_empty()).then(|| config.default_model.clone())
+            });
+            let args: Vec<String> = config.args.iter().map(|arg| {
+                arg.replace("{model}", model.as_deref().unwrap_or(""))
+            }).collect();
+            return ResolvedSessionLaunch {
+                session_harness_id: Some(config.id.clone()),
+                adapter_harness_id: Some(config.harness.clone()),
+                model,
+                command: harness::CommandSpec {
+                    program: config.command.clone(),
+                    args,
+                    cwd,
+                },
+            };
+        }
+    }
+
+    ResolvedSessionLaunch {
+        session_harness_id: None,
+        adapter_harness_id: None,
+        model: req.model.clone(),
+        command: default_shell_command(cwd),
+    }
+}
+
+fn resolve_adapter_harness_id(
+    harnesses: &[HarnessConfig],
+    session_harness_id: Option<&str>,
+) -> Option<String> {
+    match session_harness_id {
+        Some(id) if !id.is_empty() => harnesses
+            .iter()
+            .find(|h| h.id == id)
+            .map(|h| h.harness.clone())
+            .or_else(|| Some(id.to_string())),
+        _ => None,
+    }
+}
+
 async fn create_session(
     State(state): State<Arc<AppState>>,
     Json(req): Json<CreateSessionRequest>,
@@ -453,25 +510,9 @@ async fn create_session(
         .map(|p| p.display().to_string())
         .unwrap_or_else(|_| "/".into());
 
-    // Resolve harness config to determine command, harness type, and model
-    let (resolved_harness, resolved_model, resolved_command) = {
+    let resolved_launch = {
         let harnesses = state.harnesses.read().await;
-        if let Some(ref hid) = req.harness_id {
-            if let Some(hc) = harnesses.iter().find(|h| h.id == *hid) {
-                let model = req.model.clone().or_else(|| {
-                    (!hc.default_model.is_empty()).then(|| hc.default_model.clone())
-                });
-                let args: Vec<String> = hc.args.iter().map(|a| {
-                    a.replace("{model}", model.as_deref().unwrap_or(""))
-                }).collect();
-                let cmd = harness::CommandSpec { program: hc.command.clone(), args, cwd: cwd.clone() };
-                (Some(hc.harness.clone()), model, cmd)
-            } else {
-                (None, req.model.clone(), default_shell_command(cwd.clone()))
-            }
-        } else {
-            (None, req.model.clone(), default_shell_command(cwd.clone()))
-        }
+        resolve_session_launch(&harnesses, &req, cwd.clone())
     };
 
     let (kill_tx, _kill_rx) = tokio::sync::watch::channel(false);
@@ -481,8 +522,8 @@ async fn create_session(
     let info = SessionInfo {
         id: id.clone(),
         label: format!("Session {}", &id[..8]),
-        harness: resolved_harness.clone(),
-        model: resolved_model.clone(),
+        harness: resolved_launch.session_harness_id.clone(),
+        model: resolved_launch.model.clone(),
         status: "creating".into(),
         cwd,
         created_at: now.clone(),
@@ -522,7 +563,7 @@ async fn create_session(
         info: info.clone(),
         kill_tx,
         output_buffer: peon::RingBuffer::new(state.peon.config.max_lines),
-        command: resolved_command,
+        command: resolved_launch.command,
         initial_prompt: req.initial_prompt.clone(),
     };
 
@@ -537,8 +578,8 @@ async fn create_session(
             label: info.label.clone(),
             workspace: ws.path.display().to_string(),
             task: String::new(),
-            harness: resolved_harness.clone().unwrap_or_default(),
-            model: resolved_model.clone().unwrap_or_default(),
+            harness: resolved_launch.session_harness_id.clone().unwrap_or_default(),
+            model: resolved_launch.model.clone().unwrap_or_default(),
             cwd: info.cwd.clone(),
             status: "creating".into(),
             phase: String::new(),
@@ -615,6 +656,7 @@ fn session_recommendation(ctx: &git::GitContext, session_count_in_cwd: usize) ->
 }
 
 async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let harnesses = state.harnesses.read().await.clone();
     let session_data: Vec<(String, String, String, String, String)> = {
         let sessions = state.sessions.lock().unwrap();
         sessions.values().map(|h| {
@@ -644,8 +686,9 @@ async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse 
     let peon_times = state.peon.last_inference.read().unwrap();
     let mut infos: Vec<SessionInfo> = session_data.into_iter().map(|(id, label, status, cwd, created_at)| {
         let meta = metadata_map.get(&id);
-        let harness_id = meta.and_then(|m| (!m.harness.is_empty()).then(|| m.harness.as_str()));
-        let caps = capabilities_for_harness(&state.adapters, harness_id);
+        let session_harness_id = meta.and_then(|m| (!m.harness.is_empty()).then(|| m.harness.as_str()));
+        let adapter_harness_id = resolve_adapter_harness_id(&harnesses, session_harness_id);
+        let caps = capabilities_for_harness(&state.adapters, adapter_harness_id.as_deref());
         let is_live = status != "killed" && status != "ended" && status != "error";
         let (memory_state, resume_strategy) =
             derive_memory_state(is_live, meta.and_then(|m| m.resume.as_ref()), &caps);
@@ -691,8 +734,9 @@ async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse 
         if live_ids.contains(&meta.id) {
             continue;
         }
-        let harness_id = (!meta.harness.is_empty()).then(|| meta.harness.as_str());
-        let caps = capabilities_for_harness(&state.adapters, harness_id);
+        let session_harness_id = (!meta.harness.is_empty()).then(|| meta.harness.as_str());
+        let adapter_harness_id = resolve_adapter_harness_id(&harnesses, session_harness_id);
+        let caps = capabilities_for_harness(&state.adapters, adapter_harness_id.as_deref());
         let (memory_state, resume_strategy) =
             derive_memory_state(false, meta.resume.as_ref(), &caps);
         infos.push(SessionInfo {
@@ -2107,6 +2151,24 @@ mod tests {
         assert!(json.contains("\"branch\":null"));
         assert!(json.contains("\"dirty\":null"));
         assert!(json.contains("\"lastActiveSessionId\":null"));
+    }
+
+    #[test]
+    fn resolve_session_launch_preserves_selected_harness_id_for_generic_shell_configs() {
+        let harnesses = builtin_harness_configs();
+        let launch = resolve_session_launch(
+            &harnesses,
+            &CreateSessionRequest {
+                harness_id: Some("codex".into()),
+                model: None,
+                initial_prompt: None,
+            },
+            "/repo".into(),
+        );
+
+        assert_eq!(launch.session_harness_id.as_deref(), Some("codex"));
+        assert_eq!(launch.adapter_harness_id.as_deref(), Some("generic-shell"));
+        assert_eq!(launch.command.program, "codex");
     }
 
     #[test]

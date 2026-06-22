@@ -256,6 +256,7 @@ pub struct ProviderManager {
     registry: Vec<ProviderDefinition>,
     settings: Arc<RwLock<ProviderSettingsPayload>>,
     applied_revision: Arc<RwLock<Option<u64>>>,
+    runtime: Arc<RwLock<HashMap<String, ProviderRuntimeEntry>>>,
     runner: Arc<dyn ProviderRunner>,
 }
 
@@ -265,6 +266,7 @@ impl ProviderManager {
             registry: builtin_provider_registry(),
             settings: Arc::new(RwLock::new(ProviderSettingsPayload::default())),
             applied_revision: Arc::new(RwLock::new(None)),
+            runtime: Arc::new(RwLock::new(HashMap::new())),
             runner: Arc::new(ProcessRunner),
         }
     }
@@ -289,6 +291,7 @@ impl ProviderManager {
     pub fn get_providers_response(&self) -> ProvidersResponse {
         let settings = self.settings.read().unwrap().clone();
         let applied_revision = *self.applied_revision.read().unwrap();
+        let runtime = self.runtime.read().unwrap().clone();
 
         let providers = settings.providers.iter().map(|entry| {
             let effective = entry.effective_state();
@@ -311,7 +314,7 @@ impl ProviderManager {
                 fallback_order: entry.fallback_order,
                 effective_state: effective_str.to_string(),
                 peon_model: entry.peon_model.clone(),
-                runtime: ProviderRuntimeEntry::default(),
+                runtime: runtime.get(&entry.id).cloned().unwrap_or_default(),
             }
         }).collect();
 
@@ -382,6 +385,7 @@ impl ProviderManager {
                         step,
                     });
                     runtime.insert(entry.id.clone(), rt_entry);
+                    *self.runtime.write().unwrap() = runtime.clone();
                     return ProviderRunResult {
                         inference: Some(inference),
                         winning_provider_id: Some(entry.id.clone()),
@@ -411,6 +415,7 @@ impl ProviderManager {
             runtime.insert(entry.id.clone(), rt_entry);
         }
 
+        *self.runtime.write().unwrap() = runtime.clone();
         ProviderRunResult { inference: None, winning_provider_id: None, attempts, runtime }
     }
 }
@@ -563,6 +568,7 @@ impl ProviderManager {
             registry: builtin_provider_registry(),
             settings: Arc::new(RwLock::new(settings)),
             applied_revision: Arc::new(RwLock::new(None)),
+            runtime: Arc::new(RwLock::new(HashMap::new())),
             runner: Arc::new(FakeRunner { specs }),
         }
     }
@@ -674,5 +680,29 @@ mod tests {
         assert_eq!(result.runtime["opencode"].last_error_summary.as_deref(), Some("usage limit reached"));
         assert_eq!(result.runtime["opencode"].reset_hint.as_deref(), Some("resets in 2h"));
         assert_eq!(result.runtime["claude-code"].fallback_step, Some(2));
+    }
+
+    #[test]
+    fn get_providers_response_exposes_last_runtime_state() {
+        let manager = ProviderManager::for_tests(
+            sample_settings(vec![
+                entry("opencode"),
+                entry("claude-code"),
+            ]),
+            registry_with(vec![
+                fake_provider("opencode").stderr("usage limit reached, resets in 2h").exit_code(1),
+                fake_provider("claude-code").stdout(r#"{"observedStatus":"working","confidence":0.9}"#),
+            ]),
+        );
+
+        let _ = manager.run_inference(PeonScope::Session, &["terminal line".to_string()]);
+        let response = manager.get_providers_response();
+
+        let opencode = response.providers.iter().find(|provider| provider.id == "opencode").unwrap();
+        assert_eq!(opencode.runtime.last_error_summary.as_deref(), Some("usage limit reached"));
+        assert_eq!(opencode.runtime.reset_hint.as_deref(), Some("resets in 2h"));
+
+        let claude = response.providers.iter().find(|provider| provider.id == "claude-code").unwrap();
+        assert_eq!(claude.runtime.fallback_step, Some(2));
     }
 }

@@ -30,7 +30,9 @@ Electron runs with `nodeIntegration: false` and `contextIsolation: true` (ADR 00
 
 `apps/desktop/src/api.ts` defines TypeScript types and fetch wrappers for the REST API. `App.tsx` polls `/sessions` every 2 seconds, restores the last active workspace session when `POST /workspace` returns `lastActiveSessionId`, and persists the newly selected active session back through `POST /workspace/active-session`. Session state flows: Rust structs → JSON API → `SessionInfo`/`WorkspaceInfo` TS types → React state → components.
 
-Key endpoints: `POST /workspace`, `POST /workspace/active-session`, `GET/POST /sessions`, `DELETE /sessions/:id`, `POST /sessions/:id/resume`, `GET /sessions/:id/terminal-output`, `WS /sessions/:id/terminal`.
+Key endpoints: `POST /workspace`, `POST /workspace/active-session`, `GET/POST /sessions`, `DELETE /sessions/:id`, `POST /sessions/:id/resume`, `GET /sessions/:id/terminal-output`, `GET /providers`, `POST /settings/providers`, `GET /harnesses`, and `WS /sessions/:id/terminal`.
+
+`POST /sessions` now accepts `{ harnessId, model, initialPrompt }`. The renderer’s New Session dialog can fall back to the default shell session if harness metadata is temporarily unavailable, while the sidecar still preserves the selected harness config id for session rows and remembered-session resume behavior.
 
 `electron/workspaceMemory.ts` persists the last workspace path and recent workspace directories to the Electron user data directory, enabling workspace restore on relaunch. The sidecar persists repo-local active session memory in `.orkworks/workspace.json`.
 
@@ -43,7 +45,7 @@ Single binary, seven modules:
 - `harness.rs` — harness adapter types, command templates, resume strategy selection, capability flags
 - `metadata.rs` — reads/writes `.orkworks/sessions/<id>.json`, `.orkworks/workspace.json`, and `.orkworks/events/<id>.terminal` (terminal output ring buffer) files
 - `peon.rs` — observer config, ring buffer, prompt building, inference parsing/validation, source-priority overwrite rules (driven by the debounce loop in `main.rs`; tuning knobs documented in `README.md`)
-- `providers.rs` — fixed provider registry, applied-settings store, runtime state, fallback runner (`run_inference` skips disabled/capped providers in fallback order). Exposes `GET /providers` for live runtime state and `POST /settings/providers` for durable settings application. The session Peon loop routes through `ProviderManager::run_inference`.
+- `providers.rs` — fixed provider registry, applied-settings store, persisted runtime state, fallback runner (`run_inference` skips disabled/capped providers in fallback order). Exposes `GET /providers` for live runtime state and `POST /settings/providers` for durable settings application. The session Peon loop routes through `ProviderManager::run_inference`, and the last fallback/error details are retained so the Providers panel reflects the most recent attempt.
 - `watcher.rs` — `notify`-based file watcher for `.orkworks/` changes
 
 ## Dockview panel layout
