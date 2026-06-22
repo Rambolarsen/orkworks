@@ -1,9 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { acceleratorFromKeyboardEvent } from "../hotkeyCapture";
 import type { AppSettings, HotkeySettings, RetentionSettings, SaveHotkeysResult } from "../appSettingsTypes";
-import type { ProviderSettings } from "../providerTypes";
-import type { ProviderRuntimeResponse } from "../api";
-import ProviderSettingsSection from "./ProviderSettingsSection";
+import type { ProviderSettings, ProviderSettingsEntry, ProviderModelsResponse } from "../providerTypes";
 
 type HotkeyAction = keyof HotkeySettings;
 
@@ -11,8 +9,6 @@ interface SettingsModalProps {
   initialSettings: AppSettings;
   onClose: () => void;
   onSaved: (settings: AppSettings) => void;
-  providerRuntime: ProviderRuntimeResponse | null;
-  onSaveProviderSettings: (providers: ProviderSettings) => Promise<void>;
 }
 
 const hotkeyRows: Array<{ action: HotkeyAction; label: string; optional?: boolean }> = [
@@ -25,7 +21,10 @@ const hotkeyRows: Array<{ action: HotkeyAction; label: string; optional?: boolea
   { action: "resetLayout", label: "Reset Layout", optional: true },
 ];
 
-export default function SettingsModal({ initialSettings, onClose, onSaved, providerRuntime, onSaveProviderSettings }: SettingsModalProps) {
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+export default function SettingsModal({ initialSettings, onClose, onSaved }: SettingsModalProps) {
+  const modalRef = useRef<HTMLElement>(null);
   const defaultHotkeys = initialSettings.defaultHotkeys;
   const [draft, setDraft] = useState<HotkeySettings>(initialSettings.hotkeys);
   const [capturing, setCapturing] = useState<HotkeyAction | null>(null);
@@ -34,6 +33,39 @@ export default function SettingsModal({ initialSettings, onClose, onSaved, provi
   const [saving, setSaving] = useState(false);
   const [retention, setRetention] = useState<RetentionSettings>(initialSettings.retention);
   const [retentionSaveStatus, setRetentionSaveStatus] = useState<string | null>(null);
+  const [providerDraft, setProviderDraft] = useState<ProviderSettings>(initialSettings.providers);
+  const [providerModels, setProviderModels] = useState<Record<string, string[]>>({});
+  const [providerSaveStatus, setProviderSaveStatus] = useState<string | null>(null);
+
+  useLayoutEffect(() => {
+    const modal = modalRef.current;
+    if (!modal) return;
+
+    const focusable = modal.querySelectorAll<HTMLElement>(FOCUSABLE);
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+
+    if (first) first.focus();
+
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key !== "Tab") return;
+
+      if (e.shiftKey) {
+        if (document.activeElement === first) {
+          e.preventDefault();
+          last?.focus();
+        }
+      } else {
+        if (document.activeElement === last) {
+          e.preventDefault();
+          first?.focus();
+        }
+      }
+    }
+
+    modal.addEventListener("keydown", onKeyDown);
+    return () => modal.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   useEffect(() => {
     if (!capturing) return;
@@ -70,6 +102,23 @@ export default function SettingsModal({ initialSettings, onClose, onSaved, provi
     };
   }, [capturing]);
 
+  useEffect(() => {
+    const ids = providerDraft.providers.map((p) => p.id);
+    async function load() {
+      const map: Record<string, string[]> = {};
+      for (const id of ids) {
+        try {
+          const resp: ProviderModelsResponse = await window.orkworks.getProviderModels(id);
+          map[id] = resp.models;
+        } catch {
+          map[id] = [];
+        }
+      }
+      setProviderModels(map);
+    }
+    load();
+  }, []);
+
   async function saveRetention(rt: RetentionSettings) {
     setRetentionSaveStatus(null);
     try {
@@ -99,9 +148,28 @@ export default function SettingsModal({ initialSettings, onClose, onSaved, provi
     }
   }
 
+  async function saveProviderDraft(entry: ProviderSettingsEntry) {
+    setProviderSaveStatus(null);
+    const next = {
+      ...providerDraft,
+      providers: providerDraft.providers.map((p) =>
+        p.id === entry.id ? entry : p,
+      ),
+    };
+    setProviderDraft(next);
+    try {
+      const result = await window.orkworks.saveProviderSettings(next);
+      setProviderDraft(result.settings.providers);
+      onSaved(result.settings);
+      setProviderSaveStatus("Saved");
+    } catch {
+      setProviderSaveStatus("Couldn't save provider settings.");
+    }
+  }
+
   return (
     <div className="settings-backdrop" role="presentation">
-      <section className="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <section className="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title" ref={modalRef}>
         <header className="settings-modal-header">
           <div>
             <h2 id="settings-title">Settings</h2>
@@ -111,6 +179,42 @@ export default function SettingsModal({ initialSettings, onClose, onSaved, provi
             Close
           </button>
         </header>
+
+        <div className="settings-section">
+          <h3>Providers</h3>
+          <p className="settings-section-copy">
+            Choose which model peon uses for each provider. Changes apply immediately.
+          </p>
+
+          <div className="provider-list">
+            {[...providerDraft.providers]
+              .sort((a, b) => a.fallbackOrder - b.fallbackOrder)
+              .map((entry) => (
+                <div className="provider-card" key={entry.id}>
+                  <div className="provider-label">{entry.id === "opencode" ? "OpenCode" : entry.id === "claude-code" ? "Claude Code" : entry.id}</div>
+                  <select
+                    className="provider-model-select"
+                    value={entry.peonModel ?? ""}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      saveProviderDraft({ ...entry, peonModel: val || null });
+                    }}
+                  >
+                    <option value="">default</option>
+                    {(providerModels[entry.id] ?? []).map((m) => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+          </div>
+
+          {providerSaveStatus && (
+            <div className={`retention-status ${providerSaveStatus === "Saved" ? "retention-status--ok" : ""}`}>
+              {providerSaveStatus}
+            </div>
+          )}
+        </div>
 
         <div className="settings-section">
           <h3>Hotkeys</h3>
@@ -198,18 +302,6 @@ export default function SettingsModal({ initialSettings, onClose, onSaved, provi
               {retentionSaveStatus}
             </div>
           )}
-        </div>
-
-        <div className="settings-section">
-          <h3>Providers</h3>
-          <p className="settings-section-copy">
-            App-wide defaults, overrides, fallback order, and Peon provider models live here.
-          </p>
-          <ProviderSettingsSection
-            providerSettings={initialSettings.providers}
-            providerRuntime={providerRuntime}
-            onSaveProviderSettings={onSaveProviderSettings}
-          />
         </div>
 
         <footer className="settings-modal-footer">

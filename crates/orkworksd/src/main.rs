@@ -216,6 +216,7 @@ async fn main() {
     let app = Router::new()
         .route("/health", get(health_check))
         .route("/providers", get(get_providers))
+        .route("/providers/:id/models", get(get_provider_models))
         .route("/settings/providers", post(set_provider_settings))
         .route("/workspace", post(set_workspace))
         .route("/workspace/active-session", post(set_active_session))
@@ -460,6 +461,13 @@ struct ResolvedSessionLaunch {
     adapter_harness_id: Option<String>,
     model: Option<String>,
     command: harness::CommandSpec,
+    provider_id: Option<String>,
+    provider_label: Option<String>,
+}
+
+fn provider_context_for_harness(harness_id: &str) -> Option<(String, String)> {
+    let registry = providers::builtin_provider_registry();
+    registry.iter().find(|d| d.id == harness_id).map(|d| (d.id.to_string(), d.label.to_string()))
 }
 
 fn resolve_session_launch(
@@ -475,6 +483,9 @@ fn resolve_session_launch(
             let args: Vec<String> = config.args.iter().map(|arg| {
                 arg.replace("{model}", model.as_deref().unwrap_or(""))
             }).collect();
+            let (provider_id, provider_label) = provider_context_for_harness(harness_id)
+                .map(|(id, label)| (Some(id), Some(label)))
+                .unwrap_or((None, None));
             return ResolvedSessionLaunch {
                 session_harness_id: Some(config.id.clone()),
                 adapter_harness_id: Some(config.harness.clone()),
@@ -484,6 +495,8 @@ fn resolve_session_launch(
                     args,
                     cwd,
                 },
+                provider_id,
+                provider_label,
             };
         }
     }
@@ -493,6 +506,8 @@ fn resolve_session_launch(
         adapter_harness_id: None,
         model: req.model.clone(),
         command: default_shell_command(cwd),
+        provider_id: None,
+        provider_label: None,
     }
 }
 
@@ -566,7 +581,7 @@ async fn create_session(
             last_seen_at: Some(now.clone()),
         }),
         resumed_from: None,
-        provider: None,
+        provider: resolved_launch.provider_label.clone(),
         provider_model: None,
         provider_state: None,
     };
@@ -606,8 +621,8 @@ async fn create_session(
             failed_test: None,
             capacity_hints: None,
             peon_last_inference: None,
-            provider_id: None,
-            provider_label: None,
+            provider_id: resolved_launch.provider_id.clone(),
+            provider_label: resolved_launch.provider_label.clone(),
             provider_model: None,
             provider_state: None,
             created_at: now.clone(),
@@ -940,6 +955,35 @@ async fn set_provider_settings(
 ) -> impl IntoResponse {
     let status = state.providers.apply_settings(payload);
     axum::Json(status)
+}
+
+#[derive(Serialize)]
+struct ProviderModelsResponse {
+    models: Vec<String>,
+}
+
+#[derive(Serialize)]
+struct ErrorResponse {
+    error: String,
+}
+
+async fn get_provider_models(
+    State(state): State<Arc<AppState>>,
+    Path(provider_id): Path<String>,
+) -> impl IntoResponse {
+    let providers = state.providers.clone();
+    match tokio::task::spawn_blocking(move || providers.list_models(&provider_id)).await {
+        Ok(Ok(models)) => axum::Json(ProviderModelsResponse { models }).into_response(),
+        Ok(Err(msg)) => {
+            let status = if msg.starts_with("unknown provider") {
+                axum::http::StatusCode::NOT_FOUND
+            } else {
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR
+            };
+            (status, axum::Json(ErrorResponse { error: msg })).into_response()
+        }
+        Err(_) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(ErrorResponse { error: "internal error".into() })).into_response(),
+    }
 }
 
 async fn retention_cleanup_task(state: Arc<AppState>) {
@@ -1781,7 +1825,9 @@ async fn handle_session_terminal(mut ws: WebSocket, id: String, state: Arc<AppSt
                     break;
                 }
             }
-            Some(data) = rx.recv() => {
+            data = rx.recv() => {
+                match data {
+                    Some(data) => {
                 persist_buffer.extend_from_slice(&data);
 
                 let mut raw_persist_lines: Vec<String> = Vec::new();
@@ -1823,6 +1869,15 @@ async fn handle_session_terminal(mut ws: WebSocket, id: String, state: Arc<AppSt
 
                 if ws.send(Message::Binary(data)).await.is_err() {
                     break;
+                }
+                    }
+                    None => {
+                        // PTY reader channel closed: child process exited (e.g. user typed "exit").
+                        // Reap the child and clean up so the frontend's WebSocket onclose fires.
+                        let _ = child.kill();
+                        set_session_status(&state, &id, "ended");
+                        break;
+                    }
                 }
             }
             msg = ws.recv() => {

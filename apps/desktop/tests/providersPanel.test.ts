@@ -51,17 +51,17 @@ test("deriveEffectiveState prefers disabled, then override, then default", () =>
 });
 
 test("buildProviderViewModel sorts by fallback order and marks stale applied revisions", () => {
-  const model = buildProviderViewModel(sampleSettings(), sampleRuntime({ appliedRevision: 1 }), "claude-code");
+  const model = buildProviderViewModel(sampleSettings(), sampleRuntime({ appliedRevision: 1 }));
   assert.deepEqual(model.rows.map((row) => row.id), ["opencode", "claude-code"]);
   assert.equal(model.isStale, true);
-  assert.equal(model.summary.currentProviderLabel, "Claude Code");
 });
 
-test("SettingsModal renders provider editing inline instead of an open-panel button", () => {
+test("SettingsModal renders a Providers section", () => {
   const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
-  assert.match(source, /ProviderSettingsSection/);
-  assert.doesNotMatch(source, /Open Providers Panel/);
-  assert.doesNotMatch(source, /onOpenProviders/);
+  assert.match(source, /Providers/);
+  assert.match(source, /providerDraft/);
+  assert.match(source, /provider-model-select/);
+  assert.match(source, /getProviderModels/);
 });
 
 test("ProviderSettingsSection keeps provider editing out of Details", () => {

@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import type { ProviderId, ProviderCapacityState, ProviderSettings, ProviderSettingsEntry } from "../src/providerTypes.ts";
+import type { ProviderId, ProviderCapacityState, ProviderSettings, ProviderSettingsEntry } from "./providerTypes.ts";
 
 export interface RetentionSettings {
   maxSessions: number;

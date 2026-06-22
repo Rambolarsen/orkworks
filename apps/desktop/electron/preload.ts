@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld("orkworks", {
   saveHotkeys: (hotkeys: unknown): Promise<unknown> => ipcRenderer.invoke("save-hotkeys", hotkeys),
   saveRetention: (retention: unknown): Promise<unknown> => ipcRenderer.invoke("save-retention", retention),
   saveProviderSettings: (providers: unknown): Promise<unknown> => ipcRenderer.invoke("save-provider-settings", providers),
+  getProviderModels: (providerId: string): Promise<unknown> => ipcRenderer.invoke("get-provider-models", providerId),
   setHotkeyCaptureActive: (active: boolean) => {
     ipcRenderer.send("orkworks:hotkey-capture-active", active);
   },

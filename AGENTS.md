@@ -86,6 +86,14 @@ Agents doing development work in this repo must use the installed Superpowers sk
 
 These workflow requirements constrain how agents work in this repository. They do not expand OrkWorks product scope or override the MVP non-goals.
 
+### electron/ and src/ are hard boundaries
+
+`apps/desktop/electron/` (Electron main process) and `apps/desktop/src/` (renderer) must never import from each other. They are compiled by separate TypeScript configs with separate `rootDir` settings — a cross-boundary import either produces stray compiled artifacts or forces a `rootDir` change. Either symptom means the design is wrong, not the config.
+
+IPC contract types shared across the boundary must be defined independently in both directories. Duplication is intentional: each side owns its copy. If you need to change a shared type, update both.
+
+Do not change `rootDir` in `tsconfig.node.json` or `tsconfig.json` to accommodate a new import. A required `rootDir` change is a signal to reconsider the import, not to adjust the config.
+
 ### OpenCode requirement
 
 OpenCode must load the project-level `opencode.json` at the repo root. Start OpenCode with the repo root as the project, for example:
@@ -149,7 +157,7 @@ Use normal engineering terminology for all other concepts. Peon and Taskmaster a
 
 Electron + React/TypeScript frontend (`apps/desktop/`) communicates with a Rust sidecar (`crates/orkworksd/`) over a dynamic localhost HTTP/WebSocket port. The desktop UI uses Dockview draggable panels around xterm.js terminal sessions. The sidecar manages PTY sessions, Git context, the `.orkworks/` metadata protocol, Peon observation, and Taskmaster recommendation state.
 
-- ADR 0016 moves provider context into read-only session details fields; provider editing remains app-wide in Settings.
+- ADR 0017: Provider context is session-scoped (read-only in Details), not app-wide.
 
 See [`docs/agents/architecture.md`](docs/agents/architecture.md) for the full inter-component breakdown (port discovery, preload bridge, API data flow, Rust modules, panel layout).
 

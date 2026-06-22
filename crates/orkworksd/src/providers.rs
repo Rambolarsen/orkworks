@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::io::Read;
 use std::io::Write as IoWrite;
 use std::process::{Command, Stdio};
 use std::sync::{Arc, RwLock};
@@ -108,6 +109,8 @@ pub struct ProviderDefinition {
     pub model_arg_template: Option<&'static str>,
     pub supports_model: bool,
     pub timeout_secs: u64,
+    pub list_models_command: Option<&'static str>,
+    pub list_models_args: &'static [&'static str],
 }
 
 pub fn builtin_provider_registry() -> Vec<ProviderDefinition> {
@@ -120,6 +123,8 @@ pub fn builtin_provider_registry() -> Vec<ProviderDefinition> {
             model_arg_template: Some("--model={model}"),
             supports_model: true,
             timeout_secs: 30,
+            list_models_command: Some("opencode"),
+            list_models_args: &["models"],
         },
         ProviderDefinition {
             id: "claude-code",
@@ -129,6 +134,8 @@ pub fn builtin_provider_registry() -> Vec<ProviderDefinition> {
             model_arg_template: Some("--model={model}"),
             supports_model: true,
             timeout_secs: 30,
+            list_models_command: None,
+            list_models_args: &[],
         },
     ]
 }
@@ -265,6 +272,7 @@ impl ProviderRunner for ProcessRunner {
 
 // --- ProviderManager ---
 
+#[derive(Clone)]
 pub struct ProviderManager {
     registry: Vec<ProviderDefinition>,
     settings: Arc<RwLock<ProviderSettingsPayload>>,
@@ -332,6 +340,87 @@ impl ProviderManager {
         }).collect();
 
         ProvidersResponse { providers, applied_revision }
+    }
+
+    pub fn list_models(&self, provider_id: &str) -> Result<Vec<String>, String> {
+        let definition = self.registry.iter()
+            .find(|d| d.id == provider_id)
+            .ok_or_else(|| format!("unknown provider: {provider_id}"))?;
+
+        let (command, args) = match (definition.list_models_command, definition.list_models_args) {
+            (Some(cmd), args) if !args.is_empty() => (cmd, args),
+            _ => return Ok(Vec::new()),
+        };
+
+        let mut child = std::process::Command::new(command)
+            .args(args)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("failed to run {command}: {e}"))?;
+
+        let mut child_stdout = child.stdout.take().unwrap();
+        let mut child_stderr = child.stderr.take().unwrap();
+        let timeout = std::time::Duration::from_secs(definition.timeout_secs);
+
+        let (tx, rx) = std::sync::mpsc::channel::<std::io::Result<(String, String)>>();
+        std::thread::spawn(move || {
+            let mut out = String::new();
+            let mut err = String::new();
+            let r1 = child_stdout.read_to_string(&mut out);
+            let r2 = child_stderr.read_to_string(&mut err);
+            let _ = tx.send(r1.and(r2).map(|_| (out, err)));
+        });
+
+        let receive_result = rx.recv_timeout(timeout);
+        let exit_status = match child.try_wait() {
+            Ok(Some(status)) => Some(status),
+            _ => None,
+        };
+
+        if let Err(std::sync::mpsc::RecvTimeoutError::Timeout) = receive_result {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!("{command} timed out after {}s", definition.timeout_secs));
+        }
+
+        let (stdout, stderr) = match receive_result {
+            Ok(Ok((out, err))) => (out, err),
+            Ok(Err(e)) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!("failed to read {command} output: {e}"));
+            }
+            Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!("failed to read {command} output"));
+            }
+        };
+
+        let status = match exit_status {
+            Some(s) => s,
+            None => child.wait().map_err(|e| format!("failed to wait on {command}: {e}"))?,
+        };
+
+        if !status.success() {
+            let stderr = stderr.trim().to_string();
+            return Err(if stderr.is_empty() {
+                format!("{command} exited with status {}", status)
+            } else {
+                stderr
+            });
+        }
+
+        let trimmed = stdout.trim();
+        let models: Vec<String> = if trimmed.starts_with('[') {
+            serde_json::from_str::<Vec<String>>(trimmed)
+                .map_err(|e| format!("failed to parse JSON model list: {e}"))?
+        } else {
+            trimmed.lines().map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect()
+        };
+
+        Ok(models)
     }
 
     pub fn run_inference(&self, _scope: PeonScope, output: &[String]) -> ProviderRunResult {
@@ -600,6 +689,22 @@ impl ProviderManager {
             runner: Arc::new(FakeRunner { specs }),
         }
     }
+
+    pub fn for_tests_with_registry(
+        registry: Vec<ProviderDefinition>,
+        settings: ProviderSettingsPayload,
+        fakes: Vec<FakeProvider>,
+    ) -> Self {
+        let specs: HashMap<String, FakeProvider> =
+            fakes.into_iter().map(|f| (f.id.to_string(), f)).collect();
+        Self {
+            registry,
+            settings: Arc::new(RwLock::new(settings)),
+            applied_revision: Arc::new(RwLock::new(None)),
+            runtime: Arc::new(RwLock::new(HashMap::new())),
+            runner: Arc::new(FakeRunner { specs }),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -732,5 +837,38 @@ mod tests {
 
         let claude = response.providers.iter().find(|provider| provider.id == "claude-code").unwrap();
         assert_eq!(claude.runtime.fallback_step, Some(2));
+    }
+
+    #[test]
+    fn list_models_returns_empty_when_no_list_command_configured() {
+        let manager = ProviderManager::for_tests_with_registry(
+            vec![ProviderDefinition {
+                id: "test-provider",
+                label: "Test",
+                command: "test",
+                default_args: &[],
+                model_arg_template: None,
+                supports_model: false,
+                timeout_secs: 30,
+                list_models_command: None,
+                list_models_args: &[],
+            }],
+            sample_settings(vec![]),
+            vec![],
+        );
+
+        let result = manager.list_models("test-provider").unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn list_models_returns_error_for_unknown_provider() {
+        let manager = ProviderManager::for_tests(
+            sample_settings(vec![]),
+            vec![],
+        );
+
+        let err = manager.list_models("nonexistent").unwrap_err();
+        assert!(err.contains("unknown provider"));
     }
 }

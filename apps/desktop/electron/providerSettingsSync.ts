@@ -1,4 +1,4 @@
-import type { ProviderApplyStatus, ProviderSettings } from "../src/providerTypes.ts";
+import type { ProviderApplyStatus, ProviderSettings } from "./providerTypes.ts";
 
 export async function pushProviderSettings(
   baseUrl: string,
