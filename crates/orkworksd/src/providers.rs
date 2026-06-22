@@ -124,7 +124,7 @@ pub fn builtin_provider_registry() -> Vec<ProviderDefinition> {
             supports_model: true,
             timeout_secs: 30,
             list_models_command: Some("opencode"),
-            list_models_args: &["list-models"],
+            list_models_args: &["models"],
         },
         ProviderDefinition {
             id: "claude-code",
@@ -134,8 +134,8 @@ pub fn builtin_provider_registry() -> Vec<ProviderDefinition> {
             model_arg_template: Some("--model={model}"),
             supports_model: true,
             timeout_secs: 30,
-            list_models_command: Some("claude"),
-            list_models_args: &["models", "--list"],
+            list_models_command: None,
+            list_models_args: &[],
         },
     ]
 }
@@ -362,36 +362,51 @@ impl ProviderManager {
         let mut child_stdout = child.stdout.take().unwrap();
         let mut child_stderr = child.stderr.take().unwrap();
         let timeout = std::time::Duration::from_secs(definition.timeout_secs);
-        let start = std::time::Instant::now();
 
-        let exit_status = loop {
-            match child.try_wait() {
-                Ok(Some(status)) => break status,
-                Ok(None) => {
-                    if start.elapsed() >= timeout {
-                        let _ = child.kill();
-                        let _ = child.wait();
-                        return Err(format!("{command} timed out after {}s", definition.timeout_secs));
-                    }
-                    std::thread::sleep(std::time::Duration::from_millis(100));
-                }
-                Err(e) => {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return Err(format!("failed to wait on {command}: {e}"));
-                }
+        let (tx, rx) = std::sync::mpsc::channel::<std::io::Result<(String, String)>>();
+        std::thread::spawn(move || {
+            let mut out = String::new();
+            let mut err = String::new();
+            let r1 = child_stdout.read_to_string(&mut out);
+            let r2 = child_stderr.read_to_string(&mut err);
+            let _ = tx.send(r1.and(r2).map(|_| (out, err)));
+        });
+
+        let receive_result = rx.recv_timeout(timeout);
+        let exit_status = match child.try_wait() {
+            Ok(Some(status)) => Some(status),
+            _ => None,
+        };
+
+        if let Err(std::sync::mpsc::RecvTimeoutError::Timeout) = receive_result {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!("{command} timed out after {}s", definition.timeout_secs));
+        }
+
+        let (stdout, stderr) = match receive_result {
+            Ok(Ok((out, err))) => (out, err),
+            Ok(Err(e)) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!("failed to read {command} output: {e}"));
+            }
+            Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!("failed to read {command} output"));
             }
         };
 
-        let mut stdout = String::new();
-        let mut stderr = String::new();
-        child_stdout.read_to_string(&mut stdout).unwrap_or_default();
-        child_stderr.read_to_string(&mut stderr).unwrap_or_default();
+        let status = match exit_status {
+            Some(s) => s,
+            None => child.wait().map_err(|e| format!("failed to wait on {command}: {e}"))?,
+        };
 
-        if !exit_status.success() {
+        if !status.success() {
             let stderr = stderr.trim().to_string();
             return Err(if stderr.is_empty() {
-                format!("{command} exited with status {}", exit_status)
+                format!("{command} exited with status {}", status)
             } else {
                 stderr
             });
