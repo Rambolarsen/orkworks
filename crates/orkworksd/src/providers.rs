@@ -108,6 +108,8 @@ pub struct ProviderDefinition {
     pub model_arg_template: Option<&'static str>,
     pub supports_model: bool,
     pub timeout_secs: u64,
+    pub list_models_command: Option<&'static str>,
+    pub list_models_args: &'static [&'static str],
 }
 
 pub fn builtin_provider_registry() -> Vec<ProviderDefinition> {
@@ -120,6 +122,8 @@ pub fn builtin_provider_registry() -> Vec<ProviderDefinition> {
             model_arg_template: Some("--model={model}"),
             supports_model: true,
             timeout_secs: 30,
+            list_models_command: Some("opencode"),
+            list_models_args: &["list-models"],
         },
         ProviderDefinition {
             id: "claude-code",
@@ -129,6 +133,8 @@ pub fn builtin_provider_registry() -> Vec<ProviderDefinition> {
             model_arg_template: Some("--model={model}"),
             supports_model: true,
             timeout_secs: 30,
+            list_models_command: Some("claude"),
+            list_models_args: &["models", "--list"],
         },
     ]
 }
