@@ -28,6 +28,7 @@ mod peon;
 mod providers;
 mod domain;
 mod application;
+mod infrastructure;
 
 #[derive(Clone, Debug, Serialize)]
 struct SessionInfo {
