@@ -340,6 +340,44 @@ impl ProviderManager {
         ProvidersResponse { providers, applied_revision }
     }
 
+    pub fn list_models(&self, provider_id: &str) -> Result<Vec<String>, String> {
+        let definition = self.registry.iter()
+            .find(|d| d.id == provider_id)
+            .ok_or_else(|| format!("unknown provider: {provider_id}"))?;
+
+        let (command, args) = match (definition.list_models_command, definition.list_models_args) {
+            (Some(cmd), args) if !args.is_empty() => (cmd, args),
+            _ => return Ok(Vec::new()),
+        };
+
+        let output = std::process::Command::new(command)
+            .args(args)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .output()
+            .map_err(|e| format!("failed to run {command}: {e}"))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            return Err(if stderr.is_empty() {
+                format!("{command} exited with status {}", output.status)
+            } else {
+                stderr
+            });
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let trimmed = stdout.trim();
+        let models: Vec<String> = if trimmed.starts_with('[') {
+            serde_json::from_str::<Vec<String>>(trimmed)
+                .map_err(|e| format!("failed to parse JSON model list: {e}"))?
+        } else {
+            trimmed.lines().map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect()
+        };
+
+        Ok(models)
+    }
+
     pub fn run_inference(&self, _scope: PeonScope, output: &[String]) -> ProviderRunResult {
         let settings = self.settings.read().unwrap().clone();
         let prompt = peon::build_prompt(output);
