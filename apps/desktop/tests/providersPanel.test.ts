@@ -57,13 +57,16 @@ test("buildProviderViewModel sorts by fallback order and marks stale applied rev
   assert.equal(model.summary.currentProviderLabel, "Claude Code");
 });
 
-test("CapacityPanel renders Providers labels and runtime details", () => {
-  const source = readFileSync(new URL("../src/components/CapacityPanel.tsx", import.meta.url), "utf8");
+test("SettingsModal renders provider editing inline instead of an open-panel button", () => {
+  const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
+  assert.match(source, /ProviderSettingsSection/);
+  assert.doesNotMatch(source, /Open Providers Panel/);
+  assert.doesNotMatch(source, /onOpenProviders/);
+});
 
-  assert.match(source, /Providers/);
-  assert.match(source, /Default/);
-  assert.match(source, /Override/);
-  assert.match(source, /Effective/);
-  assert.match(source, /lastErrorSummary/);
-  assert.match(source, /label/);
+test("ProviderSettingsSection keeps provider editing out of Details", () => {
+  const source = readFileSync(new URL("../src/components/ProviderSettingsSection.tsx", import.meta.url), "utf8");
+  assert.match(source, /Move up/);
+  assert.match(source, /Clear override/);
+  assert.match(source, /Last error/);
 });
