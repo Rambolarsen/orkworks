@@ -1,6 +1,7 @@
 # Provider context is session-scoped, not app-wide
 
-- Status: accepted
+- Status: superseded
+- Superseded by: peon model picker feature (2026-06-22) — per-provider `peonModel` selection restored in Settings modal
 - Supersedes: 0016 (Settings surface only)
 - Date: 2026-06-22
 - Deciders: OrkWorks maintainers

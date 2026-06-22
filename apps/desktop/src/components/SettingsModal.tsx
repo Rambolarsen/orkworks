@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { acceleratorFromKeyboardEvent } from "../hotkeyCapture";
 import type { AppSettings, HotkeySettings, RetentionSettings, SaveHotkeysResult } from "../appSettingsTypes";
 import type { ProviderSettings, ProviderSettingsEntry, ProviderModelsResponse } from "../providerTypes";
@@ -21,7 +21,10 @@ const hotkeyRows: Array<{ action: HotkeyAction; label: string; optional?: boolea
   { action: "resetLayout", label: "Reset Layout", optional: true },
 ];
 
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
 export default function SettingsModal({ initialSettings, onClose, onSaved }: SettingsModalProps) {
+  const modalRef = useRef<HTMLElement>(null);
   const defaultHotkeys = initialSettings.defaultHotkeys;
   const [draft, setDraft] = useState<HotkeySettings>(initialSettings.hotkeys);
   const [capturing, setCapturing] = useState<HotkeyAction | null>(null);
@@ -33,6 +36,36 @@ export default function SettingsModal({ initialSettings, onClose, onSaved }: Set
   const [providerDraft, setProviderDraft] = useState<ProviderSettings>(initialSettings.providers);
   const [providerModels, setProviderModels] = useState<Record<string, string[]>>({});
   const [providerSaveStatus, setProviderSaveStatus] = useState<string | null>(null);
+
+  useLayoutEffect(() => {
+    const modal = modalRef.current;
+    if (!modal) return;
+
+    const focusable = modal.querySelectorAll<HTMLElement>(FOCUSABLE);
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+
+    if (first) first.focus();
+
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key !== "Tab") return;
+
+      if (e.shiftKey) {
+        if (document.activeElement === first) {
+          e.preventDefault();
+          last?.focus();
+        }
+      } else {
+        if (document.activeElement === last) {
+          e.preventDefault();
+          first?.focus();
+        }
+      }
+    }
+
+    modal.addEventListener("keydown", onKeyDown);
+    return () => modal.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   useEffect(() => {
     if (!capturing) return;
@@ -125,7 +158,9 @@ export default function SettingsModal({ initialSettings, onClose, onSaved }: Set
     };
     setProviderDraft(next);
     try {
-      await window.orkworks.saveProviderSettings(next);
+      const result = await window.orkworks.saveProviderSettings(next);
+      setProviderDraft(result.settings.providers);
+      onSaved(result.settings);
       setProviderSaveStatus("Saved");
     } catch {
       setProviderSaveStatus("Couldn't save provider settings.");
@@ -134,7 +169,7 @@ export default function SettingsModal({ initialSettings, onClose, onSaved }: Set
 
   return (
     <div className="settings-backdrop" role="presentation">
-      <section className="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <section className="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title" ref={modalRef}>
         <header className="settings-modal-header">
           <div>
             <h2 id="settings-title">Settings</h2>

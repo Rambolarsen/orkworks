@@ -962,6 +962,11 @@ struct ProviderModelsResponse {
     models: Vec<String>,
 }
 
+#[derive(Serialize)]
+struct ErrorResponse {
+    error: String,
+}
+
 async fn get_provider_models(
     State(state): State<Arc<AppState>>,
     Path(provider_id): Path<String>,
@@ -970,13 +975,14 @@ async fn get_provider_models(
     match tokio::task::spawn_blocking(move || providers.list_models(&provider_id)).await {
         Ok(Ok(models)) => axum::Json(ProviderModelsResponse { models }).into_response(),
         Ok(Err(msg)) => {
-            if msg.starts_with("unknown provider") {
-                (axum::http::StatusCode::NOT_FOUND, msg).into_response()
+            let status = if msg.starts_with("unknown provider") {
+                axum::http::StatusCode::NOT_FOUND
             } else {
-                (axum::http::StatusCode::INTERNAL_SERVER_ERROR, msg).into_response()
-            }
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR
+            };
+            (status, axum::Json(ErrorResponse { error: msg })).into_response()
         }
-        Err(_) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response(),
+        Err(_) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(ErrorResponse { error: "internal error".into() })).into_response(),
     }
 }
 
@@ -1819,7 +1825,9 @@ async fn handle_session_terminal(mut ws: WebSocket, id: String, state: Arc<AppSt
                     break;
                 }
             }
-            Some(data) = rx.recv() => {
+            data = rx.recv() => {
+                match data {
+                    Some(data) => {
                 persist_buffer.extend_from_slice(&data);
 
                 let mut raw_persist_lines: Vec<String> = Vec::new();
@@ -1861,6 +1869,15 @@ async fn handle_session_terminal(mut ws: WebSocket, id: String, state: Arc<AppSt
 
                 if ws.send(Message::Binary(data)).await.is_err() {
                     break;
+                }
+                    }
+                    None => {
+                        // PTY reader channel closed: child process exited (e.g. user typed "exit").
+                        // Reap the child and clean up so the frontend's WebSocket onclose fires.
+                        let _ = child.kill();
+                        set_session_status(&state, &id, "ended");
+                        break;
+                    }
                 }
             }
             msg = ws.recv() => {

@@ -24,4 +24,4 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 | [0014](./0014-main-process-owned-app-settings.md) | Main-process-owned app settings and menu accelerators | accepted |
 | [0015](./0015-provider-ops-peon-fallback.md) | Provider ops panel and app-wide Peon fallback | superseded by 0016 |
 | [0016](./0016-session-details-provider-context.md) | Session details provider context | superseded by 0017 (Settings surface) |
-| [0017](./0017-provider-context-session-scoped.md) | Provider context is session-scoped, not app-wide | accepted |
+| [0017](./0017-provider-context-session-scoped.md) | Provider context is session-scoped, not app-wide | superseded (peon model picker restores per-provider model selection in Settings) |
