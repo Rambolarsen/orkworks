@@ -26,6 +26,7 @@ mod git;
 mod harness;
 mod peon;
 mod providers;
+mod domain;
 
 #[derive(Clone, Debug, Serialize)]
 struct SessionInfo {
@@ -220,6 +221,7 @@ async fn main() {
         .route("/settings/providers", post(set_provider_settings))
         .route("/workspace", post(set_workspace))
         .route("/workspace/active-session", post(set_active_session))
+        .route("/workspace/active-harnesses", put(set_active_harnesses))
         .route("/sessions", post(create_session))
         .route("/sessions", get(list_sessions))
         .route("/sessions/:id", delete(delete_session))
@@ -263,6 +265,8 @@ struct WorkspaceResponse {
     dirty: Option<bool>,
     #[serde(rename = "lastActiveSessionId")]
     last_active_session_id: Option<String>,
+    #[serde(rename = "activeHarnessIds")]
+    active_harness_ids: Vec<String>,
 }
 
 async fn set_workspace(
@@ -282,9 +286,9 @@ async fn set_workspace(
     }
 
     let store = metadata::MetadataStore::new(&orkworks_dir);
-    let last_active_session_id = store
-        .read_workspace_memory()
-        .and_then(|memory| memory.last_active_session_id);
+    let memory = store.read_workspace_memory();
+    let last_active_session_id = memory.as_ref().and_then(|m| m.last_active_session_id.clone());
+    let active_harness_ids = memory.map(|m| m.active_harness_ids).unwrap_or_default();
     let watch_dir = orkworks_dir.join("sessions");
     let watcher = watcher::MetadataWatcher::start(&watch_dir);
 
@@ -303,6 +307,7 @@ async fn set_workspace(
         branch: git_ctx.branch,
         dirty: Some(git_ctx.dirty),
         last_active_session_id,
+        active_harness_ids,
     })
     .into_response()
 }
@@ -318,13 +323,39 @@ async fn set_active_session(
     let now = iso_now();
     let ws_guard = state.workspace.lock().unwrap();
     if let Some(ref ws) = *ws_guard {
+        let existing = ws.metadata.read_workspace_memory();
         ws.metadata.write_workspace_memory(&metadata::WorkspaceMemory {
             last_active_session_id: Some(req.session_id),
             last_active_at: Some(now),
+            active_harness_ids: existing.map(|m| m.active_harness_ids).unwrap_or_default(),
         });
         return axum::http::StatusCode::OK;
     }
     axum::http::StatusCode::CONFLICT
+}
+
+#[derive(Deserialize)]
+struct ActiveHarnessesRequest {
+    #[serde(rename = "activeHarnessIds")]
+    active_harness_ids: Vec<String>,
+}
+
+async fn set_active_harnesses(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<ActiveHarnessesRequest>,
+) -> impl IntoResponse {
+    let ws_guard = state.workspace.lock().unwrap();
+    if let Some(ref ws) = *ws_guard {
+        let existing = ws.metadata.read_workspace_memory();
+        ws.metadata.write_workspace_memory(&metadata::WorkspaceMemory {
+            last_active_session_id: existing.as_ref().and_then(|m| m.last_active_session_id.clone()),
+            last_active_at: existing.as_ref().and_then(|m| m.last_active_at.clone()),
+            active_harness_ids: req.active_harness_ids,
+        });
+        (axum::http::StatusCode::OK, Json(serde_json::json!({ "ok": true }))).into_response()
+    } else {
+        (axum::http::StatusCode::CONFLICT, Json(serde_json::json!({ "ok": false, "error": "no workspace open" }))).into_response()
+    }
 }
 
 async fn resume_session(
@@ -2217,6 +2248,7 @@ mod tests {
             branch: Some("main".into()),
             dirty: Some(false),
             last_active_session_id: Some("session-1".into()),
+            active_harness_ids: vec!["opencode".into(), "claude-code".into()],
         };
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("\"path\":\"/tmp\""));
@@ -2234,6 +2266,7 @@ mod tests {
             branch: None,
             dirty: None,
             last_active_session_id: None,
+            active_harness_ids: vec![],
         };
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("\"path\":\"/tmp\""));
@@ -2585,11 +2618,11 @@ mod tests {
                 providers::ProviderSettingsPayload {
                     version: 1,
                     revision: 1,
+                    peon_model: None,
                     providers: vec![providers::ProviderSettingsEntry {
                         id: "opencode".to_string(),
                         enabled: true,
                         fallback_order: 0,
-                        peon_model: None,
                         default_state: providers::ProviderCapacityState::Healthy,
                         override_state: None,
                     }],
@@ -2756,11 +2789,11 @@ mod tests {
                 providers::ProviderSettingsPayload {
                     version: 1,
                     revision: 1,
+                    peon_model: None,
                     providers: vec![providers::ProviderSettingsEntry {
                         id: "opencode".to_string(),
                         enabled: true,
                         fallback_order: 0,
-                        peon_model: None,
                         default_state: providers::ProviderCapacityState::Healthy,
                         override_state: None,
                     }],
