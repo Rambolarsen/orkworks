@@ -22,16 +22,6 @@
             "statusMessage": "Loading ponytail mode..."
           }
         ]
-      },
-      {
-        "matcher": "startup|clear|compact",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\".claude/hooks/superpowers/hooks/run-hook.cmd\" session-start",
-            "async": false
-          }
-        ]
       }
     ],
     "UserPromptSubmit": [
