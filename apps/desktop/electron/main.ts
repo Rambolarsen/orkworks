@@ -22,6 +22,7 @@ let portPromise = new Promise<number>((resolve) => {
 let workspacePath: string | null = null;
 let menuPanelItems: Record<string, Electron.MenuItem> = {};
 let currentSettings: AppSettings | null = null;
+let providerModels: Map<string, string[]> = new Map();
 let hotkeyCaptureActive = false;
 const menuPanelIds = ["sessions", "detail", "terminal", "capacity", "recommendations"];
 
@@ -30,6 +31,26 @@ function rendererSettings(settings: AppSettings): AppSettings & { defaultHotkeys
     ...settings,
     defaultHotkeys: { ...DEFAULT_HOTKEYS },
   };
+}
+
+async function refreshProviderModels(): Promise<void> {
+  const port = await portPromise;
+  const registry = ["opencode", "claude-code"];
+  const next = new Map<string, string[]>();
+  for (const id of registry) {
+    try {
+      const resp = await fetch(`http://127.0.0.1:${port}/providers/${id}/models`);
+      if (resp.ok) {
+        const data = await resp.json() as { models: string[] };
+        next.set(id, data.models);
+      } else {
+        next.set(id, []);
+      }
+    } catch {
+      next.set(id, []);
+    }
+  }
+  providerModels = next;
 }
 
 function createMenu(settings: AppSettings): Electron.Menu {
@@ -231,6 +252,10 @@ app.whenReady().then(() => {
     return { ok: true, settings: rendererSettings(currentSettings) };
   });
 
+  ipcMain.handle("get-provider-models", async (_event, providerId: string) => {
+    return { models: providerModels.get(providerId) ?? [] };
+  });
+
   ipcMain.handle("open-workspace", async () => {
     const result = await dialog.showOpenDialog({
       properties: ["openDirectory"],
@@ -336,6 +361,7 @@ app.whenReady().then(() => {
       // Sidecar may not be ready yet; will be pushed on next save-retention
     }
     await syncSavedProviderSettings();
+    await refreshProviderModels();
   });
 
   async function syncSavedProviderSettings(): Promise<void> {
