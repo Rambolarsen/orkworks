@@ -159,6 +159,12 @@ Electron + React/TypeScript frontend (`apps/desktop/`) communicates with a Rust 
 
 - ADR 0017: Provider context is session-scoped (read-only in Details), not app-wide.
 
+**Rust module DDD layering** (`crates/orkworksd/src/`):
+- `domain/session/` — value objects, entity (aggregate root), domain events, repository trait, lifecycle service
+- `application/session/` — command DTOs, driven port interfaces (PtySpawner, PtyKiller, GitDetector), use case handlers
+- `infrastructure/` — repository adapter, PTY/git adapters, SessionModule composition root
+- `main.rs` — thin HTTP handlers delegating to SessionModule; PTY management (SessionHandle) and Peon loop remain in AppState
+
 See [`docs/agents/architecture.md`](docs/agents/architecture.md) for the full inter-component breakdown (port discovery, preload bridge, API data flow, Rust modules, panel layout).
 
 ## Metadata protocol
