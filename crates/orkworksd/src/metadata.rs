@@ -86,6 +86,8 @@ pub struct WorkspaceMemory {
     pub last_active_session_id: Option<String>,
     #[serde(rename = "lastActiveAt", skip_serializing_if = "Option::is_none")]
     pub last_active_at: Option<String>,
+    #[serde(rename = "activeHarnessIds", default, skip_serializing_if = "Vec::is_empty")]
+    pub active_harness_ids: Vec<String>,
 }
 
 pub struct MetadataStore {
@@ -734,6 +736,7 @@ mod tests {
         store.write_workspace_memory(&WorkspaceMemory {
             last_active_session_id: Some("session-1".into()),
             last_active_at: Some("2026-06-17T12:00:00Z".into()),
+            active_harness_ids: vec![],
         });
 
         let memory = store.read_workspace_memory().unwrap();

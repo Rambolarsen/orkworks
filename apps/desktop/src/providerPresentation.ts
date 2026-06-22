@@ -23,7 +23,6 @@ export interface ProviderRow {
   enabled: boolean;
   fallbackOrder: number;
   effectiveState: ProviderEffectiveState;
-  peonModel: string | null;
   defaultState: ProviderCapacityState;
   overrideState: ProviderCapacityState | null;
   lastErrorSummary: string | null;
@@ -59,7 +58,6 @@ export function buildProviderViewModel(
       enabled: entry.enabled,
       fallbackOrder: entry.fallbackOrder,
       effectiveState: deriveEffectiveState(entry),
-      peonModel: entry.peonModel,
       defaultState: entry.defaultState,
       overrideState: entry.overrideState,
       lastErrorSummary: rt?.runtime.lastErrorSummary ?? null,

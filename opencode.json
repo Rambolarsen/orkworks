@@ -2,12 +2,12 @@
   "$schema": "https://opencode.ai/config.json",
   "skills": {
     "paths": [
-      "orkworks/.agents/skills",
+      ".agents/skills",
       "skills"
     ]
   },
   "plugin": [
-    "orkworks/apm_modules/obra/superpowers/.opencode/plugins/superpowers.js",
-    "orkworks/apm_modules/DietrichGebert/ponytail/.opencode/plugins/ponytail.mjs"
+    "apm_modules/obra/superpowers/.opencode/plugins/superpowers.js",
+    "apm_modules/DietrichGebert/ponytail/.opencode/plugins/ponytail.mjs"
   ]
 }

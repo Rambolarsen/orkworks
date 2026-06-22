@@ -10,9 +10,10 @@ function sampleSettings(): ProviderSettings {
   return {
     version: 1,
     revision: 2,
+    peonModel: null,
     providers: [
-      { id: "opencode", enabled: true, fallbackOrder: 0, peonModel: null, defaultState: "healthy", overrideState: null },
-      { id: "claude-code", enabled: true, fallbackOrder: 1, peonModel: null, defaultState: "unknown", overrideState: null },
+      { id: "opencode", enabled: true, fallbackOrder: 0, defaultState: "healthy", overrideState: null },
+      { id: "claude-code", enabled: true, fallbackOrder: 1, defaultState: "unknown", overrideState: null },
     ],
   };
 }
@@ -27,7 +28,6 @@ function sampleRuntime(overrides: Partial<ProviderRuntimeResponse> = {}): Provid
         enabled: true,
         fallbackOrder: 0,
         effectiveState: "capped",
-        peonModel: null,
         runtime: { fallbackStep: 1, lastErrorSummary: "usage limit reached", resetHint: "resets in 2h" },
       },
       {
@@ -36,7 +36,6 @@ function sampleRuntime(overrides: Partial<ProviderRuntimeResponse> = {}): Provid
         enabled: true,
         fallbackOrder: 1,
         effectiveState: "healthy",
-        peonModel: null,
         runtime: { fallbackStep: 2, lastErrorSummary: null, resetHint: null },
       },
     ],

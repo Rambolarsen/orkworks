@@ -36,3 +36,15 @@ out/
 
 # Git worktrees
 .worktrees/
+
+# APM dependencies and generated targets
+apm_modules/
+apm.lock.yaml
+.agents/
+.claude/skills/
+.claude/hooks/ponytail/
+.claude/hooks/superpowers/
+.claude/apm-hooks.json
+.github/hooks/
+.opencode/
+.codex/

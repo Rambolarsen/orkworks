@@ -97,15 +97,20 @@ export const DEFAULT_RETENTION: RetentionSettings = {
   maxAgeDays: 0,
 };
 
-const VALID_PROVIDER_IDS = new Set<ProviderId>(["opencode", "claude-code"]);
+const VALID_PROVIDER_IDS = new Set<ProviderId>(["opencode", "claude-code", "codex", "gemini", "aider", "gh-copilot"]);
 const VALID_CAPACITY_STATES = new Set<ProviderCapacityState>(["healthy", "degraded", "capped", "unknown"]);
 
 export const DEFAULT_PROVIDER_SETTINGS: ProviderSettings = {
   version: 1,
   revision: 0,
+  peonModel: null,
   providers: [
-    { id: "opencode", enabled: true, fallbackOrder: 0, peonModel: null, defaultState: "healthy", overrideState: null },
-    { id: "claude-code", enabled: true, fallbackOrder: 1, peonModel: null, defaultState: "unknown", overrideState: null },
+    { id: "opencode", enabled: true, fallbackOrder: 0, defaultState: "healthy", overrideState: null },
+    { id: "claude-code", enabled: true, fallbackOrder: 1, defaultState: "unknown", overrideState: null },
+    { id: "codex", enabled: true, fallbackOrder: 2, defaultState: "unknown", overrideState: null },
+    { id: "gemini", enabled: true, fallbackOrder: 3, defaultState: "unknown", overrideState: null },
+    { id: "aider", enabled: true, fallbackOrder: 4, defaultState: "unknown", overrideState: null },
+    { id: "gh-copilot", enabled: true, fallbackOrder: 5, defaultState: "unknown", overrideState: null },
   ],
 };
 
@@ -230,8 +235,24 @@ export function normalizeProviderSettings(value: unknown): ProviderSettings {
       typeof raw.revision === "number" && Number.isFinite(raw.revision)
         ? Math.max(0, Math.trunc(raw.revision))
         : DEFAULT_PROVIDER_SETTINGS.revision,
+    peonModel: normalizePeonModel(raw),
     providers,
   };
+}
+
+function normalizePeonModel(raw: Record<string, unknown>): string | null {
+  const top = raw.peonModel ?? raw.defaultPeonModel;
+  if (typeof top === "string" && top) return top;
+
+  const entries = Array.isArray(raw.providers) ? raw.providers : [];
+  for (const entry of entries) {
+    if (entry && typeof entry === "object") {
+      const v = (entry as Record<string, unknown>).peonModel;
+      if (typeof v === "string" && v) return v;
+    }
+  }
+
+  return null;
 }
 
 function normalizeProviderEntry(raw: Record<string, unknown>): ProviderSettingsEntry | null {
@@ -242,7 +263,6 @@ function normalizeProviderEntry(raw: Record<string, unknown>): ProviderSettingsE
     id: id as ProviderId,
     enabled: typeof raw.enabled === "boolean" ? raw.enabled : defaultEntry.enabled,
     fallbackOrder: clampInt(raw.fallbackOrder, 0, Number.MAX_SAFE_INTEGER, defaultEntry.fallbackOrder),
-    peonModel: typeof raw.peonModel === "string" && raw.peonModel ? raw.peonModel : null,
     defaultState: VALID_CAPACITY_STATES.has(raw.defaultState as ProviderCapacityState)
       ? (raw.defaultState as ProviderCapacityState)
       : "unknown",

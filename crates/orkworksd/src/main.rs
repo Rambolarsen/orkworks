@@ -26,6 +26,11 @@ mod git;
 mod harness;
 mod peon;
 mod providers;
+mod domain;
+mod application;
+mod infrastructure;
+
+use crate::infrastructure::session_module::SessionModule;
 
 #[derive(Clone, Debug, Serialize)]
 struct SessionInfo {
@@ -158,6 +163,7 @@ struct HarnessConfig {
 }
 
 struct AppState {
+    session_module: SessionModule,
     sessions: Mutex<HashMap<String, SessionHandle>>,
     workspace: Mutex<Option<WorkspaceState>>,
     peon: PeonState,
@@ -178,6 +184,7 @@ async fn main() {
         .init();
 
     let state = Arc::new(AppState {
+        session_module: SessionModule::new(),
         sessions: Mutex::new(HashMap::new()),
         workspace: Mutex::new(None),
         peon: PeonState {
@@ -2022,6 +2029,7 @@ mod tests {
     #[test]
     fn session_registry_create_and_list() {
         let state = Arc::new(AppState {
+            session_module: SessionModule::new(),
             sessions: Mutex::new(HashMap::new()),
             workspace: Mutex::new(None),
             peon: PeonState {
@@ -2093,6 +2101,7 @@ mod tests {
     #[test]
     fn set_session_status_updates_registry() {
         let state = Arc::new(AppState {
+            session_module: SessionModule::new(),
             sessions: Mutex::new(HashMap::new()),
             workspace: Mutex::new(None),
             peon: PeonState {
@@ -2566,6 +2575,7 @@ mod tests {
         }
 
         let state = Arc::new(AppState {
+            session_module: SessionModule::new(),
             sessions: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(WorkspaceState {
                 path: dir.path().to_path_buf(),
@@ -2737,6 +2747,7 @@ mod tests {
         let call_counter = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
 
         let state = Arc::new(AppState {
+            session_module: SessionModule::new(),
             sessions: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(WorkspaceState {
                 path: dir.path().to_path_buf(),
@@ -2839,6 +2850,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
 
         let state = Arc::new(AppState {
+            session_module: SessionModule::new(),
             sessions: Mutex::new(HashMap::new()),
             workspace: Mutex::new(None),
             peon: PeonState {

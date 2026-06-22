@@ -77,7 +77,6 @@ export default function ProviderSettingsSection({
           <div>Default: {row.defaultState}</div>
           <div>Override: {row.overrideState ?? "none"}</div>
           <div>Effective: {row.effectiveState}</div>
-          <div>Model: {row.peonModel ?? "default"}</div>
           <div>Last error: {row.lastErrorSummary ?? "none"}</div>
           <div>Reset hint: {row.resetHint ?? "none"}</div>
           <button type="button" onClick={() => onMove(row.id, "up")} disabled={saving || row.fallbackOrder === 0}>

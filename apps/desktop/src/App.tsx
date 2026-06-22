@@ -17,6 +17,7 @@ import {
   deleteSession,
   forgetSession,
   resumeSession,
+  saveActiveHarnesses,
   setActiveWorkspaceSession,
 } from "./api";
 import { disposeTerminal, getTerminal } from "./terminalStore";
@@ -32,6 +33,7 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [resumeTick, setResumeTick] = useState(0);
   const [harnesses, setHarnesses] = useState<HarnessConfig[]>([]);
+  const [activeHarnessIds, setActiveHarnessIds] = useState<string[]>([]);
   const [newSessionDialogOpen, setNewSessionDialogOpen] = useState(false);
   const dockviewApiRef = useRef<DockviewApi | null>(null);
   const sessionsHiddenLayoutRef = useRef<string | null>(null);
@@ -100,11 +102,26 @@ function App() {
     loadHarnesses();
   }, [backendStatus]);
 
+  const filteredHarnesses = activeHarnessIds.length === 0
+    ? harnesses.filter((h) => h.id === "generic-shell")
+    : harnesses.filter((h) => h.id === "generic-shell" || activeHarnessIds.includes(h.id));
+
+  const handleSaveActiveHarnesses = useCallback(async (ids: string[]) => {
+    try {
+      const baseUrl = await window.orkworks.getBackendUrl();
+      await saveActiveHarnesses(baseUrl, ids);
+      setActiveHarnessIds(ids);
+    } catch {
+      pushToast("error", "Couldn't save active harnesses.");
+    }
+  }, []);
+
   const handleOpenWorkspace = useCallback(async () => {
     try {
       const info = await window.orkworks.openWorkspace();
       if (info) {
         setWorkspaceState(info);
+        setActiveHarnessIds(info.activeHarnessIds ?? []);
         setBackendStatus("connecting…");
         setSessions([]);
         setActiveSessionId(info.lastActiveSessionId ?? null);
@@ -219,6 +236,7 @@ function App() {
       const info = await window.orkworks.getInitialWorkspace();
       if (!cancelled && info) {
         setWorkspaceState(info);
+        setActiveHarnessIds(info.activeHarnessIds ?? []);
         await refreshSessions();
         if (info.lastActiveSessionId) {
           setActiveSessionId(info.lastActiveSessionId);
@@ -388,7 +406,10 @@ function App() {
       />
       {newSessionDialogOpen && (
         <NewSessionDialog
-          harnesses={harnesses}
+          harnesses={filteredHarnesses}
+          allHarnesses={harnesses}
+          activeHarnessIds={activeHarnessIds}
+          onSaveActiveHarnesses={handleSaveActiveHarnesses}
           onConfirm={handleConfirmNewSession}
           onCancel={() => setNewSessionDialogOpen(false)}
         />
