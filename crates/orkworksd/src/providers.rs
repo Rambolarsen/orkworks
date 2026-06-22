@@ -272,6 +272,7 @@ impl ProviderRunner for ProcessRunner {
 
 // --- ProviderManager ---
 
+#[derive(Clone)]
 pub struct ProviderManager {
     registry: Vec<ProviderDefinition>,
     settings: Arc<RwLock<ProviderSettingsPayload>>,
