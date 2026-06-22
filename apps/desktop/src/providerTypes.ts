@@ -1,4 +1,4 @@
-export type ProviderId = "opencode" | "claude-code";
+export type ProviderId = "opencode" | "claude-code" | "codex" | "gemini" | "aider" | "gh-copilot";
 export type ProviderCapacityState = "healthy" | "degraded" | "capped" | "unknown";
 export type ProviderEffectiveState = ProviderCapacityState | "disabled";
 
@@ -6,7 +6,6 @@ export interface ProviderSettingsEntry {
   id: ProviderId;
   enabled: boolean;
   fallbackOrder: number;
-  peonModel: string | null;
   defaultState: ProviderCapacityState;
   overrideState: ProviderCapacityState | null;
 }
@@ -14,6 +13,7 @@ export interface ProviderSettingsEntry {
 export interface ProviderSettings {
   version: 1;
   revision: number;
+  peonModel: string | null;
   providers: ProviderSettingsEntry[];
 }
 
@@ -25,4 +25,8 @@ export interface ProviderApplyStatus {
 
 export interface ProviderModelsResponse {
   models: string[];
+}
+
+export interface ProviderLabelsResponse {
+  labels: Record<string, string>;
 }

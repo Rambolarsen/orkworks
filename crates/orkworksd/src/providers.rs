@@ -52,8 +52,6 @@ pub struct ProviderSettingsEntry {
     pub enabled: bool,
     #[serde(rename = "fallbackOrder")]
     pub fallback_order: usize,
-    #[serde(rename = "peonModel")]
-    pub peon_model: Option<String>,
     #[serde(rename = "defaultState")]
     pub default_state: ProviderCapacityState,
     #[serde(rename = "overrideState")]
@@ -79,12 +77,14 @@ impl ProviderSettingsEntry {
 pub struct ProviderSettingsPayload {
     pub version: u8,
     pub revision: u64,
+    #[serde(rename = "peonModel", default)]
+    pub peon_model: Option<String>,
     pub providers: Vec<ProviderSettingsEntry>,
 }
 
 impl Default for ProviderSettingsPayload {
     fn default() -> Self {
-        Self { version: 1, revision: 0, providers: vec![] }
+        Self { version: 1, revision: 0, peon_model: None, providers: vec![] }
     }
 }
 
@@ -111,6 +111,7 @@ pub struct ProviderDefinition {
     pub timeout_secs: u64,
     pub list_models_command: Option<&'static str>,
     pub list_models_args: &'static [&'static str],
+    pub static_models: &'static [&'static str],
 }
 
 pub fn builtin_provider_registry() -> Vec<ProviderDefinition> {
@@ -125,6 +126,7 @@ pub fn builtin_provider_registry() -> Vec<ProviderDefinition> {
             timeout_secs: 30,
             list_models_command: Some("opencode"),
             list_models_args: &["models"],
+            static_models: &[],
         },
         ProviderDefinition {
             id: "claude-code",
@@ -136,6 +138,81 @@ pub fn builtin_provider_registry() -> Vec<ProviderDefinition> {
             timeout_secs: 30,
             list_models_command: None,
             list_models_args: &[],
+            static_models: &[
+                "claude-sonnet-4-20250514",
+                "claude-opus-4-20250514",
+                "claude-opus-4-1-20250805",
+                "claude-sonnet-4-5-20250929",
+                "claude-haiku-3-5-20241022",
+            ],
+        },
+        ProviderDefinition {
+            id: "codex",
+            label: "Codex",
+            command: "codex",
+            default_args: &["exec"],
+            model_arg_template: Some("--model={model}"),
+            supports_model: true,
+            timeout_secs: 30,
+            list_models_command: None,
+            list_models_args: &[],
+            static_models: &[
+                "gpt-5-codex",
+                "gpt-5",
+                "gpt-5-mini",
+                "gpt-5-nano",
+            ],
+        },
+        ProviderDefinition {
+            id: "gemini",
+            label: "Gemini CLI",
+            command: "gemini",
+            default_args: &[],
+            model_arg_template: Some("--model={model}"),
+            supports_model: true,
+            timeout_secs: 30,
+            list_models_command: None,
+            list_models_args: &[],
+            static_models: &[
+                "gemini-2.5-pro",
+                "gemini-2.5-flash",
+                "gemini-2.0-flash",
+            ],
+        },
+        ProviderDefinition {
+            id: "aider",
+            label: "Aider",
+            command: "aider",
+            default_args: &[],
+            model_arg_template: Some("--model={model}"),
+            supports_model: true,
+            timeout_secs: 60,
+            list_models_command: None,
+            list_models_args: &[],
+            static_models: &[
+                "claude-sonnet-4-20250514",
+                "claude-opus-4-20250514",
+                "gpt-4o",
+                "gpt-5",
+                "gemini-2.5-pro",
+            ],
+        },
+        ProviderDefinition {
+            id: "gh-copilot",
+            label: "Copilot",
+            command: "gh",
+            default_args: &["copilot", "suggest"],
+            model_arg_template: Some("--model={model}"),
+            supports_model: true,
+            timeout_secs: 30,
+            list_models_command: None,
+            list_models_args: &[],
+            static_models: &[
+                "gpt-4o",
+                "gpt-5",
+                "claude-sonnet-4-20250514",
+                "gemini-2.5-pro",
+            ],
         },
     ]
 }
@@ -189,8 +266,6 @@ pub struct ProviderEntry {
     pub fallback_order: usize,
     #[serde(rename = "effectiveState")]
     pub effective_state: String,
-    #[serde(rename = "peonModel")]
-    pub peon_model: Option<String>,
     pub runtime: ProviderRuntimeEntry,
 }
 
@@ -334,7 +409,6 @@ impl ProviderManager {
                 enabled: entry.enabled,
                 fallback_order: entry.fallback_order,
                 effective_state: effective_str.to_string(),
-                peon_model: entry.peon_model.clone(),
                 runtime: runtime.get(&entry.id).cloned().unwrap_or_default(),
             }
         }).collect();
@@ -347,10 +421,12 @@ impl ProviderManager {
             .find(|d| d.id == provider_id)
             .ok_or_else(|| format!("unknown provider: {provider_id}"))?;
 
-        let (command, args) = match (definition.list_models_command, definition.list_models_args) {
-            (Some(cmd), args) if !args.is_empty() => (cmd, args),
-            _ => return Ok(Vec::new()),
-        };
+        if definition.list_models_command.is_none() || definition.list_models_args.is_empty() {
+            return Ok(definition.static_models.iter().map(|s| s.to_string()).collect());
+        }
+
+        let command = definition.list_models_command.unwrap();
+        let args = definition.list_models_args;
 
         let mut child = std::process::Command::new(command)
             .args(args)
@@ -469,7 +545,7 @@ impl ProviderManager {
 
             let mut args: Vec<String> = definition.default_args.iter().map(|s| s.to_string()).collect();
             if definition.supports_model {
-                if let Some(model) = &entry.peon_model {
+                if let Some(model) = &settings.peon_model {
                     if let Some(template) = definition.model_arg_template {
                         args.push(template.replace("{model}", model));
                     }
@@ -499,7 +575,7 @@ impl ProviderManager {
                     let observation = ProviderObservation {
                         provider_id: entry.id.clone(),
                         provider_label: definition.label.to_string(),
-                        provider_model: entry.peon_model.clone(),
+                        provider_model: settings.peon_model.clone(),
                         provider_state: state_str.to_string(),
                     };
                     return ProviderRunResult {
@@ -715,7 +791,6 @@ mod tests {
         id: &'static str,
         enabled: bool,
         fallback_order: usize,
-        peon_model: Option<String>,
         default_state: ProviderCapacityState,
         override_state: Option<ProviderCapacityState>,
     }
@@ -731,7 +806,6 @@ mod tests {
                 id,
                 enabled: true,
                 fallback_order,
-                peon_model: None,
                 default_state: ProviderCapacityState::Healthy,
                 override_state: None,
             }
@@ -746,7 +820,6 @@ mod tests {
                 id: self.id.to_string(),
                 enabled: self.enabled,
                 fallback_order: self.fallback_order,
-                peon_model: self.peon_model,
                 default_state: self.default_state,
                 override_state: self.override_state,
             }
@@ -761,6 +834,7 @@ mod tests {
         ProviderSettingsPayload {
             version: 1,
             revision: 1,
+            peon_model: None,
             providers: builders.into_iter().map(|b| b.build()).collect(),
         }
     }
@@ -852,6 +926,7 @@ mod tests {
                 timeout_secs: 30,
                 list_models_command: None,
                 list_models_args: &[],
+                static_models: &[],
             }],
             sample_settings(vec![]),
             vec![],
@@ -859,6 +934,29 @@ mod tests {
 
         let result = manager.list_models("test-provider").unwrap();
         assert!(result.is_empty());
+    }
+
+    #[test]
+    fn list_models_returns_static_models_when_no_command() {
+        let manager = ProviderManager::for_tests_with_registry(
+            vec![ProviderDefinition {
+                id: "claude-code",
+                label: "Claude Code",
+                command: "claude",
+                default_args: &[],
+                model_arg_template: None,
+                supports_model: false,
+                timeout_secs: 30,
+                list_models_command: None,
+                list_models_args: &[],
+                static_models: &["sonnet", "opus", "haiku"],
+            }],
+            sample_settings(vec![]),
+            vec![],
+        );
+
+        let result = manager.list_models("claude-code").unwrap();
+        assert_eq!(result, vec!["sonnet", "opus", "haiku"]);
     }
 
     #[test]

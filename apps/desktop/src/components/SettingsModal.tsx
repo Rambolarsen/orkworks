@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { acceleratorFromKeyboardEvent } from "../hotkeyCapture";
 import type { AppSettings, HotkeySettings, RetentionSettings, SaveHotkeysResult } from "../appSettingsTypes";
-import type { ProviderSettings, ProviderSettingsEntry, ProviderModelsResponse } from "../providerTypes";
+import type { ProviderSettings, ProviderModelsResponse, ProviderLabelsResponse } from "../providerTypes";
 
 type HotkeyAction = keyof HotkeySettings;
 
@@ -35,6 +35,7 @@ export default function SettingsModal({ initialSettings, onClose, onSaved }: Set
   const [retentionSaveStatus, setRetentionSaveStatus] = useState<string | null>(null);
   const [providerDraft, setProviderDraft] = useState<ProviderSettings>(initialSettings.providers);
   const [providerModels, setProviderModels] = useState<Record<string, string[]>>({});
+  const [providerLabels, setProviderLabels] = useState<Record<string, string>>({});
   const [providerSaveStatus, setProviderSaveStatus] = useState<string | null>(null);
 
   useLayoutEffect(() => {
@@ -119,6 +120,18 @@ export default function SettingsModal({ initialSettings, onClose, onSaved }: Set
     load();
   }, []);
 
+  useEffect(() => {
+    async function load() {
+      try {
+        const resp: ProviderLabelsResponse = await window.orkworks.getProviderLabels();
+        setProviderLabels(resp.labels);
+      } catch {
+        // Use raw IDs as fallback
+      }
+    }
+    load();
+  }, []);
+
   async function saveRetention(rt: RetentionSettings) {
     setRetentionSaveStatus(null);
     try {
@@ -148,17 +161,16 @@ export default function SettingsModal({ initialSettings, onClose, onSaved }: Set
     }
   }
 
-  async function saveProviderDraft(entry: ProviderSettingsEntry) {
+  async function savePeonModel(model: string | null) {
     setProviderSaveStatus(null);
-    const next = {
-      ...providerDraft,
-      providers: providerDraft.providers.map((p) =>
-        p.id === entry.id ? entry : p,
-      ),
-    };
+    const next = { ...providerDraft, peonModel: model };
     setProviderDraft(next);
+    await persistProviderSettings(next);
+  }
+
+  async function persistProviderSettings(settings: ProviderSettings) {
     try {
-      const result = await window.orkworks.saveProviderSettings(next);
+      const result = await window.orkworks.saveProviderSettings(settings);
       setProviderDraft(result.settings.providers);
       onSaved(result.settings);
       setProviderSaveStatus("Saved");
@@ -183,28 +195,35 @@ export default function SettingsModal({ initialSettings, onClose, onSaved }: Set
         <div className="settings-section">
           <h3>Providers</h3>
           <p className="settings-section-copy">
-            Choose which model peon uses for each provider. Changes apply immediately.
+            Choose which model peon uses for all providers. Changes apply immediately.
           </p>
 
           <div className="provider-list">
+            <div className="provider-card">
+              <div className="provider-label">Peon Model</div>
+              <input
+                className="provider-model-select"
+                type="text"
+                list="peon-model-suggestions"
+                placeholder="(none — let provider decide)"
+                value={providerDraft.peonModel ?? ""}
+                onChange={(e) => {
+                  const val = e.target.value.trim();
+                  savePeonModel(val || null);
+                }}
+              />
+              <datalist id="peon-model-suggestions">
+                {[...new Set(Object.values(providerModels).flat())].sort().map((m) => (
+                  <option key={m} value={m} />
+                ))}
+              </datalist>
+            </div>
+
             {[...providerDraft.providers]
               .sort((a, b) => a.fallbackOrder - b.fallbackOrder)
               .map((entry) => (
                 <div className="provider-card" key={entry.id}>
-                  <div className="provider-label">{entry.id === "opencode" ? "OpenCode" : entry.id === "claude-code" ? "Claude Code" : entry.id}</div>
-                  <select
-                    className="provider-model-select"
-                    value={entry.peonModel ?? ""}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      saveProviderDraft({ ...entry, peonModel: val || null });
-                    }}
-                  >
-                    <option value="">default</option>
-                    {(providerModels[entry.id] ?? []).map((m) => (
-                      <option key={m} value={m}>{m}</option>
-                    ))}
-                  </select>
+                  <div className="provider-label">{providerLabels[entry.id] ?? entry.id}</div>
                 </div>
               ))}
           </div>

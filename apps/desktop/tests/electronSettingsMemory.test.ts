@@ -333,23 +333,14 @@ test("settings memory seeds default provider settings", () => {
     assert.deepEqual(settings.providers, {
       version: 1,
       revision: 0,
+      peonModel: null,
       providers: [
-        {
-          id: "opencode",
-          enabled: true,
-          fallbackOrder: 0,
-          peonModel: null,
-          defaultState: "healthy",
-          overrideState: null,
-        },
-        {
-          id: "claude-code",
-          enabled: true,
-          fallbackOrder: 1,
-          peonModel: null,
-          defaultState: "unknown",
-          overrideState: null,
-        },
+        { id: "opencode", enabled: true, fallbackOrder: 0, defaultState: "healthy", overrideState: null },
+        { id: "claude-code", enabled: true, fallbackOrder: 1, defaultState: "unknown", overrideState: null },
+        { id: "codex", enabled: true, fallbackOrder: 2, defaultState: "unknown", overrideState: null },
+        { id: "gemini", enabled: true, fallbackOrder: 3, defaultState: "unknown", overrideState: null },
+        { id: "aider", enabled: true, fallbackOrder: 4, defaultState: "unknown", overrideState: null },
+        { id: "gh-copilot", enabled: true, fallbackOrder: 5, defaultState: "unknown", overrideState: null },
       ],
     } satisfies ProviderSettings);
   } finally {
@@ -368,8 +359,8 @@ test("settings memory normalizes malformed provider payloads", () => {
           version: 99,
           revision: 4.7,
           providers: [
-            { id: "claude-code", enabled: "yes", fallbackOrder: -10, peonModel: 42, defaultState: "bad", overrideState: "capped" },
-            { id: "unknown-provider", enabled: true, fallbackOrder: 0, peonModel: null, defaultState: "healthy", overrideState: null },
+            { id: "claude-code", enabled: "yes", fallbackOrder: -10, defaultState: "bad", overrideState: "capped" },
+            { id: "unknown-provider", enabled: true, fallbackOrder: 0, defaultState: "healthy", overrideState: null },
           ],
         },
       }),
@@ -378,10 +369,9 @@ test("settings memory normalizes malformed provider payloads", () => {
     const settings = readSettings(dir);
     assert.equal(settings.providers.version, 1);
     assert.equal(settings.providers.revision, 4);
-    assert.deepEqual(settings.providers.providers.map((entry) => entry.id), ["claude-code", "opencode"]);
+    assert.deepEqual(settings.providers.providers.map((entry) => entry.id), ["claude-code", "opencode", "codex", "gemini", "aider", "gh-copilot"]);
     assert.equal(settings.providers.providers[0].enabled, true);
     assert.equal(settings.providers.providers[0].fallbackOrder, 0);
-    assert.equal(settings.providers.providers[0].peonModel, null);
     assert.equal(settings.providers.providers[0].defaultState, "unknown");
     assert.equal(settings.providers.providers[0].overrideState, "capped");
   } finally {
@@ -397,9 +387,10 @@ test("settings memory preserves provider revisions and canonical fallback order 
       providers: {
         version: 1,
         revision: 7,
+        peonModel: "sonnet",
         providers: [
-          { id: "claude-code", enabled: true, fallbackOrder: 9, peonModel: "sonnet", defaultState: "healthy", overrideState: null },
-          { id: "opencode", enabled: false, fallbackOrder: 2, peonModel: null, defaultState: "capped", overrideState: null },
+          { id: "claude-code", enabled: true, fallbackOrder: 9, defaultState: "healthy", overrideState: null },
+          { id: "opencode", enabled: false, fallbackOrder: 2, defaultState: "capped", overrideState: null },
         ],
       },
     });
@@ -408,7 +399,7 @@ test("settings memory preserves provider revisions and canonical fallback order 
     assert.equal(persisted.providers.revision, 7);
     assert.deepEqual(
       persisted.providers.providers.map((entry: { id: string; fallbackOrder: number }) => [entry.id, entry.fallbackOrder]),
-      [["opencode", 0], ["claude-code", 1]],
+      [["codex", 0], ["opencode", 1], ["gemini", 2], ["aider", 3], ["gh-copilot", 4], ["claude-code", 5]],
     );
   } finally {
     rmSync(dir, { recursive: true, force: true });

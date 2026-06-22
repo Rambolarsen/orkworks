@@ -8,9 +8,10 @@ function sampleProviderSettings(revision: number): ProviderSettings {
   return {
     version: 1,
     revision,
+    peonModel: null,
     providers: [
-      { id: "opencode", enabled: true, fallbackOrder: 0, peonModel: null, defaultState: "healthy", overrideState: null },
-      { id: "claude-code", enabled: true, fallbackOrder: 1, peonModel: null, defaultState: "unknown", overrideState: null },
+      { id: "opencode", enabled: true, fallbackOrder: 0, defaultState: "healthy", overrideState: null },
+      { id: "claude-code", enabled: true, fallbackOrder: 1, defaultState: "unknown", overrideState: null },
     ],
   };
 }

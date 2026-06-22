@@ -52,6 +52,7 @@ test("WorkspaceInfo type has expected shape", () => {
     branch: "main",
     dirty: false,
     lastActiveSessionId: "session-1",
+    activeHarnessIds: [],
   };
   assert.equal(ws.path, "/tmp/project");
   assert.equal(ws.branch, "main");

@@ -23,6 +23,7 @@ let workspacePath: string | null = null;
 let menuPanelItems: Record<string, Electron.MenuItem> = {};
 let currentSettings: AppSettings | null = null;
 let providerModels: Map<string, string[]> = new Map();
+let providerLabels: Record<string, string> = {};
 let hotkeyCaptureActive = false;
 const menuPanelIds = ["sessions", "detail", "terminal", "capacity", "recommendations"];
 
@@ -35,7 +36,7 @@ function rendererSettings(settings: AppSettings): AppSettings & { defaultHotkeys
 
 async function refreshProviderModels(): Promise<void> {
   const port = await portPromise;
-  const registry = ["opencode", "claude-code"];
+  const registry = ["opencode", "claude-code", "codex", "gemini", "aider", "gh-copilot"];
   const next = new Map<string, string[]>();
   for (const id of registry) {
     try {
@@ -51,6 +52,23 @@ async function refreshProviderModels(): Promise<void> {
     }
   }
   providerModels = next;
+}
+
+async function refreshProviderLabels(): Promise<void> {
+  const port = await portPromise;
+  try {
+    const resp = await fetch(`http://127.0.0.1:${port}/providers`);
+    if (resp.ok) {
+      const data = await resp.json() as { providers: Array<{ id: string; label: string }> };
+      const labels: Record<string, string> = {};
+      for (const entry of data.providers) {
+        labels[entry.id] = entry.label;
+      }
+      providerLabels = labels;
+    }
+  } catch {
+    // Leave stale labels on failure
+  }
 }
 
 function createMenu(settings: AppSettings): Electron.Menu {
@@ -256,6 +274,10 @@ app.whenReady().then(() => {
     return { models: providerModels.get(providerId) ?? [] };
   });
 
+  ipcMain.handle("get-provider-labels", async () => {
+    return { labels: { ...providerLabels } };
+  });
+
   ipcMain.handle("open-workspace", async () => {
     const result = await dialog.showOpenDialog({
       properties: ["openDirectory"],
@@ -362,6 +384,7 @@ app.whenReady().then(() => {
     }
     await syncSavedProviderSettings();
     await refreshProviderModels();
+    await refreshProviderLabels();
   });
 
   async function syncSavedProviderSettings(): Promise<void> {

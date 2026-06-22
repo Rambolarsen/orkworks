@@ -101,6 +101,7 @@ export interface WorkspaceInfo {
   branch: string | null;
   dirty: boolean | null;
   lastActiveSessionId?: string | null;
+  activeHarnessIds: string[];
 }
 
 export async function setWorkspace(
@@ -155,7 +156,6 @@ export interface ProviderRuntimeEntry {
   enabled: boolean;
   fallbackOrder: number;
   effectiveState: ProviderEffectiveState;
-  peonModel: string | null;
   runtime: {
     fallbackStep: number | null;
     lastErrorSummary: string | null;
@@ -172,4 +172,13 @@ export async function getProviders(baseUrl: string): Promise<ProviderRuntimeResp
   const resp = await fetch(`${baseUrl}/providers`);
   if (!resp.ok) throw new Error(`get providers failed: ${resp.status}`);
   return resp.json();
+}
+
+export async function saveActiveHarnesses(baseUrl: string, activeHarnessIds: string[]): Promise<void> {
+  const resp = await fetch(`${baseUrl}/workspace/active-harnesses`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ activeHarnessIds }),
+  });
+  if (!resp.ok) throw new Error(`save active harnesses failed: ${resp.status}`);
 }
