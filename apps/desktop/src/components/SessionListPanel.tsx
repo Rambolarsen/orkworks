@@ -211,6 +211,11 @@ function SessionListPanel({
                     </div>
                     <div className="session-row-secondary">
                       {attentionLabel(attn)} · {folder}{dirtyText}
+                      {s.harness && (
+                        <span className="session-row-harness">
+                          {" · "}{s.harness}{s.model ? ` (${s.model})` : ""}
+                        </span>
+                      )}
                     </div>
                     {action && (
                       <div className="session-row-action">{action}</div>

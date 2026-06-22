@@ -213,6 +213,13 @@ pub fn validate_inference(inf: &PeonInference) -> Result<(), String> {
     Ok(())
 }
 
+pub fn parse_inference(stdout: &str) -> Option<PeonInference> {
+    let json_str = extract_json(stdout)?;
+    let inference: PeonInference = serde_json::from_str(&json_str).ok()?;
+    validate_inference(&inference).ok()?;
+    Some(inference)
+}
+
 /// Returns true if Peon is allowed to overwrite the given metadata source.
 /// `last_modified_secs_ago`: seconds since the metadata file was last modified.
 /// None means the file doesn't exist or has no timestamp.
@@ -228,7 +235,7 @@ pub fn should_overwrite(source: &str, last_modified_secs_ago: Option<u64>) -> bo
     }
 }
 
-fn build_prompt(output: &[String]) -> String {
+pub fn build_prompt(output: &[String]) -> String {
     let output_text: String = output.iter()
         .map(|l| l.as_str())
         .collect::<Vec<_>>()

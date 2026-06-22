@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DockviewApi } from "dockview-react";
 import DockviewApp from "./components/DockviewApp";
+import NewSessionDialog from "./components/NewSessionDialog";
 import SettingsModal from "./components/SettingsModal";
 import ToastRack from "./components/ToastRack";
 import { sortSessions } from "./sessionSort";
@@ -10,15 +11,20 @@ import { pushToast } from "./feedback";
 import {
   type SessionInfo,
   type WorkspaceInfo,
+  type ProviderRuntimeResponse,
   createSession,
+  getProviders,
+  listHarnesses,
   listSessions,
   deleteSession,
   forgetSession,
   resumeSession,
   setActiveWorkspaceSession,
 } from "./api";
+import type { ProviderSettings } from "./providerTypes";
 import { disposeTerminal, getTerminal } from "./terminalStore";
 import type { AppSettings } from "./appSettingsTypes";
+import type { HarnessConfig, CreateSessionOptions } from "./harnessTypes";
 
 function App() {
   const [backendStatus, setBackendStatus] = useState<string>("connecting…");
@@ -26,8 +32,11 @@ function App() {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [workspace, setWorkspaceState] = useState<WorkspaceInfo | null>(null);
   const [settings, setSettings] = useState<AppSettings | null>(null);
+  const [providerRuntime, setProviderRuntime] = useState<ProviderRuntimeResponse | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [resumeTick, setResumeTick] = useState(0);
+  const [harnesses, setHarnesses] = useState<HarnessConfig[]>([]);
+  const [newSessionDialogOpen, setNewSessionDialogOpen] = useState(false);
   const dockviewApiRef = useRef<DockviewApi | null>(null);
   const sessionsHiddenLayoutRef = useRef<string | null>(null);
 
@@ -42,7 +51,10 @@ function App() {
           try {
             const resp = await fetch(`${baseUrl}/health`);
             if (resp.ok) {
-              if (!cancelled) setBackendStatus("connected");
+              if (!cancelled) {
+                setBackendStatus("connected");
+                refreshProviders();
+              }
               return;
             }
           } catch {
@@ -79,6 +91,20 @@ function App() {
     return () => clearInterval(interval);
   }, [backendStatus, refreshSessions]);
 
+  useEffect(() => {
+    if (backendStatus !== "connected") return;
+    async function loadHarnesses() {
+      try {
+        const baseUrl = await window.orkworks.getBackendUrl();
+        const list = await listHarnesses(baseUrl);
+        setHarnesses(list);
+      } catch {
+        // Non-fatal: dialog will show empty list, user can still create bare sessions
+      }
+    }
+    loadHarnesses();
+  }, [backendStatus]);
+
   const handleOpenWorkspace = useCallback(async () => {
     try {
       const info = await window.orkworks.openWorkspace();
@@ -93,6 +119,31 @@ function App() {
     }
   }, []);
 
+  useEffect(() => {
+    window.orkworks.getSettings().then(setSettings).catch(() => {
+      pushToast("error", "Couldn't load app settings.");
+    });
+  }, []);
+
+  const refreshProviders = useCallback(async () => {
+    try {
+      const baseUrl = await window.orkworks.getBackendUrl();
+      setProviderRuntime(await getProviders(baseUrl));
+    } catch {
+      // Silent polling failure; stale badge handles visibility.
+    }
+  }, []);
+
+  const saveProviderSettings = useCallback(async (providers: ProviderSettings) => {
+    try {
+      const result = await window.orkworks.saveProviderSettings(providers);
+      setSettings(result.settings);
+      await refreshProviders();
+    } catch {
+      pushToast("error", "Couldn't save provider settings.");
+    }
+  }, [refreshProviders]);
+
   const openSettings = useCallback(async () => {
     try {
       const loaded = await window.orkworks.getSettings();
@@ -103,10 +154,28 @@ function App() {
     }
   }, []);
 
-  const handleCreateSession = useCallback(async () => {
+  const openProvidersPanel = useCallback(() => {
+    setSettingsOpen(false);
+    const api = dockviewApiRef.current;
+    if (!api) return;
+    const def = PANEL_DEFAULTS["capacity"];
+    const existing = api.getPanel(def.component);
+    if (!existing) {
+      api.addPanel({ id: def.component, component: def.component, title: def.title });
+    } else {
+      existing.focus();
+    }
+  }, []);
+
+  const handleCreateSession = useCallback(() => {
+    setNewSessionDialogOpen(true);
+  }, []);
+
+  const handleConfirmNewSession = useCallback(async (opts: CreateSessionOptions) => {
+    setNewSessionDialogOpen(false);
     try {
       const baseUrl = await window.orkworks.getBackendUrl();
-      const session = await createSession(baseUrl);
+      const session = await createSession(baseUrl, opts);
       setSessions((prev) => [...prev, session]);
       setActiveSessionId(session.id);
 
@@ -353,12 +422,23 @@ function App() {
         onFocusTerminal={handleFocusTerminal}
         onOpenWorkspace={handleOpenWorkspace}
         dockviewApiRef={dockviewApiRef}
+        providerSettings={settings?.providers ?? null}
+        providerRuntime={providerRuntime}
+        onSaveProviderSettings={saveProviderSettings}
       />
+      {newSessionDialogOpen && (
+        <NewSessionDialog
+          harnesses={harnesses}
+          onConfirm={handleConfirmNewSession}
+          onCancel={() => setNewSessionDialogOpen(false)}
+        />
+      )}
       {settingsOpen && settings && (
         <SettingsModal
           initialSettings={settings}
           onClose={() => setSettingsOpen(false)}
           onSaved={(nextSettings) => setSettings(nextSettings)}
+          onOpenProviders={openProvidersPanel}
         />
       )}
     </div>

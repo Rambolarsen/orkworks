@@ -2,7 +2,7 @@ use axum::{
     extract::ws::{Message, WebSocket, WebSocketUpgrade},
     extract::{Path, State},
     response::IntoResponse,
-    routing::{delete, get, post},
+    routing::{delete, get, post, put},
     Json, Router,
 };
 use portable_pty::{CommandBuilder, PtySize, PtySystem};
@@ -25,6 +25,7 @@ mod watcher;
 mod git;
 mod harness;
 mod peon;
+mod providers;
 
 #[derive(Clone, Debug, Serialize)]
 struct SessionInfo {
@@ -97,6 +98,7 @@ struct SessionHandle {
     kill_tx: tokio::sync::watch::Sender<bool>,
     output_buffer: peon::RingBuffer,
     command: harness::CommandSpec,
+    initial_prompt: Option<String>,
 }
 
 struct WorkspaceState {
@@ -121,12 +123,42 @@ struct RetentionConfig {
     max_age_days: u32,
 }
 
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+struct HarnessVoiceCapabilities {
+    #[serde(rename = "nativeVoice", default)]
+    native_voice: bool,
+    #[serde(rename = "requiresMicrophonePermission", default)]
+    requires_microphone_permission: bool,
+    #[serde(rename = "orkworksDictation", default)]
+    orkworks_dictation: bool,
+    #[serde(rename = "orkworksVoiceCommands", default)]
+    orkworks_voice_commands: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct HarnessConfig {
+    id: String,
+    name: String,
+    harness: String,
+    command: String,
+    #[serde(default)]
+    args: Vec<String>,
+    #[serde(rename = "defaultModel", default)]
+    default_model: String,
+    #[serde(default)]
+    capabilities: HarnessVoiceCapabilities,
+    #[serde(rename = "isBuiltin", default)]
+    is_builtin: bool,
+}
+
 struct AppState {
     sessions: Mutex<HashMap<String, SessionHandle>>,
     workspace: Mutex<Option<WorkspaceState>>,
     peon: PeonState,
+    providers: providers::ProviderManager,
     adapters: HashMap<String, harness::HarnessAdapter>,
     retention_config: tokio::sync::RwLock<RetentionConfig>,
+    harnesses: tokio::sync::RwLock<Vec<HarnessConfig>>,
 }
 
 #[tokio::main]
@@ -148,8 +180,10 @@ async fn main() {
             in_flight: StdRwLock::new(HashSet::new()),
             config: peon::PeonConfig::from_env(),
         },
+        providers: providers::ProviderManager::new(),
         adapters: builtin_adapters(),
         retention_config: tokio::sync::RwLock::new(RetentionConfig::default()),
+        harnesses: tokio::sync::RwLock::new(load_harnesses()),
     });
 
     // Start Peon background task
@@ -175,6 +209,8 @@ async fn main() {
 
     let app = Router::new()
         .route("/health", get(health_check))
+        .route("/providers", get(get_providers))
+        .route("/settings/providers", post(set_provider_settings))
         .route("/workspace", post(set_workspace))
         .route("/workspace/active-session", post(set_active_session))
         .route("/sessions", post(create_session))
@@ -183,6 +219,8 @@ async fn main() {
         .route("/sessions/:id/forget", delete(forget_session))
         .route("/sessions/:id/resume", post(resume_session))
         .route("/settings/retention", post(set_retention))
+        .route("/harnesses", get(list_harnesses).post(create_harness))
+        .route("/harnesses/:id", put(update_harness).delete(delete_harness))
         .route("/sessions/:id/terminal", get(session_terminal_handler))
         .route("/sessions/:id/terminal-output", get(get_terminal_output))
         .layer(cors)
@@ -287,6 +325,7 @@ async fn resume_session(
     Path(id): Path<String>,
 ) -> impl IntoResponse {
     let now = iso_now();
+    let harnesses = state.harnesses.read().await.clone();
     let (meta, command, strategy) = {
         let ws_guard = state.workspace.lock().unwrap();
         let Some(ref ws) = *ws_guard else {
@@ -298,13 +337,14 @@ async fn resume_session(
         let Some(resume) = meta.resume.as_ref() else {
             return axum::http::StatusCode::BAD_REQUEST.into_response();
         };
-        let harness_id = (!meta.harness.is_empty()).then(|| meta.harness.as_str());
-        let capabilities = capabilities_for_harness(&state.adapters, harness_id);
+        let session_harness_id = (!meta.harness.is_empty()).then(|| meta.harness.as_str());
+        let adapter_harness_id = resolve_adapter_harness_id(&harnesses, session_harness_id);
+        let capabilities = capabilities_for_harness(&state.adapters, adapter_harness_id.as_deref());
         let strategy = harness::select_resume_strategy(resume, &capabilities);
         if strategy == harness::ResumeStrategy::None {
             return axum::http::StatusCode::BAD_REQUEST.into_response();
         }
-        let adapter = adapter_for_harness(&state.adapters, harness_id);
+        let adapter = adapter_for_harness(&state.adapters, adapter_harness_id.as_deref());
         let request = harness::ResumeRequest {
             strategy: strategy.clone(),
             cwd: meta.cwd.clone(),
@@ -368,6 +408,7 @@ async fn resume_session(
                     kill_tx,
                     output_buffer: peon::RingBuffer::new(state.peon.config.max_lines),
                     command,
+                    initial_prompt: None,
                 },
             );
         }
@@ -395,11 +436,84 @@ async fn resume_session(
     Json(info).into_response()
 }
 
-async fn create_session(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+#[derive(Deserialize, Default)]
+struct CreateSessionRequest {
+    #[serde(rename = "harnessId", default)]
+    harness_id: Option<String>,
+    #[serde(default)]
+    model: Option<String>,
+    #[serde(rename = "initialPrompt", default)]
+    initial_prompt: Option<String>,
+}
+
+struct ResolvedSessionLaunch {
+    session_harness_id: Option<String>,
+    adapter_harness_id: Option<String>,
+    model: Option<String>,
+    command: harness::CommandSpec,
+}
+
+fn resolve_session_launch(
+    harnesses: &[HarnessConfig],
+    req: &CreateSessionRequest,
+    cwd: String,
+) -> ResolvedSessionLaunch {
+    if let Some(ref harness_id) = req.harness_id {
+        if let Some(config) = harnesses.iter().find(|h| h.id == *harness_id) {
+            let model = req.model.clone().or_else(|| {
+                (!config.default_model.is_empty()).then(|| config.default_model.clone())
+            });
+            let args: Vec<String> = config.args.iter().map(|arg| {
+                arg.replace("{model}", model.as_deref().unwrap_or(""))
+            }).collect();
+            return ResolvedSessionLaunch {
+                session_harness_id: Some(config.id.clone()),
+                adapter_harness_id: Some(config.harness.clone()),
+                model,
+                command: harness::CommandSpec {
+                    program: config.command.clone(),
+                    args,
+                    cwd,
+                },
+            };
+        }
+    }
+
+    ResolvedSessionLaunch {
+        session_harness_id: None,
+        adapter_harness_id: None,
+        model: req.model.clone(),
+        command: default_shell_command(cwd),
+    }
+}
+
+fn resolve_adapter_harness_id(
+    harnesses: &[HarnessConfig],
+    session_harness_id: Option<&str>,
+) -> Option<String> {
+    match session_harness_id {
+        Some(id) if !id.is_empty() => harnesses
+            .iter()
+            .find(|h| h.id == id)
+            .map(|h| h.harness.clone())
+            .or_else(|| Some(id.to_string())),
+        _ => None,
+    }
+}
+
+async fn create_session(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<CreateSessionRequest>,
+) -> impl IntoResponse {
     let id = uuid::Uuid::new_v4().to_string();
     let cwd = std::env::current_dir()
         .map(|p| p.display().to_string())
         .unwrap_or_else(|_| "/".into());
+
+    let resolved_launch = {
+        let harnesses = state.harnesses.read().await;
+        resolve_session_launch(&harnesses, &req, cwd.clone())
+    };
 
     let (kill_tx, _kill_rx) = tokio::sync::watch::channel(false);
 
@@ -408,8 +522,8 @@ async fn create_session(State(state): State<Arc<AppState>>) -> impl IntoResponse
     let info = SessionInfo {
         id: id.clone(),
         label: format!("Session {}", &id[..8]),
-        harness: None,
-        model: None,
+        harness: resolved_launch.session_harness_id.clone(),
+        model: resolved_launch.model.clone(),
         status: "creating".into(),
         cwd,
         created_at: now.clone(),
@@ -445,7 +559,13 @@ async fn create_session(State(state): State<Arc<AppState>>) -> impl IntoResponse
         resumed_from: None,
     };
 
-    let handle = SessionHandle { info: info.clone(), kill_tx, output_buffer: peon::RingBuffer::new(state.peon.config.max_lines), command: default_shell_command(info.cwd.clone()) };
+    let handle = SessionHandle {
+        info: info.clone(),
+        kill_tx,
+        output_buffer: peon::RingBuffer::new(state.peon.config.max_lines),
+        command: resolved_launch.command,
+        initial_prompt: req.initial_prompt.clone(),
+    };
 
     state.sessions.lock().unwrap().insert(id.clone(), handle);
 
@@ -458,8 +578,8 @@ async fn create_session(State(state): State<Arc<AppState>>) -> impl IntoResponse
             label: info.label.clone(),
             workspace: ws.path.display().to_string(),
             task: String::new(),
-            harness: String::new(),
-            model: String::new(),
+            harness: resolved_launch.session_harness_id.clone().unwrap_or_default(),
+            model: resolved_launch.model.clone().unwrap_or_default(),
             cwd: info.cwd.clone(),
             status: "creating".into(),
             phase: String::new(),
@@ -536,6 +656,7 @@ fn session_recommendation(ctx: &git::GitContext, session_count_in_cwd: usize) ->
 }
 
 async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let harnesses = state.harnesses.read().await.clone();
     let session_data: Vec<(String, String, String, String, String)> = {
         let sessions = state.sessions.lock().unwrap();
         sessions.values().map(|h| {
@@ -565,8 +686,9 @@ async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse 
     let peon_times = state.peon.last_inference.read().unwrap();
     let mut infos: Vec<SessionInfo> = session_data.into_iter().map(|(id, label, status, cwd, created_at)| {
         let meta = metadata_map.get(&id);
-        let harness_id = meta.and_then(|m| (!m.harness.is_empty()).then(|| m.harness.as_str()));
-        let caps = capabilities_for_harness(&state.adapters, harness_id);
+        let session_harness_id = meta.and_then(|m| (!m.harness.is_empty()).then(|| m.harness.as_str()));
+        let adapter_harness_id = resolve_adapter_harness_id(&harnesses, session_harness_id);
+        let caps = capabilities_for_harness(&state.adapters, adapter_harness_id.as_deref());
         let is_live = status != "killed" && status != "ended" && status != "error";
         let (memory_state, resume_strategy) =
             derive_memory_state(is_live, meta.and_then(|m| m.resume.as_ref()), &caps);
@@ -612,8 +734,9 @@ async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse 
         if live_ids.contains(&meta.id) {
             continue;
         }
-        let harness_id = (!meta.harness.is_empty()).then(|| meta.harness.as_str());
-        let caps = capabilities_for_harness(&state.adapters, harness_id);
+        let session_harness_id = (!meta.harness.is_empty()).then(|| meta.harness.as_str());
+        let adapter_harness_id = resolve_adapter_harness_id(&harnesses, session_harness_id);
+        let caps = capabilities_for_harness(&state.adapters, adapter_harness_id.as_deref());
         let (memory_state, resume_strategy) =
             derive_memory_state(false, meta.resume.as_ref(), &caps);
         infos.push(SessionInfo {
@@ -783,6 +906,18 @@ async fn set_retention(
         config.max_age_days
     );
     axum::http::StatusCode::OK
+}
+
+async fn get_providers(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    axum::Json(state.providers.get_providers_response())
+}
+
+async fn set_provider_settings(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<providers::ProviderSettingsPayload>,
+) -> impl IntoResponse {
+    let status = state.providers.apply_settings(payload);
+    axum::Json(status)
 }
 
 async fn retention_cleanup_task(state: Arc<AppState>) {
@@ -993,12 +1128,12 @@ async fn peon_loop(state: Arc<AppState>) {
                 continue;
             }
 
-            let config = state.peon.config.clone();
             let state_clone = state.clone();
             let id = session_id.clone();
 
             tokio::task::spawn_blocking(move || {
-                let inference = peon::run_inference(&config, &output_snapshot);
+                let provider_result = state_clone.providers.run_inference(providers::PeonScope::Session, &output_snapshot);
+                let inference = provider_result.inference;
                 let now_iso = iso_now();
 
                 if let Some(inf) = inference {
@@ -1049,6 +1184,163 @@ fn terminal_env_overrides() -> [(&'static str, &'static str); 5] {
         ("CLICOLOR", "1"),
         ("TERM_PROGRAM", "OrkWorks"),
     ]
+}
+
+// --- Harness config helpers ---
+
+fn global_harnesses_path() -> Option<std::path::PathBuf> {
+    dirs::home_dir().map(|h| h.join(".orkworks").join("harnesses.json"))
+}
+
+fn builtin_harness_configs() -> Vec<HarnessConfig> {
+    let (shell_program, shell_args) = shell_cmd();
+    vec![
+        HarnessConfig {
+            id: "claude-code".into(),
+            name: "Claude Code".into(),
+            harness: "claude-code".into(),
+            command: "claude".into(),
+            args: vec![],
+            default_model: "claude-sonnet-4-20250514".into(),
+            capabilities: HarnessVoiceCapabilities::default(),
+            is_builtin: true,
+        },
+        HarnessConfig {
+            id: "opencode".into(),
+            name: "OpenCode".into(),
+            harness: "opencode".into(),
+            command: "opencode".into(),
+            args: vec![],
+            default_model: String::new(),
+            capabilities: HarnessVoiceCapabilities::default(),
+            is_builtin: true,
+        },
+        HarnessConfig {
+            id: "codex".into(),
+            name: "Codex".into(),
+            harness: "generic-shell".into(),
+            command: "codex".into(),
+            args: vec![],
+            default_model: String::new(),
+            capabilities: HarnessVoiceCapabilities::default(),
+            is_builtin: true,
+        },
+        HarnessConfig {
+            id: "gemini".into(),
+            name: "Gemini CLI".into(),
+            harness: "generic-shell".into(),
+            command: "gemini".into(),
+            args: vec![],
+            default_model: String::new(),
+            capabilities: HarnessVoiceCapabilities::default(),
+            is_builtin: true,
+        },
+        HarnessConfig {
+            id: "aider".into(),
+            name: "Aider".into(),
+            harness: "generic-shell".into(),
+            command: "aider".into(),
+            args: vec!["--model".into(), "{model}".into()],
+            default_model: "claude-sonnet-4-20250514".into(),
+            capabilities: HarnessVoiceCapabilities::default(),
+            is_builtin: true,
+        },
+        HarnessConfig {
+            id: "generic-shell".into(),
+            name: "Shell".into(),
+            harness: "generic-shell".into(),
+            command: shell_program,
+            args: shell_args,
+            default_model: String::new(),
+            capabilities: HarnessVoiceCapabilities::default(),
+            is_builtin: true,
+        },
+    ]
+}
+
+fn load_harnesses() -> Vec<HarnessConfig> {
+    let built_ins = builtin_harness_configs();
+    let Some(path) = global_harnesses_path() else { return built_ins; };
+    let Ok(data) = std::fs::read_to_string(&path) else { return built_ins; };
+    let Ok(disk): serde_json::Result<Vec<HarnessConfig>> = serde_json::from_str(&data) else {
+        tracing::warn!("failed to parse ~/.orkworks/harnesses.json; using built-ins");
+        return built_ins;
+    };
+    let mut result = built_ins;
+    for disk_entry in disk {
+        if let Some(pos) = result.iter().position(|h| h.id == disk_entry.id) {
+            let is_builtin = result[pos].is_builtin;
+            result[pos] = HarnessConfig { is_builtin, ..disk_entry };
+        } else {
+            result.push(disk_entry);
+        }
+    }
+    result
+}
+
+fn save_harnesses(harnesses: &[HarnessConfig]) {
+    let Some(path) = global_harnesses_path() else { return; };
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    match serde_json::to_string_pretty(harnesses) {
+        Ok(json) => { let _ = std::fs::write(&path, json); }
+        Err(e) => tracing::error!("failed to serialize harnesses: {e}"),
+    }
+}
+
+// --- Harness CRUD handlers ---
+
+async fn list_harnesses(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let harnesses = state.harnesses.read().await;
+    Json(harnesses.clone())
+}
+
+async fn create_harness(
+    State(state): State<Arc<AppState>>,
+    Json(mut req): Json<HarnessConfig>,
+) -> impl IntoResponse {
+    req.is_builtin = false;
+    if req.id.is_empty() {
+        req.id = uuid::Uuid::new_v4().to_string();
+    }
+    let mut harnesses = state.harnesses.write().await;
+    harnesses.push(req.clone());
+    save_harnesses(&harnesses);
+    (axum::http::StatusCode::CREATED, Json(req)).into_response()
+}
+
+async fn update_harness(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(req): Json<HarnessConfig>,
+) -> impl IntoResponse {
+    let mut harnesses = state.harnesses.write().await;
+    if let Some(pos) = harnesses.iter().position(|h| h.id == id) {
+        let is_builtin = harnesses[pos].is_builtin;
+        harnesses[pos] = HarnessConfig { id: id.clone(), is_builtin, ..req };
+        save_harnesses(&harnesses);
+        Json(harnesses[pos].clone()).into_response()
+    } else {
+        axum::http::StatusCode::NOT_FOUND.into_response()
+    }
+}
+
+async fn delete_harness(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    let mut harnesses = state.harnesses.write().await;
+    if let Some(pos) = harnesses.iter().position(|h| h.id == id) {
+        if harnesses[pos].is_builtin {
+            return (axum::http::StatusCode::CONFLICT, "Cannot delete a built-in harness").into_response();
+        }
+        harnesses.remove(pos);
+        save_harnesses(&harnesses);
+        axum::http::StatusCode::OK.into_response()
+    } else {
+        axum::http::StatusCode::NOT_FOUND.into_response()
+    }
 }
 
 fn default_shell_command(cwd: String) -> harness::CommandSpec {
@@ -1389,6 +1681,20 @@ async fn handle_session_terminal(mut ws: WebSocket, id: String, state: Arc<AppSt
 
     set_session_status(&state, &id, "running");
 
+    // Send initial prompt to the PTY if one was set on session creation
+    {
+        let initial_prompt = {
+            let sessions = state.sessions.lock().unwrap();
+            sessions.get(&id).and_then(|h| h.initial_prompt.clone())
+        };
+        if let Some(prompt) = initial_prompt {
+            let prompt_bytes = format!("{}\n", prompt).into_bytes();
+            if let Err(e) = writer.write_all(&prompt_bytes) {
+                tracing::warn!("failed to write initial prompt for session {id}: {e}");
+            }
+        }
+    }
+
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
     let id_for_reader = id.clone();
 
@@ -1642,6 +1948,8 @@ mod tests {
             },
             adapters: builtin_adapters(),
             retention_config: tokio::sync::RwLock::new(RetentionConfig::default()),
+            harnesses: tokio::sync::RwLock::new(vec![]),
+            providers: providers::ProviderManager::new(),
         });
 
         assert!(state.sessions.lock().unwrap().is_empty());
@@ -1686,7 +1994,7 @@ mod tests {
             .sessions
             .lock()
             .unwrap()
-            .insert(id, SessionHandle { info: info.clone(), kill_tx, output_buffer: peon::RingBuffer::new(200), command: default_shell_command("/tmp".into()) });
+            .insert(id, SessionHandle { info: info.clone(), kill_tx, output_buffer: peon::RingBuffer::new(200), command: default_shell_command("/tmp".into()), initial_prompt: None });
 
         let sessions = state.sessions.lock().unwrap();
         assert_eq!(sessions.len(), 1);
@@ -1708,6 +2016,8 @@ mod tests {
             },
             adapters: builtin_adapters(),
             retention_config: tokio::sync::RwLock::new(RetentionConfig::default()),
+            harnesses: tokio::sync::RwLock::new(vec![]),
+            providers: providers::ProviderManager::new(),
         });
 
         let (kill_tx, _) = tokio::sync::watch::channel(false);
@@ -1751,6 +2061,7 @@ mod tests {
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
                 command: harness::CommandSpec { program: "/bin/sh".into(), args: vec!["-i".into(), "-l".into()], cwd: "/tmp".into() },
+                initial_prompt: None,
             },
         );
 
@@ -1840,6 +2151,24 @@ mod tests {
         assert!(json.contains("\"branch\":null"));
         assert!(json.contains("\"dirty\":null"));
         assert!(json.contains("\"lastActiveSessionId\":null"));
+    }
+
+    #[test]
+    fn resolve_session_launch_preserves_selected_harness_id_for_generic_shell_configs() {
+        let harnesses = builtin_harness_configs();
+        let launch = resolve_session_launch(
+            &harnesses,
+            &CreateSessionRequest {
+                harness_id: Some("codex".into()),
+                model: None,
+                initial_prompt: None,
+            },
+            "/repo".into(),
+        );
+
+        assert_eq!(launch.session_harness_id.as_deref(), Some("codex"));
+        assert_eq!(launch.adapter_harness_id.as_deref(), Some("generic-shell"));
+        assert_eq!(launch.command.program, "codex");
     }
 
     #[test]
@@ -2088,18 +2417,27 @@ mod tests {
                 last_output: StdRwLock::new(HashMap::new()),
                 last_inference: StdRwLock::new(HashMap::new()),
                 in_flight: StdRwLock::new(HashSet::new()),
-                config: peon::PeonConfig {
-                    harness: harness_path.display().to_string(),
-                    harness_args: vec!["--print".into(), "-p".into()],
-                    model: None,
-                    interval_secs: 1,
-                    max_lines: 200,
-                    timeout_secs: 10,
-                    enabled: true,
-                },
+                config: peon::PeonConfig::from_env(),
             },
             adapters: builtin_adapters(),
             retention_config: tokio::sync::RwLock::new(RetentionConfig::default()),
+            harnesses: tokio::sync::RwLock::new(vec![]),
+            providers: providers::ProviderManager::for_tests(
+                providers::ProviderSettingsPayload {
+                    version: 1,
+                    revision: 1,
+                    providers: vec![providers::ProviderSettingsEntry {
+                        id: "opencode".to_string(),
+                        enabled: true,
+                        fallback_order: 0,
+                        peon_model: None,
+                        default_state: providers::ProviderCapacityState::Healthy,
+                        override_state: None,
+                    }],
+                },
+                vec![providers::FakeProvider::new("opencode")
+                    .stdout(r#"{"status":"working","summary":"test","confidence":0.85}"#)],
+            ),
         });
 
         // Create a session with some output in the ring buffer
@@ -2144,6 +2482,7 @@ mod tests {
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
                 command: harness::CommandSpec { program: "/bin/sh".into(), args: vec!["-i".into(), "-l".into()], cwd: "/tmp".into() },
+                initial_prompt: None,
             };
             handle.output_buffer.push("running cargo test...".into());
             handle.output_buffer.push("test result: ok. 5 passed; 0 failed;".into());
@@ -2229,20 +2568,7 @@ mod tests {
         std::fs::create_dir_all(orkworks.join("sessions")).unwrap();
         std::fs::create_dir_all(orkworks.join("events")).unwrap();
 
-        let count_path = dir.path().join("count.txt");
-        let harness_path = dir.path().join("slow-harness.sh");
-        std::fs::write(
-            &harness_path,
-            format!(
-                "#!/bin/bash\ncount_file='{}'\ncount=$(cat \"$count_file\" 2>/dev/null || echo 0)\ncount=$((count + 1))\necho \"$count\" > \"$count_file\"\nsleep 3\necho '{{\"observedStatus\":\"working\",\"confidence\":0.85}}'\n",
-                count_path.display()
-            ),
-        ).unwrap();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&harness_path, std::fs::Permissions::from_mode(0o755)).unwrap();
-        }
+        let call_counter = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
 
         let state = Arc::new(AppState {
             sessions: Mutex::new(HashMap::new()),
@@ -2255,18 +2581,29 @@ mod tests {
                 last_output: StdRwLock::new(HashMap::new()),
                 last_inference: StdRwLock::new(HashMap::new()),
                 in_flight: StdRwLock::new(HashSet::new()),
-                config: peon::PeonConfig {
-                    harness: harness_path.display().to_string(),
-                    harness_args: vec!["--print".into()],
-                    model: None,
-                    interval_secs: 1,
-                    max_lines: 200,
-                    timeout_secs: 10,
-                    enabled: true,
-                },
+                config: peon::PeonConfig::from_env(),
             },
             adapters: builtin_adapters(),
             retention_config: tokio::sync::RwLock::new(RetentionConfig::default()),
+            harnesses: tokio::sync::RwLock::new(vec![]),
+            providers: providers::ProviderManager::for_tests(
+                providers::ProviderSettingsPayload {
+                    version: 1,
+                    revision: 1,
+                    providers: vec![providers::ProviderSettingsEntry {
+                        id: "opencode".to_string(),
+                        enabled: true,
+                        fallback_order: 0,
+                        peon_model: None,
+                        default_state: providers::ProviderCapacityState::Healthy,
+                        override_state: None,
+                    }],
+                },
+                vec![providers::FakeProvider::new("opencode")
+                    .stdout(r#"{"observedStatus":"working","confidence":0.85}"#)
+                    .sleep_ms(3000)
+                    .with_counter(call_counter.clone())],
+            ),
         });
 
         let session_id = "peon-duplicate-test".to_string();
@@ -2309,6 +2646,7 @@ mod tests {
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
                 command: harness::CommandSpec { program: "/bin/sh".into(), args: vec!["-i".into(), "-l".into()], cwd: "/tmp".into() },
+                initial_prompt: None,
             };
             handle.output_buffer.push("quiet output".into());
             state.sessions.lock().unwrap().insert(session_id.clone(), handle);
@@ -2323,11 +2661,7 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(2300)).await;
         task.abort();
 
-        let count = std::fs::read_to_string(count_path)
-            .unwrap_or_else(|_| "0".into())
-            .trim()
-            .parse::<usize>()
-            .unwrap();
+        let count = call_counter.load(std::sync::atomic::Ordering::SeqCst);
         assert_eq!(count, 1);
     }
 
@@ -2354,6 +2688,8 @@ mod tests {
             },
             adapters: builtin_adapters(),
             retention_config: tokio::sync::RwLock::new(RetentionConfig::default()),
+            harnesses: tokio::sync::RwLock::new(vec![]),
+            providers: providers::ProviderManager::new(),
         });
 
         let session_id = "peon-failed-attempt-test".to_string();
@@ -2396,6 +2732,7 @@ mod tests {
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
                 command: default_shell_command(dir.path().display().to_string()),
+                initial_prompt: None,
             };
             handle.output_buffer.push("quiet output".into());
             state.sessions.lock().unwrap().insert(session_id.clone(), handle);

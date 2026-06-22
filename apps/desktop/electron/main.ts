@@ -6,7 +6,9 @@ import { getDevRepoRoot, getDevSidecarPath, getPackagedSidecarPath } from "./pat
 import { readWorkspaceMemory, rememberWorkspacePath } from "./workspaceMemory";
 import { readLayoutMemory, writeLayoutMemory } from "./layoutMemory";
 import type { AppSettings } from "./settingsMemory";
-import { DEFAULT_HOTKEYS, DEFAULT_RETENTION, normalizeRetention, readSettings, settingsWithHotkeys, validateHotkeys, writeSettings } from "./settingsMemory";
+import { DEFAULT_HOTKEYS, DEFAULT_RETENTION, normalizeProviderSettings, normalizeRetention, readSettings, settingsWithHotkeys, validateHotkeys, writeSettings } from "./settingsMemory";
+import { pushProviderSettings } from "./providerSettingsSync";
+import type { ProviderSettings } from "../src/providerTypes";
 import { buildMenuTemplate } from "./menuTemplate";
 
 let mainWindow: BrowserWindow | null = null;
@@ -209,6 +211,26 @@ app.whenReady().then(() => {
     return { ok: true };
   });
 
+  ipcMain.handle("save-provider-settings", async (_event, providers: ProviderSettings) => {
+    const baseSettings = currentSettings ?? readSettings(app.getPath("userData"));
+    const nextSettings: AppSettings = {
+      ...baseSettings,
+      version: 1,
+      providers: normalizeProviderSettings({
+        ...providers,
+        revision: Math.max(baseSettings.providers.revision + 1, providers.revision),
+      }),
+    };
+
+    writeSettings(app.getPath("userData"), nextSettings);
+    currentSettings = nextSettings;
+
+    const port = await portPromise;
+    await pushProviderSettings(`http://127.0.0.1:${port}`, nextSettings.providers);
+
+    return { ok: true, settings: rendererSettings(currentSettings) };
+  });
+
   ipcMain.handle("open-workspace", async () => {
     const result = await dialog.showOpenDialog({
       properties: ["openDirectory"],
@@ -279,6 +301,8 @@ app.whenReady().then(() => {
       // Non-fatal: sidecar will use defaults until next save-retention
     }
 
+    await syncSavedProviderSettings();
+
     return resp.json();
   });
 
@@ -311,7 +335,17 @@ app.whenReady().then(() => {
     } catch {
       // Sidecar may not be ready yet; will be pushed on next save-retention
     }
+    await syncSavedProviderSettings();
   });
+
+  async function syncSavedProviderSettings(): Promise<void> {
+    const settings = currentSettings ?? readSettings(app.getPath("userData"));
+    const port = await portPromise;
+    const result = await pushProviderSettings(`http://127.0.0.1:${port}`, settings.providers);
+    if (result.lastApplyError) {
+      console.warn(`[main] failed to push provider settings: ${result.lastApplyError}`);
+    }
+  }
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {

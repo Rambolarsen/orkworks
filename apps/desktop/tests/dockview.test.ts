@@ -334,3 +334,18 @@ test("App titlebar uses the canonical workspace vocabulary (no 'Folder' drift)",
   assert.match(source, /\{VOCAB\.openWorkspace\}/);
   assert.doesNotMatch(source, /Open Folder/);
 });
+
+test("capacity PANEL_DEFAULT has visible title 'Providers' while keeping panel id 'capacity'", () => {
+  const source = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /capacity.*Providers/);
+  assert.doesNotMatch(source, /capacity[^}]+title[^}]+"Capacity"/);
+});
+
+test("SettingsModal has a Providers entry section with onOpenProviders callback", () => {
+  const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /Providers/);
+  assert.match(source, /Open Providers Panel/);
+  assert.match(source, /onOpenProviders/);
+});

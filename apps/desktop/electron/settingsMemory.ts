@@ -1,6 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import type { ProviderId, ProviderCapacityState, ProviderSettings, ProviderSettingsEntry } from "../src/providerTypes.ts";
+
 export interface RetentionSettings {
   maxSessions: number;
   maxAgeDays: number;
@@ -11,6 +13,7 @@ export interface AppSettings {
   version: 1;
   hotkeys: HotkeySettings;
   retention: RetentionSettings;
+  providers: ProviderSettings;
 }
 
 export interface HotkeySettings {
@@ -94,10 +97,23 @@ export const DEFAULT_RETENTION: RetentionSettings = {
   maxAgeDays: 0,
 };
 
+const VALID_PROVIDER_IDS = new Set<ProviderId>(["opencode", "claude-code"]);
+const VALID_CAPACITY_STATES = new Set<ProviderCapacityState>(["healthy", "degraded", "capped", "unknown"]);
+
+export const DEFAULT_PROVIDER_SETTINGS: ProviderSettings = {
+  version: 1,
+  revision: 0,
+  providers: [
+    { id: "opencode", enabled: true, fallbackOrder: 0, peonModel: null, defaultState: "healthy", overrideState: null },
+    { id: "claude-code", enabled: true, fallbackOrder: 1, peonModel: null, defaultState: "unknown", overrideState: null },
+  ],
+};
+
 export const DEFAULT_SETTINGS: AppSettings = {
   version: 1,
   hotkeys: { ...DEFAULT_HOTKEYS },
   retention: { ...DEFAULT_RETENTION },
+  providers: { ...DEFAULT_PROVIDER_SETTINGS, providers: DEFAULT_PROVIDER_SETTINGS.providers.map((p) => ({ ...p })) },
 };
 
 const fileName = "settings.json";
@@ -185,6 +201,55 @@ export function normalizeSettings(value: unknown): AppSettings {
     version: 1,
     hotkeys: normalizeHotkeys(parsed.hotkeys),
     retention: normalizeRetention(parsed.retention),
+    providers: normalizeProviderSettings(parsed.providers),
+  };
+}
+
+export function normalizeProviderSettings(value: unknown): ProviderSettings {
+  const raw = value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+  const entries = Array.isArray(raw.providers) ? raw.providers : [];
+  const normalizedById = new Map<ProviderId, ProviderSettingsEntry>();
+
+  for (const entry of entries) {
+    if (!entry || typeof entry !== "object") continue;
+    const candidate = normalizeProviderEntry(entry as Record<string, unknown>);
+    if (candidate) normalizedById.set(candidate.id, candidate);
+  }
+
+  for (const defaultEntry of DEFAULT_PROVIDER_SETTINGS.providers) {
+    if (!normalizedById.has(defaultEntry.id)) normalizedById.set(defaultEntry.id, { ...defaultEntry });
+  }
+
+  const providers = Array.from(normalizedById.values())
+    .sort((a, b) => a.fallbackOrder - b.fallbackOrder || a.id.localeCompare(b.id))
+    .map((entry, index) => ({ ...entry, fallbackOrder: index }));
+
+  return {
+    version: 1,
+    revision:
+      typeof raw.revision === "number" && Number.isFinite(raw.revision)
+        ? Math.max(0, Math.trunc(raw.revision))
+        : DEFAULT_PROVIDER_SETTINGS.revision,
+    providers,
+  };
+}
+
+function normalizeProviderEntry(raw: Record<string, unknown>): ProviderSettingsEntry | null {
+  const id = raw.id;
+  if (!VALID_PROVIDER_IDS.has(id as ProviderId)) return null;
+  const defaultEntry = DEFAULT_PROVIDER_SETTINGS.providers.find((p) => p.id === id)!;
+  return {
+    id: id as ProviderId,
+    enabled: typeof raw.enabled === "boolean" ? raw.enabled : defaultEntry.enabled,
+    fallbackOrder: clampInt(raw.fallbackOrder, 0, Number.MAX_SAFE_INTEGER, defaultEntry.fallbackOrder),
+    peonModel: typeof raw.peonModel === "string" && raw.peonModel ? raw.peonModel : null,
+    defaultState: VALID_CAPACITY_STATES.has(raw.defaultState as ProviderCapacityState)
+      ? (raw.defaultState as ProviderCapacityState)
+      : "unknown",
+    overrideState:
+      raw.overrideState !== null && VALID_CAPACITY_STATES.has(raw.overrideState as ProviderCapacityState)
+        ? (raw.overrideState as ProviderCapacityState)
+        : null,
   };
 }
 
@@ -282,6 +347,7 @@ function defaultSettings(): AppSettings {
     version: 1,
     hotkeys: { ...DEFAULT_HOTKEYS },
     retention: { ...DEFAULT_RETENTION },
+    providers: { ...DEFAULT_PROVIDER_SETTINGS, providers: DEFAULT_PROVIDER_SETTINGS.providers.map((p) => ({ ...p })) },
   };
 }
 

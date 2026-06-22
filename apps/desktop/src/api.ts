@@ -1,3 +1,5 @@
+import type { ProviderEffectiveState } from "./providerTypes.ts";
+
 export type MemoryState = "live" | "remembered" | "resumable" | "unsupported";
 export type ResumeStrategy = "exact" | "latest_cwd" | "latest_repo" | "none";
 
@@ -12,6 +14,8 @@ export interface ResumeMemory {
 export interface SessionInfo {
   id: string;
   label: string;
+  harness?: string;
+  model?: string;
   status: string;
   cwd: string;
   created_at: string;
@@ -43,9 +47,20 @@ export interface SessionInfo {
 
 export async function createSession(
   baseUrl: string,
+  opts?: { harnessId?: string; model?: string; initialPrompt?: string },
 ): Promise<SessionInfo> {
-  const resp = await fetch(`${baseUrl}/sessions`, { method: "POST" });
+  const resp = await fetch(`${baseUrl}/sessions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(opts ?? {}),
+  });
   if (!resp.ok) throw new Error(`create session failed: ${resp.status}`);
+  return resp.json();
+}
+
+export async function listHarnesses(baseUrl: string) {
+  const resp = await fetch(`${baseUrl}/harnesses`);
+  if (!resp.ok) throw new Error(`list harnesses failed: ${resp.status}`);
   return resp.json();
 }
 
@@ -129,4 +144,29 @@ export async function getTerminalOutput(
   if (!resp.ok) throw new Error(`get terminal output failed: ${resp.status}`);
   const data = await resp.json();
   return data.lines ?? [];
+}
+
+export interface ProviderRuntimeEntry {
+  id: string;
+  label: string;
+  enabled: boolean;
+  fallbackOrder: number;
+  effectiveState: ProviderEffectiveState;
+  peonModel: string | null;
+  runtime: {
+    fallbackStep: number | null;
+    lastErrorSummary: string | null;
+    resetHint: string | null;
+  };
+}
+
+export interface ProviderRuntimeResponse {
+  appliedRevision: number | null;
+  providers: ProviderRuntimeEntry[];
+}
+
+export async function getProviders(baseUrl: string): Promise<ProviderRuntimeResponse> {
+  const resp = await fetch(`${baseUrl}/providers`);
+  if (!resp.ok) throw new Error(`get providers failed: ${resp.status}`);
+  return resp.json();
 }

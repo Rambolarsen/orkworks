@@ -22,3 +22,4 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 | [0012](./0012-peon-repo-scope.md) | Peon scope expands to per-repo | accepted |
 | [0013](./0013-single-active-context-primitive.md) | Single-active-context primitive: session = context, switching = context-switch | accepted |
 | [0014](./0014-main-process-owned-app-settings.md) | Main-process-owned app settings and menu accelerators | accepted |
+| [0015](./0015-provider-ops-peon-fallback.md) | Provider ops panel and app-wide Peon fallback | accepted |
