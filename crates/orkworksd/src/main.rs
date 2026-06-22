@@ -325,9 +325,11 @@ async fn set_active_session(
     let now = iso_now();
     let ws_guard = state.workspace.lock().unwrap();
     if let Some(ref ws) = *ws_guard {
+        let existing = ws.metadata.read_workspace_memory();
         ws.metadata.write_workspace_memory(&metadata::WorkspaceMemory {
             last_active_session_id: Some(req.session_id),
             last_active_at: Some(now),
+            active_harness_ids: existing.map(|m| m.active_harness_ids).unwrap_or_default(),
         });
         return axum::http::StatusCode::OK;
     }
@@ -2595,11 +2597,11 @@ mod tests {
                 providers::ProviderSettingsPayload {
                     version: 1,
                     revision: 1,
+                    peon_model: None,
                     providers: vec![providers::ProviderSettingsEntry {
                         id: "opencode".to_string(),
                         enabled: true,
                         fallback_order: 0,
-                        peon_model: None,
                         default_state: providers::ProviderCapacityState::Healthy,
                         override_state: None,
                     }],
@@ -2767,11 +2769,11 @@ mod tests {
                 providers::ProviderSettingsPayload {
                     version: 1,
                     revision: 1,
+                    peon_model: None,
                     providers: vec![providers::ProviderSettingsEntry {
                         id: "opencode".to_string(),
                         enabled: true,
                         fallback_order: 0,
-                        peon_model: None,
                         default_state: providers::ProviderCapacityState::Healthy,
                         override_state: None,
                     }],

@@ -92,7 +92,7 @@ mod tests {
 
     #[test]
     fn create_produces_live_session_with_created_event() {
-        let (session, events) = SessionLifecycle::create(
+        let (session, events) = lifecycle.create(
             SessionId("s1".into()),
             WorkspacePath(PathBuf::from("/ws")),
             "Test".into(),
@@ -114,7 +114,7 @@ mod tests {
 
     #[test]
     fn kill_produces_killed_event() {
-        let (mut session, _) = SessionLifecycle::create(
+        let (mut session, _) = lifecycle.create(
             SessionId("s2".into()),
             WorkspacePath(PathBuf::from("/ws")),
             "Test".into(),
@@ -122,7 +122,7 @@ mod tests {
             None, None, None, "now".into(),
             None, None,
         );
-        let events = SessionLifecycle::kill(&mut session, "later".into());
+        let events = lifecycle.kill(&mut session, "later".into());
         assert_eq!(session.status, SessionStatus::Killed);
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_type(), "session.killed");
@@ -130,7 +130,7 @@ mod tests {
 
     #[test]
     fn kill_already_killed_produces_no_events() {
-        let (mut session, _) = SessionLifecycle::create(
+        let (mut session, _) = lifecycle.create(
             SessionId("s3".into()),
             WorkspacePath(PathBuf::from("/ws")),
             "Test".into(),
@@ -139,13 +139,13 @@ mod tests {
             None, None,
         );
         session.status = SessionStatus::Killed;
-        let events = SessionLifecycle::kill(&mut session, "later".into());
+        let events = lifecycle.kill(&mut session, "later".into());
         assert_eq!(events.len(), 0);
     }
 
     #[test]
     fn resume_produces_resumed_event() {
-        let (session, _) = SessionLifecycle::create(
+        let (session, _) = lifecycle.create(
             SessionId("s4".into()),
             WorkspacePath(PathBuf::from("/ws")),
             "Test".into(),
@@ -153,7 +153,7 @@ mod tests {
             None, None, None, "now".into(),
             None, None,
         );
-        let events = SessionLifecycle::resume(&session, "later".into());
+        let events = lifecycle.resume(&session, "later".into());
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_type(), "session.resumed");
     }
