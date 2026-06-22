@@ -149,8 +149,7 @@ Use normal engineering terminology for all other concepts. Peon and Taskmaster a
 
 Electron + React/TypeScript frontend (`apps/desktop/`) communicates with a Rust sidecar (`crates/orkworksd/`) over a dynamic localhost HTTP/WebSocket port. The desktop UI uses Dockview draggable panels around xterm.js terminal sessions. The sidecar manages PTY sessions, Git context, the `.orkworks/` metadata protocol, Peon observation, and Taskmaster recommendation state.
 
-- ADR 0015 records the provider ops panel and app-wide Peon fallback model.
-- The Dockview `capacity` slot now renders the visible `Providers` panel; keep the internal id stable for layout compatibility.
+- ADR 0016 moves provider context into read-only session details fields; provider editing remains app-wide in Settings.
 
 See [`docs/agents/architecture.md`](docs/agents/architecture.md) for the full inter-component breakdown (port discovery, preload bridge, API data flow, Rust modules, panel layout).
 
