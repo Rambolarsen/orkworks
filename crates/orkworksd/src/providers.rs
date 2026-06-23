@@ -1203,7 +1203,7 @@ mod tests {
     }
 
     #[test]
-    fn ollama_inference_fails_without_model() {
+    fn ollama_run_inference_fails_when_no_runner_configured() {
         let manager = ProviderManager::for_tests(
             ProviderSettingsPayload {
                 version: 1,
@@ -1247,5 +1247,38 @@ mod tests {
         let result = manager.run_inference(PeonScope::Session, &["test".to_string()]);
         assert!(result.inference.is_none());
         assert_eq!(result.attempts[0].outcome, AttemptOutcome::SkippedDisabled);
+    }
+
+    #[test]
+    fn ollama_list_models_http_reaches_endpoint_or_fails_gracefully() {
+        let manager = ProviderManager::for_tests(
+            ProviderSettingsPayload {
+                version: 1,
+                revision: 1,
+                peon_model: None,
+                ollama_base_url: "http://127.0.0.1:11434".to_string(),
+                providers: vec![],
+            },
+            vec![],
+        );
+        // This bypasses FakeRunner — list_models() dispatches on http_list_models
+        // If no Ollama is running, expect a connection error
+        let result = manager.list_models("ollama");
+        match result {
+            Ok(models) => {
+                // Ollama is running — verify we got valid model strings
+                assert!(!models.is_empty(), "should return at least one model if Ollama is reachable");
+            }
+            Err(e) => {
+                // Ollama not running — error must be descriptive
+                assert!(
+                    e.contains("unreachable")
+                    || e.contains("connection refused")
+                    || e.contains("Connection refused")
+                    || e.contains("timed out"),
+                    "expected connection or timeout error, got: {e}"
+                );
+            }
+        };
     }
 }
