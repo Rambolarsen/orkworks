@@ -420,7 +420,7 @@ struct HttpRunner {
 }
 
 impl ProviderRunner for HttpRunner {
-    fn run(&self, id: &str, _command: &str, _args: &[String], prompt: &str, _timeout_secs: u64) -> InvocationResult {
+    fn run(&self, id: &str, _command: &str, _args: &[String], prompt: &str, timeout_secs: u64) -> InvocationResult {
         let settings = self.settings.read().unwrap().clone();
         let base_url = match id {
             "ollama" => settings.ollama_base_url.clone(),
@@ -453,7 +453,7 @@ impl ProviderRunner for HttpRunner {
 
         let request_fut = client.post(&url).json(&body).send();
         let resp = match block_on_http(async {
-            tokio::time::timeout(Duration::from_secs(30), request_fut).await
+            tokio::time::timeout(Duration::from_secs(timeout_secs), request_fut).await
         }) {
             Ok(Ok(r)) => r,
             Ok(Err(e)) => {
@@ -1256,29 +1256,19 @@ mod tests {
                 version: 1,
                 revision: 1,
                 peon_model: None,
-                ollama_base_url: "http://127.0.0.1:11434".to_string(),
+                ollama_base_url: "http://127.0.0.1:49999".to_string(),
                 providers: vec![],
             },
             vec![],
         );
         // This bypasses FakeRunner — list_models() dispatches on http_list_models
-        // If no Ollama is running, expect a connection error
+        // Uses a non-default port to avoid conflicting with a running Ollama
         let result = manager.list_models("ollama");
-        match result {
-            Ok(models) => {
-                // Ollama is running — verify we got valid model strings
-                assert!(!models.is_empty(), "should return at least one model if Ollama is reachable");
-            }
-            Err(e) => {
-                // Ollama not running — error must be descriptive
-                assert!(
-                    e.contains("unreachable")
-                    || e.contains("connection refused")
-                    || e.contains("Connection refused")
-                    || e.contains("timed out"),
-                    "expected connection or timeout error, got: {e}"
-                );
-            }
-        };
+        assert!(result.is_err(), "expected error connecting to unused port 49999");
+        let e = result.unwrap_err();
+        assert!(
+            e.contains("unreachable") || e.contains("connection refused"),
+            "expected connection refused error, got: {e}"
+        );
     }
 }

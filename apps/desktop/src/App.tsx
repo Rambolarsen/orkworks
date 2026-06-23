@@ -145,12 +145,16 @@ function App() {
     try {
       const loaded = await window.orkworks.getSettings();
       setSettings(loaded);
+      setSettingsOpen(true);
+    } catch {
+      pushToast("error", "Couldn't load app settings.");
+    }
+    try {
       const baseUrl = await window.orkworks.getBackendUrl();
       const runtime = await getProviders(baseUrl);
       setProviderRuntime(runtime);
-      setSettingsOpen(true);
     } catch {
-      pushToast("error", "Couldn't open settings.");
+      // Settings are already open; provider runtime will be null
     }
   }, []);
 

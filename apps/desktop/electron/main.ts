@@ -230,6 +230,8 @@ app.whenReady().then(() => {
     const port = await portPromise;
     await pushProviderSettings(`http://127.0.0.1:${port}`, nextSettings.providers);
 
+    providerModels.delete("ollama");
+
     return { ok: true, settings: rendererSettings(currentSettings) };
   });
 

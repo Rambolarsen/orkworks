@@ -134,6 +134,10 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
     setPeonModelDraft(providerDraft.peonModel);
   }, [providerDraft.peonModel]);
 
+  useEffect(() => {
+    setOllamaBaseUrlDraft(providerDraft.ollamaBaseUrl);
+  }, [providerDraft.ollamaBaseUrl]);
+
   async function saveRetention(rt: RetentionSettings) {
     setRetentionSaveStatus(null);
     try {
