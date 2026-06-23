@@ -97,13 +97,14 @@ export const DEFAULT_RETENTION: RetentionSettings = {
   maxAgeDays: 0,
 };
 
-const VALID_PROVIDER_IDS = new Set<ProviderId>(["opencode", "claude-code", "codex", "gemini", "aider", "gh-copilot"]);
+const VALID_PROVIDER_IDS = new Set<ProviderId>(["opencode", "claude-code", "codex", "gemini", "aider", "gh-copilot", "ollama"]);
 const VALID_CAPACITY_STATES = new Set<ProviderCapacityState>(["healthy", "degraded", "capped", "unknown"]);
 
 export const DEFAULT_PROVIDER_SETTINGS: ProviderSettings = {
   version: 1,
   revision: 0,
   peonModel: null,
+  ollamaBaseUrl: "http://127.0.0.1:11434",
   providers: [
     { id: "opencode", enabled: true, fallbackOrder: 0, defaultState: "healthy", overrideState: null },
     { id: "claude-code", enabled: true, fallbackOrder: 1, defaultState: "unknown", overrideState: null },
@@ -111,6 +112,7 @@ export const DEFAULT_PROVIDER_SETTINGS: ProviderSettings = {
     { id: "gemini", enabled: true, fallbackOrder: 3, defaultState: "unknown", overrideState: null },
     { id: "aider", enabled: true, fallbackOrder: 4, defaultState: "unknown", overrideState: null },
     { id: "gh-copilot", enabled: true, fallbackOrder: 5, defaultState: "unknown", overrideState: null },
+    { id: "ollama", enabled: true, fallbackOrder: 6, defaultState: "unknown", overrideState: null },
   ],
 };
 
@@ -236,8 +238,20 @@ export function normalizeProviderSettings(value: unknown): ProviderSettings {
         ? Math.max(0, Math.trunc(raw.revision))
         : DEFAULT_PROVIDER_SETTINGS.revision,
     peonModel: normalizePeonModel(raw),
+    ollamaBaseUrl: normalizeOllamaBaseUrl(raw),
     providers,
   };
+}
+
+function normalizeOllamaBaseUrl(raw: Record<string, unknown>): string {
+  const val = raw.ollamaBaseUrl;
+  if (typeof val === "string" && val.length > 0) {
+    const trimmed = val.trim();
+    if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+      return trimmed.replace(/\/+$/, "");
+    }
+  }
+  return DEFAULT_PROVIDER_SETTINGS.ollamaBaseUrl;
 }
 
 function normalizePeonModel(raw: Record<string, unknown>): string | null {
