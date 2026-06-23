@@ -44,6 +44,7 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
   const [providerModels, setProviderModels] = useState<Record<string, string[]>>({});
   const [providerSaveStatus, setProviderSaveStatus] = useState<string | null>(null);
   const [peonModelDraft, setPeonModelDraft] = useState<string | null>(initialSettings.providers.peonModel);
+  const [ollamaBaseUrlDraft, setOllamaBaseUrlDraft] = useState<string>(initialSettings.providers.ollamaBaseUrl);
   const [activeDraft, setActiveDraft] = useState<string[]>(activeHarnessIds);
   const [activeSaveStatus, setActiveSaveStatus] = useState<string | null>(null);
 
@@ -268,6 +269,25 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
                   <option key={m} value={m} />
                 ))}
               </datalist>
+            </div>
+
+            <div className="provider-card">
+              <div className="provider-label">Ollama Base URL</div>
+              <input
+                className="provider-model-select"
+                type="text"
+                placeholder="http://127.0.0.1:11434"
+                value={ollamaBaseUrlDraft}
+                onChange={(e) => setOllamaBaseUrlDraft(e.target.value.trim())}
+                onBlur={() => {
+                  const normalized = ollamaBaseUrlDraft.trim().replace(/\/+$/, "");
+                  if (normalized !== providerDraft.ollamaBaseUrl && (normalized.startsWith("http://") || normalized.startsWith("https://"))) {
+                    const next = { ...providerDraft, ollamaBaseUrl: normalized };
+                    setProviderDraft(next);
+                    persistProviderSettings(next);
+                  }
+                }}
+              />
             </div>
 
             <ProviderSettingsSection
