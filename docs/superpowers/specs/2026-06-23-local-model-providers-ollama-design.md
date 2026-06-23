@@ -1,7 +1,7 @@
 # Local Model Providers: Ollama-First Design
 
 - Date: 2026-06-23
-- Status: proposed
+- Status: approved
 
 ## Summary
 
@@ -15,8 +15,8 @@ The immediate product need is to let Peon run against a cheap Ollama model, redu
 
 ## Goals
 
-- Add a parent GitHub issue for local-model providers
-- Add a first implementation issue for Ollama
+- Record the approved parent GitHub issue for local-model providers
+- Record the first implementation issue for Ollama
 - Prioritize cheap local Peon inference
 - Support local or remote Ollama endpoints through a configurable base URL
 - Include a user-facing settings surface for Ollama URL and model selection
@@ -33,18 +33,18 @@ The immediate product need is to let Peon run against a cheap Ollama model, redu
 
 ## Recommended Issue Structure
 
-Create two issues:
+This design produced two initial issues:
 
-1. Parent issue: `Local models as providers`
-2. Child implementation issue: `Add Ollama provider support for Peon and existing harness model pass-through`
+1. Parent issue: [#47 `Local models as providers`](https://github.com/Rambolarsen/orkworks/issues/47)
+2. Child implementation issue: [#48 `Add Ollama provider support for Peon and existing harness model pass-through`](https://github.com/Rambolarsen/orkworks/issues/48)
 
 This keeps the roadmap direction visible while allowing the first delivery to stay concrete and implementation-sized.
 
-## Parent Issue Draft
+## Parent Issue Record
 
 ### Title
 
-`Local models as providers`
+[#47 `Local models as providers`](https://github.com/Rambolarsen/orkworks/issues/47)
 
 ### Description
 
@@ -66,11 +66,11 @@ This issue is the umbrella for the local-model provider direction. It should not
 - "Full session" support means integration through existing harnesses first, not inventing a new standalone runtime in v1
 - Recommendation policy belongs in a separate follow-up issue
 
-## Child Issue Draft
+## Child Issue Record
 
 ### Title
 
-`Add Ollama provider support for Peon and existing harness model pass-through`
+[#48 `Add Ollama provider support for Peon and existing harness model pass-through`](https://github.com/Rambolarsen/orkworks/issues/48)
 
 ### Description
 
@@ -110,10 +110,10 @@ The first issue should not add a new standalone harness. OrkWorks should continu
 
 ## Follow-Up Issues
 
-- `Add auth/TLS support for remote Ollama endpoints`
-- `Teach Taskmaster to prefer cheap local/Ollama models where appropriate`
-- `Validate Ollama-backed model pass-through across remaining harnesses`
-- `Consider standalone Ollama runtime support if a concrete session-launch workflow emerges`
+- [#49 `Add auth/TLS support for remote Ollama endpoints`](https://github.com/Rambolarsen/orkworks/issues/49)
+- [#50 `Teach Taskmaster to prefer cheap local/Ollama models where appropriate`](https://github.com/Rambolarsen/orkworks/issues/50)
+- [#51 `Validate Ollama-backed model pass-through across remaining harnesses`](https://github.com/Rambolarsen/orkworks/issues/51)
+- [#52 `Consider standalone Ollama runtime support if a concrete session-launch workflow emerges`](https://github.com/Rambolarsen/orkworks/issues/52)
 
 ## Risks and Open Questions
 
