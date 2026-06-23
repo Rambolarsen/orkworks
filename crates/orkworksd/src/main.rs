@@ -2638,6 +2638,7 @@ mod tests {
                     version: 1,
                     revision: 1,
                     peon_model: None,
+                    ollama_base_url: providers::default_ollama_base_url(),
                     providers: vec![providers::ProviderSettingsEntry {
                         id: "opencode".to_string(),
                         enabled: true,
@@ -2810,6 +2811,7 @@ mod tests {
                     version: 1,
                     revision: 1,
                     peon_model: None,
+                    ollama_base_url: providers::default_ollama_base_url(),
                     providers: vec![providers::ProviderSettingsEntry {
                         id: "opencode".to_string(),
                         enabled: true,
