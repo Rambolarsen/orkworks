@@ -79,12 +79,18 @@ pub struct ProviderSettingsPayload {
     pub revision: u64,
     #[serde(rename = "peonModel", default)]
     pub peon_model: Option<String>,
+    #[serde(rename = "ollamaBaseUrl", default = "default_ollama_base_url")]
+    pub ollama_base_url: String,
     pub providers: Vec<ProviderSettingsEntry>,
+}
+
+fn default_ollama_base_url() -> String {
+    "http://127.0.0.1:11434".to_string()
 }
 
 impl Default for ProviderSettingsPayload {
     fn default() -> Self {
-        Self { version: 1, revision: 0, peon_model: None, providers: vec![] }
+        Self { version: 1, revision: 0, peon_model: None, ollama_base_url: default_ollama_base_url(), providers: vec![] }
     }
 }
 
@@ -112,6 +118,7 @@ pub struct ProviderDefinition {
     pub list_models_command: Option<&'static str>,
     pub list_models_args: &'static [&'static str],
     pub static_models: &'static [&'static str],
+    pub http_list_models: bool,
 }
 
 pub fn builtin_provider_registry() -> Vec<ProviderDefinition> {
@@ -127,6 +134,7 @@ pub fn builtin_provider_registry() -> Vec<ProviderDefinition> {
             list_models_command: Some("opencode"),
             list_models_args: &["models"],
             static_models: &[],
+            http_list_models: false,
         },
         ProviderDefinition {
             id: "claude-code",
@@ -145,6 +153,7 @@ pub fn builtin_provider_registry() -> Vec<ProviderDefinition> {
                 "claude-sonnet-4-5-20250929",
                 "claude-haiku-3-5-20241022",
             ],
+            http_list_models: false,
         },
         ProviderDefinition {
             id: "codex",
@@ -162,6 +171,7 @@ pub fn builtin_provider_registry() -> Vec<ProviderDefinition> {
                 "gpt-5-mini",
                 "gpt-5-nano",
             ],
+            http_list_models: false,
         },
         ProviderDefinition {
             id: "gemini",
@@ -178,6 +188,7 @@ pub fn builtin_provider_registry() -> Vec<ProviderDefinition> {
                 "gemini-2.5-flash",
                 "gemini-2.0-flash",
             ],
+            http_list_models: false,
         },
         ProviderDefinition {
             id: "aider",
@@ -196,6 +207,7 @@ pub fn builtin_provider_registry() -> Vec<ProviderDefinition> {
                 "gpt-5",
                 "gemini-2.5-pro",
             ],
+            http_list_models: false,
         },
         ProviderDefinition {
             id: "gh-copilot",
@@ -213,6 +225,20 @@ pub fn builtin_provider_registry() -> Vec<ProviderDefinition> {
                 "claude-sonnet-4-6",
                 "gemini-2.5-pro",
             ],
+            http_list_models: false,
+        },
+        ProviderDefinition {
+            id: "ollama",
+            label: "Ollama",
+            command: "",
+            default_args: &[],
+            model_arg_template: None,
+            supports_model: false,
+            timeout_secs: 30,
+            list_models_command: None,
+            list_models_args: &[],
+            static_models: &[],
+            http_list_models: true,
         },
     ]
 }
@@ -835,6 +861,7 @@ mod tests {
             version: 1,
             revision: 1,
             peon_model: None,
+            ollama_base_url: default_ollama_base_url(),
             providers: builders.into_iter().map(|b| b.build()).collect(),
         }
     }
@@ -927,6 +954,7 @@ mod tests {
                 list_models_command: None,
                 list_models_args: &[],
                 static_models: &[],
+                http_list_models: false,
             }],
             sample_settings(vec![]),
             vec![],
@@ -950,6 +978,7 @@ mod tests {
                 list_models_command: None,
                 list_models_args: &[],
                 static_models: &["sonnet", "opus", "haiku"],
+                http_list_models: false,
             }],
             sample_settings(vec![]),
             vec![],
