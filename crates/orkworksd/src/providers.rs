@@ -5,9 +5,29 @@ use std::process::{Command, Stdio};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
+use reqwest::Client as HttpClient;
 use serde::{Deserialize, Serialize};
 
 use crate::peon;
+
+// --- Ollama API types ---
+
+#[derive(Deserialize)]
+struct OllamaTagsResponse {
+    models: Vec<OllamaModelEntry>,
+}
+
+#[derive(Deserialize)]
+struct OllamaModelEntry {
+    name: String,
+}
+
+#[derive(Deserialize)]
+struct OllamaGenerateResponse {
+    response: String,
+    #[allow(dead_code)]
+    done: bool,
+}
 
 // --- Enums ---
 
@@ -79,12 +99,18 @@ pub struct ProviderSettingsPayload {
     pub revision: u64,
     #[serde(rename = "peonModel", default)]
     pub peon_model: Option<String>,
+    #[serde(rename = "ollamaBaseUrl", default = "default_ollama_base_url")]
+    pub ollama_base_url: String,
     pub providers: Vec<ProviderSettingsEntry>,
+}
+
+pub(crate) fn default_ollama_base_url() -> String {
+    "http://127.0.0.1:11434".to_string()
 }
 
 impl Default for ProviderSettingsPayload {
     fn default() -> Self {
-        Self { version: 1, revision: 0, peon_model: None, providers: vec![] }
+        Self { version: 1, revision: 0, peon_model: None, ollama_base_url: default_ollama_base_url(), providers: vec![] }
     }
 }
 
@@ -112,6 +138,7 @@ pub struct ProviderDefinition {
     pub list_models_command: Option<&'static str>,
     pub list_models_args: &'static [&'static str],
     pub static_models: &'static [&'static str],
+    pub http_list_models: bool,
 }
 
 pub fn builtin_provider_registry() -> Vec<ProviderDefinition> {
@@ -127,6 +154,7 @@ pub fn builtin_provider_registry() -> Vec<ProviderDefinition> {
             list_models_command: Some("opencode"),
             list_models_args: &["models"],
             static_models: &[],
+            http_list_models: false,
         },
         ProviderDefinition {
             id: "claude-code",
@@ -139,12 +167,13 @@ pub fn builtin_provider_registry() -> Vec<ProviderDefinition> {
             list_models_command: None,
             list_models_args: &[],
             static_models: &[
-                "claude-sonnet-4-20250514",
+                "claude-sonnet-4-6",
                 "claude-opus-4-20250514",
                 "claude-opus-4-1-20250805",
                 "claude-sonnet-4-5-20250929",
                 "claude-haiku-3-5-20241022",
             ],
+            http_list_models: false,
         },
         ProviderDefinition {
             id: "codex",
@@ -162,6 +191,7 @@ pub fn builtin_provider_registry() -> Vec<ProviderDefinition> {
                 "gpt-5-mini",
                 "gpt-5-nano",
             ],
+            http_list_models: false,
         },
         ProviderDefinition {
             id: "gemini",
@@ -178,6 +208,7 @@ pub fn builtin_provider_registry() -> Vec<ProviderDefinition> {
                 "gemini-2.5-flash",
                 "gemini-2.0-flash",
             ],
+            http_list_models: false,
         },
         ProviderDefinition {
             id: "aider",
@@ -190,12 +221,13 @@ pub fn builtin_provider_registry() -> Vec<ProviderDefinition> {
             list_models_command: None,
             list_models_args: &[],
             static_models: &[
-                "claude-sonnet-4-20250514",
+                "claude-sonnet-4-6",
                 "claude-opus-4-20250514",
                 "gpt-4o",
                 "gpt-5",
                 "gemini-2.5-pro",
             ],
+            http_list_models: false,
         },
         ProviderDefinition {
             id: "gh-copilot",
@@ -210,9 +242,23 @@ pub fn builtin_provider_registry() -> Vec<ProviderDefinition> {
             static_models: &[
                 "gpt-4o",
                 "gpt-5",
-                "claude-sonnet-4-20250514",
+                "claude-sonnet-4-6",
                 "gemini-2.5-pro",
             ],
+            http_list_models: false,
+        },
+        ProviderDefinition {
+            id: "ollama",
+            label: "Ollama",
+            command: "",
+            default_args: &[],
+            model_arg_template: None,
+            supports_model: false,
+            timeout_secs: 30,
+            list_models_command: None,
+            list_models_args: &[],
+            static_models: &[],
+            http_list_models: true,
         },
     ]
 }
@@ -284,6 +330,16 @@ struct InvocationResult {
     stderr: String,
 }
 
+fn block_on_http<F: std::future::Future>(f: F) -> F::Output {
+    match tokio::runtime::Handle::try_current() {
+        Ok(handle) => handle.block_on(f),
+        Err(_) => {
+            let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime for HTTP");
+            rt.block_on(f)
+        }
+    }
+}
+
 trait ProviderRunner: Send + Sync {
     fn run(
         &self,
@@ -293,6 +349,20 @@ trait ProviderRunner: Send + Sync {
         prompt: &str,
         timeout_secs: u64,
     ) -> InvocationResult;
+}
+
+struct CompositeRunner {
+    process: ProcessRunner,
+    http: HttpRunner,
+}
+
+impl ProviderRunner for CompositeRunner {
+    fn run(&self, id: &str, command: &str, args: &[String], prompt: &str, timeout_secs: u64) -> InvocationResult {
+        match id {
+            "ollama" => self.http.run(id, command, args, prompt, timeout_secs),
+            _ => self.process.run(id, command, args, prompt, timeout_secs),
+        }
+    }
 }
 
 struct ProcessRunner;
@@ -345,6 +415,100 @@ impl ProviderRunner for ProcessRunner {
     }
 }
 
+struct HttpRunner {
+    settings: Arc<RwLock<ProviderSettingsPayload>>,
+}
+
+impl ProviderRunner for HttpRunner {
+    fn run(&self, id: &str, _command: &str, _args: &[String], prompt: &str, timeout_secs: u64) -> InvocationResult {
+        let settings = self.settings.read().unwrap().clone();
+        let base_url = match id {
+            "ollama" => settings.ollama_base_url.clone(),
+            _ => return InvocationResult {
+                success: false,
+                stdout: String::new(),
+                stderr: format!("HttpRunner does not support provider {id}"),
+            },
+        };
+
+        let model = match &settings.peon_model {
+            Some(m) if !m.is_empty() => m.clone(),
+            _ => {
+                return InvocationResult {
+                    success: false,
+                    stdout: String::new(),
+                    stderr: "no Ollama model selected in Peon settings".to_string(),
+                }
+            }
+        };
+
+        let url = format!("{base_url}/api/generate");
+        let body = serde_json::json!({
+            "model": model,
+            "prompt": prompt,
+            "stream": false,
+        });
+
+        let client = HttpClient::new();
+
+        let request_fut = client.post(&url).json(&body).send();
+        let resp = match block_on_http(async {
+            tokio::time::timeout(Duration::from_secs(timeout_secs), request_fut).await
+        }) {
+            Ok(Ok(r)) => r,
+            Ok(Err(e)) => {
+                let msg = if e.is_connect() {
+                    format!("Ollama endpoint unreachable at {base_url}")
+                } else if e.is_timeout() {
+                    "Ollama generate request timed out".to_string()
+                } else {
+                    format!("Ollama generate request failed: {e}")
+                };
+                return InvocationResult { success: false, stdout: String::new(), stderr: msg };
+            }
+            Err(_) => {
+                return InvocationResult { success: false, stdout: String::new(), stderr: "Ollama generate request timed out".to_string() };
+            }
+        };
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let err_body = block_on_http(resp.text()).unwrap_or_default();
+            return InvocationResult {
+                success: false,
+                stdout: String::new(),
+                stderr: format!("Ollama returned HTTP {}: {}", status.as_u16(), err_body.trim()),
+            };
+        }
+
+        let text = match block_on_http(resp.text()) {
+            Ok(t) => t,
+            Err(e) => return InvocationResult {
+                success: false,
+                stdout: String::new(),
+                stderr: format!("failed to read Ollama response: {e}"),
+            },
+        };
+
+        match serde_json::from_str::<OllamaGenerateResponse>(&text) {
+            Ok(gen) => {
+                InvocationResult {
+                    success: true,
+                    stdout: gen.response,
+                    stderr: String::new(),
+                }
+            }
+            Err(e) => {
+                InvocationResult {
+                    success: false,
+                    stdout: String::new(),
+                    stderr: format!("failed to parse Ollama generate response: {e}"),
+                }
+            }
+        }
+    }
+}
+
 // --- ProviderManager ---
 
 #[derive(Clone)]
@@ -358,12 +522,17 @@ pub struct ProviderManager {
 
 impl ProviderManager {
     pub fn new() -> Self {
+        let settings = Arc::new(RwLock::new(ProviderSettingsPayload::default()));
+        let runtime = Arc::new(RwLock::new(HashMap::new()));
         Self {
             registry: builtin_provider_registry(),
-            settings: Arc::new(RwLock::new(ProviderSettingsPayload::default())),
+            settings: settings.clone(),
             applied_revision: Arc::new(RwLock::new(None)),
-            runtime: Arc::new(RwLock::new(HashMap::new())),
-            runner: Arc::new(ProcessRunner),
+            runtime,
+            runner: Arc::new(CompositeRunner {
+                process: ProcessRunner,
+                http: HttpRunner { settings },
+            }),
         }
     }
 
@@ -420,6 +589,10 @@ impl ProviderManager {
         let definition = self.registry.iter()
             .find(|d| d.id == provider_id)
             .ok_or_else(|| format!("unknown provider: {provider_id}"))?;
+
+        if definition.http_list_models {
+            return self.list_models_http(provider_id);
+        }
 
         if definition.list_models_command.is_none() || definition.list_models_args.is_empty() {
             return Ok(definition.static_models.iter().map(|s| s.to_string()).collect());
@@ -610,6 +783,52 @@ impl ProviderManager {
 
         *self.runtime.write().unwrap() = runtime.clone();
         ProviderRunResult { inference: None, winning_provider_id: None, observation: None, attempts, runtime }
+    }
+
+    fn list_models_http(&self, provider_id: &str) -> Result<Vec<String>, String> {
+        let settings = self.settings.read().unwrap().clone();
+        let base_url = match provider_id {
+            "ollama" => &settings.ollama_base_url,
+            _ => return Err(format!("no HTTP base URL configured for {provider_id}")),
+        };
+
+        let url = format!("{base_url}/api/tags");
+        let client = HttpClient::new();
+
+        let request_fut = client.get(&url).send();
+        let resp = match block_on_http(async {
+            tokio::time::timeout(Duration::from_secs(10), request_fut).await
+        }) {
+            Ok(Ok(r)) => r,
+            Ok(Err(e)) => {
+                let msg = if e.is_connect() {
+                    format!("Ollama endpoint unreachable at {base_url}")
+                } else if e.is_timeout() {
+                    format!("Ollama request timed out for {url}")
+                } else {
+                    format!("Ollama request failed: {e}")
+                };
+                return Err(msg);
+            }
+            Err(_) => return Err(format!("Ollama request timed out for {url}")),
+        };
+
+        if !resp.status().is_success() {
+            return Err(format!("Ollama returned HTTP {}", resp.status().as_u16()));
+        }
+
+        let body = block_on_http(resp.text())
+            .map_err(|e| format!("failed to read Ollama response: {e}"))?;
+
+        let tags: OllamaTagsResponse = serde_json::from_str(&body)
+            .map_err(|e| format!("failed to parse Ollama /api/tags response: {e}"))?;
+
+        if tags.models.is_empty() {
+            return Err("Ollama returned an empty model list".to_string());
+        }
+
+        let models: Vec<String> = tags.models.into_iter().map(|m| m.name).collect();
+        Ok(models)
     }
 }
 
@@ -835,6 +1054,7 @@ mod tests {
             version: 1,
             revision: 1,
             peon_model: None,
+            ollama_base_url: default_ollama_base_url(),
             providers: builders.into_iter().map(|b| b.build()).collect(),
         }
     }
@@ -927,6 +1147,7 @@ mod tests {
                 list_models_command: None,
                 list_models_args: &[],
                 static_models: &[],
+                http_list_models: false,
             }],
             sample_settings(vec![]),
             vec![],
@@ -950,6 +1171,7 @@ mod tests {
                 list_models_command: None,
                 list_models_args: &[],
                 static_models: &["sonnet", "opus", "haiku"],
+                http_list_models: false,
             }],
             sample_settings(vec![]),
             vec![],
@@ -968,5 +1190,85 @@ mod tests {
 
         let err = manager.list_models("nonexistent").unwrap_err();
         assert!(err.contains("unknown provider"));
+    }
+
+    #[test]
+    fn ollama_provider_definition_in_registry() {
+        let registry = builtin_provider_registry();
+        let ollama = registry.iter().find(|d| d.id == "ollama");
+        assert!(ollama.is_some());
+        let ollama = ollama.unwrap();
+        assert_eq!(ollama.label, "Ollama");
+        assert!(ollama.http_list_models);
+    }
+
+    #[test]
+    fn ollama_run_inference_fails_when_no_runner_configured() {
+        let manager = ProviderManager::for_tests(
+            ProviderSettingsPayload {
+                version: 1,
+                revision: 1,
+                peon_model: None,
+                ollama_base_url: "http://127.0.0.1:11434".to_string(),
+                providers: vec![ProviderSettingsEntry {
+                    id: "ollama".to_string(),
+                    enabled: true,
+                    fallback_order: 0,
+                    default_state: ProviderCapacityState::Healthy,
+                    override_state: None,
+                }],
+            },
+            vec![],
+        );
+        let result = manager.run_inference(PeonScope::Session, &["test".to_string()]);
+        assert!(result.inference.is_none());
+        assert_eq!(result.attempts.len(), 1);
+        assert_eq!(result.attempts[0].outcome, AttemptOutcome::Failed);
+    }
+
+    #[test]
+    fn ollama_disabled_is_skipped() {
+        let manager = ProviderManager::for_tests(
+            ProviderSettingsPayload {
+                version: 1,
+                revision: 1,
+                peon_model: None,
+                ollama_base_url: "http://127.0.0.1:11434".to_string(),
+                providers: vec![ProviderSettingsEntry {
+                    id: "ollama".to_string(),
+                    enabled: false,
+                    fallback_order: 0,
+                    default_state: ProviderCapacityState::Healthy,
+                    override_state: None,
+                }],
+            },
+            vec![],
+        );
+        let result = manager.run_inference(PeonScope::Session, &["test".to_string()]);
+        assert!(result.inference.is_none());
+        assert_eq!(result.attempts[0].outcome, AttemptOutcome::SkippedDisabled);
+    }
+
+    #[test]
+    fn ollama_list_models_http_reaches_endpoint_or_fails_gracefully() {
+        let manager = ProviderManager::for_tests(
+            ProviderSettingsPayload {
+                version: 1,
+                revision: 1,
+                peon_model: None,
+                ollama_base_url: "http://127.0.0.1:49999".to_string(),
+                providers: vec![],
+            },
+            vec![],
+        );
+        // This bypasses FakeRunner — list_models() dispatches on http_list_models
+        // Uses a non-default port to avoid conflicting with a running Ollama
+        let result = manager.list_models("ollama");
+        assert!(result.is_err(), "expected error connecting to unused port 49999");
+        let e = result.unwrap_err();
+        assert!(
+            e.contains("unreachable") || e.contains("connection refused"),
+            "expected connection refused error, got: {e}"
+        );
     }
 }

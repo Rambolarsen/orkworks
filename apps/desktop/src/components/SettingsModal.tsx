@@ -1,14 +1,21 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { acceleratorFromKeyboardEvent } from "../hotkeyCapture";
 import type { AppSettings, HotkeySettings, RetentionSettings, SaveHotkeysResult } from "../appSettingsTypes";
-import type { ProviderSettings, ProviderModelsResponse, ProviderLabelsResponse } from "../providerTypes";
+import type { ProviderSettings, ProviderModelsResponse } from "../providerTypes";
+import type { ProviderRuntimeResponse } from "../api";
+import type { HarnessConfig } from "../harnessTypes";
+import ProviderSettingsSection from "./ProviderSettingsSection";
 
 type HotkeyAction = keyof HotkeySettings;
 
 interface SettingsModalProps {
   initialSettings: AppSettings;
+  harnesses: HarnessConfig[];
+  activeHarnessIds: string[];
+  providerRuntime: ProviderRuntimeResponse | null;
   onClose: () => void;
   onSaved: (settings: AppSettings) => void;
+  onSaveActiveHarnesses: (ids: string[]) => Promise<void>;
 }
 
 const hotkeyRows: Array<{ action: HotkeyAction; label: string; optional?: boolean }> = [
@@ -23,7 +30,7 @@ const hotkeyRows: Array<{ action: HotkeyAction; label: string; optional?: boolea
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-export default function SettingsModal({ initialSettings, onClose, onSaved }: SettingsModalProps) {
+export default function SettingsModal({ initialSettings, harnesses, activeHarnessIds, providerRuntime, onClose, onSaved, onSaveActiveHarnesses }: SettingsModalProps) {
   const modalRef = useRef<HTMLElement>(null);
   const defaultHotkeys = initialSettings.defaultHotkeys;
   const [draft, setDraft] = useState<HotkeySettings>(initialSettings.hotkeys);
@@ -35,9 +42,11 @@ export default function SettingsModal({ initialSettings, onClose, onSaved }: Set
   const [retentionSaveStatus, setRetentionSaveStatus] = useState<string | null>(null);
   const [providerDraft, setProviderDraft] = useState<ProviderSettings>(initialSettings.providers);
   const [providerModels, setProviderModels] = useState<Record<string, string[]>>({});
-  const [providerLabels, setProviderLabels] = useState<Record<string, string>>({});
   const [providerSaveStatus, setProviderSaveStatus] = useState<string | null>(null);
   const [peonModelDraft, setPeonModelDraft] = useState<string | null>(initialSettings.providers.peonModel);
+  const [ollamaBaseUrlDraft, setOllamaBaseUrlDraft] = useState<string>(initialSettings.providers.ollamaBaseUrl);
+  const [activeDraft, setActiveDraft] = useState<string[]>(activeHarnessIds);
+  const [activeSaveStatus, setActiveSaveStatus] = useState<string | null>(null);
 
   useLayoutEffect(() => {
     const modal = modalRef.current;
@@ -122,20 +131,12 @@ export default function SettingsModal({ initialSettings, onClose, onSaved }: Set
   }, []);
 
   useEffect(() => {
-    async function load() {
-      try {
-        const resp: ProviderLabelsResponse = await window.orkworks.getProviderLabels();
-        setProviderLabels(resp.labels);
-      } catch {
-        // Use raw IDs as fallback
-      }
-    }
-    load();
-  }, []);
-
-  useEffect(() => {
     setPeonModelDraft(providerDraft.peonModel);
   }, [providerDraft.peonModel]);
+
+  useEffect(() => {
+    setOllamaBaseUrlDraft(providerDraft.ollamaBaseUrl);
+  }, [providerDraft.ollamaBaseUrl]);
 
   async function saveRetention(rt: RetentionSettings) {
     setRetentionSaveStatus(null);
@@ -173,6 +174,22 @@ export default function SettingsModal({ initialSettings, onClose, onSaved }: Set
     await persistProviderSettings(next);
   }
 
+  function toggleHarness(id: string) {
+    setActiveDraft((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
+  }
+
+  async function saveActiveHarnessesHandler() {
+    setActiveSaveStatus(null);
+    try {
+      await onSaveActiveHarnesses(activeDraft);
+      setActiveSaveStatus("Saved");
+    } catch {
+      setActiveSaveStatus("Couldn't save active providers.");
+    }
+  }
+
   async function persistProviderSettings(settings: ProviderSettings) {
     try {
       const result = await window.orkworks.saveProviderSettings(settings);
@@ -198,9 +215,41 @@ export default function SettingsModal({ initialSettings, onClose, onSaved }: Set
         </header>
 
         <div className="settings-section">
-          <h3>Providers</h3>
+          <h3>Active Providers</h3>
           <p className="settings-section-copy">
-            Choose which model peon uses for all providers. Changes apply immediately.
+            Select which providers are available in this workspace. Shell is always available.
+          </p>
+
+          <div className="settings-config-list">
+            {harnesses
+              .filter((h) => h.id !== "generic-shell")
+              .sort((a, b) => a.name.localeCompare(b.name))
+              .map((h) => (
+                <label key={h.id} className="settings-config-item">
+                  <input
+                    type="checkbox"
+                    checked={activeDraft.includes(h.id)}
+                    onChange={() => toggleHarness(h.id)}
+                  />
+                  <span>{h.name}</span>
+                </label>
+              ))}
+          </div>
+
+          <div className="settings-config-footer">
+            <button type="button" onClick={saveActiveHarnessesHandler}>Save</button>
+            {activeSaveStatus && (
+              <span className={`settings-config-status ${activeSaveStatus === "Saved" ? "settings-config-status--ok" : ""}`}>
+                {activeSaveStatus}
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div className="settings-section">
+          <h3>Provider Settings</h3>
+          <p className="settings-section-copy">
+            Configure per-provider fallback order, state overrides, and peon model.
           </p>
 
           <div className="provider-list">
@@ -226,13 +275,30 @@ export default function SettingsModal({ initialSettings, onClose, onSaved }: Set
               </datalist>
             </div>
 
-            {[...providerDraft.providers]
-              .sort((a, b) => a.fallbackOrder - b.fallbackOrder)
-              .map((entry) => (
-                <div className="provider-card" key={entry.id}>
-                  <div className="provider-label">{providerLabels[entry.id] ?? entry.id}</div>
-                </div>
-              ))}
+            <div className="provider-card">
+              <div className="provider-label">Ollama Base URL</div>
+              <input
+                className="provider-model-select"
+                type="text"
+                placeholder="http://127.0.0.1:11434"
+                value={ollamaBaseUrlDraft}
+                onChange={(e) => setOllamaBaseUrlDraft(e.target.value.trim())}
+                onBlur={() => {
+                  const normalized = ollamaBaseUrlDraft.trim().replace(/\/+$/, "");
+                  if (normalized !== providerDraft.ollamaBaseUrl && (normalized.startsWith("http://") || normalized.startsWith("https://"))) {
+                    const next = { ...providerDraft, ollamaBaseUrl: normalized };
+                    setProviderDraft(next);
+                    persistProviderSettings(next);
+                  }
+                }}
+              />
+            </div>
+
+            <ProviderSettingsSection
+              providerSettings={providerDraft}
+              providerRuntime={providerRuntime}
+              onSaveProviderSettings={persistProviderSettings}
+            />
           </div>
 
           {providerSaveStatus && (

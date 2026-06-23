@@ -1,4 +1,4 @@
-export type ProviderId = "opencode" | "claude-code" | "codex" | "gemini" | "aider" | "gh-copilot";
+export type ProviderId = "opencode" | "claude-code" | "codex" | "gemini" | "aider" | "gh-copilot" | "ollama";
 export type ProviderCapacityState = "healthy" | "degraded" | "capped" | "unknown";
 export type ProviderEffectiveState = ProviderCapacityState | "disabled";
 
@@ -14,6 +14,7 @@ export interface ProviderSettings {
   version: 1;
   revision: number;
   peonModel: string | null;
+  ollamaBaseUrl: string;
   providers: ProviderSettingsEntry[];
 }
 

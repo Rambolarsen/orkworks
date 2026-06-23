@@ -9,6 +9,7 @@ function sampleProviderSettings(revision: number): ProviderSettings {
     version: 1,
     revision,
     peonModel: null,
+    ollamaBaseUrl: "http://127.0.0.1:11434",
     providers: [
       { id: "opencode", enabled: true, fallbackOrder: 0, defaultState: "healthy", overrideState: null },
       { id: "claude-code", enabled: true, fallbackOrder: 1, defaultState: "unknown", overrideState: null },

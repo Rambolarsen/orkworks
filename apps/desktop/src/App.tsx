@@ -11,6 +11,7 @@ import { pushToast } from "./feedback";
 import {
   type SessionInfo,
   type WorkspaceInfo,
+  type ProviderRuntimeResponse,
   createSession,
   listHarnesses,
   listSessions,
@@ -19,6 +20,7 @@ import {
   resumeSession,
   saveActiveHarnesses,
   setActiveWorkspaceSession,
+  getProviders,
 } from "./api";
 import { disposeTerminal, getTerminal } from "./terminalStore";
 import type { AppSettings } from "./appSettingsTypes";
@@ -31,6 +33,8 @@ function App() {
   const [workspace, setWorkspaceState] = useState<WorkspaceInfo | null>(null);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [providerRuntime, setProviderRuntime] = useState<ProviderRuntimeResponse | null>(null);
+  const [noProvidersPrompt, setNoProvidersPrompt] = useState(false);
   const [resumeTick, setResumeTick] = useState(0);
   const [harnesses, setHarnesses] = useState<HarnessConfig[]>([]);
   const [activeHarnessIds, setActiveHarnessIds] = useState<string[]>([]);
@@ -143,7 +147,14 @@ function App() {
       setSettings(loaded);
       setSettingsOpen(true);
     } catch {
-      pushToast("error", "Couldn't open settings.");
+      pushToast("error", "Couldn't load app settings.");
+    }
+    try {
+      const baseUrl = await window.orkworks.getBackendUrl();
+      const runtime = await getProviders(baseUrl);
+      setProviderRuntime(runtime);
+    } catch {
+      // Settings are already open; provider runtime will be null
     }
   }, []);
 
@@ -248,6 +259,13 @@ function App() {
       cancelled = true;
     };
   }, [backendStatus, refreshSessions, workspace]);
+
+  useEffect(() => {
+    if (backendStatus !== "connected" || !workspace || !settings) return;
+    if (activeHarnessIds.length === 0) {
+      setNoProvidersPrompt(true);
+    }
+  }, [backendStatus, workspace, settings, activeHarnessIds]);
 
   useEffect(() => {
     if (backendStatus !== "connected" || !activeSessionId) return;
@@ -407,9 +425,6 @@ function App() {
       {newSessionDialogOpen && (
         <NewSessionDialog
           harnesses={filteredHarnesses}
-          allHarnesses={harnesses}
-          activeHarnessIds={activeHarnessIds}
-          onSaveActiveHarnesses={handleSaveActiveHarnesses}
           onConfirm={handleConfirmNewSession}
           onCancel={() => setNewSessionDialogOpen(false)}
         />
@@ -417,9 +432,29 @@ function App() {
       {settingsOpen && settings && (
         <SettingsModal
           initialSettings={settings}
+          harnesses={harnesses}
+          activeHarnessIds={activeHarnessIds}
+          providerRuntime={providerRuntime}
           onClose={() => setSettingsOpen(false)}
           onSaved={(nextSettings) => setSettings(nextSettings)}
+          onSaveActiveHarnesses={handleSaveActiveHarnesses}
         />
+      )}
+      {noProvidersPrompt && (
+        <div className="settings-backdrop" role="presentation">
+          <section className="settings-modal" role="dialog" aria-modal="true">
+            <header className="settings-modal-header">
+              <h2>No Active Providers</h2>
+            </header>
+            <div className="settings-section">
+              <p>No provider harnesses are active in this workspace. Open settings to enable at least one.</p>
+            </div>
+            <footer className="settings-modal-footer">
+              <button type="button" onClick={() => setNoProvidersPrompt(false)}>Later</button>
+              <button type="button" className="settings-primary-button" onClick={() => { setNoProvidersPrompt(false); openSettings(); }}>Open Settings</button>
+            </footer>
+          </section>
+        </div>
       )}
     </div>
   );
