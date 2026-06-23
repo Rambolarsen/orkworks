@@ -334,6 +334,7 @@ test("settings memory seeds default provider settings", () => {
       version: 1,
       revision: 0,
       peonModel: null,
+      ollamaBaseUrl: "http://127.0.0.1:11434",
       providers: [
         { id: "opencode", enabled: true, fallbackOrder: 0, defaultState: "healthy", overrideState: null },
         { id: "claude-code", enabled: true, fallbackOrder: 1, defaultState: "unknown", overrideState: null },
@@ -341,6 +342,7 @@ test("settings memory seeds default provider settings", () => {
         { id: "gemini", enabled: true, fallbackOrder: 3, defaultState: "unknown", overrideState: null },
         { id: "aider", enabled: true, fallbackOrder: 4, defaultState: "unknown", overrideState: null },
         { id: "gh-copilot", enabled: true, fallbackOrder: 5, defaultState: "unknown", overrideState: null },
+        { id: "ollama", enabled: true, fallbackOrder: 6, defaultState: "unknown", overrideState: null },
       ],
     } satisfies ProviderSettings);
   } finally {
@@ -369,7 +371,7 @@ test("settings memory normalizes malformed provider payloads", () => {
     const settings = readSettings(dir);
     assert.equal(settings.providers.version, 1);
     assert.equal(settings.providers.revision, 4);
-    assert.deepEqual(settings.providers.providers.map((entry) => entry.id), ["claude-code", "opencode", "codex", "gemini", "aider", "gh-copilot"]);
+    assert.deepEqual(settings.providers.providers.map((entry) => entry.id), ["claude-code", "opencode", "codex", "gemini", "aider", "gh-copilot", "ollama"]);
     assert.equal(settings.providers.providers[0].enabled, true);
     assert.equal(settings.providers.providers[0].fallbackOrder, 0);
     assert.equal(settings.providers.providers[0].defaultState, "unknown");
@@ -399,7 +401,7 @@ test("settings memory preserves provider revisions and canonical fallback order 
     assert.equal(persisted.providers.revision, 7);
     assert.deepEqual(
       persisted.providers.providers.map((entry: { id: string; fallbackOrder: number }) => [entry.id, entry.fallbackOrder]),
-      [["codex", 0], ["opencode", 1], ["gemini", 2], ["aider", 3], ["gh-copilot", 4], ["claude-code", 5]],
+      [["codex", 0], ["opencode", 1], ["gemini", 2], ["aider", 3], ["gh-copilot", 4], ["ollama", 5], ["claude-code", 6]],
     );
   } finally {
     rmSync(dir, { recursive: true, force: true });
