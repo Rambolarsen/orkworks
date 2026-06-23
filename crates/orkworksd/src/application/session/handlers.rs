@@ -5,7 +5,6 @@ use crate::domain::session::{
     services::SessionLifecycle,
     value_objects::*,
 };
-use crate::harness::CommandSpec;
 use super::commands::*;
 
 pub struct CreateSessionHandler;
@@ -17,9 +16,7 @@ impl CreateSessionHandler {
         label: &str,
         workspace_path: &WorkspacePath,
         created_at: &str,
-        command_spec: &CommandSpec,
         provider_id: Option<String>,
-        provider_label: Option<String>,
     ) -> (Session, Vec<DomainEvent>) {
         let resume_memory = crate::harness::ResumeMemory {
             state: crate::harness::ResumeState::Available,
