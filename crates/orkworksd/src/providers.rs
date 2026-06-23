@@ -139,7 +139,7 @@ pub fn builtin_provider_registry() -> Vec<ProviderDefinition> {
             list_models_command: None,
             list_models_args: &[],
             static_models: &[
-                "claude-sonnet-4-20250514",
+                "claude-sonnet-4-6",
                 "claude-opus-4-20250514",
                 "claude-opus-4-1-20250805",
                 "claude-sonnet-4-5-20250929",
@@ -190,7 +190,7 @@ pub fn builtin_provider_registry() -> Vec<ProviderDefinition> {
             list_models_command: None,
             list_models_args: &[],
             static_models: &[
-                "claude-sonnet-4-20250514",
+                "claude-sonnet-4-6",
                 "claude-opus-4-20250514",
                 "gpt-4o",
                 "gpt-5",
@@ -210,7 +210,7 @@ pub fn builtin_provider_registry() -> Vec<ProviderDefinition> {
             static_models: &[
                 "gpt-4o",
                 "gpt-5",
-                "claude-sonnet-4-20250514",
+                "claude-sonnet-4-6",
                 "gemini-2.5-pro",
             ],
         },

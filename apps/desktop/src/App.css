@@ -277,6 +277,164 @@ html, body, #root {
   color: var(--state-ok);
 }
 
+.settings-config-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.settings-config-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: inherit;
+  font-size: var(--text-md);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.settings-config-item input[type="checkbox"] {
+  accent-color: var(--accent-strong);
+}
+
+.settings-config-footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.settings-config-footer button {
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: 5px 9px;
+  color: var(--text-secondary);
+  background: var(--surface-2);
+  font: inherit;
+  cursor: pointer;
+}
+
+.settings-config-footer button:hover {
+  background: var(--surface-3);
+}
+
+.settings-config-status {
+  color: var(--state-warn);
+  font-size: 12px;
+}
+
+.settings-config-status--ok {
+  color: var(--state-ok);
+}
+
+.provider-list {
+  margin-top: 12px;
+}
+
+.provider-card {
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+}
+
+.provider-label {
+  color: var(--text-secondary);
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.provider-model-select {
+  width: 100%;
+  border: 1px solid var(--border-default);
+  border-radius: 5px;
+  padding: 4px 7px;
+  color: var(--text-primary);
+  background: var(--surface-0);
+  font: inherit;
+  font-size: 13px;
+}
+
+.provider-model-select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.providers-health {
+  font-weight: 600;
+  text-transform: capitalize;
+  margin-bottom: 10px;
+  padding: 6px 10px;
+  border-radius: 5px;
+  font-size: 12px;
+}
+
+.providers-health--healthy {
+  background: var(--state-ok-bg);
+  color: var(--state-ok);
+}
+
+.providers-health--unhealthy {
+  background: var(--state-error-bg);
+  color: var(--state-error);
+}
+
+.providers-stale-banner {
+  background: var(--state-warn-bg);
+  color: var(--state-warn);
+  padding: 6px 10px;
+  border-radius: 5px;
+  margin-bottom: 10px;
+  font-size: 12px;
+}
+
+.provider-card header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.provider-card header h3 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--text-md);
+}
+
+.provider-card header span {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.provider-card > div {
+  color: var(--text-secondary);
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+
+.provider-card button {
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: 3px 7px;
+  margin-right: 6px;
+  margin-top: 6px;
+  color: var(--text-secondary);
+  background: var(--surface-2);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.provider-card button:hover:not(:disabled) {
+  background: var(--surface-3);
+}
+
+.provider-card button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .hotkey-value {
   justify-self: end;
   border: 1px solid var(--border-default);

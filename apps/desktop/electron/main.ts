@@ -34,43 +34,6 @@ function rendererSettings(settings: AppSettings): AppSettings & { defaultHotkeys
   };
 }
 
-async function refreshProviderModels(): Promise<void> {
-  const port = await portPromise;
-  const registry = ["opencode", "claude-code", "codex", "gemini", "aider", "gh-copilot"];
-  const next = new Map<string, string[]>();
-  for (const id of registry) {
-    try {
-      const resp = await fetch(`http://127.0.0.1:${port}/providers/${id}/models`);
-      if (resp.ok) {
-        const data = await resp.json() as { models: string[] };
-        next.set(id, data.models);
-      } else {
-        next.set(id, []);
-      }
-    } catch {
-      next.set(id, []);
-    }
-  }
-  providerModels = next;
-}
-
-async function refreshProviderLabels(): Promise<void> {
-  const port = await portPromise;
-  try {
-    const resp = await fetch(`http://127.0.0.1:${port}/providers`);
-    if (resp.ok) {
-      const data = await resp.json() as { providers: Array<{ id: string; label: string }> };
-      const labels: Record<string, string> = {};
-      for (const entry of data.providers) {
-        labels[entry.id] = entry.label;
-      }
-      providerLabels = labels;
-    }
-  } catch {
-    // Leave stale labels on failure
-  }
-}
-
 function createMenu(settings: AppSettings): Electron.Menu {
   const template = buildMenuTemplate({
     appName: app.name,
@@ -271,11 +234,43 @@ app.whenReady().then(() => {
   });
 
   ipcMain.handle("get-provider-models", async (_event, providerId: string) => {
-    return { models: providerModels.get(providerId) ?? [] };
+    if (providerModels.has(providerId)) {
+      return { models: providerModels.get(providerId)! };
+    }
+    try {
+      const port = await portPromise;
+      const resp = await fetch(`http://127.0.0.1:${port}/providers/${providerId}/models`);
+      if (resp.ok) {
+        const data = await resp.json() as { models: string[] };
+        providerModels.set(providerId, data.models);
+        return { models: data.models };
+      }
+    } catch {
+      // Fall through to empty
+    }
+    return { models: [] };
   });
 
   ipcMain.handle("get-provider-labels", async () => {
-    return { labels: { ...providerLabels } };
+    if (Object.keys(providerLabels).length > 0) {
+      return { labels: { ...providerLabels } };
+    }
+    try {
+      const port = await portPromise;
+      const resp = await fetch(`http://127.0.0.1:${port}/providers`);
+      if (resp.ok) {
+        const data = await resp.json() as { providers: Array<{ id: string; label: string }> };
+        const labels: Record<string, string> = {};
+        for (const entry of data.providers) {
+          labels[entry.id] = entry.label;
+        }
+        providerLabels = labels;
+        return { labels: { ...labels } };
+      }
+    } catch {
+      // Fall through to empty
+    }
+    return { labels: {} };
   });
 
   ipcMain.handle("open-workspace", async () => {
@@ -383,8 +378,6 @@ app.whenReady().then(() => {
       // Sidecar may not be ready yet; will be pushed on next save-retention
     }
     await syncSavedProviderSettings();
-    await refreshProviderModels();
-    await refreshProviderLabels();
   });
 
   async function syncSavedProviderSettings(): Promise<void> {
