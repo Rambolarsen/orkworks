@@ -227,7 +227,6 @@ async fn main() {
         .route("/settings/providers", post(set_provider_settings))
         .route("/workspace", post(set_workspace))
         .route("/workspace/active-session", post(set_active_session))
-        .route("/workspace/active-harnesses", put(set_active_harnesses))
         .route("/sessions", post(create_session))
         .route("/sessions", get(list_sessions))
         .route("/sessions/:id", delete(delete_session))
@@ -271,8 +270,6 @@ struct WorkspaceResponse {
     dirty: Option<bool>,
     #[serde(rename = "lastActiveSessionId")]
     last_active_session_id: Option<String>,
-    #[serde(rename = "activeHarnessIds")]
-    active_harness_ids: Vec<String>,
 }
 
 async fn set_workspace(
@@ -292,13 +289,9 @@ async fn set_workspace(
     }
 
     let store = metadata::MetadataStore::new(&orkworks_dir);
-    let workspace_memory = store.read_workspace_memory();
-    let last_active_session_id = workspace_memory
-        .as_ref()
-        .and_then(|memory| memory.last_active_session_id.clone());
-    let active_harness_ids = workspace_memory
-        .map(|memory| memory.active_harness_ids)
-        .unwrap_or_default();
+    let last_active_session_id = store
+        .read_workspace_memory()
+        .and_then(|memory| memory.last_active_session_id);
     let watch_dir = orkworks_dir.join("sessions");
     let watcher = watcher::MetadataWatcher::start(&watch_dir);
 
@@ -317,7 +310,6 @@ async fn set_workspace(
         branch: git_ctx.branch,
         dirty: Some(git_ctx.dirty),
         last_active_session_id,
-        active_harness_ids,
     })
     .into_response()
 }
@@ -338,30 +330,6 @@ async fn set_active_session(
             last_active_session_id: Some(req.session_id),
             last_active_at: Some(now),
             active_harness_ids: existing.map(|m| m.active_harness_ids).unwrap_or_default(),
-        });
-        return axum::http::StatusCode::OK;
-    }
-    axum::http::StatusCode::CONFLICT
-}
-
-#[derive(Deserialize)]
-struct ActiveHarnessesRequest {
-    #[serde(rename = "activeHarnessIds")]
-    active_harness_ids: Vec<String>,
-}
-
-async fn set_active_harnesses(
-    State(state): State<Arc<AppState>>,
-    Json(req): Json<ActiveHarnessesRequest>,
-) -> impl IntoResponse {
-    let now = iso_now();
-    let ws_guard = state.workspace.lock().unwrap();
-    if let Some(ref ws) = *ws_guard {
-        let existing = ws.metadata.read_workspace_memory();
-        ws.metadata.write_workspace_memory(&metadata::WorkspaceMemory {
-            last_active_session_id: existing.as_ref().and_then(|m| m.last_active_session_id.clone()),
-            last_active_at: Some(now),
-            active_harness_ids: req.active_harness_ids,
         });
         return axum::http::StatusCode::OK;
     }
@@ -521,16 +489,9 @@ fn resolve_session_launch(
             let model = req.model.clone().or_else(|| {
                 (!config.default_model.is_empty()).then(|| config.default_model.clone())
             });
-            let model_value = model.clone().unwrap_or_default();
-            let args: Vec<String> = config.args.iter()
-                .filter_map(|arg| {
-                    if arg.contains("{model}") && model_value.is_empty() {
-                        None
-                    } else {
-                        Some(arg.replace("{model}", &model_value))
-                    }
-                })
-                .collect();
+            let args: Vec<String> = config.args.iter().map(|arg| {
+                arg.replace("{model}", model.as_deref().unwrap_or(""))
+            }).collect();
             let (provider_id, provider_label) = provider_context_for_harness(harness_id)
                 .map(|(id, label)| (Some(id), Some(label)))
                 .unwrap_or((None, None));
@@ -757,6 +718,11 @@ async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse 
     let all_metadata_sessions = ws_guard.as_ref().map(|ws| ws.metadata.read_all_sessions()).unwrap_or_default();
     drop(ws_guard);
 
+    let live_ids: HashSet<String> = session_data.iter()
+        .filter(|(_, _, status, _, _)| status != "killed" && status != "ended" && status != "error")
+        .map(|(id, _, _, _, _)| id.clone())
+        .collect();
+
     let peon_times = state.peon.last_inference.read().unwrap();
     let mut infos: Vec<SessionInfo> = session_data.into_iter().map(|(id, label, status, cwd, created_at)| {
         let meta = metadata_map.get(&id);
@@ -806,12 +772,9 @@ async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse 
         }
     }).collect();
 
-    // Append remembered (non-live) sessions from metadata.
-    // Also skip any ID already in infos from session_data (e.g. ended/killed sessions
-    // that are still in the in-memory map — checking only live_ids would miss them).
-    let info_ids: HashSet<String> = infos.iter().map(|i| i.id.clone()).collect();
+    // Append remembered (non-live) sessions from metadata
     for meta in &all_metadata_sessions {
-        if info_ids.contains(&meta.id) {
+        if live_ids.contains(&meta.id) {
             continue;
         }
         let session_harness_id = (!meta.harness.is_empty()).then(|| meta.harness.as_str());
@@ -1319,8 +1282,8 @@ fn builtin_harness_configs() -> Vec<HarnessConfig> {
             name: "Claude Code".into(),
             harness: "claude-code".into(),
             command: "claude".into(),
-            args: vec!["--model={model}".into()],
-            default_model: String::new(),
+            args: vec![],
+            default_model: "claude-sonnet-4-20250514".into(),
             capabilities: HarnessVoiceCapabilities::default(),
             is_builtin: true,
         },
@@ -1329,7 +1292,7 @@ fn builtin_harness_configs() -> Vec<HarnessConfig> {
             name: "OpenCode".into(),
             harness: "opencode".into(),
             command: "opencode".into(),
-            args: vec!["--model={model}".into()],
+            args: vec![],
             default_model: String::new(),
             capabilities: HarnessVoiceCapabilities::default(),
             is_builtin: true,
@@ -1339,7 +1302,7 @@ fn builtin_harness_configs() -> Vec<HarnessConfig> {
             name: "Codex".into(),
             harness: "generic-shell".into(),
             command: "codex".into(),
-            args: vec!["--model={model}".into()],
+            args: vec![],
             default_model: String::new(),
             capabilities: HarnessVoiceCapabilities::default(),
             is_builtin: true,
@@ -1349,7 +1312,7 @@ fn builtin_harness_configs() -> Vec<HarnessConfig> {
             name: "Gemini CLI".into(),
             harness: "generic-shell".into(),
             command: "gemini".into(),
-            args: vec!["--model={model}".into()],
+            args: vec![],
             default_model: String::new(),
             capabilities: HarnessVoiceCapabilities::default(),
             is_builtin: true,
@@ -1359,8 +1322,8 @@ fn builtin_harness_configs() -> Vec<HarnessConfig> {
             name: "Aider".into(),
             harness: "generic-shell".into(),
             command: "aider".into(),
-            args: vec!["--model={model}".into()],
-            default_model: String::new(),
+            args: vec!["--model".into(), "{model}".into()],
+            default_model: "claude-sonnet-4-20250514".into(),
             capabilities: HarnessVoiceCapabilities::default(),
             is_builtin: true,
         },
@@ -2265,7 +2228,6 @@ mod tests {
             branch: Some("main".into()),
             dirty: Some(false),
             last_active_session_id: Some("session-1".into()),
-            active_harness_ids: vec!["opencode".into(), "claude-code".into()],
         };
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("\"path\":\"/tmp\""));
@@ -2273,7 +2235,6 @@ mod tests {
         assert!(json.contains("\"branch\":\"main\""));
         assert!(json.contains("\"dirty\":false"));
         assert!(json.contains("\"lastActiveSessionId\":\"session-1\""));
-        assert!(json.contains("\"activeHarnessIds\":[\"opencode\",\"claude-code\"]"));
     }
 
     #[test]
@@ -2284,7 +2245,6 @@ mod tests {
             branch: None,
             dirty: None,
             last_active_session_id: None,
-            active_harness_ids: vec![],
         };
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("\"path\":\"/tmp\""));
@@ -2638,7 +2598,6 @@ mod tests {
                     version: 1,
                     revision: 1,
                     peon_model: None,
-                    ollama_base_url: providers::default_ollama_base_url(),
                     providers: vec![providers::ProviderSettingsEntry {
                         id: "opencode".to_string(),
                         enabled: true,
@@ -2811,7 +2770,6 @@ mod tests {
                     version: 1,
                     revision: 1,
                     peon_model: None,
-                    ollama_base_url: providers::default_ollama_base_url(),
                     providers: vec![providers::ProviderSettingsEntry {
                         id: "opencode".to_string(),
                         enabled: true,
