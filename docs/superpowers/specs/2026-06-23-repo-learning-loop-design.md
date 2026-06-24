@@ -36,7 +36,7 @@ Today those patterns often stay trapped inside:
 
 That wastes time and creates avoidable variance. A repo may already have the raw evidence that a reusable loop, skill, hook, rule, or doc update would help, but there is no structured path from "this keeps happening" to "this repo should capture it."
 
-Hermes-style memory and learning are useful here, but OrkWorks must apply them within its own product boundary: observe, detect, recommend, and prepare reviewable artifacts without becoming an autonomous agent platform.
+Memory and learning patterns are useful here, but OrkWorks must apply them within its own product boundary: observe, detect, recommend, and prepare reviewable artifacts without becoming an autonomous agent platform.
 
 ## Design Goals
 
