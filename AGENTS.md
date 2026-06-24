@@ -112,6 +112,8 @@ Before OpenCode implementation work, verify that the skill tool lists Superpower
 
 When starting any task that will produce code changes, invoke the `starting-work` skill (in `skills/starting-work/`) before editing. It walks through the branch-vs-worktree decision, naming convention, and per-checkout setup that operationalize the rules in this section.
 
+**Never work on branches you don't own.** If the primary checkout is on a branch someone else created, do not add commits to it — open a worktree on your own branch instead. If you find yourself on a foreign branch in a worktree, stop and create a new one.
+
 **Direct to `main` is allowed for:**
 - Docs-only changes: `docs/`, `specs/`, ADRs, `README.md`, `AGENTS.md`, `CLAUDE.md`, and other `*.md` outside `apps/`/`crates/`.
 - Trivial code fixes under ~20 lines (typos, comment edits, single-line config tweaks). When in doubt, branch.
@@ -126,7 +128,9 @@ When starting any task that will produce code changes, invoke the `starting-work
 
 **Stranded branches:** branches that go >7 days without merging must either be rebased and progressed, or closed with a one-line reason in the PR. No long-lived dev branches. The same rule applies to stranded worktrees.
 
-**Parallel work:** when more than one branch is in flight at once (multiple agents running concurrently, a hotfix on top of an in-progress feature), use `git worktree` so each branch has its own filesystem checkout — branch-switching in the main checkout will collide with other agents' uncommitted edits and build output. Invoke the `starting-work` skill before opening a worktree for the path convention, per-worktree setup, and cleanup steps.
+**Parallel work:** when more than one branch is in flight at once (multiple agents running concurrently, a hotfix on top of an in-progress feature), use `git worktree` so each branch has its own filesystem checkout — branch-switching in the main checkout will collide with other agents' uncommitted edits and build output. Also use a worktree whenever the active branch in the primary checkout is one you did not create, even if no other agent is running. Invoke the `starting-work` skill before opening a worktree for the path convention, per-worktree setup, and cleanup steps.
+
+**Clean up your worktrees when done.** Remove the worktree and prune it as soon as the branch merges (or the task is abandoned). Leaving stale worktrees behind wastes disk space and confuses subsequent `git worktree list` output. The `starting-work` skill includes the exact cleanup commands.
 
 ## Decision tracking
 

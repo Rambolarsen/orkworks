@@ -18,11 +18,12 @@ Pick the lowest-overhead option that satisfies the rules in `AGENTS.md`.
 | Change shape | Where to work |
 | ------------ | ------------- |
 | Docs-only (`docs/`, `specs/`, ADRs, `*.md` outside `apps/`/`crates/`) or trivial code fix <~20 lines | Directly on `main` in the primary checkout |
-| Code change in `apps/desktop/` or `crates/orkworksd/`, no other agent active | Branch in the primary checkout |
+| Code change in `apps/desktop/` or `crates/orkworksd/`, no other agent active, branch is **yours** | Branch in the primary checkout |
+| Code change while the active branch in the primary checkout is **not yours** | Worktree (do not add commits to someone else's branch) |
 | Code change while another branch is already in flight in the primary checkout, or another agent is running | Worktree |
 | Parallel agents on independent tasks | One worktree per agent, always |
 
-The trigger for a worktree is **concurrency**, not branch existence. A solo single-branch day does not need one.
+The triggers for a worktree are **concurrency** and **foreign-branch ownership**. If the primary checkout is on a branch you didn't create, use a worktree — never work on branches you don't own.
 
 ## Path and naming convention
 
@@ -63,6 +64,8 @@ Notes:
 
 ## Wrapping up
 
+**Always clean up your worktrees when done.** Leaving stale worktrees behind wastes disk space and creates confusion for future sessions.
+
 When the branch merges (squash-merge by default per `AGENTS.md`):
 
 ```bash
@@ -71,6 +74,8 @@ git worktree remove ../orkworks-<branch-slug>
 git worktree prune
 git branch -d <branch-slug>          # local cleanup
 ```
+
+Also clean up worktrees for abandoned tasks — if you decide not to pursue a task, remove the worktree immediately. Do not leave it "just in case."
 
 Stranded worktrees follow the 7-day stranded-branch rule. If a worktree has gone >7 days without progress, either rebase and continue or remove it and close its PR with a one-line reason.
 
