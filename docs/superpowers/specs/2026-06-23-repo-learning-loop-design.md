@@ -220,7 +220,7 @@ When a maintainer rejects a draft, OrkWorks should store:
 
 Taskmaster should consult rejection memory before drafting or surfacing similar candidates. If a new candidate materially differs from the rejected one, it may still surface it, but it must explain why this case is meaningfully different.
 
-This is a load-bearing part of the design. Without rejection memory, setup learning becomes repetitive process spam instead of useful curation.
+This is a load-bearing part of the design. Without rejection memory, setup-learning becomes repetitive process spam instead of useful curation.
 
 ## Components And Data Flow
 
