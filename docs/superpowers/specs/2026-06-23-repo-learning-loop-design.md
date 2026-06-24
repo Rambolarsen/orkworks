@@ -51,7 +51,7 @@ Hermes-style memory and learning are useful here, but OrkWorks must apply them w
 
 ### Product Boundary
 
-OrkWorks gains a new capability: `setup learning`.
+OrkWorks gains a new capability: `setup-learning`.
 
 Peons continue to observe sessions and repo artifacts. Taskmaster consumes that evidence and decides whether a repeated pattern is strong enough to justify a reusable repo-level improvement. When it is, Taskmaster drafts a recommendation package for review.
 
