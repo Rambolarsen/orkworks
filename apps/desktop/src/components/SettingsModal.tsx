@@ -297,7 +297,6 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
             <ProviderSettingsSection
               providerSettings={providerDraft}
               providerRuntime={providerRuntime}
-              onSaveProviderSettings={persistProviderSettings}
             />
           </div>
 

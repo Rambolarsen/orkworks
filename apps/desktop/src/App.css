@@ -361,24 +361,6 @@ html, body, #root {
   border-color: var(--accent);
 }
 
-.providers-health {
-  font-weight: 600;
-  text-transform: capitalize;
-  margin-bottom: 10px;
-  padding: 6px 10px;
-  border-radius: 5px;
-  font-size: 12px;
-}
-
-.providers-health--healthy {
-  background: var(--state-ok-bg);
-  color: var(--state-ok);
-}
-
-.providers-health--unhealthy {
-  background: var(--state-error-bg);
-  color: var(--state-error);
-}
 
 .providers-stale-banner {
   background: var(--state-warn-bg);

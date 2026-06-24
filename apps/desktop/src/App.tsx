@@ -425,6 +425,7 @@ function App() {
       {newSessionDialogOpen && (
         <NewSessionDialog
           harnesses={filteredHarnesses}
+          providerRuntime={providerRuntime}
           onConfirm={handleConfirmNewSession}
           onCancel={() => setNewSessionDialogOpen(false)}
         />

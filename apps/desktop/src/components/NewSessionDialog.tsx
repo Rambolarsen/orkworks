@@ -1,15 +1,22 @@
 import { useEffect, useRef, useState } from "react";
 import type { HarnessConfig, CreateSessionOptions } from "../harnessTypes";
 import type { ProviderModelsResponse } from "../providerTypes";
+import type { ProviderRuntimeResponse } from "../api";
 import { canStartNewSession, syncDraftWithHarnesses } from "../newSessionDialogState";
 
 interface NewSessionDialogProps {
   harnesses: HarnessConfig[];
+  providerRuntime: ProviderRuntimeResponse | null;
   onConfirm: (opts: CreateSessionOptions) => void;
   onCancel: () => void;
 }
 
-export default function NewSessionDialog({ harnesses, onConfirm, onCancel }: NewSessionDialogProps) {
+function harnessLabel(name: string, state: string | undefined): string {
+  if (!state || state === "healthy" || state === "unknown") return name;
+  return `${name} (${state})`;
+}
+
+export default function NewSessionDialog({ harnesses, providerRuntime, onConfirm, onCancel }: NewSessionDialogProps) {
   const defaultHarness = harnesses[0] ?? null;
   const [draft, setDraft] = useState(() => ({
     harnessId: defaultHarness?.id ?? "",
@@ -100,9 +107,10 @@ export default function NewSessionDialog({ harnesses, onConfirm, onCancel }: New
               {harnesses.length === 0 ? (
                 <option value="">Default shell</option>
               ) : (
-                harnesses.map((h) => (
-                  <option key={h.id} value={h.id}>{h.name}</option>
-                ))
+                harnesses.map((h) => {
+                  const state = providerRuntime?.providers.find((p) => p.id === h.id)?.effectiveState;
+                  return <option key={h.id} value={h.id}>{harnessLabel(h.name, state)}</option>;
+                })
               )}
             </select>
           </div>

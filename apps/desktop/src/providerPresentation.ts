@@ -33,7 +33,6 @@ export interface ProviderViewModel {
   rows: ProviderRow[];
   isStale: boolean;
   summary: {
-    overallStatus: "healthy" | "unhealthy";
     currentProviderLabel: string | null;
   };
 }
@@ -69,15 +68,10 @@ export function buildProviderViewModel(
     ? (runtimeMap.get(winningProviderId)?.label ?? null)
     : null;
 
-  const hasEnabled = rows.some(
-    (r) => r.effectiveState === "healthy" || r.effectiveState === "degraded" || r.effectiveState === "unknown",
-  );
-
   return {
     rows,
     isStale,
     summary: {
-      overallStatus: hasEnabled ? "healthy" : "unhealthy",
       currentProviderLabel,
     },
   };
