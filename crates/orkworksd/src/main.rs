@@ -156,6 +156,8 @@ struct HarnessConfig {
     args: Vec<String>,
     #[serde(rename = "defaultModel", default)]
     default_model: String,
+    #[serde(rename = "modelPrefix", default)]
+    model_prefix: String,
     #[serde(default)]
     capabilities: HarnessVoiceCapabilities,
     #[serde(rename = "isBuiltin", default)]
@@ -489,8 +491,9 @@ fn resolve_session_launch(
             let model = req.model.clone().or_else(|| {
                 (!config.default_model.is_empty()).then(|| config.default_model.clone())
             });
+            let model_value = format!("{}{}", config.model_prefix, model.as_deref().unwrap_or(""));
             let args: Vec<String> = config.args.iter().map(|arg| {
-                arg.replace("{model}", model.as_deref().unwrap_or(""))
+                arg.replace("{model}", &model_value)
             }).collect();
             let (provider_id, provider_label) = provider_context_for_harness(harness_id)
                 .map(|(id, label)| (Some(id), Some(label)))
@@ -1284,6 +1287,7 @@ fn builtin_harness_configs() -> Vec<HarnessConfig> {
             command: "claude".into(),
             args: vec![],
             default_model: "claude-sonnet-4-20250514".into(),
+            model_prefix: String::new(),
             capabilities: HarnessVoiceCapabilities::default(),
             is_builtin: true,
         },
@@ -1292,8 +1296,9 @@ fn builtin_harness_configs() -> Vec<HarnessConfig> {
             name: "OpenCode".into(),
             harness: "opencode".into(),
             command: "opencode".into(),
-            args: vec![],
+            args: vec!["--model".into(), "{model}".into()],
             default_model: String::new(),
+            model_prefix: "ollama/".into(),
             capabilities: HarnessVoiceCapabilities::default(),
             is_builtin: true,
         },
@@ -1304,6 +1309,7 @@ fn builtin_harness_configs() -> Vec<HarnessConfig> {
             command: "codex".into(),
             args: vec![],
             default_model: String::new(),
+            model_prefix: String::new(),
             capabilities: HarnessVoiceCapabilities::default(),
             is_builtin: true,
         },
@@ -1314,6 +1320,7 @@ fn builtin_harness_configs() -> Vec<HarnessConfig> {
             command: "gemini".into(),
             args: vec![],
             default_model: String::new(),
+            model_prefix: String::new(),
             capabilities: HarnessVoiceCapabilities::default(),
             is_builtin: true,
         },
@@ -1324,6 +1331,7 @@ fn builtin_harness_configs() -> Vec<HarnessConfig> {
             command: "aider".into(),
             args: vec!["--model".into(), "{model}".into()],
             default_model: "claude-sonnet-4-20250514".into(),
+            model_prefix: "ollama_chat/".into(),
             capabilities: HarnessVoiceCapabilities::default(),
             is_builtin: true,
         },
@@ -1334,6 +1342,7 @@ fn builtin_harness_configs() -> Vec<HarnessConfig> {
             command: shell_program,
             args: shell_args,
             default_model: String::new(),
+            model_prefix: String::new(),
             capabilities: HarnessVoiceCapabilities::default(),
             is_builtin: true,
         },
