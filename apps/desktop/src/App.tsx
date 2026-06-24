@@ -262,10 +262,11 @@ function App() {
 
   useEffect(() => {
     if (backendStatus !== "connected" || !workspace || !settings) return;
+    if (settingsOpen) return;
     if (activeHarnessIds.length === 0) {
       setNoProvidersPrompt(true);
     }
-  }, [backendStatus, workspace, settings, activeHarnessIds]);
+  }, [backendStatus, workspace, settings, settingsOpen, activeHarnessIds]);
 
   useEffect(() => {
     if (backendStatus !== "connected" || !activeSessionId) return;

@@ -7,7 +7,7 @@ Mission Control for AI Agents
 
 Product name: **OrkWorks**.
 
-Protocol directory: **`.orkworks/`**.
+Protocol directory: **`.orkworks/`** (under `~/.orkworks/`, see [ADR 0018](docs/adr/0018-global-metadata-store.md)).
 
 Low-cost metadata worker: **Peon**.
 
@@ -298,16 +298,16 @@ The first useful MVP should include:
 
 #### Session Metadata Protocol
 
-- create `.orkworks/` structure inside each workspace when enabled:
-  - `.orkworks/sessions/`
-  - `.orkworks/events/`
-  - `.orkworks/capacity/`
-  - `.orkworks/skills/`
-- read/write `.orkworks/sessions/<session-id>.json`
+- create `.orkworks/` structure under `~/.orkworks/workspaces/<path-hash>/` when enabled:
+  - `sessions/`
+  - `events/`
+  - `capacity/`
+  - `skills/`
+- read/write `sessions/<session-id>.json`
 - watch session JSON files for changes
 - trust explicit agent-written session JSON
 - infer state when JSON is missing or stale
-- append basic event logs to `.orkworks/events/<session-id>.ndjson`
+- append basic event logs to `events/<session-id>.ndjson`
 
 #### Git Context Detection
 
@@ -513,7 +513,7 @@ Goal: Show meaningful session metadata.
 
 Deliverables:
 
-- create `.orkworks/sessions/<id>.json`
+- create `sessions/<id>.json` under the global metadata root
 - watch file changes
 - reflect status in UI
 - append basic event log

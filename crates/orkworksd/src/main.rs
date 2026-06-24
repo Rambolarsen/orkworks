@@ -7,6 +7,7 @@ use axum::{
 };
 use portable_pty::{CommandBuilder, PtySize, PtySystem};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
 use std::net::SocketAddr;
@@ -29,6 +30,7 @@ mod providers;
 mod domain;
 mod application;
 mod infrastructure;
+mod migration;
 
 use crate::infrastructure::session_module::SessionModule;
 
@@ -229,6 +231,7 @@ async fn main() {
         .route("/settings/providers", post(set_provider_settings))
         .route("/workspace", post(set_workspace))
         .route("/workspace/active-session", post(set_active_session))
+        .route("/workspace/active-harnesses", put(set_active_harnesses))
         .route("/sessions", post(create_session))
         .route("/sessions", get(list_sessions))
         .route("/sessions/:id", delete(delete_session))
@@ -264,6 +267,12 @@ struct ActiveSessionRequest {
     session_id: String,
 }
 
+#[derive(Deserialize)]
+struct ActiveHarnessesRequest {
+    #[serde(rename = "activeHarnessIds", default)]
+    active_harness_ids: Vec<String>,
+}
+
 #[derive(Serialize)]
 struct WorkspaceResponse {
     path: String,
@@ -272,6 +281,8 @@ struct WorkspaceResponse {
     dirty: Option<bool>,
     #[serde(rename = "lastActiveSessionId")]
     last_active_session_id: Option<String>,
+    #[serde(rename = "activeHarnessIds", skip_serializing_if = "Vec::is_empty")]
+    active_harness_ids: Vec<String>,
 }
 
 async fn set_workspace(
@@ -283,18 +294,24 @@ async fn set_workspace(
         return (axum::http::StatusCode::BAD_REQUEST, "not a directory").into_response();
     }
 
-    let orkworks_dir = ws_path.join(".orkworks");
+    let global_dir = match orksworks_global_dir(&ws_path) {
+        Some(d) => d,
+        None => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "no home directory").into_response(),
+    };
     for dir in &["sessions", "events", "capacity", "skills"] {
-        if let Err(e) = std::fs::create_dir_all(orkworks_dir.join(dir)) {
-            tracing::warn!("failed to create .orkworks/{}: {e}", dir);
+        if let Err(e) = std::fs::create_dir_all(global_dir.join(dir)) {
+            tracing::warn!("failed to create {}/{dir}: {e}", global_dir.display());
         }
     }
 
-    let store = metadata::MetadataStore::new(&orkworks_dir);
-    let last_active_session_id = store
-        .read_workspace_memory()
-        .and_then(|memory| memory.last_active_session_id);
-    let watch_dir = orkworks_dir.join("sessions");
+    let store = metadata::MetadataStore::new(&global_dir);
+
+    migration::migrate_if_needed(&ws_path, &global_dir);
+
+    let memory = store.read_workspace_memory();
+    let last_active_session_id = memory.as_ref().and_then(|m| m.last_active_session_id.clone());
+    let active_harness_ids = memory.map(|m| m.active_harness_ids).unwrap_or_default();
+    let watch_dir = global_dir.join("sessions");
     let watcher = watcher::MetadataWatcher::start(&watch_dir);
 
     let mut ws = state.workspace.lock().unwrap();
@@ -312,6 +329,7 @@ async fn set_workspace(
         branch: git_ctx.branch,
         dirty: Some(git_ctx.dirty),
         last_active_session_id,
+        active_harness_ids,
     })
     .into_response()
 }
@@ -332,6 +350,24 @@ async fn set_active_session(
             last_active_session_id: Some(req.session_id),
             last_active_at: Some(now),
             active_harness_ids: existing.map(|m| m.active_harness_ids).unwrap_or_default(),
+        });
+        return axum::http::StatusCode::OK;
+    }
+    axum::http::StatusCode::CONFLICT
+}
+
+async fn set_active_harnesses(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<ActiveHarnessesRequest>,
+) -> impl IntoResponse {
+    let now = iso_now();
+    let ws_guard = state.workspace.lock().unwrap();
+    if let Some(ref ws) = *ws_guard {
+        let existing = ws.metadata.read_workspace_memory();
+        ws.metadata.write_workspace_memory(&metadata::WorkspaceMemory {
+            last_active_session_id: existing.as_ref().and_then(|m| m.last_active_session_id.clone()),
+            last_active_at: Some(now),
+            active_harness_ids: req.active_harness_ids,
         });
         return axum::http::StatusCode::OK;
     }
@@ -1277,6 +1313,22 @@ fn global_harnesses_path() -> Option<std::path::PathBuf> {
     dirs::home_dir().map(|h| h.join(".orkworks").join("harnesses.json"))
 }
 
+fn workspace_hash(path: &std::path::Path) -> String {
+    let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let mut hasher = Sha256::new();
+    hasher.update(canonical.to_string_lossy().as_bytes());
+    let result = hasher.finalize();
+    hex::encode(&result[..8])
+}
+
+fn orksworks_global_dir(workspace_path: &std::path::Path) -> Option<PathBuf> {
+    dirs::home_dir().map(|h| {
+        h.join(".orkworks")
+            .join("workspaces")
+            .join(workspace_hash(workspace_path))
+    })
+}
+
 fn builtin_harness_configs() -> Vec<HarnessConfig> {
     let (shell_program, shell_args) = shell_cmd();
     vec![
@@ -1286,7 +1338,7 @@ fn builtin_harness_configs() -> Vec<HarnessConfig> {
             harness: "claude-code".into(),
             command: "claude".into(),
             args: vec![],
-            default_model: "claude-sonnet-4-20250514".into(),
+            default_model: String::new(),
             model_prefix: String::new(),
             capabilities: HarnessVoiceCapabilities::default(),
             is_builtin: true,
@@ -2237,6 +2289,7 @@ mod tests {
             branch: Some("main".into()),
             dirty: Some(false),
             last_active_session_id: Some("session-1".into()),
+            active_harness_ids: vec![],
         };
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("\"path\":\"/tmp\""));
@@ -2254,6 +2307,7 @@ mod tests {
             branch: None,
             dirty: None,
             last_active_session_id: None,
+            active_harness_ids: vec![],
         };
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("\"path\":\"/tmp\""));

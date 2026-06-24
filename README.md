@@ -31,11 +31,14 @@ orkworks/
 
 ## Metadata protocol
 
-- `.orkworks/sessions/<id>.json` — agent-written session state
-- `.orkworks/events/<id>.ndjson` — append-only event log
-- `.orkworks/capacity/<id>.json` — capacity per model/harness
-- `.orkworks/recommendations/<id>.json` — Taskmaster recommendation state and history
-- `.orkworks/workspace.json` — repo-local workspace memory, including the last active session
+All metadata lives under `~/.orkworks/` (see [ADR 0018](docs/adr/0018-global-metadata-store.md)). Per-workspace data is keyed by a hash of the workspace path:
+
+- `~/.orkworks/workspaces/<hash>/sessions/<id>.json` — session state
+- `~/.orkworks/workspaces/<hash>/events/<id>.ndjson` — append-only event log
+- `~/.orkworks/workspaces/<hash>/capacity/<id>.json` — capacity per model/harness
+- `~/.orkworks/workspaces/<hash>/recommendations/<id>.json` — Taskmaster recommendation state and history
+- `~/.orkworks/workspaces/<hash>/workspace.json` — workspace memory, including the last active session
+- `~/.orkworks/harnesses.json` — global harness definitions
 - Priority: user > agent > peon > backend_inference > process > unknown
 - Peon reads terminal output, writes inferred metadata, never types into terminals
 - Taskmaster proposes cross-session transitions; every v1 transition requires explicit user approval
@@ -124,7 +127,7 @@ The `skills/` directory contains repo-level agent skills that are committed with
 | `orkworksd` | Rust backend sidecar |
 | Peon | Low-cost session/repo metadata observer |
 | Taskmaster | Workspace-level next-step coordinator |
-| `.orkworks/` | Per-repo protocol directory |
+| `.orkworks/` | Global metadata directory under `~/.orkworks/` |
 
 ## Specs
 

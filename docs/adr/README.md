@@ -11,7 +11,8 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 | [0001](./0001-record-architecture-decisions.md) | Record architecture decisions | accepted |
 | [0002](./0002-electron-react-typescript-desktop.md) | Electron + React + TypeScript desktop shell | accepted |
 | [0003](./0003-rust-backend-axum-localhost.md) | Rust backend sidecar with Axum over localhost HTTP/WS | accepted |
-| [0004](./0004-orkworks-metadata-protocol.md) | `.orkworks/` metadata protocol directory structure | accepted |
+| [0004](./0004-orkworks-metadata-protocol.md) | `.orkworks/` metadata protocol directory structure | superseded by [0018](./0018-global-metadata-store.md) |
+| [0018](./0018-global-metadata-store.md) | Move metadata store from workspace directory to global config directory | accepted |
 | [0005](./0005-metadata-source-priority.md) | Metadata source priority | accepted |
 | [0006](./0006-peon-observer-only-mvp.md) | Peon: observer-only inference in MVP | accepted |
 | [0007](./0007-product-boundary-observe-recommend.md) | Product boundary: observe and recommend before controlling | accepted |

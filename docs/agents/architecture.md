@@ -34,19 +34,20 @@ Key endpoints: `POST /workspace`, `POST /workspace/active-session`, `GET/POST /s
 
 `POST /sessions` now accepts `{ harnessId, model, initialPrompt }`. The renderer’s New Session dialog can fall back to the default shell session if harness metadata is temporarily unavailable, while the sidecar still preserves the selected harness config id for session rows and remembered-session resume behavior.
 
-`electron/workspaceMemory.ts` persists the last workspace path and recent workspace directories to the Electron user data directory, enabling workspace restore on relaunch. The sidecar persists repo-local active session memory in `.orkworks/workspace.json`.
+`electron/workspaceMemory.ts` persists the last workspace path and recent workspace directories to the Electron user data directory, enabling workspace restore on relaunch. The sidecar persists workspace-scoped state to `~/.orkworks/workspaces/<path-hash>/workspace.json`.
 
 ## Rust sidecar (`crates/orkworksd/src/`)
 
-Single binary, seven modules:
+Single binary, eight modules:
 
-- `main.rs` — Axum router, `AppState` (sessions + workspace + harness adapters + `ProviderManager`), all HTTP/WS handlers, PTY lifecycle, session resume
+- `main.rs` — Axum router, `AppState` (sessions + workspace + harness adapters + `ProviderManager`), all HTTP/WS handlers, PTY lifecycle, session resume, workspace path hashing, global metadata directory resolution
 - `git.rs` — git2-based context detection (repo root, branch, dirty check including untracked files while excluding ignored files)
 - `harness.rs` — harness adapter types, command templates, resume strategy selection, capability flags
-- `metadata.rs` — reads/writes `.orkworks/sessions/<id>.json`, `.orkworks/workspace.json`, and `.orkworks/events/<id>.terminal` (terminal output ring buffer) files
+- `metadata.rs` — reads/writes `sessions/<id>.json`, `workspace.json`, and `events/<id>.terminal` (terminal output ring buffer) files under the global metadata root (`~/.orkworks/workspaces/<hash>/`)
+- `migration.rs` — one-time migration of legacy `<workspace>/.orkworks/` data into the global store
 - `peon.rs` — observer config, ring buffer, prompt building, inference parsing/validation, source-priority overwrite rules (driven by the debounce loop in `main.rs`; tuning knobs documented in `README.md`)
 - `providers.rs` — fixed provider registry, applied-settings store, persisted runtime state, fallback runner (`run_inference` skips disabled/capped providers in fallback order), model listing (`list_models` runs each provider's configured list-models CLI command). Exposes `GET /providers` for live runtime state, `GET /providers/:id/models` for available models, and `POST /settings/providers` for durable settings application. The session Peon loop routes through `ProviderManager::run_inference`. Per-provider peon model is configured in Settings.
-- `watcher.rs` — `notify`-based file watcher for `.orkworks/` changes
+- `watcher.rs` — `notify`-based file watcher for session metadata changes under the global store
 
 ## Dockview panel layout
 

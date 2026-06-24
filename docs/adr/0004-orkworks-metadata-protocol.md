@@ -1,6 +1,6 @@
 # `.orkworks/` metadata protocol directory structure
 
-- Status: accepted
+- Status: superseded by [0018](./0018-global-metadata-store.md)
 - Deciders: OrkWorks team
 - Date: 2026-06-15
 

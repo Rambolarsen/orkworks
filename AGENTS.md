@@ -153,13 +153,13 @@ ADRs are complementary to specs: specs define what we're building; ADRs record w
 | `orkworksd` | Rust backend sidecar |
 | Peon | Low-cost session/repo metadata observer |
 | Taskmaster | Workspace-level next-step coordinator |
-| `.orkworks/` | Per-repo protocol directory (sessions/, events/, capacity/, recommendations/, skills/) |
+| `.orkworks/` | Global metadata directory under `~/.orkworks/` (workspaces/<hash>/, harnesses.json) |
 
 Use normal engineering terminology for all other concepts. Peon and Taskmaster are the two intentional product-specific worker names; do not expand the fantasy naming further without an explicit spec update.
 
 ## Architecture
 
-Electron + React/TypeScript frontend (`apps/desktop/`) communicates with a Rust sidecar (`crates/orkworksd/`) over a dynamic localhost HTTP/WebSocket port. The desktop UI uses Dockview draggable panels around xterm.js terminal sessions. The sidecar manages PTY sessions, Git context, the `.orkworks/` metadata protocol, Peon observation, and Taskmaster recommendation state.
+Electron + React/TypeScript frontend (`apps/desktop/`) communicates with a Rust sidecar (`crates/orkworksd/`) over a dynamic localhost HTTP/WebSocket port. The desktop UI uses Dockview draggable panels around xterm.js terminal sessions. The sidecar manages PTY sessions, Git context, the metadata protocol (under `~/.orkworks/workspaces/<hash>/`), Peon observation, and Taskmaster recommendation state.
 
 - ADR 0017: Provider context is session-scoped (read-only in Details), not app-wide.
 
@@ -173,11 +173,12 @@ See [`docs/agents/architecture.md`](docs/agents/architecture.md) for the full in
 
 ## Metadata protocol
 
-- `.orkworks/sessions/<id>.json` — agent-written session state
-- `.orkworks/events/<id>.ndjson` — append-only event log
-- `.orkworks/capacity/<id>.json` — capacity per model/harness
-- `.orkworks/recommendations/<id>.json` — Taskmaster recommendation state and history
-- `.orkworks/workspace.json` — repo-local workspace memory, including the last active session
+- `~/.orkworks/workspaces/<hash>/sessions/<id>.json` — session state
+- `~/.orkworks/workspaces/<hash>/events/<id>.ndjson` — append-only event log
+- `~/.orkworks/workspaces/<hash>/capacity/<id>.json` — capacity per model/harness
+- `~/.orkworks/workspaces/<hash>/recommendations/<id>.json` — Taskmaster recommendation state and history
+- `~/.orkworks/workspaces/<hash>/workspace.json` — workspace memory, including the last active session
+- `~/.orkworks/harnesses.json` — global harness definitions
 - Priority: user > agent > peon > backend_inference > process > unknown
 - Peon reads terminal output, writes inferred metadata, never types into terminals
 - Taskmaster consumes normalized metadata and proposes cross-session transitions; v1 requires explicit user approval for every action
