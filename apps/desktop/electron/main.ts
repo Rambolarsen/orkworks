@@ -115,6 +115,7 @@ function createWindow(): void {
     minWidth: 900,
     minHeight: 500,
     title: "OrkWorks",
+    icon: path.join(__dirname, "../../build/icon.png"),
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
