@@ -21,10 +21,10 @@ orkworks/
 - Electron launches Rust sidecar; UI talks to it over localhost HTTP/WebSocket
 - `nodeIntegration: false`, `contextIsolation: true`
 - Desktop UI uses Dockview draggable panels for sessions, detail, terminal, and recommendations; Capacity is a non-Providers stub surface
-- New sessions can be launched with a selected harness config, optional model override, and optional initial prompt; harness definitions are loaded from the sidecar’s built-ins plus `~/.orkworks/harnesses.json`
+- New agent sessions can be launched with a selected coding tool, optional model override, and optional initial prompt; harness definitions are loaded from the sidecar's built-ins plus `~/.orkworks/harnesses.json`
 - The app remembers the last workspace and repo-local active session for relaunch restore
 - The Electron main process owns app-level settings in `userData`, including canonical default hotkeys and persisted hotkeys that drive native menu accelerators
-- Session details show read-only `Provider`, `Model`, and `State` for the selected session, sourced from session metadata. The backend fallback system (Peon skips disabled/capped providers) remains in place behind the scenes.
+- Session details show read-only `Coding tool`, `Model provider`, and `Provider state` for the selected session, sourced from session metadata. The backend fallback system (Peon skips disabled/capped model providers) remains in place behind the scenes.
 - Peon writes observer metadata such as `observedStatus` without replacing runtime lifecycle `status`
 - Taskmaster consumes Peon reports and workspace context to propose the next session or user action
 - PTY handles only text I/O; voice (native harness) bypasses PTY entirely
@@ -128,6 +128,8 @@ The `skills/` directory contains repo-level agent skills that are committed with
 | Peon | Low-cost session/repo metadata observer |
 | Taskmaster | Workspace-level next-step coordinator |
 | `.orkworks/` | Global metadata directory under `~/.orkworks/` |
+
+User-facing UI says `Coding tool` for CLI coding applications. Internal code and metadata continue to use `harness` for that integration abstraction. `Model provider` is reserved for inference services and local inference runtimes.
 
 ## Specs
 

@@ -155,6 +155,8 @@ ADRs are complementary to specs: specs define what we're building; ADRs record w
 | Taskmaster | Workspace-level next-step coordinator |
 | `.orkworks/` | Global metadata directory under `~/.orkworks/` (workspaces/<hash>/, harnesses.json) |
 
+User-facing UI says `Coding tool` for CLI coding applications. Internal code and metadata continue to use `harness` for that integration abstraction. `Model provider` is reserved for inference services and local inference runtimes.
+
 Use normal engineering terminology for all other concepts. Peon and Taskmaster are the two intentional product-specific worker names; do not expand the fantasy naming further without an explicit spec update.
 
 ## Architecture
