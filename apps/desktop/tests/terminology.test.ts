@@ -31,5 +31,5 @@ test("Settings provider copy refers to model providers", () => {
   const modal = source("../src/components/SettingsModal.tsx");
   const section = source("../src/components/ProviderSettingsSection.tsx");
   assert.match(modal, /Model providers/);
-  assert.match(section, /Model provider/);
+  assert.match(section, /model provider/);
 });

@@ -29,7 +29,7 @@ function SessionDetailPanel({ sessions, activeSessionId, onResumeSession }: Sess
   const active = sessions.find((s) => s.id === activeSessionId);
 
   if (!active) {
-    return <EmptyState message="Select a session to see details." />;
+    return <EmptyState message="Select an agent session to see details." />;
   }
 
   const attn = sessionAttentionStatus(active);
@@ -63,17 +63,17 @@ function SessionDetailPanel({ sessions, activeSessionId, onResumeSession }: Sess
       </div>
 
       <div className="session-detail-section">
-        <div className="session-detail-label">Provider</div>
+        <div className="session-detail-label">Coding tool</div>
         <div className="session-detail-value">{providerContext.provider}</div>
       </div>
 
       <div className="session-detail-section">
-        <div className="session-detail-label">Model</div>
+        <div className="session-detail-label">Model provider</div>
         <div className="session-detail-value">{providerContext.model}</div>
       </div>
 
       <div className="session-detail-section">
-        <div className="session-detail-label">State</div>
+        <div className="session-detail-label">Provider state</div>
         <div className="session-detail-value">{providerContext.state}</div>
       </div>
 

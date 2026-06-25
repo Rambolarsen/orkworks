@@ -107,12 +107,12 @@ export default function NewSessionDialog({ harnesses, providerRuntime, onConfirm
     <div className="new-session-backdrop" role="presentation" onKeyDown={handleKeyDown}>
       <section className="new-session-dialog" role="dialog" aria-modal="true" aria-labelledby="new-session-title">
         <header className="new-session-header">
-          <h2 id="new-session-title">New Session</h2>
+          <h2 id="new-session-title">New agent session</h2>
         </header>
 
         <div className="new-session-body">
           <div className="new-session-row">
-            <label className="new-session-label" htmlFor="nsd-harness">Provider</label>
+            <label className="new-session-label" htmlFor="nsd-harness">Coding tool</label>
             <select
               ref={harnessSelectRef}
               id="nsd-harness"
@@ -158,7 +158,7 @@ export default function NewSessionDialog({ harnesses, providerRuntime, onConfirm
               className="new-session-textarea"
               value={initialPrompt}
               onChange={(e) => setInitialPrompt(e.target.value)}
-              placeholder="Optional — sent to the provider on start"
+              placeholder="Optional - sent when the agent session starts"
               rows={3}
             />
           </div>
