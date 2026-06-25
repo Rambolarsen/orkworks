@@ -131,6 +131,8 @@ struct PeonState {
     last_output: StdRwLock<HashMap<String, tokio::time::Instant>>,
     last_inference: StdRwLock<HashMap<String, String>>,
     in_flight: StdRwLock<HashSet<String>>,
+    label_hint: StdRwLock<HashMap<String, String>>,
+    label_pending: StdRwLock<HashSet<String>>,
     config: peon::PeonConfig,
 }
 
@@ -201,6 +203,8 @@ async fn main() {
             last_output: StdRwLock::new(HashMap::new()),
             last_inference: StdRwLock::new(HashMap::new()),
             in_flight: StdRwLock::new(HashSet::new()),
+            label_hint: StdRwLock::new(HashMap::new()),
+            label_pending: StdRwLock::new(HashSet::new()),
             config: peon::PeonConfig::from_env(),
         },
         providers: providers::ProviderManager::new(),
@@ -1213,20 +1217,27 @@ async fn peon_loop(state: Arc<AppState>) {
         let now = tokio::time::Instant::now();
         let deadline = now - std::time::Duration::from_secs(interval);
 
-        // Find sessions with new output that has gone silent
-        let candidates: Vec<String> = {
+        // Sessions with a pending label inference (input-triggered, no debounce)
+        let pending: Vec<String> = state.peon.label_pending.write().unwrap().drain().collect();
+
+        // Sessions with new output that has gone silent
+        let mut candidates: Vec<String> = {
             let last_output = state.peon.last_output.read().unwrap();
-            let last_inference = state.peon.last_inference.read().unwrap();
             let in_flight = state.peon.in_flight.read().unwrap();
 
             last_output.iter()
                 .filter(|(id, &t)| {
-                    if t > deadline { return false; }
-                    !last_inference.contains_key(*id) && !in_flight.contains(*id)
+                    t <= deadline && !in_flight.contains(*id)
                 })
                 .map(|(id, _)| id.clone())
                 .collect()
         };
+
+        for id in pending {
+            if !state.peon.in_flight.read().unwrap().contains(&id) && !candidates.contains(&id) {
+                candidates.push(id);
+            }
+        }
 
         for session_id in candidates {
             {
@@ -1236,6 +1247,7 @@ async fn peon_loop(state: Arc<AppState>) {
                 }
             }
 
+            let hint = state.peon.label_hint.write().unwrap().remove(&session_id);
             let output_snapshot = {
                 let sessions = state.sessions.lock().unwrap();
                 match sessions.get(&session_id) {
@@ -1247,10 +1259,18 @@ async fn peon_loop(state: Arc<AppState>) {
                 }
             };
 
-            if output_snapshot.is_empty() {
+            if output_snapshot.is_empty() && hint.is_none() {
                 state.peon.in_flight.write().unwrap().remove(&session_id);
                 continue;
             }
+
+            let output_snapshot = if let Some(ref h) = hint {
+                let mut lines = vec![format!("[User input]: {}", h)];
+                lines.extend(output_snapshot);
+                lines
+            } else {
+                output_snapshot
+            };
 
             let state_clone = state.clone();
             let id = session_id.clone();
@@ -1279,6 +1299,12 @@ async fn peon_loop(state: Arc<AppState>) {
 
                         if should_write {
                             ws.metadata.merge_peon_inference(&id, &inf, &now_iso, provider_result.observation.as_ref());
+                            if let Some(ref summary) = inf.summary {
+                                let label: String = summary.chars().take(100).collect();
+                                if let Some(handle) = state_clone.sessions.lock().unwrap().get_mut(&id) {
+                                    handle.info.label = label;
+                                }
+                            }
                         } else {
                             tracing::debug!("Peon: skipping {id}, higher-priority source exists");
                         }
@@ -1289,6 +1315,7 @@ async fn peon_loop(state: Arc<AppState>) {
                 let mut last_inf = state_clone.peon.last_inference.write().unwrap();
                 last_inf.insert(id.clone(), now_iso);
                 drop(last_inf);
+                state_clone.peon.last_output.write().unwrap().remove(&id);
                 state_clone.peon.in_flight.write().unwrap().remove(&id);
             });
         }
@@ -2013,7 +2040,12 @@ async fn handle_session_terminal(mut ws: WebSocket, id: String, state: Arc<AppSt
                     drop(ws_guard);
                     let mut sessions = state.sessions.lock().unwrap();
                     if let Some(handle) = sessions.get_mut(&id) {
-                        handle.info.label = line;
+                        handle.info.label = line.clone();
+                    }
+                    drop(sessions);
+                    if state.peon.config.enabled && line.len() > 10 {
+                        state.peon.label_hint.write().unwrap().insert(id.clone(), line);
+                        state.peon.label_pending.write().unwrap().insert(id.clone());
                     }
                 }
                 if state.peon.config.enabled && !data.is_empty() {
@@ -2114,7 +2146,16 @@ async fn handle_session_terminal(mut ws: WebSocket, id: String, state: Arc<AppSt
                                     drop(ws_guard);
                                     let mut sessions = state.sessions.lock().unwrap();
                                     if let Some(handle) = sessions.get_mut(&id) {
-                                        handle.info.label = line;
+                                        handle.info.label = line.clone();
+                                    }
+                                    drop(sessions);
+                                    if state.peon.config.enabled && line.len() > 10 {
+                                        state.peon.label_hint.write().unwrap().insert(id.clone(), line);
+                                        state.peon.last_output.write().unwrap().insert(
+                                            id.clone(),
+                                            tokio::time::Instant::now() - std::time::Duration::from_secs(3600),
+                                        );
+                                        state.peon.last_inference.write().unwrap().remove(&id);
                                     }
                                 }
 

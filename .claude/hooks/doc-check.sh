@@ -7,8 +7,11 @@ CHANGED=$(git diff --name-only HEAD 2>/dev/null; git diff --cached --name-only 2
 
 needs=()
 
-# docs/agents/architecture.md
-if echo "$CHANGED" | grep -qE 'crates/orkworksd/src/|apps/desktop/src/api\.ts|apps/desktop/electron/(main|preload)|apps/desktop/package\.json|Cargo\.toml'; then
+# docs/agents/architecture.md — new routes, new Rust modules, IPC boundary, API client, or deps
+NEW_RUST=$(git diff --name-status HEAD 2>/dev/null | grep -E '^A.*crates/orkworksd/src/' | wc -l)
+NEW_ROUTES=$(git diff HEAD -- crates/orkworksd/src/main.rs 2>/dev/null | grep -cE '^\+.*\.route\(')
+if echo "$CHANGED" | grep -qE 'apps/desktop/src/api\.ts|apps/desktop/electron/(main|preload)|apps/desktop/package\.json|Cargo\.toml' \
+    || [ "$NEW_RUST" -gt 0 ] || [ "$NEW_ROUTES" -gt 0 ]; then
   echo "$CHANGED" | grep -q 'docs/agents/architecture\.md' || \
     needs+=("docs/agents/architecture.md  (Rust modules, preload API, endpoints, or deps changed)")
 fi
@@ -25,8 +28,8 @@ if echo "$CHANGED" | grep -qE '^skills/|orkworks/apm\.yml|apps/desktop/package\.
     needs+=("AGENTS.md  (skills, deps, or APM targets changed)")
 fi
 
-# README.md
-if echo "$CHANGED" | grep -qE '^crates/|^apps/|^docs/adr/'; then
+# README.md — new ADRs or spec changes only
+if echo "$CHANGED" | grep -qE '^docs/adr/|^specs/'; then
   echo "$CHANGED" | grep -q '^README\.md' || \
     needs+=("README.md  (architecture, milestones, or ADRs changed)")
 fi

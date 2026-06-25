@@ -286,6 +286,9 @@ impl MetadataStore {
             meta.phase = phase.clone();
         }
         meta.summary = inf.summary.clone().or(meta.summary);
+        if let Some(ref summary) = inf.summary {
+            meta.label = summary.chars().take(100).collect();
+        }
         meta.next_action = inf.next_action.clone().or(meta.next_action);
         meta.needs_user_input = inf.needs_user_input.or(meta.needs_user_input);
         meta.detected_question = inf.detected_question.clone().or(meta.detected_question);
@@ -301,7 +304,11 @@ impl MetadataStore {
             }
         }
         if let Some(ref m) = inf.detected_model {
-            if meta.model.is_empty() {
+            let is_peon_own_model = provider
+                .and_then(|p| p.provider_model.as_ref())
+                .map(|pm| pm == m)
+                .unwrap_or(false);
+            if meta.model.is_empty() && !is_peon_own_model {
                 meta.model = m.clone();
             }
         }
