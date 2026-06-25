@@ -486,7 +486,6 @@ html, body, #root {
 
 .terminal-container--ended {
   opacity: 0.55;
-  pointer-events: none;
 }
 
 /* session detail + conflict warning styles below */

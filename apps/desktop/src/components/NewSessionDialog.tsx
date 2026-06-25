@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { HarnessConfig, CreateSessionOptions } from "../harnessTypes";
 import type { ProviderModelsResponse } from "../providerTypes";
 import type { ProviderRuntimeResponse } from "../api";
@@ -16,12 +16,29 @@ function harnessLabel(name: string, state: string | undefined): string {
   return `${name} (${state})`;
 }
 
-export default function NewSessionDialog({ harnesses, providerRuntime, onConfirm, onCancel }: NewSessionDialogProps) {
+const LS_HARNESS_KEY = "orkworks-new-session-harnessId";
+const LS_MODEL_KEY = "orkworks-new-session-model";
+
+function resolveInitialDraft(harnesses: HarnessConfig[]) {
   const defaultHarness = harnesses[0] ?? null;
-  const [draft, setDraft] = useState(() => ({
+  const savedHarnessId = localStorage.getItem(LS_HARNESS_KEY);
+  const savedModel = localStorage.getItem(LS_MODEL_KEY);
+
+  if (savedHarnessId && harnesses.some((h) => h.id === savedHarnessId)) {
+    return {
+      harnessId: savedHarnessId,
+      model: savedModel ?? "",
+    };
+  }
+
+  return {
     harnessId: defaultHarness?.id ?? "",
     model: defaultHarness?.defaultModel ?? "",
-  }));
+  };
+}
+
+export default function NewSessionDialog({ harnesses, providerRuntime, onConfirm, onCancel }: NewSessionDialogProps) {
+  const [draft, setDraft] = useState(() => resolveInitialDraft(harnesses));
   const [initialPrompt, setInitialPrompt] = useState("");
   const [models, setModels] = useState<string[]>([]);
   const harnessSelectRef = useRef<HTMLSelectElement>(null);
@@ -68,13 +85,14 @@ export default function NewSessionDialog({ harnesses, providerRuntime, onConfirm
     });
   }
 
-  function handleConfirm() {
-    onConfirm({
-      harnessId: draft.harnessId || undefined,
-      model: draft.model.trim() || undefined,
-      initialPrompt: initialPrompt.trim() || undefined,
-    });
-  }
+  const handleConfirm = useCallback(() => {
+    const harnessId = draft.harnessId || undefined;
+    const model = draft.model.trim() || undefined;
+    if (harnessId) localStorage.setItem(LS_HARNESS_KEY, harnessId);
+    if (model) localStorage.setItem(LS_MODEL_KEY, model);
+    else localStorage.removeItem(LS_MODEL_KEY);
+    onConfirm({ harnessId, model, initialPrompt: initialPrompt.trim() || undefined });
+  }, [draft.harnessId, draft.model, initialPrompt, onConfirm]);
 
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Enter" && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
