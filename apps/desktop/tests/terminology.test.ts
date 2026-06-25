@@ -1,0 +1,35 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+
+function source(path: string): string {
+  return readFileSync(new URL(path, import.meta.url), "utf8");
+}
+
+test("NewSessionDialog labels the CLI selector as Coding tool", () => {
+  const text = source("../src/components/NewSessionDialog.tsx");
+  assert.match(text, />Coding tool</);
+  assert.doesNotMatch(text, /htmlFor="nsd-harness">Provider</);
+});
+
+test("NewSessionDialog does not describe the initial prompt as sent to the provider", () => {
+  const text = source("../src/components/NewSessionDialog.tsx");
+  assert.match(text, /sent when the agent session starts/);
+  assert.doesNotMatch(text, /sent to the provider on start/);
+});
+
+test("SessionDetailPanel distinguishes coding tool from model provider", () => {
+  const text = source("../src/components/SessionDetailPanel.tsx");
+  assert.match(text, />Coding tool</);
+  assert.match(text, />Model provider</);
+  assert.match(text, />Provider state</);
+  assert.doesNotMatch(text, />Provider</);
+  assert.doesNotMatch(text, />State</);
+});
+
+test("Settings provider copy refers to model providers", () => {
+  const modal = source("../src/components/SettingsModal.tsx");
+  const section = source("../src/components/ProviderSettingsSection.tsx");
+  assert.match(modal, /Model providers/);
+  assert.match(section, /Model provider/);
+});

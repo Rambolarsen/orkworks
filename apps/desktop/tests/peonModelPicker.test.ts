@@ -14,7 +14,7 @@ test("ProviderSettings peonModel can be set to a model string", () => {
 
 test("SettingsModal has a peon model selector", () => {
   const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
-  assert.match(source, /Peon Model/);
+  assert.match(source, /Peon model/);
   assert.match(source, /provider-model-select/);
   assert.match(source, /savePeonModel/);
 });
