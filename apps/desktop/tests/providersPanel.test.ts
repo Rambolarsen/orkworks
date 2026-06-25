@@ -55,17 +55,17 @@ test("buildProviderViewModel sorts by fallback order and marks stale applied rev
   assert.equal(model.isStale, true);
 });
 
-test("SettingsModal renders a Providers section", () => {
+test("SettingsModal renders a Model providers section", () => {
   const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
-  assert.match(source, /Providers/);
+  assert.match(source, /Model providers/);
   assert.match(source, /providerDraft/);
   assert.match(source, /provider-model-select/);
   assert.match(source, /getProviderModels/);
 });
 
-test("ProviderSettingsSection keeps provider editing out of Details", () => {
+test("ProviderSettingsSection shows stale model provider revision state", () => {
   const source = readFileSync(new URL("../src/components/ProviderSettingsSection.tsx", import.meta.url), "utf8");
-  assert.match(source, /Move up/);
-  assert.match(source, /Clear override/);
-  assert.match(source, /Last error/);
+  assert.match(source, /Loading model provider settings/);
+  assert.match(source, /Saved model provider settings revision/);
+  assert.match(source, /isAppliedRevisionStale/);
 });

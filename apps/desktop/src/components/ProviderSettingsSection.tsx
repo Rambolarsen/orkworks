@@ -12,7 +12,7 @@ export default function ProviderSettingsSection({
   providerRuntime,
 }: ProviderSettingsSectionProps) {
   if (!providerSettings) {
-    return <div className="settings-section-copy">Loading provider settings…</div>;
+    return <div className="settings-section-copy">Loading model provider settings...</div>;
   }
 
   const isStale = isAppliedRevisionStale(providerSettings, providerRuntime);
@@ -21,7 +21,7 @@ export default function ProviderSettingsSection({
     <>
       {isStale && (
         <div className="providers-stale-banner">
-          Saved settings revision {providerSettings.revision} is not yet applied to the sidecar.
+          Saved model provider settings revision {providerSettings.revision} is not yet applied to the sidecar.
         </div>
       )}
     </>

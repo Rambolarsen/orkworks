@@ -149,7 +149,7 @@ test("SessionDetailPanel includes the core detail sections via labels module", (
   for (const label of ["Task", "Status", "Directory", "Git", "Memory", "Source", "Peon"]) {
     assert.match(source, new RegExp(`>${label}<`));
   }
-  assert.match(source, /Select a session to see details/);
+  assert.match(source, /Select an agent session to see details/);
   assert.match(source, /attentionLabel/);
   assert.match(source, /memoryStateLabel/);
   assert.match(source, /resumeActionLabel/);
@@ -309,7 +309,7 @@ test("App routes user-facing error catches through the toast feedback primitive"
 
   assert.match(source, /import \{ pushToast \} from "\.\/feedback"/);
   assert.match(source, /pushToast\("error", "Couldn't open workspace\."\)/);
-  assert.match(source, /pushToast\("error", "Couldn't open settings\."\)/);
+  assert.match(source, /load app settings/);
   assert.match(source, /pushToast\("error", "Couldn't start a new session\."\)/);
   assert.match(source, /pushToast\("error", "Couldn't end session\."\)/);
   assert.doesNotMatch(source, /\/\* ignore \*\//);
@@ -341,9 +341,9 @@ test("Dockview keeps capacity as a non-provider surface", () => {
   assert.doesNotMatch(source, /capacity.*Providers/);
 });
 
-test("SettingsModal includes a Providers section above Hotkeys", () => {
+test("SettingsModal includes a Model providers section above Hotkeys", () => {
   const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
-  assert.match(source, /Providers/);
+  assert.match(source, /Model providers/);
   assert.match(source, /providerDraft/);
   assert.match(source, /provider-model-select/);
   assert.match(source, /getProviderModels/);
