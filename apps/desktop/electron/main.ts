@@ -11,6 +11,8 @@ import { pushProviderSettings } from "./providerSettingsSync";
 import type { ProviderSettings } from "./providerTypes";
 import { buildMenuTemplate } from "./menuTemplate";
 
+app.setName("OrkWorks");
+
 let mainWindow: BrowserWindow | null = null;
 let sidecarProcess: ChildProcess | null = null;
 let backendPort: number | null = null;
@@ -136,6 +138,9 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
+  const iconPath = path.join(__dirname, "../../build/icon.png");
+  app.dock?.setIcon(iconPath);
+
   const appMemory = readWorkspaceMemory(app.getPath("userData"));
   const initialWorkspacePath =
     appMemory.lastWorkspacePath && existsSync(appMemory.lastWorkspacePath)
