@@ -147,7 +147,7 @@ function App() {
       setSettings(loaded);
       setSettingsOpen(true);
     } catch {
-      pushToast("error", "Couldn't load app settings.");
+      pushToast("error", "Couldn't open settings.");
     }
     try {
       const baseUrl = await window.orkworks.getBackendUrl();

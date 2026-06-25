@@ -19,10 +19,10 @@ test("SettingsModal has a peon model selector", () => {
   assert.match(source, /savePeonModel/);
 });
 
-test("ProviderSettingsSection renders providers sorted by fallbackOrder", () => {
+test("ProviderSettingsSection reports provider settings sync state", () => {
   const source = readFileSync(new URL("../src/components/ProviderSettingsSection.tsx", import.meta.url), "utf8");
-  assert.match(source, /fallbackOrder/);
-  assert.match(source, /buildProviderViewModel/);
+  assert.match(source, /isAppliedRevisionStale/);
+  assert.match(source, /Saved settings revision/);
 });
 
 test("SettingsModal auto-saves on model change", () => {

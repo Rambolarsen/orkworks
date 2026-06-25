@@ -63,9 +63,10 @@ test("SettingsModal renders a Providers section", () => {
   assert.match(source, /getProviderModels/);
 });
 
-test("ProviderSettingsSection keeps provider editing out of Details", () => {
+test("ProviderSettingsSection keeps provider editing simplified", () => {
   const source = readFileSync(new URL("../src/components/ProviderSettingsSection.tsx", import.meta.url), "utf8");
-  assert.match(source, /Move up/);
-  assert.match(source, /Clear override/);
-  assert.match(source, /Last error/);
+  assert.match(source, /providers-stale-banner/);
+  assert.doesNotMatch(source, /Move up/);
+  assert.doesNotMatch(source, /Clear override/);
+  assert.doesNotMatch(source, /Last error/);
 });
