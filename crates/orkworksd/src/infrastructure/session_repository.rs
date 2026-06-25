@@ -184,5 +184,6 @@ fn session_to_metadata(session: &Session) -> SessionMetadata {
         is_worktree: session.is_worktree,
         resume: session.resume.clone(),
         resumed_from: session.resumed_from.clone(),
+        last_user_input: None,
     }
 }

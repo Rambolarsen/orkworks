@@ -69,6 +69,8 @@ pub struct SessionMetadata {
     pub resume: Option<ResumeMemory>,
     #[serde(rename = "resumedFrom", skip_serializing_if = "Option::is_none")]
     pub resumed_from: Option<String>,
+    #[serde(rename = "lastUserInput", skip_serializing_if = "Option::is_none")]
+    pub last_user_input: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -293,8 +295,6 @@ impl MetadataStore {
         meta.failed_test = inf.failed_test.clone().or(meta.failed_test);
         meta.capacity_hints = inf.capacity_hints.clone().or(meta.capacity_hints);
 
-        let had_harness = !meta.harness.is_empty();
-        let had_model = !meta.model.is_empty();
         if let Some(ref h) = inf.detected_harness {
             if meta.harness.is_empty() {
                 meta.harness = h.clone();
@@ -304,15 +304,6 @@ impl MetadataStore {
             if meta.model.is_empty() {
                 meta.model = m.clone();
             }
-        }
-        let now_has_harness = !meta.harness.is_empty();
-        let now_has_model = !meta.model.is_empty();
-        if now_has_harness && (!had_harness || (!had_model && now_has_model)) {
-            meta.label = if now_has_model {
-                format!("{} ({})", meta.harness, meta.model)
-            } else {
-                meta.harness.clone()
-            };
         }
 
         if let Some(ref sid) = inf.harness_session_id {
@@ -473,6 +464,7 @@ mod tests {
             is_worktree: Some(false),
             resume: None,
             resumed_from: None,
+            last_user_input: None,
         };
         store.write_session(&meta);
         let read = store.read_session("test-1").unwrap();
@@ -574,6 +566,7 @@ mod tests {
             is_worktree: None,
             resume: None,
             resumed_from: None,
+            last_user_input: None,
         });
 
         // First inference: harness detected, no model
@@ -589,11 +582,11 @@ mod tests {
         };
         store.merge_peon_inference("rename-test", &inf, "t1", None);
         let meta = store.read_session("rename-test").unwrap();
-        assert_eq!(meta.label, "claude-code");
+        // Peon no longer updates the label — harness/model are recorded but label is unchanged
+        assert_eq!(meta.label, "Session abc12345");
         assert_eq!(meta.harness, "claude-code");
         assert_eq!(meta.model, "");
 
-        // Second inference: model also detected, label updates to include it
         let inf2 = crate::peon::PeonInference {
             observed_status: Some("working".into()),
             phase: None, summary: None, next_action: None,
@@ -606,14 +599,9 @@ mod tests {
         };
         store.merge_peon_inference("rename-test", &inf2, "t2", None);
         let meta2 = store.read_session("rename-test").unwrap();
-        assert_eq!(meta2.label, "claude-code (claude-sonnet-4-5)");
+        assert_eq!(meta2.label, "Session abc12345");
         assert_eq!(meta2.harness, "claude-code");
         assert_eq!(meta2.model, "claude-sonnet-4-5");
-
-        // Third inference: same harness/model again — label should NOT be re-overwritten
-        store.merge_peon_inference("rename-test", &inf2, "t3", None);
-        let meta3 = store.read_session("rename-test").unwrap();
-        assert_eq!(meta3.label, "claude-code (claude-sonnet-4-5)");
     }
 
     #[test]
@@ -656,6 +644,7 @@ mod tests {
             is_worktree: None,
             resume: None,
             resumed_from: None,
+            last_user_input: None,
         });
 
         let inf = crate::peon::PeonInference {
@@ -727,6 +716,7 @@ mod tests {
             is_worktree: None,
             resume: None,
             resumed_from: None,
+            last_user_input: None,
         }
     }
 
