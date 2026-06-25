@@ -761,8 +761,7 @@ async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse 
     let all_metadata_sessions = ws_guard.as_ref().map(|ws| ws.metadata.read_all_sessions()).unwrap_or_default();
     drop(ws_guard);
 
-    let live_ids: HashSet<String> = session_data.iter()
-        .filter(|(_, _, status, _, _)| status != "killed" && status != "ended" && status != "error")
+    let all_memory_ids: HashSet<String> = session_data.iter()
         .map(|(id, _, _, _, _)| id.clone())
         .collect();
 
@@ -820,7 +819,7 @@ async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse 
 
     // Append remembered (non-live) sessions from metadata
     for meta in &all_metadata_sessions {
-        if live_ids.contains(&meta.id) {
+        if all_memory_ids.contains(&meta.id) {
             continue;
         }
         let session_harness_id = (!meta.harness.is_empty()).then(|| meta.harness.as_str());
@@ -2174,6 +2173,134 @@ mod tests {
         assert_eq!(stored.info.status, "creating");
     }
 
+    #[tokio::test]
+    async fn list_sessions_does_not_duplicate_killed_sessions_with_metadata() {
+        let dir = tempfile::tempdir().unwrap();
+        let orkworks = dir.path().join(".orkworks");
+        let state = Arc::new(AppState {
+            session_module: SessionModule::new(),
+            sessions: Mutex::new(HashMap::new()),
+            workspace: Mutex::new(Some(WorkspaceState {
+                path: dir.path().to_path_buf(),
+                metadata: metadata::MetadataStore::new(&orkworks),
+                watcher: watcher::MetadataWatcher::start(&orkworks.join("sessions")),
+            })),
+            peon: PeonState {
+                last_output: StdRwLock::new(HashMap::new()),
+                last_inference: StdRwLock::new(HashMap::new()),
+                in_flight: StdRwLock::new(HashSet::new()),
+                config: peon::PeonConfig::from_env(),
+            },
+            adapters: builtin_adapters(),
+            retention_config: tokio::sync::RwLock::new(RetentionConfig::default()),
+            harnesses: tokio::sync::RwLock::new(vec![]),
+            providers: providers::ProviderManager::new(),
+        });
+
+        let session_id = "killed-with-metadata".to_string();
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        state.sessions.lock().unwrap().insert(
+            session_id.clone(),
+            SessionHandle {
+                info: SessionInfo {
+                    id: session_id.clone(),
+                    label: "Killed".into(),
+                    harness_id: None,
+                    model_provider_id: None,
+                    model_id: None,
+                    harness: None,
+                    model: None,
+                    status: "killed".into(),
+                    cwd: dir.path().display().to_string(),
+                    created_at: "2026-06-25T10:00:00Z".into(),
+                    observed_status: None,
+                    summary: None,
+                    next_action: None,
+                    needs_user_input: None,
+                    detected_question: None,
+                    suggested_options: None,
+                    blocker_description: None,
+                    failed_command: None,
+                    failed_test: None,
+                    capacity_hints: None,
+                    metadata_source: Some("process".into()),
+                    metadata_confidence: Some(1.0),
+                    repo_root: None,
+                    branch: None,
+                    dirty: None,
+                    changed_files: None,
+                    is_worktree: None,
+                    conflict_warning: None,
+                    recommendation: None,
+                    peon_last_inference: None,
+                    provider: None,
+                    provider_model: None,
+                    provider_state: None,
+                    memory_state: MemoryState::Live,
+                    resume_strategy: harness::ResumeStrategy::None,
+                    resume: None,
+                    resumed_from: None,
+                },
+                kill_tx,
+                output_buffer: peon::RingBuffer::new(200),
+                command: default_shell_command(dir.path().display().to_string()),
+                initial_prompt: None,
+            },
+        );
+
+        {
+            let ws = state.workspace.lock().unwrap();
+            let ws = ws.as_ref().unwrap();
+            ws.metadata.write_session(&metadata::SessionMetadata {
+                id: session_id.clone(),
+                label: "Killed".into(),
+                workspace: dir.path().display().to_string(),
+                task: "".into(),
+                harness: "".into(),
+                model: "".into(),
+                cwd: dir.path().display().to_string(),
+                status: "killed".into(),
+                phase: "".into(),
+                observed_status: None,
+                summary: None,
+                next_action: None,
+                needs_user_input: None,
+                detected_question: None,
+                suggested_options: None,
+                blocker_description: None,
+                failed_command: None,
+                failed_test: None,
+                capacity_hints: None,
+                peon_last_inference: None,
+                provider_id: None,
+                provider_label: None,
+                provider_model: None,
+                provider_state: None,
+                created_at: "2026-06-25T10:00:00Z".into(),
+                last_activity: "2026-06-25T10:00:00Z".into(),
+                metadata_source: "process".into(),
+                metadata_confidence: 1.0,
+                repo_root: None,
+                branch: None,
+                dirty: None,
+                changed_files: None,
+                is_worktree: None,
+                resume: None,
+                resumed_from: None,
+            });
+        }
+
+        let response = list_sessions(State(state)).await.into_response();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let sessions: Vec<serde_json::Value> = serde_json::from_slice(&bytes).unwrap();
+        let matching = sessions
+            .iter()
+            .filter(|session| session.get("id").and_then(|id| id.as_str()) == Some(session_id.as_str()))
+            .count();
+
+        assert_eq!(matching, 1);
+    }
+
     #[test]
     fn set_session_status_updates_registry() {
         let state = Arc::new(AppState {
@@ -3131,4 +3258,5 @@ mod tests {
         assert_eq!(strategy, harness::ResumeStrategy::None);
         assert!(command.is_none());
     }
+
 }

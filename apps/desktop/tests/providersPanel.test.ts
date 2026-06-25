@@ -63,9 +63,13 @@ test("SettingsModal renders a Model providers section", () => {
   assert.match(source, /getProviderModels/);
 });
 
-test("ProviderSettingsSection shows stale model provider revision state", () => {
+test("ProviderSettingsSection keeps model provider editing simplified", () => {
   const source = readFileSync(new URL("../src/components/ProviderSettingsSection.tsx", import.meta.url), "utf8");
   assert.match(source, /Loading model provider settings/);
   assert.match(source, /Saved model provider settings revision/);
   assert.match(source, /isAppliedRevisionStale/);
+  assert.match(source, /providers-stale-banner/);
+  assert.doesNotMatch(source, /Move up/);
+  assert.doesNotMatch(source, /Clear override/);
+  assert.doesNotMatch(source, /Last error/);
 });

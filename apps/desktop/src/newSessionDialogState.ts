@@ -8,6 +8,7 @@ export interface NewSessionDraft {
 export function syncDraftWithHarnesses(
   draft: NewSessionDraft,
   harnesses: HarnessConfig[],
+  savedDraft?: NewSessionDraft | null,
 ): NewSessionDraft {
   if (harnesses.length === 0) {
     return draft;
@@ -15,6 +16,10 @@ export function syncDraftWithHarnesses(
 
   if (harnesses.some((harness) => harness.id === draft.harnessId)) {
     return draft;
+  }
+
+  if (savedDraft && harnesses.some((harness) => harness.id === savedDraft.harnessId)) {
+    return savedDraft;
   }
 
   const fallback = harnesses[0];

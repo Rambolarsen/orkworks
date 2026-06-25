@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { HarnessConfig, CreateSessionOptions } from "../harnessTypes";
 import type { ProviderModelsResponse } from "../providerTypes";
 import type { ProviderRuntimeResponse } from "../api";
-import { canStartNewSession, syncDraftWithHarnesses } from "../newSessionDialogState";
+import { canStartNewSession, syncDraftWithHarnesses, type NewSessionDraft } from "../newSessionDialogState";
 
 interface NewSessionDialogProps {
   harnesses: HarnessConfig[];
@@ -16,12 +16,26 @@ function harnessLabel(name: string, state: string | undefined): string {
   return `${name} (${state})`;
 }
 
+const LS_HARNESS_KEY = "orkworks-new-session-harnessId";
+const LS_MODEL_KEY = "orkworks-new-session-model";
+
+function getSavedDraft(): NewSessionDraft | null {
+  const savedHarnessId = localStorage.getItem(LS_HARNESS_KEY);
+  const savedModel = localStorage.getItem(LS_MODEL_KEY);
+
+  if (!savedHarnessId) return null;
+  return {
+    harnessId: savedHarnessId,
+    model: savedModel ?? "",
+  };
+}
+
+function resolveInitialDraft(harnesses: HarnessConfig[]) {
+  return syncDraftWithHarnesses({ harnessId: "", model: "" }, harnesses, getSavedDraft());
+}
+
 export default function NewSessionDialog({ harnesses, providerRuntime, onConfirm, onCancel }: NewSessionDialogProps) {
-  const defaultHarness = harnesses[0] ?? null;
-  const [draft, setDraft] = useState(() => ({
-    harnessId: defaultHarness?.id ?? "",
-    model: defaultHarness?.defaultModel ?? "",
-  }));
+  const [draft, setDraft] = useState(() => resolveInitialDraft(harnesses));
   const [initialPrompt, setInitialPrompt] = useState("");
   const [models, setModels] = useState<string[]>([]);
   const harnessSelectRef = useRef<HTMLSelectElement>(null);
@@ -42,7 +56,7 @@ export default function NewSessionDialog({ harnesses, providerRuntime, onConfirm
   }, [onCancel]);
 
   useEffect(() => {
-    setDraft((current) => syncDraftWithHarnesses(current, harnesses));
+    setDraft((current) => syncDraftWithHarnesses(current, harnesses, getSavedDraft()));
   }, [harnesses]);
 
   useEffect(() => {
@@ -68,13 +82,14 @@ export default function NewSessionDialog({ harnesses, providerRuntime, onConfirm
     });
   }
 
-  function handleConfirm() {
-    onConfirm({
-      harnessId: draft.harnessId || undefined,
-      model: draft.model.trim() || undefined,
-      initialPrompt: initialPrompt.trim() || undefined,
-    });
-  }
+  const handleConfirm = useCallback(() => {
+    const harnessId = draft.harnessId || undefined;
+    const model = draft.model.trim() || undefined;
+    if (harnessId) localStorage.setItem(LS_HARNESS_KEY, harnessId);
+    if (model) localStorage.setItem(LS_MODEL_KEY, model);
+    else localStorage.removeItem(LS_MODEL_KEY);
+    onConfirm({ harnessId, model, initialPrompt: initialPrompt.trim() || undefined });
+  }, [draft.harnessId, draft.model, initialPrompt, onConfirm]);
 
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Enter" && !e.shiftKey && !e.ctrlKey && !e.metaKey) {

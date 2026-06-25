@@ -32,6 +32,16 @@ test("syncDraftWithHarnesses hydrates an empty draft when harnesses arrive later
   assert.equal(draft.model, "gpt-5-codex");
 });
 
+test("syncDraftWithHarnesses prefers saved draft when harnesses arrive later", () => {
+  const draft = syncDraftWithHarnesses(
+    { harnessId: "", model: "" },
+    [harness("codex", "Codex", "gpt-5-codex"), harness("gemini", "Gemini CLI", "gemini-2.5-pro")],
+    { harnessId: "gemini", model: "gemini-2.5-flash" },
+  );
+
+  assert.deepEqual(draft, { harnessId: "gemini", model: "gemini-2.5-flash" });
+});
+
 test("syncDraftWithHarnesses keeps an existing valid selection", () => {
   const draft = syncDraftWithHarnesses(
     { harnessId: "gemini", model: "gemini-2.5-pro" },

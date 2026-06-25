@@ -21,7 +21,7 @@ orkworks/
 - Electron launches Rust sidecar; UI talks to it over localhost HTTP/WebSocket
 - `nodeIntegration: false`, `contextIsolation: true`
 - Desktop UI uses Dockview draggable panels for sessions, detail, terminal, and recommendations; Capacity is a non-Providers stub surface
-- New agent sessions can be launched with a selected coding tool, optional model override, and optional initial prompt; harness definitions are loaded from the sidecar's built-ins plus `~/.orkworks/harnesses.json`
+- New agent sessions can be launched with a selected coding tool, optional model override, and optional initial prompt; the dialog remembers the last coding tool/model choice, and harness definitions are loaded from the sidecar's built-ins plus `~/.orkworks/harnesses.json`
 - The app remembers the last workspace and repo-local active session for relaunch restore
 - The Electron main process owns app-level settings in `userData`, including canonical default hotkeys and persisted hotkeys that drive native menu accelerators
 - Session details show read-only `Coding tool`, `Model provider`, `Model`, and `Provider state` for the selected session. The backend fallback system (Peon skips disabled/capped model providers) remains in place behind the scenes.
