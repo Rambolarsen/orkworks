@@ -686,6 +686,7 @@ async fn create_session(
             dirty: Some(meta_git_ctx.dirty),
             changed_files: Some(meta_git_ctx.changed_files),
             is_worktree: Some(meta_git_ctx.is_worktree),
+            last_user_input: None,
             resume: info.resume.clone(),
             resumed_from: info.resumed_from.clone(),
         });
@@ -1661,6 +1662,36 @@ fn dispatch_terminal_message(msg: &serde_json::Value) -> TerminalAction {
     }
 }
 
+fn collect_input_line(buf: &mut String, data: &str) -> Option<String> {
+    let mut result: Option<String> = None;
+    let mut chars = data.chars().peekable();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '\r' | '\n' => {
+                let line: String = buf.trim().chars().take(100).collect();
+                buf.clear();
+                if !line.is_empty() {
+                    result = Some(line);
+                }
+            }
+            '\x7f' => { buf.pop(); }
+            '\x03' | '\x04' => { buf.clear(); }
+            '\x1b' => {
+                if chars.peek() == Some(&'[') {
+                    chars.next();
+                    while let Some(&c) = chars.peek() {
+                        chars.next();
+                        if c.is_ascii_alphabetic() || c == '~' { break; }
+                    }
+                }
+            }
+            ch if !ch.is_ascii_control() => { buf.push(ch); }
+            _ => {}
+        }
+    }
+    result
+}
+
 fn should_forward_terminal_env(key: &str) -> bool {
     key != "NODE_OPTIONS"
         && key != "VSCODE_INSPECTOR_OPTIONS"
@@ -1749,24 +1780,6 @@ async fn handle_session_terminal(mut ws: WebSocket, id: String, state: Arc<AppSt
         }
     }
 
-    let pty_sys = make_pty_system();
-    let pty_size = PtySize {
-        rows: 24,
-        cols: 80,
-        pixel_width: 0,
-        pixel_height: 0,
-    };
-
-    let pair = match pty_sys.openpty(pty_size) {
-        Ok(p) => p,
-        Err(e) => {
-            tracing::error!("failed to open PTY: {e}");
-            set_session_status(&state, &id, "error");
-            let _ = ws.close().await;
-            return;
-        }
-    };
-
     let cwd = {
         let sessions = state.sessions.lock().unwrap();
         sessions
@@ -1785,6 +1798,62 @@ async fn handle_session_terminal(mut ws: WebSocket, id: String, state: Arc<AppSt
             .get(&id)
             .map(|h| h.command.clone())
             .unwrap_or_else(|| default_shell_command(cwd.clone()))
+    };
+
+    let pty_sys = make_pty_system();
+
+    // Wait for the frontend's initial resize message so the PTY opens at the
+    // actual terminal dimensions, not the 24x80 fallback.  Without this, the
+    // spawned command writes its first prompt / banner at 80 columns while the
+    // frontend is already displaying at window width, producing choppy text.
+    let (initial_rows, initial_cols) = tokio::select! {
+        _ = kill_rx.changed() => {
+            if *kill_rx.borrow() {
+                set_session_status(&state, &id, "killed");
+                let _ = ws.close().await;
+                return;
+            }
+            (24u16, 80u16)
+        }
+        msg = ws.recv() => {
+            match msg {
+                Some(Ok(Message::Text(text))) => {
+                    if let Ok(val) = serde_json::from_str::<serde_json::Value>(&text) {
+                        if val.get("type").and_then(|v| v.as_str()) == Some("resize") {
+                            let r = val.get("rows").and_then(|v| v.as_u64()).unwrap_or(24) as u16;
+                            let c = val.get("cols").and_then(|v| v.as_u64()).unwrap_or(80) as u16;
+                            (r, c)
+                        } else {
+                            (24u16, 80u16)
+                        }
+                    } else {
+                        (24u16, 80u16)
+                    }
+                }
+                Some(Ok(Message::Close(_))) | None => {
+                    let _ = ws.close().await;
+                    return;
+                }
+                _ => (24u16, 80u16),
+            }
+        }
+    };
+
+    let pty_size = PtySize {
+        rows: initial_rows,
+        cols: initial_cols,
+        pixel_width: 0,
+        pixel_height: 0,
+    };
+
+    let pair = match pty_sys.openpty(pty_size) {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::error!("failed to open PTY: {e}");
+            set_session_status(&state, &id, "error");
+            let _ = ws.close().await;
+            return;
+        }
     };
 
     let mut cmd = CommandBuilder::new(&command.program);
@@ -1893,6 +1962,7 @@ async fn handle_session_terminal(mut ws: WebSocket, id: String, state: Arc<AppSt
     // doesn't corrupt persistence: only complete lines are written, the rest
     // stays here until more bytes arrive.
     let mut persist_buffer: Vec<u8> = Vec::new();
+    let mut input_buf = String::new();
 
     loop {
         tokio::select! {
@@ -1970,6 +2040,22 @@ async fn handle_session_terminal(mut ws: WebSocket, id: String, state: Arc<AppSt
                             TerminalAction::Input(data) => {
                                 let _ = writer.write_all(data.as_bytes());
                                 let _ = writer.flush();
+
+                                if let Some(line) = collect_input_line(&mut input_buf, &data) {
+                                    let ws_guard = state.workspace.lock().unwrap();
+                                    if let Some(ref ws) = *ws_guard {
+                                        if let Some(mut meta) = ws.metadata.read_session(&id) {
+                                            meta.label = line.clone();
+                                            meta.last_user_input = Some(line.clone());
+                                            ws.metadata.write_session(&meta);
+                                        }
+                                    }
+                                    drop(ws_guard);
+                                    let mut sessions = state.sessions.lock().unwrap();
+                                    if let Some(handle) = sessions.get_mut(&id) {
+                                        handle.info.label = line;
+                                    }
+                                }
 
                                 if state.peon.config.enabled && !data.is_empty() {
                                     state.peon.last_output.write().unwrap()
@@ -2287,6 +2373,7 @@ mod tests {
                 is_worktree: None,
                 resume: None,
                 resumed_from: None,
+                last_user_input: None,
             });
         }
 
@@ -2944,6 +3031,7 @@ mod tests {
                     is_worktree: None,
                     resume: None,
                     resumed_from: None,
+                    last_user_input: None,
                 });
             }
         }
