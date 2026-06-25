@@ -40,7 +40,9 @@ export function ensureTerminal(id: string, baseUrl: string): TerminalHandle {
     fontFamily: "'Menlo', 'Monaco', 'Courier New', monospace",
     theme: orkworksTerminalTheme,
     allowProposedApi: true,
-    scrollback: 10000,
+    scrollback: 5000,
+    scrollSensitivity: 3,
+    fastScrollSensitivity: 10,
     overviewRuler: { width: 8 },
   });
 
