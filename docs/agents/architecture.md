@@ -28,7 +28,7 @@ Electron runs with `nodeIntegration: false` and `contextIsolation: true` (ADR 00
 
 ## Frontend → backend API
 
-`apps/desktop/src/api.ts` defines TypeScript types and fetch wrappers for the REST API. `App.tsx` polls `/sessions` every 2 seconds, restores the last active workspace session when `POST /workspace` returns `lastActiveSessionId`, and persists the newly selected active session back through `POST /workspace/active-session`. Session state flows: Rust structs → JSON API → `SessionInfo`/`WorkspaceInfo` TS types → React state → components.
+`apps/desktop/src/api.ts` defines TypeScript types and fetch wrappers for the REST API. `App.tsx` polls `/sessions` every 2 seconds, restores the last active workspace session when `POST /workspace` returns `lastActiveSessionId`, and persists the newly selected active session back through `POST /workspace/active-session`. Session state flows: Rust structs → JSON API → `SessionInfo`/`WorkspaceInfo` TS types → React state → components. The session payload now exposes canonical `harnessId`, `modelProviderId`, and `modelId` fields alongside the legacy fields during the migration window.
 
 Key endpoints: `POST /workspace`, `POST /workspace/active-session`, `GET/POST /sessions`, `DELETE /sessions/:id`, `POST /sessions/:id/resume`, `GET /sessions/:id/terminal-output`, `GET /providers`, `GET /providers/:id/models`, `POST /settings/providers`, `GET /harnesses`, and `WS /sessions/:id/terminal`.
 
@@ -46,12 +46,14 @@ Single binary, eight modules:
 - `metadata.rs` — reads/writes `sessions/<id>.json`, `workspace.json`, and `events/<id>.terminal` (terminal output ring buffer) files under the global metadata root (`~/.orkworks/workspaces/<hash>/`)
 - `migration.rs` — one-time migration of legacy `<workspace>/.orkworks/` data into the global store
 - `peon.rs` — observer config, ring buffer, prompt building, inference parsing/validation, source-priority overwrite rules (driven by the debounce loop in `main.rs`; tuning knobs documented in `README.md`)
-- `providers.rs` — fixed provider registry, applied-settings store, persisted runtime state, fallback runner (`run_inference` skips disabled/capped providers in fallback order), model listing (`list_models` runs each provider's configured list-models CLI command). Exposes `GET /providers` for live runtime state, `GET /providers/:id/models` for available models, and `POST /settings/providers` for durable settings application. The session Peon loop routes through `ProviderManager::run_inference`. Per-provider peon model is configured in Settings.
+- `providers.rs` — fixed provider registry, applied-settings store, persisted runtime state, fallback runner (`run_inference` skips disabled/capped providers in fallback order), model listing (`list_models` runs each provider's configured list-models CLI command). This module still carries the historical `Provider*` names, but today it is modeling the Peon inference tool registry rather than the user-facing coding-tool selector. It exposes `GET /providers` for live runtime state, `GET /providers/:id/models` for available models, and `POST /settings/providers` for durable settings application. The session Peon loop routes through `ProviderManager::run_inference`. Per-provider peon model is configured in Settings.
 - `watcher.rs` — `notify`-based file watcher for session metadata changes under the global store
+
+For the current Rust domain model itself, see [domain-entities.md](./domain-entities.md).
 
 ## Dockview panel layout
 
-The renderer uses Dockview for a four-panel workspace: sessions, session detail, terminal, and recommendations. The capacity panel exists as a non-Providers stub, closed by default. `DockviewApp` owns the panel registration and passes app state through a React context to panel components. `TerminalPanel` hosts the active live PTY session through `CenterPanel` and xterm.js over the backend WebSocket. The session detail panel includes read-only `Coding tool`, `Model provider`, and `Provider state` fields for the selected session.
+The renderer uses Dockview for a four-panel workspace: sessions, session detail, terminal, and recommendations. The capacity panel exists as a non-Providers stub, closed by default. `DockviewApp` owns the panel registration and passes app state through a React context to panel components. `TerminalPanel` hosts the active live PTY session through `CenterPanel` and xterm.js over the backend WebSocket. The session detail panel includes read-only `Coding tool`, `Model provider`, `Model`, and `Provider state` fields for the selected session.
 
 The titlebar shows the active workspace name and a workspace-switch action when a repo is open. A `ViewMenu` component in the titlebar provides per-panel shortcuts/toggles plus a "Reset Layout" action. Panel layouts persist to Electron userData via `layout.json` and restore on startup via Dockview's `toJSON()`/`fromJSON()` serialization.
 

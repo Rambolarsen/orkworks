@@ -33,3 +33,10 @@ test("Settings provider copy refers to model providers", () => {
   assert.match(modal, /Model providers/);
   assert.match(section, /model provider/);
 });
+
+test("No active coding tool prompt does not call tools providers", () => {
+  const app = source("../src/App.tsx");
+  assert.match(app, /No active coding tools/);
+  assert.doesNotMatch(app, /No Active Providers/);
+  assert.doesNotMatch(app, /No provider harnesses/);
+});

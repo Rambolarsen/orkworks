@@ -24,7 +24,7 @@ orkworks/
 - New agent sessions can be launched with a selected coding tool, optional model override, and optional initial prompt; harness definitions are loaded from the sidecar's built-ins plus `~/.orkworks/harnesses.json`
 - The app remembers the last workspace and repo-local active session for relaunch restore
 - The Electron main process owns app-level settings in `userData`, including canonical default hotkeys and persisted hotkeys that drive native menu accelerators
-- Session details show read-only `Coding tool`, `Model provider`, and `Provider state` for the selected session, sourced from session metadata. The backend fallback system (Peon skips disabled/capped model providers) remains in place behind the scenes.
+- Session details show read-only `Coding tool`, `Model provider`, `Model`, and `Provider state` for the selected session. The backend fallback system (Peon skips disabled/capped model providers) remains in place behind the scenes.
 - Peon writes observer metadata such as `observedStatus` without replacing runtime lifecycle `status`
 - Taskmaster consumes Peon reports and workspace context to propose the next session or user action
 - PTY handles only text I/O; voice (native harness) bypasses PTY entirely
@@ -130,6 +130,8 @@ The `skills/` directory contains repo-level agent skills that are committed with
 | `.orkworks/` | Global metadata directory under `~/.orkworks/` |
 
 User-facing UI says `Coding tool` for CLI coding applications. Internal code and metadata continue to use `harness` for that integration abstraction. `Model provider` is reserved for inference services and local inference runtimes.
+
+Session metadata and session API payloads now accept canonical `harnessId`, `modelProviderId`, and `modelId` fields while remaining compatible with legacy `harness`, `providerId`, and `model` records during the migration window.
 
 ## Specs
 

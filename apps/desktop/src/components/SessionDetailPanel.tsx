@@ -64,17 +64,22 @@ function SessionDetailPanel({ sessions, activeSessionId, onResumeSession }: Sess
 
       <div className="session-detail-section">
         <div className="session-detail-label">Coding tool</div>
-        <div className="session-detail-value">{providerContext.provider}</div>
+        <div className="session-detail-value">{providerContext.codingTool}</div>
       </div>
 
       <div className="session-detail-section">
         <div className="session-detail-label">Model provider</div>
+        <div className="session-detail-value">{providerContext.modelProvider}</div>
+      </div>
+
+      <div className="session-detail-section">
+        <div className="session-detail-label">Model</div>
         <div className="session-detail-value">{providerContext.model}</div>
       </div>
 
       <div className="session-detail-section">
         <div className="session-detail-label">Provider state</div>
-        <div className="session-detail-value">{providerContext.state}</div>
+        <div className="session-detail-value">{providerContext.providerState}</div>
       </div>
 
       {active.branch && (

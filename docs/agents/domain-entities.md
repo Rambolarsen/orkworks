@@ -1,0 +1,257 @@
+# Domain Entities
+
+This document describes the current Rust domain model under `crates/orkworksd/src/domain/`.
+
+It is intentionally narrower than the full product specs. The goal here is to document the domain entities and supporting types that exist in code today, how they relate to the metadata store and API layer, and where the current terminology boundary sits.
+
+## Scope
+
+Today the domain layer is centered on **agent sessions**.
+
+The code uses:
+
+- `Session` as the aggregate root in the Rust domain layer
+- `Harness` for the internal coding-tool integration abstraction
+- `provider_id` for the inference-service identity when it is known
+
+The user-facing UI may call the selected CLI application a **Coding tool**, but the domain model still stores that internal concept as harness-related data.
+
+This document reflects the current implementation. It does not introduce launch profiles.
+
+## Session aggregate
+
+File: `crates/orkworksd/src/domain/session/entity.rs`
+
+`Session` is the primary domain entity and aggregate root.
+
+Responsibilities:
+
+- identify one running or remembered agent session
+- capture lifecycle state
+- capture attention and memory state
+- hold the selected harness/model/provider references when known
+- hold workspace and Git context
+- hold resume metadata for harness-supported continuation
+
+Current fields:
+
+- `id: SessionId`
+- `workspace_path: WorkspacePath`
+- `status: SessionStatus`
+- `memory_state: MemoryState`
+- `attention_state: AttentionState`
+- `phase: Phase`
+- `created_at: String`
+- `killed_at: Option<String>`
+- `last_active_at: Option<String>`
+- `harness_name: Option<String>`
+- `provider_id: Option<String>`
+- `task_description: Option<String>`
+- `label: String`
+- `cwd: String`
+- `model: Option<String>`
+- `repo_root: Option<String>`
+- `branch: Option<String>`
+- `dirty: Option<bool>`
+- `changed_files: Option<usize>`
+- `is_worktree: Option<bool>`
+- `resume: Option<crate::harness::ResumeMemory>`
+- `resumed_from: Option<String>`
+- `resume_strategy: crate::harness::ResumeStrategy`
+
+Behavior currently implemented on the entity:
+
+- `is_live()`
+- `is_killed()`
+- `can_be_killed()`
+- `kill(now)`
+- `mark_running()`
+
+This is a fairly lean aggregate. Most orchestration still happens in application and infrastructure layers.
+
+## Value objects
+
+File: `crates/orkworksd/src/domain/session/value_objects.rs`
+
+The session domain currently uses these value objects and enums:
+
+### `SessionId`
+
+Stable identity for a session aggregate.
+
+### `WorkspacePath`
+
+Wrapper around the owning workspace path.
+
+### `SessionStatus`
+
+Lifecycle status:
+
+- `Creating`
+- `Running`
+- `Killed`
+- `Ended`
+- `Error`
+
+This describes whether the session exists and what lifecycle phase it is in from the runtime’s perspective.
+
+### `MemoryState`
+
+Persistence/restore classification:
+
+- `Live`
+- `Remembered`
+- `Resumable`
+- `Unsupported`
+
+This is distinct from lifecycle status. A killed or ended session can still be remembered or resumable.
+
+### `AttentionState`
+
+Observed attention state:
+
+- `WaitingForInput`
+- `Blocked`
+- `Failed`
+- `Done`
+- `Stale`
+- `Working`
+- `Idle`
+
+This is the domain form of the attention model used for sorting and UI emphasis. `needs_attention()` is defined here.
+
+### `Phase`
+
+High-level work phase:
+
+- `Ideation`
+- `Implementation`
+- `Review`
+- `Debugging`
+- `Unknown`
+
+This remains intentionally coarse.
+
+## Domain events
+
+File: `crates/orkworksd/src/domain/session/events.rs`
+
+The domain emits a small set of session events:
+
+- `SessionCreated`
+- `SessionKilled`
+- `SessionResumed`
+- `SessionAttentionChanged`
+- `SessionForgotten`
+
+These events preserve the existing external naming convention through `event_type()`:
+
+- `session.created`
+- `session.killed`
+- `session.resumed`
+- `session.attention_changed`
+- `session.forgotten`
+
+This is important because infrastructure currently writes session/event data into the metadata store using those string conventions.
+
+## Domain service
+
+File: `crates/orkworksd/src/domain/session/services.rs`
+
+`SessionLifecycle` is the current domain service.
+
+Responsibilities:
+
+- create a new `Session` aggregate plus `SessionCreated` event
+- kill a session and emit `SessionKilled`
+- resume a session and emit `SessionResumed`
+
+Notable design choices:
+
+- creation accepts optional Git context and normalizes it into the aggregate
+- creation accepts optional harness/provider/model references
+- resume support is still tied to `crate::harness::ResumeMemory` and `ResumeStrategy`
+
+The service is where aggregate construction rules currently live.
+
+## Repository port
+
+File: `crates/orkworksd/src/domain/session/repository.rs`
+
+`SessionRepository` is the domain persistence port.
+
+Methods:
+
+- `save(session, events)`
+- `load(id)`
+- `delete(id)`
+- `list_by_workspace(path)`
+- `append_terminal_output(id, lines)`
+
+This port makes two boundaries explicit:
+
+1. session persistence and event persistence move together
+2. terminal scrollback is treated as repository-owned session data even though it is not part of the aggregate itself
+
+## Mapping to infrastructure
+
+The domain model is not the same thing as the API DTOs or raw metadata files.
+
+Current mapping path:
+
+```text
+Session aggregate
+  -> infrastructure/session_repository.rs
+  -> metadata::SessionMetadata
+  -> main.rs SessionInfo JSON DTO
+  -> apps/desktop/src/api.ts SessionInfo
+  -> renderer components
+```
+
+Important consequence:
+
+- the domain can stay `Harness`-oriented internally
+- the UI can still present `Coding tool`
+- compatibility aliases can exist at metadata/API boundaries without forcing a full domain rewrite
+
+## Terminology boundary in the domain
+
+Current intended interpretation:
+
+- `harness_name`: internal coding-tool integration identity
+- `provider_id`: inference-service identity when known
+- `model`: selected model when known
+- `Session`: one running or remembered agent session
+
+This means:
+
+- a harness is not a model provider
+- a model provider is optional
+- a model is optional
+- the session aggregate may legitimately know only the harness and not the provider/model
+
+Where provider/model identity cannot be determined, the domain should preserve `None` rather than invent values.
+
+## Current limitations
+
+This domain layer is still session-centric and intentionally small.
+
+Not yet modeled as first-class domain entities:
+
+- launch profiles
+- coding-tool definitions as aggregates
+- model providers as aggregates
+- recommendation entities
+- capacity entities
+
+Those concepts may exist elsewhere in the codebase as infrastructure/config/runtime types, but they are not yet represented as domain aggregates in `crates/orkworksd/src/domain/`.
+
+## Related files
+
+- `crates/orkworksd/src/domain/session/entity.rs`
+- `crates/orkworksd/src/domain/session/value_objects.rs`
+- `crates/orkworksd/src/domain/session/events.rs`
+- `crates/orkworksd/src/domain/session/services.rs`
+- `crates/orkworksd/src/domain/session/repository.rs`
+- `crates/orkworksd/src/infrastructure/session_repository.rs`
+- `docs/agents/architecture.md`

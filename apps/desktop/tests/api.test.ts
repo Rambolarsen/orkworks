@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import type { SessionInfo, WorkspaceInfo } from "../src/api.ts";
 import { forgetSession } from "../src/api.ts";
@@ -43,6 +44,32 @@ test("SessionInfo type accepts metadata fields", () => {
   assert.equal(session.resumeStrategy, "exact");
   assert.equal(session.resume?.harnessSessionId, "sess-123");
   assert.equal(session.resumedFrom, "older-session");
+});
+
+test("SessionInfo type accepts canonical terminology fields", () => {
+  const session: SessionInfo = {
+    id: "canonical-test",
+    label: "Canonical Test",
+    harnessId: "opencode",
+    modelProviderId: "openrouter",
+    modelId: "deepseek/deepseek-reasoner",
+    status: "running",
+    cwd: "/tmp/project",
+    created_at: "2026-06-25T10:00:00Z",
+    memoryState: "live",
+    resumeStrategy: "none",
+  };
+
+  assert.equal(session.harnessId, "opencode");
+  assert.equal(session.modelProviderId, "openrouter");
+  assert.equal(session.modelId, "deepseek/deepseek-reasoner");
+});
+
+test("api.ts declares canonical terminology aliases on SessionInfo", () => {
+  const source = readFileSync(new URL("../src/api.ts", import.meta.url), "utf8");
+  assert.match(source, /harnessId\?: string/);
+  assert.match(source, /modelProviderId\?: string/);
+  assert.match(source, /modelId\?: string/);
 });
 
 test("WorkspaceInfo type has expected shape", () => {

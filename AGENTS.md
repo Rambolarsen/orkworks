@@ -172,6 +172,7 @@ Electron + React/TypeScript frontend (`apps/desktop/`) communicates with a Rust 
 - `main.rs` — thin HTTP handlers delegating to SessionModule; PTY management (SessionHandle) and Peon loop remain in AppState
 
 See [`docs/agents/architecture.md`](docs/agents/architecture.md) for the full inter-component breakdown (port discovery, preload bridge, API data flow, Rust modules, panel layout).
+See [`docs/agents/domain-entities.md`](docs/agents/domain-entities.md) for the current Rust domain model: session aggregate, value objects, domain events, repository port, lifecycle service, and terminology boundaries.
 
 ## Metadata protocol
 
@@ -226,3 +227,5 @@ This checks git diff against known triggers and lists any doc files that likely 
 ## Maintaining AGENTS.md and README.md
 
 Keep both files current as the project evolves. Update AGENTS.md and README.md whenever any of the following occur: a new runtime dependency is added or removed, a directory in the planned architecture changes, a new agent target is added to `apm.yml`, a convention or workflow listed in this file changes, or a new ADR is created. Treat stale docs as a bug — if you notice something out of date while working, fix it.
+
+Also keep `docs/agents/domain-entities.md` current whenever domain fields, domain events, repository ports, lifecycle behavior, or terminology boundaries change in `crates/orkworksd/src/domain/` or in closely related metadata/API mapping code.

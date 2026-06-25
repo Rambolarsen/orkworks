@@ -55,7 +55,7 @@ test("buildProviderViewModel sorts by fallback order and marks stale applied rev
   assert.equal(model.isStale, true);
 });
 
-test("SettingsModal renders a Providers section", () => {
+test("SettingsModal renders a Model providers section", () => {
   const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
   assert.match(source, /Model providers/);
   assert.match(source, /providerDraft/);

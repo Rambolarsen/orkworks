@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Update OrkWorks user-facing terminology so CLI coding applications are shown as `Coding tool`, inference services are shown as `Model provider`, and existing harness/provider metadata remains compatible.
+**Goal:** Update OrkWorks terminology so CLI coding applications are shown as `Coding tool`, inference services are shown as `Model provider`, agent work is described as `Agent session` where it helps clarity, and existing harness/provider metadata remains compatible.
 
-**Architecture:** Keep the existing internal `Harness` and `Provider` abstractions. Change only user-facing renderer copy, source-level characterization tests, and documentation. Do not rename wire fields such as `harness`, `provider`, or persisted metadata keys in this migration.
+**Architecture:** Keep `Harness` as the internal coding-tool abstraction, tighten shared types so inference-service concepts use `ModelProvider` where practical, and preserve compatibility for existing `harness`, `provider`, and `model` metadata fields through aliases or read precedence instead of blind renames. Update UI copy, selected frontend/backend types, serialization boundaries, tests, and docs without changing session execution behavior.
 
-**Tech Stack:** React/TypeScript renderer, Electron preload/settings types, Node built-in test runner, Rust sidecar unchanged unless verification exposes copy leaking from backend-visible docs.
+**Tech Stack:** React/TypeScript renderer, Electron preload/settings types, Rust sidecar DTOs and metadata handling, Node built-in test runner, cargo test, pnpm type-check.
 
 ---
 
@@ -215,7 +215,87 @@ git add apps/desktop/src/components/NewSessionDialog.tsx apps/desktop/src/compon
 git commit -m "fix(ui): clarify coding tool and model provider copy"
 ```
 
-### Task 3: Update Documentation
+### Task 3: Add Compatibility Coverage For Shared Types And Session Metadata
+
+**Files:**
+- Modify: `apps/desktop/src/api.ts`
+- Modify: `apps/desktop/tests/api.test.ts`
+- Modify: `crates/orkworksd/src/main.rs`
+- Modify: `crates/orkworksd/src/providers.rs`
+- Modify: `crates/orkworksd/src/metadata.rs`
+- Modify: Rust tests in the touched backend modules
+
+- [ ] **Step 1: Add failing compatibility tests**
+
+Extend desktop and Rust tests so they prove the migration boundary instead of only checking copy:
+
+```typescript
+test("SessionInfo accepts canonical harnessId/modelProviderId/modelId fields", () => {
+  const session: SessionInfo = {
+    id: "session-1",
+    label: "Test session",
+    harnessId: "opencode",
+    modelProviderId: "openrouter",
+    modelId: "deepseek/deepseek-reasoner",
+    status: "running",
+    cwd: "/tmp/project",
+    created_at: "2026-06-25T10:00:00Z",
+    memoryState: "live",
+    resumeStrategy: "none",
+  };
+  assert.equal(session.harnessId, "opencode");
+  assert.equal(session.modelProviderId, "openrouter");
+  assert.equal(session.modelId, "deepseek/deepseek-reasoner");
+});
+```
+
+Add Rust coverage for legacy/new field precedence in the session metadata reader:
+
+```rust
+assert_eq!(session.harness_id.as_deref(), Some("opencode"));
+assert_eq!(session.model_provider_id.as_deref(), Some("openrouter"));
+assert_eq!(session.model_id.as_deref(), Some("deepseek/deepseek-reasoner"));
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run:
+
+```bash
+cd apps/desktop && node --experimental-strip-types --test tests/api.test.ts
+cargo test --manifest-path crates/orkworksd/Cargo.toml metadata
+```
+
+Expected: failures because canonical `harnessId` / `modelProviderId` / `modelId` fields are not yet recognized everywhere.
+
+- [ ] **Step 3: Implement compatibility-safe type and schema changes**
+
+Make these changes with minimal churn:
+
+- In `apps/desktop/src/api.ts`, add optional canonical fields `harnessId`, `modelProviderId`, and `modelId` to `SessionInfo` while retaining legacy `harness`, `provider`, and `model`.
+- In backend DTOs and metadata readers, accept both legacy and canonical field names with documented precedence.
+- Keep existing endpoints such as `/harnesses` and `/providers` unless a concrete compatibility benefit justifies anything broader.
+- Only rename internal `Provider*` abstractions where they actually model inference services rather than coding tools.
+
+- [ ] **Step 4: Re-run focused compatibility tests**
+
+Run:
+
+```bash
+cd apps/desktop && node --experimental-strip-types --test tests/api.test.ts
+cargo test --manifest-path crates/orkworksd/Cargo.toml metadata
+```
+
+Expected: canonical and legacy fields both load correctly.
+
+- [ ] **Step 5: Commit compatibility work**
+
+```bash
+git add apps/desktop/src/api.ts apps/desktop/tests/api.test.ts crates/orkworksd/src/main.rs crates/orkworksd/src/providers.rs crates/orkworksd/src/metadata.rs
+git commit -m "feat: add compatibility-safe terminology schema aliases"
+```
+
+### Task 4: Update Documentation
 
 **Files:**
 - Modify: `README.md`
@@ -268,7 +348,7 @@ git add README.md AGENTS.md docs/agents/architecture.md docs/superpowers/specs/2
 git commit -m "docs: define terminology domain boundary"
 ```
 
-### Task 4: Verify Behavior Is Unchanged
+### Task 5: Verify Behavior Is Unchanged
 
 **Files:**
 - No expected source edits unless verification exposes a missed copy string.
