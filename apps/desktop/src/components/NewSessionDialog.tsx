@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { HarnessConfig, CreateSessionOptions } from "../harnessTypes";
 import type { ProviderModelsResponse } from "../providerTypes";
 import type { ProviderRuntimeResponse } from "../api";
-import { canStartNewSession, syncDraftWithHarnesses } from "../newSessionDialogState";
+import { canStartNewSession, syncDraftWithHarnesses, type NewSessionDraft } from "../newSessionDialogState";
 
 interface NewSessionDialogProps {
   harnesses: HarnessConfig[];
@@ -19,22 +19,19 @@ function harnessLabel(name: string, state: string | undefined): string {
 const LS_HARNESS_KEY = "orkworks-new-session-harnessId";
 const LS_MODEL_KEY = "orkworks-new-session-model";
 
-function resolveInitialDraft(harnesses: HarnessConfig[]) {
-  const defaultHarness = harnesses[0] ?? null;
+function getSavedDraft(): NewSessionDraft | null {
   const savedHarnessId = localStorage.getItem(LS_HARNESS_KEY);
   const savedModel = localStorage.getItem(LS_MODEL_KEY);
 
-  if (savedHarnessId && harnesses.some((h) => h.id === savedHarnessId)) {
-    return {
-      harnessId: savedHarnessId,
-      model: savedModel ?? "",
-    };
-  }
-
+  if (!savedHarnessId) return null;
   return {
-    harnessId: defaultHarness?.id ?? "",
-    model: defaultHarness?.defaultModel ?? "",
+    harnessId: savedHarnessId,
+    model: savedModel ?? "",
   };
+}
+
+function resolveInitialDraft(harnesses: HarnessConfig[]) {
+  return syncDraftWithHarnesses({ harnessId: "", model: "" }, harnesses, getSavedDraft());
 }
 
 export default function NewSessionDialog({ harnesses, providerRuntime, onConfirm, onCancel }: NewSessionDialogProps) {
@@ -59,7 +56,7 @@ export default function NewSessionDialog({ harnesses, providerRuntime, onConfirm
   }, [onCancel]);
 
   useEffect(() => {
-    setDraft((current) => syncDraftWithHarnesses(current, harnesses));
+    setDraft((current) => syncDraftWithHarnesses(current, harnesses, getSavedDraft()));
   }, [harnesses]);
 
   useEffect(() => {
