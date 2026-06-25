@@ -14,6 +14,9 @@ export interface ResumeMemory {
 export interface SessionInfo {
   id: string;
   label: string;
+  harnessId?: string;
+  modelProviderId?: string;
+  modelId?: string;
   provider?: string;
   providerModel?: string;
   providerState?: ProviderEffectiveState;

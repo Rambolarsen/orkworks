@@ -38,6 +38,12 @@ use crate::infrastructure::session_module::SessionModule;
 struct SessionInfo {
     id: String,
     label: String,
+    #[serde(rename = "harnessId", skip_serializing_if = "Option::is_none")]
+    harness_id: Option<String>,
+    #[serde(rename = "modelProviderId", skip_serializing_if = "Option::is_none")]
+    model_provider_id: Option<String>,
+    #[serde(rename = "modelId", skip_serializing_if = "Option::is_none")]
+    model_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     harness: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -416,6 +422,9 @@ async fn resume_session(
     let info = SessionInfo {
         id: id.clone(),
         label: meta.label.clone(),
+        harness_id: (!meta.harness.is_empty()).then(|| meta.harness.clone()),
+        model_provider_id: meta.provider_id.clone(),
+        model_id: (!meta.model.is_empty()).then(|| meta.model.clone()),
         harness: (!meta.harness.is_empty()).then(|| meta.harness.clone()),
         model: (!meta.model.is_empty()).then(|| meta.model.clone()),
         status: "creating".into(),
@@ -512,11 +521,6 @@ struct ResolvedSessionLaunch {
     provider_label: Option<String>,
 }
 
-fn provider_context_for_harness(harness_id: &str) -> Option<(String, String)> {
-    let registry = providers::builtin_provider_registry();
-    registry.iter().find(|d| d.id == harness_id).map(|d| (d.id.to_string(), d.label.to_string()))
-}
-
 fn resolve_session_launch(
     harnesses: &[HarnessConfig],
     req: &CreateSessionRequest,
@@ -531,9 +535,6 @@ fn resolve_session_launch(
             let args: Vec<String> = config.args.iter().map(|arg| {
                 arg.replace("{model}", &model_value)
             }).collect();
-            let (provider_id, provider_label) = provider_context_for_harness(harness_id)
-                .map(|(id, label)| (Some(id), Some(label)))
-                .unwrap_or((None, None));
             return ResolvedSessionLaunch {
                 session_harness_id: Some(config.id.clone()),
                 adapter_harness_id: Some(config.harness.clone()),
@@ -543,8 +544,8 @@ fn resolve_session_launch(
                     args,
                     cwd,
                 },
-                provider_id,
-                provider_label,
+                provider_id: None,
+                provider_label: None,
             };
         }
     }
@@ -594,6 +595,9 @@ async fn create_session(
     let info = SessionInfo {
         id: id.clone(),
         label: format!("Session {}", &id[..8]),
+        harness_id: resolved_launch.session_harness_id.clone(),
+        model_provider_id: resolved_launch.provider_id.clone(),
+        model_id: resolved_launch.model.clone(),
         harness: resolved_launch.session_harness_id.clone(),
         model: resolved_launch.model.clone(),
         status: "creating".into(),
@@ -773,6 +777,9 @@ async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse 
         SessionInfo {
             id: id.clone(),
             label: meta.map(|m| m.label.clone()).unwrap_or(label),
+            harness_id: meta.and_then(|m| (!m.harness.is_empty()).then(|| m.harness.clone())),
+            model_provider_id: meta.and_then(|m| m.provider_id.clone()),
+            model_id: meta.and_then(|m| (!m.model.is_empty()).then(|| m.model.clone())),
             harness: meta.and_then(|m| (!m.harness.is_empty()).then(|| m.harness.clone())),
             model: meta.and_then(|m| (!m.model.is_empty()).then(|| m.model.clone())),
             status,
@@ -823,6 +830,9 @@ async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse 
         infos.push(SessionInfo {
             id: meta.id.clone(),
             label: meta.label.clone(),
+            harness_id: (!meta.harness.is_empty()).then(|| meta.harness.clone()),
+            model_provider_id: meta.provider_id.clone(),
+            model_id: (!meta.model.is_empty()).then(|| meta.model.clone()),
             harness: (!meta.harness.is_empty()).then(|| meta.harness.clone()),
             model: (!meta.model.is_empty()).then(|| meta.model.clone()),
             status: "ended".into(),
@@ -2113,6 +2123,9 @@ mod tests {
         let info = SessionInfo {
             id: id.clone(),
             label: "Test".into(),
+            harness_id: None,
+            model_provider_id: None,
+            model_id: None,
             harness: None,
             model: None,
             status: "creating".into(),
@@ -2192,6 +2205,9 @@ mod tests {
                 info: SessionInfo {
                     id: session_id.clone(),
                     label: "Killed".into(),
+                    harness_id: None,
+                    model_provider_id: None,
+                    model_id: None,
                     harness: None,
                     model: None,
                     status: "killed".into(),
@@ -2311,6 +2327,9 @@ mod tests {
                 info: SessionInfo {
                     id: id.clone(),
                     label: "Test".into(),
+                    harness_id: None,
+                    model_provider_id: None,
+                    model_id: None,
                     harness: None,
                     model: None,
                     status: "creating".into(),
@@ -2460,10 +2479,32 @@ mod tests {
     }
 
     #[test]
+    fn resolve_session_launch_does_not_infer_model_provider_from_harness() {
+        let harnesses = builtin_harness_configs();
+        let launch = resolve_session_launch(
+            &harnesses,
+            &CreateSessionRequest {
+                harness_id: Some("codex".into()),
+                model: Some("gpt-5".into()),
+                initial_prompt: None,
+            },
+            "/repo".into(),
+        );
+
+        assert_eq!(launch.session_harness_id.as_deref(), Some("codex"));
+        assert_eq!(launch.model.as_deref(), Some("gpt-5"));
+        assert_eq!(launch.provider_id, None);
+        assert_eq!(launch.provider_label, None);
+    }
+
+    #[test]
     fn session_info_serializes_provider_fields() {
         let info = SessionInfo {
             id: "test".into(),
             label: "Test".into(),
+            harness_id: Some("codex".into()),
+            model_provider_id: Some("openrouter".into()),
+            model_id: Some("gpt-5".into()),
             harness: None,
             model: None,
             status: "running".into(),
@@ -2499,6 +2540,9 @@ mod tests {
         };
 
         let json = serde_json::to_string(&info).unwrap();
+        assert!(json.contains("\"harnessId\":\"codex\""));
+        assert!(json.contains("\"modelProviderId\":\"openrouter\""));
+        assert!(json.contains("\"modelId\":\"gpt-5\""));
         assert!(json.contains("\"provider\":\"Claude Code\""));
         assert!(json.contains("\"providerModel\":\"sonnet\""));
         assert!(json.contains("\"providerState\":\"healthy\""));
@@ -2509,6 +2553,9 @@ mod tests {
         let info = SessionInfo {
             id: "test".into(),
             label: "Test".into(),
+            harness_id: None,
+            model_provider_id: None,
+            model_id: None,
             harness: None,
             model: None,
             status: "running".into(),
@@ -2554,6 +2601,9 @@ mod tests {
         let info = SessionInfo {
             id: "test".into(),
             label: "Test".into(),
+            harness_id: None,
+            model_provider_id: None,
+            model_id: None,
             harness: None,
             model: None,
             status: "creating".into(),
@@ -2596,7 +2646,7 @@ mod tests {
     fn detect_conflicts_warns_on_multiple_dirty_sessions() {
         let sessions = vec![
             SessionInfo {
-                id: "a".into(), label: "A".into(), harness: None, model: None, status: "running".into(),
+                id: "a".into(), label: "A".into(), harness_id: None, model_provider_id: None, model_id: None, harness: None, model: None, status: "running".into(),
                 cwd: "/repo".into(), created_at: "now".into(),
                 observed_status: None, summary: None, next_action: None,
                 needs_user_input: None, detected_question: None, suggested_options: None,
@@ -2617,7 +2667,7 @@ mod tests {
             resumed_from: None,
         },
             SessionInfo {
-                id: "b".into(), label: "B".into(), harness: None, model: None, status: "running".into(),
+                id: "b".into(), label: "B".into(), harness_id: None, model_provider_id: None, model_id: None, harness: None, model: None, status: "running".into(),
                 cwd: "/repo".into(), created_at: "now".into(),
                 observed_status: None, summary: None, next_action: None,
                 needs_user_input: None, detected_question: None, suggested_options: None,
@@ -2651,7 +2701,7 @@ mod tests {
     fn detect_conflicts_no_warning_on_clean_sessions() {
         let sessions = vec![
             SessionInfo {
-                id: "a".into(), label: "A".into(), harness: None, model: None, status: "running".into(),
+                id: "a".into(), label: "A".into(), harness_id: None, model_provider_id: None, model_id: None, harness: None, model: None, status: "running".into(),
                 cwd: "/repo".into(), created_at: "now".into(),
                 observed_status: None, summary: None, next_action: None,
                 needs_user_input: None, detected_question: None, suggested_options: None,
@@ -2672,7 +2722,7 @@ mod tests {
             resumed_from: None,
         },
             SessionInfo {
-                id: "b".into(), label: "B".into(), harness: None, model: None, status: "running".into(),
+                id: "b".into(), label: "B".into(), harness_id: None, model_provider_id: None, model_id: None, harness: None, model: None, status: "running".into(),
                 cwd: "/repo".into(), created_at: "now".into(),
                 observed_status: None, summary: None, next_action: None,
                 needs_user_input: None, detected_question: None, suggested_options: None,
@@ -2701,7 +2751,7 @@ mod tests {
     fn detect_conflicts_no_warning_when_dirty_is_none() {
         let sessions = vec![
             SessionInfo {
-                id: "a".into(), label: "A".into(), harness: None, model: None, status: "running".into(),
+                id: "a".into(), label: "A".into(), harness_id: None, model_provider_id: None, model_id: None, harness: None, model: None, status: "running".into(),
                 cwd: "/repo".into(), created_at: "now".into(),
                 observed_status: None, summary: None, next_action: None,
                 needs_user_input: None, detected_question: None, suggested_options: None,
@@ -2722,7 +2772,7 @@ mod tests {
             resumed_from: None,
         },
             SessionInfo {
-                id: "b".into(), label: "B".into(), harness: None, model: None, status: "running".into(),
+                id: "b".into(), label: "B".into(), harness_id: None, model_provider_id: None, model_id: None, harness: None, model: None, status: "running".into(),
                 cwd: "/repo".into(), created_at: "now".into(),
                 observed_status: None, summary: None, next_action: None,
                 needs_user_input: None, detected_question: None, suggested_options: None,
@@ -2808,6 +2858,9 @@ mod tests {
                 info: SessionInfo {
                     id: session_id.clone(),
                     label: "Test".into(),
+                    harness_id: None,
+                    model_provider_id: None,
+                    model_id: None,
                     harness: None,
                     model: None,
                     status: "running".into(),
@@ -2981,6 +3034,9 @@ mod tests {
                 info: SessionInfo {
                     id: session_id.clone(),
                     label: "Test".into(),
+                    harness_id: None,
+                    model_provider_id: None,
+                    model_id: None,
                     harness: None,
                     model: None,
                     status: "running".into(),
@@ -3071,6 +3127,9 @@ mod tests {
                 info: SessionInfo {
                     id: session_id.clone(),
                     label: "Test".into(),
+                    harness_id: None,
+                    model_provider_id: None,
+                    model_id: None,
                     harness: None,
                     model: None,
                     status: "running".into(),

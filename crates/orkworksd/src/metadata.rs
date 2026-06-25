@@ -13,7 +13,9 @@ pub struct SessionMetadata {
     pub label: String,
     pub workspace: String,
     pub task: String,
+    #[serde(rename = "harnessId", alias = "harness", default)]
     pub harness: String,
+    #[serde(rename = "modelId", alias = "model", default)]
     pub model: String,
     pub cwd: String,
     pub status: String,
@@ -39,9 +41,9 @@ pub struct SessionMetadata {
     pub capacity_hints: Option<Vec<String>>,
     #[serde(rename = "peonLastInference")]
     pub peon_last_inference: Option<String>,
-    #[serde(rename = "providerId", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "modelProviderId", alias = "providerId", skip_serializing_if = "Option::is_none")]
     pub provider_id: Option<String>,
-    #[serde(rename = "providerLabel", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "modelProviderLabel", alias = "providerLabel", skip_serializing_if = "Option::is_none")]
     pub provider_label: Option<String>,
     #[serde(rename = "providerModel", skip_serializing_if = "Option::is_none")]
     pub provider_model: Option<String>,
@@ -987,5 +989,39 @@ mod tests {
         assert_eq!(meta.provider_label.as_deref(), Some("Claude Code"));
         assert_eq!(meta.provider_model.as_deref(), Some("sonnet"));
         assert_eq!(meta.provider_state.as_deref(), Some("healthy"));
+    }
+
+    #[test]
+    fn read_session_accepts_canonical_terminology_fields() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        std::fs::create_dir_all(store.sessions_dir()).unwrap();
+
+        let raw = serde_json::json!({
+            "id": "canonical-fields",
+            "label": "Canonical Fields",
+            "workspace": "/tmp",
+            "task": "",
+            "harnessId": "opencode",
+            "modelId": "deepseek/deepseek-reasoner",
+            "cwd": "/tmp",
+            "status": "running",
+            "phase": "",
+            "modelProviderId": "openrouter",
+            "createdAt": "now",
+            "lastActivity": "now",
+            "metadataSource": "process",
+            "metadataConfidence": 1.0
+        });
+
+        std::fs::write(
+            store.sessions_dir().join("canonical-fields.json"),
+            serde_json::to_string_pretty(&raw).unwrap(),
+        ).unwrap();
+
+        let meta = store.read_session("canonical-fields").unwrap();
+        assert_eq!(meta.harness, "opencode");
+        assert_eq!(meta.model, "deepseek/deepseek-reasoner");
+        assert_eq!(meta.provider_id.as_deref(), Some("openrouter"));
     }
 }

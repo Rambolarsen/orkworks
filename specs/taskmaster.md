@@ -1,6 +1,6 @@
 # Taskmaster — Cross-Session Coordination Spec
 
-Status: proposed
+Status: accepted
 Date: 2026-06-19
 
 ## Summary

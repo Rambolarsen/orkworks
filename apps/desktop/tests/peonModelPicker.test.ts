@@ -14,15 +14,16 @@ test("ProviderSettings peonModel can be set to a model string", () => {
 
 test("SettingsModal has a peon model selector", () => {
   const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
-  assert.match(source, /Peon Model/);
+  assert.match(source, /Peon model/);
   assert.match(source, /provider-model-select/);
   assert.match(source, /savePeonModel/);
 });
 
-test("ProviderSettingsSection reports provider settings sync state", () => {
+test("ProviderSettingsSection renders model provider stale revision state", () => {
   const source = readFileSync(new URL("../src/components/ProviderSettingsSection.tsx", import.meta.url), "utf8");
+  assert.match(source, /Loading model provider settings/);
+  assert.match(source, /Saved model provider settings revision/);
   assert.match(source, /isAppliedRevisionStale/);
-  assert.match(source, /Saved settings revision/);
 });
 
 test("SettingsModal auto-saves on model change", () => {

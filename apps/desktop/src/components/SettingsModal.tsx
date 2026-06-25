@@ -186,7 +186,7 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
       await onSaveActiveHarnesses(activeDraft);
       setActiveSaveStatus("Saved");
     } catch {
-      setActiveSaveStatus("Couldn't save active providers.");
+      setActiveSaveStatus("Couldn't save active coding tools.");
     }
   }
 
@@ -197,7 +197,7 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
       onSaved(result.settings);
       setProviderSaveStatus("Saved");
     } catch {
-      setProviderSaveStatus("Couldn't save provider settings.");
+      setProviderSaveStatus("Couldn't save model provider settings.");
     }
   }
 
@@ -215,9 +215,9 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
         </header>
 
         <div className="settings-section">
-          <h3>Active Providers</h3>
+          <h3>Active coding tools</h3>
           <p className="settings-section-copy">
-            Select which providers are available in this workspace. Shell is always available.
+            Select which coding tools are available in this workspace. Shell is always available.
           </p>
 
           <div className="settings-config-list">
@@ -247,19 +247,19 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
         </div>
 
         <div className="settings-section">
-          <h3>Provider Settings</h3>
+          <h3>Model providers</h3>
           <p className="settings-section-copy">
-            Configure per-provider fallback order, state overrides, and peon model.
+            Configure model provider fallback order, state overrides, and Peon model.
           </p>
 
           <div className="provider-list">
             <div className="provider-card">
-              <div className="provider-label">Peon Model</div>
+              <div className="provider-label">Peon model</div>
               <input
                 className="provider-model-select"
                 type="text"
                 list="peon-model-suggestions"
-                placeholder="(none — let provider decide)"
+                placeholder="(none - let model provider decide)"
                 value={peonModelDraft ?? ""}
                 onChange={(e) => setPeonModelDraft(e.target.value.trim() || null)}
                 onBlur={() => {
@@ -276,7 +276,7 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
             </div>
 
             <div className="provider-card">
-              <div className="provider-label">Ollama Base URL</div>
+              <div className="provider-label">Ollama base URL</div>
               <input
                 className="provider-model-select"
                 type="text"

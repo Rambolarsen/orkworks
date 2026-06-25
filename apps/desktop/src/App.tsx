@@ -446,10 +446,10 @@ function App() {
         <div className="settings-backdrop" role="presentation">
           <section className="settings-modal" role="dialog" aria-modal="true">
             <header className="settings-modal-header">
-              <h2>No Active Providers</h2>
+              <h2>No active coding tools</h2>
             </header>
             <div className="settings-section">
-              <p>No provider harnesses are active in this workspace. Open settings to enable at least one.</p>
+              <p>No coding tools are active in this workspace. Open settings to enable at least one.</p>
             </div>
             <footer className="settings-modal-footer">
               <button type="button" onClick={() => setNoProvidersPrompt(false)}>Later</button>
