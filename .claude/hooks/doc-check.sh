@@ -33,6 +33,15 @@ fi
 
 [ ${#needs[@]} -eq 0 ] && exit 0
 
+if [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then
+  printf '{"decision":"block","reason":"[doc-check] Consider updating before closing:\\n'
+  for f in "${needs[@]}"; do
+    printf '  - %s\\n' "$f"
+  done
+  printf '"}\n'
+  exit 0
+fi
+
 printf '\n[doc-check] Consider updating before closing:\n'
 for f in "${needs[@]}"; do
   printf '  • %s\n' "$f"
