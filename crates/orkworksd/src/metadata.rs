@@ -295,8 +295,6 @@ impl MetadataStore {
         meta.failed_test = inf.failed_test.clone().or(meta.failed_test);
         meta.capacity_hints = inf.capacity_hints.clone().or(meta.capacity_hints);
 
-        let had_harness = !meta.harness.is_empty();
-        let had_model = !meta.model.is_empty();
         if let Some(ref h) = inf.detected_harness {
             if meta.harness.is_empty() {
                 meta.harness = h.clone();
@@ -307,9 +305,6 @@ impl MetadataStore {
                 meta.model = m.clone();
             }
         }
-        let now_has_harness = !meta.harness.is_empty();
-        let now_has_model = !meta.model.is_empty();
-        let _ = (now_has_harness, now_has_model, had_harness, had_model);
 
         if let Some(ref sid) = inf.harness_session_id {
             if !sid.is_empty() && sid.len() >= 3 && !sid.contains(char::is_whitespace) {
