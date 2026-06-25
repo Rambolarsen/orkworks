@@ -1,0 +1,16 @@
+<svg width="1024" height="1024" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="120" height="120" rx="24" fill="#d4d4d4"/>
+  <!-- jaw -->
+  <rect x="22" y="80" width="76" height="30" rx="10" fill="#9dc520"/>
+  <!-- helmet -->
+  <path d="M14,74 L14,46 Q14,10 60,10 Q106,10 106,46 L106,74 Q106,84 96,84 L76,84 L76,90 Q76,100 60,100 Q44,100 44,90 L44,84 L24,84 Q14,84 14,74 Z" fill="#3a5a18"/>
+  <!-- sheen -->
+  <path d="M22,42 Q28,18 60,14 Q48,22 42,42 Z" fill="#4a7020" opacity="0.6"/>
+  <!-- visor border -->
+  <rect x="24" y="52" width="72" height="20" rx="7" fill="#0e1a06"/>
+  <!-- visor face -->
+  <rect x="25" y="53" width="70" height="18" rx="6" fill="#9dc520"/>
+  <!-- eyes -->
+  <circle cx="44" cy="62" r="7" fill="#1a3a0a"/>
+  <circle cx="76" cy="62" r="7" fill="#1a3a0a"/>
+</svg>
