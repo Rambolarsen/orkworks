@@ -17,13 +17,19 @@ export interface TerminalHandle {
 
 const terminals = new Map<string, TerminalHandle>();
 
-function setupScrollCoalescing(term: Terminal): void {
-  const cellHeight = (term.options.fontSize ?? 14) * 1.2;
+function setupScrollCoalescing(term: Terminal, wrapper: HTMLElement): void {
   let rafId: number | null = null;
   let accumulated = 0;
   let lastDirection = 0;
+  const cellHeight = (term.options.fontSize ?? 14) * 1.2;
 
-  term.attachCustomWheelEventHandler((event) => {
+  const onWheel = (event: WheelEvent) => {
+    const viewport = term.element?.querySelector(".xterm-viewport");
+    if (!viewport || !viewport.contains(event.target as Node)) return;
+
+    event.stopPropagation();
+    event.preventDefault();
+
     const alt = event.altKey;
     const sensitivity = alt ? (term.options.fastScrollSensitivity ?? 5) : 1;
     const deltaPx = event.deltaY * sensitivity;
@@ -44,14 +50,24 @@ function setupScrollCoalescing(term: Terminal): void {
         const lines = Math.trunc(accumulated / cellHeight);
         if (lines !== 0) {
           term.scrollLines(lines);
+          accumulated -= lines * cellHeight;
         }
-        accumulated = 0;
-        rafId = null;
+        if (accumulated !== 0) {
+          rafId = requestAnimationFrame(() => {
+            if (accumulated === 0) { rafId = null; return; }
+            const l = Math.trunc(accumulated / cellHeight);
+            if (l !== 0) term.scrollLines(l);
+            accumulated = 0;
+            rafId = null;
+          });
+        } else {
+          rafId = null;
+        }
       });
     }
+  };
 
-    return false;
-  });
+  wrapper.addEventListener("wheel", onWheel, { capture: true, passive: false });
 }
 
 function sendResize(ws: WebSocket, term: Terminal): void {
@@ -101,11 +117,11 @@ export function ensureTerminal(id: string, baseUrl: string): TerminalHandle {
     return true;
   });
 
-  setupScrollCoalescing(term);
-
   const wrapper = document.createElement("div");
   wrapper.dataset.sessionId = id;
   wrapper.style.cssText = "position:absolute;inset:0;visibility:hidden;";
+
+  setupScrollCoalescing(term, wrapper);
 
   const wsUrl = baseUrl.replace("http", "ws") + `/sessions/${id}/terminal`;
   const ws = new WebSocket(wsUrl);
