@@ -44,6 +44,7 @@ export function ensureTerminal(id: string, baseUrl: string): TerminalHandle {
     scrollback: 2000,
     scrollSensitivity: 3,
     fastScrollSensitivity: 10,
+    smoothScrollDuration: 16,
     overviewRuler: { width: 8 },
   });
 
