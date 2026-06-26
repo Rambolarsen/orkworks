@@ -1399,6 +1399,14 @@ fn session_env_overrides(session_id: &str, port: Option<u16>) -> Vec<(String, St
     env
 }
 
+fn codex_thread_id_from_jsonl_line(line: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(line).ok()?;
+    if value.get("type").and_then(|v| v.as_str()) != Some("thread.started") {
+        return None;
+    }
+    value.get("thread_id").and_then(|v| v.as_str()).map(str::to_string)
+}
+
 // --- Harness config helpers ---
 
 fn global_harnesses_path() -> Option<std::path::PathBuf> {
@@ -2326,6 +2334,21 @@ mod tests {
         assert!(script.contains("ORKWORKS_PORT"));
         assert!(script.contains("/sessions/$ORKWORKS_SESSION_ID/harness-session"));
         assert!(script.contains("\"source\":\"opencode_env\""));
+    }
+
+    #[test]
+    fn codex_jsonl_parser_extracts_thread_started_id() {
+        let line = r#"{"type":"thread.started","thread_id":"0199a213-81c0-7800-8aa1-bbab2a035a53"}"#;
+        assert_eq!(
+            codex_thread_id_from_jsonl_line(line).as_deref(),
+            Some("0199a213-81c0-7800-8aa1-bbab2a035a53"),
+        );
+    }
+
+    #[test]
+    fn codex_jsonl_parser_ignores_other_events() {
+        let line = r#"{"type":"turn.started"}"#;
+        assert_eq!(codex_thread_id_from_jsonl_line(line), None);
     }
 
     #[test]
