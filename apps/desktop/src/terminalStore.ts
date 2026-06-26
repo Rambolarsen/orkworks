@@ -17,6 +17,43 @@ export interface TerminalHandle {
 
 const terminals = new Map<string, TerminalHandle>();
 
+function setupScrollCoalescing(term: Terminal): void {
+  const cellHeight = (term.options.fontSize ?? 14) * 1.2;
+  let rafId: number | null = null;
+  let accumulated = 0;
+  let lastDirection = 0;
+
+  term.attachCustomWheelEventHandler((event) => {
+    const alt = event.altKey;
+    const sensitivity = alt ? (term.options.fastScrollSensitivity ?? 5) : 1;
+    const deltaPx = event.deltaY * sensitivity;
+    const direction = Math.sign(deltaPx);
+
+    if (direction !== 0 && direction !== lastDirection && lastDirection !== 0) {
+      accumulated = 0;
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+        rafId = null;
+      }
+    }
+    lastDirection = direction;
+    accumulated += deltaPx;
+
+    if (rafId === null) {
+      rafId = requestAnimationFrame(() => {
+        const lines = Math.trunc(accumulated / cellHeight);
+        if (lines !== 0) {
+          term.scrollLines(lines);
+        }
+        accumulated = 0;
+        rafId = null;
+      });
+    }
+
+    return false;
+  });
+}
+
 function sendResize(ws: WebSocket, term: Terminal): void {
   if (ws.readyState !== WebSocket.OPEN) return;
   ws.send(
@@ -44,7 +81,6 @@ export function ensureTerminal(id: string, baseUrl: string): TerminalHandle {
     scrollback: 2000,
     scrollSensitivity: 3,
     fastScrollSensitivity: 10,
-    smoothScrollDuration: 16,
     overviewRuler: { width: 8 },
   });
 
@@ -65,6 +101,8 @@ export function ensureTerminal(id: string, baseUrl: string): TerminalHandle {
     if (mod && event.key === "n" && !event.shiftKey && !event.altKey) return false;
     return true;
   });
+
+  setupScrollCoalescing(term);
 
   const wrapper = document.createElement("div");
   wrapper.dataset.sessionId = id;
