@@ -12,6 +12,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::{Arc, Mutex, RwLock as StdRwLock};
 use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -131,6 +132,8 @@ struct PeonState {
     last_output: StdRwLock<HashMap<String, tokio::time::Instant>>,
     last_inference: StdRwLock<HashMap<String, String>>,
     in_flight: StdRwLock<HashSet<String>>,
+    label_hint: StdRwLock<HashMap<String, String>>,
+    label_pending: StdRwLock<HashSet<String>>,
     config: peon::PeonConfig,
 }
 
@@ -181,6 +184,7 @@ struct AppState {
     adapters: HashMap<String, harness::HarnessAdapter>,
     retention_config: tokio::sync::RwLock<RetentionConfig>,
     harnesses: tokio::sync::RwLock<Vec<HarnessConfig>>,
+    bound_port: AtomicU16,
 }
 
 #[tokio::main]
@@ -201,12 +205,15 @@ async fn main() {
             last_output: StdRwLock::new(HashMap::new()),
             last_inference: StdRwLock::new(HashMap::new()),
             in_flight: StdRwLock::new(HashSet::new()),
+            label_hint: StdRwLock::new(HashMap::new()),
+            label_pending: StdRwLock::new(HashSet::new()),
             config: peon::PeonConfig::from_env(),
         },
         providers: providers::ProviderManager::new(),
         adapters: builtin_adapters(),
         retention_config: tokio::sync::RwLock::new(RetentionConfig::default()),
         harnesses: tokio::sync::RwLock::new(load_harnesses()),
+        bound_port: AtomicU16::new(0),
     });
 
     // Start Peon background task
@@ -243,17 +250,19 @@ async fn main() {
         .route("/sessions/:id", delete(delete_session))
         .route("/sessions/:id/forget", delete(forget_session))
         .route("/sessions/:id/resume", post(resume_session))
+        .route("/sessions/:id/harness-session", post(report_harness_session))
         .route("/settings/retention", post(set_retention))
         .route("/harnesses", get(list_harnesses).post(create_harness))
         .route("/harnesses/:id", put(update_harness).delete(delete_harness))
         .route("/sessions/:id/terminal", get(session_terminal_handler))
         .route("/sessions/:id/terminal-output", get(get_terminal_output))
         .layer(cors)
-        .with_state(state);
+        .with_state(state.clone());
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 0));
     let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
     let bound_addr = listener.local_addr().unwrap();
+    state.bound_port.store(bound_addr.port(), Ordering::Relaxed);
 
     println!("ORKWORKSD_PORT={}", bound_addr.port());
 
@@ -277,6 +286,14 @@ struct ActiveSessionRequest {
 struct ActiveHarnessesRequest {
     #[serde(rename = "activeHarnessIds", default)]
     active_harness_ids: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct HarnessSessionReportRequest {
+    #[serde(rename = "harnessSessionId")]
+    harness_session_id: String,
+    source: String,
+    confidence: f64,
 }
 
 #[derive(Serialize)]
@@ -502,6 +519,56 @@ async fn resume_session(
     Json(info).into_response()
 }
 
+async fn report_harness_session(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(req): Json<HarnessSessionReportRequest>,
+) -> impl IntoResponse {
+    let report = metadata::HarnessSessionReport {
+        harness_session_id: req.harness_session_id,
+        source: req.source,
+        confidence: req.confidence,
+    };
+
+    if !metadata::valid_harness_session_report(&report) {
+        return axum::http::StatusCode::BAD_REQUEST.into_response();
+    }
+
+    let now = iso_now();
+    let result = {
+        let ws_guard = state.workspace.lock().unwrap();
+        let Some(ref ws) = *ws_guard else {
+            return axum::http::StatusCode::CONFLICT.into_response();
+        };
+        ws.metadata.merge_harness_session_report(&id, &report, &now)
+    };
+
+    if result == metadata::HarnessSessionMergeResult::Accepted {
+        let updated_resume = {
+            let ws_guard = state.workspace.lock().unwrap();
+            ws_guard
+                .as_ref()
+                .and_then(|ws| ws.metadata.read_session(&id))
+                .and_then(|meta| meta.resume)
+        };
+        if let Some(updated_resume) = updated_resume {
+            let mut sessions = state.sessions.lock().unwrap();
+            if let Some(handle) = sessions.get_mut(&id) {
+                handle.info.resume = Some(updated_resume);
+            }
+        }
+    }
+
+    match result {
+        metadata::HarnessSessionMergeResult::Accepted
+        | metadata::HarnessSessionMergeResult::IgnoredLowerConfidence => {
+            axum::http::StatusCode::OK.into_response()
+        }
+        metadata::HarnessSessionMergeResult::NotFound => axum::http::StatusCode::NOT_FOUND.into_response(),
+        metadata::HarnessSessionMergeResult::Invalid => axum::http::StatusCode::BAD_REQUEST.into_response(),
+    }
+}
+
 #[derive(Deserialize, Default)]
 struct CreateSessionRequest {
     #[serde(rename = "harnessId", default)]
@@ -688,6 +755,9 @@ async fn create_session(
             is_worktree: Some(meta_git_ctx.is_worktree),
             last_user_input: None,
             resume: info.resume.clone(),
+            harness_session_id_source: None,
+            harness_session_id_confidence: None,
+            harness_session_id_captured_at: None,
             resumed_from: info.resumed_from.clone(),
         });
         ws.metadata.append_event(&id, &metadata::Event {
@@ -1213,20 +1283,27 @@ async fn peon_loop(state: Arc<AppState>) {
         let now = tokio::time::Instant::now();
         let deadline = now - std::time::Duration::from_secs(interval);
 
-        // Find sessions with new output that has gone silent
-        let candidates: Vec<String> = {
+        // Sessions with a pending label inference (input-triggered, no debounce)
+        let pending: Vec<String> = state.peon.label_pending.write().unwrap().drain().collect();
+
+        // Sessions with new output that has gone silent
+        let mut candidates: Vec<String> = {
             let last_output = state.peon.last_output.read().unwrap();
-            let last_inference = state.peon.last_inference.read().unwrap();
             let in_flight = state.peon.in_flight.read().unwrap();
 
             last_output.iter()
                 .filter(|(id, &t)| {
-                    if t > deadline { return false; }
-                    !last_inference.contains_key(*id) && !in_flight.contains(*id)
+                    t <= deadline && !in_flight.contains(*id)
                 })
                 .map(|(id, _)| id.clone())
                 .collect()
         };
+
+        for id in pending {
+            if !state.peon.in_flight.read().unwrap().contains(&id) && !candidates.contains(&id) {
+                candidates.push(id);
+            }
+        }
 
         for session_id in candidates {
             {
@@ -1236,6 +1313,7 @@ async fn peon_loop(state: Arc<AppState>) {
                 }
             }
 
+            let hint = state.peon.label_hint.write().unwrap().remove(&session_id);
             let output_snapshot = {
                 let sessions = state.sessions.lock().unwrap();
                 match sessions.get(&session_id) {
@@ -1247,10 +1325,18 @@ async fn peon_loop(state: Arc<AppState>) {
                 }
             };
 
-            if output_snapshot.is_empty() {
+            if output_snapshot.is_empty() && hint.is_none() {
                 state.peon.in_flight.write().unwrap().remove(&session_id);
                 continue;
             }
+
+            let output_snapshot = if let Some(ref h) = hint {
+                let mut lines = vec![format!("[User input]: {}", h)];
+                lines.extend(output_snapshot);
+                lines
+            } else {
+                output_snapshot
+            };
 
             let state_clone = state.clone();
             let id = session_id.clone();
@@ -1279,6 +1365,12 @@ async fn peon_loop(state: Arc<AppState>) {
 
                         if should_write {
                             ws.metadata.merge_peon_inference(&id, &inf, &now_iso, provider_result.observation.as_ref());
+                            if let Some(ref summary) = inf.summary {
+                                let label: String = summary.chars().take(100).collect();
+                                if let Some(handle) = state_clone.sessions.lock().unwrap().get_mut(&id) {
+                                    handle.info.label = label;
+                                }
+                            }
                         } else {
                             tracing::debug!("Peon: skipping {id}, higher-priority source exists");
                         }
@@ -1289,6 +1381,7 @@ async fn peon_loop(state: Arc<AppState>) {
                 let mut last_inf = state_clone.peon.last_inference.write().unwrap();
                 last_inf.insert(id.clone(), now_iso);
                 drop(last_inf);
+                state_clone.peon.last_output.write().unwrap().remove(&id);
                 state_clone.peon.in_flight.write().unwrap().remove(&id);
             });
         }
@@ -1307,14 +1400,30 @@ fn shell_cmd() -> (String, Vec<String>) {
     }
 }
 
-fn terminal_env_overrides() -> [(&'static str, &'static str); 5] {
-    [
-        ("TERM", "xterm-256color"),
-        ("COLORTERM", "truecolor"),
-        ("FORCE_COLOR", "1"),
-        ("CLICOLOR", "1"),
-        ("TERM_PROGRAM", "OrkWorks"),
+fn terminal_env_overrides() -> Vec<(String, String)> {
+    vec![
+        ("TERM".into(), "xterm-256color".into()),
+        ("COLORTERM".into(), "truecolor".into()),
+        ("FORCE_COLOR".into(), "1".into()),
+        ("CLICOLOR".into(), "1".into()),
+        ("TERM_PROGRAM".into(), "OrkWorks".into()),
     ]
+}
+
+fn session_env_overrides(session_id: &str, port: Option<u16>) -> Vec<(String, String)> {
+    let mut env = vec![("ORKWORKS_SESSION_ID".into(), session_id.to_string())];
+    if let Some(port) = port {
+        env.push(("ORKWORKS_PORT".into(), port.to_string()));
+    }
+    env
+}
+
+fn codex_thread_id_from_jsonl_line(line: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(line).ok()?;
+    if value.get("type").and_then(|v| v.as_str()) != Some("thread.started") {
+        return None;
+    }
+    value.get("thread_id").and_then(|v| v.as_str()).map(str::to_string)
 }
 
 // --- Harness config helpers ---
@@ -1899,7 +2008,14 @@ async fn handle_session_terminal(mut ws: WebSocket, id: String, state: Arc<AppSt
         }
     }
     for (key, value) in terminal_env_overrides() {
-        cmd.env(key, value);
+        cmd.env(&key, &value);
+    }
+    let port = match state.bound_port.load(Ordering::Relaxed) {
+        0 => None,
+        value => Some(value),
+    };
+    for (key, value) in session_env_overrides(&id, port) {
+        cmd.env(&key, &value);
     }
 
     let mut child = match pair.slave.spawn_command(cmd) {
@@ -2013,7 +2129,12 @@ async fn handle_session_terminal(mut ws: WebSocket, id: String, state: Arc<AppSt
                     drop(ws_guard);
                     let mut sessions = state.sessions.lock().unwrap();
                     if let Some(handle) = sessions.get_mut(&id) {
-                        handle.info.label = line;
+                        handle.info.label = line.clone();
+                    }
+                    drop(sessions);
+                    if state.peon.config.enabled && line.len() > 10 {
+                        state.peon.label_hint.write().unwrap().insert(id.clone(), line);
+                        state.peon.label_pending.write().unwrap().insert(id.clone());
                     }
                 }
                 if state.peon.config.enabled && !data.is_empty() {
@@ -2114,7 +2235,16 @@ async fn handle_session_terminal(mut ws: WebSocket, id: String, state: Arc<AppSt
                                     drop(ws_guard);
                                     let mut sessions = state.sessions.lock().unwrap();
                                     if let Some(handle) = sessions.get_mut(&id) {
-                                        handle.info.label = line;
+                                        handle.info.label = line.clone();
+                                    }
+                                    drop(sessions);
+                                    if state.peon.config.enabled && line.len() > 10 {
+                                        state.peon.label_hint.write().unwrap().insert(id.clone(), line);
+                                        state.peon.last_output.write().unwrap().insert(
+                                            id.clone(),
+                                            tokio::time::Instant::now() - std::time::Duration::from_secs(3600),
+                                        );
+                                        state.peon.last_inference.write().unwrap().remove(&id);
                                     }
                                 }
 
@@ -2194,11 +2324,61 @@ mod tests {
     fn terminal_env_overrides_force_color_capability() {
         let overrides = terminal_env_overrides();
 
-        assert!(overrides.contains(&("TERM", "xterm-256color")));
-        assert!(overrides.contains(&("COLORTERM", "truecolor")));
-        assert!(overrides.contains(&("FORCE_COLOR", "1")));
-        assert!(overrides.contains(&("CLICOLOR", "1")));
-        assert!(overrides.contains(&("TERM_PROGRAM", "OrkWorks")));
+        assert!(overrides.contains(&("TERM".into(), "xterm-256color".into())));
+        assert!(overrides.contains(&("COLORTERM".into(), "truecolor".into())));
+        assert!(overrides.contains(&("FORCE_COLOR".into(), "1".into())));
+        assert!(overrides.contains(&("CLICOLOR".into(), "1".into())));
+        assert!(overrides.contains(&("TERM_PROGRAM".into(), "OrkWorks".into())));
+    }
+
+    #[test]
+    fn session_env_overrides_include_orkworks_session_and_port() {
+        let overrides = session_env_overrides("session-123", Some(5173));
+        assert!(overrides.contains(&("ORKWORKS_SESSION_ID".into(), "session-123".into())));
+        assert!(overrides.contains(&("ORKWORKS_PORT".into(), "5173".into())));
+    }
+
+    #[test]
+    fn session_env_overrides_omit_port_when_unknown() {
+        let overrides = session_env_overrides("session-123", None);
+        assert!(overrides.contains(&("ORKWORKS_SESSION_ID".into(), "session-123".into())));
+        assert!(!overrides.iter().any(|(key, _)| key == "ORKWORKS_PORT"));
+    }
+
+    #[test]
+    fn opencode_reporter_script_posts_native_session_env() {
+        let script = include_str!("../scripts/report-opencode-session.sh");
+        assert!(script.contains("OPENCODE_SESSION_ID"));
+        assert!(script.contains("ORKWORKS_SESSION_ID"));
+        assert!(script.contains("ORKWORKS_PORT"));
+        assert!(script.contains("/sessions/$ORKWORKS_SESSION_ID/harness-session"));
+        assert!(script.contains("\"source\":\"opencode_env\""));
+    }
+
+    #[test]
+    fn codex_jsonl_parser_extracts_thread_started_id() {
+        let line = r#"{"type":"thread.started","thread_id":"0199a213-81c0-7800-8aa1-bbab2a035a53"}"#;
+        assert_eq!(
+            codex_thread_id_from_jsonl_line(line).as_deref(),
+            Some("0199a213-81c0-7800-8aa1-bbab2a035a53"),
+        );
+    }
+
+    #[test]
+    fn codex_jsonl_parser_ignores_other_events() {
+        let line = r#"{"type":"turn.started"}"#;
+        assert_eq!(codex_thread_id_from_jsonl_line(line), None);
+    }
+
+    #[test]
+    fn claude_hook_reporter_extracts_session_id_and_posts() {
+        let script = include_str!("../scripts/report-claude-session-from-hook.sh");
+        assert!(script.contains("session_id"));
+        assert!(script.contains("ORKWORKS_SESSION_ID"));
+        assert!(script.contains("ORKWORKS_PORT"));
+        assert!(script.contains("/sessions/$ORKWORKS_SESSION_ID/harness-session"));
+        assert!(script.contains("\"source\":\"claude_hook\""));
+        assert!(script.contains("/sessions/$ORKWORKS_SESSION_ID/attention"));
     }
 
     #[test]
@@ -2245,6 +2425,270 @@ mod tests {
         assert_eq!(action, TerminalAction::Noop);
     }
 
+    fn test_app_state_with_workspace(path: &std::path::Path) -> Arc<AppState> {
+        let metadata_root = path.join(".orkworks-test");
+        Arc::new(AppState {
+            session_module: SessionModule::new(),
+            sessions: Mutex::new(HashMap::new()),
+            workspace: Mutex::new(Some(WorkspaceState {
+                path: path.to_path_buf(),
+                metadata: metadata::MetadataStore::new(&metadata_root),
+                watcher: watcher::MetadataWatcher::start(&metadata_root.join("sessions")),
+            })),
+            peon: PeonState {
+                last_output: StdRwLock::new(HashMap::new()),
+                last_inference: StdRwLock::new(HashMap::new()),
+                in_flight: StdRwLock::new(HashSet::new()),
+                label_hint: StdRwLock::new(HashMap::new()),
+                label_pending: StdRwLock::new(HashSet::new()),
+                config: peon::PeonConfig::from_env(),
+            },
+            adapters: builtin_adapters(),
+            retention_config: tokio::sync::RwLock::new(RetentionConfig::default()),
+            harnesses: tokio::sync::RwLock::new(vec![]),
+            bound_port: AtomicU16::new(0),
+            providers: providers::ProviderManager::new(),
+        })
+    }
+
+    #[tokio::test]
+    async fn harness_session_report_rejects_invalid_native_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let response = report_harness_session(
+            State(state),
+            Path("missing".into()),
+            Json(HarnessSessionReportRequest {
+                harness_session_id: "bad id".into(),
+                source: "test".into(),
+                confidence: 0.9,
+            }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn harness_session_report_returns_not_found_for_unknown_session() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let response = report_harness_session(
+            State(state),
+            Path("missing".into()),
+            Json(HarnessSessionReportRequest {
+                harness_session_id: "native-123".into(),
+                source: "test".into(),
+                confidence: 0.9,
+            }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn harness_session_report_writes_metadata_for_known_session() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        {
+            let ws = state.workspace.lock().unwrap();
+            ws.as_ref().unwrap().metadata.write_session(&metadata::SessionMetadata {
+                id: "known".into(),
+                label: "Known".into(),
+                workspace: dir.path().display().to_string(),
+                task: "".into(),
+                harness: "opencode".into(),
+                model: "".into(),
+                cwd: dir.path().display().to_string(),
+                status: "running".into(),
+                phase: "".into(),
+                observed_status: None,
+                summary: None,
+                next_action: None,
+                needs_user_input: None,
+                detected_question: None,
+                suggested_options: None,
+                blocker_description: None,
+                failed_command: None,
+                failed_test: None,
+                capacity_hints: None,
+                peon_last_inference: None,
+                provider_id: None,
+                provider_label: None,
+                provider_model: None,
+                provider_state: None,
+                created_at: "now".into(),
+                last_activity: "now".into(),
+                metadata_source: "process".into(),
+                metadata_confidence: 1.0,
+                repo_root: None,
+                branch: None,
+                dirty: None,
+                changed_files: None,
+                is_worktree: None,
+                resume: None,
+                harness_session_id_source: None,
+                harness_session_id_confidence: None,
+                harness_session_id_captured_at: None,
+                resumed_from: None,
+                last_user_input: None,
+            });
+        }
+
+        let response = report_harness_session(
+            State(state.clone()),
+            Path("known".into()),
+            Json(HarnessSessionReportRequest {
+                harness_session_id: "native-123".into(),
+                source: "opencode_env".into(),
+                confidence: 0.98,
+            }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let ws = state.workspace.lock().unwrap();
+        let updated = ws.as_ref().unwrap().metadata.read_session("known").unwrap();
+        assert_eq!(
+            updated.resume.as_ref().and_then(|r| r.harness_session_id.as_deref()),
+            Some("native-123"),
+        );
+    }
+
+    #[tokio::test]
+    async fn harness_session_report_keeps_resume_memory_in_sync_for_later_status_updates() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let session_id = "live-known".to_string();
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        let resume = harness::ResumeMemory {
+            state: harness::ResumeState::Available,
+            preferred_strategy: harness::ResumeStrategy::LatestCwd,
+            harness_session_id: None,
+            latest_fallback: true,
+            last_seen_at: Some("before".into()),
+        };
+
+        state.sessions.lock().unwrap().insert(
+            session_id.clone(),
+            SessionHandle {
+                info: SessionInfo {
+                    id: session_id.clone(),
+                    label: "Known".into(),
+                    harness_id: Some("opencode".into()),
+                    model_provider_id: None,
+                    model_id: None,
+                    harness: Some("opencode".into()),
+                    model: None,
+                    status: "running".into(),
+                    cwd: dir.path().display().to_string(),
+                    created_at: "before".into(),
+                    observed_status: None,
+                    summary: None,
+                    next_action: None,
+                    needs_user_input: None,
+                    detected_question: None,
+                    suggested_options: None,
+                    blocker_description: None,
+                    failed_command: None,
+                    failed_test: None,
+                    capacity_hints: None,
+                    metadata_source: Some("process".into()),
+                    metadata_confidence: Some(1.0),
+                    repo_root: None,
+                    branch: None,
+                    dirty: None,
+                    changed_files: None,
+                    is_worktree: None,
+                    conflict_warning: None,
+                    recommendation: None,
+                    peon_last_inference: None,
+                    provider: None,
+                    provider_model: None,
+                    provider_state: None,
+                    memory_state: MemoryState::Live,
+                    resume_strategy: harness::ResumeStrategy::LatestCwd,
+                    resume: Some(resume.clone()),
+                    resumed_from: None,
+                },
+                kill_tx,
+                output_buffer: peon::RingBuffer::new(200),
+                command: default_shell_command(dir.path().display().to_string()),
+                initial_prompt: None,
+            },
+        );
+
+        {
+            let ws = state.workspace.lock().unwrap();
+            ws.as_ref().unwrap().metadata.write_session(&metadata::SessionMetadata {
+                id: session_id.clone(),
+                label: "Known".into(),
+                workspace: dir.path().display().to_string(),
+                task: "".into(),
+                harness: "opencode".into(),
+                model: "".into(),
+                cwd: dir.path().display().to_string(),
+                status: "running".into(),
+                phase: "".into(),
+                observed_status: None,
+                summary: None,
+                next_action: None,
+                needs_user_input: None,
+                detected_question: None,
+                suggested_options: None,
+                blocker_description: None,
+                failed_command: None,
+                failed_test: None,
+                capacity_hints: None,
+                peon_last_inference: None,
+                provider_id: None,
+                provider_label: None,
+                provider_model: None,
+                provider_state: None,
+                created_at: "before".into(),
+                last_activity: "before".into(),
+                metadata_source: "process".into(),
+                metadata_confidence: 1.0,
+                repo_root: None,
+                branch: None,
+                dirty: None,
+                changed_files: None,
+                is_worktree: None,
+                resume: Some(resume),
+                harness_session_id_source: None,
+                harness_session_id_confidence: None,
+                harness_session_id_captured_at: None,
+                resumed_from: None,
+                last_user_input: None,
+            });
+        }
+
+        let response = report_harness_session(
+            State(state.clone()),
+            Path(session_id.clone()),
+            Json(HarnessSessionReportRequest {
+                harness_session_id: "native-123".into(),
+                source: "opencode_env".into(),
+                confidence: 0.98,
+            }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        set_session_status(&state, &session_id, "ended");
+
+        let ws = state.workspace.lock().unwrap();
+        let updated = ws.as_ref().unwrap().metadata.read_session(&session_id).unwrap();
+        let updated_resume = updated.resume.unwrap();
+        assert_eq!(updated_resume.harness_session_id.as_deref(), Some("native-123"));
+        assert_ne!(updated_resume.last_seen_at.as_deref(), Some("before"));
+    }
+
     #[test]
     fn session_registry_create_and_list() {
         let state = Arc::new(AppState {
@@ -2255,11 +2699,14 @@ mod tests {
                 last_output: StdRwLock::new(HashMap::new()),
                 last_inference: StdRwLock::new(HashMap::new()),
                 in_flight: StdRwLock::new(HashSet::new()),
+                label_hint: StdRwLock::new(HashMap::new()),
+                label_pending: StdRwLock::new(HashSet::new()),
                 config: peon::PeonConfig::from_env(),
             },
             adapters: builtin_adapters(),
             retention_config: tokio::sync::RwLock::new(RetentionConfig::default()),
             harnesses: tokio::sync::RwLock::new(vec![]),
+            bound_port: AtomicU16::new(0),
             providers: providers::ProviderManager::new(),
         });
 
@@ -2336,11 +2783,14 @@ mod tests {
                 last_output: StdRwLock::new(HashMap::new()),
                 last_inference: StdRwLock::new(HashMap::new()),
                 in_flight: StdRwLock::new(HashSet::new()),
+                label_hint: StdRwLock::new(HashMap::new()),
+                label_pending: StdRwLock::new(HashSet::new()),
                 config: peon::PeonConfig::from_env(),
             },
             adapters: builtin_adapters(),
             retention_config: tokio::sync::RwLock::new(RetentionConfig::default()),
             harnesses: tokio::sync::RwLock::new(vec![]),
+            bound_port: AtomicU16::new(0),
             providers: providers::ProviderManager::new(),
         });
 
@@ -2433,6 +2883,9 @@ mod tests {
                 changed_files: None,
                 is_worktree: None,
                 resume: None,
+                harness_session_id_source: None,
+                harness_session_id_confidence: None,
+                harness_session_id_captured_at: None,
                 resumed_from: None,
                 last_user_input: None,
             });
@@ -2459,11 +2912,14 @@ mod tests {
                 last_output: StdRwLock::new(HashMap::new()),
                 last_inference: StdRwLock::new(HashMap::new()),
                 in_flight: StdRwLock::new(HashSet::new()),
+                label_hint: StdRwLock::new(HashMap::new()),
+                label_pending: StdRwLock::new(HashSet::new()),
                 config: peon::PeonConfig::from_env(),
             },
             adapters: builtin_adapters(),
             retention_config: tokio::sync::RwLock::new(RetentionConfig::default()),
             harnesses: tokio::sync::RwLock::new(vec![]),
+            bound_port: AtomicU16::new(0),
             providers: providers::ProviderManager::new(),
         });
 
@@ -2973,11 +3429,14 @@ mod tests {
                 last_output: StdRwLock::new(HashMap::new()),
                 last_inference: StdRwLock::new(HashMap::new()),
                 in_flight: StdRwLock::new(HashSet::new()),
+                label_hint: StdRwLock::new(HashMap::new()),
+                label_pending: StdRwLock::new(HashSet::new()),
                 config: peon::PeonConfig::from_env(),
             },
             adapters: builtin_adapters(),
             retention_config: tokio::sync::RwLock::new(RetentionConfig::default()),
             harnesses: tokio::sync::RwLock::new(vec![]),
+            bound_port: AtomicU16::new(0),
             providers: providers::ProviderManager::for_tests(
                 providers::ProviderSettingsPayload {
                     version: 1,
@@ -3091,6 +3550,9 @@ mod tests {
                     changed_files: None,
                     is_worktree: None,
                     resume: None,
+                    harness_session_id_source: None,
+                    harness_session_id_confidence: None,
+                    harness_session_id_captured_at: None,
                     resumed_from: None,
                     last_user_input: None,
                 });
@@ -3150,11 +3612,14 @@ mod tests {
                 last_output: StdRwLock::new(HashMap::new()),
                 last_inference: StdRwLock::new(HashMap::new()),
                 in_flight: StdRwLock::new(HashSet::new()),
+                label_hint: StdRwLock::new(HashMap::new()),
+                label_pending: StdRwLock::new(HashSet::new()),
                 config: peon::PeonConfig::from_env(),
             },
             adapters: builtin_adapters(),
             retention_config: tokio::sync::RwLock::new(RetentionConfig::default()),
             harnesses: tokio::sync::RwLock::new(vec![]),
+            bound_port: AtomicU16::new(0),
             providers: providers::ProviderManager::for_tests(
                 providers::ProviderSettingsPayload {
                     version: 1,
@@ -3253,6 +3718,8 @@ mod tests {
                 last_output: StdRwLock::new(HashMap::new()),
                 last_inference: StdRwLock::new(HashMap::new()),
                 in_flight: StdRwLock::new(HashSet::new()),
+                label_hint: StdRwLock::new(HashMap::new()),
+                label_pending: StdRwLock::new(HashSet::new()),
                 config: peon::PeonConfig {
                     harness: dir.path().join("missing-harness").display().to_string(),
                     harness_args: vec!["--print".into()],
@@ -3266,6 +3733,7 @@ mod tests {
             adapters: builtin_adapters(),
             retention_config: tokio::sync::RwLock::new(RetentionConfig::default()),
             harnesses: tokio::sync::RwLock::new(vec![]),
+            bound_port: AtomicU16::new(0),
             providers: providers::ProviderManager::new(),
         });
 

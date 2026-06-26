@@ -67,6 +67,12 @@ pub struct SessionMetadata {
     pub is_worktree: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resume: Option<ResumeMemory>,
+    #[serde(rename = "harnessSessionIdSource", skip_serializing_if = "Option::is_none")]
+    pub harness_session_id_source: Option<String>,
+    #[serde(rename = "harnessSessionIdConfidence", skip_serializing_if = "Option::is_none")]
+    pub harness_session_id_confidence: Option<f64>,
+    #[serde(rename = "harnessSessionIdCapturedAt", skip_serializing_if = "Option::is_none")]
+    pub harness_session_id_captured_at: Option<String>,
     #[serde(rename = "resumedFrom", skip_serializing_if = "Option::is_none")]
     pub resumed_from: Option<String>,
     #[serde(rename = "lastUserInput", skip_serializing_if = "Option::is_none")]
@@ -92,6 +98,37 @@ pub struct WorkspaceMemory {
     pub last_active_at: Option<String>,
     #[serde(rename = "activeHarnessIds", default, skip_serializing_if = "Vec::is_empty")]
     pub active_harness_ids: Vec<String>,
+}
+
+pub const HARNESS_SESSION_ID_MIN_LEN: usize = 3;
+pub const HARNESS_SESSION_ID_MAX_LEN: usize = 512;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct HarnessSessionReport {
+    pub harness_session_id: String,
+    pub source: String,
+    pub confidence: f64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HarnessSessionMergeResult {
+    Accepted,
+    IgnoredLowerConfidence,
+    NotFound,
+    Invalid,
+}
+
+pub fn valid_harness_session_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() >= HARNESS_SESSION_ID_MIN_LEN
+        && id.len() <= HARNESS_SESSION_ID_MAX_LEN
+        && !id.contains(char::is_whitespace)
+}
+
+pub fn valid_harness_session_report(report: &HarnessSessionReport) -> bool {
+    valid_harness_session_id(&report.harness_session_id)
+        && !report.source.trim().is_empty()
+        && (0.0..=1.0).contains(&report.confidence)
 }
 
 pub struct MetadataStore {
@@ -269,6 +306,63 @@ impl MetadataStore {
         self.write_session(&meta);
     }
 
+    pub fn merge_harness_session_report(
+        &self,
+        id: &str,
+        report: &HarnessSessionReport,
+        timestamp: &str,
+    ) -> HarnessSessionMergeResult {
+        if !valid_harness_session_report(report) {
+            return HarnessSessionMergeResult::Invalid;
+        }
+
+        let mut meta = match self.read_session(id) {
+            Some(m) => m,
+            None => return HarnessSessionMergeResult::NotFound,
+        };
+
+        let existing_confidence = meta.harness_session_id_confidence.unwrap_or(-1.0);
+        let existing_id = meta
+            .resume
+            .as_ref()
+            .and_then(|resume| resume.harness_session_id.as_deref());
+
+        if existing_id.is_some() && report.confidence < existing_confidence {
+            return HarnessSessionMergeResult::IgnoredLowerConfidence;
+        }
+
+        let mut resume = meta.resume.take().unwrap_or_else(|| ResumeMemory {
+            state: ResumeState::Available,
+            preferred_strategy: ResumeStrategy::None,
+            harness_session_id: None,
+            latest_fallback: true,
+            last_seen_at: None,
+        });
+
+        resume.state = ResumeState::Available;
+        resume.harness_session_id = Some(report.harness_session_id.clone());
+        resume.last_seen_at = Some(timestamp.to_string());
+        if resume.preferred_strategy == ResumeStrategy::None {
+            resume.preferred_strategy = ResumeStrategy::Exact;
+        }
+
+        meta.resume = Some(resume);
+        meta.harness_session_id_source = Some(report.source.clone());
+        meta.harness_session_id_confidence = Some(report.confidence);
+        meta.harness_session_id_captured_at = Some(timestamp.to_string());
+        self.write_session(&meta);
+
+        self.append_event(id, &Event {
+            event_type: "session.harness_session_captured".into(),
+            timestamp: timestamp.to_string(),
+            status: meta.status.clone(),
+            observed_status: None,
+            confidence: Some(report.confidence),
+        });
+
+        HarnessSessionMergeResult::Accepted
+    }
+
     pub fn merge_peon_inference(
         &self,
         id: &str,
@@ -280,12 +374,21 @@ impl MetadataStore {
             Some(m) => m,
             None => return,
         };
+        let peon_harness_session_report =
+            inf.harness_session_id.as_ref().map(|sid| HarnessSessionReport {
+                harness_session_id: sid.clone(),
+                source: "peon".into(),
+                confidence: inf.confidence.min(0.50),
+            });
 
         meta.observed_status = inf.observed_status.clone().or(meta.observed_status);
         if let Some(ref phase) = inf.phase {
             meta.phase = phase.clone();
         }
         meta.summary = inf.summary.clone().or(meta.summary);
+        if let Some(ref summary) = inf.summary {
+            meta.label = summary.chars().take(100).collect();
+        }
         meta.next_action = inf.next_action.clone().or(meta.next_action);
         meta.needs_user_input = inf.needs_user_input.or(meta.needs_user_input);
         meta.detected_question = inf.detected_question.clone().or(meta.detected_question);
@@ -301,26 +404,12 @@ impl MetadataStore {
             }
         }
         if let Some(ref m) = inf.detected_model {
-            if meta.model.is_empty() {
+            let is_peon_own_model = provider
+                .and_then(|p| p.provider_model.as_ref())
+                .map(|pm| pm == m)
+                .unwrap_or(false);
+            if meta.model.is_empty() && !is_peon_own_model {
                 meta.model = m.clone();
-            }
-        }
-
-        if let Some(ref sid) = inf.harness_session_id {
-            if !sid.is_empty() && sid.len() >= 3 && !sid.contains(char::is_whitespace) {
-                let mut resume = meta.resume.take().unwrap_or_else(|| ResumeMemory {
-                    state: ResumeState::Available,
-                    preferred_strategy: ResumeStrategy::None,
-                    harness_session_id: None,
-                    latest_fallback: true,
-                    last_seen_at: None,
-                });
-                resume.harness_session_id = Some(sid.clone());
-                resume.last_seen_at = Some(timestamp.to_string());
-                if resume.preferred_strategy == ResumeStrategy::None {
-                    resume.preferred_strategy = ResumeStrategy::Exact;
-                }
-                meta.resume = Some(resume);
             }
         }
 
@@ -344,6 +433,10 @@ impl MetadataStore {
             observed_status: inf.observed_status.clone(),
             confidence: Some(inf.confidence),
         });
+
+        if let Some(report) = peon_harness_session_report {
+            let _ = self.merge_harness_session_report(id, &report, timestamp);
+        }
     }
 
     fn terminal_output_path(&self, id: &str) -> PathBuf {
@@ -463,6 +556,9 @@ mod tests {
             changed_files: Some(0),
             is_worktree: Some(false),
             resume: None,
+            harness_session_id_source: None,
+            harness_session_id_confidence: None,
+            harness_session_id_captured_at: None,
             resumed_from: None,
             last_user_input: None,
         };
@@ -565,6 +661,9 @@ mod tests {
             changed_files: None,
             is_worktree: None,
             resume: None,
+            harness_session_id_source: None,
+            harness_session_id_confidence: None,
+            harness_session_id_captured_at: None,
             resumed_from: None,
             last_user_input: None,
         });
@@ -643,6 +742,9 @@ mod tests {
             changed_files: None,
             is_worktree: None,
             resume: None,
+            harness_session_id_source: None,
+            harness_session_id_confidence: None,
+            harness_session_id_captured_at: None,
             resumed_from: None,
             last_user_input: None,
         });
@@ -715,6 +817,9 @@ mod tests {
             changed_files: None,
             is_worktree: None,
             resume: None,
+            harness_session_id_source: None,
+            harness_session_id_confidence: None,
+            harness_session_id_captured_at: None,
             resumed_from: None,
             last_user_input: None,
         }
@@ -760,6 +865,104 @@ mod tests {
     }
 
     #[test]
+    fn harness_session_report_writes_resume_memory_and_capture_metadata() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        store.write_session(&test_metadata("capture-test"));
+
+        let result = store.merge_harness_session_report(
+            "capture-test",
+            &HarnessSessionReport {
+                harness_session_id: "native-123".into(),
+                source: "opencode_env".into(),
+                confidence: 0.98,
+            },
+            "2026-06-26T12:00:00Z",
+        );
+
+        assert_eq!(result, HarnessSessionMergeResult::Accepted);
+        let updated = store.read_session("capture-test").unwrap();
+        let resume = updated.resume.unwrap();
+        assert_eq!(resume.state, ResumeState::Available);
+        assert_eq!(resume.preferred_strategy, ResumeStrategy::Exact);
+        assert_eq!(resume.harness_session_id.as_deref(), Some("native-123"));
+        assert_eq!(resume.last_seen_at.as_deref(), Some("2026-06-26T12:00:00Z"));
+        assert_eq!(updated.harness_session_id_source.as_deref(), Some("opencode_env"));
+        assert_eq!(updated.harness_session_id_confidence, Some(0.98));
+        assert_eq!(updated.harness_session_id_captured_at.as_deref(), Some("2026-06-26T12:00:00Z"));
+    }
+
+    #[test]
+    fn lower_confidence_harness_session_report_does_not_overwrite() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let mut meta = test_metadata("confidence-test");
+        meta.resume = Some(ResumeMemory {
+            state: ResumeState::Available,
+            preferred_strategy: ResumeStrategy::Exact,
+            harness_session_id: Some("native-high".into()),
+            latest_fallback: true,
+            last_seen_at: Some("2026-06-26T11:00:00Z".into()),
+        });
+        meta.harness_session_id_source = Some("opencode_env".into());
+        meta.harness_session_id_confidence = Some(0.98);
+        meta.harness_session_id_captured_at = Some("2026-06-26T11:00:00Z".into());
+        store.write_session(&meta);
+
+        let result = store.merge_harness_session_report(
+            "confidence-test",
+            &HarnessSessionReport {
+                harness_session_id: "native-low".into(),
+                source: "peon".into(),
+                confidence: 0.50,
+            },
+            "2026-06-26T12:00:00Z",
+        );
+
+        assert_eq!(result, HarnessSessionMergeResult::IgnoredLowerConfidence);
+        let updated = store.read_session("confidence-test").unwrap();
+        assert_eq!(
+            updated.resume.as_ref().and_then(|r| r.harness_session_id.as_deref()),
+            Some("native-high"),
+        );
+        assert_eq!(updated.harness_session_id_source.as_deref(), Some("opencode_env"));
+        assert_eq!(updated.harness_session_id_confidence, Some(0.98));
+    }
+
+    #[test]
+    fn equal_confidence_harness_session_report_can_refresh_same_value() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let mut meta = test_metadata("equal-confidence-test");
+        meta.resume = Some(ResumeMemory {
+            state: ResumeState::Available,
+            preferred_strategy: ResumeStrategy::Exact,
+            harness_session_id: Some("native-123".into()),
+            latest_fallback: true,
+            last_seen_at: Some("2026-06-26T11:00:00Z".into()),
+        });
+        meta.harness_session_id_source = Some("opencode_env".into());
+        meta.harness_session_id_confidence = Some(0.98);
+        meta.harness_session_id_captured_at = Some("2026-06-26T11:00:00Z".into());
+        store.write_session(&meta);
+
+        let result = store.merge_harness_session_report(
+            "equal-confidence-test",
+            &HarnessSessionReport {
+                harness_session_id: "native-123".into(),
+                source: "claude_hook".into(),
+                confidence: 0.98,
+            },
+            "2026-06-26T12:00:00Z",
+        );
+
+        assert_eq!(result, HarnessSessionMergeResult::Accepted);
+        let updated = store.read_session("equal-confidence-test").unwrap();
+        assert_eq!(updated.harness_session_id_source.as_deref(), Some("claude_hook"));
+        assert_eq!(updated.harness_session_id_captured_at.as_deref(), Some("2026-06-26T12:00:00Z"));
+    }
+
+    #[test]
     fn peon_inference_writes_harness_session_id_to_resume_memory() {
         let dir = tempfile::tempdir().unwrap();
         let store = MetadataStore::new(dir.path());
@@ -785,6 +988,50 @@ mod tests {
         assert_eq!(resume.harness_session_id.as_deref(), Some("sess-abc123"));
         assert_eq!(resume.last_seen_at.as_deref(), Some("2026-06-20T12:00:00Z"));
         assert!(resume.latest_fallback);
+    }
+
+    #[test]
+    fn peon_inference_does_not_overwrite_higher_confidence_harness_session_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let mut meta = test_metadata("peon-confidence-test");
+        meta.resume = Some(ResumeMemory {
+            state: ResumeState::Available,
+            preferred_strategy: ResumeStrategy::Exact,
+            harness_session_id: Some("native-high".into()),
+            latest_fallback: true,
+            last_seen_at: Some("2026-06-26T11:00:00Z".into()),
+        });
+        meta.harness_session_id_source = Some("opencode_env".into());
+        meta.harness_session_id_confidence = Some(0.98);
+        meta.harness_session_id_captured_at = Some("2026-06-26T11:00:00Z".into());
+        store.write_session(&meta);
+
+        let inf = crate::peon::PeonInference {
+            observed_status: Some("working".into()),
+            phase: None,
+            summary: None,
+            next_action: None,
+            needs_user_input: None,
+            detected_question: None,
+            suggested_options: None,
+            blocker_description: None,
+            failed_command: None,
+            failed_test: None,
+            capacity_hints: None,
+            confidence: 0.7,
+            detected_harness: None,
+            detected_model: None,
+            harness_session_id: Some("native-peon".into()),
+        };
+        store.merge_peon_inference("peon-confidence-test", &inf, "2026-06-26T12:00:00Z", None);
+
+        let updated = store.read_session("peon-confidence-test").unwrap();
+        assert_eq!(
+            updated.resume.as_ref().and_then(|r| r.harness_session_id.as_deref()),
+            Some("native-high"),
+        );
+        assert_eq!(updated.harness_session_id_source.as_deref(), Some("opencode_env"));
     }
 
     #[test]

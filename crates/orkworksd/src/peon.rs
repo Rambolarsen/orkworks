@@ -129,7 +129,9 @@ Available fields:
 - confidence: number 0.0 to 1.0 indicating your confidence in this analysis
 - detectedHarness: name of the AI coding harness visible in the terminal (e.g. \"claude-code\", \"opencode\", \"codex\", \"aider\", \"gemini-cli\"), or omit if not detectable
 - detectedModel: model identifier visible in the terminal output (e.g. \"claude-sonnet-4-5\", \"gpt-4o\"), or omit if not detectable
-- harnessSessionId: the harness's internal session identifier visible in terminal output (e.g. a UUID, session hex string, or ID shown in a \"resume\" or \"continue\" prompt), or omit if not detectable";
+- harnessSessionId: the harness's internal session identifier visible in terminal output (e.g. a UUID, session hex string, or ID shown in a \"resume\" or \"continue\" prompt), or omit if not detectable
+
+If a line starting with '[User input]:' is present, it is what the user just typed to the AI coding tool. Use it as the primary signal for 'summary' and 'phase' — prefer it over terminal output for naming the session. Do NOT prefix summaries with \"User is\" or \"User is <verb>ing\" — keep them short and direct (e.g. \"Correcting peon model\" not \"User is correcting which model peon should use\").";
 
 const VALID_STATUSES: &[&str] = &[
     "waiting_for_input", "blocked", "failed", "done",
