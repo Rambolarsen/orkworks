@@ -13,6 +13,7 @@ export interface TerminalHandle {
   wrapper: HTMLDivElement;
   ended: boolean;
   pendingInput: string;
+  resizeObserver: ResizeObserver;
 }
 
 const terminals = new Map<string, TerminalHandle>();
@@ -73,6 +74,20 @@ export function ensureTerminal(id: string, baseUrl: string): TerminalHandle {
   const ws = new WebSocket(wsUrl);
   ws.binaryType = "arraybuffer";
 
+  let fitRaf: number | null = null;
+  const resizeObserver = new ResizeObserver(() => {
+    if (fitRaf !== null) cancelAnimationFrame(fitRaf);
+    fitRaf = requestAnimationFrame(() => {
+      fitRaf = null;
+      try {
+        fitAddon.fit();
+      } catch (err) {
+        console.warn("[terminalStore] fit() failed for session", id, err);
+      }
+    });
+  });
+  resizeObserver.observe(wrapper);
+
   const handle: TerminalHandle = {
     id,
     terminal: term,
@@ -81,6 +96,7 @@ export function ensureTerminal(id: string, baseUrl: string): TerminalHandle {
     wrapper,
     ended: false,
     pendingInput: "",
+    resizeObserver,
   };
   terminals.set(id, handle);
 
@@ -135,6 +151,7 @@ export function ensureTerminal(id: string, baseUrl: string): TerminalHandle {
 export function disposeTerminal(id: string): void {
   const handle = terminals.get(id);
   if (!handle) return;
+  handle.resizeObserver.disconnect();
   try {
     handle.ws.close();
   } catch {

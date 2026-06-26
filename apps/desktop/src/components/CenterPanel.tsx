@@ -64,16 +64,22 @@ function CenterPanel({ backendStatus, sessionId }: CenterPanelProps) {
   }, [backendStatus, sessionId, attachTerminal]);
 
   useEffect(() => {
+    let fitRaf: number | null = null;
+
     const handleWindowResize = () => {
       const active = activeIdRef.current;
       if (!active) return;
       const handle = getTerminal(active);
       if (!handle) return;
-      try {
-        handle.fitAddon.fit();
-      } catch {
-        /* xterm not yet measured */
-      }
+      if (fitRaf !== null) cancelAnimationFrame(fitRaf);
+      fitRaf = requestAnimationFrame(() => {
+        fitRaf = null;
+        try {
+          handle.fitAddon.fit();
+        } catch (err) {
+          console.warn("[CenterPanel] fit() failed for session", handle.id, err);
+        }
+      });
     };
 
     window.addEventListener("resize", handleWindowResize);
@@ -81,6 +87,7 @@ function CenterPanel({ backendStatus, sessionId }: CenterPanelProps) {
     if (containerRef.current) observer.observe(containerRef.current);
 
     return () => {
+      if (fitRaf !== null) cancelAnimationFrame(fitRaf);
       window.removeEventListener("resize", handleWindowResize);
       observer.disconnect();
     };
