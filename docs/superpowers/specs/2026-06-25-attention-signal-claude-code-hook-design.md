@@ -44,18 +44,20 @@ The existing metadata priority model (`user > agent > peon > backend_inference >
 
 ### Architecture
 
-The "pluggable interface" for other harnesses is the HTTP endpoint itself, not a Rust trait. Any harness whose attention-signal mechanism can run a shell command can call `POST /sessions/:id/attention`. A Rust-side port would be a speculative abstraction with exactly one caller; it can be introduced later if a future adapter needs in-process Rust logic instead of an HTTP call.
+The "pluggable interface" for other harnesses is the HTTP endpoint itself, not a Rust trait. Any harness whose attention-signal mechanism can run a shell command can call `POST /sessions/:id/attention`; any harness that exposes a native session ID can call `POST /sessions/:id/harness-session`. A Rust-side port would be a speculative abstraction with exactly one caller; it can be introduced later if a future adapter needs in-process Rust logic instead of an HTTP call.
 
-Two new sidecar endpoints, plus one PTY-spawn change:
+Sidecar endpoints plus one PTY-spawn change:
 
 1. `POST /sessions/:id/attention` — the signal receiver. Generic across harnesses.
-2. `POST /workspace/attention-hook/install` and `GET /workspace/attention-hook/status` — the explicit, user-confirmed installer for the Claude Code hook entry, scoped to the open workspace.
-3. PTY spawn (`terminal_env_overrides()` in `main.rs`) gains `ORKWORKS_SESSION_ID` and `ORKWORKS_PORT` so a hook running inside the session can address the sidecar.
+2. `POST /sessions/:id/harness-session` — records Claude Code's `session_id` as the native harness session ID with `source: "claude_hook"`.
+3. `POST /workspace/attention-hook/install` and `GET /workspace/attention-hook/status` — the explicit, user-confirmed installer for the Claude Code hook entry, scoped to the open workspace.
+4. PTY spawn (`terminal_env_overrides()` in `main.rs`) gains `ORKWORKS_SESSION_ID` and `ORKWORKS_PORT` so a hook running inside the session can address the sidecar.
 
 ### Components And Data Flow
 
 **Signal write path**
 
+- Hook JSON from Claude Code includes `session_id`. The hook reporter extracts it and posts `{"harnessSessionId":"<session_id>","source":"claude_hook","confidence":0.98}` to `POST /sessions/:id/harness-session`.
 - Request body: `{"status": "waiting_for_input", "message": "<optional>"}`. `status` validated against the existing `VALID_STATUSES` list in `peon.rs`.
 - Handler reads current session metadata, calls `peon::should_overwrite("agent", age)` against the *existing* metadata source before writing — identical invariant Peon already respects, so an agent signal can't clobber `user`-set metadata, and a stale (>5 min) prior agent signal can be superseded by a fresher one.
 - On write: new `metadata.rs` function (sibling to `merge_peon_inference`) sets `observedStatus`, optional `summary`/`detectedQuestion` from `message`, `metadataSource: "agent"`, `metadataConfidence: 1.0` (deterministic, distinct from Peon's probabilistic score).
@@ -70,9 +72,10 @@ Two new sidecar endpoints, plus one PTY-spawn change:
   - appends a new entry to `hooks.Notification` (creating the array/key if absent), preserving every other key untouched
   - writes the file back
 - The installed hook entry has no custom marker fields — Claude Code's hook schema gets only `{"hooks": [{"type": "command", "command": "..."}]}`, matching the shape already used elsewhere in this repo's own `.claude/settings.json`. Idempotency detection relies on the `ORKWORKS_SESSION_ID` substring already present in the command, not an added field.
-- Installed command:
+- Installed command points to `crates/orkworksd/scripts/report-claude-session-from-hook.sh`, which reads the hook JSON from stdin and performs two guarded writes:
   ```
-  [ -n "$ORKWORKS_SESSION_ID" ] && curl -s -X POST "http://127.0.0.1:$ORKWORKS_PORT/sessions/$ORKWORKS_SESSION_ID/attention" -H "Content-Type: application/json" -d '{"status":"waiting_for_input"}' || exit 0
+  POST /sessions/$ORKWORKS_SESSION_ID/harness-session with session_id and source claude_hook
+  POST /sessions/$ORKWORKS_SESSION_ID/attention with status waiting_for_input
   ```
   Guarded so it's a silent no-op when the hook fires in a session Claude Code runs outside OrkWorks (env vars absent).
 
