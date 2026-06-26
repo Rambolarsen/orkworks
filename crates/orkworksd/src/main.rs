@@ -2319,6 +2319,16 @@ mod tests {
     }
 
     #[test]
+    fn opencode_reporter_script_posts_native_session_env() {
+        let script = include_str!("../scripts/report-opencode-session.sh");
+        assert!(script.contains("OPENCODE_SESSION_ID"));
+        assert!(script.contains("ORKWORKS_SESSION_ID"));
+        assert!(script.contains("ORKWORKS_PORT"));
+        assert!(script.contains("/sessions/$ORKWORKS_SESSION_ID/harness-session"));
+        assert!(script.contains("\"source\":\"opencode_env\""));
+    }
+
+    #[test]
     fn terminal_env_filter_removes_launcher_debug_variables() {
         assert!(!should_forward_terminal_env("NODE_OPTIONS"));
         assert!(!should_forward_terminal_env("VSCODE_INSPECTOR_OPTIONS"));
