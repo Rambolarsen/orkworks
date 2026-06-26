@@ -12,6 +12,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::{Arc, Mutex, RwLock as StdRwLock};
 use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -183,6 +184,7 @@ struct AppState {
     adapters: HashMap<String, harness::HarnessAdapter>,
     retention_config: tokio::sync::RwLock<RetentionConfig>,
     harnesses: tokio::sync::RwLock<Vec<HarnessConfig>>,
+    bound_port: AtomicU16,
 }
 
 #[tokio::main]
@@ -211,6 +213,7 @@ async fn main() {
         adapters: builtin_adapters(),
         retention_config: tokio::sync::RwLock::new(RetentionConfig::default()),
         harnesses: tokio::sync::RwLock::new(load_harnesses()),
+        bound_port: AtomicU16::new(0),
     });
 
     // Start Peon background task
@@ -254,11 +257,12 @@ async fn main() {
         .route("/sessions/:id/terminal", get(session_terminal_handler))
         .route("/sessions/:id/terminal-output", get(get_terminal_output))
         .layer(cors)
-        .with_state(state);
+        .with_state(state.clone());
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 0));
     let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
     let bound_addr = listener.local_addr().unwrap();
+    state.bound_port.store(bound_addr.port(), Ordering::Relaxed);
 
     println!("ORKWORKSD_PORT={}", bound_addr.port());
 
@@ -1377,14 +1381,22 @@ fn shell_cmd() -> (String, Vec<String>) {
     }
 }
 
-fn terminal_env_overrides() -> [(&'static str, &'static str); 5] {
-    [
-        ("TERM", "xterm-256color"),
-        ("COLORTERM", "truecolor"),
-        ("FORCE_COLOR", "1"),
-        ("CLICOLOR", "1"),
-        ("TERM_PROGRAM", "OrkWorks"),
+fn terminal_env_overrides() -> Vec<(String, String)> {
+    vec![
+        ("TERM".into(), "xterm-256color".into()),
+        ("COLORTERM".into(), "truecolor".into()),
+        ("FORCE_COLOR".into(), "1".into()),
+        ("CLICOLOR".into(), "1".into()),
+        ("TERM_PROGRAM".into(), "OrkWorks".into()),
     ]
+}
+
+fn session_env_overrides(session_id: &str, port: Option<u16>) -> Vec<(String, String)> {
+    let mut env = vec![("ORKWORKS_SESSION_ID".into(), session_id.to_string())];
+    if let Some(port) = port {
+        env.push(("ORKWORKS_PORT".into(), port.to_string()));
+    }
+    env
 }
 
 // --- Harness config helpers ---
@@ -1969,7 +1981,14 @@ async fn handle_session_terminal(mut ws: WebSocket, id: String, state: Arc<AppSt
         }
     }
     for (key, value) in terminal_env_overrides() {
-        cmd.env(key, value);
+        cmd.env(&key, &value);
+    }
+    let port = match state.bound_port.load(Ordering::Relaxed) {
+        0 => None,
+        value => Some(value),
+    };
+    for (key, value) in session_env_overrides(&id, port) {
+        cmd.env(&key, &value);
     }
 
     let mut child = match pair.slave.spawn_command(cmd) {
@@ -2278,11 +2297,25 @@ mod tests {
     fn terminal_env_overrides_force_color_capability() {
         let overrides = terminal_env_overrides();
 
-        assert!(overrides.contains(&("TERM", "xterm-256color")));
-        assert!(overrides.contains(&("COLORTERM", "truecolor")));
-        assert!(overrides.contains(&("FORCE_COLOR", "1")));
-        assert!(overrides.contains(&("CLICOLOR", "1")));
-        assert!(overrides.contains(&("TERM_PROGRAM", "OrkWorks")));
+        assert!(overrides.contains(&("TERM".into(), "xterm-256color".into())));
+        assert!(overrides.contains(&("COLORTERM".into(), "truecolor".into())));
+        assert!(overrides.contains(&("FORCE_COLOR".into(), "1".into())));
+        assert!(overrides.contains(&("CLICOLOR".into(), "1".into())));
+        assert!(overrides.contains(&("TERM_PROGRAM".into(), "OrkWorks".into())));
+    }
+
+    #[test]
+    fn session_env_overrides_include_orkworks_session_and_port() {
+        let overrides = session_env_overrides("session-123", Some(5173));
+        assert!(overrides.contains(&("ORKWORKS_SESSION_ID".into(), "session-123".into())));
+        assert!(overrides.contains(&("ORKWORKS_PORT".into(), "5173".into())));
+    }
+
+    #[test]
+    fn session_env_overrides_omit_port_when_unknown() {
+        let overrides = session_env_overrides("session-123", None);
+        assert!(overrides.contains(&("ORKWORKS_SESSION_ID".into(), "session-123".into())));
+        assert!(!overrides.iter().any(|(key, _)| key == "ORKWORKS_PORT"));
     }
 
     #[test]
@@ -2350,6 +2383,7 @@ mod tests {
             adapters: builtin_adapters(),
             retention_config: tokio::sync::RwLock::new(RetentionConfig::default()),
             harnesses: tokio::sync::RwLock::new(vec![]),
+            bound_port: AtomicU16::new(0),
             providers: providers::ProviderManager::new(),
         })
     }
@@ -2479,6 +2513,7 @@ mod tests {
             adapters: builtin_adapters(),
             retention_config: tokio::sync::RwLock::new(RetentionConfig::default()),
             harnesses: tokio::sync::RwLock::new(vec![]),
+            bound_port: AtomicU16::new(0),
             providers: providers::ProviderManager::new(),
         });
 
@@ -2562,6 +2597,7 @@ mod tests {
             adapters: builtin_adapters(),
             retention_config: tokio::sync::RwLock::new(RetentionConfig::default()),
             harnesses: tokio::sync::RwLock::new(vec![]),
+            bound_port: AtomicU16::new(0),
             providers: providers::ProviderManager::new(),
         });
 
@@ -2690,6 +2726,7 @@ mod tests {
             adapters: builtin_adapters(),
             retention_config: tokio::sync::RwLock::new(RetentionConfig::default()),
             harnesses: tokio::sync::RwLock::new(vec![]),
+            bound_port: AtomicU16::new(0),
             providers: providers::ProviderManager::new(),
         });
 
@@ -3206,6 +3243,7 @@ mod tests {
             adapters: builtin_adapters(),
             retention_config: tokio::sync::RwLock::new(RetentionConfig::default()),
             harnesses: tokio::sync::RwLock::new(vec![]),
+            bound_port: AtomicU16::new(0),
             providers: providers::ProviderManager::for_tests(
                 providers::ProviderSettingsPayload {
                     version: 1,
@@ -3388,6 +3426,7 @@ mod tests {
             adapters: builtin_adapters(),
             retention_config: tokio::sync::RwLock::new(RetentionConfig::default()),
             harnesses: tokio::sync::RwLock::new(vec![]),
+            bound_port: AtomicU16::new(0),
             providers: providers::ProviderManager::for_tests(
                 providers::ProviderSettingsPayload {
                     version: 1,
@@ -3501,6 +3540,7 @@ mod tests {
             adapters: builtin_adapters(),
             retention_config: tokio::sync::RwLock::new(RetentionConfig::default()),
             harnesses: tokio::sync::RwLock::new(vec![]),
+            bound_port: AtomicU16::new(0),
             providers: providers::ProviderManager::new(),
         });
 
