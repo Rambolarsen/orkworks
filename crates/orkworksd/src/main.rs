@@ -247,6 +247,7 @@ async fn main() {
         .route("/sessions/:id", delete(delete_session))
         .route("/sessions/:id/forget", delete(forget_session))
         .route("/sessions/:id/resume", post(resume_session))
+        .route("/sessions/:id/harness-session", post(report_harness_session))
         .route("/settings/retention", post(set_retention))
         .route("/harnesses", get(list_harnesses).post(create_harness))
         .route("/harnesses/:id", put(update_harness).delete(delete_harness))
@@ -281,6 +282,14 @@ struct ActiveSessionRequest {
 struct ActiveHarnessesRequest {
     #[serde(rename = "activeHarnessIds", default)]
     active_harness_ids: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct HarnessSessionReportRequest {
+    #[serde(rename = "harnessSessionId")]
+    harness_session_id: String,
+    source: String,
+    confidence: f64,
 }
 
 #[derive(Serialize)]
@@ -504,6 +513,37 @@ async fn resume_session(
     }
 
     Json(info).into_response()
+}
+
+async fn report_harness_session(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(req): Json<HarnessSessionReportRequest>,
+) -> impl IntoResponse {
+    let report = metadata::HarnessSessionReport {
+        harness_session_id: req.harness_session_id,
+        source: req.source,
+        confidence: req.confidence,
+    };
+
+    if !metadata::valid_harness_session_report(&report) {
+        return axum::http::StatusCode::BAD_REQUEST.into_response();
+    }
+
+    let now = iso_now();
+    let ws_guard = state.workspace.lock().unwrap();
+    let Some(ref ws) = *ws_guard else {
+        return axum::http::StatusCode::CONFLICT.into_response();
+    };
+
+    match ws.metadata.merge_harness_session_report(&id, &report, &now) {
+        metadata::HarnessSessionMergeResult::Accepted
+        | metadata::HarnessSessionMergeResult::IgnoredLowerConfidence => {
+            axum::http::StatusCode::OK.into_response()
+        }
+        metadata::HarnessSessionMergeResult::NotFound => axum::http::StatusCode::NOT_FOUND.into_response(),
+        metadata::HarnessSessionMergeResult::Invalid => axum::http::StatusCode::BAD_REQUEST.into_response(),
+    }
 }
 
 #[derive(Deserialize, Default)]
@@ -2287,6 +2327,139 @@ mod tests {
         let msg = serde_json::json!({"type": "unknown"});
         let action = dispatch_terminal_message(&msg);
         assert_eq!(action, TerminalAction::Noop);
+    }
+
+    fn test_app_state_with_workspace(path: &std::path::Path) -> Arc<AppState> {
+        let metadata_root = path.join(".orkworks-test");
+        Arc::new(AppState {
+            session_module: SessionModule::new(),
+            sessions: Mutex::new(HashMap::new()),
+            workspace: Mutex::new(Some(WorkspaceState {
+                path: path.to_path_buf(),
+                metadata: metadata::MetadataStore::new(&metadata_root),
+                watcher: watcher::MetadataWatcher::start(&metadata_root.join("sessions")),
+            })),
+            peon: PeonState {
+                last_output: StdRwLock::new(HashMap::new()),
+                last_inference: StdRwLock::new(HashMap::new()),
+                in_flight: StdRwLock::new(HashSet::new()),
+                label_hint: StdRwLock::new(HashMap::new()),
+                label_pending: StdRwLock::new(HashSet::new()),
+                config: peon::PeonConfig::from_env(),
+            },
+            adapters: builtin_adapters(),
+            retention_config: tokio::sync::RwLock::new(RetentionConfig::default()),
+            harnesses: tokio::sync::RwLock::new(vec![]),
+            providers: providers::ProviderManager::new(),
+        })
+    }
+
+    #[tokio::test]
+    async fn harness_session_report_rejects_invalid_native_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let response = report_harness_session(
+            State(state),
+            Path("missing".into()),
+            Json(HarnessSessionReportRequest {
+                harness_session_id: "bad id".into(),
+                source: "test".into(),
+                confidence: 0.9,
+            }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn harness_session_report_returns_not_found_for_unknown_session() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let response = report_harness_session(
+            State(state),
+            Path("missing".into()),
+            Json(HarnessSessionReportRequest {
+                harness_session_id: "native-123".into(),
+                source: "test".into(),
+                confidence: 0.9,
+            }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn harness_session_report_writes_metadata_for_known_session() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        {
+            let ws = state.workspace.lock().unwrap();
+            ws.as_ref().unwrap().metadata.write_session(&metadata::SessionMetadata {
+                id: "known".into(),
+                label: "Known".into(),
+                workspace: dir.path().display().to_string(),
+                task: "".into(),
+                harness: "opencode".into(),
+                model: "".into(),
+                cwd: dir.path().display().to_string(),
+                status: "running".into(),
+                phase: "".into(),
+                observed_status: None,
+                summary: None,
+                next_action: None,
+                needs_user_input: None,
+                detected_question: None,
+                suggested_options: None,
+                blocker_description: None,
+                failed_command: None,
+                failed_test: None,
+                capacity_hints: None,
+                peon_last_inference: None,
+                provider_id: None,
+                provider_label: None,
+                provider_model: None,
+                provider_state: None,
+                created_at: "now".into(),
+                last_activity: "now".into(),
+                metadata_source: "process".into(),
+                metadata_confidence: 1.0,
+                repo_root: None,
+                branch: None,
+                dirty: None,
+                changed_files: None,
+                is_worktree: None,
+                resume: None,
+                harness_session_id_source: None,
+                harness_session_id_confidence: None,
+                harness_session_id_captured_at: None,
+                resumed_from: None,
+                last_user_input: None,
+            });
+        }
+
+        let response = report_harness_session(
+            State(state.clone()),
+            Path("known".into()),
+            Json(HarnessSessionReportRequest {
+                harness_session_id: "native-123".into(),
+                source: "opencode_env".into(),
+                confidence: 0.98,
+            }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let ws = state.workspace.lock().unwrap();
+        let updated = ws.as_ref().unwrap().metadata.read_session("known").unwrap();
+        assert_eq!(
+            updated.resume.as_ref().and_then(|r| r.harness_session_id.as_deref()),
+            Some("native-123"),
+        );
     }
 
     #[test]
