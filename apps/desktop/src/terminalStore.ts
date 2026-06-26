@@ -1,5 +1,6 @@
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { WebglAddon } from "@xterm/addon-webgl";
 import { terminalPtySize } from "./terminalSize";
 import { orkworksTerminalTheme } from "./terminalTheme";
 import { getTerminalOutput } from "./api";
@@ -40,14 +41,20 @@ export function ensureTerminal(id: string, baseUrl: string): TerminalHandle {
     fontFamily: "'Menlo', 'Monaco', 'Courier New', monospace",
     theme: orkworksTerminalTheme,
     allowProposedApi: true,
-    scrollback: 5000,
-    scrollSensitivity: 3,
+    scrollback: 2000,
     fastScrollSensitivity: 10,
     overviewRuler: { width: 8 },
   });
 
   const fitAddon = new FitAddon();
   term.loadAddon(fitAddon);
+
+  try {
+    const webglAddon = new WebglAddon();
+    term.loadAddon(webglAddon);
+  } catch {
+    // WebGL unavailable, canvas renderer fallback
+  }
 
   term.attachCustomKeyEventHandler((event) => {
     if (event.type !== "keydown") return true;
