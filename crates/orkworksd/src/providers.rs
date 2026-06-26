@@ -3,6 +3,9 @@ use std::io::Read;
 use std::io::Write as IoWrite;
 use std::process::{Command, Stdio};
 use std::sync::{Arc, RwLock};
+
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
 use std::time::Duration;
 
 use reqwest::Client as HttpClient;
@@ -377,17 +380,33 @@ impl ProviderRunner for ProcessRunner {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
+        #[cfg(unix)]
+        unsafe {
+            cmd.pre_exec(|| {
+                // Detach from the controlling terminal so the harness
+                // subprocess cannot write to the user's PTY via /dev/tty.
+                let _ = libc::setsid();
+                // Close inherited file descriptors >= 3 to prevent leaks
+                // into parent PTY master fds. Capped at 1024 to stay fast.
+                let max_fd = libc::sysconf(libc::_SC_OPEN_MAX).max(3).min(1024);
+                for fd in (3..=max_fd).rev() {
+                    libc::close(fd as i32);
+                }
+                Ok(())
+            });
+        }
+
         let mut child = match cmd.spawn() {
             Ok(c) => c,
             Err(e) => {
-                tracing::warn!("Peon({}): failed to spawn: {e}", id);
+                tracing::warn!(provider = %id, error = %e, "peon: failed to spawn");
                 return InvocationResult { success: false, stdout: String::new(), stderr: e.to_string() };
             }
         };
 
         if let Some(mut stdin) = child.stdin.take() {
             if let Err(e) = stdin.write_all(prompt.as_bytes()) {
-                tracing::warn!("Peon({}): failed to write prompt: {e}", id);
+                tracing::warn!(provider = %id, error = %e, "peon: failed to write prompt");
                 return InvocationResult { success: false, stdout: String::new(), stderr: e.to_string() };
             }
         }
@@ -402,7 +421,7 @@ impl ProviderRunner for ProcessRunner {
             Ok(Ok(out)) => out,
             _ => {
                 let _ = Command::new("kill").arg(pid.to_string()).output();
-                tracing::warn!("Peon({}): timed out", id);
+                tracing::warn!(provider = %id, "peon: provider timed out");
                 return InvocationResult { success: false, stdout: String::new(), stderr: "timed out".to_string() };
             }
         };
@@ -706,7 +725,7 @@ impl ProviderManager {
             let definition = match self.registry.iter().find(|d| d.id == entry.id.as_str()) {
                 Some(d) => d,
                 None => {
-                    tracing::warn!("Peon: no registry entry for provider {}", entry.id);
+                    tracing::warn!(provider = %entry.id, "peon: no registry entry for provider");
                     attempts.push(AttemptRecord {
                         provider_id: entry.id.clone(),
                         outcome: AttemptOutcome::Failed,

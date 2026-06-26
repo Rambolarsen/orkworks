@@ -266,7 +266,7 @@ async fn main() {
 
     println!("ORKWORKSD_PORT={}", bound_addr.port());
 
-    tracing::info!("orkworksd listening on {}", bound_addr);
+    tracing::info!(addr = %bound_addr, "orkworksd listening");
 
     axum::serve(listener, app).await.unwrap();
 }
@@ -323,7 +323,7 @@ async fn set_workspace(
     };
     for dir in &["sessions", "events", "capacity", "skills"] {
         if let Err(e) = std::fs::create_dir_all(global_dir.join(dir)) {
-            tracing::warn!("failed to create {}/{dir}: {e}", global_dir.display());
+            tracing::warn!(path = %global_dir.display(), dir = dir, error = %e, "failed to create metadata dir");
         }
     }
 
@@ -1034,11 +1034,11 @@ async fn forget_session(
     }
 
     if let Err(e) = ws.metadata.delete_session(&id) {
-        tracing::error!("failed to delete session {id}: {e}");
+        tracing::error!(session_id = %id, error = %e, "failed to delete session");
         return axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
     if let Err(e) = ws.metadata.delete_events(&id) {
-        tracing::error!("failed to delete events for {id}: {e}");
+        tracing::error!(session_id = %id, error = %e, "failed to delete session events");
     }
     let _ = ws.metadata.clear_last_active_session_if_matches(&id);
     drop(ws_guard);
@@ -1066,9 +1066,9 @@ async fn set_retention(
     config.max_sessions = req.max_sessions;
     config.max_age_days = req.max_age_days;
     tracing::info!(
-        "retention config updated: max_sessions={} max_age_days={}",
-        config.max_sessions,
-        config.max_age_days
+        max_sessions = config.max_sessions,
+        max_age_days = config.max_age_days,
+        "retention config updated"
     );
     axum::http::StatusCode::OK
 }
@@ -1172,7 +1172,7 @@ async fn retention_cleanup_task(state: Arc<AppState>) {
                 let ws_guard = state.workspace.lock().unwrap();
                 if let Some(ref ws) = *ws_guard {
                     for id in &expired {
-                        tracing::info!("retention: deleting expired session {id}");
+                        tracing::info!(session_id = %id, "retention: deleting expired session");
                         let _ = ws.metadata.delete_session(id);
                         let _ = ws.metadata.delete_events(id);
                         let _ = ws.metadata.clear_last_active_session_if_matches(id);
@@ -1189,9 +1189,9 @@ async fn retention_cleanup_task(state: Arc<AppState>) {
             if let Some(ref ws) = *ws_guard {
                 for s in candidates.iter().take(to_delete) {
                     tracing::info!(
-                        "retention: deleting session {} (exceeds max {})",
-                        s.id,
-                        config.max_sessions
+                        session_id = %s.id,
+                        max_sessions = config.max_sessions,
+                        "retention: deleting session (exceeds max)"
                     );
                     let _ = ws.metadata.delete_session(&s.id);
                     let _ = ws.metadata.delete_events(&s.id);
@@ -1275,7 +1275,7 @@ fn iso_now() -> String {
 
 async fn peon_loop(state: Arc<AppState>) {
     let interval = state.peon.config.interval_secs;
-    tracing::info!("Peon started (interval={interval}s, harness={})", state.peon.config.harness);
+    tracing::info!(interval_secs = interval, harness = %state.peon.config.harness, "peon started");
 
     loop {
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
@@ -1346,6 +1346,12 @@ async fn peon_loop(state: Arc<AppState>) {
                 let inference = provider_result.inference;
                 let now_iso = iso_now();
 
+                // Check terminal status before moving inference below
+                let reached_terminal = matches!(
+                    inference.as_ref().and_then(|inf| inf.observed_status.as_deref()),
+                    Some("done" | "idle" | "stale")
+                );
+
                 if let Some(ref obs) = provider_result.observation {
                     let ws_guard = state_clone.workspace.lock().unwrap();
                     if let Some(ref ws) = *ws_guard {
@@ -1372,7 +1378,7 @@ async fn peon_loop(state: Arc<AppState>) {
                                 }
                             }
                         } else {
-                            tracing::debug!("Peon: skipping {id}, higher-priority source exists");
+                            tracing::debug!(session_id = %id, "peon: skipping, higher-priority source exists");
                         }
                     }
 
@@ -1381,9 +1387,58 @@ async fn peon_loop(state: Arc<AppState>) {
                 let mut last_inf = state_clone.peon.last_inference.write().unwrap();
                 last_inf.insert(id.clone(), now_iso);
                 drop(last_inf);
-                state_clone.peon.last_output.write().unwrap().remove(&id);
+
+                // Keep re-evaluating unless the session reached a terminal
+                // observed status — otherwise peon fires once per output burst
+                // and never catches later transitions to done/failed/blocked.
+                if !reached_terminal {
+                    state_clone.peon.last_output.write().unwrap()
+                        .insert(id.clone(), tokio::time::Instant::now());
+                }
                 state_clone.peon.in_flight.write().unwrap().remove(&id);
             });
+        }
+
+        // Timer-based idle detection: mark sessions that have been silent
+        // for idle_timeout_secs as idle, without waiting for the LLM.
+        {
+            let idle_timeout = state.peon.config.idle_timeout_secs;
+            let idle_deadline = tokio::time::Instant::now()
+                - std::time::Duration::from_secs(idle_timeout);
+            let last_output = state.peon.last_output.read().unwrap();
+
+            let silent_ids: Vec<String> = {
+                let sessions = state.sessions.lock().unwrap();
+                sessions.iter()
+                    .filter(|(_, h)| h.info.status == "running" && h.info.observed_status.is_none())
+                    .filter(|(id, _)| {
+                        last_output.get(*id)
+                            .map(|&t| t <= idle_deadline)
+                            .unwrap_or(true) // no output ever recorded -> idle
+                    })
+                    .map(|(id, _)| id.clone())
+                    .collect()
+            };
+            drop(last_output);
+
+            if !silent_ids.is_empty() {
+                let ws_guard = state.workspace.lock().unwrap();
+                let mut sessions = state.sessions.lock().unwrap();
+                if let Some(ref ws) = *ws_guard {
+                    for id in &silent_ids {
+                        if let Some(mut meta) = ws.metadata.read_session(id) {
+                            if meta.observed_status.is_none() {
+                                meta.observed_status = Some("idle".into());
+                                meta.metadata_source = "process".into();
+                                ws.metadata.write_session(&meta);
+                            }
+                        }
+                        if let Some(handle) = sessions.get_mut(id) {
+                            handle.info.observed_status = Some("idle".into());
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -1547,7 +1602,7 @@ fn save_harnesses(harnesses: &[HarnessConfig]) {
     }
     match serde_json::to_string_pretty(harnesses) {
         Ok(json) => { let _ = std::fs::write(&path, json); }
-        Err(e) => tracing::error!("failed to serialize harnesses: {e}"),
+        Err(e) => tracing::error!(error = %e, "failed to serialize harnesses"),
     }
 }
 
@@ -1907,7 +1962,7 @@ async fn handle_session_terminal(mut ws: WebSocket, id: String, state: Arc<AppSt
                 .unwrap_or(false)
         };
         if should_reject {
-            tracing::warn!("rejected terminal WebSocket for {id}: session in terminal state");
+            tracing::warn!(session_id = %id, "rejected terminal WebSocket: session in terminal state");
             let _ = ws.close().await;
             return;
         }
@@ -1990,7 +2045,7 @@ async fn handle_session_terminal(mut ws: WebSocket, id: String, state: Arc<AppSt
     let pair = match pty_sys.openpty(pty_size) {
         Ok(p) => p,
         Err(e) => {
-            tracing::error!("failed to open PTY: {e}");
+            tracing::error!(error = %e, "failed to open PTY");
             set_session_status(&state, &id, "error");
             let _ = ws.close().await;
             return;
@@ -2021,7 +2076,7 @@ async fn handle_session_terminal(mut ws: WebSocket, id: String, state: Arc<AppSt
     let mut child = match pair.slave.spawn_command(cmd) {
         Ok(c) => c,
         Err(e) => {
-            tracing::error!("failed to spawn shell: {e}");
+            tracing::error!(error = %e, "failed to spawn shell");
             set_session_status(&state, &id, "error");
             let _ = ws.close().await;
             return;
@@ -2031,7 +2086,7 @@ async fn handle_session_terminal(mut ws: WebSocket, id: String, state: Arc<AppSt
     let mut reader = match pair.master.try_clone_reader() {
         Ok(r) => r,
         Err(e) => {
-            tracing::error!("failed to clone PTY reader: {e}");
+            tracing::error!(error = %e, "failed to clone PTY reader");
             set_session_status(&state, &id, "error");
             let _ = ws.close().await;
             return;
@@ -2041,7 +2096,7 @@ async fn handle_session_terminal(mut ws: WebSocket, id: String, state: Arc<AppSt
     let mut writer = match pair.master.take_writer() {
         Ok(w) => w,
         Err(e) => {
-            tracing::error!("failed to take PTY writer: {e}");
+            tracing::error!(error = %e, "failed to take PTY writer");
             set_session_status(&state, &id, "error");
             let _ = ws.close().await;
             return;
@@ -2059,7 +2114,7 @@ async fn handle_session_terminal(mut ws: WebSocket, id: String, state: Arc<AppSt
         if let Some(prompt) = initial_prompt {
             let prompt_bytes = format!("{}\n", prompt).into_bytes();
             if let Err(e) = writer.write_all(&prompt_bytes) {
-                tracing::warn!("failed to write initial prompt for session {id}: {e}");
+                tracing::warn!(session_id = %id, error = %e, "failed to write initial prompt");
             }
         }
     }
@@ -2078,7 +2133,7 @@ async fn handle_session_terminal(mut ws: WebSocket, id: String, state: Arc<AppSt
                     }
                 }
                 Err(e) => {
-                    tracing::warn!("PTY read error for session {}: {}", id_for_reader, e);
+                    tracing::warn!(session_id = %id_for_reader, error = %e, "PTY read error");
                     break;
                 }
             }
@@ -2130,8 +2185,24 @@ async fn handle_session_terminal(mut ws: WebSocket, id: String, state: Arc<AppSt
                     let mut sessions = state.sessions.lock().unwrap();
                     if let Some(handle) = sessions.get_mut(&id) {
                         handle.info.label = line.clone();
+                        if peon::is_terminal_observed_status(handle.info.observed_status.as_deref()) {
+                            handle.info.observed_status = None;
+                        }
                     }
                     drop(sessions);
+                    // Clear stale idle/done/stale state in metadata when user types.
+                    {
+                        let ws_guard = state.workspace.lock().unwrap();
+                        if let Some(ref ws) = *ws_guard {
+                            if let Some(mut meta) = ws.metadata.read_session(&id) {
+                                if peon::is_terminal_observed_status(meta.observed_status.as_deref()) {
+                                    meta.observed_status = None;
+                                    meta.metadata_source = "process".into();
+                                    ws.metadata.write_session(&meta);
+                                }
+                            }
+                        }
+                    }
                     if state.peon.config.enabled && line.len() > 10 {
                         state.peon.label_hint.write().unwrap().insert(id.clone(), line);
                         state.peon.label_pending.write().unwrap().insert(id.clone());
@@ -2150,7 +2221,7 @@ async fn handle_session_terminal(mut ws: WebSocket, id: String, state: Arc<AppSt
         tokio::select! {
             _ = kill_rx.changed() => {
                 if *kill_rx.borrow() {
-                    tracing::info!("kill signal received for session {}", id);
+                    tracing::info!(session_id = %id, "kill signal received");
                     let _ = child.kill();
                     set_session_status(&state, &id, "killed");
                     break;
@@ -2183,6 +2254,9 @@ async fn handle_session_terminal(mut ws: WebSocket, id: String, state: Arc<AppSt
                                 handle.output_buffer.push(trimmed.to_string());
                             }
                         }
+                        if peon::is_terminal_observed_status(handle.info.observed_status.as_deref()) {
+                            handle.info.observed_status = None;
+                        }
                     }
                 }
 
@@ -2192,6 +2266,21 @@ async fn handle_session_terminal(mut ws: WebSocket, id: String, state: Arc<AppSt
                     state.peon.last_output.write().unwrap()
                         .insert(id.clone(), tokio::time::Instant::now());
                     state.peon.last_inference.write().unwrap().remove(&id);
+                }
+
+                // New terminal output means the session is no longer idle.
+                // Clear any stale terminal observed status in metadata.
+                {
+                    let ws_guard = state.workspace.lock().unwrap();
+                    if let Some(ref ws) = *ws_guard {
+                        if let Some(mut meta) = ws.metadata.read_session(&id) {
+                            if peon::is_terminal_observed_status(meta.observed_status.as_deref()) {
+                                meta.observed_status = None;
+                                meta.metadata_source = "process".into();
+                                ws.metadata.write_session(&meta);
+                            }
+                        }
+                    }
                 }
 
                 if !raw_persist_lines.is_empty() {
@@ -2223,6 +2312,7 @@ async fn handle_session_terminal(mut ws: WebSocket, id: String, state: Arc<AppSt
                                 let _ = writer.write_all(data.as_bytes());
                                 let _ = writer.flush();
 
+                                let mut triggered_label = false;
                                 if let Some(line) = collect_input_line(&mut input_buf, &data) {
                                     let ws_guard = state.workspace.lock().unwrap();
                                     if let Some(ref ws) = *ws_guard {
@@ -2240,17 +2330,18 @@ async fn handle_session_terminal(mut ws: WebSocket, id: String, state: Arc<AppSt
                                     drop(sessions);
                                     if state.peon.config.enabled && line.len() > 10 {
                                         state.peon.label_hint.write().unwrap().insert(id.clone(), line);
-                                        state.peon.last_output.write().unwrap().insert(
-                                            id.clone(),
-                                            tokio::time::Instant::now() - std::time::Duration::from_secs(3600),
-                                        );
-                                        state.peon.last_inference.write().unwrap().remove(&id);
+                                        state.peon.label_pending.write().unwrap().insert(id.clone());
+                                        triggered_label = true;
                                     }
                                 }
 
                                 if state.peon.config.enabled && !data.is_empty() {
-                                    state.peon.last_output.write().unwrap()
-                                        .insert(id.clone(), tokio::time::Instant::now());
+                                    let ts = if triggered_label {
+                                        tokio::time::Instant::now() - std::time::Duration::from_secs(3600)
+                                    } else {
+                                        tokio::time::Instant::now()
+                                    };
+                                    state.peon.last_output.write().unwrap().insert(id.clone(), ts);
                                     state.peon.last_inference.write().unwrap().remove(&id);
                                 }
                             }
@@ -2261,11 +2352,11 @@ async fn handle_session_terminal(mut ws: WebSocket, id: String, state: Arc<AppSt
                                     pixel_width: 0,
                                     pixel_height: 0,
                                 }) {
-                                    tracing::warn!("PTY resize error: {e}");
+                                    tracing::warn!(error = %e, "PTY resize error");
                                 }
                             }
                             TerminalAction::Kill => {
-                                tracing::info!("kill message received for session {}", id);
+                                tracing::info!(session_id = %id, "kill message received");
                                 let _ = child.kill();
                                 set_session_status(&state, &id, "killed");
                                 break;
@@ -2313,7 +2404,7 @@ async fn handle_session_terminal(mut ws: WebSocket, id: String, state: Arc<AppSt
         });
     }
 
-    tracing::info!("session {} terminal ended", id);
+    tracing::info!(session_id = %id, "session terminal ended");
 }
 
 #[cfg(test)]
@@ -3727,6 +3818,7 @@ mod tests {
                     interval_secs: 1,
                     max_lines: 200,
                     timeout_secs: 10,
+                    idle_timeout_secs: 15,
                     enabled: true,
                 },
             },
@@ -3802,6 +3894,319 @@ mod tests {
             state.peon.last_inference.read().unwrap().contains_key(&session_id),
             "failed Peon attempts should still be recorded to avoid tight retry loops"
         );
+    }
+
+    #[tokio::test]
+    async fn peon_loop_marks_idle_when_silent() {
+        let dir = tempfile::tempdir().unwrap();
+        let orkworks = dir.path().join(".orkworks");
+        std::fs::create_dir_all(orkworks.join("sessions")).unwrap();
+        std::fs::create_dir_all(orkworks.join("events")).unwrap();
+
+        let state = Arc::new(AppState {
+            session_module: SessionModule::new(),
+            sessions: Mutex::new(HashMap::new()),
+            workspace: Mutex::new(Some(WorkspaceState {
+                path: dir.path().to_path_buf(),
+                metadata: metadata::MetadataStore::new(&orkworks),
+                watcher: watcher::MetadataWatcher::start(&orkworks.join("sessions")),
+            })),
+            peon: PeonState {
+                last_output: StdRwLock::new(HashMap::new()),
+                last_inference: StdRwLock::new(HashMap::new()),
+                in_flight: StdRwLock::new(HashSet::new()),
+                label_hint: StdRwLock::new(HashMap::new()),
+                label_pending: StdRwLock::new(HashSet::new()),
+                config: peon::PeonConfig {
+                    harness: dir.path().join("missing-harness").display().to_string(),
+                    harness_args: vec!["--print".into()],
+                    model: None,
+                    interval_secs: 1,
+                    max_lines: 200,
+                    timeout_secs: 10,
+                    idle_timeout_secs: 1, // fast idle detection for test
+                    enabled: true,
+                },
+            },
+            adapters: builtin_adapters(),
+            retention_config: tokio::sync::RwLock::new(RetentionConfig::default()),
+            harnesses: tokio::sync::RwLock::new(vec![]),
+            providers: providers::ProviderManager::new(),
+        });
+
+        let session_id = "peon-idle-test".to_string();
+        {
+            let (kill_tx, _) = tokio::sync::watch::channel(false);
+            let mut handle = SessionHandle {
+                info: SessionInfo {
+                    id: session_id.clone(),
+                    label: "Test".into(),
+                    harness_id: None,
+                    model_provider_id: None,
+                    model_id: None,
+                    harness: None,
+                    model: None,
+                    status: "running".into(),
+                    cwd: dir.path().display().to_string(),
+                    created_at: "now".into(),
+                    observed_status: None,
+                    summary: None,
+                    next_action: None,
+                    needs_user_input: None,
+                    detected_question: None,
+                    suggested_options: None,
+                    blocker_description: None,
+                    failed_command: None,
+                    failed_test: None,
+                    capacity_hints: None,
+                    metadata_source: Some("process".into()),
+                    metadata_confidence: Some(1.0),
+                    repo_root: None,
+                    branch: None,
+                    dirty: None,
+                    changed_files: None,
+                    is_worktree: None,
+                    conflict_warning: None,
+                    recommendation: None,
+                    peon_last_inference: None,
+                    provider: None,
+                    provider_model: None,
+                    provider_state: None,
+                    memory_state: MemoryState::Live,
+                    resume_strategy: harness::ResumeStrategy::None,
+                    resume: None,
+                    resumed_from: None,
+                },
+                kill_tx,
+                output_buffer: peon::RingBuffer::new(200),
+                command: default_shell_command(dir.path().display().to_string()),
+                initial_prompt: None,
+            };
+            handle.output_buffer.push("some past output".into());
+            state.sessions.lock().unwrap().insert(session_id.clone(), handle);
+        }
+
+        // Set last_output to 5 seconds ago (well past the 1s idle timeout)
+        state.peon.last_output.write().unwrap().insert(
+            session_id.clone(),
+            tokio::time::Instant::now() - std::time::Duration::from_secs(5),
+        );
+
+        // Initialize session metadata so the idle timer can write observed_status.
+        {
+            let ws_guard = state.workspace.lock().unwrap();
+            if let Some(ref ws) = *ws_guard {
+                ws.metadata.write_session(&metadata::SessionMetadata {
+                    id: session_id.clone(),
+                    label: "Test".into(),
+                    workspace: dir.path().display().to_string(),
+                    task: "".into(),
+                    harness: "".into(),
+                    model: "".into(),
+                    cwd: dir.path().display().to_string(),
+                    status: "running".into(),
+                    phase: "".into(),
+                    observed_status: None,
+                    summary: None,
+                    next_action: None,
+                    needs_user_input: None,
+                    detected_question: None,
+                    suggested_options: None,
+                    blocker_description: None,
+                    failed_command: None,
+                    failed_test: None,
+                    capacity_hints: None,
+                    peon_last_inference: None,
+                    provider_id: None,
+                    provider_label: None,
+                    provider_model: None,
+                    provider_state: None,
+                    created_at: "now".into(),
+                    last_activity: "now".into(),
+                    metadata_source: "process".into(),
+                    metadata_confidence: 1.0,
+                    repo_root: None,
+                    branch: None,
+                    dirty: None,
+                    changed_files: None,
+                    is_worktree: None,
+                    resume: None,
+                    resumed_from: None,
+                    last_user_input: None,
+                });
+            }
+        }
+
+        let task = tokio::spawn(peon_loop(state.clone()));
+        tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
+        task.abort();
+
+        // Check metadata: observed_status should be "idle"
+        let ws_guard = state.workspace.lock().unwrap();
+        if let Some(ref ws) = *ws_guard {
+            if let Some(meta) = ws.metadata.read_session(&session_id) {
+                assert_eq!(meta.observed_status.as_deref(), Some("idle"));
+                assert_eq!(meta.metadata_source, "process");
+            } else {
+                panic!("session metadata not found");
+            }
+        } else {
+            panic!("workspace not set up");
+        }
+    }
+
+    #[tokio::test]
+    async fn peon_loop_does_not_overwrite_existing_observed_status_with_idle() {
+        let dir = tempfile::tempdir().unwrap();
+        let orkworks = dir.path().join(".orkworks");
+        std::fs::create_dir_all(orkworks.join("sessions")).unwrap();
+        std::fs::create_dir_all(orkworks.join("events")).unwrap();
+
+        let state = Arc::new(AppState {
+            session_module: SessionModule::new(),
+            sessions: Mutex::new(HashMap::new()),
+            workspace: Mutex::new(Some(WorkspaceState {
+                path: dir.path().to_path_buf(),
+                metadata: metadata::MetadataStore::new(&orkworks),
+                watcher: watcher::MetadataWatcher::start(&orkworks.join("sessions")),
+            })),
+            peon: PeonState {
+                last_output: StdRwLock::new(HashMap::new()),
+                last_inference: StdRwLock::new(HashMap::new()),
+                in_flight: StdRwLock::new(HashSet::new()),
+                label_hint: StdRwLock::new(HashMap::new()),
+                label_pending: StdRwLock::new(HashSet::new()),
+                config: peon::PeonConfig {
+                    harness: dir.path().join("missing-harness").display().to_string(),
+                    harness_args: vec!["--print".into()],
+                    model: None,
+                    interval_secs: 1,
+                    max_lines: 200,
+                    timeout_secs: 10,
+                    idle_timeout_secs: 1,
+                    enabled: true,
+                },
+            },
+            adapters: builtin_adapters(),
+            retention_config: tokio::sync::RwLock::new(RetentionConfig::default()),
+            harnesses: tokio::sync::RwLock::new(vec![]),
+            providers: providers::ProviderManager::new(),
+        });
+
+        let session_id = "peon-idle-no-overwrite-test".to_string();
+        {
+            let (kill_tx, _) = tokio::sync::watch::channel(false);
+            let mut handle = SessionHandle {
+                info: SessionInfo {
+                    id: session_id.clone(),
+                    label: "Test".into(),
+                    harness_id: None,
+                    model_provider_id: None,
+                    model_id: None,
+                    harness: None,
+                    model: None,
+                    status: "running".into(),
+                    cwd: dir.path().display().to_string(),
+                    created_at: "now".into(),
+                    observed_status: Some("blocked".into()),
+                    summary: None,
+                    next_action: None,
+                    needs_user_input: None,
+                    detected_question: None,
+                    suggested_options: None,
+                    blocker_description: None,
+                    failed_command: None,
+                    failed_test: None,
+                    capacity_hints: None,
+                    metadata_source: Some("process".into()),
+                    metadata_confidence: Some(1.0),
+                    repo_root: None,
+                    branch: None,
+                    dirty: None,
+                    changed_files: None,
+                    is_worktree: None,
+                    conflict_warning: None,
+                    recommendation: None,
+                    peon_last_inference: None,
+                    provider: None,
+                    provider_model: None,
+                    provider_state: None,
+                    memory_state: MemoryState::Live,
+                    resume_strategy: harness::ResumeStrategy::None,
+                    resume: None,
+                    resumed_from: None,
+                },
+                kill_tx,
+                output_buffer: peon::RingBuffer::new(200),
+                command: default_shell_command(dir.path().display().to_string()),
+                initial_prompt: None,
+            };
+            state.sessions.lock().unwrap().insert(session_id.clone(), handle);
+        }
+
+        {
+            let ws_guard = state.workspace.lock().unwrap();
+            if let Some(ref ws) = *ws_guard {
+                ws.metadata.write_session(&metadata::SessionMetadata {
+                    id: session_id.clone(),
+                    label: "Test".into(),
+                    workspace: dir.path().display().to_string(),
+                    task: "".into(),
+                    harness: "".into(),
+                    model: "".into(),
+                    cwd: dir.path().display().to_string(),
+                    status: "running".into(),
+                    phase: "".into(),
+                    observed_status: Some("blocked".into()),
+                    summary: None,
+                    next_action: None,
+                    needs_user_input: None,
+                    detected_question: None,
+                    suggested_options: None,
+                    blocker_description: None,
+                    failed_command: None,
+                    failed_test: None,
+                    capacity_hints: None,
+                    peon_last_inference: None,
+                    provider_id: None,
+                    provider_label: None,
+                    provider_model: None,
+                    provider_state: None,
+                    created_at: "now".into(),
+                    last_activity: "now".into(),
+                    metadata_source: "process".into(),
+                    metadata_confidence: 1.0,
+                    repo_root: None,
+                    branch: None,
+                    dirty: None,
+                    changed_files: None,
+                    is_worktree: None,
+                    resume: None,
+                    resumed_from: None,
+                    last_user_input: None,
+                });
+            }
+        }
+
+        state.peon.last_output.write().unwrap().insert(
+            session_id.clone(),
+            tokio::time::Instant::now() - std::time::Duration::from_secs(5),
+        );
+
+        let task = tokio::spawn(peon_loop(state.clone()));
+        tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
+        task.abort();
+
+        let ws_guard = state.workspace.lock().unwrap();
+        if let Some(ref ws) = *ws_guard {
+            if let Some(meta) = ws.metadata.read_session(&session_id) {
+                assert_eq!(meta.observed_status.as_deref(), Some("blocked"));
+            } else {
+                panic!("session metadata not found");
+            }
+        } else {
+            panic!("workspace not set up");
+        }
     }
 
     #[test]

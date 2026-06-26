@@ -1061,6 +1061,7 @@ dependencies = [
  "dirs",
  "git2",
  "hex",
+ "libc",
  "notify",
  "portable-pty",
  "reqwest",

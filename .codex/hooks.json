@@ -9,6 +9,68 @@
           }
         ]
       }
+    ],
+    "sessionStart": [
+      {
+        "type": "command",
+        "bash": "node \".codex/hooks/ponytail/hooks/ponytail-activate.js\"",
+        "powershell": "node \".codex/hooks/ponytail/hooks/ponytail-activate.js\"",
+        "timeoutSec": 5,
+        "_apm_source": "ponytail"
+      },
+      {
+        "command": "./hooks/run-hook.cmd session-start",
+        "_apm_source": "superpowers"
+      }
+    ],
+    "userPromptSubmitted": [
+      {
+        "type": "command",
+        "bash": "node \".codex/hooks/ponytail/hooks/ponytail-mode-tracker.js\"",
+        "powershell": "node \".codex/hooks/ponytail/hooks/ponytail-mode-tracker.js\"",
+        "timeoutSec": 5,
+        "_apm_source": "ponytail"
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v node >/dev/null 2>&1 && node \".codex/hooks/ponytail/hooks/ponytail-activate.js\" || exit 0",
+            "commandWindows": "if (Get-Command node -ErrorAction SilentlyContinue) { node \"$env:CLAUDE_PLUGIN_ROOT\\hooks\\ponytail-activate.js\" }",
+            "timeout": 5,
+            "statusMessage": "Loading ponytail mode..."
+          }
+        ],
+        "_apm_source": "ponytail"
+      },
+      {
+        "matcher": "startup|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\".codex/hooks/superpowers/hooks/run-hook.cmd\" session-start",
+            "async": false
+          }
+        ],
+        "_apm_source": "superpowers"
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v node >/dev/null 2>&1 && node \".codex/hooks/ponytail/hooks/ponytail-mode-tracker.js\" || exit 0",
+            "commandWindows": "if (Get-Command node -ErrorAction SilentlyContinue) { node \"$env:CLAUDE_PLUGIN_ROOT\\hooks\\ponytail-mode-tracker.js\" }",
+            "timeout": 5,
+            "statusMessage": "Tracking ponytail mode..."
+          }
+        ],
+        "_apm_source": "ponytail"
+      }
     ]
   }
 }

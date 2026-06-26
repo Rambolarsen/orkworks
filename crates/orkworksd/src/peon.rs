@@ -15,6 +15,7 @@ pub struct PeonConfig {
     pub interval_secs: u64,
     pub max_lines: usize,
     pub timeout_secs: u64,
+    pub idle_timeout_secs: u64,
     pub enabled: bool,
 }
 
@@ -25,7 +26,7 @@ impl PeonConfig {
             .and_then(|raw| match serde_json::from_str::<Vec<String>>(&raw) {
                 Ok(args) => Some(args),
                 Err(e) => {
-                    tracing::warn!("PEON_HARNESS_ARGS_JSON is not a valid JSON string array: {e}");
+                    tracing::warn!(error = %e, "PEON_HARNESS_ARGS_JSON is not a valid JSON string array");
                     None
                 }
             })
@@ -69,6 +70,16 @@ impl PeonConfig {
                     }
                 },
                 Err(_) => 30,
+            },
+            idle_timeout_secs: match std::env::var("PEON_IDLE_TIMEOUT") {
+                Ok(raw) => match raw.parse() {
+                    Ok(v) => v,
+                    Err(_) => {
+                        tracing::warn!("PEON_IDLE_TIMEOUT is not a valid number, using default 15");
+                        15
+                    }
+                },
+                Err(_) => 15,
             },
             enabled: std::env::var("PEON_ENABLED")
                 .ok()
@@ -131,7 +142,7 @@ Available fields:
 - detectedModel: model identifier visible in the terminal output (e.g. \"claude-sonnet-4-5\", \"gpt-4o\"), or omit if not detectable
 - harnessSessionId: the harness's internal session identifier visible in terminal output (e.g. a UUID, session hex string, or ID shown in a \"resume\" or \"continue\" prompt), or omit if not detectable
 
-If a line starting with '[User input]:' is present, it is what the user just typed to the AI coding tool. Use it as the primary signal for 'summary' and 'phase' — prefer it over terminal output for naming the session. Do NOT prefix summaries with \"User is\" or \"User is <verb>ing\" — keep them short and direct (e.g. \"Correcting peon model\" not \"User is correcting which model peon should use\").";
+If a line starting with '[User input]:' is present, it is what the user just typed to the AI coding tool. Use it to derive a short, direct, present-tense summary of what the user is doing — like a commit-message subject line. NEVER start the summary with \"User\", \"User is\", \"User wants\", \"User asked\", \"User requested\", or \"User typed\". Examples: \"Fixing peon model detection\" not \"User is fixing peon model detection\". \"Reviewing PR feedback\" not \"User wants to review PR feedback\". Keep it under 8 words.";
 
 const VALID_STATUSES: &[&str] = &[
     "waiting_for_input", "blocked", "failed", "done",
@@ -215,16 +226,54 @@ pub fn validate_inference(inf: &PeonInference) -> Result<(), String> {
     Ok(())
 }
 
+fn normalize_summary(s: &str) -> String {
+    let trimmed = s.trim();
+    let lower = trimmed.to_lowercase();
+    let prefixes = [
+        "user is ",
+        "user wants ",
+        "user wants to ",
+        "user asked ",
+        "user requested ",
+        "user typed ",
+        "user ",
+    ];
+    for prefix in &prefixes {
+        if lower.starts_with(prefix) {
+            let rest = &trimmed[prefix.len()..];
+            if rest.is_empty() {
+                return trimmed.to_string();
+            }
+            let mut chars = rest.chars();
+            let normalized = match chars.next() {
+                Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
+                None => return trimmed.to_string(),
+            };
+            return normalized;
+        }
+    }
+    trimmed.to_string()
+}
+
 pub fn parse_inference(stdout: &str) -> Option<PeonInference> {
     let json_str = extract_json(stdout)?;
-    let inference: PeonInference = serde_json::from_str(&json_str).ok()?;
+    let mut inference: PeonInference = serde_json::from_str(&json_str).ok()?;
     validate_inference(&inference).ok()?;
+    if let Some(ref summary) = inference.summary {
+        inference.summary = Some(normalize_summary(summary));
+    }
     Some(inference)
 }
 
 /// Returns true if Peon is allowed to overwrite the given metadata source.
 /// `last_modified_secs_ago`: seconds since the metadata file was last modified.
 /// None means the file doesn't exist or has no timestamp.
+/// Returns true if the observed status is a terminal state that should be
+/// cleared when new terminal output arrives (idle, stale, done).
+pub fn is_terminal_observed_status(observed: Option<&str>) -> bool {
+    matches!(observed, Some("idle" | "stale" | "done"))
+}
+
 pub fn should_overwrite(source: &str, last_modified_secs_ago: Option<u64>) -> bool {
     match source {
         "user" => false,
@@ -268,7 +317,7 @@ pub fn run_inference(config: &PeonConfig, output: &[String]) -> Option<PeonInfer
     let mut child = match cmd.spawn() {
         Ok(c) => c,
         Err(e) => {
-            warn!("Peon: failed to spawn harness {}: {e}", config.harness);
+            warn!(harness = %config.harness, error = %e, "peon: failed to spawn harness");
             return None;
         }
     };
@@ -276,7 +325,7 @@ pub fn run_inference(config: &PeonConfig, output: &[String]) -> Option<PeonInfer
     match child.stdin.take() {
         Some(mut stdin) => {
             if let Err(e) = stdin.write_all(prompt.as_bytes()) {
-                warn!("Peon: failed to write prompt to harness stdin: {e}");
+                warn!(error = %e, "peon: failed to write prompt to harness stdin");
                 return None;
             }
         }
@@ -297,14 +346,14 @@ pub fn run_inference(config: &PeonConfig, output: &[String]) -> Option<PeonInfer
         Ok(Ok(output)) => output,
         _ => {
             let _ = Command::new("kill").arg(pid.to_string()).output();
-            warn!("Peon: harness {} timed out or failed", config.harness);
+            warn!(harness = %config.harness, "peon: harness timed out or failed");
             return None;
         }
     };
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        warn!("Peon: harness {} exited with {}: {}", config.harness, output.status, stderr);
+        warn!(harness = %config.harness, status = %output.status, stderr = %stderr, "peon: harness exited with error");
         return None;
     }
 
@@ -314,13 +363,13 @@ pub fn run_inference(config: &PeonConfig, output: &[String]) -> Option<PeonInfer
     let inference: PeonInference = match serde_json::from_str(&json_str) {
         Ok(inf) => inf,
         Err(e) => {
-            warn!("Peon: failed to parse JSON from harness output: {e}. Raw: {stdout}");
+            warn!(error = %e, raw = %stdout, "peon: failed to parse JSON from harness output");
             return None;
         }
     };
 
     if let Err(e) = validate_inference(&inference) {
-        warn!("Peon: inference validation failed: {e}");
+        warn!(error = %e, "peon: inference validation failed");
         return None;
     }
 
@@ -374,6 +423,7 @@ mod tests {
         std::env::remove_var("PEON_INTERVAL");
         std::env::remove_var("PEON_MAX_LINES");
         std::env::remove_var("PEON_TIMEOUT");
+        std::env::remove_var("PEON_IDLE_TIMEOUT");
 
         let config = PeonConfig::from_env();
         assert!(config.enabled);
@@ -383,6 +433,7 @@ mod tests {
         assert_eq!(config.interval_secs, 5);
         assert_eq!(config.max_lines, 200);
         assert_eq!(config.timeout_secs, 30);
+        assert_eq!(config.idle_timeout_secs, 15);
     }
 
     #[test]
@@ -396,6 +447,7 @@ mod tests {
         std::env::set_var("PEON_INTERVAL", "10");
         std::env::set_var("PEON_MAX_LINES", "100");
         std::env::set_var("PEON_TIMEOUT", "60");
+        std::env::set_var("PEON_IDLE_TIMEOUT", "10");
 
         let config = PeonConfig::from_env();
         assert!(!config.enabled);
@@ -405,6 +457,7 @@ mod tests {
         assert_eq!(config.interval_secs, 10);
         assert_eq!(config.max_lines, 100);
         assert_eq!(config.timeout_secs, 60);
+        assert_eq!(config.idle_timeout_secs, 10);
 
         std::env::remove_var("PEON_ENABLED");
         std::env::remove_var("PEON_HARNESS");
@@ -414,6 +467,7 @@ mod tests {
         std::env::remove_var("PEON_INTERVAL");
         std::env::remove_var("PEON_MAX_LINES");
         std::env::remove_var("PEON_TIMEOUT");
+        std::env::remove_var("PEON_IDLE_TIMEOUT");
     }
 
     #[test]
@@ -563,6 +617,19 @@ mod tests {
     }
 
     #[test]
+    fn test_is_terminal_observed_status() {
+        assert!(is_terminal_observed_status(Some("idle")));
+        assert!(is_terminal_observed_status(Some("stale")));
+        assert!(is_terminal_observed_status(Some("done")));
+        assert!(!is_terminal_observed_status(Some("working")));
+        assert!(!is_terminal_observed_status(Some("waiting_for_input")));
+        assert!(!is_terminal_observed_status(Some("blocked")));
+        assert!(!is_terminal_observed_status(Some("failed")));
+        assert!(!is_terminal_observed_status(None));
+        assert!(!is_terminal_observed_status(Some("unknown")));
+    }
+
+    #[test]
     fn test_run_inference_success() {
         let harness = std::env::current_dir()
             .unwrap()
@@ -574,6 +641,7 @@ mod tests {
             interval_secs: 5,
             max_lines: 200,
             timeout_secs: 30,
+            idle_timeout_secs: 15,
             enabled: true,
         };
         let output = vec![
@@ -596,6 +664,7 @@ mod tests {
             interval_secs: 5,
             max_lines: 200,
             timeout_secs: 30,
+            idle_timeout_secs: 15,
             enabled: true,
         };
         let output = vec!["some output".to_string()];
@@ -649,6 +718,7 @@ echo '{"status":"working","confidence":0.9}'
             interval_secs: 5,
             max_lines: 200,
             timeout_secs: 30,
+            idle_timeout_secs: 15,
             enabled: true,
         };
         let result = run_inference(&config, &["hello from terminal".to_string()]);

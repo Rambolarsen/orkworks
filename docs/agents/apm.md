@@ -38,6 +38,10 @@ Ponytail also ships its own `AGENTS.md` — if cross-referenced from this repo's
 
 [thedotmack/claude-mem](https://github.com/thedotmack/claude-mem) — persistent memory for Claude using simple YAML files.
 
+## rust-skills
+
+[leonardomso/rust-skills](https://github.com/leonardomso/rust-skills) — 265 Rust coding rules across 26 categories (ownership, error handling, async/tokio, unsafe, API design, memory, concurrency, serde, observability, performance, anti-patterns, and more). Current for Rust 1.96 / 2024 edition. Invoke with `/rust-skills` when writing, reviewing, or refactoring any code under `crates/`.
+
 ## Repo-level skills
 
 The `skills/` directory contains repo-level agent skills committed with the project. These follow the Agent Skills standard: each skill is a directory with a `SKILL.md` file using YAML frontmatter and a markdown body.

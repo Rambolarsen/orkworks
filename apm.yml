@@ -15,6 +15,7 @@ dependencies:
     - obra/superpowers
     - DietrichGebert/ponytail
     - thedotmack/claude-mem
+    - leonardomso/rust-skills
   mcp: []
 includes: auto
 scripts: {}
