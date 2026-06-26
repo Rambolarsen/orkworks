@@ -535,12 +535,31 @@ async fn report_harness_session(
     }
 
     let now = iso_now();
-    let ws_guard = state.workspace.lock().unwrap();
-    let Some(ref ws) = *ws_guard else {
-        return axum::http::StatusCode::CONFLICT.into_response();
+    let result = {
+        let ws_guard = state.workspace.lock().unwrap();
+        let Some(ref ws) = *ws_guard else {
+            return axum::http::StatusCode::CONFLICT.into_response();
+        };
+        ws.metadata.merge_harness_session_report(&id, &report, &now)
     };
 
-    match ws.metadata.merge_harness_session_report(&id, &report, &now) {
+    if result == metadata::HarnessSessionMergeResult::Accepted {
+        let updated_resume = {
+            let ws_guard = state.workspace.lock().unwrap();
+            ws_guard
+                .as_ref()
+                .and_then(|ws| ws.metadata.read_session(&id))
+                .and_then(|meta| meta.resume)
+        };
+        if let Some(updated_resume) = updated_resume {
+            let mut sessions = state.sessions.lock().unwrap();
+            if let Some(handle) = sessions.get_mut(&id) {
+                handle.info.resume = Some(updated_resume);
+            }
+        }
+    }
+
+    match result {
         metadata::HarnessSessionMergeResult::Accepted
         | metadata::HarnessSessionMergeResult::IgnoredLowerConfidence => {
             axum::http::StatusCode::OK.into_response()
@@ -2538,6 +2557,136 @@ mod tests {
             updated.resume.as_ref().and_then(|r| r.harness_session_id.as_deref()),
             Some("native-123"),
         );
+    }
+
+    #[tokio::test]
+    async fn harness_session_report_keeps_resume_memory_in_sync_for_later_status_updates() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let session_id = "live-known".to_string();
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        let resume = harness::ResumeMemory {
+            state: harness::ResumeState::Available,
+            preferred_strategy: harness::ResumeStrategy::LatestCwd,
+            harness_session_id: None,
+            latest_fallback: true,
+            last_seen_at: Some("before".into()),
+        };
+
+        state.sessions.lock().unwrap().insert(
+            session_id.clone(),
+            SessionHandle {
+                info: SessionInfo {
+                    id: session_id.clone(),
+                    label: "Known".into(),
+                    harness_id: Some("opencode".into()),
+                    model_provider_id: None,
+                    model_id: None,
+                    harness: Some("opencode".into()),
+                    model: None,
+                    status: "running".into(),
+                    cwd: dir.path().display().to_string(),
+                    created_at: "before".into(),
+                    observed_status: None,
+                    summary: None,
+                    next_action: None,
+                    needs_user_input: None,
+                    detected_question: None,
+                    suggested_options: None,
+                    blocker_description: None,
+                    failed_command: None,
+                    failed_test: None,
+                    capacity_hints: None,
+                    metadata_source: Some("process".into()),
+                    metadata_confidence: Some(1.0),
+                    repo_root: None,
+                    branch: None,
+                    dirty: None,
+                    changed_files: None,
+                    is_worktree: None,
+                    conflict_warning: None,
+                    recommendation: None,
+                    peon_last_inference: None,
+                    provider: None,
+                    provider_model: None,
+                    provider_state: None,
+                    memory_state: MemoryState::Live,
+                    resume_strategy: harness::ResumeStrategy::LatestCwd,
+                    resume: Some(resume.clone()),
+                    resumed_from: None,
+                },
+                kill_tx,
+                output_buffer: peon::RingBuffer::new(200),
+                command: default_shell_command(dir.path().display().to_string()),
+                initial_prompt: None,
+            },
+        );
+
+        {
+            let ws = state.workspace.lock().unwrap();
+            ws.as_ref().unwrap().metadata.write_session(&metadata::SessionMetadata {
+                id: session_id.clone(),
+                label: "Known".into(),
+                workspace: dir.path().display().to_string(),
+                task: "".into(),
+                harness: "opencode".into(),
+                model: "".into(),
+                cwd: dir.path().display().to_string(),
+                status: "running".into(),
+                phase: "".into(),
+                observed_status: None,
+                summary: None,
+                next_action: None,
+                needs_user_input: None,
+                detected_question: None,
+                suggested_options: None,
+                blocker_description: None,
+                failed_command: None,
+                failed_test: None,
+                capacity_hints: None,
+                peon_last_inference: None,
+                provider_id: None,
+                provider_label: None,
+                provider_model: None,
+                provider_state: None,
+                created_at: "before".into(),
+                last_activity: "before".into(),
+                metadata_source: "process".into(),
+                metadata_confidence: 1.0,
+                repo_root: None,
+                branch: None,
+                dirty: None,
+                changed_files: None,
+                is_worktree: None,
+                resume: Some(resume),
+                harness_session_id_source: None,
+                harness_session_id_confidence: None,
+                harness_session_id_captured_at: None,
+                resumed_from: None,
+                last_user_input: None,
+            });
+        }
+
+        let response = report_harness_session(
+            State(state.clone()),
+            Path(session_id.clone()),
+            Json(HarnessSessionReportRequest {
+                harness_session_id: "native-123".into(),
+                source: "opencode_env".into(),
+                confidence: 0.98,
+            }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        set_session_status(&state, &session_id, "ended");
+
+        let ws = state.workspace.lock().unwrap();
+        let updated = ws.as_ref().unwrap().metadata.read_session(&session_id).unwrap();
+        let updated_resume = updated.resume.unwrap();
+        assert_eq!(updated_resume.harness_session_id.as_deref(), Some("native-123"));
+        assert_ne!(updated_resume.last_seen_at.as_deref(), Some("before"));
     }
 
     #[test]
