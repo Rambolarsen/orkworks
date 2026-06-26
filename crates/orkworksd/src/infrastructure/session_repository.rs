@@ -183,6 +183,9 @@ fn session_to_metadata(session: &Session) -> SessionMetadata {
         changed_files: session.changed_files,
         is_worktree: session.is_worktree,
         resume: session.resume.clone(),
+        harness_session_id_source: None,
+        harness_session_id_confidence: None,
+        harness_session_id_captured_at: None,
         resumed_from: session.resumed_from.clone(),
         last_user_input: None,
     }

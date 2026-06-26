@@ -692,6 +692,9 @@ async fn create_session(
             is_worktree: Some(meta_git_ctx.is_worktree),
             last_user_input: None,
             resume: info.resume.clone(),
+            harness_session_id_source: None,
+            harness_session_id_confidence: None,
+            harness_session_id_captured_at: None,
             resumed_from: info.resumed_from.clone(),
         });
         ws.metadata.append_event(&id, &metadata::Event {
@@ -2478,6 +2481,9 @@ mod tests {
                 changed_files: None,
                 is_worktree: None,
                 resume: None,
+                harness_session_id_source: None,
+                harness_session_id_confidence: None,
+                harness_session_id_captured_at: None,
                 resumed_from: None,
                 last_user_input: None,
             });
@@ -3140,6 +3146,9 @@ mod tests {
                     changed_files: None,
                     is_worktree: None,
                     resume: None,
+                    harness_session_id_source: None,
+                    harness_session_id_confidence: None,
+                    harness_session_id_captured_at: None,
                     resumed_from: None,
                     last_user_input: None,
                 });
