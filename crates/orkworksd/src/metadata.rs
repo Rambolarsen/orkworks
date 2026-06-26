@@ -374,6 +374,12 @@ impl MetadataStore {
             Some(m) => m,
             None => return,
         };
+        let peon_harness_session_report =
+            inf.harness_session_id.as_ref().map(|sid| HarnessSessionReport {
+                harness_session_id: sid.clone(),
+                source: "peon".into(),
+                confidence: inf.confidence.min(0.50),
+            });
 
         meta.observed_status = inf.observed_status.clone().or(meta.observed_status);
         if let Some(ref phase) = inf.phase {
@@ -407,24 +413,6 @@ impl MetadataStore {
             }
         }
 
-        if let Some(ref sid) = inf.harness_session_id {
-            if !sid.is_empty() && sid.len() >= 3 && !sid.contains(char::is_whitespace) {
-                let mut resume = meta.resume.take().unwrap_or_else(|| ResumeMemory {
-                    state: ResumeState::Available,
-                    preferred_strategy: ResumeStrategy::None,
-                    harness_session_id: None,
-                    latest_fallback: true,
-                    last_seen_at: None,
-                });
-                resume.harness_session_id = Some(sid.clone());
-                resume.last_seen_at = Some(timestamp.to_string());
-                if resume.preferred_strategy == ResumeStrategy::None {
-                    resume.preferred_strategy = ResumeStrategy::Exact;
-                }
-                meta.resume = Some(resume);
-            }
-        }
-
         meta.peon_last_inference = Some(timestamp.to_string());
         meta.metadata_source = "peon".into();
         meta.metadata_confidence = inf.confidence;
@@ -445,6 +433,10 @@ impl MetadataStore {
             observed_status: inf.observed_status.clone(),
             confidence: Some(inf.confidence),
         });
+
+        if let Some(report) = peon_harness_session_report {
+            let _ = self.merge_harness_session_report(id, &report, timestamp);
+        }
     }
 
     fn terminal_output_path(&self, id: &str) -> PathBuf {
@@ -996,6 +988,50 @@ mod tests {
         assert_eq!(resume.harness_session_id.as_deref(), Some("sess-abc123"));
         assert_eq!(resume.last_seen_at.as_deref(), Some("2026-06-20T12:00:00Z"));
         assert!(resume.latest_fallback);
+    }
+
+    #[test]
+    fn peon_inference_does_not_overwrite_higher_confidence_harness_session_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let mut meta = test_metadata("peon-confidence-test");
+        meta.resume = Some(ResumeMemory {
+            state: ResumeState::Available,
+            preferred_strategy: ResumeStrategy::Exact,
+            harness_session_id: Some("native-high".into()),
+            latest_fallback: true,
+            last_seen_at: Some("2026-06-26T11:00:00Z".into()),
+        });
+        meta.harness_session_id_source = Some("opencode_env".into());
+        meta.harness_session_id_confidence = Some(0.98);
+        meta.harness_session_id_captured_at = Some("2026-06-26T11:00:00Z".into());
+        store.write_session(&meta);
+
+        let inf = crate::peon::PeonInference {
+            observed_status: Some("working".into()),
+            phase: None,
+            summary: None,
+            next_action: None,
+            needs_user_input: None,
+            detected_question: None,
+            suggested_options: None,
+            blocker_description: None,
+            failed_command: None,
+            failed_test: None,
+            capacity_hints: None,
+            confidence: 0.7,
+            detected_harness: None,
+            detected_model: None,
+            harness_session_id: Some("native-peon".into()),
+        };
+        store.merge_peon_inference("peon-confidence-test", &inf, "2026-06-26T12:00:00Z", None);
+
+        let updated = store.read_session("peon-confidence-test").unwrap();
+        assert_eq!(
+            updated.resume.as_ref().and_then(|r| r.harness_session_id.as_deref()),
+            Some("native-high"),
+        );
+        assert_eq!(updated.harness_session_id_source.as_deref(), Some("opencode_env"));
     }
 
     #[test]
