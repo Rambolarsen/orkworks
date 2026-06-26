@@ -3932,6 +3932,7 @@ mod tests {
             retention_config: tokio::sync::RwLock::new(RetentionConfig::default()),
             harnesses: tokio::sync::RwLock::new(vec![]),
             providers: providers::ProviderManager::new(),
+            bound_port: AtomicU16::new(0),
         });
 
         let session_id = "peon-idle-test".to_string();
@@ -4031,6 +4032,9 @@ mod tests {
                     changed_files: None,
                     is_worktree: None,
                     resume: None,
+                    harness_session_id_source: None,
+                    harness_session_id_confidence: None,
+                    harness_session_id_captured_at: None,
                     resumed_from: None,
                     last_user_input: None,
                 });
@@ -4091,6 +4095,7 @@ mod tests {
             retention_config: tokio::sync::RwLock::new(RetentionConfig::default()),
             harnesses: tokio::sync::RwLock::new(vec![]),
             providers: providers::ProviderManager::new(),
+            bound_port: AtomicU16::new(0),
         });
 
         let session_id = "peon-idle-no-overwrite-test".to_string();
@@ -4182,6 +4187,9 @@ mod tests {
                     changed_files: None,
                     is_worktree: None,
                     resume: None,
+                    harness_session_id_source: None,
+                    harness_session_id_confidence: None,
+                    harness_session_id_captured_at: None,
                     resumed_from: None,
                     last_user_input: None,
                 });
