@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from "electron";
 
 contextBridge.exposeInMainWorld("orkworks", {
+  platform: process.platform,
   getBackendUrl: (): Promise<string> => ipcRenderer.invoke("get-backend-url"),
   getInitialWorkspace: (): Promise<unknown> => ipcRenderer.invoke("get-initial-workspace"),
   openWorkspace: (): Promise<unknown> => ipcRenderer.invoke("open-workspace"),

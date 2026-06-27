@@ -38,6 +38,10 @@ html, body, #root {
   user-select: none;
 }
 
+[data-platform="darwin"] .titlebar {
+  padding-left: 80px;
+}
+
 .titlebar-left {
   display: flex;
   align-items: center;

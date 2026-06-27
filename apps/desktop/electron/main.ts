@@ -118,6 +118,7 @@ function createWindow(): void {
     minHeight: 500,
     title: "OrkWorks",
     icon: path.join(__dirname, "../build", process.platform === "win32" ? "icon.ico" : "icon.png"),
+    ...(process.platform === "darwin" && { titleBarStyle: "hiddenInset" as const }),
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,

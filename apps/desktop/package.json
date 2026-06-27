@@ -1,5 +1,6 @@
 {
   "name": "orkworks-desktop",
+  "productName": "OrkWorks",
   "version": "0.1.0",
   "description": "OrkWorks — Mission Control for AI Agents",
   "main": "dist-electron/main.js",

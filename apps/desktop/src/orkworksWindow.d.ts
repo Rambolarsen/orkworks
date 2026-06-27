@@ -5,6 +5,7 @@ import type { ProviderSettings, ProviderModelsResponse, ProviderLabelsResponse }
 declare global {
   interface Window {
     orkworks: {
+      platform: string;
       getBackendUrl: () => Promise<string>;
       getInitialWorkspace: () => Promise<WorkspaceInfo | null>;
       openWorkspace: () => Promise<WorkspaceInfo | null>;
