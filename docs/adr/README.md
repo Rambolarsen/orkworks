@@ -27,3 +27,4 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 | [0016](./0016-session-details-provider-context.md) | Session details provider context | superseded by 0017 (Settings surface) |
 | [0017](./0017-provider-context-session-scoped.md) | Provider context is session-scoped, not app-wide | superseded (peon model picker restores per-provider model selection in Settings) |
 | [0019](./0019-attention-signal-endpoint-opt-in-hook-install.md) | Attention signal via unauthenticated localhost endpoint, opt-in hook install only | accepted |
+| [0020](./0020-phosphor-visual-refresh-token-layer.md) | Phosphor visual refresh: cool-graphite + lime token layer | accepted |
