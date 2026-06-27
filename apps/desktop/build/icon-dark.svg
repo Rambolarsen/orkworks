@@ -1,16 +1,11 @@
-<svg width="1024" height="1024" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <rect width="120" height="120" rx="24" fill="#d4d4d4"/>
-  <!-- jaw -->
-  <rect x="22" y="80" width="76" height="30" rx="10" fill="#9dc520"/>
-  <!-- helmet -->
-  <path d="M14,74 L14,46 Q14,10 60,10 Q106,10 106,46 L106,74 Q106,84 96,84 L76,84 L76,90 Q76,100 60,100 Q44,100 44,90 L44,84 L24,84 Q14,84 14,74 Z" fill="#3a5a18"/>
-  <!-- sheen -->
-  <path d="M22,42 Q28,18 60,14 Q48,22 42,42 Z" fill="#4a7020" opacity="0.6"/>
-  <!-- visor border -->
-  <rect x="24" y="52" width="72" height="20" rx="7" fill="#0e1a06"/>
-  <!-- visor face -->
-  <rect x="25" y="53" width="70" height="18" rx="6" fill="#9dc520"/>
-  <!-- eyes -->
-  <circle cx="44" cy="62" r="7" fill="#1a3a0a"/>
-  <circle cx="76" cy="62" r="7" fill="#1a3a0a"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="1254" height="1254" viewBox="0 0 1254 1254">
+  <title>OrkWorks logo — dark background version</title>
+  <desc>Bright neon green logo optimized for dark backgrounds.</desc>
+  <defs>
+    <linearGradient id="ork-green" x1="0" y1="0" x2="0.82" y2="1">
+      <stop offset="0" stop-color="#8dea36"/>
+      <stop offset="1" stop-color="#75d52d"/>
+    </linearGradient>
+  </defs>
+  <path d="M 908 544 L 888 556 L 812 612 L 812 643 L 822 733 L 845 716 L 869 692 Z M 345 544 L 384 693 L 408 716 L 430 733 L 441 637 L 441 612 L 354 548 Z M 623 422 L 513 477 L 490 506 L 470 538 L 441 878 L 528 972 L 624 956 L 726 971 L 810 878 L 792 670 L 785 543 L 765 509 L 742 479 L 630 422 Z M 488 855 L 490 852 L 501 854 L 498 841 L 498 822 L 506 791 L 513 779 L 517 782 L 522 804 L 540 845 L 604 834 L 657 835 L 711 845 L 727 810 L 735 781 L 739 779 L 747 794 L 753 817 L 754 835 L 750 854 L 762 852 L 764 861 L 755 871 L 741 874 L 662 858 L 612 856 L 584 859 L 525 872 L 504 874 L 489 863 Z M 668 751 L 666 755 L 651 764 L 643 764 L 643 761 L 655 746 Z M 584 751 L 597 746 L 608 759 L 609 764 L 603 765 L 585 754 Z M 765 643 L 764 658 L 747 667 L 732 692 L 719 700 L 701 702 L 687 696 L 671 684 L 643 682 L 644 663 L 668 666 L 760 642 Z M 487 643 L 508 645 L 585 666 L 608 663 L 609 682 L 582 684 L 557 700 L 537 701 L 526 697 L 516 687 L 506 667 L 488 658 Z M 415 391 L 415 411 L 417 413 L 509 413 L 512 410 L 512 392 L 510 389 L 417 389 Z M 311 275 L 308 278 L 308 294 L 362 338 L 359 343 L 308 384 L 308 400 L 311 403 L 325 403 L 397 345 L 397 332 L 327 276 Z" fill="url(#ork-green)" fill-rule="evenodd" clip-rule="evenodd"/>
 </svg>

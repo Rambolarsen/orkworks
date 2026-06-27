@@ -117,7 +117,7 @@ function createWindow(): void {
     minWidth: 900,
     minHeight: 500,
     title: "OrkWorks",
-    icon: path.join(__dirname, "../build/icon.png"),
+    icon: path.join(__dirname, "../build", process.platform === "win32" ? "icon.ico" : "icon.png"),
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -138,9 +138,14 @@ function createWindow(): void {
 }
 
 function updateDockIcon(): void {
-  if (!app.dock) return;
-  const iconName = nativeTheme.shouldUseDarkColors ? "icon-dark.png" : "icon.png";
-  app.dock.setIcon(path.join(__dirname, "../build", iconName));
+  const dark = nativeTheme.shouldUseDarkColors;
+  if (app.dock) {
+    const iconName = dark ? "icon-dark.png" : "icon.png";
+    app.dock.setIcon(path.join(__dirname, "../build", iconName));
+  } else if (process.platform === "win32" && mainWindow) {
+    const iconName = dark ? "icon-dark.ico" : "icon.ico";
+    mainWindow.setIcon(path.join(__dirname, "../build", iconName));
+  }
 }
 
 app.whenReady().then(() => {
