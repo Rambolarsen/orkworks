@@ -67,25 +67,6 @@
           }
         ]
       }
-    ],
-    "sessionStart": [
-      {
-        "type": "command",
-        "bash": "node \".claude/hooks/ponytail/hooks/ponytail-activate.js\"",
-        "powershell": "node \".claude/hooks/ponytail/hooks/ponytail-activate.js\"",
-        "timeoutSec": 5
-      },
-      {
-        "command": "./hooks/run-hook.cmd session-start"
-      }
-    ],
-    "userPromptSubmitted": [
-      {
-        "type": "command",
-        "bash": "node \".claude/hooks/ponytail/hooks/ponytail-mode-tracker.js\"",
-        "powershell": "node \".claude/hooks/ponytail/hooks/ponytail-mode-tracker.js\"",
-        "timeoutSec": 5
-      }
     ]
   },
   "enabledPlugins": {
