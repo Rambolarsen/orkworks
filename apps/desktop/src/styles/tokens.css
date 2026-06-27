@@ -194,7 +194,7 @@
    terminal palette stay put. (No runtime toggle wired up yet — see
    the light-theme follow-up issue.)
    ==================================================================== */
-[data-theme="light"] {
+:root[data-theme="light"] {
   --surface-0: #ffffff;
   --surface-1: #f7f8f9;
   --surface-2: #eef0f3;

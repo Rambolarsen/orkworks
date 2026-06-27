@@ -1,5 +1,7 @@
 // "Phosphor" terminal palette — cool-graphite base with a lime cursor.
-// Mirrors the --term-* tokens in styles/tokens.css. Terminals stay dark
+// The base colors mirror the --term-* tokens in styles/tokens.css; the
+// bright* variants are derived here (xterm needs a full 16-color set, so
+// they reuse the normal hues with a brighter white). Terminals stay dark
 // in both app themes, so these values are theme-independent.
 export const orkworksTerminalTheme = {
   background: "#0c0d10",
