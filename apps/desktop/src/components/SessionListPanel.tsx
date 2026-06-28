@@ -2,6 +2,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { Trash2 } from "lucide-react";
 import type { SessionInfo, WorkspaceInfo } from "../api";
 import { sessionAttentionStatus } from "../sessionSort";
+import { groupSessions } from "../sessionGroups";
 import { VOCAB, attentionLabel, attentionTone, relativeTime } from "../labels";
 import EmptyState from "./EmptyState";
 import StatusIndicator from "./StatusIndicator";
@@ -15,27 +16,6 @@ interface SessionListPanelProps {
   onForgetSession: (id: string) => void;
   onFocusTerminal: () => void;
   onOpenWorkspace: () => void;
-}
-
-type GroupKey = "today" | "week" | "earlier";
-
-const GROUP_LABELS: Record<GroupKey, string> = {
-  today: "Today",
-  week: "This week",
-  earlier: "Earlier",
-};
-
-function groupForSession(s: SessionInfo, now: Date): GroupKey {
-  const created = new Date(s.created_at);
-  if (Number.isNaN(created.getTime())) return "earlier";
-  const sameDay =
-    created.getFullYear() === now.getFullYear() &&
-    created.getMonth() === now.getMonth() &&
-    created.getDate() === now.getDate();
-  if (sameDay) return "today";
-  const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
-  if (now.getTime() - created.getTime() < sevenDaysMs) return "week";
-  return "earlier";
 }
 
 function lastActivity(s: SessionInfo, now: Date): string {
@@ -67,19 +47,7 @@ function SessionListPanel({
     return () => clearInterval(interval);
   }, []);
 
-  const grouped = useMemo(() => {
-    const buckets: Record<GroupKey, SessionInfo[]> = {
-      today: [],
-      week: [],
-      earlier: [],
-    };
-    for (const s of sessions) {
-      buckets[groupForSession(s, now)].push(s);
-    }
-    return (["today", "week", "earlier"] as GroupKey[])
-      .filter((k) => buckets[k].length > 0)
-      .map((k) => ({ key: k, label: GROUP_LABELS[k], items: buckets[k] }));
-  }, [sessions]);
+  const grouped = useMemo(() => groupSessions(sessions, now), [sessions, now]);
 
   const orderedSessions = useMemo(
     () => grouped.flatMap((g) => g.items),
