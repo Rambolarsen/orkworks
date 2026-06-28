@@ -543,16 +543,10 @@ html, body, #root {
 }
 
 .session-row {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  grid-template-areas:
-    "primary   meta"
-    "secondary secondary"
-    "action    action"
-    "source    source"
-    "memory    memory";
-  gap: var(--space-1);
-  padding: var(--space-3) var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-3) var(--space-5) var(--space-3) 13px;
   border-left: 3px solid transparent;
   border-bottom: 1px solid var(--border-subtle);
   cursor: pointer;
@@ -569,11 +563,11 @@ html, body, #root {
 .session-row[data-attention="blocked"]   { border-left-color: var(--attention-blocked); }
 .session-row[data-attention="done"]      { border-left-color: var(--attention-done); }
 .session-row[data-attention="working"]   { border-left-color: var(--attention-working); }
+.session-row[data-attention="failed"]    { border-left-color: var(--attention-failed); }
 .session-row[data-attention="idle"]      { border-left-color: var(--attention-idle); }
 .session-row[data-attention="needs-you"] .session-row-label { font-weight: 600; }
 
-.session-row-primary {
-  grid-area: primary;
+.session-row-top {
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -581,6 +575,8 @@ html, body, #root {
 }
 
 .session-row-label {
+  flex: 1;
+  min-width: 0;
   font-size: var(--text-lg);
   color: var(--text-primary);
   white-space: nowrap;
@@ -588,26 +584,47 @@ html, body, #root {
   text-overflow: ellipsis;
 }
 
-.session-row-dot {
+.session-row-status {
+  padding-left: 22px;
+  font-size: var(--text-sm);
+  color: var(--attention-neutral);
+}
+
+.session-row-status[data-attention="needs-you"] { color: var(--attention-needs-you); }
+.session-row-status[data-attention="blocked"]   { color: var(--attention-blocked); }
+.session-row-status[data-attention="done"]      { color: var(--attention-done); }
+.session-row-status[data-attention="working"]   { color: var(--attention-working); }
+.session-row-status[data-attention="failed"]    { color: var(--attention-failed); }
+.session-row-status[data-attention="idle"]      { color: var(--attention-idle); }
+
+.status-indicator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--attention-neutral);
+}
+
+.status-indicator-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  flex-shrink: 0;
   background: currentColor;
 }
 
-.session-row[data-attention="needs-you"] .session-row-dot { color: var(--attention-needs-you); }
-.session-row[data-attention="blocked"]   .session-row-dot { color: var(--attention-blocked); }
-.session-row[data-attention="done"]      .session-row-dot { color: var(--attention-done); }
-.session-row[data-attention="working"]   .session-row-dot { color: var(--attention-working); }
-.session-row[data-attention="idle"]      .session-row-dot { color: var(--attention-idle); }
+.status-indicator[data-attention="needs-you"] { color: var(--attention-needs-you); }
+.status-indicator[data-attention="blocked"]   { color: var(--attention-blocked); }
+.status-indicator[data-attention="done"]      { color: var(--attention-done); }
+.status-indicator[data-attention="working"]   { color: var(--attention-working); }
+.status-indicator[data-attention="failed"]    { color: var(--attention-failed); }
+.status-indicator[data-attention="idle"]      { color: var(--attention-idle); }
 
-.session-row-meta {
-  grid-area: meta;
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
+@media (prefers-reduced-motion: no-preference) {
+  .status-indicator-spin { animation: status-indicator-spin 1s linear infinite; }
 }
+@keyframes status-indicator-spin { to { transform: rotate(360deg); } }
 
 .session-row-time {
   font-size: var(--text-xs);
@@ -642,37 +659,6 @@ html, body, #root {
 .session-row-forget:hover {
   color: var(--state-error);
   opacity: 1;
-}
-
-.session-row-secondary {
-  grid-area: secondary;
-  font-size: var(--text-sm);
-  color: var(--text-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.session-row-action {
-  grid-area: action;
-  font-size: var(--text-sm);
-  color: var(--text-muted);
-  font-style: italic;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.session-row-source {
-  grid-area: source;
-  font-size: var(--text-xs);
-  color: var(--text-faint);
-}
-
-.session-row-memory {
-  grid-area: memory;
-  font-size: var(--text-xs);
-  color: var(--text-faint);
 }
 
 .session-group-header {
@@ -774,11 +760,18 @@ html, body, #root {
   padding: var(--space-4) var(--space-5);
   height: 100%;
   overflow-y: auto;
+  border-left: 3px solid transparent;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
 }
 
-.session-detail-section {
-  margin-bottom: 10px;
-}
+.session-detail[data-attention="needs-you"] { border-left-color: var(--attention-needs-you); }
+.session-detail[data-attention="blocked"]   { border-left-color: var(--attention-blocked); }
+.session-detail[data-attention="done"]      { border-left-color: var(--attention-done); }
+.session-detail[data-attention="working"]   { border-left-color: var(--attention-working); }
+.session-detail[data-attention="failed"]    { border-left-color: var(--attention-failed); }
+.session-detail[data-attention="idle"]      { border-left-color: var(--attention-idle); }
 
 .session-detail-label {
   font-size: var(--text-xs);
@@ -794,32 +787,73 @@ html, body, #root {
   font-size: var(--text-md);
 }
 
-.session-detail-dot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  margin-right: var(--space-3);
-  vertical-align: middle;
-  background: var(--attention-neutral);
+.detail-situation {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
 }
 
-.session-detail-dot[data-attention="needs-you"] { background: var(--attention-needs-you); }
-.session-detail-dot[data-attention="blocked"]   { background: var(--attention-blocked); }
-.session-detail-dot[data-attention="done"]      { background: var(--attention-done); }
-.session-detail-dot[data-attention="working"]   { background: var(--attention-working); }
-.session-detail-dot[data-attention="idle"]      { background: var(--attention-idle); }
+.detail-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-eyebrow);
+  color: var(--text-faint);
+}
+
+.detail-headline {
+  font-size: var(--text-lg);
+  color: var(--text-primary);
+  line-height: var(--leading-snug);
+}
+
+.detail-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.detail-facts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.detail-facts-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+}
+
+.detail-fact-git {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.detail-provenance {
+  margin-top: auto;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+
+.detail-provenance-sep {
+  color: var(--text-faint);
+}
 
 .git-worktree-tag {
   color: var(--state-ok);
-  margin-left: var(--space-3);
-  font-size: var(--text-xs);
-}
-
-.git-state-row {
-  display: flex;
-  gap: var(--space-4);
-  margin-top: var(--space-1);
   font-size: var(--text-xs);
 }
 
@@ -829,7 +863,6 @@ html, body, #root {
 
 .source-badge {
   display: inline-block;
-  margin-top: var(--space-2);
   font-size: var(--text-xs);
   padding: 1px var(--space-3);
   border-radius: var(--radius-sm);
@@ -860,6 +893,7 @@ html, body, #root {
 }
 
 .session-resume-button {
+  align-self: flex-start;
   border: 1px solid var(--accent-strong);
   background: var(--accent-bg);
   color: var(--text-on-accent);
@@ -1122,9 +1156,3 @@ html, body, #root {
   accent-color: var(--accent-strong);
 }
 
-/* --- Harness label in session row --- */
-
-.session-row-harness {
-  color: var(--text-muted);
-  font-size: var(--text-sm, 10px);
-}

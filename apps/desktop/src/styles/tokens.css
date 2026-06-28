@@ -74,8 +74,9 @@
   --state-info: var(--azure);     --state-info-bg: var(--azure-bg);
 
   /* Attention — what each session needs from you */
-  --attention-needs-you: var(--state-error);
+  --attention-needs-you: var(--state-info);   /* your turn — calm, not an alarm */
   --attention-blocked: var(--state-warn);
+  --attention-failed: var(--state-error);     /* failure reads as an error, distinct from needs-you */
   --attention-done: var(--state-ok);
   --attention-working: var(--ork-lime);   /* the ork is working */
   --attention-idle: #4b5563;

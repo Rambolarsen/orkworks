@@ -32,6 +32,7 @@ export function attentionLabel(status: string): string {
 export type AttentionTone =
   | "needs-you"
   | "blocked"
+  | "failed"
   | "done"
   | "working"
   | "idle"
@@ -40,8 +41,9 @@ export type AttentionTone =
 export function attentionTone(status: string): AttentionTone {
   switch (status) {
     case "waiting_for_input":
-    case "failed":
       return "needs-you";
+    case "failed":
+      return "failed";
     case "blocked":
       return "blocked";
     case "done":

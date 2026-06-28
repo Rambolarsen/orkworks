@@ -2,15 +2,9 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { Trash2 } from "lucide-react";
 import type { SessionInfo, WorkspaceInfo } from "../api";
 import { sessionAttentionStatus } from "../sessionSort";
-import {
-  VOCAB,
-  attentionLabel,
-  attentionTone,
-  memoryStateLabel,
-  relativeTime,
-  sourceWithConfidence,
-} from "../labels";
+import { VOCAB, attentionLabel, attentionTone, relativeTime } from "../labels";
 import EmptyState from "./EmptyState";
+import StatusIndicator from "./StatusIndicator";
 
 interface SessionListPanelProps {
   workspace: WorkspaceInfo | null;
@@ -153,9 +147,6 @@ function SessionListPanel({
               {group.items.map((s) => {
                 const attn = sessionAttentionStatus(s);
                 const tone = attentionTone(attn);
-                const folder = s.cwd.split("/").pop() || s.cwd;
-                const dirtyText = s.dirty && s.changedFiles ? ` · ${s.changedFiles} files` : "";
-                const action = s.summary || s.nextAction;
                 return (
                   <li
                     key={s.id}
@@ -172,13 +163,9 @@ function SessionListPanel({
                     data-attention={tone}
                     onClick={() => handleSelect(s.id)}
                   >
-                    <div className="session-row-primary">
-                      {tone !== "neutral" && (
-                        <span className="session-row-dot" aria-hidden="true" />
-                      )}
+                    <div className="session-row-top">
+                      <StatusIndicator tone={tone} label={attentionLabel(attn)} />
                       <span className="session-row-label">{s.label}</span>
-                    </div>
-                    <div className="session-row-meta">
                       <span className="session-row-time">{lastActivity(s, now)}</span>
                       {s.memoryState === "live" && (
                         <button
@@ -209,25 +196,9 @@ function SessionListPanel({
                         </button>
                       )}
                     </div>
-                    <div className="session-row-secondary">
-                      {attentionLabel(attn)} · {folder}{dirtyText}
-                      {s.harness && (
-                        <span className="session-row-harness">
-                          {" · "}{s.harness}{s.model ? ` (${s.model})` : ""}
-                        </span>
-                      )}
-                    </div>
-                    {action && (
-                      <div className="session-row-action">{action}</div>
-                    )}
-                    {s.metadataSource && (
-                      <div className="session-row-source">
-                        {sourceWithConfidence(s.metadataSource, s.metadataConfidence)}
-                      </div>
-                    )}
-                    {s.memoryState !== "live" && (
-                      <div className="session-row-memory">
-                        {memoryStateLabel(s.memoryState)}
+                    {tone !== "neutral" && (
+                      <div className="session-row-status" data-attention={tone}>
+                        {attentionLabel(attn)}
                       </div>
                     )}
                   </li>
