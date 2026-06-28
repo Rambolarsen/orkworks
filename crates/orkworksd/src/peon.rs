@@ -111,6 +111,10 @@ impl RingBuffer {
         self.lines.iter().cloned().collect()
     }
 
+    pub fn last_n(&self, n: usize) -> Vec<String> {
+        self.lines.iter().rev().take(n).cloned().collect()
+    }
+
     #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.lines.is_empty()
@@ -126,7 +130,7 @@ pub fn detect_usage_limit(patterns: &[&str], lines: &[String]) -> bool {
     if patterns.is_empty() { return false; }
     lines.iter().rev().take(50).any(|line| {
         let lower = line.to_lowercase();
-        patterns.iter().any(|p| lower.contains(p))
+        patterns.iter().any(|p| lower.contains(&p.to_lowercase()[..]))
     })
 }
 

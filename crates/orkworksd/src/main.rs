@@ -846,7 +846,7 @@ async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse 
     let harnesses = state.harnesses.read().await.clone();
     let live_sessions: Vec<(SessionInfo, Vec<String>)> = {
         let sessions = state.sessions.lock().unwrap();
-        sessions.values().map(|h| (h.info.clone(), h.output_buffer.snapshot())).collect()
+        sessions.values().map(|h| (h.info.clone(), h.output_buffer.last_n(50))).collect()
     };
 
     let ws_guard = state.workspace.lock().unwrap();
@@ -1835,12 +1835,12 @@ fn builtin_adapters() -> HashMap<String, harness::HarnessAdapter> {
         detect_capacity: true,
         native_voice: false,
     };
-    // ponytail: claude-code patterns are unverified placeholders — see GitHub issue #84
+    // ponytail: claude-code patterns empty until verified — see GitHub issue #84
     let claude = harness::HarnessAdapter::template(
         "claude-code",
         "Claude Code",
         claude_caps.clone(),
-        &["claude code is currently unavailable", "usage limit"],
+        &[],
         harness::CommandTemplate {
             command: "claude".into(),
             args: vec![],
