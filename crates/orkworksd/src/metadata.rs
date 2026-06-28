@@ -21,6 +21,23 @@ pub struct ResumeOption {
     pub reason: Option<String>,
 }
 
+impl ResumeOption {
+    fn new(
+        strategy: ResumeStrategy,
+        label: &'static str,
+        available: bool,
+        reason: Option<&'static str>,
+    ) -> Self {
+        Self {
+            strategy,
+            label: label.into(),
+            available,
+            preferred: false,
+            reason: reason.map(str::to_string),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionMetadata {
     pub id: String,
@@ -139,6 +156,71 @@ fn normalize_session_metadata(mut meta: SessionMetadata) -> SessionMetadata {
     meta
 }
 
+pub fn derive_resume_options(
+    preferred: &ResumeStrategy,
+    resume: Option<&ResumeMemory>,
+    supports_exact: bool,
+    supports_latest_cwd: bool,
+    supports_latest_repo: bool,
+) -> Vec<ResumeOption> {
+    let resume_available = resume
+        .map(|memory| memory.state == ResumeState::Available)
+        .unwrap_or(false);
+    let exact_reason = if !supports_exact {
+        Some("Harness does not support exact resume")
+    } else if !resume_available {
+        Some("No compatible remembered session exists")
+    } else if resume.and_then(|memory| memory.harness_session_id.as_ref()).is_none() {
+        Some("No harness session id was captured")
+    } else {
+        None
+    };
+    let latest_reason = |supported: bool| {
+        if !supported {
+            Some("Harness does not support folder-scoped resume")
+        } else if !resume_available || !resume.map(|memory| memory.latest_fallback).unwrap_or(false)
+        {
+            Some("No compatible remembered session exists")
+        } else {
+            None
+        }
+    };
+    let latest_repo_reason = if !supports_latest_repo {
+        Some("Harness does not support repo-scoped resume")
+    } else if !resume_available || !resume.map(|memory| memory.latest_fallback).unwrap_or(false) {
+        Some("No compatible remembered session exists")
+    } else {
+        None
+    };
+
+    let mut options = vec![
+        ResumeOption::new(
+            ResumeStrategy::Exact,
+            "Resume exact session",
+            exact_reason.is_none(),
+            exact_reason,
+        ),
+        ResumeOption::new(
+            ResumeStrategy::LatestCwd,
+            "Resume latest in folder",
+            latest_reason(supports_latest_cwd).is_none(),
+            latest_reason(supports_latest_cwd),
+        ),
+        ResumeOption::new(
+            ResumeStrategy::LatestRepo,
+            "Resume latest in repo",
+            latest_repo_reason.is_none(),
+            latest_repo_reason,
+        ),
+    ];
+
+    for option in &mut options {
+        option.preferred = option.strategy == *preferred;
+    }
+
+    options
+}
+
 #[cfg(test)]
 pub(crate) fn assert_session_metadata_serializes_connectivity_terminal_outcome_and_last_activity() {
     let meta = SessionMetadata {
@@ -196,6 +278,39 @@ pub(crate) fn assert_session_metadata_serializes_connectivity_terminal_outcome_a
 #[test]
 fn session_metadata_serializes_connectivity_terminal_outcome_and_last_activity() {
     assert_session_metadata_serializes_connectivity_terminal_outcome_and_last_activity();
+}
+
+#[cfg(test)]
+#[test]
+fn derive_resume_options_returns_disabled_entries_with_reasons() {
+    let resume = ResumeMemory {
+        state: ResumeState::Available,
+        preferred_strategy: ResumeStrategy::Exact,
+        harness_session_id: None,
+        latest_fallback: false,
+        last_seen_at: None,
+    };
+    let options = derive_resume_options(&ResumeStrategy::Exact, Some(&resume), true, false, false);
+
+    assert_eq!(options.len(), 3);
+    assert_eq!(options[0].strategy, ResumeStrategy::Exact);
+    assert!(!options[0].available);
+    assert_eq!(
+        options[0].reason.as_deref(),
+        Some("No harness session id was captured"),
+    );
+    assert_eq!(options[1].strategy, ResumeStrategy::LatestCwd);
+    assert!(!options[1].available);
+    assert_eq!(
+        options[1].reason.as_deref(),
+        Some("Harness does not support folder-scoped resume"),
+    );
+    assert_eq!(options[2].strategy, ResumeStrategy::LatestRepo);
+    assert!(!options[2].available);
+    assert_eq!(
+        options[2].reason.as_deref(),
+        Some("Harness does not support repo-scoped resume"),
+    );
 }
 
 pub const HARNESS_SESSION_ID_MIN_LEN: usize = 3;

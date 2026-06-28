@@ -411,7 +411,7 @@ async fn resume_session(
 ) -> impl IntoResponse {
     let now = iso_now();
     let harnesses = state.harnesses.read().await.clone();
-    let (meta, command, strategy) = {
+    let (meta, command, strategy, capabilities) = {
         let ws_guard = state.workspace.lock().unwrap();
         let Some(ref ws) = *ws_guard else {
             return axum::http::StatusCode::CONFLICT.into_response();
@@ -440,7 +440,7 @@ async fn resume_session(
         let Some(command) = adapter.build_resume_command(&request) else {
             return axum::http::StatusCode::BAD_REQUEST.into_response();
         };
-        (meta, command, strategy)
+        (meta, command, strategy, capabilities)
     };
 
     let (kill_tx, _kill_rx) = tokio::sync::watch::channel(false);
@@ -453,8 +453,8 @@ async fn resume_session(
         harness: (!meta.harness.is_empty()).then(|| meta.harness.clone()),
         model: (!meta.model.is_empty()).then(|| meta.model.clone()),
         status: "creating".into(),
-        connectivity: Some("online".into()),
-        terminal_outcome: None,
+        connectivity: Some(connectivity_for_status("creating").into()),
+        terminal_outcome: terminal_outcome_for_status("creating"),
         cwd: command.cwd.clone(),
         created_at: meta.created_at.clone(),
         last_activity_at: Some(now.clone()),
@@ -479,9 +479,15 @@ async fn resume_session(
         recommendation: None,
         peon_last_inference: None,
         memory_state: MemoryState::Live,
-        resume_strategy: strategy,
+        resume_strategy: strategy.clone(),
         resume: meta.resume.clone(),
-        resume_options: meta.resume_options.clone(),
+        resume_options: metadata::derive_resume_options(
+            &strategy,
+            meta.resume.as_ref(),
+            capabilities.resume_exact,
+            capabilities.resume_latest_in_cwd,
+            capabilities.resume_latest_in_repo,
+        ),
         resumed_from: meta.resumed_from.clone(),
         provider: meta.provider_label.clone(),
         provider_model: meta.provider_model.clone(),
@@ -514,8 +520,8 @@ async fn resume_session(
         if let Some(ref ws) = *ws_guard {
             if let Some(mut stored_meta) = ws.metadata.read_session(&id) {
                 stored_meta.status = "creating".to_string();
-                stored_meta.connectivity = "online".to_string();
-                stored_meta.terminal_outcome = None;
+                stored_meta.connectivity = connectivity_for_status("creating").to_string();
+                stored_meta.terminal_outcome = terminal_outcome_for_status("creating");
                 stored_meta.last_activity = now.clone();
                 stored_meta.resume = meta.resume.clone();
                 stored_meta.resume_options = meta.resume_options.clone();
@@ -684,8 +690,8 @@ async fn create_session(
         harness: resolved_launch.session_harness_id.clone(),
         model: resolved_launch.model.clone(),
         status: "creating".into(),
-        connectivity: Some("online".into()),
-        terminal_outcome: None,
+        connectivity: Some(connectivity_for_status("creating").into()),
+        terminal_outcome: terminal_outcome_for_status("creating"),
         cwd,
         created_at: now.clone(),
         last_activity_at: Some(now.clone()),
@@ -885,9 +891,9 @@ async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse 
             model_id: (!meta.model.is_empty()).then(|| meta.model.clone()),
             harness: (!meta.harness.is_empty()).then(|| meta.harness.clone()),
             model: (!meta.model.is_empty()).then(|| meta.model.clone()),
-            status: "ended".into(),
-            connectivity: Some(meta.connectivity.clone()),
-            terminal_outcome: meta.terminal_outcome.clone(),
+            status: meta.status.clone(),
+            connectivity: Some(connectivity_for_status(&meta.status).into()),
+            terminal_outcome: terminal_outcome_for_status(&meta.status),
             cwd: meta.cwd.clone(),
             created_at: meta.created_at.clone(),
             last_activity_at: Some(meta.last_activity.clone()),
@@ -912,9 +918,15 @@ async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse 
             conflict_warning: None,
             recommendation: None,
             memory_state,
-            resume_strategy,
+            resume_strategy: resume_strategy.clone(),
             resume: meta.resume.clone(),
-            resume_options: meta.resume_options.clone(),
+            resume_options: metadata::derive_resume_options(
+                &resume_strategy,
+                meta.resume.as_ref(),
+                caps.resume_exact,
+                caps.resume_latest_in_cwd,
+                caps.resume_latest_in_repo,
+            ),
             resumed_from: meta.resumed_from.clone(),
             provider: meta.provider_label.clone(),
             provider_model: meta.provider_model.clone(),
@@ -948,6 +960,20 @@ async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse 
     Json(infos)
 }
 
+fn connectivity_for_status(status: &str) -> &'static str {
+    match status {
+        "creating" | "running" => "online",
+        _ => "offline",
+    }
+}
+
+fn terminal_outcome_for_status(status: &str) -> Option<String> {
+    match status {
+        "ended" | "killed" | "error" => Some(status.to_string()),
+        _ => None,
+    }
+}
+
 fn merge_live_session_info(
     info: SessionInfo,
     meta: Option<&metadata::SessionMetadata>,
@@ -960,6 +986,7 @@ fn merge_live_session_info(
         meta.and_then(|m| m.resume.as_ref()).or(info.resume.as_ref()),
         capabilities,
     );
+    let resume = meta.and_then(|m| m.resume.clone()).or(info.resume);
 
     SessionInfo {
         id: info.id,
@@ -970,8 +997,8 @@ fn merge_live_session_info(
         harness: meta.and_then(|m| (!m.harness.is_empty()).then(|| m.harness.clone())).or(info.harness),
         model: meta.and_then(|m| (!m.model.is_empty()).then(|| m.model.clone())).or(info.model),
         status: info.status.clone(),
-        connectivity: meta.map(|m| Some(m.connectivity.clone())).unwrap_or(info.connectivity),
-        terminal_outcome: meta.and_then(|m| m.terminal_outcome.clone()).or(info.terminal_outcome),
+        connectivity: Some(connectivity_for_status(&info.status).to_string()),
+        terminal_outcome: terminal_outcome_for_status(&info.status),
         cwd: info.cwd,
         created_at: info.created_at.clone(),
         last_activity_at: meta
@@ -1002,9 +1029,15 @@ fn merge_live_session_info(
         conflict_warning: info.conflict_warning,
         recommendation: info.recommendation,
         memory_state,
-        resume_strategy,
-        resume: meta.and_then(|m| m.resume.clone()).or(info.resume),
-        resume_options: meta.map(|m| m.resume_options.clone()).unwrap_or(info.resume_options),
+        resume_strategy: resume_strategy.clone(),
+        resume: resume.clone(),
+        resume_options: metadata::derive_resume_options(
+            &resume_strategy,
+            resume.as_ref(),
+            capabilities.resume_exact,
+            capabilities.resume_latest_in_cwd,
+            capabilities.resume_latest_in_repo,
+        ),
         resumed_from: meta.and_then(|m| m.resumed_from.clone()).or(info.resumed_from),
         provider: meta.and_then(|m| m.provider_label.clone()).or(info.provider),
         provider_model: meta.and_then(|m| m.provider_model.clone()).or(info.provider_model),
@@ -1031,8 +1064,8 @@ async fn delete_session(
         let mut sessions = state.sessions.lock().unwrap();
         if let Some(h) = sessions.get_mut(&id) {
             h.info.status = "killed".to_string();
-            h.info.connectivity = Some("offline".to_string());
-            h.info.terminal_outcome = Some("killed".to_string());
+            h.info.connectivity = Some(connectivity_for_status("killed").to_string());
+            h.info.terminal_outcome = terminal_outcome_for_status("killed");
             h.info.last_activity_at = Some(now.clone());
         }
     }
@@ -1040,8 +1073,8 @@ async fn delete_session(
     if let Some(ref ws) = *ws_guard {
         if let Some(mut meta) = ws.metadata.read_session(&id) {
             meta.status = "killed".to_string();
-            meta.connectivity = "offline".to_string();
-            meta.terminal_outcome = Some("killed".to_string());
+            meta.connectivity = connectivity_for_status("killed").to_string();
+            meta.terminal_outcome = terminal_outcome_for_status("killed");
             meta.last_activity = now.clone();
             ws.metadata.write_session(&meta);
         }
@@ -1959,15 +1992,8 @@ fn set_session_status(state: &Arc<AppState>, id: &str, status: &str) {
         let mut sessions = state.sessions.lock().unwrap();
         if let Some(handle) = sessions.get_mut(id) {
             handle.info.status = status.to_string();
-            handle.info.connectivity = Some(if matches!(status, "killed" | "ended" | "error") {
-                "offline".to_string()
-            } else {
-                "online".to_string()
-            });
-            handle.info.terminal_outcome = match status {
-                "killed" | "ended" | "error" => Some(status.to_string()),
-                _ => None,
-            };
+            handle.info.connectivity = Some(connectivity_for_status(status).to_string());
+            handle.info.terminal_outcome = terminal_outcome_for_status(status);
             handle.info.last_activity_at = Some(iso_now());
             (handle.info.resume.clone(), handle.info.resumed_from.clone())
         } else {
@@ -1979,15 +2005,8 @@ fn set_session_status(state: &Arc<AppState>, id: &str, status: &str) {
     if let Some(ref ws) = *ws_guard {
         if let Some(mut meta) = ws.metadata.read_session(id) {
             meta.status = status.to_string();
-            meta.connectivity = if matches!(status, "killed" | "ended" | "error") {
-                "offline".to_string()
-            } else {
-                "online".to_string()
-            };
-            meta.terminal_outcome = match status {
-                "killed" | "ended" | "error" => Some(status.to_string()),
-                _ => None,
-            };
+            meta.connectivity = connectivity_for_status(status).to_string();
+            meta.terminal_outcome = terminal_outcome_for_status(status);
             meta.last_activity = now.clone();
             if session_resume.0.is_some() {
                 meta.resume = session_resume.0;
@@ -2627,15 +2646,8 @@ mod tests {
         created_at: impl Into<String>,
     ) -> SessionInfo {
         let status = status.into();
-        let connectivity = if matches!(status.as_str(), "killed" | "ended" | "error") {
-            Some("offline".to_string())
-        } else {
-            Some("online".to_string())
-        };
-        let terminal_outcome = match status.as_str() {
-            "killed" | "ended" | "error" => Some(status.clone()),
-            _ => None,
-        };
+        let connectivity = Some(connectivity_for_status(&status).to_string());
+        let terminal_outcome = terminal_outcome_for_status(&status);
         let created_at = created_at.into();
 
         SessionInfo {
@@ -3152,7 +3164,237 @@ mod tests {
         assert_eq!(merged.connectivity.as_deref(), Some("offline"));
         assert_eq!(merged.terminal_outcome.as_deref(), Some("ended"));
         assert_eq!(merged.last_activity_at.as_deref(), Some("2026-06-28T09:05:00Z"));
-        assert_eq!(merged.resume_options.len(), 1);
+        assert_eq!(merged.resume_options.len(), 3);
+        assert!(!merged.resume_options[0].available);
+        assert_eq!(
+            merged.resume_options[0].reason.as_deref(),
+            Some("No compatible remembered session exists"),
+        );
+        assert!(!merged.resume_options[1].available);
+        assert!(!merged.resume_options[2].available);
+    }
+
+    #[test]
+    fn connectivity_for_status_marks_running_sessions_online() {
+        assert_eq!(connectivity_for_status("creating"), "online");
+        assert_eq!(connectivity_for_status("running"), "online");
+        assert_eq!(connectivity_for_status("ended"), "offline");
+    }
+
+    #[test]
+    fn terminal_outcome_for_status_marks_ended_sessions_offline_with_terminal_outcome() {
+        assert_eq!(terminal_outcome_for_status("running"), None);
+        assert_eq!(
+            terminal_outcome_for_status("ended").as_deref(),
+            Some("ended"),
+        );
+        assert_eq!(
+            terminal_outcome_for_status("killed").as_deref(),
+            Some("killed"),
+        );
+    }
+
+    #[test]
+    fn merge_live_session_info_derives_resume_options_from_resume_memory_and_capabilities() {
+        let info = test_session_info(
+            "merge-derived",
+            "Merge Derived",
+            "/tmp/project",
+            "ended",
+            "2026-06-28T09:00:00Z",
+        );
+        let meta = metadata::SessionMetadata {
+            id: "merge-derived".into(),
+            label: "Merge Derived".into(),
+            workspace: "/tmp/project".into(),
+            task: "".into(),
+            harness: "opencode".into(),
+            model: "".into(),
+            cwd: "/tmp/project".into(),
+            status: "ended".into(),
+            phase: "".into(),
+            connectivity: "offline".into(),
+            terminal_outcome: Some("ended".into()),
+            observed_status: None,
+            summary: None,
+            next_action: None,
+            needs_user_input: None,
+            detected_question: None,
+            suggested_options: None,
+            blocker_description: None,
+            failed_command: None,
+            failed_test: None,
+            capacity_hints: None,
+            peon_last_inference: None,
+            provider_id: None,
+            provider_label: None,
+            provider_model: None,
+            provider_state: None,
+            created_at: "2026-06-28T09:00:00Z".into(),
+            last_activity: "2026-06-28T09:05:00Z".into(),
+            metadata_source: "process".into(),
+            metadata_confidence: 1.0,
+            repo_root: Some("/tmp/project".into()),
+            branch: Some("main".into()),
+            dirty: Some(false),
+            changed_files: Some(0),
+            is_worktree: Some(false),
+            resume: Some(harness::ResumeMemory {
+                state: harness::ResumeState::Available,
+                preferred_strategy: harness::ResumeStrategy::Exact,
+                harness_session_id: None,
+                latest_fallback: true,
+                last_seen_at: Some("2026-06-28T09:05:00Z".into()),
+            }),
+            resume_options: vec![metadata::ResumeOption {
+                strategy: harness::ResumeStrategy::Exact,
+                label: "Resume exact session".into(),
+                available: true,
+                preferred: true,
+                reason: None,
+            }],
+            harness_session_id_source: None,
+            harness_session_id_confidence: None,
+            harness_session_id_captured_at: None,
+            resumed_from: None,
+            last_user_input: None,
+        };
+        let caps = harness::HarnessCapabilities {
+            launch: true,
+            resume_exact: true,
+            resume_latest_in_cwd: true,
+            resume_latest_in_repo: false,
+            detect_session_id: true,
+            detect_model: true,
+            detect_context_usage: true,
+            detect_capacity: true,
+            native_voice: false,
+        };
+
+        let merged = merge_live_session_info(info, Some(&meta), None, &caps);
+
+        assert_eq!(merged.resume_options.len(), 3);
+        assert_eq!(merged.resume_options[0].strategy, harness::ResumeStrategy::Exact);
+        assert!(!merged.resume_options[0].available);
+        assert_eq!(
+            merged.resume_options[0].reason.as_deref(),
+            Some("No harness session id was captured"),
+        );
+        assert_eq!(merged.resume_options[1].strategy, harness::ResumeStrategy::LatestCwd);
+        assert!(merged.resume_options[1].available);
+        assert!(merged.resume_options[1].preferred);
+        assert_eq!(merged.resume_options[2].strategy, harness::ResumeStrategy::LatestRepo);
+        assert!(!merged.resume_options[2].available);
+    }
+
+    #[tokio::test]
+    async fn list_sessions_derives_resume_options_for_remembered_sessions() {
+        let dir = tempfile::tempdir().unwrap();
+        let orkworks = dir.path().join(".orkworks");
+        let state = Arc::new(AppState {
+            session_module: SessionModule::new(),
+            sessions: Mutex::new(HashMap::new()),
+            workspace: Mutex::new(Some(WorkspaceState {
+                path: dir.path().to_path_buf(),
+                metadata: metadata::MetadataStore::new(&orkworks),
+                watcher: watcher::MetadataWatcher::start(&orkworks.join("sessions")),
+            })),
+            peon: PeonState {
+                last_output: StdRwLock::new(HashMap::new()),
+                last_inference: StdRwLock::new(HashMap::new()),
+                in_flight: StdRwLock::new(HashSet::new()),
+                label_hint: StdRwLock::new(HashMap::new()),
+                label_pending: StdRwLock::new(HashSet::new()),
+                config: peon::PeonConfig::from_env(),
+            },
+            adapters: builtin_adapters(),
+            retention_config: tokio::sync::RwLock::new(RetentionConfig::default()),
+            harnesses: tokio::sync::RwLock::new(vec![]),
+            bound_port: AtomicU16::new(0),
+            providers: providers::ProviderManager::new(),
+        });
+
+        {
+            let ws = state.workspace.lock().unwrap();
+            let ws = ws.as_ref().unwrap();
+            ws.metadata.write_session(&metadata::SessionMetadata {
+                id: "remembered-derived".into(),
+                label: "Remembered Derived".into(),
+                workspace: dir.path().display().to_string(),
+                task: "".into(),
+                harness: "opencode".into(),
+                model: "".into(),
+                cwd: dir.path().display().to_string(),
+                status: "ended".into(),
+                phase: "".into(),
+                connectivity: "offline".into(),
+                terminal_outcome: Some("ended".into()),
+                observed_status: None,
+                summary: None,
+                next_action: None,
+                needs_user_input: None,
+                detected_question: None,
+                suggested_options: None,
+                blocker_description: None,
+                failed_command: None,
+                failed_test: None,
+                capacity_hints: None,
+                peon_last_inference: None,
+                provider_id: None,
+                provider_label: None,
+                provider_model: None,
+                provider_state: None,
+                created_at: "2026-06-28T09:00:00Z".into(),
+                last_activity: "2026-06-28T09:05:00Z".into(),
+                metadata_source: "process".into(),
+                metadata_confidence: 1.0,
+                repo_root: Some(dir.path().display().to_string()),
+                branch: Some("main".into()),
+                dirty: Some(false),
+                changed_files: Some(0),
+                is_worktree: Some(false),
+                resume: Some(harness::ResumeMemory {
+                    state: harness::ResumeState::Available,
+                    preferred_strategy: harness::ResumeStrategy::Exact,
+                    harness_session_id: None,
+                    latest_fallback: true,
+                    last_seen_at: Some("2026-06-28T09:05:00Z".into()),
+                }),
+                resume_options: vec![metadata::ResumeOption {
+                    strategy: harness::ResumeStrategy::Exact,
+                    label: "Resume exact session".into(),
+                    available: true,
+                    preferred: true,
+                    reason: None,
+                }],
+                harness_session_id_source: None,
+                harness_session_id_confidence: None,
+                harness_session_id_captured_at: None,
+                resumed_from: None,
+                last_user_input: None,
+            });
+        }
+
+        let response = list_sessions(State(state)).await.into_response();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let sessions: Vec<serde_json::Value> = serde_json::from_slice(&bytes).unwrap();
+        let session = sessions
+            .iter()
+            .find(|session| session.get("id").and_then(|id| id.as_str()) == Some("remembered-derived"))
+            .unwrap();
+        let options = session
+            .get("resumeOptions")
+            .and_then(|value| value.as_array())
+            .unwrap();
+
+        assert_eq!(options.len(), 3);
+        assert_eq!(options[0]["strategy"], "exact");
+        assert_eq!(options[0]["available"], false);
+        assert_eq!(options[1]["strategy"], "latest_cwd");
+        assert_eq!(options[1]["available"], true);
+        assert_eq!(options[1]["preferred"], true);
+        assert_eq!(options[2]["strategy"], "latest_repo");
+        assert_eq!(options[2]["available"], true);
     }
 
     #[test]
