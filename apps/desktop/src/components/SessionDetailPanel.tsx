@@ -39,7 +39,7 @@ function SessionDetailPanel({ sessions, activeSessionId, onResumeSession }: Sess
   const tone = attentionTone(attn);
   const canResume = active.memoryState === "resumable" && active.resumeStrategy !== "none";
   const resumeText = resumeActionLabel(active.resumeStrategy);
-  const sourceTag = active.metadataSource ?? undefined;
+  const sourceTag = active.metadataSource;
   const providerContext = sessionProviderContext(active);
   const folder = active.cwd.split("/").pop() || active.cwd;
   const headline =
