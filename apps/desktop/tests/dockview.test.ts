@@ -150,10 +150,10 @@ test("SessionDetailPanel groups content into situation/actions/facts/provenance 
   assert.match(source, /detail-actions/);
   assert.match(source, /detail-facts/);
   assert.match(source, /detail-provenance/);
-  for (const label of ["Coding tool", "Model"]) {
+  for (const label of ["Directory", "Coding tool", "Model"]) {
     assert.match(source, new RegExp(`>${label}<`));
   }
-  assert.match(source, /import \{ GitBranch \} from "lucide-react"/);
+  assert.match(source, /<GitBranch\b/);
   assert.match(source, /Select an agent session to see details/);
   assert.match(source, /StatusIndicator/);
   assert.match(source, /attentionLabel/);

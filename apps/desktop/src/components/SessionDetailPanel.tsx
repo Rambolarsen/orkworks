@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useState } from "react";
+import type { ReactNode } from "react";
 import { GitBranch } from "lucide-react";
 import type { SessionInfo } from "../api";
 import { sessionProviderContext } from "../sessionProviderContext";
@@ -40,6 +41,7 @@ function SessionDetailPanel({ sessions, activeSessionId, onResumeSession }: Sess
   const resumeText = resumeActionLabel(active.resumeStrategy);
   const sourceTag = active.metadataSource ?? undefined;
   const providerContext = sessionProviderContext(active);
+  const folder = active.cwd.split("/").pop() || active.cwd;
   const headline =
     active.detectedQuestion ||
     active.blockerDescription ||
@@ -47,7 +49,7 @@ function SessionDetailPanel({ sessions, activeSessionId, onResumeSession }: Sess
     active.nextAction ||
     "No additional detail recorded.";
 
-  const provenanceItems: React.ReactNode[] = [];
+  const provenanceItems: ReactNode[] = [];
   if (sourceTag) {
     provenanceItems.push(
       <span key="source" className="source-badge" data-source={sourceLabel(sourceTag).toLowerCase()}>
@@ -92,6 +94,10 @@ function SessionDetailPanel({ sessions, activeSessionId, onResumeSession }: Sess
 
       <div className="detail-facts">
         <div className="detail-facts-grid">
+          <div className="detail-fact">
+            <div className="session-detail-label">Directory</div>
+            <div className="session-detail-value" title={active.cwd}>{folder}</div>
+          </div>
           <div className="detail-fact">
             <div className="session-detail-label">Coding tool</div>
             <div className="session-detail-value">{providerContext.codingTool}</div>
