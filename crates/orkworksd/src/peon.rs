@@ -122,6 +122,14 @@ impl RingBuffer {
     }
 }
 
+pub fn detect_usage_limit(patterns: &[&str], lines: &[String]) -> bool {
+    if patterns.is_empty() { return false; }
+    lines.iter().rev().take(50).any(|line| {
+        let lower = line.to_lowercase();
+        patterns.iter().any(|p| lower.contains(p))
+    })
+}
+
 const SYSTEM_PROMPT: &str = "\
 You are a terminal output analyzer. Analyze the following terminal session output and return a JSON object describing the session state. Only include fields you are confident about. Return ONLY valid JSON, no other text.
 
@@ -723,5 +731,43 @@ echo '{"status":"working","confidence":0.9}'
         };
         let result = run_inference(&config, &["hello from terminal".to_string()]);
         assert!(result.is_some());
+    }
+
+    #[test]
+    fn detect_usage_limit_returns_false_when_no_patterns() {
+        let lines: Vec<String> = vec!["usage limit reached".into()];
+        assert!(!detect_usage_limit(&[], &lines));
+    }
+
+    #[test]
+    fn detect_usage_limit_returns_true_on_match() {
+        let lines = vec!["some output".into(), "usage limit reached, resets in 2h".into()];
+        assert!(detect_usage_limit(&["usage limit reached"], &lines));
+    }
+
+    #[test]
+    fn detect_usage_limit_is_case_insensitive() {
+        let lines = vec!["Usage Limit Reached".into()];
+        assert!(detect_usage_limit(&["usage limit reached"], &lines));
+    }
+
+    #[test]
+    fn detect_usage_limit_returns_false_when_no_match() {
+        let lines = vec!["working on task".into(), "tool call made".into()];
+        assert!(!detect_usage_limit(&["usage limit reached"], &lines));
+    }
+
+    #[test]
+    fn detect_usage_limit_only_scans_last_50_lines() {
+        let mut lines: Vec<String> = (0..60).map(|_| "no match".into()).collect();
+        lines[5] = "usage limit reached".into(); // index 5 = 55th from end, outside last 50
+        assert!(!detect_usage_limit(&["usage limit reached"], &lines));
+    }
+
+    #[test]
+    fn detect_usage_limit_matches_within_last_50_lines() {
+        let mut lines: Vec<String> = (0..60).map(|_| "no match".into()).collect();
+        lines[15] = "usage limit reached".into(); // index 15 = 45th from end, within last 50
+        assert!(detect_usage_limit(&["usage limit reached"], &lines));
     }
 }
