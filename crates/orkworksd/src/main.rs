@@ -1772,6 +1772,7 @@ fn builtin_adapters() -> HashMap<String, harness::HarnessAdapter> {
         "generic-shell",
         "Generic Shell",
         default_capabilities(),
+        &[],
         harness::CommandTemplate {
             command: program.clone(),
             args: args.clone(),
@@ -1796,6 +1797,7 @@ fn builtin_adapters() -> HashMap<String, harness::HarnessAdapter> {
         "opencode",
         "OpenCode",
         opencode_caps.clone(),
+        &["usage limit reached"],
         harness::CommandTemplate {
             command: "opencode".into(),
             args: vec![],
@@ -1822,10 +1824,12 @@ fn builtin_adapters() -> HashMap<String, harness::HarnessAdapter> {
         detect_capacity: true,
         native_voice: false,
     };
+    // ponytail: claude-code patterns are unverified placeholders — see GitHub issue #84
     let claude = harness::HarnessAdapter::template(
         "claude-code",
         "Claude Code",
         claude_caps.clone(),
+        &["claude code is currently unavailable", "usage limit"],
         harness::CommandTemplate {
             command: "claude".into(),
             args: vec![],
