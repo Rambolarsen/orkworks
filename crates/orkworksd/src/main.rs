@@ -864,60 +864,7 @@ async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse 
         let session_harness_id = meta.and_then(|m| (!m.harness.is_empty()).then(|| m.harness.as_str()));
         let adapter_harness_id = resolve_adapter_harness_id(&harnesses, session_harness_id);
         let caps = capabilities_for_harness(&state.adapters, adapter_harness_id.as_deref());
-        let is_live = info.status != "killed" && info.status != "ended" && info.status != "error";
-        let (memory_state, resume_strategy) =
-            derive_memory_state(is_live, meta.and_then(|m| m.resume.as_ref()).or(info.resume.as_ref()), &caps);
-        SessionInfo {
-            id: info.id,
-            label: meta.map(|m| m.label.clone()).unwrap_or(info.label),
-            harness_id: meta.and_then(|m| (!m.harness.is_empty()).then(|| m.harness.clone())).or(info.harness_id),
-            model_provider_id: meta.and_then(|m| m.provider_id.clone()).or(info.model_provider_id),
-            model_id: meta.and_then(|m| (!m.model.is_empty()).then(|| m.model.clone())).or(info.model_id),
-            harness: meta.and_then(|m| (!m.harness.is_empty()).then(|| m.harness.clone())).or(info.harness),
-            model: meta.and_then(|m| (!m.model.is_empty()).then(|| m.model.clone())).or(info.model),
-            status: info.status,
-            connectivity: meta
-                .map(|m| Some(m.connectivity.clone()))
-                .unwrap_or(info.connectivity),
-            terminal_outcome: meta.and_then(|m| m.terminal_outcome.clone()).or(info.terminal_outcome),
-            cwd: info.cwd,
-            created_at: info.created_at.clone(),
-            last_activity_at: meta
-                .map(|m| m.last_activity.clone())
-                .or(info.last_activity_at)
-                .or_else(|| Some(info.created_at)),
-            observed_status: meta.and_then(|m| m.observed_status.clone()).or(info.observed_status),
-            summary: meta.and_then(|m| m.summary.clone()).or(info.summary),
-            next_action: meta.and_then(|m| m.next_action.clone()).or(info.next_action),
-            needs_user_input: meta.and_then(|m| m.needs_user_input).or(info.needs_user_input),
-            detected_question: meta.and_then(|m| m.detected_question.clone()).or(info.detected_question),
-            suggested_options: meta.and_then(|m| m.suggested_options.clone()).or(info.suggested_options),
-            blocker_description: meta.and_then(|m| m.blocker_description.clone()).or(info.blocker_description),
-            failed_command: meta.and_then(|m| m.failed_command.clone()).or(info.failed_command),
-            failed_test: meta.and_then(|m| m.failed_test.clone()).or(info.failed_test),
-            capacity_hints: meta.and_then(|m| m.capacity_hints.clone()).or(info.capacity_hints),
-            metadata_source: meta.map(|m| m.metadata_source.clone()).or(info.metadata_source),
-            metadata_confidence: meta.map(|m| m.metadata_confidence).or(info.metadata_confidence),
-            peon_last_inference: meta
-                .and_then(|m| m.peon_last_inference.clone())
-                .or(info.peon_last_inference)
-                .or_else(|| peon_times.get(&id).cloned()),
-            repo_root: meta.and_then(|m| m.repo_root.clone()).or(info.repo_root),
-            branch: meta.and_then(|m| m.branch.clone()).or(info.branch),
-            dirty: meta.and_then(|m| m.dirty).or(info.dirty),
-            changed_files: meta.and_then(|m| m.changed_files).or(info.changed_files),
-            is_worktree: meta.and_then(|m| m.is_worktree).or(info.is_worktree),
-            conflict_warning: info.conflict_warning,
-            recommendation: info.recommendation,
-            memory_state,
-            resume_strategy,
-            resume: meta.and_then(|m| m.resume.clone()).or(info.resume),
-            resume_options: meta.map(|m| m.resume_options.clone()).unwrap_or(info.resume_options),
-            resumed_from: meta.and_then(|m| m.resumed_from.clone()).or(info.resumed_from),
-            provider: meta.and_then(|m| m.provider_label.clone()).or(info.provider),
-            provider_model: meta.and_then(|m| m.provider_model.clone()).or(info.provider_model),
-            provider_state: meta.and_then(|m| m.provider_state.clone()).or(info.provider_state),
-        }
+        merge_live_session_info(info, meta, peon_times.get(&id), &caps)
     }).collect();
 
     // Append remembered (non-live) sessions from metadata
@@ -999,6 +946,70 @@ async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse 
             .map(|(_, w)| w.clone());
     }
     Json(infos)
+}
+
+fn merge_live_session_info(
+    info: SessionInfo,
+    meta: Option<&metadata::SessionMetadata>,
+    peon_last_inference: Option<&String>,
+    capabilities: &harness::HarnessCapabilities,
+) -> SessionInfo {
+    let is_live = info.status != "killed" && info.status != "ended" && info.status != "error";
+    let (memory_state, resume_strategy) = derive_memory_state(
+        is_live,
+        meta.and_then(|m| m.resume.as_ref()).or(info.resume.as_ref()),
+        capabilities,
+    );
+
+    SessionInfo {
+        id: info.id,
+        label: meta.map(|m| m.label.clone()).unwrap_or(info.label),
+        harness_id: meta.and_then(|m| (!m.harness.is_empty()).then(|| m.harness.clone())).or(info.harness_id),
+        model_provider_id: meta.and_then(|m| m.provider_id.clone()).or(info.model_provider_id),
+        model_id: meta.and_then(|m| (!m.model.is_empty()).then(|| m.model.clone())).or(info.model_id),
+        harness: meta.and_then(|m| (!m.harness.is_empty()).then(|| m.harness.clone())).or(info.harness),
+        model: meta.and_then(|m| (!m.model.is_empty()).then(|| m.model.clone())).or(info.model),
+        status: info.status.clone(),
+        connectivity: meta.map(|m| Some(m.connectivity.clone())).unwrap_or(info.connectivity),
+        terminal_outcome: meta.and_then(|m| m.terminal_outcome.clone()).or(info.terminal_outcome),
+        cwd: info.cwd,
+        created_at: info.created_at.clone(),
+        last_activity_at: meta
+            .map(|m| m.last_activity.clone())
+            .or(info.last_activity_at)
+            .or_else(|| Some(info.created_at)),
+        observed_status: meta.and_then(|m| m.observed_status.clone()).or(info.observed_status),
+        summary: meta.and_then(|m| m.summary.clone()).or(info.summary),
+        next_action: meta.and_then(|m| m.next_action.clone()).or(info.next_action),
+        needs_user_input: meta.and_then(|m| m.needs_user_input).or(info.needs_user_input),
+        detected_question: meta.and_then(|m| m.detected_question.clone()).or(info.detected_question),
+        suggested_options: meta.and_then(|m| m.suggested_options.clone()).or(info.suggested_options),
+        blocker_description: meta.and_then(|m| m.blocker_description.clone()).or(info.blocker_description),
+        failed_command: meta.and_then(|m| m.failed_command.clone()).or(info.failed_command),
+        failed_test: meta.and_then(|m| m.failed_test.clone()).or(info.failed_test),
+        capacity_hints: meta.and_then(|m| m.capacity_hints.clone()).or(info.capacity_hints),
+        metadata_source: meta.map(|m| m.metadata_source.clone()).or(info.metadata_source),
+        metadata_confidence: meta.map(|m| m.metadata_confidence).or(info.metadata_confidence),
+        peon_last_inference: meta
+            .and_then(|m| m.peon_last_inference.clone())
+            .or(info.peon_last_inference)
+            .or_else(|| peon_last_inference.cloned()),
+        repo_root: meta.and_then(|m| m.repo_root.clone()).or(info.repo_root),
+        branch: meta.and_then(|m| m.branch.clone()).or(info.branch),
+        dirty: meta.and_then(|m| m.dirty).or(info.dirty),
+        changed_files: meta.and_then(|m| m.changed_files).or(info.changed_files),
+        is_worktree: meta.and_then(|m| m.is_worktree).or(info.is_worktree),
+        conflict_warning: info.conflict_warning,
+        recommendation: info.recommendation,
+        memory_state,
+        resume_strategy,
+        resume: meta.and_then(|m| m.resume.clone()).or(info.resume),
+        resume_options: meta.map(|m| m.resume_options.clone()).unwrap_or(info.resume_options),
+        resumed_from: meta.and_then(|m| m.resumed_from.clone()).or(info.resumed_from),
+        provider: meta.and_then(|m| m.provider_label.clone()).or(info.provider),
+        provider_model: meta.and_then(|m| m.provider_model.clone()).or(info.provider_model),
+        provider_state: meta.and_then(|m| m.provider_state.clone()).or(info.provider_state),
+    }
 }
 
 async fn delete_session(
@@ -3101,6 +3112,47 @@ mod tests {
             session.get("lastActivityAt").and_then(|value| value.as_str()),
             Some("2026-06-28T09:05:00Z"),
         );
+    }
+
+    #[test]
+    fn merge_live_session_info_uses_live_contract_fields_without_metadata() {
+        let info = SessionInfo {
+            connectivity: Some("offline".into()),
+            terminal_outcome: Some("ended".into()),
+            last_activity_at: Some("2026-06-28T09:05:00Z".into()),
+            resume_options: vec![metadata::ResumeOption {
+                strategy: harness::ResumeStrategy::Exact,
+                label: "Resume exact session".into(),
+                available: true,
+                preferred: true,
+                reason: None,
+            }],
+            ..test_session_info(
+                "merge-live",
+                "Merge Live",
+                "/tmp/project",
+                "ended",
+                "2026-06-28T09:00:00Z",
+            )
+        };
+        let caps = harness::HarnessCapabilities {
+            launch: true,
+            resume_exact: true,
+            resume_latest_in_cwd: true,
+            resume_latest_in_repo: true,
+            detect_session_id: true,
+            detect_model: true,
+            detect_context_usage: true,
+            detect_capacity: true,
+            native_voice: false,
+        };
+
+        let merged = merge_live_session_info(info, None, None, &caps);
+
+        assert_eq!(merged.connectivity.as_deref(), Some("offline"));
+        assert_eq!(merged.terminal_outcome.as_deref(), Some("ended"));
+        assert_eq!(merged.last_activity_at.as_deref(), Some("2026-06-28T09:05:00Z"));
+        assert_eq!(merged.resume_options.len(), 1);
     }
 
     #[test]

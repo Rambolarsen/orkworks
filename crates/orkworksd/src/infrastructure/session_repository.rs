@@ -34,7 +34,8 @@ impl MetadataSessionRepository {
 impl SessionRepository for MetadataSessionRepository {
     fn save(&self, session: &Session, events: Vec<DomainEvent>) -> Result<(), String> {
         self.with_store(|store| {
-            let meta = session_to_metadata(session);
+            let existing = store.read_session(&session.id.0);
+            let meta = session_to_metadata(session, existing.as_ref());
             store.write_session(&meta);
 
             let now = chrono::Utc::now().to_rfc3339();
@@ -147,7 +148,7 @@ fn meta_to_session(meta: &SessionMetadata) -> Session {
     }
 }
 
-fn session_to_metadata(session: &Session) -> SessionMetadata {
+fn session_to_metadata(session: &Session, existing: Option<&SessionMetadata>) -> SessionMetadata {
     SessionMetadata {
         id: session.id.0.clone(),
         label: session.label.clone(),
@@ -172,36 +173,150 @@ fn session_to_metadata(session: &Session) -> SessionMetadata {
             SessionStatus::Error => Some("error".into()),
             _ => None,
         },
-        observed_status: None,
-        summary: None,
-        next_action: None,
-        needs_user_input: None,
-        detected_question: None,
-        suggested_options: None,
-        blocker_description: None,
-        failed_command: None,
-        failed_test: None,
-        capacity_hints: None,
-        peon_last_inference: None,
+        observed_status: existing.and_then(|meta| meta.observed_status.clone()),
+        summary: existing.and_then(|meta| meta.summary.clone()),
+        next_action: existing.and_then(|meta| meta.next_action.clone()),
+        needs_user_input: existing.and_then(|meta| meta.needs_user_input),
+        detected_question: existing.and_then(|meta| meta.detected_question.clone()),
+        suggested_options: existing.and_then(|meta| meta.suggested_options.clone()),
+        blocker_description: existing.and_then(|meta| meta.blocker_description.clone()),
+        failed_command: existing.and_then(|meta| meta.failed_command.clone()),
+        failed_test: existing.and_then(|meta| meta.failed_test.clone()),
+        capacity_hints: existing.and_then(|meta| meta.capacity_hints.clone()),
+        peon_last_inference: existing.and_then(|meta| meta.peon_last_inference.clone()),
         provider_id: session.provider_id.clone(),
-        provider_label: None,
-        provider_model: None,
-        provider_state: None,
+        provider_label: existing.and_then(|meta| meta.provider_label.clone()),
+        provider_model: existing.and_then(|meta| meta.provider_model.clone()),
+        provider_state: existing.and_then(|meta| meta.provider_state.clone()),
         created_at: session.created_at.clone(),
-        last_activity: chrono::Utc::now().to_rfc3339(),
-        metadata_source: "process".into(),
-        metadata_confidence: 1.0,
+        last_activity: session
+            .last_active_at
+            .clone()
+            .or_else(|| existing.map(|meta| meta.last_activity.clone()))
+            .unwrap_or_else(|| chrono::Utc::now().to_rfc3339()),
+        metadata_source: existing
+            .map(|meta| meta.metadata_source.clone())
+            .unwrap_or_else(|| "process".into()),
+        metadata_confidence: existing
+            .map(|meta| meta.metadata_confidence)
+            .unwrap_or(1.0),
         repo_root: session.repo_root.clone(),
         branch: session.branch.clone(),
         dirty: session.dirty,
         changed_files: session.changed_files,
         is_worktree: session.is_worktree,
         resume: session.resume.clone(),
-        resume_options: vec![],
-        harness_session_id_source: None,
-        harness_session_id_confidence: None,
-        harness_session_id_captured_at: None,
+        resume_options: existing
+            .map(|meta| meta.resume_options.clone())
+            .unwrap_or_default(),
+        harness_session_id_source: existing.and_then(|meta| meta.harness_session_id_source.clone()),
+        harness_session_id_confidence: existing.and_then(|meta| meta.harness_session_id_confidence),
+        harness_session_id_captured_at: existing.and_then(|meta| meta.harness_session_id_captured_at.clone()),
         resumed_from: session.resumed_from.clone(),
-        last_user_input: None,
+        last_user_input: existing.and_then(|meta| meta.last_user_input.clone()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::metadata::ResumeOption;
+    use std::path::PathBuf;
+
+    fn make_session() -> Session {
+        Session {
+            id: SessionId("roundtrip".into()),
+            workspace_path: WorkspacePath(PathBuf::from("/tmp")),
+            status: SessionStatus::Ended,
+            memory_state: MemoryState::Remembered,
+            attention_state: AttentionState::Done,
+            phase: Phase::Review,
+            created_at: "2026-06-28T09:00:00Z".into(),
+            killed_at: None,
+            last_active_at: Some("2026-06-28T09:05:00Z".into()),
+            harness_name: Some("opencode".into()),
+            provider_id: Some("openrouter".into()),
+            task_description: Some("Round-trip".into()),
+            label: "Round Trip".into(),
+            cwd: "/tmp".into(),
+            model: Some("gpt-5".into()),
+            repo_root: Some("/tmp".into()),
+            branch: Some("main".into()),
+            dirty: Some(false),
+            changed_files: Some(0),
+            is_worktree: Some(false),
+            resume: None,
+            resumed_from: Some("older".into()),
+            resume_strategy: crate::harness::ResumeStrategy::Exact,
+        }
+    }
+
+    #[test]
+    fn save_preserves_resume_options_and_last_activity_from_existing_metadata() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let repo = MetadataSessionRepository::new();
+        repo.set_store(MetadataStore::new(dir.path()));
+
+        store.write_session(&SessionMetadata {
+            id: "roundtrip".into(),
+            label: "Round Trip".into(),
+            workspace: "/tmp".into(),
+            task: "Round-trip".into(),
+            harness: "opencode".into(),
+            model: "gpt-5".into(),
+            cwd: "/tmp".into(),
+            status: "ended".into(),
+            phase: "review".into(),
+            connectivity: "offline".into(),
+            terminal_outcome: Some("ended".into()),
+            observed_status: Some("done".into()),
+            summary: None,
+            next_action: None,
+            needs_user_input: None,
+            detected_question: None,
+            suggested_options: None,
+            blocker_description: None,
+            failed_command: None,
+            failed_test: None,
+            capacity_hints: None,
+            peon_last_inference: None,
+            provider_id: Some("openrouter".into()),
+            provider_label: None,
+            provider_model: None,
+            provider_state: None,
+            created_at: "2026-06-28T09:00:00Z".into(),
+            last_activity: "2026-06-28T09:05:00Z".into(),
+            metadata_source: "process".into(),
+            metadata_confidence: 1.0,
+            repo_root: Some("/tmp".into()),
+            branch: Some("main".into()),
+            dirty: Some(false),
+            changed_files: Some(0),
+            is_worktree: Some(false),
+            resume: None,
+            resume_options: vec![ResumeOption {
+                strategy: crate::harness::ResumeStrategy::Exact,
+                label: "Resume exact session".into(),
+                available: true,
+                preferred: true,
+                reason: None,
+            }],
+            harness_session_id_source: None,
+            harness_session_id_confidence: None,
+            harness_session_id_captured_at: None,
+            resumed_from: Some("older".into()),
+            last_user_input: None,
+        });
+
+        let loaded = repo.load(&SessionId("roundtrip".into())).unwrap().unwrap();
+        repo.save(&loaded, vec![]).unwrap();
+
+        let persisted = store.read_session("roundtrip").unwrap();
+        assert_eq!(persisted.last_activity, "2026-06-28T09:05:00Z");
+        assert_eq!(persisted.resume_options.len(), 1);
+        assert_eq!(persisted.resume_options[0].label, "Resume exact session");
+        assert_eq!(persisted.connectivity, "offline");
+        assert_eq!(persisted.terminal_outcome.as_deref(), Some("ended"));
     }
 }

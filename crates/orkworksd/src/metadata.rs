@@ -120,6 +120,25 @@ pub struct WorkspaceMemory {
     pub active_harness_ids: Vec<String>,
 }
 
+fn normalize_session_metadata(mut meta: SessionMetadata) -> SessionMetadata {
+    let inferred_terminal_outcome = match meta.status.as_str() {
+        "ended" => Some("ended"),
+        "killed" => Some("killed"),
+        "error" => Some("error"),
+        _ => None,
+    };
+
+    if inferred_terminal_outcome.is_some() && meta.terminal_outcome.is_none() {
+        meta.terminal_outcome = inferred_terminal_outcome.map(str::to_string);
+    }
+
+    if inferred_terminal_outcome.is_some() && meta.connectivity == "online" {
+        meta.connectivity = "offline".into();
+    }
+
+    meta
+}
+
 #[cfg(test)]
 pub(crate) fn assert_session_metadata_serializes_connectivity_terminal_outcome_and_last_activity() {
     let meta = SessionMetadata {
@@ -265,6 +284,7 @@ impl MetadataStore {
             .filter(|entry| entry.path().extension().and_then(|e| e.to_str()) == Some("json"))
             .filter_map(|entry| fs::read_to_string(entry.path()).ok())
             .filter_map(|data| serde_json::from_str::<SessionMetadata>(&data).ok())
+            .map(normalize_session_metadata)
             .collect();
         sessions.sort_by(|a, b| a.created_at.cmp(&b.created_at));
         sessions
@@ -340,7 +360,7 @@ impl MetadataStore {
     pub fn read_session(&self, id: &str) -> Option<SessionMetadata> {
         let path = self.sessions_dir().join(format!("{}.json", id));
         let data = fs::read_to_string(&path).ok()?;
-        serde_json::from_str(&data).ok()
+        serde_json::from_str(&data).ok().map(normalize_session_metadata)
     }
 
     pub fn session_modified_secs_ago(&self, id: &str) -> Option<u64> {
@@ -1351,5 +1371,37 @@ mod tests {
         assert_eq!(meta.harness, "opencode");
         assert_eq!(meta.model, "deepseek/deepseek-reasoner");
         assert_eq!(meta.provider_id.as_deref(), Some("openrouter"));
+    }
+
+    #[test]
+    fn read_session_normalizes_legacy_terminal_status_without_new_fields() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        std::fs::create_dir_all(store.sessions_dir()).unwrap();
+
+        let raw = serde_json::json!({
+            "id": "legacy-ended",
+            "label": "Legacy Ended",
+            "workspace": "/tmp",
+            "task": "",
+            "harness": "",
+            "model": "",
+            "cwd": "/tmp",
+            "status": "ended",
+            "phase": "",
+            "createdAt": "2026-06-28T09:00:00Z",
+            "lastActivity": "2026-06-28T09:05:00Z",
+            "metadataSource": "process",
+            "metadataConfidence": 1.0
+        });
+
+        std::fs::write(
+            store.sessions_dir().join("legacy-ended.json"),
+            serde_json::to_string_pretty(&raw).unwrap(),
+        ).unwrap();
+
+        let meta = store.read_session("legacy-ended").unwrap();
+        assert_eq!(meta.connectivity, "offline");
+        assert_eq!(meta.terminal_outcome.as_deref(), Some("ended"));
     }
 }
