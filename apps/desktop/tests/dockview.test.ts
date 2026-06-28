@@ -127,7 +127,7 @@ test("tokens.css defines the substrate scale (color / space / state)", () => {
     "--surface-0", "--surface-1", "--surface-2",
     "--text-primary", "--text-muted", "--text-faint",
     "--state-ok", "--state-warn", "--state-error", "--state-info",
-    "--attention-needs-you", "--attention-blocked", "--attention-done", "--attention-working", "--attention-idle",
+    "--attention-needs-you", "--attention-blocked", "--attention-done", "--attention-working", "--attention-failed", "--attention-idle",
     "--space-1", "--space-6",
     "--text-xs", "--text-xl",
     "--accent-focus",
@@ -143,13 +143,19 @@ test("global :focus-visible ring is defined and .session-list does not suppress 
   assert.doesNotMatch(source, /\.session-list[^}]*outline:\s*none/);
 });
 
-test("SessionDetailPanel includes the core detail sections via labels module", () => {
+test("SessionDetailPanel groups content into situation/actions/facts/provenance zones", () => {
   const source = readFileSync(new URL("../src/components/SessionDetailPanel.tsx", import.meta.url), "utf8");
 
-  for (const label of ["Task", "Status", "Directory", "Git", "Memory", "Source", "Peon"]) {
+  assert.match(source, /detail-situation/);
+  assert.match(source, /detail-actions/);
+  assert.match(source, /detail-facts/);
+  assert.match(source, /detail-provenance/);
+  for (const label of ["Directory", "Coding tool", "Model"]) {
     assert.match(source, new RegExp(`>${label}<`));
   }
+  assert.match(source, /<GitBranch\b/);
   assert.match(source, /Select an agent session to see details/);
+  assert.match(source, /StatusIndicator/);
   assert.match(source, /attentionLabel/);
   assert.match(source, /memoryStateLabel/);
   assert.match(source, /resumeActionLabel/);
@@ -218,7 +224,7 @@ test("session list only offers kill for live sessions", () => {
   assert.match(source, /s\.memoryState === "live" && \(\s*<button[\s\S]*session-row-kill/);
 });
 
-test("session list routes attention/source/memory through the labels module instead of raw enums", () => {
+test("session list routes attention through the labels module instead of raw enums", () => {
   const source = readFileSync(
     new URL("../src/components/SessionListPanel.tsx", import.meta.url),
     "utf8",
@@ -226,9 +232,8 @@ test("session list routes attention/source/memory through the labels module inst
 
   assert.match(source, /attentionLabel/);
   assert.match(source, /attentionTone/);
-  assert.match(source, /memoryStateLabel/);
-  assert.match(source, /sourceWithConfidence/);
-  // The row uses data-attention to drive border/dot color, never inline hex.
+  assert.match(source, /import StatusIndicator from "\.\/StatusIndicator"/);
+  // The row uses data-attention to drive border/icon color, never inline hex.
   assert.match(source, /data-attention=\{tone\}/);
   assert.doesNotMatch(source, /style=\{\{[^}]*#[0-9a-fA-F]{3,8}/);
 });

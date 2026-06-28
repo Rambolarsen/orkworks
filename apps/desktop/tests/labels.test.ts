@@ -36,7 +36,7 @@ test("attentionLabel maps every known status to plain English", () => {
 
 test("attentionTone collapses statuses into the visual-weight axis", () => {
   assert.equal(attentionTone("waiting_for_input"), "needs-you");
-  assert.equal(attentionTone("failed"), "needs-you");
+  assert.equal(attentionTone("failed"), "failed");
   assert.equal(attentionTone("blocked"), "blocked");
   assert.equal(attentionTone("done"), "done");
   assert.equal(attentionTone("working"), "working");

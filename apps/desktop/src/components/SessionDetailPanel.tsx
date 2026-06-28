@@ -1,4 +1,6 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
+import type { ReactNode } from "react";
+import { GitBranch } from "lucide-react";
 import type { SessionInfo } from "../api";
 import { sessionProviderContext } from "../sessionProviderContext";
 import { sessionAttentionStatus } from "../sessionSort";
@@ -12,6 +14,7 @@ import {
   sourceWithConfidence,
 } from "../labels";
 import EmptyState from "./EmptyState";
+import StatusIndicator from "./StatusIndicator";
 
 interface SessionDetailPanelProps {
   sessions: SessionInfo[];
@@ -36,62 +39,88 @@ function SessionDetailPanel({ sessions, activeSessionId, onResumeSession }: Sess
   const tone = attentionTone(attn);
   const canResume = active.memoryState === "resumable" && active.resumeStrategy !== "none";
   const resumeText = resumeActionLabel(active.resumeStrategy);
-  const folder = active.cwd.split("/").pop() || active.cwd;
-  const sourceTag = active.metadataSource ?? undefined;
+  const sourceTag = active.metadataSource;
   const providerContext = sessionProviderContext(active);
+  const folder = active.cwd.split("/").pop() || active.cwd;
+  const headline =
+    active.detectedQuestion ||
+    active.blockerDescription ||
+    active.summary ||
+    active.nextAction ||
+    "No additional detail recorded.";
+
+  const provenanceItems: ReactNode[] = [];
+  if (sourceTag) {
+    provenanceItems.push(
+      <span key="source" className="source-badge" data-source={sourceLabel(sourceTag).toLowerCase()}>
+        {sourceWithConfidence(sourceTag, active.metadataConfidence)}
+      </span>,
+    );
+  }
+  if (active.peonLastInference) {
+    provenanceItems.push(
+      <span key="peon" className="peon-value">
+        Observed {relativeTime(active.peonLastInference, now) || active.peonLastInference}
+      </span>,
+    );
+  }
+  provenanceItems.push(<span key="memory">{memoryStateLabel(active.memoryState)}</span>);
 
   return (
-    <div className="session-detail">
-      {active.summary && (
-        <div className="session-detail-section">
-          <div className="session-detail-label">Task</div>
-          <div className="session-detail-value">{active.summary}</div>
+    <div className="session-detail" data-attention={tone}>
+      <div className="detail-situation">
+        <div className="detail-eyebrow">
+          <StatusIndicator tone={tone} label={attentionLabel(attn)} />
+          <span>{attentionLabel(attn)}</span>
         </div>
-      )}
-
-      <div className="session-detail-section">
-        <div className="session-detail-label">Status</div>
-        <div className="session-detail-value">
-          <span className="session-detail-dot" data-attention={tone} aria-hidden="true" />
-          {attentionLabel(attn)}
-        </div>
+        <div className="detail-headline">{headline}</div>
+        {active.conflictWarning && (
+          <div className="conflict-warning">&#x26A0; {active.conflictWarning}</div>
+        )}
       </div>
 
-      <div className="session-detail-section">
-        <div className="session-detail-label">Directory</div>
-        <div className="session-detail-value">{folder}</div>
+      <div className="detail-actions">
+        {active.recommendation && <div className="recommendation-text">{active.recommendation}</div>}
+        <button
+          className="session-resume-button"
+          type="button"
+          disabled={!canResume}
+          onClick={() => onResumeSession(active.id)}
+          title={resumeText}
+        >
+          {resumeText}
+        </button>
       </div>
 
-      <div className="session-detail-section">
-        <div className="session-detail-label">Coding tool</div>
-        <div className="session-detail-value">{providerContext.codingTool}</div>
-      </div>
-
-      <div className="session-detail-section">
-        <div className="session-detail-label">Model provider</div>
-        <div className="session-detail-value">{providerContext.modelProvider}</div>
-      </div>
-
-      <div className="session-detail-section">
-        <div className="session-detail-label">Model</div>
-        <div className="session-detail-value">{providerContext.model}</div>
-      </div>
-
-      <div className="session-detail-section">
-        <div className="session-detail-label">Provider state</div>
-        <div className="session-detail-value">{providerContext.providerState}</div>
-      </div>
-
-      {active.branch && (
-        <div className="session-detail-section">
-          <div className="session-detail-label">Git</div>
-          <div className="session-detail-value">
-            {active.branch}
-            {active.isWorktree && (
-              <span className="git-worktree-tag">worktree</span>
-            )}
+      <div className="detail-facts">
+        <div className="detail-facts-grid">
+          <div className="detail-fact">
+            <div className="session-detail-label">Directory</div>
+            <div className="session-detail-value" title={active.cwd}>{folder}</div>
           </div>
-          <div className="git-state-row">
+          <div className="detail-fact">
+            <div className="session-detail-label">Coding tool</div>
+            <div className="session-detail-value">{providerContext.codingTool}</div>
+          </div>
+          <div className="detail-fact">
+            <div className="session-detail-label">Model</div>
+            <div className="session-detail-value">{providerContext.model}</div>
+          </div>
+          <div className="detail-fact">
+            <div className="session-detail-label">Model provider</div>
+            <div className="session-detail-value">{providerContext.modelProvider}</div>
+          </div>
+          <div className="detail-fact">
+            <div className="session-detail-label">Provider state</div>
+            <div className="session-detail-value">{providerContext.providerState}</div>
+          </div>
+        </div>
+
+        {active.branch && (
+          <div className="detail-fact-git">
+            <GitBranch size={13} />
+            <span>{active.branch}</span>
+            {active.isWorktree && <span className="git-worktree-tag">worktree</span>}
             <span className="git-state" data-state={active.dirty ? "dirty" : "clean"}>
               {active.dirty ? "dirty" : "clean"}
             </span>
@@ -99,55 +128,17 @@ function SessionDetailPanel({ sessions, activeSessionId, onResumeSession }: Sess
               <span className="git-changed">{active.changedFiles} files changed</span>
             )}
           </div>
-        </div>
-      )}
-
-      {active.conflictWarning && (
-        <div className="session-detail-section">
-          <div className="conflict-warning">&#x26A0; {active.conflictWarning}</div>
-        </div>
-      )}
-
-      {active.recommendation && (
-        <div className="session-detail-section">
-          <div className="recommendation-text">{active.recommendation}</div>
-        </div>
-      )}
-
-      <div className="session-detail-section">
-        <div className="session-detail-label">Memory</div>
-        <div className="session-detail-value">
-          {memoryStateLabel(active.memoryState)} · {resumeActionLabel(active.resumeStrategy)}
-        </div>
+        )}
       </div>
 
-      {sourceTag && (
-        <div className="session-detail-section">
-          <div className="session-detail-label">Source</div>
-          <span className="source-badge" data-source={sourceLabel(sourceTag).toLowerCase()}>
-            {sourceWithConfidence(sourceTag, active.metadataConfidence)}
-          </span>
-        </div>
-      )}
-
-      {active.peonLastInference && (
-        <div className="session-detail-section">
-          <div className="session-detail-label">Peon</div>
-          <span className="session-detail-value peon-value">
-            Observed {relativeTime(active.peonLastInference, now) || active.peonLastInference}
-          </span>
-        </div>
-      )}
-
-      <button
-        className="session-resume-button"
-        type="button"
-        disabled={!canResume}
-        onClick={() => onResumeSession(active.id)}
-        title={resumeText}
-      >
-        {resumeText}
-      </button>
+      <div className="detail-provenance">
+        {provenanceItems.map((item, i) => (
+          <Fragment key={i}>
+            {i > 0 && <span className="detail-provenance-sep">·</span>}
+            {item}
+          </Fragment>
+        ))}
+      </div>
     </div>
   );
 }
