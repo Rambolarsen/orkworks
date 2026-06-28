@@ -158,6 +158,20 @@ fn session_to_metadata(session: &Session) -> SessionMetadata {
         cwd: session.cwd.clone(),
         status: session_status_str(&session.status).to_string(),
         phase: phase_str(&session.phase).to_string(),
+        connectivity: if matches!(
+            session.status,
+            SessionStatus::Killed | SessionStatus::Ended | SessionStatus::Error
+        ) {
+            "offline".into()
+        } else {
+            "online".into()
+        },
+        terminal_outcome: match session.status {
+            SessionStatus::Killed => Some("killed".into()),
+            SessionStatus::Ended => Some("ended".into()),
+            SessionStatus::Error => Some("error".into()),
+            _ => None,
+        },
         observed_status: None,
         summary: None,
         next_action: None,
@@ -183,6 +197,7 @@ fn session_to_metadata(session: &Session) -> SessionMetadata {
         changed_files: session.changed_files,
         is_worktree: session.is_worktree,
         resume: session.resume.clone(),
+        resume_options: vec![],
         harness_session_id_source: None,
         harness_session_id_confidence: None,
         harness_session_id_captured_at: None,

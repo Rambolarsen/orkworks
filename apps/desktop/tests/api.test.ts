@@ -65,6 +65,41 @@ test("SessionInfo type accepts canonical terminology fields", () => {
   assert.equal(session.modelId, "deepseek/deepseek-reasoner");
 });
 
+test("SessionInfo type accepts connectivity, terminalOutcome, resumeOptions, and lastActivityAt", () => {
+  const session: SessionInfo = {
+    id: "offline-test",
+    label: "Offline Test",
+    status: "ended",
+    connectivity: "offline",
+    terminalOutcome: "ended",
+    cwd: "/tmp/project",
+    created_at: "2026-06-28T09:00:00Z",
+    lastActivityAt: "2026-06-28T09:05:00Z",
+    memoryState: "resumable",
+    resumeStrategy: "exact",
+    resumeOptions: [
+      {
+        strategy: "exact",
+        label: "Resume exact session",
+        available: true,
+        preferred: true,
+      },
+      {
+        strategy: "latest_repo",
+        label: "Resume latest in repo",
+        available: false,
+        preferred: false,
+        reason: "Harness does not support repo-scoped resume",
+      },
+    ],
+  };
+
+  assert.equal(session.connectivity, "offline");
+  assert.equal(session.terminalOutcome, "ended");
+  assert.equal(session.lastActivityAt, "2026-06-28T09:05:00Z");
+  assert.equal(session.resumeOptions[1].available, false);
+});
+
 test("api.ts declares canonical terminology aliases on SessionInfo", () => {
   const source = readFileSync(new URL("../src/api.ts", import.meta.url), "utf8");
   assert.match(source, /harnessId\?: string/);

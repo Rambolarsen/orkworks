@@ -50,8 +50,14 @@ struct SessionInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     model: Option<String>,
     status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    connectivity: Option<String>,
+    #[serde(rename = "terminalOutcome", skip_serializing_if = "Option::is_none")]
+    terminal_outcome: Option<String>,
     cwd: String,
     created_at: String,
+    #[serde(rename = "lastActivityAt", skip_serializing_if = "Option::is_none")]
+    last_activity_at: Option<String>,
     #[serde(rename = "observedStatus")]
     observed_status: Option<String>,
     pub summary: Option<String>,
@@ -100,6 +106,8 @@ struct SessionInfo {
     resume_strategy: harness::ResumeStrategy,
     #[serde(skip_serializing_if = "Option::is_none")]
     resume: Option<harness::ResumeMemory>,
+    #[serde(rename = "resumeOptions", skip_serializing_if = "Vec::is_empty", default)]
+    resume_options: Vec<metadata::ResumeOption>,
     #[serde(rename = "resumedFrom", skip_serializing_if = "Option::is_none")]
     resumed_from: Option<String>,
 }
@@ -445,8 +453,11 @@ async fn resume_session(
         harness: (!meta.harness.is_empty()).then(|| meta.harness.clone()),
         model: (!meta.model.is_empty()).then(|| meta.model.clone()),
         status: "creating".into(),
+        connectivity: Some("online".into()),
+        terminal_outcome: None,
         cwd: command.cwd.clone(),
         created_at: meta.created_at.clone(),
+        last_activity_at: Some(now.clone()),
         observed_status: None,
         summary: meta.summary.clone(),
         next_action: meta.next_action.clone(),
@@ -470,6 +481,7 @@ async fn resume_session(
         memory_state: MemoryState::Live,
         resume_strategy: strategy,
         resume: meta.resume.clone(),
+        resume_options: meta.resume_options.clone(),
         resumed_from: meta.resumed_from.clone(),
         provider: meta.provider_label.clone(),
         provider_model: meta.provider_model.clone(),
@@ -502,7 +514,11 @@ async fn resume_session(
         if let Some(ref ws) = *ws_guard {
             if let Some(mut stored_meta) = ws.metadata.read_session(&id) {
                 stored_meta.status = "creating".to_string();
+                stored_meta.connectivity = "online".to_string();
+                stored_meta.terminal_outcome = None;
+                stored_meta.last_activity = now.clone();
                 stored_meta.resume = meta.resume.clone();
+                stored_meta.resume_options = meta.resume_options.clone();
                 stored_meta.resumed_from = meta.resumed_from.clone();
                 ws.metadata.write_session(&stored_meta);
             }
@@ -668,8 +684,11 @@ async fn create_session(
         harness: resolved_launch.session_harness_id.clone(),
         model: resolved_launch.model.clone(),
         status: "creating".into(),
+        connectivity: Some("online".into()),
+        terminal_outcome: None,
         cwd,
         created_at: now.clone(),
+        last_activity_at: Some(now.clone()),
         observed_status: None,
         summary: None,
         next_action: None,
@@ -699,6 +718,7 @@ async fn create_session(
             latest_fallback: true,
             last_seen_at: Some(now.clone()),
         }),
+        resume_options: vec![],
         resumed_from: None,
         provider: resolved_launch.provider_label.clone(),
         provider_model: None,
@@ -729,6 +749,8 @@ async fn create_session(
             cwd: info.cwd.clone(),
             status: "creating".into(),
             phase: String::new(),
+            connectivity: "online".into(),
+            terminal_outcome: None,
             observed_status: None,
             summary: None,
             next_action: None,
@@ -755,6 +777,7 @@ async fn create_session(
             is_worktree: Some(meta_git_ctx.is_worktree),
             last_user_input: None,
             resume: info.resume.clone(),
+            resume_options: vec![],
             harness_session_id_source: None,
             harness_session_id_confidence: None,
             harness_session_id_captured_at: None,
@@ -854,8 +877,13 @@ async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse 
             harness: meta.and_then(|m| (!m.harness.is_empty()).then(|| m.harness.clone())),
             model: meta.and_then(|m| (!m.model.is_empty()).then(|| m.model.clone())),
             status,
+            connectivity: Some("online".into()),
+            terminal_outcome: meta.and_then(|m| m.terminal_outcome.clone()),
             cwd,
-            created_at,
+            created_at: created_at.clone(),
+            last_activity_at: meta
+                .map(|m| m.last_activity.clone())
+                .or_else(|| Some(created_at)),
             observed_status: meta.and_then(|m| m.observed_status.clone()),
             summary: meta.and_then(|m| m.summary.clone()),
             next_action: meta.and_then(|m| m.next_action.clone()),
@@ -881,6 +909,7 @@ async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse 
             memory_state,
             resume_strategy,
             resume: meta.and_then(|m| m.resume.clone()),
+            resume_options: meta.map(|m| m.resume_options.clone()).unwrap_or_default(),
             resumed_from: meta.and_then(|m| m.resumed_from.clone()),
             provider: meta.and_then(|m| m.provider_label.clone()),
             provider_model: meta.and_then(|m| m.provider_model.clone()),
@@ -907,8 +936,11 @@ async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse 
             harness: (!meta.harness.is_empty()).then(|| meta.harness.clone()),
             model: (!meta.model.is_empty()).then(|| meta.model.clone()),
             status: "ended".into(),
+            connectivity: Some(meta.connectivity.clone()),
+            terminal_outcome: meta.terminal_outcome.clone(),
             cwd: meta.cwd.clone(),
             created_at: meta.created_at.clone(),
+            last_activity_at: Some(meta.last_activity.clone()),
             observed_status: meta.observed_status.clone(),
             summary: meta.summary.clone(),
             next_action: meta.next_action.clone(),
@@ -932,6 +964,7 @@ async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse 
             memory_state,
             resume_strategy,
             resume: meta.resume.clone(),
+            resume_options: meta.resume_options.clone(),
             resumed_from: meta.resumed_from.clone(),
             provider: meta.provider_label.clone(),
             provider_model: meta.provider_model.clone(),
@@ -969,6 +1002,7 @@ async fn delete_session(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
+    let now = iso_now();
     let handle = {
         let sessions = state.sessions.lock().unwrap();
         sessions.get(&id).map(|h| h.kill_tx.clone())
@@ -983,13 +1017,17 @@ async fn delete_session(
         let mut sessions = state.sessions.lock().unwrap();
         if let Some(h) = sessions.get_mut(&id) {
             h.info.status = "killed".to_string();
+            h.info.connectivity = Some("offline".to_string());
+            h.info.terminal_outcome = Some("killed".to_string());
+            h.info.last_activity_at = Some(now.clone());
         }
     }
-    let now = iso_now();
     let ws_guard = state.workspace.lock().unwrap();
     if let Some(ref ws) = *ws_guard {
         if let Some(mut meta) = ws.metadata.read_session(&id) {
             meta.status = "killed".to_string();
+            meta.connectivity = "offline".to_string();
+            meta.terminal_outcome = Some("killed".to_string());
             meta.last_activity = now.clone();
             ws.metadata.write_session(&meta);
         }
@@ -1901,6 +1939,16 @@ fn set_session_status(state: &Arc<AppState>, id: &str, status: &str) {
         let mut sessions = state.sessions.lock().unwrap();
         if let Some(handle) = sessions.get_mut(id) {
             handle.info.status = status.to_string();
+            handle.info.connectivity = Some(if matches!(status, "killed" | "ended" | "error") {
+                "offline".to_string()
+            } else {
+                "online".to_string()
+            });
+            handle.info.terminal_outcome = match status {
+                "killed" | "ended" | "error" => Some(status.to_string()),
+                _ => None,
+            };
+            handle.info.last_activity_at = Some(iso_now());
             (handle.info.resume.clone(), handle.info.resumed_from.clone())
         } else {
             (None, None)
@@ -1911,6 +1959,15 @@ fn set_session_status(state: &Arc<AppState>, id: &str, status: &str) {
     if let Some(ref ws) = *ws_guard {
         if let Some(mut meta) = ws.metadata.read_session(id) {
             meta.status = status.to_string();
+            meta.connectivity = if matches!(status, "killed" | "ended" | "error") {
+                "offline".to_string()
+            } else {
+                "online".to_string()
+            };
+            meta.terminal_outcome = match status {
+                "killed" | "ended" | "error" => Some(status.to_string()),
+                _ => None,
+            };
             meta.last_activity = now.clone();
             if session_resume.0.is_some() {
                 meta.resume = session_resume.0;
@@ -2542,6 +2599,70 @@ mod tests {
         })
     }
 
+    fn test_session_info(
+        id: impl Into<String>,
+        label: impl Into<String>,
+        cwd: impl Into<String>,
+        status: impl Into<String>,
+        created_at: impl Into<String>,
+    ) -> SessionInfo {
+        let status = status.into();
+        let connectivity = if matches!(status.as_str(), "killed" | "ended" | "error") {
+            Some("offline".to_string())
+        } else {
+            Some("online".to_string())
+        };
+        let terminal_outcome = match status.as_str() {
+            "killed" | "ended" | "error" => Some(status.clone()),
+            _ => None,
+        };
+        let created_at = created_at.into();
+
+        SessionInfo {
+            id: id.into(),
+            label: label.into(),
+            harness_id: None,
+            model_provider_id: None,
+            model_id: None,
+            harness: None,
+            model: None,
+            status,
+            connectivity,
+            terminal_outcome,
+            cwd: cwd.into(),
+            created_at: created_at.clone(),
+            last_activity_at: Some(created_at),
+            observed_status: None,
+            summary: None,
+            next_action: None,
+            needs_user_input: None,
+            detected_question: None,
+            suggested_options: None,
+            blocker_description: None,
+            failed_command: None,
+            failed_test: None,
+            capacity_hints: None,
+            metadata_source: None,
+            metadata_confidence: None,
+            repo_root: None,
+            branch: None,
+            dirty: None,
+            changed_files: None,
+            is_worktree: None,
+            conflict_warning: None,
+            recommendation: None,
+            peon_last_inference: None,
+            provider: None,
+            provider_model: None,
+            provider_state: None,
+            memory_state: MemoryState::Live,
+            resume_strategy: harness::ResumeStrategy::None,
+            resume: None,
+            resume_options: vec![],
+            resumed_from: None,
+        }
+    }
+
     #[tokio::test]
     async fn harness_session_report_rejects_invalid_native_id() {
         let dir = tempfile::tempdir().unwrap();
@@ -2596,6 +2717,8 @@ mod tests {
                 cwd: dir.path().display().to_string(),
                 status: "running".into(),
                 phase: "".into(),
+                connectivity: "online".into(),
+                terminal_outcome: None,
                 observed_status: None,
                 summary: None,
                 next_action: None,
@@ -2621,6 +2744,7 @@ mod tests {
                 changed_files: None,
                 is_worktree: None,
                 resume: None,
+                resume_options: vec![],
                 harness_session_id_source: None,
                 harness_session_id_confidence: None,
                 harness_session_id_captured_at: None,
@@ -2668,43 +2792,19 @@ mod tests {
             session_id.clone(),
             SessionHandle {
                 info: SessionInfo {
-                    id: session_id.clone(),
-                    label: "Known".into(),
                     harness_id: Some("opencode".into()),
-                    model_provider_id: None,
-                    model_id: None,
                     harness: Some("opencode".into()),
-                    model: None,
-                    status: "running".into(),
-                    cwd: dir.path().display().to_string(),
-                    created_at: "before".into(),
-                    observed_status: None,
-                    summary: None,
-                    next_action: None,
-                    needs_user_input: None,
-                    detected_question: None,
-                    suggested_options: None,
-                    blocker_description: None,
-                    failed_command: None,
-                    failed_test: None,
-                    capacity_hints: None,
                     metadata_source: Some("process".into()),
                     metadata_confidence: Some(1.0),
-                    repo_root: None,
-                    branch: None,
-                    dirty: None,
-                    changed_files: None,
-                    is_worktree: None,
-                    conflict_warning: None,
-                    recommendation: None,
-                    peon_last_inference: None,
-                    provider: None,
-                    provider_model: None,
-                    provider_state: None,
-                    memory_state: MemoryState::Live,
                     resume_strategy: harness::ResumeStrategy::LatestCwd,
                     resume: Some(resume.clone()),
-                    resumed_from: None,
+                    ..test_session_info(
+                        session_id.clone(),
+                        "Known",
+                        dir.path().display().to_string(),
+                        "running",
+                        "before",
+                    )
                 },
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
@@ -2725,6 +2825,8 @@ mod tests {
                 cwd: dir.path().display().to_string(),
                 status: "running".into(),
                 phase: "".into(),
+                connectivity: "online".into(),
+                terminal_outcome: None,
                 observed_status: None,
                 summary: None,
                 next_action: None,
@@ -2750,6 +2852,7 @@ mod tests {
                 changed_files: None,
                 is_worktree: None,
                 resume: Some(resume),
+                resume_options: vec![],
                 harness_session_id_source: None,
                 harness_session_id_confidence: None,
                 harness_session_id_captured_at: None,
@@ -2805,45 +2908,7 @@ mod tests {
 
         let (kill_tx, _) = tokio::sync::watch::channel(false);
         let id = "test-1".to_string();
-        let info = SessionInfo {
-            id: id.clone(),
-            label: "Test".into(),
-            harness_id: None,
-            model_provider_id: None,
-            model_id: None,
-            harness: None,
-            model: None,
-            status: "creating".into(),
-            cwd: "/tmp".into(),
-            created_at: "now".into(),
-            observed_status: None,
-            summary: None,
-            next_action: None,
-            needs_user_input: None,
-            detected_question: None,
-            suggested_options: None,
-            blocker_description: None,
-            failed_command: None,
-            failed_test: None,
-            capacity_hints: None,
-            metadata_source: None,
-            metadata_confidence: None,
-            repo_root: None,
-            branch: None,
-            dirty: None,
-            changed_files: None,
-            is_worktree: None,
-            conflict_warning: None,
-            recommendation: None,
-            peon_last_inference: None,
-            provider: None,
-            provider_model: None,
-            provider_state: None,
-            memory_state: MemoryState::Live,
-            resume_strategy: harness::ResumeStrategy::None,
-            resume: None,
-            resumed_from: None,
-        };
+        let info = test_session_info(id.clone(), "Test", "/tmp", "creating", "now");
 
         state
             .sessions
@@ -2891,43 +2956,15 @@ mod tests {
             session_id.clone(),
             SessionHandle {
                 info: SessionInfo {
-                    id: session_id.clone(),
-                    label: "Killed".into(),
-                    harness_id: None,
-                    model_provider_id: None,
-                    model_id: None,
-                    harness: None,
-                    model: None,
-                    status: "killed".into(),
-                    cwd: dir.path().display().to_string(),
-                    created_at: "2026-06-25T10:00:00Z".into(),
-                    observed_status: None,
-                    summary: None,
-                    next_action: None,
-                    needs_user_input: None,
-                    detected_question: None,
-                    suggested_options: None,
-                    blocker_description: None,
-                    failed_command: None,
-                    failed_test: None,
-                    capacity_hints: None,
                     metadata_source: Some("process".into()),
                     metadata_confidence: Some(1.0),
-                    repo_root: None,
-                    branch: None,
-                    dirty: None,
-                    changed_files: None,
-                    is_worktree: None,
-                    conflict_warning: None,
-                    recommendation: None,
-                    peon_last_inference: None,
-                    provider: None,
-                    provider_model: None,
-                    provider_state: None,
-                    memory_state: MemoryState::Live,
-                    resume_strategy: harness::ResumeStrategy::None,
-                    resume: None,
-                    resumed_from: None,
+                    ..test_session_info(
+                        session_id.clone(),
+                        "Killed",
+                        dir.path().display().to_string(),
+                        "killed",
+                        "2026-06-25T10:00:00Z",
+                    )
                 },
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
@@ -2949,6 +2986,8 @@ mod tests {
                 cwd: dir.path().display().to_string(),
                 status: "killed".into(),
                 phase: "".into(),
+                connectivity: "offline".into(),
+                terminal_outcome: Some("killed".into()),
                 observed_status: None,
                 summary: None,
                 next_action: None,
@@ -2974,6 +3013,7 @@ mod tests {
                 changed_files: None,
                 is_worktree: None,
                 resume: None,
+                resume_options: vec![],
                 harness_session_id_source: None,
                 harness_session_id_confidence: None,
                 harness_session_id_captured_at: None,
@@ -3019,45 +3059,7 @@ mod tests {
         state.sessions.lock().unwrap().insert(
             id.clone(),
             SessionHandle {
-                info: SessionInfo {
-                    id: id.clone(),
-                    label: "Test".into(),
-                    harness_id: None,
-                    model_provider_id: None,
-                    model_id: None,
-                    harness: None,
-                    model: None,
-                    status: "creating".into(),
-                    cwd: "/tmp".into(),
-                    created_at: "now".into(),
-                    observed_status: None,
-                    summary: None,
-                    next_action: None,
-                    needs_user_input: None,
-                    detected_question: None,
-                    suggested_options: None,
-                    blocker_description: None,
-                    failed_command: None,
-                    failed_test: None,
-                    capacity_hints: None,
-                    metadata_source: None,
-                    metadata_confidence: None,
-                    repo_root: None,
-                    branch: None,
-                    dirty: None,
-                    changed_files: None,
-                    is_worktree: None,
-                    conflict_warning: None,
-                    recommendation: None,
-                    peon_last_inference: None,
-                    provider: None,
-                    provider_model: None,
-                    provider_state: None,
-                    memory_state: MemoryState::Live,
-                    resume_strategy: harness::ResumeStrategy::None,
-                    resume: None,
-                    resumed_from: None,
-                },
+                info: test_session_info(id.clone(), "Test", "/tmp", "creating", "now"),
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
                 command: harness::CommandSpec { program: "/bin/sh".into(), args: vec!["-i".into(), "-l".into()], cwd: "/tmp".into() },
@@ -3195,43 +3197,21 @@ mod tests {
     #[test]
     fn session_info_serializes_provider_fields() {
         let info = SessionInfo {
-            id: "test".into(),
-            label: "Test".into(),
             harness_id: Some("codex".into()),
             model_provider_id: Some("openrouter".into()),
             model_id: Some("gpt-5".into()),
-            harness: None,
-            model: None,
-            status: "running".into(),
-            cwd: "/tmp".into(),
-            created_at: "now".into(),
             observed_status: Some("waiting_for_input".into()),
             summary: Some("Needs approval".into()),
             next_action: Some("Choose an option".into()),
             needs_user_input: Some(true),
             detected_question: Some("Proceed?".into()),
             suggested_options: Some(vec!["yes".into(), "no".into()]),
-            blocker_description: None,
-            failed_command: None,
-            failed_test: None,
-            capacity_hints: None,
             metadata_source: Some("process".into()),
             metadata_confidence: Some(1.0),
-            repo_root: None,
-            branch: None,
-            dirty: None,
-            changed_files: None,
-            is_worktree: None,
-            conflict_warning: None,
-            recommendation: None,
-            peon_last_inference: None,
             provider: Some("Claude Code".into()),
             provider_model: Some("sonnet".into()),
             provider_state: Some("healthy".into()),
-            memory_state: MemoryState::Live,
-            resume_strategy: harness::ResumeStrategy::None,
-            resume: None,
-            resumed_from: None,
+            ..test_session_info("test", "Test", "/tmp", "running", "now")
         };
 
         let json = serde_json::to_string(&info).unwrap();
@@ -3246,43 +3226,15 @@ mod tests {
     #[test]
     fn session_info_includes_metadata_fields() {
         let info = SessionInfo {
-            id: "test".into(),
-            label: "Test".into(),
-            harness_id: None,
-            model_provider_id: None,
-            model_id: None,
-            harness: None,
-            model: None,
-            status: "running".into(),
-            cwd: "/tmp".into(),
-            created_at: "now".into(),
             observed_status: Some("waiting_for_input".into()),
             summary: Some("Needs approval".into()),
             next_action: Some("Choose an option".into()),
             needs_user_input: Some(true),
             detected_question: Some("Proceed?".into()),
             suggested_options: Some(vec!["yes".into(), "no".into()]),
-            blocker_description: None,
-            failed_command: None,
-            failed_test: None,
-            capacity_hints: None,
             metadata_source: Some("process".into()),
             metadata_confidence: Some(1.0),
-            repo_root: None,
-            branch: None,
-            dirty: None,
-            changed_files: None,
-            is_worktree: None,
-            conflict_warning: None,
-            recommendation: None,
-            peon_last_inference: None,
-            provider: None,
-            provider_model: None,
-            provider_state: None,
-            memory_state: MemoryState::Live,
-            resume_strategy: harness::ResumeStrategy::None,
-            resume: None,
-            resumed_from: None,
+            ..test_session_info("test", "Test", "/tmp", "running", "now")
         };
         let json = serde_json::to_string(&info).unwrap();
         assert!(json.contains("\"metadataSource\":\"process\""));
@@ -3293,45 +3245,7 @@ mod tests {
 
     #[test]
     fn session_info_without_metadata_is_valid() {
-        let info = SessionInfo {
-            id: "test".into(),
-            label: "Test".into(),
-            harness_id: None,
-            model_provider_id: None,
-            model_id: None,
-            harness: None,
-            model: None,
-            status: "creating".into(),
-            cwd: "/tmp".into(),
-            created_at: "now".into(),
-            observed_status: None,
-            summary: None,
-            next_action: None,
-            needs_user_input: None,
-            detected_question: None,
-            suggested_options: None,
-            blocker_description: None,
-            failed_command: None,
-            failed_test: None,
-            capacity_hints: None,
-            metadata_source: None,
-            metadata_confidence: None,
-            repo_root: None,
-            branch: None,
-            dirty: None,
-            changed_files: None,
-            is_worktree: None,
-            conflict_warning: None,
-            recommendation: None,
-            peon_last_inference: None,
-            provider: None,
-            provider_model: None,
-            provider_state: None,
-            memory_state: MemoryState::Live,
-            resume_strategy: harness::ResumeStrategy::None,
-            resume: None,
-            resumed_from: None,
-        };
+        let info = test_session_info("test", "Test", "/tmp", "creating", "now");
         let json = serde_json::to_string(&info).unwrap();
         assert!(json.contains("\"metadataSource\":null"));
         assert!(json.contains("\"metadataConfidence\":null"));
@@ -3341,47 +3255,13 @@ mod tests {
     fn detect_conflicts_warns_on_multiple_dirty_sessions() {
         let sessions = vec![
             SessionInfo {
-                id: "a".into(), label: "A".into(), harness_id: None, model_provider_id: None, model_id: None, harness: None, model: None, status: "running".into(),
-                cwd: "/repo".into(), created_at: "now".into(),
-                observed_status: None, summary: None, next_action: None,
-                needs_user_input: None, detected_question: None, suggested_options: None,
-                blocker_description: None, failed_command: None, failed_test: None,
-                capacity_hints: None,
-                metadata_source: None, metadata_confidence: None,
-                repo_root: None, branch: None,
                 dirty: Some(true),
-                changed_files: None, is_worktree: None,
-                conflict_warning: None, recommendation: None,
-            peon_last_inference: None,
-            provider: None,
-            provider_model: None,
-            provider_state: None,
-            memory_state: MemoryState::Live,
-            resume_strategy: harness::ResumeStrategy::None,
-            resume: None,
-            resumed_from: None,
-        },
+                ..test_session_info("a", "A", "/repo", "running", "now")
+            },
             SessionInfo {
-                id: "b".into(), label: "B".into(), harness_id: None, model_provider_id: None, model_id: None, harness: None, model: None, status: "running".into(),
-                cwd: "/repo".into(), created_at: "now".into(),
-                observed_status: None, summary: None, next_action: None,
-                needs_user_input: None, detected_question: None, suggested_options: None,
-                blocker_description: None, failed_command: None, failed_test: None,
-                capacity_hints: None,
-                metadata_source: None, metadata_confidence: None,
-                repo_root: None, branch: None,
                 dirty: Some(true),
-                changed_files: None, is_worktree: None,
-                conflict_warning: None, recommendation: None,
-            peon_last_inference: None,
-            provider: None,
-            provider_model: None,
-            provider_state: None,
-            memory_state: MemoryState::Live,
-            resume_strategy: harness::ResumeStrategy::None,
-            resume: None,
-            resumed_from: None,
-        },
+                ..test_session_info("b", "B", "/repo", "running", "now")
+            },
         ];
         let warnings = detect_conflicts(&sessions);
         assert_eq!(warnings.len(), 2);
@@ -3396,47 +3276,13 @@ mod tests {
     fn detect_conflicts_no_warning_on_clean_sessions() {
         let sessions = vec![
             SessionInfo {
-                id: "a".into(), label: "A".into(), harness_id: None, model_provider_id: None, model_id: None, harness: None, model: None, status: "running".into(),
-                cwd: "/repo".into(), created_at: "now".into(),
-                observed_status: None, summary: None, next_action: None,
-                needs_user_input: None, detected_question: None, suggested_options: None,
-                blocker_description: None, failed_command: None, failed_test: None,
-                capacity_hints: None,
-                metadata_source: None, metadata_confidence: None,
-                repo_root: None, branch: None,
                 dirty: Some(false),
-                changed_files: None, is_worktree: None,
-                conflict_warning: None, recommendation: None,
-            peon_last_inference: None,
-            provider: None,
-            provider_model: None,
-            provider_state: None,
-            memory_state: MemoryState::Live,
-            resume_strategy: harness::ResumeStrategy::None,
-            resume: None,
-            resumed_from: None,
-        },
+                ..test_session_info("a", "A", "/repo", "running", "now")
+            },
             SessionInfo {
-                id: "b".into(), label: "B".into(), harness_id: None, model_provider_id: None, model_id: None, harness: None, model: None, status: "running".into(),
-                cwd: "/repo".into(), created_at: "now".into(),
-                observed_status: None, summary: None, next_action: None,
-                needs_user_input: None, detected_question: None, suggested_options: None,
-                blocker_description: None, failed_command: None, failed_test: None,
-                capacity_hints: None,
-                metadata_source: None, metadata_confidence: None,
-                repo_root: None, branch: None,
                 dirty: Some(false),
-                changed_files: None, is_worktree: None,
-                conflict_warning: None, recommendation: None,
-            peon_last_inference: None,
-            provider: None,
-            provider_model: None,
-            provider_state: None,
-            memory_state: MemoryState::Live,
-            resume_strategy: harness::ResumeStrategy::None,
-            resume: None,
-            resumed_from: None,
-        },
+                ..test_session_info("b", "B", "/repo", "running", "now")
+            },
         ];
         let warnings = detect_conflicts(&sessions);
         assert!(warnings.is_empty());
@@ -3446,47 +3292,13 @@ mod tests {
     fn detect_conflicts_no_warning_when_dirty_is_none() {
         let sessions = vec![
             SessionInfo {
-                id: "a".into(), label: "A".into(), harness_id: None, model_provider_id: None, model_id: None, harness: None, model: None, status: "running".into(),
-                cwd: "/repo".into(), created_at: "now".into(),
-                observed_status: None, summary: None, next_action: None,
-                needs_user_input: None, detected_question: None, suggested_options: None,
-                blocker_description: None, failed_command: None, failed_test: None,
-                capacity_hints: None,
-                metadata_source: None, metadata_confidence: None,
-                repo_root: None, branch: None,
                 dirty: None,
-                changed_files: None, is_worktree: None,
-                conflict_warning: None, recommendation: None,
-            peon_last_inference: None,
-            provider: None,
-            provider_model: None,
-            provider_state: None,
-            memory_state: MemoryState::Live,
-            resume_strategy: harness::ResumeStrategy::None,
-            resume: None,
-            resumed_from: None,
-        },
+                ..test_session_info("a", "A", "/repo", "running", "now")
+            },
             SessionInfo {
-                id: "b".into(), label: "B".into(), harness_id: None, model_provider_id: None, model_id: None, harness: None, model: None, status: "running".into(),
-                cwd: "/repo".into(), created_at: "now".into(),
-                observed_status: None, summary: None, next_action: None,
-                needs_user_input: None, detected_question: None, suggested_options: None,
-                blocker_description: None, failed_command: None, failed_test: None,
-                capacity_hints: None,
-                metadata_source: None, metadata_confidence: None,
-                repo_root: None, branch: None,
                 dirty: None,
-                changed_files: None, is_worktree: None,
-                conflict_warning: None, recommendation: None,
-            peon_last_inference: None,
-            provider: None,
-            provider_model: None,
-            provider_state: None,
-            memory_state: MemoryState::Live,
-            resume_strategy: harness::ResumeStrategy::None,
-            resume: None,
-            resumed_from: None,
-        },
+                ..test_session_info("b", "B", "/repo", "running", "now")
+            },
         ];
         let warnings = detect_conflicts(&sessions);
         assert!(warnings.is_empty());
@@ -3554,43 +3366,15 @@ mod tests {
             let (kill_tx, _) = tokio::sync::watch::channel(false);
             let mut handle = SessionHandle {
                 info: SessionInfo {
-                    id: session_id.clone(),
-                    label: "Test".into(),
-                    harness_id: None,
-                    model_provider_id: None,
-                    model_id: None,
-                    harness: None,
-                    model: None,
-                    status: "running".into(),
-                    cwd: dir.path().display().to_string(),
-                    created_at: "now".into(),
-                    observed_status: None,
-                    summary: None,
-                    next_action: None,
-                    needs_user_input: None,
-                    detected_question: None,
-                    suggested_options: None,
-                    blocker_description: None,
-                    failed_command: None,
-                    failed_test: None,
-                    capacity_hints: None,
                     metadata_source: Some("process".into()),
                     metadata_confidence: Some(1.0),
-                    repo_root: None,
-                    branch: None,
-                    dirty: None,
-                    changed_files: None,
-                    is_worktree: None,
-                    conflict_warning: None,
-                    recommendation: None,
-                    peon_last_inference: None,
-                    provider: None,
-                    provider_model: None,
-                    provider_state: None,
-                    memory_state: MemoryState::Live,
-                    resume_strategy: harness::ResumeStrategy::None,
-                    resume: None,
-                    resumed_from: None,
+                    ..test_session_info(
+                        session_id.clone(),
+                        "Test",
+                        dir.path().display().to_string(),
+                        "running",
+                        "now",
+                    )
                 },
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
@@ -3616,6 +3400,8 @@ mod tests {
                     cwd: dir.path().display().to_string(),
                     status: "running".into(),
                     phase: "".into(),
+                    connectivity: "online".into(),
+                    terminal_outcome: None,
                     observed_status: None,
                     summary: None,
                     next_action: None,
@@ -3641,6 +3427,7 @@ mod tests {
                     changed_files: None,
                     is_worktree: None,
                     resume: None,
+                    resume_options: vec![],
                     harness_session_id_source: None,
                     harness_session_id_confidence: None,
                     harness_session_id_captured_at: None,
@@ -3737,43 +3524,15 @@ mod tests {
             let (kill_tx, _) = tokio::sync::watch::channel(false);
             let mut handle = SessionHandle {
                 info: SessionInfo {
-                    id: session_id.clone(),
-                    label: "Test".into(),
-                    harness_id: None,
-                    model_provider_id: None,
-                    model_id: None,
-                    harness: None,
-                    model: None,
-                    status: "running".into(),
-                    cwd: dir.path().display().to_string(),
-                    created_at: "now".into(),
-                    observed_status: None,
-                    summary: None,
-                    next_action: None,
-                    needs_user_input: None,
-                    detected_question: None,
-                    suggested_options: None,
-                    blocker_description: None,
-                    failed_command: None,
-                    failed_test: None,
-                    capacity_hints: None,
                     metadata_source: Some("process".into()),
                     metadata_confidence: Some(1.0),
-                    repo_root: None,
-                    branch: None,
-                    dirty: None,
-                    changed_files: None,
-                    is_worktree: None,
-                    conflict_warning: None,
-                    recommendation: None,
-                    peon_last_inference: None,
-                    provider: None,
-                    provider_model: None,
-                    provider_state: None,
-                    memory_state: MemoryState::Live,
-                    resume_strategy: harness::ResumeStrategy::None,
-                    resume: None,
-                    resumed_from: None,
+                    ..test_session_info(
+                        session_id.clone(),
+                        "Test",
+                        dir.path().display().to_string(),
+                        "running",
+                        "now",
+                    )
                 },
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
@@ -3834,43 +3593,15 @@ mod tests {
             let (kill_tx, _) = tokio::sync::watch::channel(false);
             let mut handle = SessionHandle {
                 info: SessionInfo {
-                    id: session_id.clone(),
-                    label: "Test".into(),
-                    harness_id: None,
-                    model_provider_id: None,
-                    model_id: None,
-                    harness: None,
-                    model: None,
-                    status: "running".into(),
-                    cwd: dir.path().display().to_string(),
-                    created_at: "now".into(),
-                    observed_status: None,
-                    summary: None,
-                    next_action: None,
-                    needs_user_input: None,
-                    detected_question: None,
-                    suggested_options: None,
-                    blocker_description: None,
-                    failed_command: None,
-                    failed_test: None,
-                    capacity_hints: None,
                     metadata_source: Some("process".into()),
                     metadata_confidence: Some(1.0),
-                    repo_root: None,
-                    branch: None,
-                    dirty: None,
-                    changed_files: None,
-                    is_worktree: None,
-                    conflict_warning: None,
-                    recommendation: None,
-                    peon_last_inference: None,
-                    provider: None,
-                    provider_model: None,
-                    provider_state: None,
-                    memory_state: MemoryState::Live,
-                    resume_strategy: harness::ResumeStrategy::None,
-                    resume: None,
-                    resumed_from: None,
+                    ..test_session_info(
+                        session_id.clone(),
+                        "Test",
+                        dir.path().display().to_string(),
+                        "running",
+                        "now",
+                    )
                 },
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
@@ -3940,43 +3671,15 @@ mod tests {
             let (kill_tx, _) = tokio::sync::watch::channel(false);
             let mut handle = SessionHandle {
                 info: SessionInfo {
-                    id: session_id.clone(),
-                    label: "Test".into(),
-                    harness_id: None,
-                    model_provider_id: None,
-                    model_id: None,
-                    harness: None,
-                    model: None,
-                    status: "running".into(),
-                    cwd: dir.path().display().to_string(),
-                    created_at: "now".into(),
-                    observed_status: None,
-                    summary: None,
-                    next_action: None,
-                    needs_user_input: None,
-                    detected_question: None,
-                    suggested_options: None,
-                    blocker_description: None,
-                    failed_command: None,
-                    failed_test: None,
-                    capacity_hints: None,
                     metadata_source: Some("process".into()),
                     metadata_confidence: Some(1.0),
-                    repo_root: None,
-                    branch: None,
-                    dirty: None,
-                    changed_files: None,
-                    is_worktree: None,
-                    conflict_warning: None,
-                    recommendation: None,
-                    peon_last_inference: None,
-                    provider: None,
-                    provider_model: None,
-                    provider_state: None,
-                    memory_state: MemoryState::Live,
-                    resume_strategy: harness::ResumeStrategy::None,
-                    resume: None,
-                    resumed_from: None,
+                    ..test_session_info(
+                        session_id.clone(),
+                        "Test",
+                        dir.path().display().to_string(),
+                        "running",
+                        "now",
+                    )
                 },
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
@@ -4007,6 +3710,8 @@ mod tests {
                     cwd: dir.path().display().to_string(),
                     status: "running".into(),
                     phase: "".into(),
+                    connectivity: "online".into(),
+                    terminal_outcome: None,
                     observed_status: None,
                     summary: None,
                     next_action: None,
@@ -4032,6 +3737,7 @@ mod tests {
                     changed_files: None,
                     is_worktree: None,
                     resume: None,
+                    resume_options: vec![],
                     harness_session_id_source: None,
                     harness_session_id_confidence: None,
                     harness_session_id_captured_at: None,
@@ -4103,43 +3809,16 @@ mod tests {
             let (kill_tx, _) = tokio::sync::watch::channel(false);
             let mut handle = SessionHandle {
                 info: SessionInfo {
-                    id: session_id.clone(),
-                    label: "Test".into(),
-                    harness_id: None,
-                    model_provider_id: None,
-                    model_id: None,
-                    harness: None,
-                    model: None,
-                    status: "running".into(),
-                    cwd: dir.path().display().to_string(),
-                    created_at: "now".into(),
                     observed_status: Some("blocked".into()),
-                    summary: None,
-                    next_action: None,
-                    needs_user_input: None,
-                    detected_question: None,
-                    suggested_options: None,
-                    blocker_description: None,
-                    failed_command: None,
-                    failed_test: None,
-                    capacity_hints: None,
                     metadata_source: Some("process".into()),
                     metadata_confidence: Some(1.0),
-                    repo_root: None,
-                    branch: None,
-                    dirty: None,
-                    changed_files: None,
-                    is_worktree: None,
-                    conflict_warning: None,
-                    recommendation: None,
-                    peon_last_inference: None,
-                    provider: None,
-                    provider_model: None,
-                    provider_state: None,
-                    memory_state: MemoryState::Live,
-                    resume_strategy: harness::ResumeStrategy::None,
-                    resume: None,
-                    resumed_from: None,
+                    ..test_session_info(
+                        session_id.clone(),
+                        "Test",
+                        dir.path().display().to_string(),
+                        "running",
+                        "now",
+                    )
                 },
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
@@ -4162,6 +3841,8 @@ mod tests {
                     cwd: dir.path().display().to_string(),
                     status: "running".into(),
                     phase: "".into(),
+                    connectivity: "online".into(),
+                    terminal_outcome: None,
                     observed_status: Some("blocked".into()),
                     summary: None,
                     next_action: None,
@@ -4187,6 +3868,7 @@ mod tests {
                     changed_files: None,
                     is_worktree: None,
                     resume: None,
+                    resume_options: vec![],
                     harness_session_id_source: None,
                     harness_session_id_confidence: None,
                     harness_session_id_captured_at: None,

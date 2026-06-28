@@ -7,6 +7,20 @@ use tracing::warn;
 
 pub const TERMINAL_OUTPUT_MAX_LINES: usize = 10_000;
 
+fn default_connectivity() -> String {
+    "online".into()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ResumeOption {
+    pub strategy: ResumeStrategy,
+    pub label: String,
+    pub available: bool,
+    pub preferred: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionMetadata {
     pub id: String,
@@ -20,6 +34,10 @@ pub struct SessionMetadata {
     pub cwd: String,
     pub status: String,
     pub phase: String,
+    #[serde(default = "default_connectivity")]
+    pub connectivity: String,
+    #[serde(rename = "terminalOutcome", skip_serializing_if = "Option::is_none")]
+    pub terminal_outcome: Option<String>,
     #[serde(rename = "observedStatus")]
     pub observed_status: Option<String>,
     pub summary: Option<String>,
@@ -67,6 +85,8 @@ pub struct SessionMetadata {
     pub is_worktree: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resume: Option<ResumeMemory>,
+    #[serde(rename = "resumeOptions", default)]
+    pub resume_options: Vec<ResumeOption>,
     #[serde(rename = "harnessSessionIdSource", skip_serializing_if = "Option::is_none")]
     pub harness_session_id_source: Option<String>,
     #[serde(rename = "harnessSessionIdConfidence", skip_serializing_if = "Option::is_none")]
@@ -531,6 +551,8 @@ mod tests {
             cwd: "/tmp".into(),
             status: "running".into(),
             phase: "implementation".into(),
+            connectivity: "online".into(),
+            terminal_outcome: None,
             observed_status: None,
             summary: None,
             next_action: None,
@@ -556,6 +578,7 @@ mod tests {
             changed_files: Some(0),
             is_worktree: Some(false),
             resume: None,
+            resume_options: vec![],
             harness_session_id_source: None,
             harness_session_id_confidence: None,
             harness_session_id_captured_at: None,
@@ -565,6 +588,59 @@ mod tests {
         store.write_session(&meta);
         let read = store.read_session("test-1").unwrap();
         assert_eq!(read.status, "running");
+    }
+
+    #[test]
+    fn session_metadata_serializes_connectivity_terminal_outcome_and_last_activity() {
+        let meta = SessionMetadata {
+            id: "s1".into(),
+            label: "Test".into(),
+            workspace: "/tmp".into(),
+            task: String::new(),
+            harness: String::new(),
+            model: String::new(),
+            cwd: "/tmp".into(),
+            status: "ended".into(),
+            phase: String::new(),
+            connectivity: "offline".into(),
+            terminal_outcome: Some("ended".into()),
+            observed_status: None,
+            summary: None,
+            next_action: None,
+            needs_user_input: None,
+            detected_question: None,
+            suggested_options: None,
+            blocker_description: None,
+            failed_command: None,
+            failed_test: None,
+            capacity_hints: None,
+            peon_last_inference: None,
+            provider_id: None,
+            provider_label: None,
+            provider_model: None,
+            provider_state: None,
+            created_at: "2026-06-28T09:00:00Z".into(),
+            last_activity: "2026-06-28T09:05:00Z".into(),
+            metadata_source: "process".into(),
+            metadata_confidence: 1.0,
+            repo_root: None,
+            branch: None,
+            dirty: None,
+            changed_files: None,
+            is_worktree: None,
+            resume: None,
+            resume_options: vec![],
+            harness_session_id_source: None,
+            harness_session_id_confidence: None,
+            harness_session_id_captured_at: None,
+            resumed_from: None,
+            last_user_input: None,
+        };
+
+        let raw = serde_json::to_value(&meta).unwrap();
+        assert_eq!(raw["connectivity"], "offline");
+        assert_eq!(raw["terminalOutcome"], "ended");
+        assert_eq!(raw["lastActivity"], "2026-06-28T09:05:00Z");
     }
 
     #[test]
@@ -636,6 +712,8 @@ mod tests {
             cwd: "/tmp".into(),
             status: "running".into(),
             phase: "".into(),
+            connectivity: "online".into(),
+            terminal_outcome: None,
             observed_status: None,
             summary: None,
             next_action: None,
@@ -661,6 +739,7 @@ mod tests {
             changed_files: None,
             is_worktree: None,
             resume: None,
+            resume_options: vec![],
             harness_session_id_source: None,
             harness_session_id_confidence: None,
             harness_session_id_captured_at: None,
@@ -717,6 +796,8 @@ mod tests {
             cwd: "/tmp".into(),
             status: "running".into(),
             phase: "".into(),
+            connectivity: "online".into(),
+            terminal_outcome: None,
             observed_status: None,
             summary: None,
             next_action: None,
@@ -742,6 +823,7 @@ mod tests {
             changed_files: None,
             is_worktree: None,
             resume: None,
+            resume_options: vec![],
             harness_session_id_source: None,
             harness_session_id_confidence: None,
             harness_session_id_captured_at: None,
@@ -792,6 +874,8 @@ mod tests {
             cwd: "/tmp".into(),
             status: "running".into(),
             phase: "".into(),
+            connectivity: "online".into(),
+            terminal_outcome: None,
             observed_status: None,
             summary: None,
             next_action: None,
@@ -817,6 +901,7 @@ mod tests {
             changed_files: None,
             is_worktree: None,
             resume: None,
+            resume_options: vec![],
             harness_session_id_source: None,
             harness_session_id_confidence: None,
             harness_session_id_captured_at: None,
