@@ -120,6 +120,65 @@ pub struct WorkspaceMemory {
     pub active_harness_ids: Vec<String>,
 }
 
+#[cfg(test)]
+pub(crate) fn assert_session_metadata_serializes_connectivity_terminal_outcome_and_last_activity() {
+    let meta = SessionMetadata {
+        id: "s1".into(),
+        label: "Test".into(),
+        workspace: "/tmp".into(),
+        task: String::new(),
+        harness: String::new(),
+        model: String::new(),
+        cwd: "/tmp".into(),
+        status: "ended".into(),
+        phase: String::new(),
+        connectivity: "offline".into(),
+        terminal_outcome: Some("ended".into()),
+        observed_status: None,
+        summary: None,
+        next_action: None,
+        needs_user_input: None,
+        detected_question: None,
+        suggested_options: None,
+        blocker_description: None,
+        failed_command: None,
+        failed_test: None,
+        capacity_hints: None,
+        peon_last_inference: None,
+        provider_id: None,
+        provider_label: None,
+        provider_model: None,
+        provider_state: None,
+        created_at: "2026-06-28T09:00:00Z".into(),
+        last_activity: "2026-06-28T09:05:00Z".into(),
+        metadata_source: "process".into(),
+        metadata_confidence: 1.0,
+        repo_root: None,
+        branch: None,
+        dirty: None,
+        changed_files: None,
+        is_worktree: None,
+        resume: None,
+        resume_options: vec![],
+        harness_session_id_source: None,
+        harness_session_id_confidence: None,
+        harness_session_id_captured_at: None,
+        resumed_from: None,
+        last_user_input: None,
+    };
+
+    let raw = serde_json::to_value(&meta).unwrap();
+    assert_eq!(raw["connectivity"], "offline");
+    assert_eq!(raw["terminalOutcome"], "ended");
+    assert_eq!(raw["lastActivity"], "2026-06-28T09:05:00Z");
+}
+
+#[cfg(test)]
+#[test]
+fn session_metadata_serializes_connectivity_terminal_outcome_and_last_activity() {
+    assert_session_metadata_serializes_connectivity_terminal_outcome_and_last_activity();
+}
+
 pub const HARNESS_SESSION_ID_MIN_LEN: usize = 3;
 pub const HARNESS_SESSION_ID_MAX_LEN: usize = 512;
 
@@ -588,59 +647,6 @@ mod tests {
         store.write_session(&meta);
         let read = store.read_session("test-1").unwrap();
         assert_eq!(read.status, "running");
-    }
-
-    #[test]
-    fn session_metadata_serializes_connectivity_terminal_outcome_and_last_activity() {
-        let meta = SessionMetadata {
-            id: "s1".into(),
-            label: "Test".into(),
-            workspace: "/tmp".into(),
-            task: String::new(),
-            harness: String::new(),
-            model: String::new(),
-            cwd: "/tmp".into(),
-            status: "ended".into(),
-            phase: String::new(),
-            connectivity: "offline".into(),
-            terminal_outcome: Some("ended".into()),
-            observed_status: None,
-            summary: None,
-            next_action: None,
-            needs_user_input: None,
-            detected_question: None,
-            suggested_options: None,
-            blocker_description: None,
-            failed_command: None,
-            failed_test: None,
-            capacity_hints: None,
-            peon_last_inference: None,
-            provider_id: None,
-            provider_label: None,
-            provider_model: None,
-            provider_state: None,
-            created_at: "2026-06-28T09:00:00Z".into(),
-            last_activity: "2026-06-28T09:05:00Z".into(),
-            metadata_source: "process".into(),
-            metadata_confidence: 1.0,
-            repo_root: None,
-            branch: None,
-            dirty: None,
-            changed_files: None,
-            is_worktree: None,
-            resume: None,
-            resume_options: vec![],
-            harness_session_id_source: None,
-            harness_session_id_confidence: None,
-            harness_session_id_captured_at: None,
-            resumed_from: None,
-            last_user_input: None,
-        };
-
-        let raw = serde_json::to_value(&meta).unwrap();
-        assert_eq!(raw["connectivity"], "offline");
-        assert_eq!(raw["terminalOutcome"], "ended");
-        assert_eq!(raw["lastActivity"], "2026-06-28T09:05:00Z");
     }
 
     #[test]

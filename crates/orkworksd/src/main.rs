@@ -834,19 +834,17 @@ fn session_recommendation(ctx: &git::GitContext, session_count_in_cwd: usize) ->
 
 async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let harnesses = state.harnesses.read().await.clone();
-    let session_data: Vec<(String, String, String, String, String)> = {
+    let live_sessions: Vec<SessionInfo> = {
         let sessions = state.sessions.lock().unwrap();
-        sessions.values().map(|h| {
-            (h.info.id.clone(), h.info.label.clone(), h.info.status.clone(), h.info.cwd.clone(), h.info.created_at.clone())
-        }).collect()
+        sessions.values().map(|h| h.info.clone()).collect()
     };
 
     let ws_guard = state.workspace.lock().unwrap();
     let metadata_map = ws_guard.as_ref().map(|ws| {
         let mut metadata = HashMap::new();
-        for (id, _, _, _, _) in &session_data {
-            if let Some(meta) = ws.metadata.read_session(id) {
-                metadata.insert(id.clone(), meta);
+        for info in &live_sessions {
+            if let Some(meta) = ws.metadata.read_session(&info.id) {
+                metadata.insert(info.id.clone(), meta);
             }
         }
         metadata
@@ -855,65 +853,70 @@ async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse 
     let all_metadata_sessions = ws_guard.as_ref().map(|ws| ws.metadata.read_all_sessions()).unwrap_or_default();
     drop(ws_guard);
 
-    let all_memory_ids: HashSet<String> = session_data.iter()
-        .map(|(id, _, _, _, _)| id.clone())
+    let all_memory_ids: HashSet<String> = live_sessions.iter()
+        .map(|info| info.id.clone())
         .collect();
 
     let peon_times = state.peon.last_inference.read().unwrap();
-    let mut infos: Vec<SessionInfo> = session_data.into_iter().map(|(id, label, status, cwd, created_at)| {
+    let mut infos: Vec<SessionInfo> = live_sessions.into_iter().map(|info| {
+        let id = info.id.clone();
         let meta = metadata_map.get(&id);
         let session_harness_id = meta.and_then(|m| (!m.harness.is_empty()).then(|| m.harness.as_str()));
         let adapter_harness_id = resolve_adapter_harness_id(&harnesses, session_harness_id);
         let caps = capabilities_for_harness(&state.adapters, adapter_harness_id.as_deref());
-        let is_live = status != "killed" && status != "ended" && status != "error";
+        let is_live = info.status != "killed" && info.status != "ended" && info.status != "error";
         let (memory_state, resume_strategy) =
-            derive_memory_state(is_live, meta.and_then(|m| m.resume.as_ref()), &caps);
+            derive_memory_state(is_live, meta.and_then(|m| m.resume.as_ref()).or(info.resume.as_ref()), &caps);
         SessionInfo {
-            id: id.clone(),
-            label: meta.map(|m| m.label.clone()).unwrap_or(label),
-            harness_id: meta.and_then(|m| (!m.harness.is_empty()).then(|| m.harness.clone())),
-            model_provider_id: meta.and_then(|m| m.provider_id.clone()),
-            model_id: meta.and_then(|m| (!m.model.is_empty()).then(|| m.model.clone())),
-            harness: meta.and_then(|m| (!m.harness.is_empty()).then(|| m.harness.clone())),
-            model: meta.and_then(|m| (!m.model.is_empty()).then(|| m.model.clone())),
-            status,
-            connectivity: Some("online".into()),
-            terminal_outcome: meta.and_then(|m| m.terminal_outcome.clone()),
-            cwd,
-            created_at: created_at.clone(),
+            id: info.id,
+            label: meta.map(|m| m.label.clone()).unwrap_or(info.label),
+            harness_id: meta.and_then(|m| (!m.harness.is_empty()).then(|| m.harness.clone())).or(info.harness_id),
+            model_provider_id: meta.and_then(|m| m.provider_id.clone()).or(info.model_provider_id),
+            model_id: meta.and_then(|m| (!m.model.is_empty()).then(|| m.model.clone())).or(info.model_id),
+            harness: meta.and_then(|m| (!m.harness.is_empty()).then(|| m.harness.clone())).or(info.harness),
+            model: meta.and_then(|m| (!m.model.is_empty()).then(|| m.model.clone())).or(info.model),
+            status: info.status,
+            connectivity: meta
+                .map(|m| Some(m.connectivity.clone()))
+                .unwrap_or(info.connectivity),
+            terminal_outcome: meta.and_then(|m| m.terminal_outcome.clone()).or(info.terminal_outcome),
+            cwd: info.cwd,
+            created_at: info.created_at.clone(),
             last_activity_at: meta
                 .map(|m| m.last_activity.clone())
-                .or_else(|| Some(created_at)),
-            observed_status: meta.and_then(|m| m.observed_status.clone()),
-            summary: meta.and_then(|m| m.summary.clone()),
-            next_action: meta.and_then(|m| m.next_action.clone()),
-            needs_user_input: meta.and_then(|m| m.needs_user_input),
-            detected_question: meta.and_then(|m| m.detected_question.clone()),
-            suggested_options: meta.and_then(|m| m.suggested_options.clone()),
-            blocker_description: meta.and_then(|m| m.blocker_description.clone()),
-            failed_command: meta.and_then(|m| m.failed_command.clone()),
-            failed_test: meta.and_then(|m| m.failed_test.clone()),
-            capacity_hints: meta.and_then(|m| m.capacity_hints.clone()),
-            metadata_source: meta.map(|m| m.metadata_source.clone()),
-            metadata_confidence: meta.map(|m| m.metadata_confidence),
+                .or(info.last_activity_at)
+                .or_else(|| Some(info.created_at)),
+            observed_status: meta.and_then(|m| m.observed_status.clone()).or(info.observed_status),
+            summary: meta.and_then(|m| m.summary.clone()).or(info.summary),
+            next_action: meta.and_then(|m| m.next_action.clone()).or(info.next_action),
+            needs_user_input: meta.and_then(|m| m.needs_user_input).or(info.needs_user_input),
+            detected_question: meta.and_then(|m| m.detected_question.clone()).or(info.detected_question),
+            suggested_options: meta.and_then(|m| m.suggested_options.clone()).or(info.suggested_options),
+            blocker_description: meta.and_then(|m| m.blocker_description.clone()).or(info.blocker_description),
+            failed_command: meta.and_then(|m| m.failed_command.clone()).or(info.failed_command),
+            failed_test: meta.and_then(|m| m.failed_test.clone()).or(info.failed_test),
+            capacity_hints: meta.and_then(|m| m.capacity_hints.clone()).or(info.capacity_hints),
+            metadata_source: meta.map(|m| m.metadata_source.clone()).or(info.metadata_source),
+            metadata_confidence: meta.map(|m| m.metadata_confidence).or(info.metadata_confidence),
             peon_last_inference: meta
                 .and_then(|m| m.peon_last_inference.clone())
+                .or(info.peon_last_inference)
                 .or_else(|| peon_times.get(&id).cloned()),
-            repo_root: None,
-            branch: None,
-            dirty: None,
-            changed_files: None,
-            is_worktree: None,
-            conflict_warning: None,
-            recommendation: None,
+            repo_root: meta.and_then(|m| m.repo_root.clone()).or(info.repo_root),
+            branch: meta.and_then(|m| m.branch.clone()).or(info.branch),
+            dirty: meta.and_then(|m| m.dirty).or(info.dirty),
+            changed_files: meta.and_then(|m| m.changed_files).or(info.changed_files),
+            is_worktree: meta.and_then(|m| m.is_worktree).or(info.is_worktree),
+            conflict_warning: info.conflict_warning,
+            recommendation: info.recommendation,
             memory_state,
             resume_strategy,
-            resume: meta.and_then(|m| m.resume.clone()),
-            resume_options: meta.map(|m| m.resume_options.clone()).unwrap_or_default(),
-            resumed_from: meta.and_then(|m| m.resumed_from.clone()),
-            provider: meta.and_then(|m| m.provider_label.clone()),
-            provider_model: meta.and_then(|m| m.provider_model.clone()),
-            provider_state: meta.and_then(|m| m.provider_state.clone()),
+            resume: meta.and_then(|m| m.resume.clone()).or(info.resume),
+            resume_options: meta.map(|m| m.resume_options.clone()).unwrap_or(info.resume_options),
+            resumed_from: meta.and_then(|m| m.resumed_from.clone()).or(info.resumed_from),
+            provider: meta.and_then(|m| m.provider_label.clone()).or(info.provider),
+            provider_model: meta.and_then(|m| m.provider_model.clone()).or(info.provider_model),
+            provider_state: meta.and_then(|m| m.provider_state.clone()).or(info.provider_state),
         }
     }).collect();
 
@@ -1932,6 +1935,12 @@ fn make_pty_system() -> UnixPtySystem {
 #[cfg(windows)]
 fn make_pty_system() -> ConPtySystem {
     ConPtySystem {}
+}
+
+#[cfg(test)]
+#[test]
+fn session_metadata_serializes_connectivity_terminal_outcome_and_last_activity() {
+    metadata::assert_session_metadata_serializes_connectivity_terminal_outcome_and_last_activity();
 }
 
 fn set_session_status(state: &Arc<AppState>, id: &str, status: &str) {
@@ -3031,6 +3040,67 @@ mod tests {
             .count();
 
         assert_eq!(matching, 1);
+    }
+
+    #[tokio::test]
+    async fn list_sessions_uses_live_session_contract_fields_without_metadata() {
+        let state = Arc::new(AppState {
+            session_module: SessionModule::new(),
+            sessions: Mutex::new(HashMap::new()),
+            workspace: Mutex::new(None),
+            peon: PeonState {
+                last_output: StdRwLock::new(HashMap::new()),
+                last_inference: StdRwLock::new(HashMap::new()),
+                in_flight: StdRwLock::new(HashSet::new()),
+                label_hint: StdRwLock::new(HashMap::new()),
+                label_pending: StdRwLock::new(HashSet::new()),
+                config: peon::PeonConfig::from_env(),
+            },
+            adapters: builtin_adapters(),
+            retention_config: tokio::sync::RwLock::new(RetentionConfig::default()),
+            harnesses: tokio::sync::RwLock::new(vec![]),
+            bound_port: AtomicU16::new(0),
+            providers: providers::ProviderManager::new(),
+        });
+
+        let session_id = "offline-live-only".to_string();
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        state.sessions.lock().unwrap().insert(
+            session_id.clone(),
+            SessionHandle {
+                info: SessionInfo {
+                    connectivity: Some("offline".into()),
+                    terminal_outcome: Some("ended".into()),
+                    last_activity_at: Some("2026-06-28T09:05:00Z".into()),
+                    ..test_session_info(
+                        session_id.clone(),
+                        "Offline Live Only",
+                        "/tmp/project",
+                        "ended",
+                        "2026-06-28T09:00:00Z",
+                    )
+                },
+                kill_tx,
+                output_buffer: peon::RingBuffer::new(200),
+                command: default_shell_command("/tmp/project".into()),
+                initial_prompt: None,
+            },
+        );
+
+        let response = list_sessions(State(state)).await.into_response();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let sessions: Vec<serde_json::Value> = serde_json::from_slice(&bytes).unwrap();
+        let session = sessions
+            .iter()
+            .find(|session| session.get("id").and_then(|id| id.as_str()) == Some(session_id.as_str()))
+            .unwrap();
+
+        assert_eq!(session.get("connectivity").and_then(|value| value.as_str()), Some("offline"));
+        assert_eq!(session.get("terminalOutcome").and_then(|value| value.as_str()), Some("ended"));
+        assert_eq!(
+            session.get("lastActivityAt").and_then(|value| value.as_str()),
+            Some("2026-06-28T09:05:00Z"),
+        );
     }
 
     #[test]
