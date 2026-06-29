@@ -24,6 +24,7 @@ export function needsAttention(status: string): boolean {
 }
 
 export function sessionAttentionStatus(session: SessionInfo): string {
+  if (session.memoryState !== "live") return session.status;
   return session.observedStatus ?? session.status;
 }
 

@@ -354,6 +354,21 @@ async fn set_workspace(
         watcher,
     });
 
+    // Reconcile sessions left in "running"/"creating" from a previous daemon run.
+    // On restart state.sessions is empty, so anything still "running" in metadata is orphaned.
+    if let Some(ref ws) = *ws {
+        let now = iso_now();
+        for mut meta in ws.metadata.read_all_sessions() {
+            if meta.status == "running" || meta.status == "creating" {
+                meta.status = "ended".to_string();
+                meta.connectivity = connectivity_for_status("ended").to_string();
+                meta.terminal_outcome = terminal_outcome_for_status("ended");
+                meta.last_activity = now.clone();
+                ws.metadata.write_session(&meta);
+            }
+        }
+    }
+
     let git_ctx = git::detect(&ws_path);
 
     Json(WorkspaceResponse {
@@ -2003,6 +2018,7 @@ fn session_metadata_serializes_connectivity_terminal_outcome_and_last_activity()
 }
 
 fn set_session_status(state: &Arc<AppState>, id: &str, status: &str) {
+    let is_terminal = matches!(status, "killed" | "ended" | "error");
     let session_resume = {
         let mut sessions = state.sessions.lock().unwrap();
         if let Some(handle) = sessions.get_mut(id) {
@@ -2010,6 +2026,9 @@ fn set_session_status(state: &Arc<AppState>, id: &str, status: &str) {
             handle.info.connectivity = Some(connectivity_for_status(status).to_string());
             handle.info.terminal_outcome = terminal_outcome_for_status(status);
             handle.info.last_activity_at = Some(iso_now());
+            if is_terminal {
+                handle.info.observed_status = None;
+            }
             (handle.info.resume.clone(), handle.info.resumed_from.clone())
         } else {
             (None, None)
@@ -2023,6 +2042,9 @@ fn set_session_status(state: &Arc<AppState>, id: &str, status: &str) {
             meta.connectivity = connectivity_for_status(status).to_string();
             meta.terminal_outcome = terminal_outcome_for_status(status);
             meta.last_activity = now.clone();
+            if is_terminal {
+                meta.observed_status = None;
+            }
             if session_resume.0.is_some() {
                 meta.resume = session_resume.0;
             }
@@ -2504,6 +2526,9 @@ async fn handle_session_terminal(mut ws: WebSocket, id: String, state: Arc<AppSt
         // before the trim runs, so trimming never races with a write.
         drop(persist_tx);
         let _ = persist_writer.await;
+
+        state.peon.last_output.write().unwrap().remove(&id);
+        state.peon.last_inference.write().unwrap().remove(&id);
 
         let state_clone = state.clone();
         let id_clone = id.clone();
