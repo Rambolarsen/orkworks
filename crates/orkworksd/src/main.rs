@@ -77,6 +77,8 @@ struct SessionInfo {
     failed_test: Option<String>,
     #[serde(rename = "capacityHints")]
     capacity_hints: Option<Vec<String>>,
+    #[serde(rename = "atUsageLimit", skip_serializing_if = "Option::is_none")]
+    at_usage_limit: Option<bool>,
     #[serde(rename = "metadataSource")]
     metadata_source: Option<String>,
     #[serde(rename = "metadataConfidence")]
@@ -468,6 +470,7 @@ async fn resume_session(
         failed_command: None,
         failed_test: None,
         capacity_hints: None,
+        at_usage_limit: None,
         metadata_source: Some("process".into()),
         metadata_confidence: Some(1.0),
         repo_root: meta.repo_root.clone(),
@@ -705,6 +708,7 @@ async fn create_session(
         failed_command: None,
         failed_test: None,
         capacity_hints: None,
+        at_usage_limit: None,
         metadata_source: None,
         metadata_confidence: None,
         repo_root: git_ctx.repo_root.clone(),
@@ -840,15 +844,15 @@ fn session_recommendation(ctx: &git::GitContext, session_count_in_cwd: usize) ->
 
 async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let harnesses = state.harnesses.read().await.clone();
-    let live_sessions: Vec<SessionInfo> = {
+    let live_sessions: Vec<(SessionInfo, Vec<String>)> = {
         let sessions = state.sessions.lock().unwrap();
-        sessions.values().map(|h| h.info.clone()).collect()
+        sessions.values().map(|h| (h.info.clone(), h.output_buffer.last_n(50))).collect()
     };
 
     let ws_guard = state.workspace.lock().unwrap();
     let metadata_map = ws_guard.as_ref().map(|ws| {
         let mut metadata = HashMap::new();
-        for info in &live_sessions {
+        for (info, _) in &live_sessions {
             if let Some(meta) = ws.metadata.read_session(&info.id) {
                 metadata.insert(info.id.clone(), meta);
             }
@@ -860,17 +864,22 @@ async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse 
     drop(ws_guard);
 
     let all_memory_ids: HashSet<String> = live_sessions.iter()
-        .map(|info| info.id.clone())
+        .map(|(info, _)| info.id.clone())
         .collect();
 
     let peon_times = state.peon.last_inference.read().unwrap();
-    let mut infos: Vec<SessionInfo> = live_sessions.into_iter().map(|info| {
+    let mut infos: Vec<SessionInfo> = live_sessions.into_iter().map(|(info, snapshot)| {
         let id = info.id.clone();
         let meta = metadata_map.get(&id);
         let session_harness_id = meta.and_then(|m| (!m.harness.is_empty()).then(|| m.harness.as_str()));
         let adapter_harness_id = resolve_adapter_harness_id(&harnesses, session_harness_id);
         let caps = capabilities_for_harness(&state.adapters, adapter_harness_id.as_deref());
-        merge_live_session_info(info, meta, peon_times.get(&id), &caps)
+        let mut merged = merge_live_session_info(info, meta, peon_times.get(&id), &caps);
+        merged.at_usage_limit = adapter_harness_id
+            .as_deref()
+            .and_then(|hid| state.adapters.get(hid))
+            .map(|adapter| peon::detect_usage_limit(adapter.limit_patterns, &snapshot));
+        merged
     }).collect();
 
     // Append remembered (non-live) sessions from metadata
@@ -907,6 +916,7 @@ async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse 
             failed_command: meta.failed_command.clone(),
             failed_test: meta.failed_test.clone(),
             capacity_hints: meta.capacity_hints.clone(),
+            at_usage_limit: None,
             metadata_source: Some(meta.metadata_source.clone()),
             metadata_confidence: Some(meta.metadata_confidence),
             peon_last_inference: meta.peon_last_inference.clone(),
@@ -1015,6 +1025,7 @@ fn merge_live_session_info(
         failed_command: meta.and_then(|m| m.failed_command.clone()).or(info.failed_command),
         failed_test: meta.and_then(|m| m.failed_test.clone()).or(info.failed_test),
         capacity_hints: meta.and_then(|m| m.capacity_hints.clone()).or(info.capacity_hints),
+        at_usage_limit: None, // set by list_sessions after merge, from live buffer scan
         metadata_source: meta.map(|m| m.metadata_source.clone()).or(info.metadata_source),
         metadata_confidence: meta.map(|m| m.metadata_confidence).or(info.metadata_confidence),
         peon_last_inference: meta
@@ -1772,6 +1783,7 @@ fn builtin_adapters() -> HashMap<String, harness::HarnessAdapter> {
         "generic-shell",
         "Generic Shell",
         default_capabilities(),
+        &[],
         harness::CommandTemplate {
             command: program.clone(),
             args: args.clone(),
@@ -1796,6 +1808,7 @@ fn builtin_adapters() -> HashMap<String, harness::HarnessAdapter> {
         "opencode",
         "OpenCode",
         opencode_caps.clone(),
+        &["usage limit reached"],
         harness::CommandTemplate {
             command: "opencode".into(),
             args: vec![],
@@ -1822,10 +1835,12 @@ fn builtin_adapters() -> HashMap<String, harness::HarnessAdapter> {
         detect_capacity: true,
         native_voice: false,
     };
+    // ponytail: claude-code patterns empty until verified — see GitHub issue #84
     let claude = harness::HarnessAdapter::template(
         "claude-code",
         "Claude Code",
         claude_caps.clone(),
+        &[],
         harness::CommandTemplate {
             command: "claude".into(),
             args: vec![],
@@ -2674,6 +2689,7 @@ mod tests {
             failed_command: None,
             failed_test: None,
             capacity_hints: None,
+            at_usage_limit: None,
             metadata_source: None,
             metadata_confidence: None,
             repo_root: None,

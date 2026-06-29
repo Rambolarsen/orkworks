@@ -48,6 +48,7 @@ export interface SessionInfo {
   failedCommand?: string;
   failedTest?: string;
   capacityHints?: string[];
+  atUsageLimit?: boolean;
   peonLastInference?: string;
   metadataSource?: string;
   metadataConfidence?: number;
