@@ -2,6 +2,8 @@ import type { ProviderEffectiveState } from "./providerTypes.ts";
 
 export type MemoryState = "live" | "remembered" | "resumable" | "unsupported";
 export type ResumeStrategy = "exact" | "latest_cwd" | "latest_repo" | "none";
+export type SessionConnectivity = "online" | "offline";
+export type TerminalOutcome = "ended" | "killed" | "error";
 
 export interface ResumeMemory {
   state: "available" | "unavailable";
@@ -9,6 +11,14 @@ export interface ResumeMemory {
   harnessSessionId?: string;
   latestFallback: boolean;
   lastSeenAt?: string;
+}
+
+export interface ResumeOption {
+  strategy: ResumeStrategy;
+  label: string;
+  available: boolean;
+  preferred: boolean;
+  reason?: string;
 }
 
 export interface SessionInfo {
@@ -23,8 +33,11 @@ export interface SessionInfo {
   harness?: string;
   model?: string;
   status: string;
+  connectivity?: SessionConnectivity;
+  terminalOutcome?: TerminalOutcome;
   cwd: string;
   created_at: string;
+  lastActivityAt?: string;
   observedStatus?: string;
   summary?: string;
   nextAction?: string;
@@ -48,6 +61,7 @@ export interface SessionInfo {
   memoryState: MemoryState;
   resumeStrategy: ResumeStrategy;
   resume?: ResumeMemory;
+  resumeOptions?: ResumeOption[];
   resumedFrom?: string;
 }
 

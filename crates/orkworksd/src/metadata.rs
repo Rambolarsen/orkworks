@@ -7,6 +7,37 @@ use tracing::warn;
 
 pub const TERMINAL_OUTPUT_MAX_LINES: usize = 10_000;
 
+fn default_connectivity() -> String {
+    "online".into()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ResumeOption {
+    pub strategy: ResumeStrategy,
+    pub label: String,
+    pub available: bool,
+    pub preferred: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+impl ResumeOption {
+    fn new(
+        strategy: ResumeStrategy,
+        label: &'static str,
+        available: bool,
+        reason: Option<&'static str>,
+    ) -> Self {
+        Self {
+            strategy,
+            label: label.into(),
+            available,
+            preferred: false,
+            reason: reason.map(str::to_string),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionMetadata {
     pub id: String,
@@ -20,6 +51,10 @@ pub struct SessionMetadata {
     pub cwd: String,
     pub status: String,
     pub phase: String,
+    #[serde(default = "default_connectivity")]
+    pub connectivity: String,
+    #[serde(rename = "terminalOutcome", skip_serializing_if = "Option::is_none")]
+    pub terminal_outcome: Option<String>,
     #[serde(rename = "observedStatus")]
     pub observed_status: Option<String>,
     pub summary: Option<String>,
@@ -67,6 +102,8 @@ pub struct SessionMetadata {
     pub is_worktree: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resume: Option<ResumeMemory>,
+    #[serde(rename = "resumeOptions", default)]
+    pub resume_options: Vec<ResumeOption>,
     #[serde(rename = "harnessSessionIdSource", skip_serializing_if = "Option::is_none")]
     pub harness_session_id_source: Option<String>,
     #[serde(rename = "harnessSessionIdConfidence", skip_serializing_if = "Option::is_none")]
@@ -98,6 +135,182 @@ pub struct WorkspaceMemory {
     pub last_active_at: Option<String>,
     #[serde(rename = "activeHarnessIds", default, skip_serializing_if = "Vec::is_empty")]
     pub active_harness_ids: Vec<String>,
+}
+
+fn normalize_session_metadata(mut meta: SessionMetadata) -> SessionMetadata {
+    let inferred_terminal_outcome = match meta.status.as_str() {
+        "ended" => Some("ended"),
+        "killed" => Some("killed"),
+        "error" => Some("error"),
+        _ => None,
+    };
+
+    if inferred_terminal_outcome.is_some() && meta.terminal_outcome.is_none() {
+        meta.terminal_outcome = inferred_terminal_outcome.map(str::to_string);
+    }
+
+    if inferred_terminal_outcome.is_some() && meta.connectivity == "online" {
+        meta.connectivity = "offline".into();
+    }
+
+    meta
+}
+
+pub fn derive_resume_options(
+    preferred: &ResumeStrategy,
+    resume: Option<&ResumeMemory>,
+    supports_exact: bool,
+    supports_latest_cwd: bool,
+    supports_latest_repo: bool,
+) -> Vec<ResumeOption> {
+    let resume_available = resume
+        .map(|memory| memory.state == ResumeState::Available)
+        .unwrap_or(false);
+    let exact_reason = if !supports_exact {
+        Some("Harness does not support exact resume")
+    } else if !resume_available {
+        Some("No compatible remembered session exists")
+    } else if resume.and_then(|memory| memory.harness_session_id.as_ref()).is_none() {
+        Some("No harness session id was captured")
+    } else {
+        None
+    };
+    let latest_reason = |supported: bool| {
+        if !supported {
+            Some("Harness does not support folder-scoped resume")
+        } else if !resume_available || !resume.map(|memory| memory.latest_fallback).unwrap_or(false)
+        {
+            Some("No compatible remembered session exists")
+        } else {
+            None
+        }
+    };
+    let latest_repo_reason = if !supports_latest_repo {
+        Some("Harness does not support repo-scoped resume")
+    } else if !resume_available || !resume.map(|memory| memory.latest_fallback).unwrap_or(false) {
+        Some("No compatible remembered session exists")
+    } else {
+        None
+    };
+
+    let mut options = vec![
+        ResumeOption::new(
+            ResumeStrategy::Exact,
+            "Resume exact session",
+            exact_reason.is_none(),
+            exact_reason,
+        ),
+        ResumeOption::new(
+            ResumeStrategy::LatestCwd,
+            "Resume latest in folder",
+            latest_reason(supports_latest_cwd).is_none(),
+            latest_reason(supports_latest_cwd),
+        ),
+        ResumeOption::new(
+            ResumeStrategy::LatestRepo,
+            "Resume latest in repo",
+            latest_repo_reason.is_none(),
+            latest_repo_reason,
+        ),
+    ];
+
+    for option in &mut options {
+        option.preferred = option.strategy == *preferred;
+    }
+
+    options
+}
+
+#[cfg(test)]
+pub(crate) fn assert_session_metadata_serializes_connectivity_terminal_outcome_and_last_activity() {
+    let meta = SessionMetadata {
+        id: "s1".into(),
+        label: "Test".into(),
+        workspace: "/tmp".into(),
+        task: String::new(),
+        harness: String::new(),
+        model: String::new(),
+        cwd: "/tmp".into(),
+        status: "ended".into(),
+        phase: String::new(),
+        connectivity: "offline".into(),
+        terminal_outcome: Some("ended".into()),
+        observed_status: None,
+        summary: None,
+        next_action: None,
+        needs_user_input: None,
+        detected_question: None,
+        suggested_options: None,
+        blocker_description: None,
+        failed_command: None,
+        failed_test: None,
+        capacity_hints: None,
+        peon_last_inference: None,
+        provider_id: None,
+        provider_label: None,
+        provider_model: None,
+        provider_state: None,
+        created_at: "2026-06-28T09:00:00Z".into(),
+        last_activity: "2026-06-28T09:05:00Z".into(),
+        metadata_source: "process".into(),
+        metadata_confidence: 1.0,
+        repo_root: None,
+        branch: None,
+        dirty: None,
+        changed_files: None,
+        is_worktree: None,
+        resume: None,
+        resume_options: vec![],
+        harness_session_id_source: None,
+        harness_session_id_confidence: None,
+        harness_session_id_captured_at: None,
+        resumed_from: None,
+        last_user_input: None,
+    };
+
+    let raw = serde_json::to_value(&meta).unwrap();
+    assert_eq!(raw["connectivity"], "offline");
+    assert_eq!(raw["terminalOutcome"], "ended");
+    assert_eq!(raw["lastActivity"], "2026-06-28T09:05:00Z");
+}
+
+#[cfg(test)]
+#[test]
+fn session_metadata_serializes_connectivity_terminal_outcome_and_last_activity() {
+    assert_session_metadata_serializes_connectivity_terminal_outcome_and_last_activity();
+}
+
+#[cfg(test)]
+#[test]
+fn derive_resume_options_returns_disabled_entries_with_reasons() {
+    let resume = ResumeMemory {
+        state: ResumeState::Available,
+        preferred_strategy: ResumeStrategy::Exact,
+        harness_session_id: None,
+        latest_fallback: false,
+        last_seen_at: None,
+    };
+    let options = derive_resume_options(&ResumeStrategy::Exact, Some(&resume), true, false, false);
+
+    assert_eq!(options.len(), 3);
+    assert_eq!(options[0].strategy, ResumeStrategy::Exact);
+    assert!(!options[0].available);
+    assert_eq!(
+        options[0].reason.as_deref(),
+        Some("No harness session id was captured"),
+    );
+    assert_eq!(options[1].strategy, ResumeStrategy::LatestCwd);
+    assert!(!options[1].available);
+    assert_eq!(
+        options[1].reason.as_deref(),
+        Some("Harness does not support folder-scoped resume"),
+    );
+    assert_eq!(options[2].strategy, ResumeStrategy::LatestRepo);
+    assert!(!options[2].available);
+    assert_eq!(
+        options[2].reason.as_deref(),
+        Some("Harness does not support repo-scoped resume"),
+    );
 }
 
 pub const HARNESS_SESSION_ID_MIN_LEN: usize = 3;
@@ -186,6 +399,7 @@ impl MetadataStore {
             .filter(|entry| entry.path().extension().and_then(|e| e.to_str()) == Some("json"))
             .filter_map(|entry| fs::read_to_string(entry.path()).ok())
             .filter_map(|data| serde_json::from_str::<SessionMetadata>(&data).ok())
+            .map(normalize_session_metadata)
             .collect();
         sessions.sort_by(|a, b| a.created_at.cmp(&b.created_at));
         sessions
@@ -261,7 +475,7 @@ impl MetadataStore {
     pub fn read_session(&self, id: &str) -> Option<SessionMetadata> {
         let path = self.sessions_dir().join(format!("{}.json", id));
         let data = fs::read_to_string(&path).ok()?;
-        serde_json::from_str(&data).ok()
+        serde_json::from_str(&data).ok().map(normalize_session_metadata)
     }
 
     pub fn session_modified_secs_ago(&self, id: &str) -> Option<u64> {
@@ -531,6 +745,8 @@ mod tests {
             cwd: "/tmp".into(),
             status: "running".into(),
             phase: "implementation".into(),
+            connectivity: "online".into(),
+            terminal_outcome: None,
             observed_status: None,
             summary: None,
             next_action: None,
@@ -556,6 +772,7 @@ mod tests {
             changed_files: Some(0),
             is_worktree: Some(false),
             resume: None,
+            resume_options: vec![],
             harness_session_id_source: None,
             harness_session_id_confidence: None,
             harness_session_id_captured_at: None,
@@ -636,6 +853,8 @@ mod tests {
             cwd: "/tmp".into(),
             status: "running".into(),
             phase: "".into(),
+            connectivity: "online".into(),
+            terminal_outcome: None,
             observed_status: None,
             summary: None,
             next_action: None,
@@ -661,6 +880,7 @@ mod tests {
             changed_files: None,
             is_worktree: None,
             resume: None,
+            resume_options: vec![],
             harness_session_id_source: None,
             harness_session_id_confidence: None,
             harness_session_id_captured_at: None,
@@ -717,6 +937,8 @@ mod tests {
             cwd: "/tmp".into(),
             status: "running".into(),
             phase: "".into(),
+            connectivity: "online".into(),
+            terminal_outcome: None,
             observed_status: None,
             summary: None,
             next_action: None,
@@ -742,6 +964,7 @@ mod tests {
             changed_files: None,
             is_worktree: None,
             resume: None,
+            resume_options: vec![],
             harness_session_id_source: None,
             harness_session_id_confidence: None,
             harness_session_id_captured_at: None,
@@ -792,6 +1015,8 @@ mod tests {
             cwd: "/tmp".into(),
             status: "running".into(),
             phase: "".into(),
+            connectivity: "online".into(),
+            terminal_outcome: None,
             observed_status: None,
             summary: None,
             next_action: None,
@@ -817,6 +1042,7 @@ mod tests {
             changed_files: None,
             is_worktree: None,
             resume: None,
+            resume_options: vec![],
             harness_session_id_source: None,
             harness_session_id_confidence: None,
             harness_session_id_captured_at: None,
@@ -1260,5 +1486,37 @@ mod tests {
         assert_eq!(meta.harness, "opencode");
         assert_eq!(meta.model, "deepseek/deepseek-reasoner");
         assert_eq!(meta.provider_id.as_deref(), Some("openrouter"));
+    }
+
+    #[test]
+    fn read_session_normalizes_legacy_terminal_status_without_new_fields() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        std::fs::create_dir_all(store.sessions_dir()).unwrap();
+
+        let raw = serde_json::json!({
+            "id": "legacy-ended",
+            "label": "Legacy Ended",
+            "workspace": "/tmp",
+            "task": "",
+            "harness": "",
+            "model": "",
+            "cwd": "/tmp",
+            "status": "ended",
+            "phase": "",
+            "createdAt": "2026-06-28T09:00:00Z",
+            "lastActivity": "2026-06-28T09:05:00Z",
+            "metadataSource": "process",
+            "metadataConfidence": 1.0
+        });
+
+        std::fs::write(
+            store.sessions_dir().join("legacy-ended.json"),
+            serde_json::to_string_pretty(&raw).unwrap(),
+        ).unwrap();
+
+        let meta = store.read_session("legacy-ended").unwrap();
+        assert_eq!(meta.connectivity, "offline");
+        assert_eq!(meta.terminal_outcome.as_deref(), Some("ended"));
     }
 }
