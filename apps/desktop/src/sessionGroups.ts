@@ -12,9 +12,9 @@ export function groupForSession(s: SessionInfo, now: Date): GroupKey {
   const created = new Date(s.created_at);
   if (Number.isNaN(created.getTime())) return "earlier";
   const sameDay =
-    created.getUTCFullYear() === now.getUTCFullYear() &&
-    created.getUTCMonth() === now.getUTCMonth() &&
-    created.getUTCDate() === now.getUTCDate();
+    created.getFullYear() === now.getFullYear() &&
+    created.getMonth() === now.getMonth() &&
+    created.getDate() === now.getDate();
   if (sameDay) return "today";
   const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
   if (now.getTime() - created.getTime() < sevenDaysMs) return "week";
