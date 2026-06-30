@@ -30,6 +30,7 @@ mod peon;
 mod providers;
 mod domain;
 mod application;
+mod http;
 mod infrastructure;
 mod migration;
 mod session_types;
@@ -40,8 +41,13 @@ use crate::infrastructure::session_module::SessionModule;
 use crate::harness_registry::{
     adapter_for_harness, builtin_adapters, builtin_harness_configs, capabilities_for_harness,
     default_capabilities, default_shell_command, load_harnesses, resolve_adapter_harness_id,
-    save_harnesses, HarnessConfig,
+    HarnessConfig,
 };
+use crate::http::harness_handlers::{
+    create_harness, delete_harness, list_harnesses, update_harness,
+};
+use crate::http::provider_handlers::{get_provider_models, get_providers, set_provider_settings};
+use crate::http::retention_handlers::set_retention;
 use crate::session_types::{MemoryState, SessionInfo};
 use crate::session_view::{
     connectivity_for_status, derive_memory_state, detect_conflicts, merge_live_session_info,
@@ -921,70 +927,6 @@ async fn forget_session(
     axum::http::StatusCode::OK.into_response()
 }
 
-#[derive(Deserialize)]
-struct RetentionRequest {
-    #[serde(rename = "maxSessions", default)]
-    max_sessions: usize,
-    #[serde(rename = "maxAgeDays", default)]
-    max_age_days: u32,
-}
-
-async fn set_retention(
-    State(state): State<Arc<AppState>>,
-    Json(req): Json<RetentionRequest>,
-) -> impl IntoResponse {
-    let mut config = state.retention_config.write().await;
-    config.max_sessions = req.max_sessions;
-    config.max_age_days = req.max_age_days;
-    tracing::info!(
-        max_sessions = config.max_sessions,
-        max_age_days = config.max_age_days,
-        "retention config updated"
-    );
-    axum::http::StatusCode::OK
-}
-
-async fn get_providers(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    axum::Json(state.providers.get_providers_response())
-}
-
-async fn set_provider_settings(
-    State(state): State<Arc<AppState>>,
-    Json(payload): Json<providers::ProviderSettingsPayload>,
-) -> impl IntoResponse {
-    let status = state.providers.apply_settings(payload);
-    axum::Json(status)
-}
-
-#[derive(Serialize)]
-struct ProviderModelsResponse {
-    models: Vec<String>,
-}
-
-#[derive(Serialize)]
-struct ErrorResponse {
-    error: String,
-}
-
-async fn get_provider_models(
-    State(state): State<Arc<AppState>>,
-    Path(provider_id): Path<String>,
-) -> impl IntoResponse {
-    let providers = state.providers.clone();
-    match tokio::task::spawn_blocking(move || providers.list_models(&provider_id)).await {
-        Ok(Ok(models)) => axum::Json(ProviderModelsResponse { models }).into_response(),
-        Ok(Err(msg)) => {
-            let status = if msg.starts_with("unknown provider") {
-                axum::http::StatusCode::NOT_FOUND
-            } else {
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR
-            };
-            (status, axum::Json(ErrorResponse { error: msg })).into_response()
-        }
-        Err(_) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(ErrorResponse { error: "internal error".into() })).into_response(),
-    }
-}
-
 async fn retention_cleanup_task(state: Arc<AppState>) {
     loop {
         tokio::time::sleep(std::time::Duration::from_secs(300)).await;
@@ -1339,60 +1281,6 @@ fn codex_thread_id_from_jsonl_line(line: &str) -> Option<String> {
         return None;
     }
     value.get("thread_id").and_then(|v| v.as_str()).map(str::to_string)
-}
-
-// --- Harness CRUD handlers ---
-
-async fn list_harnesses(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let harnesses = state.harnesses.read().await;
-    Json(harnesses.clone())
-}
-
-async fn create_harness(
-    State(state): State<Arc<AppState>>,
-    Json(mut req): Json<HarnessConfig>,
-) -> impl IntoResponse {
-    req.is_builtin = false;
-    if req.id.is_empty() {
-        req.id = uuid::Uuid::new_v4().to_string();
-    }
-    let mut harnesses = state.harnesses.write().await;
-    harnesses.push(req.clone());
-    save_harnesses(&harnesses);
-    (axum::http::StatusCode::CREATED, Json(req)).into_response()
-}
-
-async fn update_harness(
-    State(state): State<Arc<AppState>>,
-    Path(id): Path<String>,
-    Json(req): Json<HarnessConfig>,
-) -> impl IntoResponse {
-    let mut harnesses = state.harnesses.write().await;
-    if let Some(pos) = harnesses.iter().position(|h| h.id == id) {
-        let is_builtin = harnesses[pos].is_builtin;
-        harnesses[pos] = HarnessConfig { id: id.clone(), is_builtin, ..req };
-        save_harnesses(&harnesses);
-        Json(harnesses[pos].clone()).into_response()
-    } else {
-        axum::http::StatusCode::NOT_FOUND.into_response()
-    }
-}
-
-async fn delete_harness(
-    State(state): State<Arc<AppState>>,
-    Path(id): Path<String>,
-) -> impl IntoResponse {
-    let mut harnesses = state.harnesses.write().await;
-    if let Some(pos) = harnesses.iter().position(|h| h.id == id) {
-        if harnesses[pos].is_builtin {
-            return (axum::http::StatusCode::CONFLICT, "Cannot delete a built-in harness").into_response();
-        }
-        harnesses.remove(pos);
-        save_harnesses(&harnesses);
-        axum::http::StatusCode::OK.into_response()
-    } else {
-        axum::http::StatusCode::NOT_FOUND.into_response()
-    }
 }
 
 #[derive(Debug, PartialEq)]
