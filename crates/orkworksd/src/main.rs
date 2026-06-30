@@ -1228,99 +1228,104 @@ async fn get_provider_models(
 async fn retention_cleanup_task(state: Arc<AppState>) {
     loop {
         tokio::time::sleep(std::time::Duration::from_secs(300)).await;
+        retention_cleanup_once(&state, chrono::Utc::now()).await;
+    }
+}
 
-        let config = state.retention_config.read().await.clone();
-        if config.max_sessions == 0 && config.max_age_days == 0 {
-            continue;
+async fn retention_cleanup_once(
+    state: &Arc<AppState>,
+    now: chrono::DateTime<chrono::Utc>,
+) {
+    let config = state.retention_config.read().await.clone();
+    if config.max_sessions == 0 && config.max_age_days == 0 {
+        return;
+    }
+
+    let all_sessions = {
+        let ws_guard = state.workspace.lock().unwrap();
+        match &*ws_guard {
+            Some(ws) => ws.metadata.read_all_sessions(),
+            None => return,
         }
+    };
 
-        let all_sessions = {
-            let ws_guard = state.workspace.lock().unwrap();
-            match &*ws_guard {
-                Some(ws) => ws.metadata.read_all_sessions(),
-                None => continue,
-            }
-        };
+    let live_ids: std::collections::HashSet<String> = {
+        let sessions = state.sessions.lock().unwrap();
+        sessions
+            .iter()
+            .filter(|(_, h)| {
+                h.info.status == "live"
+                    || h.info.status == "creating"
+                    || h.info.status == "running"
+            })
+            .map(|(id, _)| id.clone())
+            .collect()
+    };
 
-        let live_ids: std::collections::HashSet<String> = {
-            let sessions = state.sessions.lock().unwrap();
-            sessions
-                .iter()
-                .filter(|(_, h)| {
-                    h.info.status == "live"
-                        || h.info.status == "creating"
-                        || h.info.status == "running"
-                })
-                .map(|(id, _)| id.clone())
-                .collect()
-        };
+    let mut candidates: Vec<_> = all_sessions
+        .into_iter()
+        .filter(|s| !live_ids.contains(&s.id))
+        .collect();
 
-        let mut candidates: Vec<_> = all_sessions
-            .into_iter()
-            .filter(|s| !live_ids.contains(&s.id))
-            .collect();
+    if candidates.is_empty() {
+        return;
+    }
 
-        if candidates.is_empty() {
-            continue;
-        }
+    candidates.sort_by(|a, b| a.last_activity.cmp(&b.last_activity));
 
-        candidates.sort_by(|a, b| a.last_activity.cmp(&b.last_activity));
+    let mut all_deleted: Vec<String> = Vec::new();
 
-        let mut all_deleted: Vec<String> = Vec::new();
-
-        if config.max_age_days > 0 {
-            let cutoff = chrono::Utc::now()
-                - chrono::Duration::days(config.max_age_days as i64);
-            let mut expired: Vec<String> = Vec::new();
-            for s in &candidates {
-                if let Ok(parsed) = chrono::DateTime::parse_from_rfc3339(&s.last_activity) {
-                    if parsed < cutoff {
-                        expired.push(s.id.clone());
-                    }
+    if config.max_age_days > 0 {
+        let cutoff = now - chrono::Duration::days(config.max_age_days as i64);
+        let mut expired: Vec<String> = Vec::new();
+        for s in &candidates {
+            if let Ok(parsed) = chrono::DateTime::parse_from_rfc3339(&s.last_activity) {
+                if parsed < cutoff {
+                    expired.push(s.id.clone());
                 }
             }
-            if !expired.is_empty() {
-                let ws_guard = state.workspace.lock().unwrap();
-                if let Some(ref ws) = *ws_guard {
-                    for id in &expired {
-                        tracing::info!(session_id = %id, "retention: deleting expired session");
-                        let _ = ws.metadata.delete_session(id);
-                        let _ = ws.metadata.delete_events(id);
-                        let _ = ws.metadata.clear_last_active_session_if_matches(id);
-                    }
-                }
-                all_deleted.extend(expired.iter().cloned());
-                candidates.retain(|s| !expired.contains(&s.id));
-            }
         }
-
-        if config.max_sessions > 0 && candidates.len() > config.max_sessions {
-            let to_delete = candidates.len() - config.max_sessions;
+        if !expired.is_empty() {
             let ws_guard = state.workspace.lock().unwrap();
             if let Some(ref ws) = *ws_guard {
-                for s in candidates.iter().take(to_delete) {
-                    tracing::info!(
-                        session_id = %s.id,
-                        max_sessions = config.max_sessions,
-                        "retention: deleting session (exceeds max)"
-                    );
-                    let _ = ws.metadata.delete_session(&s.id);
-                    let _ = ws.metadata.delete_events(&s.id);
-                    let _ = ws.metadata.clear_last_active_session_if_matches(&s.id);
-                    all_deleted.push(s.id.clone());
+                for id in &expired {
+                    tracing::info!(session_id = %id, "retention: deleting expired session");
+                    let _ = ws.metadata.delete_session(id);
+                    let _ = ws.metadata.delete_events(id);
+                    let _ = ws.metadata.clear_last_active_session_if_matches(id);
                 }
             }
+            all_deleted.extend(expired.iter().cloned());
+            candidates.retain(|s| !expired.contains(&s.id));
         }
+    }
 
-        if !all_deleted.is_empty() {
-            let mut sessions = state.sessions.lock().unwrap();
-            let mut peon_output = state.peon.last_output.write().unwrap();
-            let mut peon_inference = state.peon.last_inference.write().unwrap();
-            for id in &all_deleted {
-                sessions.remove(id);
-                peon_output.remove(id);
-                peon_inference.remove(id);
+    if config.max_sessions > 0 && candidates.len() > config.max_sessions {
+        let to_delete = candidates.len() - config.max_sessions;
+        let ws_guard = state.workspace.lock().unwrap();
+        if let Some(ref ws) = *ws_guard {
+            for s in candidates.iter().take(to_delete) {
+                tracing::info!(
+                    session_id = %s.id,
+                    max_sessions = config.max_sessions,
+                    "retention: deleting session (exceeds max)"
+                );
+                let _ = ws.metadata.delete_session(&s.id);
+                let _ = ws.metadata.delete_events(&s.id);
+                let _ = ws.metadata.clear_last_active_session_if_matches(&s.id);
+                all_deleted.push(s.id.clone());
             }
+        }
+    }
+
+    if !all_deleted.is_empty() {
+        let mut sessions = state.sessions.lock().unwrap();
+        let mut peon_output = state.peon.last_output.write().unwrap();
+        let mut peon_inference = state.peon.last_inference.write().unwrap();
+        for id in &all_deleted {
+            sessions.remove(id);
+            peon_output.remove(id);
+            peon_inference.remove(id);
         }
     }
 }
@@ -2546,6 +2551,7 @@ async fn handle_session_terminal(mut ws: WebSocket, id: String, state: Arc<AppSt
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Mutex as StdMutex, OnceLock};
 
     #[test]
     fn terminal_env_overrides_force_color_capability() {
@@ -2734,6 +2740,114 @@ mod tests {
             resume_options: vec![],
             resumed_from: None,
         }
+    }
+
+    fn test_session_metadata(
+        id: impl Into<String>,
+        label: impl Into<String>,
+        workspace: impl Into<String>,
+        status: impl Into<String>,
+        created_at: impl Into<String>,
+        last_activity: impl Into<String>,
+    ) -> metadata::SessionMetadata {
+        metadata::SessionMetadata {
+            id: id.into(),
+            label: label.into(),
+            workspace: workspace.into(),
+            task: String::new(),
+            harness: String::new(),
+            model: String::new(),
+            cwd: "/tmp".into(),
+            status: status.into(),
+            phase: String::new(),
+            connectivity: "offline".into(),
+            terminal_outcome: Some("ended".into()),
+            observed_status: None,
+            summary: None,
+            next_action: None,
+            needs_user_input: None,
+            detected_question: None,
+            suggested_options: None,
+            blocker_description: None,
+            failed_command: None,
+            failed_test: None,
+            capacity_hints: None,
+            peon_last_inference: None,
+            provider_id: None,
+            provider_label: None,
+            provider_model: None,
+            provider_state: None,
+            created_at: created_at.into(),
+            last_activity: last_activity.into(),
+            metadata_source: "process".into(),
+            metadata_confidence: 1.0,
+            repo_root: None,
+            branch: None,
+            dirty: None,
+            changed_files: None,
+            is_worktree: None,
+            resume: None,
+            resume_options: vec![],
+            harness_session_id_source: None,
+            harness_session_id_confidence: None,
+            harness_session_id_captured_at: None,
+            resumed_from: None,
+            last_user_input: None,
+        }
+    }
+
+    fn test_router(state: Arc<AppState>) -> Router {
+        let cors = CorsLayer::new()
+            .allow_origin(Any)
+            .allow_methods(Any)
+            .allow_headers(Any);
+
+        Router::new()
+            .route("/health", get(health_check))
+            .route("/providers", get(get_providers))
+            .route("/providers/:id/models", get(get_provider_models))
+            .route("/settings/providers", post(set_provider_settings))
+            .route("/workspace", post(set_workspace))
+            .route("/workspace/active-session", post(set_active_session))
+            .route("/workspace/active-harnesses", put(set_active_harnesses))
+            .route("/sessions", post(create_session))
+            .route("/sessions", get(list_sessions))
+            .route("/sessions/:id", delete(delete_session))
+            .route("/sessions/:id/forget", delete(forget_session))
+            .route("/sessions/:id/resume", post(resume_session))
+            .route("/sessions/:id/harness-session", post(report_harness_session))
+            .route("/settings/retention", post(set_retention))
+            .route("/harnesses", get(list_harnesses).post(create_harness))
+            .route("/harnesses/:id", put(update_harness).delete(delete_harness))
+            .route("/sessions/:id/terminal", get(session_terminal_handler))
+            .route("/sessions/:id/terminal-output", get(get_terminal_output))
+            .layer(cors)
+            .with_state(state)
+    }
+
+    async fn test_server_base_url(state: Arc<AppState>) -> (String, tokio::task::JoinHandle<()>) {
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let app = test_router(state);
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        (format!("http://{}", addr), server)
+    }
+
+    fn with_fake_home<T>(home: &std::path::Path, f: impl FnOnce() -> T) -> T {
+        static HOME_LOCK: OnceLock<StdMutex<()>> = OnceLock::new();
+        let lock = HOME_LOCK.get_or_init(|| StdMutex::new(()));
+        let _guard = lock.lock().unwrap();
+        let previous = std::env::var_os("HOME");
+        std::env::set_var("HOME", home);
+        let result = f();
+        if let Some(value) = previous {
+            std::env::set_var("HOME", value);
+        } else {
+            std::env::remove_var("HOME");
+        }
+        result
     }
 
     #[tokio::test]
@@ -2954,6 +3068,297 @@ mod tests {
         let updated_resume = updated.resume.unwrap();
         assert_eq!(updated_resume.harness_session_id.as_deref(), Some("native-123"));
         assert_ne!(updated_resume.last_seen_at.as_deref(), Some("before"));
+    }
+
+    #[tokio::test]
+    async fn get_provider_models_returns_not_found_for_unknown_provider() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let response = get_provider_models(State(state), Path("unknown-provider".into()))
+            .await
+            .into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn forget_session_rejects_live_session_with_conflict() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let session_id = "live-session".to_string();
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+
+        state.sessions.lock().unwrap().insert(
+            session_id.clone(),
+            SessionHandle {
+                info: test_session_info(
+                    session_id.clone(),
+                    "Live Session",
+                    dir.path().display().to_string(),
+                    "running",
+                    "now",
+                ),
+                kill_tx,
+                output_buffer: peon::RingBuffer::new(200),
+                command: default_shell_command(dir.path().display().to_string()),
+                initial_prompt: None,
+            },
+        );
+
+        let response = forget_session(State(state), Path(session_id))
+            .await
+            .into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::CONFLICT);
+    }
+
+    #[tokio::test]
+    async fn delete_builtin_harness_returns_conflict() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let builtin = builtin_harness_configs()
+            .into_iter()
+            .next()
+            .expect("expected at least one built-in harness");
+        state.harnesses.write().await.push(builtin.clone());
+
+        let response = delete_harness(State(state), Path(builtin.id))
+            .await
+            .into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::CONFLICT);
+    }
+
+    #[tokio::test]
+    async fn session_routes_remain_registered_with_current_methods_and_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let (base_url, server) = test_server_base_url(state).await;
+        let client = reqwest::Client::new();
+
+        let cases = [
+            (reqwest::Method::GET, format!("{}/workspace", base_url)),
+            (
+                reqwest::Method::GET,
+                format!("{}/workspace/active-session", base_url),
+            ),
+            (
+                reqwest::Method::GET,
+                format!("{}/workspace/active-harnesses", base_url),
+            ),
+            (reqwest::Method::PUT, format!("{}/sessions", base_url)),
+            (
+                reqwest::Method::GET,
+                format!("{}/sessions/test-id/forget", base_url),
+            ),
+            (
+                reqwest::Method::GET,
+                format!("{}/sessions/test-id/resume", base_url),
+            ),
+            (
+                reqwest::Method::GET,
+                format!("{}/sessions/test-id/harness-session", base_url),
+            ),
+            (reqwest::Method::POST, format!("{}/sessions/test-id", base_url)),
+        ];
+
+        for (method, url) in cases {
+            let response = client.request(method, url).send().await.unwrap();
+            assert_eq!(response.status(), reqwest::StatusCode::METHOD_NOT_ALLOWED);
+        }
+
+        server.abort();
+        let _ = server.await;
+    }
+
+    #[tokio::test]
+    async fn retention_cleanup_keeps_live_sessions() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let session_id = "still-live".to_string();
+
+        {
+            let ws_guard = state.workspace.lock().unwrap();
+            let ws = ws_guard.as_ref().unwrap();
+            ws.metadata.write_session(&test_session_metadata(
+                session_id.clone(),
+                "Still Live",
+                dir.path().display().to_string(),
+                "ended",
+                "2024-01-01T00:00:00Z",
+                "2024-01-01T00:00:00Z",
+            ));
+        }
+
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        state.sessions.lock().unwrap().insert(
+            session_id.clone(),
+            SessionHandle {
+                info: test_session_info(
+                    session_id.clone(),
+                    "Still Live",
+                    dir.path().display().to_string(),
+                    "running",
+                    "2024-01-01T00:00:00Z",
+                ),
+                kill_tx,
+                output_buffer: peon::RingBuffer::new(200),
+                command: default_shell_command(dir.path().display().to_string()),
+                initial_prompt: None,
+            },
+        );
+
+        {
+            let mut config = state.retention_config.write().await;
+            config.max_age_days = 1;
+            config.max_sessions = 0;
+        }
+
+        retention_cleanup_once(&state, chrono::Utc::now()).await;
+
+        let ws_guard = state.workspace.lock().unwrap();
+        let ws = ws_guard.as_ref().unwrap();
+        assert!(ws.metadata.read_session(&session_id).is_some());
+    }
+
+    #[tokio::test]
+    async fn retention_cleanup_clears_last_active_when_session_is_deleted() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let session_id = "old-session".to_string();
+
+        {
+            let ws_guard = state.workspace.lock().unwrap();
+            let ws = ws_guard.as_ref().unwrap();
+            ws.metadata.write_session(&test_session_metadata(
+                session_id.clone(),
+                "Old Session",
+                dir.path().display().to_string(),
+                "ended",
+                "2024-01-01T00:00:00Z",
+                "2024-01-01T00:00:00Z",
+            ));
+            ws.metadata.write_workspace_memory(&metadata::WorkspaceMemory {
+                last_active_session_id: Some(session_id.clone()),
+                last_active_at: Some("2024-01-01T00:00:00Z".into()),
+                active_harness_ids: vec![],
+            });
+        }
+
+        {
+            let mut config = state.retention_config.write().await;
+            config.max_age_days = 1;
+            config.max_sessions = 0;
+        }
+
+        let now = chrono::DateTime::parse_from_rfc3339("2024-02-01T00:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        retention_cleanup_once(&state, now).await;
+
+        let ws_guard = state.workspace.lock().unwrap();
+        let ws = ws_guard.as_ref().unwrap();
+        assert!(ws.metadata.read_session(&session_id).is_none());
+        let memory = ws.metadata.read_workspace_memory().unwrap();
+        assert_eq!(memory.last_active_session_id, None);
+        assert_eq!(memory.last_active_at, None);
+    }
+
+    #[test]
+    fn load_harnesses_merges_disk_overrides_with_builtins() {
+        let dir = tempfile::tempdir().unwrap();
+
+        with_fake_home(dir.path(), || {
+            let mut override_entry = builtin_harness_configs()
+                .into_iter()
+                .find(|h| h.id == "opencode")
+                .expect("expected opencode builtin");
+            override_entry.command = "opencode-custom".into();
+            override_entry.args = vec!["--sandbox".into()];
+            override_entry.is_builtin = false;
+
+            let harnesses_path = global_harnesses_path().unwrap();
+            std::fs::create_dir_all(harnesses_path.parent().unwrap()).unwrap();
+            std::fs::write(
+                &harnesses_path,
+                serde_json::to_string(&vec![override_entry]).unwrap(),
+            )
+            .unwrap();
+
+            let harnesses = load_harnesses();
+            let merged = harnesses
+                .into_iter()
+                .find(|h| h.id == "opencode")
+                .expect("expected merged opencode harness");
+
+            assert_eq!(merged.command, "opencode-custom");
+            assert_eq!(merged.args, vec!["--sandbox"]);
+            assert!(merged.is_builtin);
+        });
+    }
+
+    #[test]
+    fn load_harnesses_appends_custom_harnesses_after_builtins() {
+        let dir = tempfile::tempdir().unwrap();
+
+        with_fake_home(dir.path(), || {
+            let custom = HarnessConfig {
+                id: "custom-shell".into(),
+                name: "Custom Shell".into(),
+                harness: "generic-shell".into(),
+                command: "/bin/sh".into(),
+                args: vec!["-lc".into()],
+                default_model: String::new(),
+                model_prefix: String::new(),
+                capabilities: HarnessVoiceCapabilities::default(),
+                is_builtin: false,
+            };
+
+            let harnesses_path = global_harnesses_path().unwrap();
+            std::fs::create_dir_all(harnesses_path.parent().unwrap()).unwrap();
+            std::fs::write(
+                &harnesses_path,
+                serde_json::to_string(&vec![custom.clone()]).unwrap(),
+            )
+            .unwrap();
+
+            let harnesses = load_harnesses();
+            let builtin_count = builtin_harness_configs().len();
+
+            assert_eq!(harnesses.len(), builtin_count + 1);
+            assert_eq!(harnesses.last().map(|h| h.id.as_str()), Some("custom-shell"));
+            assert_eq!(harnesses.last().map(|h| h.is_builtin), Some(false));
+        });
+    }
+
+    #[tokio::test]
+    async fn get_terminal_output_reads_persisted_terminal_history_for_dead_session() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let session_id = "dead-session".to_string();
+
+        {
+            let ws_guard = state.workspace.lock().unwrap();
+            let ws = ws_guard.as_ref().unwrap();
+            ws.metadata.append_terminal_output_lines(
+                &session_id,
+                &["first line".into(), "second line".into()],
+            );
+        }
+
+        let response = get_terminal_output(State(state), Path(session_id))
+            .await
+            .into_response();
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            payload["lines"],
+            serde_json::json!(["first line", "second line"])
+        );
     }
 
     #[test]
