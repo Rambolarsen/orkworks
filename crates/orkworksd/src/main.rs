@@ -25,6 +25,7 @@ mod metadata;
 mod watcher;
 mod git;
 mod harness;
+mod harness_registry;
 mod peon;
 mod providers;
 mod domain;
@@ -36,6 +37,11 @@ mod session_view;
 mod workspace_runtime;
 
 use crate::infrastructure::session_module::SessionModule;
+use crate::harness_registry::{
+    adapter_for_harness, builtin_adapters, builtin_harness_configs, capabilities_for_harness,
+    default_capabilities, default_shell_command, load_harnesses, resolve_adapter_harness_id,
+    save_harnesses, HarnessConfig,
+};
 use crate::session_types::{MemoryState, SessionInfo};
 use crate::session_view::{
     connectivity_for_status, derive_memory_state, detect_conflicts, merge_live_session_info,
@@ -73,36 +79,6 @@ struct RetentionConfig {
     max_sessions: usize,
     #[serde(rename = "maxAgeDays", default)]
     max_age_days: u32,
-}
-
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-struct HarnessVoiceCapabilities {
-    #[serde(rename = "nativeVoice", default)]
-    native_voice: bool,
-    #[serde(rename = "requiresMicrophonePermission", default)]
-    requires_microphone_permission: bool,
-    #[serde(rename = "orkworksDictation", default)]
-    orkworks_dictation: bool,
-    #[serde(rename = "orkworksVoiceCommands", default)]
-    orkworks_voice_commands: bool,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct HarnessConfig {
-    id: String,
-    name: String,
-    harness: String,
-    command: String,
-    #[serde(default)]
-    args: Vec<String>,
-    #[serde(rename = "defaultModel", default)]
-    default_model: String,
-    #[serde(rename = "modelPrefix", default)]
-    model_prefix: String,
-    #[serde(default)]
-    capabilities: HarnessVoiceCapabilities,
-    #[serde(rename = "isBuiltin", default)]
-    is_builtin: bool,
 }
 
 struct AppState {
@@ -584,20 +560,6 @@ fn resolve_session_launch(
         command: default_shell_command(cwd),
         provider_id: None,
         provider_label: None,
-    }
-}
-
-fn resolve_adapter_harness_id(
-    harnesses: &[HarnessConfig],
-    session_harness_id: Option<&str>,
-) -> Option<String> {
-    match session_harness_id {
-        Some(id) if !id.is_empty() => harnesses
-            .iter()
-            .find(|h| h.id == id)
-            .map(|h| h.harness.clone())
-            .or_else(|| Some(id.to_string())),
-        _ => None,
     }
 }
 
@@ -1353,18 +1315,6 @@ async fn peon_loop(state: Arc<AppState>) {
     }
 }
 
-fn shell_cmd() -> (String, Vec<String>) {
-    if cfg!(target_os = "windows") {
-        (
-            std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".into()),
-            vec![],
-        )
-    } else {
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
-        (shell, vec!["-i".into(), "-l".into()])
-    }
-}
-
 fn terminal_env_overrides() -> Vec<(String, String)> {
     vec![
         ("TERM".into(), "xterm-256color".into()),
@@ -1389,115 +1339,6 @@ fn codex_thread_id_from_jsonl_line(line: &str) -> Option<String> {
         return None;
     }
     value.get("thread_id").and_then(|v| v.as_str()).map(str::to_string)
-}
-
-// --- Harness config helpers ---
-
-fn global_harnesses_path() -> Option<std::path::PathBuf> {
-    dirs::home_dir().map(|h| h.join(".orkworks").join("harnesses.json"))
-}
-
-fn builtin_harness_configs() -> Vec<HarnessConfig> {
-    let (shell_program, shell_args) = shell_cmd();
-    vec![
-        HarnessConfig {
-            id: "claude-code".into(),
-            name: "Claude Code".into(),
-            harness: "claude-code".into(),
-            command: "claude".into(),
-            args: vec![],
-            default_model: String::new(),
-            model_prefix: String::new(),
-            capabilities: HarnessVoiceCapabilities::default(),
-            is_builtin: true,
-        },
-        HarnessConfig {
-            id: "opencode".into(),
-            name: "OpenCode".into(),
-            harness: "opencode".into(),
-            command: "opencode".into(),
-            args: vec!["--model".into(), "{model}".into()],
-            default_model: String::new(),
-            model_prefix: "ollama/".into(),
-            capabilities: HarnessVoiceCapabilities::default(),
-            is_builtin: true,
-        },
-        HarnessConfig {
-            id: "codex".into(),
-            name: "Codex".into(),
-            harness: "generic-shell".into(),
-            command: "codex".into(),
-            args: vec![],
-            default_model: String::new(),
-            model_prefix: String::new(),
-            capabilities: HarnessVoiceCapabilities::default(),
-            is_builtin: true,
-        },
-        HarnessConfig {
-            id: "gemini".into(),
-            name: "Gemini CLI".into(),
-            harness: "generic-shell".into(),
-            command: "gemini".into(),
-            args: vec![],
-            default_model: String::new(),
-            model_prefix: String::new(),
-            capabilities: HarnessVoiceCapabilities::default(),
-            is_builtin: true,
-        },
-        HarnessConfig {
-            id: "aider".into(),
-            name: "Aider".into(),
-            harness: "generic-shell".into(),
-            command: "aider".into(),
-            args: vec!["--model".into(), "{model}".into()],
-            default_model: "claude-sonnet-4-20250514".into(),
-            model_prefix: "ollama_chat/".into(),
-            capabilities: HarnessVoiceCapabilities::default(),
-            is_builtin: true,
-        },
-        HarnessConfig {
-            id: "generic-shell".into(),
-            name: "Shell".into(),
-            harness: "generic-shell".into(),
-            command: shell_program,
-            args: shell_args,
-            default_model: String::new(),
-            model_prefix: String::new(),
-            capabilities: HarnessVoiceCapabilities::default(),
-            is_builtin: true,
-        },
-    ]
-}
-
-fn load_harnesses() -> Vec<HarnessConfig> {
-    let built_ins = builtin_harness_configs();
-    let Some(path) = global_harnesses_path() else { return built_ins; };
-    let Ok(data) = std::fs::read_to_string(&path) else { return built_ins; };
-    let Ok(disk): serde_json::Result<Vec<HarnessConfig>> = serde_json::from_str(&data) else {
-        tracing::warn!("failed to parse ~/.orkworks/harnesses.json; using built-ins");
-        return built_ins;
-    };
-    let mut result = built_ins;
-    for disk_entry in disk {
-        if let Some(pos) = result.iter().position(|h| h.id == disk_entry.id) {
-            let is_builtin = result[pos].is_builtin;
-            result[pos] = HarnessConfig { is_builtin, ..disk_entry };
-        } else {
-            result.push(disk_entry);
-        }
-    }
-    result
-}
-
-fn save_harnesses(harnesses: &[HarnessConfig]) {
-    let Some(path) = global_harnesses_path() else { return; };
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    match serde_json::to_string_pretty(harnesses) {
-        Ok(json) => { let _ = std::fs::write(&path, json); }
-        Err(e) => tracing::error!(error = %e, "failed to serialize harnesses"),
-    }
 }
 
 // --- Harness CRUD handlers ---
@@ -1552,133 +1393,6 @@ async fn delete_harness(
     } else {
         axum::http::StatusCode::NOT_FOUND.into_response()
     }
-}
-
-fn default_shell_command(cwd: String) -> harness::CommandSpec {
-    let (program, args) = shell_cmd();
-    harness::CommandSpec { program, args, cwd }
-}
-
-fn default_capabilities() -> harness::HarnessCapabilities {
-    harness::HarnessCapabilities {
-        launch: true,
-        resume_exact: false,
-        resume_latest_in_cwd: false,
-        resume_latest_in_repo: false,
-        detect_session_id: false,
-        detect_model: false,
-        detect_context_usage: false,
-        detect_capacity: false,
-        native_voice: false,
-    }
-}
-
-fn builtin_adapters() -> HashMap<String, harness::HarnessAdapter> {
-    let (program, args) = shell_cmd();
-    let mut map = HashMap::new();
-
-    let generic = harness::HarnessAdapter::template(
-        "generic-shell",
-        "Generic Shell",
-        default_capabilities(),
-        &[],
-        harness::CommandTemplate {
-            command: program.clone(),
-            args: args.clone(),
-        },
-        None,
-        None,
-    );
-    map.insert("generic-shell".into(), generic);
-
-    let opencode_caps = harness::HarnessCapabilities {
-        launch: true,
-        resume_exact: true,
-        resume_latest_in_cwd: true,
-        resume_latest_in_repo: true,
-        detect_session_id: true,
-        detect_model: true,
-        detect_context_usage: true,
-        detect_capacity: true,
-        native_voice: false,
-    };
-    let opencode = harness::HarnessAdapter::template(
-        "opencode",
-        "OpenCode",
-        opencode_caps.clone(),
-        &["usage limit reached"],
-        harness::CommandTemplate {
-            command: "opencode".into(),
-            args: vec![],
-        },
-        Some(harness::CommandTemplate {
-            command: "opencode".into(),
-            args: vec!["--session".into(), "{harnessSessionId}".into()],
-        }),
-        Some(harness::CommandTemplate {
-            command: "opencode".into(),
-            args: vec!["--continue".into()],
-        }),
-    );
-    map.insert("opencode".into(), opencode);
-
-    let claude_caps = harness::HarnessCapabilities {
-        launch: true,
-        resume_exact: true,
-        resume_latest_in_cwd: true,
-        resume_latest_in_repo: true,
-        detect_session_id: true,
-        detect_model: true,
-        detect_context_usage: true,
-        detect_capacity: true,
-        native_voice: false,
-    };
-    // ponytail: claude-code patterns empty until verified — see GitHub issue #84
-    let claude = harness::HarnessAdapter::template(
-        "claude-code",
-        "Claude Code",
-        claude_caps.clone(),
-        &[],
-        harness::CommandTemplate {
-            command: "claude".into(),
-            args: vec![],
-        },
-        Some(harness::CommandTemplate {
-            command: "claude".into(),
-            args: vec!["--resume".into(), "{harnessSessionId}".into()],
-        }),
-        Some(harness::CommandTemplate {
-            command: "claude".into(),
-            args: vec!["--continue".into()],
-        }),
-    );
-    map.insert("claude-code".into(), claude);
-
-    map
-}
-
-fn capabilities_for_harness(
-    adapters: &HashMap<String, harness::HarnessAdapter>,
-    harness_id: Option<&str>,
-) -> harness::HarnessCapabilities {
-    match harness_id {
-        Some(h) if !h.is_empty() => adapters
-            .get(h)
-            .map(|a| a.capabilities.clone())
-            .unwrap_or_else(default_capabilities),
-        _ => default_capabilities(),
-    }
-}
-
-fn adapter_for_harness<'a>(
-    adapters: &'a HashMap<String, harness::HarnessAdapter>,
-    harness_id: Option<&str>,
-) -> &'a harness::HarnessAdapter {
-    match harness_id {
-        Some(h) if !h.is_empty() => adapters.get(h),
-        _ => None,
-    }
-    .unwrap_or_else(|| adapters.get("generic-shell").unwrap())
 }
 
 #[derive(Debug, PartialEq)]
@@ -2310,7 +2024,6 @@ async fn handle_session_terminal(mut ws: WebSocket, id: String, state: Arc<AppSt
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{Mutex as StdMutex, OnceLock};
 
     #[test]
     fn terminal_env_overrides_force_color_capability() {
@@ -2592,21 +2305,6 @@ mod tests {
             axum::serve(listener, app).await.unwrap();
         });
         (format!("http://{}", addr), server)
-    }
-
-    fn with_fake_home<T>(home: &std::path::Path, f: impl FnOnce() -> T) -> T {
-        static HOME_LOCK: OnceLock<StdMutex<()>> = OnceLock::new();
-        let lock = HOME_LOCK.get_or_init(|| StdMutex::new(()));
-        let _guard = lock.lock().unwrap();
-        let previous = std::env::var_os("HOME");
-        std::env::set_var("HOME", home);
-        let result = f();
-        if let Some(value) = previous {
-            std::env::set_var("HOME", value);
-        } else {
-            std::env::remove_var("HOME");
-        }
-        result
     }
 
     #[tokio::test]
@@ -3021,73 +2719,6 @@ mod tests {
         let memory = ws.metadata.read_workspace_memory().unwrap();
         assert_eq!(memory.last_active_session_id, None);
         assert_eq!(memory.last_active_at, None);
-    }
-
-    #[test]
-    fn load_harnesses_merges_disk_overrides_with_builtins() {
-        let dir = tempfile::tempdir().unwrap();
-
-        with_fake_home(dir.path(), || {
-            let mut override_entry = builtin_harness_configs()
-                .into_iter()
-                .find(|h| h.id == "opencode")
-                .expect("expected opencode builtin");
-            override_entry.command = "opencode-custom".into();
-            override_entry.args = vec!["--sandbox".into()];
-            override_entry.is_builtin = false;
-
-            let harnesses_path = global_harnesses_path().unwrap();
-            std::fs::create_dir_all(harnesses_path.parent().unwrap()).unwrap();
-            std::fs::write(
-                &harnesses_path,
-                serde_json::to_string(&vec![override_entry]).unwrap(),
-            )
-            .unwrap();
-
-            let harnesses = load_harnesses();
-            let merged = harnesses
-                .into_iter()
-                .find(|h| h.id == "opencode")
-                .expect("expected merged opencode harness");
-
-            assert_eq!(merged.command, "opencode-custom");
-            assert_eq!(merged.args, vec!["--sandbox"]);
-            assert!(merged.is_builtin);
-        });
-    }
-
-    #[test]
-    fn load_harnesses_appends_custom_harnesses_after_builtins() {
-        let dir = tempfile::tempdir().unwrap();
-
-        with_fake_home(dir.path(), || {
-            let custom = HarnessConfig {
-                id: "custom-shell".into(),
-                name: "Custom Shell".into(),
-                harness: "generic-shell".into(),
-                command: "/bin/sh".into(),
-                args: vec!["-lc".into()],
-                default_model: String::new(),
-                model_prefix: String::new(),
-                capabilities: HarnessVoiceCapabilities::default(),
-                is_builtin: false,
-            };
-
-            let harnesses_path = global_harnesses_path().unwrap();
-            std::fs::create_dir_all(harnesses_path.parent().unwrap()).unwrap();
-            std::fs::write(
-                &harnesses_path,
-                serde_json::to_string(&vec![custom.clone()]).unwrap(),
-            )
-            .unwrap();
-
-            let harnesses = load_harnesses();
-            let builtin_count = builtin_harness_configs().len();
-
-            assert_eq!(harnesses.len(), builtin_count + 1);
-            assert_eq!(harnesses.last().map(|h| h.id.as_str()), Some("custom-shell"));
-            assert_eq!(harnesses.last().map(|h| h.is_builtin), Some(false));
-        });
     }
 
     #[tokio::test]
@@ -4195,31 +3826,6 @@ mod tests {
         } else {
             panic!("workspace not set up");
         }
-    }
-
-    #[test]
-    fn generic_shell_memory_state_is_not_resumable() {
-        let capabilities = default_capabilities();
-        let resume = harness::ResumeMemory {
-            state: harness::ResumeState::Available,
-            preferred_strategy: harness::ResumeStrategy::Exact,
-            harness_session_id: Some("sess-1".into()),
-            latest_fallback: true,
-            last_seen_at: None,
-        };
-
-        let (memory_state, strategy) = derive_memory_state(false, Some(&resume), &capabilities);
-        let command = builtin_adapters().get("generic-shell").unwrap().build_resume_command(&harness::ResumeRequest {
-            strategy: harness::ResumeStrategy::Exact,
-            cwd: "/tmp".into(),
-            repo_root: Some("/tmp".into()),
-            harness_session_id: Some("sess-1".into()),
-            model: None,
-        });
-
-        assert_eq!(memory_state, MemoryState::Unsupported);
-        assert_eq!(strategy, harness::ResumeStrategy::None);
-        assert!(command.is_none());
     }
 
 }
