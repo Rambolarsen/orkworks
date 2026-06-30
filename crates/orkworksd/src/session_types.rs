@@ -46,6 +46,8 @@ pub(crate) struct SessionInfo {
     pub(crate) capacity_hints: Option<Vec<String>>,
     #[serde(rename = "atUsageLimit", skip_serializing_if = "Option::is_none")]
     pub(crate) at_usage_limit: Option<bool>,
+    #[serde(rename = "usageLimitResetHint", skip_serializing_if = "Option::is_none")]
+    pub(crate) usage_limit_reset_hint: Option<String>,
     #[serde(rename = "metadataSource")]
     pub(crate) metadata_source: Option<String>,
     #[serde(rename = "metadataConfidence")]
@@ -127,6 +129,7 @@ mod tests {
             failed_test: None,
             capacity_hints: None,
             at_usage_limit: None,
+            usage_limit_reset_hint: None,
             metadata_source: None,
             metadata_confidence: None,
             repo_root: None,

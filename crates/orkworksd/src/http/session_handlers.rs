@@ -220,6 +220,7 @@ pub(crate) async fn resume_session(
         failed_test: None,
         capacity_hints: None,
         at_usage_limit: None,
+        usage_limit_reset_hint: None,
         metadata_source: Some("process".into()),
         metadata_confidence: Some(1.0),
         repo_root: meta.repo_root.clone(),
@@ -444,6 +445,7 @@ pub(crate) async fn create_session(
         failed_test: None,
         capacity_hints: None,
         at_usage_limit: None,
+        usage_limit_reset_hint: None,
         metadata_source: None,
         metadata_confidence: None,
         repo_root: git_ctx.repo_root.clone(),
@@ -545,7 +547,7 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
     let harnesses = state.harnesses.read().await.clone();
     let live_sessions: Vec<(SessionInfo, Vec<String>)> = {
         let sessions = state.sessions.lock().unwrap();
-        sessions.values().map(|h| (h.info.clone(), h.output_buffer.last_n(50))).collect()
+        sessions.values().map(|h| (h.info.clone(), h.output_buffer.snapshot())).collect()
     };
 
     let ws_guard = state.workspace.lock().unwrap();
@@ -574,10 +576,13 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
         let adapter_harness_id = resolve_adapter_harness_id(&harnesses, session_harness_id);
         let caps = capabilities_for_harness(&state.adapters, adapter_harness_id.as_deref());
         let mut merged = merge_live_session_info(info, meta, peon_times.get(&id), &caps);
-        merged.at_usage_limit = adapter_harness_id
+        let limit_adapter = adapter_harness_id
             .as_deref()
-            .and_then(|hid| state.adapters.get(hid))
+            .and_then(|hid| state.adapters.get(hid));
+        merged.at_usage_limit = limit_adapter
             .map(|adapter| peon::detect_usage_limit(adapter.limit_patterns, &snapshot));
+        merged.usage_limit_reset_hint = limit_adapter
+            .and_then(|adapter| peon::detect_usage_limit_hint(adapter.limit_patterns, &snapshot));
         merged
     }).collect();
 
@@ -616,6 +621,7 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
             failed_test: meta.failed_test.clone(),
             capacity_hints: meta.capacity_hints.clone(),
             at_usage_limit: None,
+            usage_limit_reset_hint: None,
             metadata_source: Some(meta.metadata_source.clone()),
             metadata_confidence: Some(meta.metadata_confidence),
             peon_last_inference: meta.peon_last_inference.clone(),
