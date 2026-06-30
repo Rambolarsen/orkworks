@@ -40,16 +40,30 @@ Every spawned PTY session receives `ORKWORKS_SESSION_ID` and `ORKWORKS_PORT` in 
 
 ## Rust sidecar (`crates/orkworksd/src/`)
 
-Single binary, eight modules:
+Single binary. Top-level modules:
 
-- `main.rs` — Axum router, `AppState` (sessions + workspace + harness adapters + `ProviderManager`), all HTTP/WS handlers, PTY lifecycle, session resume, workspace path hashing, global metadata directory resolution, and session DTO shaping for `connectivity` / `terminalOutcome` / `lastActivityAt` / `resumeOptions`
+- `main.rs` — Axum router, `AppState` / `SessionHandle` / `WorkspaceState` / `PeonState` / `RetentionConfig` struct definitions, `main()`, `health_check()`, `#[cfg(test)] pub(crate) mod test_support` (shared test helpers), and a slim `mod tests` covering route registration and core AppState invariants
+- `http/` — HTTP handler submodules (`ErrorResponse` declared in `http/mod.rs`):
+  - `harness_handlers.rs` — harness CRUD (`GET/POST /harnesses`, `PUT/DELETE /harnesses/:id`)
+  - `provider_handlers.rs` — provider query handlers (`GET /providers`, `GET /providers/:id/models`, `POST /settings/providers`)
+  - `retention_handlers.rs` — retention config handler (`POST /settings/retention`)
+  - `session_handlers.rs` — session/workspace HTTP handlers (`POST /workspace`, `GET/POST /sessions`, `DELETE /sessions/:id`, `POST /sessions/:id/resume`, `POST /sessions/:id/harness-session`, etc.) and associated request/response types
+- `runtime/` — background-task and PTY submodules:
+  - `peon_runtime.rs` — `peon_loop` (continuous Peon observation loop)
+  - `retention.rs` — `retention_cleanup_task`, `retention_cleanup_once`
+  - `terminal_http.rs` — `get_terminal_output`, `session_terminal_handler` (WebSocket upgrade)
+  - `terminal_runtime.rs` — PTY spawn (`make_pty_system`), env helpers (`terminal_env_overrides`, `session_env_overrides`, `should_forward_terminal_env`), `TerminalAction` dispatch, `set_session_status`, `handle_session_terminal`
 - `git.rs` — git2-based context detection (repo root, branch, dirty check including untracked files while excluding ignored files)
 - `harness.rs` — harness adapter types, command templates, resume strategy selection, capability flags
+- `harness_registry.rs` — built-in harness configs and adapters, `resolve_adapter_harness_id`, `default_shell_command`, disk persistence helpers
 - `metadata.rs` — reads/writes `sessions/<id>.json`, `workspace.json`, and `events/<id>.terminal` (terminal output ring buffer) files under the global metadata root (`~/.orkworks/workspaces/<hash>/`), including persisted session connectivity, terminal outcome, last-activity, and resume-option metadata
 - `migration.rs` — one-time migration of legacy `<workspace>/.orkworks/` data into the global store
-- `peon.rs` — observer config, ring buffer, prompt building, inference parsing/validation, source-priority overwrite rules, timer-based idle detection (`PEON_IDLE_TIMEOUT`, default 15s), summary normalization (strips "User is/wants/typed" prefixes), and `is_terminal_observed_status` for clearing stale states on user input (driven by the debounce loop in `main.rs`; tuning knobs documented in `README.md`)
+- `peon.rs` — observer config, ring buffer, prompt building, inference parsing/validation, source-priority overwrite rules, timer-based idle detection (`PEON_IDLE_TIMEOUT`, default 15s), summary normalization (strips "User is/wants/typed" prefixes), and `is_terminal_observed_status` for clearing stale states on user input
 - `providers.rs` — fixed provider registry, applied-settings store, persisted runtime state, fallback runner (`run_inference` skips disabled/capped providers in fallback order), model listing (`list_models` runs each provider's configured list-models CLI command). On Unix, `ProcessRunner` calls `setsid()` + closes inherited fds ≥ 3 before spawning the harness subprocess (via `libc`), preventing PTY leakage into provider processes. This module still carries the historical `Provider*` names, but today it is modeling the Peon inference tool registry rather than the user-facing coding-tool selector. It exposes `GET /providers` for live runtime state, `GET /providers/:id/models` for available models, and `POST /settings/providers` for durable settings application. The session Peon loop routes through `ProviderManager::run_inference`. Per-provider peon model is configured in Settings.
+- `session_types.rs` — `SessionInfo` struct, `MemoryState` enum, session view value objects
+- `session_view.rs` — `merge_live_session_info`, `connectivity_for_status`, `terminal_outcome_for_status`, conflict detection, resume option derivation
 - `watcher.rs` — `notify`-based file watcher for session metadata changes under the global store
+- `workspace_runtime.rs` — `iso_now`, `orksworks_global_dir` (workspace path hashing to global store location)
 
 For the current Rust domain model itself, see [domain-entities.md](./domain-entities.md).
 

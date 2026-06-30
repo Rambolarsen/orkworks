@@ -287,6 +287,9 @@ pub(crate) fn resolve_adapter_harness_id(
     session_harness_id: Option<&str>,
 ) -> Option<String> {
     let harness_id = session_harness_id?;
+    if harness_id.is_empty() {
+        return None;
+    }
     harnesses
         .iter()
         .find(|h| h.id == harness_id)
@@ -406,5 +409,12 @@ mod tests {
         assert_eq!(memory_state, MemoryState::Unsupported);
         assert_eq!(strategy, harness::ResumeStrategy::None);
         assert!(command.is_none());
+    }
+
+    #[test]
+    fn resolve_adapter_harness_id_treats_empty_string_as_no_harness() {
+        let harnesses = builtin_harness_configs();
+        let result = resolve_adapter_harness_id(&harnesses, Some(""));
+        assert_eq!(result, None, "Some(\"\") should behave like None and return None");
     }
 }

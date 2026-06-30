@@ -47,3 +47,21 @@ pub(crate) async fn get_provider_models(
             .into_response(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::*;
+    use axum::response::IntoResponse;
+
+    #[tokio::test]
+    async fn get_provider_models_returns_not_found_for_unknown_provider() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let response = get_provider_models(State(state), Path("unknown-provider".into()))
+            .await
+            .into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::NOT_FOUND);
+    }
+}

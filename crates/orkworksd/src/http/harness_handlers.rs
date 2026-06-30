@@ -61,3 +61,28 @@ pub(crate) async fn delete_harness(
         axum::http::StatusCode::NOT_FOUND.into_response()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::harness_registry::builtin_harness_configs;
+    use crate::test_support::*;
+    use axum::response::IntoResponse;
+
+    #[tokio::test]
+    async fn delete_builtin_harness_returns_conflict() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let builtin = builtin_harness_configs()
+            .into_iter()
+            .next()
+            .expect("expected at least one built-in harness");
+        state.harnesses.write().await.push(builtin.clone());
+
+        let response = delete_harness(State(state), Path(builtin.id))
+            .await
+            .into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::CONFLICT);
+    }
+}
