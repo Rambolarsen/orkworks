@@ -166,7 +166,9 @@ function SessionListPanel({
                     </div>
                     {tone !== "neutral" && (
                       <div className="session-row-status" data-attention={tone}>
-                        {attentionLabel(attn)}
+                        {attn === "capped" && s.usageLimitResetHint
+                          ? `Capped · ${s.usageLimitResetHint}`
+                          : attentionLabel(attn)}
                       </div>
                     )}
                   </li>

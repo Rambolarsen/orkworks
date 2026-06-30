@@ -126,11 +126,44 @@ impl RingBuffer {
     }
 }
 
+/// Strips ANSI CSI escape sequences (e.g. \x1b[31m) so pattern matching works on raw PTY output.
+fn strip_ansi(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\x1b' {
+            if chars.peek() == Some(&'[') { chars.next(); }
+            for c2 in chars.by_ref() {
+                if c2.is_ascii_alphabetic() { break; }
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
 pub fn detect_usage_limit(patterns: &[&str], lines: &[String]) -> bool {
     if patterns.is_empty() { return false; }
-    lines.iter().rev().take(50).any(|line| {
-        let lower = line.to_lowercase();
+    lines.iter().any(|line| {
+        let lower = strip_ansi(line).to_lowercase();
         patterns.iter().any(|p| lower.contains(&p.to_lowercase()[..]))
+    })
+}
+
+/// Returns the "reset in X" fragment from the usage-limit line, if present.
+pub fn detect_usage_limit_hint(patterns: &[&str], lines: &[String]) -> Option<String> {
+    if patterns.is_empty() { return None; }
+    lines.iter().rev().find_map(|line| {
+        let plain = strip_ansi(line);
+        let lower = plain.to_lowercase();
+        if !patterns.iter().any(|p| lower.contains(&p.to_lowercase()[..])) {
+            return None;
+        }
+        let idx = lower.find("resets in").or_else(|| lower.find("reset in")).or_else(|| lower.find("try again at"))?;
+        let fragment = &plain[idx..];
+        let end = fragment.find(['.', '\n']).unwrap_or(fragment.len());
+        Some(fragment[..end].trim().to_string())
     })
 }
 
@@ -762,16 +795,16 @@ echo '{"status":"working","confidence":0.9}'
     }
 
     #[test]
-    fn detect_usage_limit_only_scans_last_50_lines() {
+    fn detect_usage_limit_scans_full_buffer() {
         let mut lines: Vec<String> = (0..60).map(|_| "no match".into()).collect();
-        lines[5] = "usage limit reached".into(); // index 5 = 55th from end, outside last 50
-        assert!(!detect_usage_limit(&["usage limit reached"], &lines));
+        lines[0] = "usage limit reached".into(); // buried at start — still found
+        assert!(detect_usage_limit(&["usage limit reached"], &lines));
     }
 
     #[test]
-    fn detect_usage_limit_matches_within_last_50_lines() {
+    fn detect_usage_limit_matches_anywhere_in_buffer() {
         let mut lines: Vec<String> = (0..60).map(|_| "no match".into()).collect();
-        lines[15] = "usage limit reached".into(); // index 15 = 45th from end, within last 50
+        lines[15] = "usage limit reached".into();
         assert!(detect_usage_limit(&["usage limit reached"], &lines));
     }
 }

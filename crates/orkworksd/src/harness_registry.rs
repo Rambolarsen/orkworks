@@ -79,7 +79,7 @@ pub(crate) fn builtin_harness_configs() -> Vec<HarnessConfig> {
         HarnessConfig {
             id: "codex".into(),
             name: "Codex".into(),
-            harness: "generic-shell".into(),
+            harness: "codex".into(),
             command: "codex".into(),
             args: vec![],
             default_model: String::new(),
@@ -254,6 +254,31 @@ pub(crate) fn builtin_adapters() -> HashMap<String, harness::HarnessAdapter> {
         }),
     );
     map.insert("claude-code".into(), claude);
+
+    let codex_caps = harness::HarnessCapabilities {
+        launch: true,
+        resume_exact: false,
+        resume_latest_in_cwd: false,
+        resume_latest_in_repo: false,
+        detect_session_id: false,
+        detect_model: false,
+        detect_context_usage: false,
+        detect_capacity: true,
+        native_voice: false,
+    };
+    let codex = harness::HarnessAdapter::template(
+        "codex",
+        "Codex",
+        codex_caps,
+        &["you've hit your usage limit"],
+        harness::CommandTemplate {
+            command: "codex".into(),
+            args: vec![],
+        },
+        None,
+        None,
+    );
+    map.insert("codex".into(), codex);
 
     map
 }

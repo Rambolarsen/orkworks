@@ -14,6 +14,7 @@ export const VOCAB = {
 export function attentionLabel(status: string): string {
   switch (status) {
     case "waiting_for_input": return "Needs you";
+    case "capped":            return "Capped";
     case "blocked":           return "Blocked";
     case "failed":            return "Failed";
     case "done":              return "Done";
@@ -44,6 +45,7 @@ export function attentionTone(status: string): AttentionTone {
       return "needs-you";
     case "failed":
       return "failed";
+    case "capped":
     case "blocked":
       return "blocked";
     case "done":
