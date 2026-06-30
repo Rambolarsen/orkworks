@@ -1,0 +1,12 @@
+{
+  "servers": {
+    "oraios/serena": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": [
+        "ide-assistant"
+      ]
+    }
+  },
+  "inputs": []
+}

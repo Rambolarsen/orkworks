@@ -16,6 +16,7 @@ dependencies:
     - DietrichGebert/ponytail
     - thedotmack/claude-mem
     - leonardomso/rust-skills
-  mcp: []
+  mcp:
+    - oraios/serena
 includes: auto
 scripts: {}
