@@ -1,6 +1,6 @@
 # APM and Agent Plugins
 
-Dependencies are managed by [APM](https://github.com/microsoft/apm) in the `orkworks/` directory. The `apm.yml` defines targets (claude, codex, copilot, opencode) and dependencies. Running `apm install` populates generated agent assets:
+Dependencies are managed by [APM](https://github.com/anthropics/apm) in the `orkworks/` directory. The `apm.yml` defines targets (claude, codex, copilot, opencode) and dependencies. Running `apm install` populates generated agent assets:
 
 | Path | Contents |
 | ---- | -------- |
@@ -41,21 +41,6 @@ Ponytail also ships its own `AGENTS.md` — if cross-referenced from this repo's
 ## rust-skills
 
 [leonardomso/rust-skills](https://github.com/leonardomso/rust-skills) — 265 Rust coding rules across 26 categories (ownership, error handling, async/tokio, unsafe, API design, memory, concurrency, serde, observability, performance, anti-patterns, and more). Current for Rust 1.96 / 2024 edition. Invoke with `/rust-skills` when writing, reviewing, or refactoring any code under `crates/`.
-
-## Repo MCP usage
-
-This repo declares MCP servers in `apm.yml` under `dependencies.mcp` and relies on `apm install` to write target-specific project files.
-
-For the current target set (`claude`, `codex`, `copilot`, `opencode`), that means:
-
-- `.mcp.json` for Claude Code
-- `.vscode/mcp.json` for VS Code / Copilot
-- `.codex/config.toml` for Codex
-- `opencode.json` updated with an `mcp` section for OpenCode
-
-Current server:
-
-- `oraios/serena`
 
 ## Repo-level skills
 

@@ -4,7 +4,7 @@ Local-first mission control for AI coding sessions. Peons observe individual ses
 
 ## State
 
-APM project bootstrapped — agent skills, hooks, plugins, and MCP config are installed via [APM](https://github.com/microsoft/apm) in `orkworks/`. M1 (Electron app shell + Rust sidecar scaffold) is implemented, and the alpha release pipeline now packages desktop artifacts through GitHub Actions + electron-builder. Subsequent milestones are tracked as GitHub issues.
+APM project bootstrapped — agent skills, hooks, and plugins are installed via [APM](https://github.com/anthropics/apm) in `orkworks/`. M1 (Electron app shell + Rust sidecar scaffold) is implemented, and the alpha release pipeline now packages desktop artifacts through GitHub Actions + electron-builder. Subsequent milestones are tracked as GitHub issues.
 
 ## Architecture
 
@@ -90,27 +90,6 @@ Tune via environment variables on `orkworksd`:
 ## Agent plugins
 
 Managed via APM in `orkworks/apm.yml`. Running `apm install` populates skills and hooks for all configured targets (claude, codex, copilot, opencode).
-
-## MCP servers
-
-This repo manages project-scoped MCP server configuration through `apm.yml`, not through hand-edited per-client config files.
-
-Current MCP dependencies:
-
-- `oraios/serena`
-
-To materialize the client-specific config:
-
-```bash
-cd orkworks
-apm install
-```
-
-Notes:
-
-- Serena runs through `uvx`, so `uv` must be installed locally.
-- `apm install` writes project-scoped MCP config for the current target set, including `.mcp.json`, `.vscode/mcp.json`, `.codex/config.toml`, and the `mcp` section in `opencode.json`.
-- `.github/copilot-instructions.md` remains a minimal pointer to `AGENTS.md`.
 
 Development agents should follow `AGENTS.md`, including the requirement to invoke and follow relevant Superpowers skills before implementation, debugging, review, verification, commit, push, or PR work.
 

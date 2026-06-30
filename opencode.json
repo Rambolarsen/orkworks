@@ -9,21 +9,5 @@
   "plugin": [
     "apm_modules/obra/superpowers/.opencode/plugins/superpowers.js",
     "apm_modules/DietrichGebert/ponytail/.opencode/plugins/ponytail.mjs"
-  ],
-  "mcp": {
-    "serena": {
-      "type": "local",
-      "enabled": true,
-      "command": [
-        "uvx",
-        "serena",
-        "--from",
-        "git+https://github.com/oraios/serena",
-        "serena",
-        "start-mcp-server",
-        "--context",
-        "ide-assistant"
-      ]
-    }
-  }
+  ]
 }

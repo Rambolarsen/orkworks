@@ -6,7 +6,7 @@ Local-first mission control for AI coding sessions. Peons observe individual ses
 
 ## State of the repo
 
-APM project bootstrapped — agent skills, hooks, plugins, and MCP config are installed via [APM](https://github.com/microsoft/apm) at the repo root. M1 (Electron app shell + Rust sidecar scaffold) is implemented. Subsequent milestones are tracked as GitHub issues.
+APM project bootstrapped — agent skills, hooks, and plugins are installed via [APM](https://github.com/anthropics/apm) at the repo root. M1 (Electron app shell + Rust sidecar scaffold) is implemented. Subsequent milestones are tracked as GitHub issues.
 
 ## Package manager
 
@@ -206,16 +206,7 @@ These are load-bearing UX decisions. Treat them as constraints on any feature, d
 
 ## APM and agent plugins
 
-Agent dependencies (Superpowers, Ponytail, Claude Mem, rust-skills) are managed by [APM](https://github.com/microsoft/apm) at the repo root (`apm.yml`). Run `apm install` from the repo root to populate skills, hooks, and MCP config for all configured targets (claude, codex, copilot, opencode).
-
-## MCP configuration
-
-Project-scoped MCP servers are declared in `apm.yml` under `dependencies.mcp`.
-
-- Do not hand-maintain parallel MCP definitions for Copilot, Claude, Codex, or OpenCode when APM can generate them.
-- After changing `dependencies.mcp`, run `apm install` to refresh the project config files.
-- The current MCP dependency is `oraios/serena`.
-- Serena runs through `uvx`, so local environments need `uv` installed.
+Agent dependencies (Superpowers, Ponytail, Claude Mem, rust-skills) are managed by [APM](https://github.com/anthropics/apm) at the repo root (`apm.yml`). Run `apm install` from the repo root to populate skills and hooks for all configured targets (claude, codex, copilot, opencode).
 
 See [`docs/agents/apm.md`](docs/agents/apm.md) for the full plugin list, generated path layout, and OpenCode configuration.
 
