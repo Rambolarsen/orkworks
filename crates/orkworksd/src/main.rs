@@ -7,7 +7,6 @@ use axum::{
 };
 use portable_pty::{CommandBuilder, PtySize, PtySystem};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
 use std::net::SocketAddr;
@@ -32,96 +31,17 @@ mod domain;
 mod application;
 mod infrastructure;
 mod migration;
+mod session_types;
+mod session_view;
+mod workspace_runtime;
 
 use crate::infrastructure::session_module::SessionModule;
-
-#[derive(Clone, Debug, Serialize)]
-struct SessionInfo {
-    id: String,
-    label: String,
-    #[serde(rename = "harnessId", skip_serializing_if = "Option::is_none")]
-    harness_id: Option<String>,
-    #[serde(rename = "modelProviderId", skip_serializing_if = "Option::is_none")]
-    model_provider_id: Option<String>,
-    #[serde(rename = "modelId", skip_serializing_if = "Option::is_none")]
-    model_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    harness: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    model: Option<String>,
-    status: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    connectivity: Option<String>,
-    #[serde(rename = "terminalOutcome", skip_serializing_if = "Option::is_none")]
-    terminal_outcome: Option<String>,
-    cwd: String,
-    created_at: String,
-    #[serde(rename = "lastActivityAt", skip_serializing_if = "Option::is_none")]
-    last_activity_at: Option<String>,
-    #[serde(rename = "observedStatus")]
-    observed_status: Option<String>,
-    pub summary: Option<String>,
-    #[serde(rename = "nextAction")]
-    next_action: Option<String>,
-    #[serde(rename = "needsUserInput")]
-    needs_user_input: Option<bool>,
-    #[serde(rename = "detectedQuestion")]
-    detected_question: Option<String>,
-    #[serde(rename = "suggestedOptions")]
-    suggested_options: Option<Vec<String>>,
-    #[serde(rename = "blockerDescription")]
-    blocker_description: Option<String>,
-    #[serde(rename = "failedCommand")]
-    failed_command: Option<String>,
-    #[serde(rename = "failedTest")]
-    failed_test: Option<String>,
-    #[serde(rename = "capacityHints")]
-    capacity_hints: Option<Vec<String>>,
-    #[serde(rename = "atUsageLimit", skip_serializing_if = "Option::is_none")]
-    at_usage_limit: Option<bool>,
-    #[serde(rename = "metadataSource")]
-    metadata_source: Option<String>,
-    #[serde(rename = "metadataConfidence")]
-    metadata_confidence: Option<f64>,
-    #[serde(rename = "repoRoot")]
-    repo_root: Option<String>,
-    branch: Option<String>,
-    dirty: Option<bool>,
-    #[serde(rename = "changedFiles")]
-    changed_files: Option<usize>,
-    #[serde(rename = "isWorktree")]
-    is_worktree: Option<bool>,
-    #[serde(rename = "conflictWarning")]
-    conflict_warning: Option<String>,
-    recommendation: Option<String>,
-    #[serde(rename = "peonLastInference")]
-    peon_last_inference: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    provider: Option<String>,
-    #[serde(rename = "providerModel", skip_serializing_if = "Option::is_none")]
-    provider_model: Option<String>,
-    #[serde(rename = "providerState", skip_serializing_if = "Option::is_none")]
-    provider_state: Option<String>,
-    #[serde(rename = "memoryState")]
-    memory_state: MemoryState,
-    #[serde(rename = "resumeStrategy")]
-    resume_strategy: harness::ResumeStrategy,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    resume: Option<harness::ResumeMemory>,
-    #[serde(rename = "resumeOptions", skip_serializing_if = "Vec::is_empty", default)]
-    resume_options: Vec<metadata::ResumeOption>,
-    #[serde(rename = "resumedFrom", skip_serializing_if = "Option::is_none")]
-    resumed_from: Option<String>,
-}
-
-#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-enum MemoryState {
-    Live,
-    Remembered,
-    Resumable,
-    Unsupported,
-}
+use crate::session_types::{MemoryState, SessionInfo};
+use crate::session_view::{
+    connectivity_for_status, derive_memory_state, detect_conflicts, merge_live_session_info,
+    session_recommendation, terminal_outcome_for_status,
+};
+use crate::workspace_runtime::{iso_now, orksworks_global_dir};
 
 struct SessionHandle {
     info: SessionInfo,
@@ -821,42 +741,6 @@ async fn create_session(
     Json(info)
 }
 
-fn detect_conflicts(sessions: &[SessionInfo]) -> Vec<(String, String)> {
-    let mut cwd_groups: HashMap<&str, Vec<&SessionInfo>> = HashMap::new();
-    for s in sessions {
-        if s.status == "running" || s.status == "creating" {
-            cwd_groups.entry(&s.cwd).or_default().push(s);
-        }
-    }
-    let mut warnings = Vec::new();
-    for (_cwd, group) in &cwd_groups {
-        if group.len() >= 2 {
-            if let Some(s) = group.first() {
-                if s.dirty.unwrap_or(false) {
-                    let warning = format!("{} sessions in this dirty workspace", group.len());
-                    for session in group {
-                        warnings.push((session.id.clone(), warning.clone()));
-                    }
-                }
-            }
-        }
-    }
-    warnings
-}
-
-fn session_recommendation(ctx: &git::GitContext, session_count_in_cwd: usize) -> Option<String> {
-    if ctx.is_worktree {
-        return Some("Running in a separate worktree. Good isolation.".into());
-    }
-    if session_count_in_cwd >= 2 && ctx.dirty {
-        return Some("Multiple sessions in the same dirty workspace. Consider separate worktrees.".into());
-    }
-    if !ctx.is_worktree && ctx.dirty && ctx.branch.as_deref() != Some("main") {
-        return Some("Working outside main in a dirty workspace. A worktree may be safer.".into());
-    }
-    None
-}
-
 async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let harnesses = state.harnesses.read().await.clone();
     let live_sessions: Vec<(SessionInfo, Vec<String>)> = {
@@ -983,92 +867,6 @@ async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse 
             .map(|(_, w)| w.clone());
     }
     Json(infos)
-}
-
-fn connectivity_for_status(status: &str) -> &'static str {
-    match status {
-        "creating" | "running" => "online",
-        _ => "offline",
-    }
-}
-
-fn terminal_outcome_for_status(status: &str) -> Option<String> {
-    match status {
-        "ended" | "killed" | "error" => Some(status.to_string()),
-        _ => None,
-    }
-}
-
-fn merge_live_session_info(
-    info: SessionInfo,
-    meta: Option<&metadata::SessionMetadata>,
-    peon_last_inference: Option<&String>,
-    capabilities: &harness::HarnessCapabilities,
-) -> SessionInfo {
-    let is_live = info.status != "killed" && info.status != "ended" && info.status != "error";
-    let (memory_state, resume_strategy) = derive_memory_state(
-        is_live,
-        meta.and_then(|m| m.resume.as_ref()).or(info.resume.as_ref()),
-        capabilities,
-    );
-    let resume = meta.and_then(|m| m.resume.clone()).or(info.resume);
-
-    SessionInfo {
-        id: info.id,
-        label: meta.map(|m| m.label.clone()).unwrap_or(info.label),
-        harness_id: meta.and_then(|m| (!m.harness.is_empty()).then(|| m.harness.clone())).or(info.harness_id),
-        model_provider_id: meta.and_then(|m| m.provider_id.clone()).or(info.model_provider_id),
-        model_id: meta.and_then(|m| (!m.model.is_empty()).then(|| m.model.clone())).or(info.model_id),
-        harness: meta.and_then(|m| (!m.harness.is_empty()).then(|| m.harness.clone())).or(info.harness),
-        model: meta.and_then(|m| (!m.model.is_empty()).then(|| m.model.clone())).or(info.model),
-        status: info.status.clone(),
-        connectivity: Some(connectivity_for_status(&info.status).to_string()),
-        terminal_outcome: terminal_outcome_for_status(&info.status),
-        cwd: info.cwd,
-        created_at: info.created_at.clone(),
-        last_activity_at: meta
-            .map(|m| m.last_activity.clone())
-            .or(info.last_activity_at)
-            .or_else(|| Some(info.created_at)),
-        observed_status: meta.and_then(|m| m.observed_status.clone()).or(info.observed_status),
-        summary: meta.and_then(|m| m.summary.clone()).or(info.summary),
-        next_action: meta.and_then(|m| m.next_action.clone()).or(info.next_action),
-        needs_user_input: meta.and_then(|m| m.needs_user_input).or(info.needs_user_input),
-        detected_question: meta.and_then(|m| m.detected_question.clone()).or(info.detected_question),
-        suggested_options: meta.and_then(|m| m.suggested_options.clone()).or(info.suggested_options),
-        blocker_description: meta.and_then(|m| m.blocker_description.clone()).or(info.blocker_description),
-        failed_command: meta.and_then(|m| m.failed_command.clone()).or(info.failed_command),
-        failed_test: meta.and_then(|m| m.failed_test.clone()).or(info.failed_test),
-        capacity_hints: meta.and_then(|m| m.capacity_hints.clone()).or(info.capacity_hints),
-        at_usage_limit: None, // set by list_sessions after merge, from live buffer scan
-        metadata_source: meta.map(|m| m.metadata_source.clone()).or(info.metadata_source),
-        metadata_confidence: meta.map(|m| m.metadata_confidence).or(info.metadata_confidence),
-        peon_last_inference: meta
-            .and_then(|m| m.peon_last_inference.clone())
-            .or(info.peon_last_inference)
-            .or_else(|| peon_last_inference.cloned()),
-        repo_root: meta.and_then(|m| m.repo_root.clone()).or(info.repo_root),
-        branch: meta.and_then(|m| m.branch.clone()).or(info.branch),
-        dirty: meta.and_then(|m| m.dirty).or(info.dirty),
-        changed_files: meta.and_then(|m| m.changed_files).or(info.changed_files),
-        is_worktree: meta.and_then(|m| m.is_worktree).or(info.is_worktree),
-        conflict_warning: info.conflict_warning,
-        recommendation: info.recommendation,
-        memory_state,
-        resume_strategy: resume_strategy.clone(),
-        resume: resume.clone(),
-        resume_options: metadata::derive_resume_options(
-            &resume_strategy,
-            resume.as_ref(),
-            capabilities.resume_exact,
-            capabilities.resume_latest_in_cwd,
-            capabilities.resume_latest_in_repo,
-        ),
-        resumed_from: meta.and_then(|m| m.resumed_from.clone()).or(info.resumed_from),
-        provider: meta.and_then(|m| m.provider_label.clone()).or(info.provider),
-        provider_model: meta.and_then(|m| m.provider_model.clone()).or(info.provider_model),
-        provider_state: meta.and_then(|m| m.provider_state.clone()).or(info.provider_state),
-    }
 }
 
 async fn delete_session(
@@ -1385,10 +1183,6 @@ async fn session_terminal_handler(
     }
 }
 
-fn iso_now() -> String {
-    chrono::Utc::now().to_rfc3339()
-}
-
 async fn peon_loop(state: Arc<AppState>) {
     let interval = state.peon.config.interval_secs;
     tracing::info!(interval_secs = interval, harness = %state.peon.config.harness, "peon started");
@@ -1601,22 +1395,6 @@ fn codex_thread_id_from_jsonl_line(line: &str) -> Option<String> {
 
 fn global_harnesses_path() -> Option<std::path::PathBuf> {
     dirs::home_dir().map(|h| h.join(".orkworks").join("harnesses.json"))
-}
-
-fn workspace_hash(path: &std::path::Path) -> String {
-    let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    let mut hasher = Sha256::new();
-    hasher.update(canonical.to_string_lossy().as_bytes());
-    let result = hasher.finalize();
-    hex::encode(&result[..8])
-}
-
-fn orksworks_global_dir(workspace_path: &std::path::Path) -> Option<PathBuf> {
-    dirs::home_dir().map(|h| {
-        h.join(".orkworks")
-            .join("workspaces")
-            .join(workspace_hash(workspace_path))
-    })
 }
 
 fn builtin_harness_configs() -> Vec<HarnessConfig> {
@@ -1901,25 +1679,6 @@ fn adapter_for_harness<'a>(
         _ => None,
     }
     .unwrap_or_else(|| adapters.get("generic-shell").unwrap())
-}
-
-fn derive_memory_state(
-    is_live: bool,
-    resume: Option<&harness::ResumeMemory>,
-    capabilities: &harness::HarnessCapabilities,
-) -> (MemoryState, harness::ResumeStrategy) {
-    if is_live {
-        return (MemoryState::Live, harness::ResumeStrategy::None);
-    }
-    let Some(resume) = resume else {
-        return (MemoryState::Remembered, harness::ResumeStrategy::None);
-    };
-    let strategy = harness::select_resume_strategy(resume, capabilities);
-    if strategy == harness::ResumeStrategy::None {
-        (MemoryState::Unsupported, strategy)
-    } else {
-        (MemoryState::Resumable, strategy)
-    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -3572,167 +3331,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn merge_live_session_info_uses_live_contract_fields_without_metadata() {
-        let info = SessionInfo {
-            connectivity: Some("offline".into()),
-            terminal_outcome: Some("ended".into()),
-            last_activity_at: Some("2026-06-28T09:05:00Z".into()),
-            resume_options: vec![metadata::ResumeOption {
-                strategy: harness::ResumeStrategy::Exact,
-                label: "Resume exact session".into(),
-                available: true,
-                preferred: true,
-                reason: None,
-            }],
-            ..test_session_info(
-                "merge-live",
-                "Merge Live",
-                "/tmp/project",
-                "ended",
-                "2026-06-28T09:00:00Z",
-            )
-        };
-        let caps = harness::HarnessCapabilities {
-            launch: true,
-            resume_exact: true,
-            resume_latest_in_cwd: true,
-            resume_latest_in_repo: true,
-            detect_session_id: true,
-            detect_model: true,
-            detect_context_usage: true,
-            detect_capacity: true,
-            native_voice: false,
-        };
-
-        let merged = merge_live_session_info(info, None, None, &caps);
-
-        assert_eq!(merged.connectivity.as_deref(), Some("offline"));
-        assert_eq!(merged.terminal_outcome.as_deref(), Some("ended"));
-        assert_eq!(merged.last_activity_at.as_deref(), Some("2026-06-28T09:05:00Z"));
-        assert_eq!(merged.resume_options.len(), 3);
-        assert!(!merged.resume_options[0].available);
-        assert_eq!(
-            merged.resume_options[0].reason.as_deref(),
-            Some("No compatible remembered session exists"),
-        );
-        assert!(!merged.resume_options[1].available);
-        assert!(!merged.resume_options[2].available);
-    }
-
-    #[test]
-    fn connectivity_for_status_marks_running_sessions_online() {
-        assert_eq!(connectivity_for_status("creating"), "online");
-        assert_eq!(connectivity_for_status("running"), "online");
-        assert_eq!(connectivity_for_status("ended"), "offline");
-    }
-
-    #[test]
-    fn terminal_outcome_for_status_marks_ended_sessions_offline_with_terminal_outcome() {
-        assert_eq!(terminal_outcome_for_status("running"), None);
-        assert_eq!(
-            terminal_outcome_for_status("ended").as_deref(),
-            Some("ended"),
-        );
-        assert_eq!(
-            terminal_outcome_for_status("killed").as_deref(),
-            Some("killed"),
-        );
-    }
-
-    #[test]
-    fn merge_live_session_info_derives_resume_options_from_resume_memory_and_capabilities() {
-        let info = test_session_info(
-            "merge-derived",
-            "Merge Derived",
-            "/tmp/project",
-            "ended",
-            "2026-06-28T09:00:00Z",
-        );
-        let meta = metadata::SessionMetadata {
-            id: "merge-derived".into(),
-            label: "Merge Derived".into(),
-            workspace: "/tmp/project".into(),
-            task: "".into(),
-            harness: "opencode".into(),
-            model: "".into(),
-            cwd: "/tmp/project".into(),
-            status: "ended".into(),
-            phase: "".into(),
-            connectivity: "offline".into(),
-            terminal_outcome: Some("ended".into()),
-            observed_status: None,
-            summary: None,
-            next_action: None,
-            needs_user_input: None,
-            detected_question: None,
-            suggested_options: None,
-            blocker_description: None,
-            failed_command: None,
-            failed_test: None,
-            capacity_hints: None,
-            peon_last_inference: None,
-            provider_id: None,
-            provider_label: None,
-            provider_model: None,
-            provider_state: None,
-            created_at: "2026-06-28T09:00:00Z".into(),
-            last_activity: "2026-06-28T09:05:00Z".into(),
-            metadata_source: "process".into(),
-            metadata_confidence: 1.0,
-            repo_root: Some("/tmp/project".into()),
-            branch: Some("main".into()),
-            dirty: Some(false),
-            changed_files: Some(0),
-            is_worktree: Some(false),
-            resume: Some(harness::ResumeMemory {
-                state: harness::ResumeState::Available,
-                preferred_strategy: harness::ResumeStrategy::Exact,
-                harness_session_id: None,
-                latest_fallback: true,
-                last_seen_at: Some("2026-06-28T09:05:00Z".into()),
-            }),
-            resume_options: vec![metadata::ResumeOption {
-                strategy: harness::ResumeStrategy::Exact,
-                label: "Resume exact session".into(),
-                available: true,
-                preferred: true,
-                reason: None,
-            }],
-            harness_session_id_source: None,
-            harness_session_id_confidence: None,
-            harness_session_id_captured_at: None,
-            resumed_from: None,
-            last_user_input: None,
-        };
-        let caps = harness::HarnessCapabilities {
-            launch: true,
-            resume_exact: true,
-            resume_latest_in_cwd: true,
-            resume_latest_in_repo: false,
-            detect_session_id: true,
-            detect_model: true,
-            detect_context_usage: true,
-            detect_capacity: true,
-            native_voice: false,
-        };
-
-        let merged = merge_live_session_info(info, Some(&meta), None, &caps);
-
-        assert_eq!(merged.resume_options.len(), 3);
-        assert_eq!(merged.resume_options[0].strategy, harness::ResumeStrategy::Exact);
-        assert!(!merged.resume_options[0].available);
-        assert_eq!(
-            merged.resume_options[0].reason.as_deref(),
-            Some("No harness session id was captured"),
-        );
-        assert_eq!(merged.resume_options[1].strategy, harness::ResumeStrategy::LatestCwd);
-        assert!(merged.resume_options[1].available);
-        assert!(merged.resume_options[1].preferred);
-        assert_eq!(merged.resume_options[2].strategy, harness::ResumeStrategy::LatestRepo);
-        assert!(!merged.resume_options[2].available);
-    }
-
     #[tokio::test]
     async fn list_sessions_derives_resume_options_for_remembered_sessions() {
         let dir = tempfile::tempdir().unwrap();
@@ -4002,116 +3600,6 @@ mod tests {
         assert_eq!(launch.model.as_deref(), Some("gpt-5"));
         assert_eq!(launch.provider_id, None);
         assert_eq!(launch.provider_label, None);
-    }
-
-    #[test]
-    fn session_info_serializes_provider_fields() {
-        let info = SessionInfo {
-            harness_id: Some("codex".into()),
-            model_provider_id: Some("openrouter".into()),
-            model_id: Some("gpt-5".into()),
-            observed_status: Some("waiting_for_input".into()),
-            summary: Some("Needs approval".into()),
-            next_action: Some("Choose an option".into()),
-            needs_user_input: Some(true),
-            detected_question: Some("Proceed?".into()),
-            suggested_options: Some(vec!["yes".into(), "no".into()]),
-            metadata_source: Some("process".into()),
-            metadata_confidence: Some(1.0),
-            provider: Some("Claude Code".into()),
-            provider_model: Some("sonnet".into()),
-            provider_state: Some("healthy".into()),
-            ..test_session_info("test", "Test", "/tmp", "running", "now")
-        };
-
-        let json = serde_json::to_string(&info).unwrap();
-        assert!(json.contains("\"harnessId\":\"codex\""));
-        assert!(json.contains("\"modelProviderId\":\"openrouter\""));
-        assert!(json.contains("\"modelId\":\"gpt-5\""));
-        assert!(json.contains("\"provider\":\"Claude Code\""));
-        assert!(json.contains("\"providerModel\":\"sonnet\""));
-        assert!(json.contains("\"providerState\":\"healthy\""));
-    }
-
-    #[test]
-    fn session_info_includes_metadata_fields() {
-        let info = SessionInfo {
-            observed_status: Some("waiting_for_input".into()),
-            summary: Some("Needs approval".into()),
-            next_action: Some("Choose an option".into()),
-            needs_user_input: Some(true),
-            detected_question: Some("Proceed?".into()),
-            suggested_options: Some(vec!["yes".into(), "no".into()]),
-            metadata_source: Some("process".into()),
-            metadata_confidence: Some(1.0),
-            ..test_session_info("test", "Test", "/tmp", "running", "now")
-        };
-        let json = serde_json::to_string(&info).unwrap();
-        assert!(json.contains("\"metadataSource\":\"process\""));
-        assert!(json.contains("\"metadataConfidence\":1.0"));
-        assert!(json.contains("\"observedStatus\":\"waiting_for_input\""));
-        assert!(json.contains("\"needsUserInput\":true"));
-    }
-
-    #[test]
-    fn session_info_without_metadata_is_valid() {
-        let info = test_session_info("test", "Test", "/tmp", "creating", "now");
-        let json = serde_json::to_string(&info).unwrap();
-        assert!(json.contains("\"metadataSource\":null"));
-        assert!(json.contains("\"metadataConfidence\":null"));
-    }
-
-    #[test]
-    fn detect_conflicts_warns_on_multiple_dirty_sessions() {
-        let sessions = vec![
-            SessionInfo {
-                dirty: Some(true),
-                ..test_session_info("a", "A", "/repo", "running", "now")
-            },
-            SessionInfo {
-                dirty: Some(true),
-                ..test_session_info("b", "B", "/repo", "running", "now")
-            },
-        ];
-        let warnings = detect_conflicts(&sessions);
-        assert_eq!(warnings.len(), 2);
-        assert!(warnings.iter().any(|(id, _)| id == "a"));
-        assert!(warnings.iter().any(|(id, _)| id == "b"));
-        for (_, w) in &warnings {
-            assert!(w.contains("2 sessions"));
-        }
-    }
-
-    #[test]
-    fn detect_conflicts_no_warning_on_clean_sessions() {
-        let sessions = vec![
-            SessionInfo {
-                dirty: Some(false),
-                ..test_session_info("a", "A", "/repo", "running", "now")
-            },
-            SessionInfo {
-                dirty: Some(false),
-                ..test_session_info("b", "B", "/repo", "running", "now")
-            },
-        ];
-        let warnings = detect_conflicts(&sessions);
-        assert!(warnings.is_empty());
-    }
-
-    #[test]
-    fn detect_conflicts_no_warning_when_dirty_is_none() {
-        let sessions = vec![
-            SessionInfo {
-                dirty: None,
-                ..test_session_info("a", "A", "/repo", "running", "now")
-            },
-            SessionInfo {
-                dirty: None,
-                ..test_session_info("b", "B", "/repo", "running", "now")
-            },
-        ];
-        let warnings = detect_conflicts(&sessions);
-        assert!(warnings.is_empty());
     }
 
     #[tokio::test]
@@ -4707,53 +4195,6 @@ mod tests {
         } else {
             panic!("workspace not set up");
         }
-    }
-
-    #[test]
-    fn memory_state_marks_absent_session_as_resumable_when_strategy_exists() {
-        let caps = harness::HarnessCapabilities {
-            launch: true,
-            resume_exact: true,
-            resume_latest_in_cwd: true,
-            resume_latest_in_repo: false,
-            detect_session_id: true,
-            detect_model: true,
-            detect_context_usage: false,
-            detect_capacity: false,
-            native_voice: false,
-        };
-        let resume = harness::ResumeMemory {
-            state: harness::ResumeState::Available,
-            preferred_strategy: harness::ResumeStrategy::Exact,
-            harness_session_id: Some("sess-1".into()),
-            latest_fallback: true,
-            last_seen_at: None,
-        };
-
-        let (memory_state, strategy) = derive_memory_state(false, Some(&resume), &caps);
-
-        assert_eq!(memory_state, MemoryState::Resumable);
-        assert_eq!(strategy, harness::ResumeStrategy::Exact);
-    }
-
-    #[test]
-    fn memory_state_marks_active_session_as_live() {
-        let caps = harness::HarnessCapabilities {
-            launch: true,
-            resume_exact: false,
-            resume_latest_in_cwd: false,
-            resume_latest_in_repo: false,
-            detect_session_id: false,
-            detect_model: false,
-            detect_context_usage: false,
-            detect_capacity: false,
-            native_voice: false,
-        };
-
-        let (memory_state, strategy) = derive_memory_state(true, None, &caps);
-
-        assert_eq!(memory_state, MemoryState::Live);
-        assert_eq!(strategy, harness::ResumeStrategy::None);
     }
 
     #[test]
