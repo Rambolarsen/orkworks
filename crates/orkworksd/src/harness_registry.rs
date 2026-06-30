@@ -79,7 +79,7 @@ pub(crate) fn builtin_harness_configs() -> Vec<HarnessConfig> {
         HarnessConfig {
             id: "codex".into(),
             name: "Codex".into(),
-            harness: "generic-shell".into(),
+            harness: "codex".into(),
             command: "codex".into(),
             args: vec![],
             default_model: String::new(),

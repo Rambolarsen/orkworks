@@ -1347,7 +1347,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_session_launch_preserves_selected_harness_id_for_generic_shell_configs() {
+    fn resolve_session_launch_codex_wires_to_codex_adapter() {
         let harnesses = crate::harness_registry::builtin_harness_configs();
         let launch = resolve_session_launch(
             &harnesses,
@@ -1360,7 +1360,7 @@ mod tests {
         );
 
         assert_eq!(launch.session_harness_id.as_deref(), Some("codex"));
-        assert_eq!(launch.adapter_harness_id.as_deref(), Some("generic-shell"));
+        assert_eq!(launch.adapter_harness_id.as_deref(), Some("codex"));
         assert_eq!(launch.command.program, "codex");
     }
 

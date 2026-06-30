@@ -160,7 +160,7 @@ pub fn detect_usage_limit_hint(patterns: &[&str], lines: &[String]) -> Option<St
         if !patterns.iter().any(|p| lower.contains(&p.to_lowercase()[..])) {
             return None;
         }
-        let idx = lower.find("reset in").or_else(|| lower.find("try again at"))?;
+        let idx = lower.find("resets in").or_else(|| lower.find("reset in")).or_else(|| lower.find("try again at"))?;
         let fragment = &plain[idx..];
         let end = fragment.find(['.', '\n']).unwrap_or(fragment.len());
         Some(fragment[..end].trim().to_string())
