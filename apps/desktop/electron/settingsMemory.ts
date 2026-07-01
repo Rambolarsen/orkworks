@@ -8,11 +8,16 @@ export interface RetentionSettings {
   maxAgeDays: number;
 }
 
+export interface DebugSettings {
+  showSessionIds: boolean;
+}
+
 export interface AppSettings {
   [key: string]: unknown;
   version: 1;
   hotkeys: HotkeySettings;
   retention: RetentionSettings;
+  debug: DebugSettings;
   providers: ProviderSettings;
 }
 
@@ -97,6 +102,10 @@ export const DEFAULT_RETENTION: RetentionSettings = {
   maxAgeDays: 0,
 };
 
+export const DEFAULT_DEBUG_SETTINGS: DebugSettings = {
+  showSessionIds: false,
+};
+
 const VALID_PROVIDER_IDS = new Set<ProviderId>(["opencode", "claude-code", "codex", "gemini", "aider", "gh-copilot", "ollama"]);
 const VALID_CAPACITY_STATES = new Set<ProviderCapacityState>(["healthy", "degraded", "capped", "unknown"]);
 
@@ -120,6 +129,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   version: 1,
   hotkeys: { ...DEFAULT_HOTKEYS },
   retention: { ...DEFAULT_RETENTION },
+  debug: { ...DEFAULT_DEBUG_SETTINGS },
   providers: { ...DEFAULT_PROVIDER_SETTINGS, providers: DEFAULT_PROVIDER_SETTINGS.providers.map((p) => ({ ...p })) },
 };
 
@@ -208,7 +218,21 @@ export function normalizeSettings(value: unknown): AppSettings {
     version: 1,
     hotkeys: normalizeHotkeys(parsed.hotkeys),
     retention: normalizeRetention(parsed.retention),
+    debug: normalizeDebugSettings(parsed.debug),
     providers: normalizeProviderSettings(parsed.providers),
+  };
+}
+
+export function normalizeDebugSettings(value: unknown): DebugSettings {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return { ...DEFAULT_DEBUG_SETTINGS };
+  }
+  const raw = value as Record<string, unknown>;
+  return {
+    showSessionIds:
+      typeof raw.showSessionIds === "boolean"
+        ? raw.showSessionIds
+        : DEFAULT_DEBUG_SETTINGS.showSessionIds,
   };
 }
 
@@ -381,6 +405,7 @@ function defaultSettings(): AppSettings {
     version: 1,
     hotkeys: { ...DEFAULT_HOTKEYS },
     retention: { ...DEFAULT_RETENTION },
+    debug: { ...DEFAULT_DEBUG_SETTINGS },
     providers: { ...DEFAULT_PROVIDER_SETTINGS, providers: DEFAULT_PROVIDER_SETTINGS.providers.map((p) => ({ ...p })) },
   };
 }

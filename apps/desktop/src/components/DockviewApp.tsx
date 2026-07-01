@@ -8,6 +8,7 @@ import {
   type IDockviewPanelHeaderProps,
 } from "dockview-react";
 import type { SessionInfo, WorkspaceInfo } from "../api";
+import type { DebugSettings } from "../appSettingsTypes";
 import SessionListPanel from "./SessionListPanel";
 import SessionDetailPanel from "./SessionDetailPanel";
 import TerminalPanel from "./TerminalPanel";
@@ -17,6 +18,7 @@ import RecommendationsPanel from "./RecommendationsPanel";
 interface DockviewAppData {
   backendStatus: string;
   workspace: WorkspaceInfo | null;
+  debugSettings: DebugSettings;
   sessions: SessionInfo[];
   activeSessionId: string | null;
   resumeTick: number;
@@ -78,6 +80,7 @@ function DetailPanel() {
       sessions={ctx.sessions}
       activeSessionId={ctx.activeSessionId}
       onResumeSession={ctx.onResumeSession}
+      showDebugMetadata={ctx.debugSettings.showSessionIds}
     />
   );
 }
@@ -149,9 +152,9 @@ function layoutNeedsMigration(json: Record<string, unknown>): boolean {
 }
 
 function DockviewApp(props: DockviewAppData) {
-  const { backendStatus, workspace, sessions, activeSessionId, resumeTick, onSelectSession, onCreateSession, onKillSession, onForgetSession, onResumeSession, onFocusTerminal, onOpenWorkspace, dockviewApiRef } = props;
+  const { backendStatus, workspace, debugSettings, sessions, activeSessionId, resumeTick, onSelectSession, onCreateSession, onKillSession, onForgetSession, onResumeSession, onFocusTerminal, onOpenWorkspace, dockviewApiRef } = props;
 
-  const ctxValue: DockviewAppData = { backendStatus, workspace, sessions, activeSessionId, resumeTick, onSelectSession, onCreateSession, onKillSession, onForgetSession, onResumeSession, onFocusTerminal, onOpenWorkspace, dockviewApiRef };
+  const ctxValue: DockviewAppData = { backendStatus, workspace, debugSettings, sessions, activeSessionId, resumeTick, onSelectSession, onCreateSession, onKillSession, onForgetSession, onResumeSession, onFocusTerminal, onOpenWorkspace, dockviewApiRef };
 
   const initializedRef = useRef(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);

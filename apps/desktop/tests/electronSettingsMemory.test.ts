@@ -21,6 +21,7 @@ test("settings memory returns defaults when settings.json is missing", () => {
     const settings = readSettings(dir);
     assert.equal(settings.version, 1);
     assert.deepEqual(settings.hotkeys, DEFAULT_HOTKEYS);
+    assert.equal(settings.debug.showSessionIds, false);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -190,6 +191,25 @@ test("settings memory preserves future top-level settings sections", () => {
     assert.deepEqual(persisted.ui, { theme: "sepia", density: "compact" });
     assert.equal(persisted.hotkeys.newSession, "CmdOrCtrl+Alt+N");
     assert.equal(persisted.hotkeys.toggleTerminalPanel, "CmdOrCtrl+Alt+T");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("settings memory normalizes debug settings and preserves persisted showSessionIds", () => {
+  const dir = mkdtempSync(join(tmpdir(), "orkworks-settings-"));
+  try {
+    writeFileSync(
+      settingsPath(dir),
+      JSON.stringify({
+        version: 1,
+        debug: { showSessionIds: true },
+      }),
+    );
+
+    const settings = readSettings(dir);
+
+    assert.deepEqual(settings.debug, { showSessionIds: true });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

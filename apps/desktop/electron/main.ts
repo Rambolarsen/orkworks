@@ -6,7 +6,7 @@ import { getDevRepoRoot, getDevSidecarPath, getPackagedSidecarPath } from "./pat
 import { readWorkspaceMemory, rememberWorkspacePath } from "./workspaceMemory";
 import { readLayoutMemory, writeLayoutMemory } from "./layoutMemory";
 import type { AppSettings } from "./settingsMemory";
-import { DEFAULT_HOTKEYS, DEFAULT_RETENTION, normalizeProviderSettings, normalizeRetention, readSettings, settingsWithHotkeys, validateHotkeys, writeSettings } from "./settingsMemory";
+import { DEFAULT_HOTKEYS, DEFAULT_RETENTION, normalizeDebugSettings, normalizeProviderSettings, normalizeRetention, readSettings, settingsWithHotkeys, validateHotkeys, writeSettings } from "./settingsMemory";
 import { pushProviderSettings } from "./providerSettingsSync";
 import type { ProviderSettings } from "./providerTypes";
 import { buildMenuTemplate } from "./menuTemplate";
@@ -229,6 +229,18 @@ app.whenReady().then(() => {
     }
 
     return { ok: true };
+  });
+
+  ipcMain.handle("save-debug-settings", async (_event, debug: unknown) => {
+    const baseSettings = currentSettings ?? readSettings(app.getPath("userData"));
+    const nextSettings: AppSettings = {
+      ...baseSettings,
+      version: 1,
+      debug: normalizeDebugSettings(debug),
+    };
+    writeSettings(app.getPath("userData"), nextSettings);
+    currentSettings = nextSettings;
+    return { ok: true, settings: rendererSettings(currentSettings) };
   });
 
   ipcMain.handle("save-provider-settings", async (_event, providers: ProviderSettings) => {

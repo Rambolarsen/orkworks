@@ -23,6 +23,9 @@ test("SessionDetailPanel distinguishes coding tool from model provider", () => {
   assert.match(text, />Coding tool</);
   assert.match(text, />Model provider</);
   assert.match(text, />Provider state</);
+  assert.match(text, /OrkWorks session ID/);
+  assert.match(text, /Harness session ID/);
+  assert.match(text, /Not captured/);
   assert.doesNotMatch(text, />Provider</);
   assert.doesNotMatch(text, />State</);
 });

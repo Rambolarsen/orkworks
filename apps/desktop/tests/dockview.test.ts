@@ -264,6 +264,8 @@ test("preload exposes settings and hotkey capture APIs", () => {
   assert.match(source, /ipcRenderer\.invoke\("get-settings"\)/);
   assert.match(source, /saveHotkeys:\s*\(hotkeys:/);
   assert.match(source, /ipcRenderer\.invoke\("save-hotkeys", hotkeys\)/);
+  assert.match(source, /saveDebugSettings:\s*\(debug:/);
+  assert.match(source, /ipcRenderer\.invoke\("save-debug-settings", debug\)/);
   assert.match(source, /setHotkeyCaptureActive:\s*\(active:/);
   assert.match(source, /ipcRenderer\.send\("orkworks:hotkey-capture-active", active\)/);
 });
@@ -285,6 +287,13 @@ test("SettingsModal contains hotkey edit reset default cancel and save flows", (
   assert.match(source, /acceleratorFromKeyboardEvent/);
   assert.match(source, /setHotkeyCaptureActive\(true\)/);
   assert.match(source, /setHotkeyCaptureActive\(false\)/);
+});
+
+test("SettingsModal exposes a debug metadata toggle", () => {
+  const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /Show debug metadata/);
+  assert.match(source, /saveDebugSettings/);
 });
 
 test("TerminalPanel no longer renders internal session tabs or duplicate kill controls", () => {

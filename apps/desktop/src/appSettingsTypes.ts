@@ -5,6 +5,10 @@ export interface RetentionSettings {
   maxAgeDays: number;
 }
 
+export interface DebugSettings {
+  showSessionIds: boolean;
+}
+
 export interface HotkeySettings {
   newSession: string;
   toggleSessionsPanel: string;
@@ -21,6 +25,7 @@ export interface AppSettings {
   hotkeys: HotkeySettings;
   defaultHotkeys: HotkeySettings;
   retention: RetentionSettings;
+  debug: DebugSettings;
   providers: ProviderSettings;
 }
 

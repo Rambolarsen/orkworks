@@ -1,5 +1,5 @@
 import type { WorkspaceInfo } from "./api";
-import type { AppSettings, HotkeySettings, RetentionSettings, SaveHotkeysResult } from "./appSettingsTypes";
+import type { AppSettings, DebugSettings, HotkeySettings, RetentionSettings, SaveHotkeysResult } from "./appSettingsTypes";
 import type { ProviderSettings, ProviderModelsResponse, ProviderLabelsResponse } from "./providerTypes";
 
 declare global {
@@ -14,6 +14,7 @@ declare global {
       getSettings: () => Promise<AppSettings>;
       saveHotkeys: (hotkeys: HotkeySettings) => Promise<SaveHotkeysResult>;
       saveRetention: (retention: RetentionSettings) => Promise<{ ok: boolean }>;
+      saveDebugSettings: (debug: DebugSettings) => Promise<{ ok: true; settings: AppSettings }>;
       saveProviderSettings: (providers: ProviderSettings) => Promise<{ ok: true; settings: AppSettings }>;
       getProviderModels: (providerId: string) => Promise<ProviderModelsResponse>;
       getProviderLabels: () => Promise<ProviderLabelsResponse>;
