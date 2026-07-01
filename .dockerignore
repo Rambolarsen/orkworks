@@ -1,0 +1,17 @@
+# The Containerfile copies no source, so the build context only needs to be
+# small — keep host caches and platform-specific artifacts out of it.
+# Honored by both `docker build`/`docker compose` and Podman (which falls back
+# to .dockerignore when no .containerignore is present).
+.git
+node_modules
+**/node_modules
+target
+**/target
+dist
+dist-electron
+out
+release
+.orkworks
+.worktrees
+apm_modules
+.agents

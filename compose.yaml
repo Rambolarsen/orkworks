@@ -1,0 +1,28 @@
+# OrkWorks containerized dev environment — Tier 1 of issue #80.
+#
+#   Podman:  podman compose run --rm dev <cmd>     (or `podman-compose`)
+#   Docker:  docker compose run --rm dev <cmd>
+#
+# node_modules and Cargo target/ live in NAMED VOLUMES and are never
+# bind-mounted from the host: Electron and native deps are platform-specific,
+# and the host and container caches must not corrupt each other (issue #80).
+# The registry cache is also a named volume so repeat `cargo` runs stay fast.
+
+services:
+  dev:
+    build:
+      context: .
+      dockerfile: Containerfile
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+      - node_modules:/workspace/apps/desktop/node_modules
+      - cargo-target:/workspace/crates/orkworksd/target
+      - cargo-registry:/usr/local/cargo/registry
+    # Overridden by `compose run --rm dev <cmd>`; used by `compose up -d` + exec.
+    command: ["sleep", "infinity"]
+
+volumes:
+  node_modules:
+  cargo-target:
+  cargo-registry:

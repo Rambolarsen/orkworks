@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "OrkWorks — Mission Control for AI Agents",
   "main": "dist-electron/main.js",
+  "packageManager": "pnpm@11.9.0",
   "scripts": {
     "postinstall": "node scripts/setup-electron.mjs",
     "dev": "tsc -p tsconfig.node.json && node scripts/dev.mjs",

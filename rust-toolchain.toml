@@ -1,0 +1,5 @@
+# Pins the Rust toolchain for both the container and host so they agree on
+# versions (issue #80). Matches release.yml, which uses dtolnay/rust-toolchain@stable.
+[toolchain]
+channel = "stable"
+components = ["clippy", "rustfmt"]
