@@ -184,6 +184,17 @@ Valid metadata sources:
 
 Peon must not overwrite higher-priority metadata unless the higher-priority metadata is stale or explicitly cleared.
 
+### Deterministic harness-supplied signals
+
+Alongside Peon's LLM-based inference, some harnesses expose deterministic, higher-confidence signals that OrkWorks can consume directly instead of inferring them from terminal output:
+
+- **Attention state** (`waiting_for_input` and related statuses): a harness's own notification mechanism — e.g. Claude Code's `Notification` hook — can call `POST /sessions/:id/attention` on the sidecar. Writes use `metadataSource: "agent"` with `metadataConfidence: 1.0` and respect the same priority/staleness rule Peon already respects: they cannot overwrite fresh `user` or fresh `agent` metadata, but always outrank `peon`/`backend_inference`/`process`/`unknown`.
+- **Harness-native session ID**: a harness-specific mechanism (env var, hook JSON, structured JSONL event) reports the session's native ID via `POST /sessions/:id/harness-session`, tagged with a source string and confidence. This is the same generic capture endpoint used for OpenCode's `OPENCODE_SESSION_ID`, Claude Code's hook `session_id`, and Codex's `thread.started` JSONL event; see `skills/adding-harness/`.
+
+These are opt-in per harness and never installed automatically. For Claude Code, `POST /workspace/attention-hook/install` (paired with `GET /workspace/attention-hook/status`) merges a single hook entry into the workspace's `.claude/settings.local.json` only after explicit, user-confirmed action in Settings — never `settings.json`, and never at session spawn time. See [ADR 0019](../docs/adr/0019-attention-signal-endpoint-opt-in-hook-install.md).
+
+When no harness-specific signal source is registered or installed for a session, Peon's LLM-based inference remains the sole/fallback source, unchanged.
+
 ## Peon
 
 The MVP should include Peon: a low-cost AI observer responsible for maintaining session metadata and improving observability.

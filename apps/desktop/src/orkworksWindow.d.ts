@@ -1,6 +1,7 @@
 import type { WorkspaceInfo } from "./api";
 import type { AppSettings, HotkeySettings, RetentionSettings, SaveHotkeysResult } from "./appSettingsTypes";
 import type { ProviderSettings, ProviderModelsResponse, ProviderLabelsResponse } from "./providerTypes";
+import type { AttentionHookStatusResponse } from "./harnessTypes";
 
 declare global {
   interface Window {
@@ -17,6 +18,8 @@ declare global {
       saveProviderSettings: (providers: ProviderSettings) => Promise<{ ok: true; settings: AppSettings }>;
       getProviderModels: (providerId: string) => Promise<ProviderModelsResponse>;
       getProviderLabels: () => Promise<ProviderLabelsResponse>;
+      getClaudeCodeHookStatus: () => Promise<AttentionHookStatusResponse>;
+      installClaudeCodeHook: () => Promise<AttentionHookStatusResponse>;
       setHotkeyCaptureActive: (active: boolean) => void;
       onMenuCommand: (callback: (data: { action: string; panelId?: string }) => void) => () => void;
       notifyPanelVisibility: (panelId: string, visible: boolean) => void;

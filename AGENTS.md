@@ -181,7 +181,7 @@ ADRs are complementary to specs: specs define what we're building; ADRs record w
 | `orkworksd` | Rust backend sidecar |
 | Peon | Low-cost session/repo metadata observer |
 | Taskmaster | Workspace-level next-step coordinator |
-| `.orkworks/` | Global metadata directory under `~/.orkworks/` (workspaces/<hash>/, harnesses.json) |
+| `.orkworks/` | Global metadata directory under `~/.orkworks/` (workspaces/<hash>/, harnesses.json, hook-scripts/) |
 
 User-facing UI says `Coding tool` for CLI coding applications. Internal code and metadata continue to use `harness` for that integration abstraction. `Model provider` is reserved for inference services and local inference runtimes.
 
@@ -210,6 +210,7 @@ See [`docs/agents/domain-entities.md`](docs/agents/domain-entities.md) for the c
 - `~/.orkworks/workspaces/<hash>/recommendations/<id>.json` — Taskmaster recommendation state and history
 - `~/.orkworks/workspaces/<hash>/workspace.json` — workspace memory, including the last active session
 - `~/.orkworks/harnesses.json` — global harness definitions
+- `~/.orkworks/hook-scripts/` — stable copies of harness reporter scripts (e.g. the Claude Code Notification hook), installed hook commands always point here rather than at the packaged/dev source, so they keep working across app updates and packaging schemes whose own paths aren't stable at runtime (Linux AppImage's per-launch mount point, in particular)
 - Priority: user > agent > peon > backend_inference > process > unknown
 - Peon reads terminal output, writes inferred metadata, never types into terminals
 - Taskmaster consumes normalized metadata and proposes cross-session transitions; v1 requires explicit user approval for every action

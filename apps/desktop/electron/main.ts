@@ -293,6 +293,39 @@ app.whenReady().then(() => {
     return { labels: {} };
   });
 
+  ipcMain.handle("get-claude-code-hook-status", async () => {
+    try {
+      const port = await portPromise;
+      const resp = await fetch(`http://127.0.0.1:${port}/workspace/attention-hook/status`);
+      if (resp.status === 409) {
+        return { installed: false, error: "Open a workspace first." };
+      }
+      if (resp.ok) {
+        return await resp.json() as { installed: boolean; error?: string };
+      }
+    } catch {
+      // Fall through to unknown status
+    }
+    return { installed: false, error: "Couldn't reach the OrkWorks sidecar." };
+  });
+
+  ipcMain.handle("install-claude-code-hook", async () => {
+    try {
+      const port = await portPromise;
+      const resp = await fetch(`http://127.0.0.1:${port}/workspace/attention-hook/install`, { method: "POST" });
+      if (resp.status === 409) {
+        return { installed: false, error: "Open a workspace first." };
+      }
+      const body = await resp.json() as { installed?: boolean; error?: string };
+      if (resp.ok) {
+        return { installed: Boolean(body.installed), error: undefined };
+      }
+      return { installed: false, error: body.error ?? "Couldn't install the hook." };
+    } catch {
+      return { installed: false, error: "Couldn't reach the OrkWorks sidecar." };
+    }
+  });
+
   ipcMain.handle("open-workspace", async () => {
     const result = await dialog.showOpenDialog({
       properties: ["openDirectory"],

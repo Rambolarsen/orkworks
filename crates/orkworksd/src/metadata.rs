@@ -331,6 +331,13 @@ pub enum HarnessSessionMergeResult {
     Invalid,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AttentionMergeResult {
+    Accepted,
+    Ignored,
+    NotFound,
+}
+
 pub fn valid_harness_session_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() >= HARNESS_SESSION_ID_MIN_LEN
@@ -575,6 +582,49 @@ impl MetadataStore {
         });
 
         HarnessSessionMergeResult::Accepted
+    }
+
+    /// Writes a deterministic, harness-supplied attention signal (e.g. from a Claude Code
+    /// `Notification` hook), gated by `should_overwrite`'s priority/staleness rule: it
+    /// cannot clobber fresh `user` metadata, and cannot immediately clobber another fresh
+    /// `agent` write either, but always outranks peon/backend_inference/process/unknown.
+    /// Peon's own write path uses the shorter `peon_should_overwrite` window instead, so
+    /// Peon can correct a stale `agent` status well before this 5-minute self-refresh
+    /// window would let a second hook event do the same.
+    pub fn merge_agent_attention_signal(
+        &self,
+        id: &str,
+        status: &str,
+        message: Option<&str>,
+        timestamp: &str,
+    ) -> AttentionMergeResult {
+        let mut meta = match self.read_session(id) {
+            Some(m) => m,
+            None => return AttentionMergeResult::NotFound,
+        };
+
+        let age = self.session_modified_secs_ago(id);
+        if !crate::peon::should_overwrite(&meta.metadata_source, age) {
+            return AttentionMergeResult::Ignored;
+        }
+
+        meta.observed_status = Some(status.to_string());
+        if let Some(msg) = message {
+            meta.summary = Some(msg.to_string());
+        }
+        meta.metadata_source = "agent".into();
+        meta.metadata_confidence = 1.0;
+        self.write_session(&meta);
+
+        self.append_event(id, &Event {
+            event_type: "session.attention_reported".into(),
+            timestamp: timestamp.to_string(),
+            status: meta.status.clone(),
+            observed_status: Some(status.to_string()),
+            confidence: Some(1.0),
+        });
+
+        AttentionMergeResult::Accepted
     }
 
     pub fn merge_peon_inference(
@@ -1186,6 +1236,83 @@ mod tests {
         let updated = store.read_session("equal-confidence-test").unwrap();
         assert_eq!(updated.harness_session_id_source.as_deref(), Some("claude_hook"));
         assert_eq!(updated.harness_session_id_captured_at.as_deref(), Some("2026-06-26T12:00:00Z"));
+    }
+
+    #[test]
+    fn agent_attention_signal_overwrites_lower_priority_source() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let mut meta = test_metadata("attention-accept-test");
+        meta.metadata_source = "process".into();
+        store.write_session(&meta);
+
+        let result = store.merge_agent_attention_signal(
+            "attention-accept-test",
+            "waiting_for_input",
+            None,
+            "2026-06-26T12:00:00Z",
+        );
+
+        assert_eq!(result, AttentionMergeResult::Accepted);
+        let updated = store.read_session("attention-accept-test").unwrap();
+        assert_eq!(updated.observed_status.as_deref(), Some("waiting_for_input"));
+        assert_eq!(updated.metadata_source, "agent");
+        assert_eq!(updated.metadata_confidence, 1.0);
+    }
+
+    #[test]
+    fn agent_attention_signal_sets_summary_from_message() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let meta = test_metadata("attention-message-test");
+        store.write_session(&meta);
+
+        store.merge_agent_attention_signal(
+            "attention-message-test",
+            "waiting_for_input",
+            Some("Needs approval to proceed"),
+            "2026-06-26T12:00:00Z",
+        );
+
+        let updated = store.read_session("attention-message-test").unwrap();
+        assert_eq!(updated.summary.as_deref(), Some("Needs approval to proceed"));
+    }
+
+    #[test]
+    fn agent_attention_signal_cannot_clobber_user_metadata() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let mut meta = test_metadata("attention-user-test");
+        meta.metadata_source = "user".into();
+        meta.observed_status = Some("working".into());
+        store.write_session(&meta);
+
+        let result = store.merge_agent_attention_signal(
+            "attention-user-test",
+            "waiting_for_input",
+            None,
+            "2026-06-26T12:00:00Z",
+        );
+
+        assert_eq!(result, AttentionMergeResult::Ignored);
+        let updated = store.read_session("attention-user-test").unwrap();
+        assert_eq!(updated.observed_status.as_deref(), Some("working"));
+        assert_eq!(updated.metadata_source, "user");
+    }
+
+    #[test]
+    fn agent_attention_signal_returns_not_found_for_unknown_session() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+
+        let result = store.merge_agent_attention_signal(
+            "missing-session",
+            "waiting_for_input",
+            None,
+            "2026-06-26T12:00:00Z",
+        );
+
+        assert_eq!(result, AttentionMergeResult::NotFound);
     }
 
     #[test]
