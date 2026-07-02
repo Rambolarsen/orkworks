@@ -21,10 +21,12 @@ test("NewSessionDialog does not describe the initial prompt as sent to the provi
 test("SessionDetailPanel distinguishes coding tool from model provider", () => {
   const text = source("../src/components/SessionDetailPanel.tsx");
   assert.match(text, />Coding tool</);
-  assert.match(text, />Model provider</);
   assert.match(text, />Provider state</);
   assert.doesNotMatch(text, />Provider</);
   assert.doesNotMatch(text, />State</);
+  // Model provider is demoted to a muted sub-line under the model name, not its own labeled row.
+  assert.match(text, /providerContext\.modelProvider/);
+  assert.match(text, /session-detail-value-sub/);
 });
 
 test("Settings provider copy refers to model providers", () => {
