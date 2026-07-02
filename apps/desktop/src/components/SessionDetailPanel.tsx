@@ -46,7 +46,7 @@ function SessionDetailPanel({ sessions, activeSessionId, onResumeSession }: Sess
   const providerContext = sessionProviderContext(active);
   const folder = active.cwd.split("/").pop() || active.cwd;
   const headline = situationHeadline(active);
-  const tail = situationTail(active);
+  const tail = situationTail(active, tone);
   const actionZone = detailActionZone(active, tone);
   const badgeText =
     attn === "capped" && active.usageLimitResetHint

@@ -129,10 +129,17 @@ export function situationHeadline(session: SessionInfo): string {
   );
 }
 
-/** Raw terminal-excerpt quote for the situation hero — the peon's detected options for a live question, or the raw failing command/test. */
-export function situationTail(session: SessionInfo): string | undefined {
-  if (session.suggestedOptions?.length) return session.suggestedOptions.join("  ·  ");
-  return session.failedTest || session.failedCommand;
+/**
+ * Raw terminal-excerpt quote for the situation hero — the peon's detected options for a live
+ * question, or the raw failing command/test. Gated on tone, not just field presence: the backend
+ * keeps suggestedOptions/failedTest/failedCommand sticky across peon updates (each merges via
+ * `.or(previous)`), so a session that answered its question and later failed would otherwise still
+ * show the stale prompt options instead of the fresh failure.
+ */
+export function situationTail(session: SessionInfo, tone: AttentionTone): string | undefined {
+  if (tone === "failed") return session.failedTest || session.failedCommand;
+  if (tone === "needs-you" && session.suggestedOptions?.length) return session.suggestedOptions.join("  ·  ");
+  return undefined;
 }
 
 /**

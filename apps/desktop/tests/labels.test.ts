@@ -119,14 +119,27 @@ test("situationHeadline falls back through question, blocker, summary, next acti
 });
 
 test("situationTail quotes the peon's detected options or the raw failure text, never the headline fields", () => {
-  assert.equal(situationTail(baseSession({ suggestedOptions: ["lazy migrate", "one-shot migrate"] })), "lazy migrate  ·  one-shot migrate");
-  assert.equal(situationTail(baseSession({ failedTest: "test::foo" })), "test::foo");
-  assert.equal(situationTail(baseSession({ failedCommand: "cargo test" })), "cargo test");
   assert.equal(
-    situationTail(baseSession({ failedTest: "test::foo", failedCommand: "cargo test" })),
+    situationTail(baseSession({ suggestedOptions: ["lazy migrate", "one-shot migrate"] }), "needs-you"),
+    "lazy migrate  ·  one-shot migrate",
+  );
+  assert.equal(situationTail(baseSession({ failedTest: "test::foo" }), "failed"), "test::foo");
+  assert.equal(situationTail(baseSession({ failedCommand: "cargo test" }), "failed"), "cargo test");
+  assert.equal(
+    situationTail(baseSession({ failedTest: "test::foo", failedCommand: "cargo test" }), "failed"),
     "test::foo",
   );
-  assert.equal(situationTail(baseSession({ summary: "S" })), undefined);
+  assert.equal(situationTail(baseSession({ summary: "S" }), "idle"), undefined);
+});
+
+test("situationTail ignores stale suggestedOptions once a session has moved past needs-you (backend keeps the field sticky across peon updates)", () => {
+  const staleSession = baseSession({
+    suggestedOptions: ["lazy migrate", "one-shot migrate"],
+    failedTest: "test::foo",
+  });
+  assert.equal(situationTail(staleSession, "failed"), "test::foo");
+  assert.equal(situationTail(staleSession, "blocked"), undefined);
+  assert.equal(situationTail(staleSession, "done"), undefined);
 });
 
 test("resumeChoices maps backend resumeOptions into chooser rows", () => {
