@@ -135,7 +135,11 @@ export function situationTail(session: SessionInfo): string | undefined {
   return session.failedTest || session.failedCommand;
 }
 
-/** One row in the Detail panel's resume chooser. */
+/**
+ * One row in the Detail panel's resume chooser. Deliberately has no `strategy`
+ * field yet — the resume API only takes a session id, not a strategy, so every
+ * clickable row resumes the same way regardless of which one is picked. See #97.
+ */
 export interface ResumeChoice {
   label: string;
   sub: string;

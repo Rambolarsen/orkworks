@@ -104,13 +104,15 @@ function SessionDetailPanel({ sessions, activeSessionId, onResumeSession }: Sess
 
           {actionZone.kind === "buttons" && (
             <div className="detail-button-row">
-              <button
-                className="detail-button detail-button--primary"
-                type="button"
-                onClick={() => pushToast("info", VOCAB.diffReviewComingSoon)}
-              >
-                {VOCAB.reviewDiffAction}{active.changedFiles ? ` (+${active.changedFiles})` : ""}
-              </button>
+              {!!active.changedFiles && (
+                <button
+                  className="detail-button detail-button--primary"
+                  type="button"
+                  onClick={() => pushToast("info", VOCAB.diffReviewComingSoon)}
+                >
+                  {VOCAB.reviewDiffAction} (+{active.changedFiles})
+                </button>
+              )}
               <button
                 className="detail-button detail-button--ghost"
                 type="button"
@@ -123,6 +125,8 @@ function SessionDetailPanel({ sessions, activeSessionId, onResumeSession }: Sess
 
           {actionZone.kind === "resume" && (
             <>
+              {/* Every option resumes via the same call for now — the backend doesn't accept a
+                  strategy yet, so the choice is cosmetic until #97 lands. */}
               <ResumeChooser options={actionZone.options} onSelect={() => onResumeSession(active.id)} />
               {actionZone.note && <div className="detail-resume-note">{actionZone.note}</div>}
             </>

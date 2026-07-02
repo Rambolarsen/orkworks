@@ -1,3 +1,4 @@
+import { Check, CircleSlash } from "lucide-react";
 import type { ResumeChoice } from "../labels";
 import { VOCAB } from "../labels";
 
@@ -6,27 +7,19 @@ interface ResumeChooserProps {
   onSelect: (option: ResumeChoice) => void;
 }
 
-function ResumeOptionGlyph({ recommended, unavailable }: { recommended?: boolean; unavailable?: boolean }) {
-  if (recommended && !unavailable) {
-    return (
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M20 6 9 17l-5-5" />
-      </svg>
-    );
-  }
-  if (unavailable) {
-    return (
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true">
-        <circle cx="12" cy="12" r="9" />
-        <line x1="6" y1="6" x2="18" y2="18" />
-      </svg>
-    );
-  }
+/** No lucide icon renders a small centered dot at this weight, so this one glyph stays hand-rolled. */
+function DefaultOptionGlyph() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true">
-      <circle cx="12" cy="12" r="4" fill="currentColor" stroke="none" />
+    <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="12" cy="12" r="4" fill="currentColor" />
     </svg>
   );
+}
+
+function ResumeOptionGlyph({ recommended, unavailable }: { recommended?: boolean; unavailable?: boolean }) {
+  if (recommended && !unavailable) return <Check size={14} strokeWidth={2.4} aria-hidden="true" />;
+  if (unavailable) return <CircleSlash size={14} strokeWidth={2.4} aria-hidden="true" />;
+  return <DefaultOptionGlyph />;
 }
 
 /**
