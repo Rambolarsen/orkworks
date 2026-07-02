@@ -63,13 +63,12 @@ test("SettingsModal renders a Model providers section", () => {
   assert.match(source, /getProviderModels/);
 });
 
-test("SettingsModal offers a Claude Code attention hook install affordance", () => {
+test("SettingsModal offers a per-harness attention hook install affordance when enabled but not installed", () => {
   const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
   assert.match(source, /getClaudeCodeHookStatus/);
   assert.match(source, /installClaudeCodeHook/);
-  assert.match(source, /hasClaudeCodeHarness/);
-  assert.match(source, /Not configured/);
-  assert.match(source, /Install Notification hook/);
+  assert.match(source, /h\.id === "claude-code" && activeDraft\.includes\(h\.id\)/);
+  assert.match(source, /Install attention hook/);
   assert.match(source, /window\.confirm/);
 });
 
