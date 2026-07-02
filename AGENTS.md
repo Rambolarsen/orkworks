@@ -47,6 +47,27 @@ cd apps/desktop && node --experimental-strip-types --test tests/api.test.ts
 cargo test --manifest-path crates/orkworksd/Cargo.toml
 ```
 
+## Containerized dev environment (optional)
+
+A Podman/OCI toolchain container (`Containerfile` + `compose.yaml` at the repo root) can build, type-check, lint, and test both `apps/desktop` and `crates/orkworksd` without a host Node/Rust/Electron install. It is an **alternative** to the native pnpm flow above, never a replacement — the native host workflow and the release pipeline (`.github/workflows/release.yml`) are unchanged. Toolchain versions are pinned in `rust-toolchain.toml`, `.nvmrc`, and the `packageManager` field so the container and host agree. GUI runs stay on the native flow (issue #80 Tier 2).
+
+Substitute `docker compose` for `podman compose` if you use Docker.
+
+```bash
+# Build the toolchain image
+podman compose build
+
+# Non-GUI tasks (each runs in a throwaway container)
+podman compose run --rm dev bash -lc "cd apps/desktop && pnpm install"
+podman compose run --rm dev bash -lc "cd apps/desktop && npx tsc --noEmit"
+podman compose run --rm dev bash -lc "cd apps/desktop && node --experimental-strip-types --test tests/*.test.ts tests/*.test.mjs"
+podman compose run --rm dev cargo build  --manifest-path crates/orkworksd/Cargo.toml
+podman compose run --rm dev cargo clippy --manifest-path crates/orkworksd/Cargo.toml
+podman compose run --rm dev cargo test   --manifest-path crates/orkworksd/Cargo.toml
+```
+
+`apps/desktop/node_modules`, `crates/orkworksd/target`, and the Cargo registry live in **named volumes** — never bind-mounted from the host, since Electron and native deps are platform-specific and the caches must not corrupt each other. On Windows, Podman runs in a WSL2 VM (bind-mount perf penalty on NTFS paths; set `git config core.autocrlf input` so CRLF endings don't break in-container shell scripts).
+
 ## Issue board
 
 All implementation work is tracked as GitHub issues: [https://github.com/Rambolarsen/orkworks/issues](https://github.com/Rambolarsen/orkworks/issues)

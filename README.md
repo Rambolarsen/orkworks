@@ -71,6 +71,31 @@ GitHub Releases are tag-driven. Pushing `vX.Y.Z` runs `.github/workflows/release
 - Windows x64 on `windows-latest`
 - Linux x64 on `ubuntu-latest`
 
+## Containerized dev environment (optional)
+
+A Podman/OCI toolchain container lets you build, type-check, and test OrkWorks without installing Node, Rust, or the Electron toolchain on the host. It's an **alternative** to the native pnpm flow above, not a replacement — GUI runs still use the native flow (see [issue #80](https://github.com/Rambolarsen/orkworks/issues/80) Tier 2). Toolchain versions are pinned in `rust-toolchain.toml`, `.nvmrc`, and `packageManager` so the container and host agree.
+
+Requires only Podman (or Docker) — no host Node/Rust install. Substitute `docker compose` for `podman compose` if you use Docker.
+
+```bash
+# Build the toolchain image
+podman compose build
+
+# Install deps, type-check, and run the frontend test suite
+podman compose run --rm dev bash -lc "cd apps/desktop && pnpm install"
+podman compose run --rm dev bash -lc "cd apps/desktop && npx tsc --noEmit"
+podman compose run --rm dev bash -lc "cd apps/desktop && node --experimental-strip-types --test tests/*.test.ts tests/*.test.mjs"
+
+# Build, lint, and test the Rust sidecar
+podman compose run --rm dev cargo build   --manifest-path crates/orkworksd/Cargo.toml
+podman compose run --rm dev cargo clippy  --manifest-path crates/orkworksd/Cargo.toml
+podman compose run --rm dev cargo test    --manifest-path crates/orkworksd/Cargo.toml
+```
+
+`apps/desktop/node_modules` and `crates/orkworksd/target` live in **named volumes**, never bind-mounted from the host — Electron and native deps are platform-specific, so host and container caches must stay separate. Removing the volumes (`podman compose down -v`) forces a clean reinstall/rebuild.
+
+**Windows:** Podman runs inside a `podman machine` (WSL2) VM, so bind-mounting the source tree from an NTFS path incurs a filesystem-perf penalty; keeping the repo on the Linux/WSL2 side is faster. Set `git config core.autocrlf input` (or use a `.gitattributes` `* text=auto`) so CRLF line endings from Windows checkouts don't break shell scripts inside the Linux container.
+
 ## Peon configuration
 
 Peon runs in the Rust sidecar as a background task. After a session's terminal goes quiet for `PEON_INTERVAL` seconds (default `5`), Peon shells out to a configurable harness, asks it to classify the recent output, and writes the result to `.orkworks/sessions/<id>.json`. User input into the terminal also resets this debounce window — typing counts as activity. While an inference is in flight for a session, a second one is not launched for the same session.

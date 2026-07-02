@@ -1,0 +1,9 @@
+# Container/toolchain files must keep LF endings: CRLF from Windows checkouts
+# breaks `\` line-continuations in the Containerfile and shell scripts run
+# inside the Linux dev container (issue #80).
+Containerfile   text eol=lf
+*.sh            text eol=lf
+.nvmrc          text eol=lf
+compose.yaml    text eol=lf
+rust-toolchain.toml text eol=lf
+.dockerignore   text eol=lf
