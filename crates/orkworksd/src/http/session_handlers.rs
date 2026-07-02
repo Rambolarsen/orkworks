@@ -44,6 +44,13 @@ pub(crate) struct HarnessSessionReportRequest {
     pub(crate) confidence: f64,
 }
 
+#[derive(Deserialize)]
+pub(crate) struct AttentionReportRequest {
+    pub(crate) status: String,
+    #[serde(default)]
+    pub(crate) message: Option<String>,
+}
+
 #[derive(Serialize)]
 pub(crate) struct WorkspaceResponse {
     pub(crate) path: String,
@@ -341,6 +348,29 @@ pub(crate) async fn report_harness_session(
         }
         metadata::HarnessSessionMergeResult::NotFound => axum::http::StatusCode::NOT_FOUND.into_response(),
         metadata::HarnessSessionMergeResult::Invalid => axum::http::StatusCode::BAD_REQUEST.into_response(),
+    }
+}
+
+pub(crate) async fn report_attention(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(req): Json<AttentionReportRequest>,
+) -> impl IntoResponse {
+    if !peon::is_valid_observed_status(&req.status) {
+        return axum::http::StatusCode::BAD_REQUEST.into_response();
+    }
+
+    let now = iso_now();
+    let ws_guard = state.workspace.lock().unwrap();
+    let Some(ref ws) = *ws_guard else {
+        return axum::http::StatusCode::CONFLICT.into_response();
+    };
+
+    match ws.metadata.merge_agent_attention_signal(&id, &req.status, req.message.as_deref(), &now) {
+        metadata::AttentionMergeResult::Accepted | metadata::AttentionMergeResult::Ignored => {
+            axum::http::StatusCode::OK.into_response()
+        }
+        metadata::AttentionMergeResult::NotFound => axum::http::StatusCode::NOT_FOUND.into_response(),
     }
 }
 
@@ -989,6 +1019,112 @@ mod tests {
         let updated_resume = updated.resume.unwrap();
         assert_eq!(updated_resume.harness_session_id.as_deref(), Some("native-123"));
         assert_ne!(updated_resume.last_seen_at.as_deref(), Some("before"));
+    }
+
+    #[tokio::test]
+    async fn report_attention_rejects_invalid_status() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let response = report_attention(
+            State(state),
+            Path("missing".into()),
+            Json(AttentionReportRequest {
+                status: "not_a_real_status".into(),
+                message: None,
+            }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn report_attention_returns_not_found_for_unknown_session() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let response = report_attention(
+            State(state),
+            Path("missing".into()),
+            Json(AttentionReportRequest {
+                status: "waiting_for_input".into(),
+                message: None,
+            }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn report_attention_writes_metadata_for_known_session() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        {
+            let ws = state.workspace.lock().unwrap();
+            ws.as_ref().unwrap().metadata.write_session(&metadata::SessionMetadata {
+                id: "attention-known".into(),
+                label: "Known".into(),
+                workspace: dir.path().display().to_string(),
+                task: "".into(),
+                harness: "claude-code".into(),
+                model: "".into(),
+                cwd: dir.path().display().to_string(),
+                status: "running".into(),
+                phase: "".into(),
+                connectivity: "online".into(),
+                terminal_outcome: None,
+                observed_status: None,
+                summary: None,
+                next_action: None,
+                needs_user_input: None,
+                detected_question: None,
+                suggested_options: None,
+                blocker_description: None,
+                failed_command: None,
+                failed_test: None,
+                capacity_hints: None,
+                peon_last_inference: None,
+                provider_id: None,
+                provider_label: None,
+                provider_model: None,
+                provider_state: None,
+                created_at: "now".into(),
+                last_activity: "now".into(),
+                metadata_source: "process".into(),
+                metadata_confidence: 1.0,
+                repo_root: None,
+                branch: None,
+                dirty: None,
+                changed_files: None,
+                is_worktree: None,
+                resume: None,
+                resume_options: vec![],
+                harness_session_id_source: None,
+                harness_session_id_confidence: None,
+                harness_session_id_captured_at: None,
+                resumed_from: None,
+                last_user_input: None,
+            });
+        }
+
+        let response = report_attention(
+            State(state.clone()),
+            Path("attention-known".into()),
+            Json(AttentionReportRequest {
+                status: "waiting_for_input".into(),
+                message: None,
+            }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let ws = state.workspace.lock().unwrap();
+        let updated = ws.as_ref().unwrap().metadata.read_session("attention-known").unwrap();
+        assert_eq!(updated.observed_status.as_deref(), Some("waiting_for_input"));
+        assert_eq!(updated.metadata_source, "agent");
     }
 
     #[tokio::test]

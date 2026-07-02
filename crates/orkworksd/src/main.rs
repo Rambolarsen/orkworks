@@ -33,11 +33,13 @@ use crate::harness_registry::{builtin_adapters, load_harnesses, HarnessConfig};
 use crate::http::harness_handlers::{
     create_harness, delete_harness, list_harnesses, update_harness,
 };
+use crate::http::hook_handlers::{get_attention_hook_status, install_attention_hook};
 use crate::http::provider_handlers::{get_provider_models, get_providers, set_provider_settings};
 use crate::http::retention_handlers::set_retention;
 use crate::http::session_handlers::{
-    create_session, delete_session, forget_session, list_sessions, report_harness_session,
-    resume_session, set_active_harnesses, set_active_session, set_workspace,
+    create_session, delete_session, forget_session, list_sessions, report_attention,
+    report_harness_session, resume_session, set_active_harnesses, set_active_session,
+    set_workspace,
 };
 use crate::runtime::peon_runtime::peon_loop;
 use crate::runtime::retention::retention_cleanup_task;
@@ -146,12 +148,15 @@ async fn main() {
         .route("/workspace", post(set_workspace))
         .route("/workspace/active-session", post(set_active_session))
         .route("/workspace/active-harnesses", put(set_active_harnesses))
+        .route("/workspace/attention-hook/status", get(get_attention_hook_status))
+        .route("/workspace/attention-hook/install", post(install_attention_hook))
         .route("/sessions", post(create_session))
         .route("/sessions", get(list_sessions))
         .route("/sessions/:id", delete(delete_session))
         .route("/sessions/:id/forget", delete(forget_session))
         .route("/sessions/:id/resume", post(resume_session))
         .route("/sessions/:id/harness-session", post(report_harness_session))
+        .route("/sessions/:id/attention", post(report_attention))
         .route("/settings/retention", post(set_retention))
         .route("/harnesses", get(list_harnesses).post(create_harness))
         .route("/harnesses/:id", put(update_harness).delete(delete_harness))
@@ -347,12 +352,15 @@ mod tests {
             .route("/workspace", post(set_workspace))
             .route("/workspace/active-session", post(set_active_session))
             .route("/workspace/active-harnesses", put(set_active_harnesses))
+            .route("/workspace/attention-hook/status", get(get_attention_hook_status))
+            .route("/workspace/attention-hook/install", post(install_attention_hook))
             .route("/sessions", post(create_session))
             .route("/sessions", get(list_sessions))
             .route("/sessions/:id", delete(delete_session))
             .route("/sessions/:id/forget", delete(forget_session))
             .route("/sessions/:id/resume", post(resume_session))
             .route("/sessions/:id/harness-session", post(report_harness_session))
+            .route("/sessions/:id/attention", post(report_attention))
             .route("/settings/retention", post(set_retention))
             .route("/harnesses", get(list_harnesses).post(create_harness))
             .route("/harnesses/:id", put(update_harness).delete(delete_harness))

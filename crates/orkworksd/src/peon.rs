@@ -251,6 +251,10 @@ pub fn extract_json(raw: &str) -> Option<String> {
     }
 }
 
+pub fn is_valid_observed_status(status: &str) -> bool {
+    VALID_STATUSES.contains(&status)
+}
+
 pub fn validate_inference(inf: &PeonInference) -> Result<(), String> {
     if inf.confidence < 0.0 || inf.confidence > 1.0 {
         return Err(format!(
