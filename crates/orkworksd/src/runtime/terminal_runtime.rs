@@ -700,6 +700,15 @@ mod tests {
     }
 
     #[test]
+    fn opencode_reporter_script_bounds_curl_with_a_timeout() {
+        let script = include_str!("../../scripts/report-opencode-session.sh");
+        assert!(
+            script.contains("--max-time"),
+            "reporter must cap curl so a stuck orkworksd cannot hang the harness hook"
+        );
+    }
+
+    #[test]
     fn codex_jsonl_parser_extracts_thread_started_id() {
         let line = r#"{"type":"thread.started","thread_id":"0199a213-81c0-7800-8aa1-bbab2a035a53"}"#;
         assert_eq!(
@@ -723,6 +732,17 @@ mod tests {
         assert!(script.contains("/sessions/$ORKWORKS_SESSION_ID/harness-session"));
         assert!(script.contains("\"source\":\"claude_hook\""));
         assert!(script.contains("/sessions/$ORKWORKS_SESSION_ID/attention"));
+    }
+
+    #[test]
+    fn claude_hook_reporter_script_bounds_both_curls_with_a_timeout() {
+        let script = include_str!("../../scripts/report-claude-session-from-hook.sh");
+        let max_time_count = script.matches("--max-time").count();
+        assert_eq!(
+            max_time_count, 2,
+            "both curl calls must cap their own runtime so a stuck orkworksd cannot hang \
+             the UserPromptSubmit/Notification hook until the harness's own default timeout"
+        );
     }
 
     #[test]

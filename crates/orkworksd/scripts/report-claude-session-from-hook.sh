@@ -10,13 +10,13 @@ claude_session_id="$(
 
 if [ -n "${ORKWORKS_SESSION_ID:-}" ] && [ -n "${ORKWORKS_PORT:-}" ] && [ -n "$claude_session_id" ]; then
   session_payload=$(printf '{"harnessSessionId":"%s","source":"claude_hook","confidence":0.98}' "$claude_session_id")
-  curl -sS -X POST "http://127.0.0.1:$ORKWORKS_PORT/sessions/$ORKWORKS_SESSION_ID/harness-session" \
+  curl -sS --max-time 3 --connect-timeout 1 -X POST "http://127.0.0.1:$ORKWORKS_PORT/sessions/$ORKWORKS_SESSION_ID/harness-session" \
     -H "Content-Type: application/json" \
     -d "$session_payload" >/dev/null || true
 fi
 
 if [ -n "${ORKWORKS_SESSION_ID:-}" ] && [ -n "${ORKWORKS_PORT:-}" ]; then
-  curl -sS -X POST "http://127.0.0.1:$ORKWORKS_PORT/sessions/$ORKWORKS_SESSION_ID/attention" \
+  curl -sS --max-time 3 --connect-timeout 1 -X POST "http://127.0.0.1:$ORKWORKS_PORT/sessions/$ORKWORKS_SESSION_ID/attention" \
     -H "Content-Type: application/json" \
     -d '{"status":"waiting_for_input"}' >/dev/null || true
 fi
