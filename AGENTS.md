@@ -12,6 +12,13 @@ APM project bootstrapped — agent skills, hooks, and plugins are installed via 
 
 Use **pnpm** for all Node.js package management. Do not use npm or yarn for project package management tasks.
 
+GitHub Actions now has two distinct workflow classes:
+
+- `.github/workflows/release.yml` for tag-driven release packaging only
+- `.github/workflows/pr-ci.yml` for pull-request validation on `main`
+
+PR CI is path-routed: desktop changes run desktop validation, Rust changes run Rust tests, and non-code PRs receive a lightweight passing no-op check.
+
 ```bash
 # Install pnpm if missing
 corepack enable
