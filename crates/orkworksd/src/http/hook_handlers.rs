@@ -7,7 +7,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 const CLAUDE_HOOK_SCRIPT_NAME: &str = "report-claude-session-from-hook.sh";
-const HOOK_MARKER: &str = "ORKWORKS_SESSION_ID";
 
 #[derive(Serialize)]
 pub(crate) struct AttentionHookStatusResponse {
@@ -58,27 +57,20 @@ fn read_settings_local(path: &Path) -> Result<Value, String> {
 }
 
 fn is_hook_installed(settings: &Value) -> bool {
-    settings
+    let notification_entries = settings
         .get("hooks")
         .and_then(|h| h.get("Notification"))
         .and_then(|n| n.as_array())
-        .map(|entries| {
-            entries.iter().any(|entry| {
-                entry
-                    .get("hooks")
-                    .and_then(|hs| hs.as_array())
-                    .map(|hs| {
-                        hs.iter().any(|h| {
-                            h.get("command")
-                                .and_then(|c| c.as_str())
-                                .map(|c| c.contains(HOOK_MARKER))
-                                .unwrap_or(false)
-                        })
-                    })
-                    .unwrap_or(false)
-            })
+        .into_iter()
+        .flatten();
+
+    notification_entries
+        .flat_map(|entry| entry.get("hooks").and_then(|hs| hs.as_array()).into_iter().flatten())
+        .any(|h| {
+            h.get("command")
+                .and_then(|c| c.as_str())
+                .is_some_and(|c| c.contains(CLAUDE_HOOK_SCRIPT_NAME))
         })
-        .unwrap_or(false)
 }
 
 fn insert_hook_entry(settings: &mut Value, command: &str) -> Result<(), String> {
@@ -158,13 +150,7 @@ pub(crate) async fn install_attention_hook(
             .into_response();
     }
 
-    // The trailing comment is not read by the script (it reads ORKWORKS_SESSION_ID/ORKWORKS_PORT
-    // from its inherited environment) — it exists so `is_hook_installed` can recognize this
-    // entry as OrkWorks-managed on a later status/install call without an added marker field.
-    let command = format!(
-        "\"{}\"  # OrkWorks attention hook (ORKWORKS_SESSION_ID/ORKWORKS_PORT)",
-        claude_hook_script_path().display()
-    );
+    let command = format!("\"{}\"", claude_hook_script_path().display());
     if let Err(error) = insert_hook_entry(&mut settings, &command) {
         return (axum::http::StatusCode::BAD_REQUEST, Json(ErrorResponse { error })).into_response();
     }

@@ -297,6 +297,9 @@ app.whenReady().then(() => {
     try {
       const port = await portPromise;
       const resp = await fetch(`http://127.0.0.1:${port}/workspace/attention-hook/status`);
+      if (resp.status === 409) {
+        return { installed: false, error: "Open a workspace first." };
+      }
       if (resp.ok) {
         return await resp.json() as { installed: boolean; error?: string };
       }
@@ -310,6 +313,9 @@ app.whenReady().then(() => {
     try {
       const port = await portPromise;
       const resp = await fetch(`http://127.0.0.1:${port}/workspace/attention-hook/install`, { method: "POST" });
+      if (resp.status === 409) {
+        return { installed: false, error: "Open a workspace first." };
+      }
       const body = await resp.json() as { installed?: boolean; error?: string };
       if (resp.ok) {
         return { installed: Boolean(body.installed), error: undefined };
