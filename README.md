@@ -71,6 +71,12 @@ GitHub Releases are tag-driven. Pushing `vX.Y.Z` runs `.github/workflows/release
 - Windows x64 on `windows-latest`
 - Linux x64 on `ubuntu-latest`
 
+Normal pull requests use `.github/workflows/pr-ci.yml`. That workflow routes by changed surface:
+
+- `apps/desktop/**` runs desktop type-check, tests, and build
+- `crates/orkworksd/**` runs Rust tests
+- PRs that touch neither surface get a lightweight passing no-op check for status clarity
+
 ## Containerized dev environment (optional)
 
 A Podman/OCI toolchain container lets you build, type-check, and test OrkWorks without installing Node, Rust, or the Electron toolchain on the host. It's an **alternative** to the native pnpm flow above, not a replacement — GUI runs still use the native flow (see [issue #80](https://github.com/Rambolarsen/orkworks/issues/80) Tier 2). Toolchain versions are pinned in `rust-toolchain.toml`, `.nvmrc`, and `packageManager` so the container and host agree.

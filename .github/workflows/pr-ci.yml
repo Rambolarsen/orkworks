@@ -1,0 +1,97 @@
+name: PR CI
+
+"on":
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  changes:
+    name: Detect changed surfaces
+    runs-on: ubuntu-latest
+    outputs:
+      desktop_changed: ${{ steps.filter.outputs.desktop }}
+      rust_changed: ${{ steps.filter.outputs.rust }}
+      relevant_code_changed: ${{ steps.filter.outputs.desktop == 'true' || steps.filter.outputs.rust == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            desktop:
+              - 'apps/desktop/**'
+            rust:
+              - 'crates/orkworksd/**'
+
+      - name: Print routing decision
+        run: |
+          echo "desktop_changed=${{ steps.filter.outputs.desktop }}"
+          echo "rust_changed=${{ steps.filter.outputs.rust }}"
+
+  desktop:
+    name: Desktop
+    needs: changes
+    if: needs.changes.outputs.desktop_changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: "11"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/desktop/pnpm-lock.yaml
+
+      - name: Install desktop dependencies
+        working-directory: apps/desktop
+        run: pnpm install --frozen-lockfile
+
+      - name: Type-check desktop
+        working-directory: apps/desktop
+        run: npx tsc --noEmit
+
+      - name: Run desktop tests
+        working-directory: apps/desktop
+        run: node --experimental-strip-types --test tests/*.test.ts tests/*.test.mjs
+
+      - name: Build desktop
+        working-directory: apps/desktop
+        run: pnpm build
+
+  rust:
+    name: Rust
+    needs: changes
+    if: needs.changes.outputs.rust_changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/orkworksd
+
+      - name: Run Rust tests
+        run: cargo test --manifest-path crates/orkworksd/Cargo.toml
+
+  noop:
+    name: No relevant code changes
+    needs: changes
+    if: needs.changes.outputs.relevant_code_changed != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Explain skip
+        run: echo "No desktop or Rust changes detected; skipping code validation."
