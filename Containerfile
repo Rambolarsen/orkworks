@@ -9,11 +9,14 @@
 FROM node:22-bookworm-slim
 
 # System build deps for the Rust sidecar: libgit2-sys builds a vendored libgit2
-# via cmake + a C toolchain; git/curl/ca-certificates back rustup and crate fetches.
+# via cmake + a C toolchain; git2's default `https` feature links openssl-sys,
+# which needs libssl-dev + pkg-config on Linux (ubuntu CI ships these already,
+# bookworm-slim does not); git/curl/ca-certificates back rustup and crate fetches.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       build-essential \
       cmake \
       pkg-config \
+      libssl-dev \
       git \
       curl \
       ca-certificates \
