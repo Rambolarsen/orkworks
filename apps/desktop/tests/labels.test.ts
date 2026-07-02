@@ -1,16 +1,34 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
+import type { SessionInfo } from "../src/api.ts";
 import {
   attentionLabel,
   attentionTone,
+  detailActionZone,
   memoryStateLabel,
   relativeTime,
   resumeActionLabel,
+  resumeChoices,
+  situationHeadline,
+  situationTail,
   sourceLabel,
   sourceWithConfidence,
   VOCAB,
 } from "../src/labels.ts";
+
+function baseSession(overrides: Partial<SessionInfo> = {}): SessionInfo {
+  return {
+    id: "s1",
+    label: "session",
+    status: "running",
+    cwd: "/home/user/orkworks",
+    created_at: "2026-06-19T12:00:00Z",
+    memoryState: "live",
+    resumeStrategy: "none",
+    ...overrides,
+  };
+}
 
 test("VOCAB uses 'Workspace' consistently (no 'Folder' drift)", () => {
   assert.equal(VOCAB.workspace, "Workspace");
@@ -86,4 +104,78 @@ test("relativeTime buckets recent timestamps into human-readable spans", () => {
   assert.equal(relativeTime("2026-06-17T12:00:00Z", now), "2d ago");
   assert.equal(relativeTime(undefined, now), "");
   assert.equal(relativeTime("not-a-date", now), "");
+});
+
+test("situationHeadline falls back through question, blocker, summary, next action", () => {
+  assert.equal(situationHeadline(baseSession({ detectedQuestion: "Q?" })), "Q?");
+  assert.equal(situationHeadline(baseSession({ blockerDescription: "B" })), "B");
+  assert.equal(situationHeadline(baseSession({ summary: "S" })), "S");
+  assert.equal(situationHeadline(baseSession({ nextAction: "N" })), "N");
+  assert.equal(situationHeadline(baseSession({})), "No additional detail recorded.");
+  assert.equal(
+    situationHeadline(baseSession({ detectedQuestion: "Q?", blockerDescription: "B" })),
+    "Q?",
+  );
+});
+
+test("situationTail quotes the peon's detected options or the raw failure text, never the headline fields", () => {
+  assert.equal(situationTail(baseSession({ suggestedOptions: ["lazy migrate", "one-shot migrate"] })), "lazy migrate  ·  one-shot migrate");
+  assert.equal(situationTail(baseSession({ failedTest: "test::foo" })), "test::foo");
+  assert.equal(situationTail(baseSession({ failedCommand: "cargo test" })), "cargo test");
+  assert.equal(
+    situationTail(baseSession({ failedTest: "test::foo", failedCommand: "cargo test" })),
+    "test::foo",
+  );
+  assert.equal(situationTail(baseSession({ summary: "S" })), undefined);
+});
+
+test("resumeChoices maps backend resumeOptions into chooser rows", () => {
+  const session = baseSession({
+    memoryState: "resumable",
+    resumeStrategy: "latest_cwd",
+    cwd: "/home/user/orkworks/specs",
+    resumeOptions: [
+      { strategy: "latest_cwd", label: "Resume latest in folder", available: true, preferred: true },
+      { strategy: "exact", label: "Resume this exact session", available: false, preferred: false, reason: "not available — process ended" },
+    ],
+  });
+  const choices = resumeChoices(session);
+  assert.equal(choices.length, 2);
+  assert.deepEqual(choices[0], { label: "Resume latest in folder", sub: "Newest session in specs", recommended: true, unavailable: false });
+  assert.deepEqual(choices[1], { label: "Resume this exact session", sub: "not available — process ended", recommended: false, unavailable: true });
+});
+
+test("resumeChoices synthesizes a single row when the backend sends no resumeOptions", () => {
+  const session = baseSession({ memoryState: "resumable", resumeStrategy: "exact" });
+  const choices = resumeChoices(session);
+  assert.deepEqual(choices, [{ label: "Resume session", sub: "Reattach to this exact session", recommended: true, unavailable: false }]);
+});
+
+test("resumeChoices is empty when there is no resume strategy at all", () => {
+  assert.deepEqual(resumeChoices(baseSession({ memoryState: "unsupported", resumeStrategy: "none" })), []);
+});
+
+test("detailActionZone prefers the resume chooser for non-live sessions", () => {
+  const session = baseSession({
+    memoryState: "remembered",
+    resumeStrategy: "latest_repo",
+  });
+  const zone = detailActionZone(session, "idle");
+  assert.equal(zone.kind, "resume");
+  if (zone.kind === "resume") {
+    assert.equal(zone.note, VOCAB.resumeNoteRemembered);
+    assert.equal(zone.options.length, 1);
+  }
+});
+
+test("detailActionZone shows a cue for a live needs-you session, buttons when done, nothing otherwise", () => {
+  assert.deepEqual(detailActionZone(baseSession(), "needs-you"), { kind: "cue", text: VOCAB.cueReplyInTerminal });
+  assert.deepEqual(detailActionZone(baseSession(), "done"), { kind: "buttons" });
+  assert.deepEqual(detailActionZone(baseSession(), "working"), { kind: "none" });
+  assert.deepEqual(detailActionZone(baseSession(), "neutral"), { kind: "none" });
+});
+
+test("detailActionZone omits the resume chooser when resumable but nothing to offer", () => {
+  const session = baseSession({ memoryState: "resumable", resumeStrategy: "none" });
+  assert.deepEqual(detailActionZone(session, "idle"), { kind: "none" });
 });

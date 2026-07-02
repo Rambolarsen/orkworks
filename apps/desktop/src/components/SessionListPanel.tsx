@@ -132,37 +132,41 @@ function SessionListPanel({
                     onClick={() => handleSelect(s.id)}
                   >
                     <div className="session-row-top">
-                      <StatusIndicator tone={tone} label={attentionLabel(attn)} />
-                      <span className="session-row-label">{s.label}</span>
-                      <span className="session-row-time">{lastActivity(s, now)}</span>
-                      {s.memoryState === "live" && (
-                        <button
-                          className="session-row-kill"
-                          type="button"
-                          aria-label="Kill session"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onKillSession(s.id);
-                          }}
-                        >
-                          &times;
-                        </button>
-                      )}
-                      {s.memoryState !== "live" && (
-                        <button
-                          className="session-row-forget"
-                          type="button"
-                          aria-label="Delete session"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (window.confirm("Permanently delete this session? The session record, events, and saved terminal scrollback cannot be restored.")) {
-                              onForgetSession(s.id);
-                            }
-                          }}
-                        >
-                          <Trash2 size={12} />
-                        </button>
-                      )}
+                      <div className="session-row-primary">
+                        <StatusIndicator tone={tone} label={attentionLabel(attn)} />
+                        <span className="session-row-label">{s.label}</span>
+                      </div>
+                      <div className="session-row-secondary">
+                        <span className="session-row-time">{lastActivity(s, now)}</span>
+                        {s.memoryState === "live" && (
+                          <button
+                            className="session-row-kill"
+                            type="button"
+                            aria-label="Kill session"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onKillSession(s.id);
+                            }}
+                          >
+                            &times;
+                          </button>
+                        )}
+                        {s.memoryState !== "live" && (
+                          <button
+                            className="session-row-forget"
+                            type="button"
+                            aria-label="Delete session"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (window.confirm("Permanently delete this session? The session record, events, and saved terminal scrollback cannot be restored.")) {
+                                onForgetSession(s.id);
+                              }
+                            }}
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        )}
+                      </div>
                     </div>
                     {tone !== "neutral" && (
                       <div className="session-row-status" data-attention={tone}>

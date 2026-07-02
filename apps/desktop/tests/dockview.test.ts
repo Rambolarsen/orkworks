@@ -158,8 +158,19 @@ test("SessionDetailPanel groups content into situation/actions/facts/provenance 
   assert.match(source, /StatusIndicator/);
   assert.match(source, /attentionLabel/);
   assert.match(source, /memoryStateLabel/);
-  assert.match(source, /resumeActionLabel/);
   assert.match(source, /sourceWithConfidence/);
+});
+
+test("SessionDetailPanel's action zone renders at most one move, via the shared detailActionZone derivation", () => {
+  const source = readFileSync(new URL("../src/components/SessionDetailPanel.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /import\s*\{[^}]*detailActionZone[^}]*\}\s*from\s*"\.\.\/labels"/);
+  assert.match(source, /actionZone\.kind === "cue"/);
+  assert.match(source, /actionZone\.kind === "buttons"/);
+  assert.match(source, /actionZone\.kind === "resume"/);
+  assert.match(source, /<ResumeChooser\b/);
+  // "Nothing at all" for a live session with no pending question — no disabled resume button left behind.
+  assert.doesNotMatch(source, /session-resume-button/);
 });
 
 test("session list sorts by attention priority with lifecycle fallback", () => {
@@ -195,14 +206,16 @@ test("sessionAttentionStatus falls back to lifecycle status when no observed", (
 });
 
 test("session detail exposes resumable session action", () => {
-  const source = readFileSync(
+  const panelSource = readFileSync(
     new URL("../src/components/SessionDetailPanel.tsx", import.meta.url),
     "utf8",
   );
+  const labelsSource = readFileSync(new URL("../src/labels.ts", import.meta.url), "utf8");
 
-  assert.match(source, /onResumeSession/);
-  assert.match(source, /Resume/);
-  assert.match(source, /resumeStrategy/);
+  assert.match(panelSource, /onResumeSession/);
+  assert.match(panelSource, /ResumeChooser/);
+  // resumeStrategy handling now lives in the shared resumeChoices() derivation, not the component.
+  assert.match(labelsSource, /resumeStrategy/);
 });
 
 test("session list marks remembered sessions separately from live sessions", () => {
