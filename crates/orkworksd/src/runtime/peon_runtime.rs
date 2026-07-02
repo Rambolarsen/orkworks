@@ -94,7 +94,7 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                         let should_write = ws.metadata.read_session(&id)
                             .map(|m| {
                                 let age = ws.metadata.session_modified_secs_ago(&id);
-                                peon::should_overwrite(&m.metadata_source, age)
+                                peon::peon_should_overwrite(&m.metadata_source, age)
                             })
                             .unwrap_or(true);
 

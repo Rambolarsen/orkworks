@@ -335,6 +335,25 @@ pub fn should_overwrite(source: &str, last_modified_secs_ago: Option<u64>) -> bo
     }
 }
 
+/// Seconds Peon must wait before it may overwrite a fresh `agent`-sourced status.
+/// Short relative to the 5-minute window `should_overwrite` uses elsewhere: long
+/// enough to avoid Peon's inference racing/flickering against a signal that just
+/// landed, short enough that a deterministic hook reporting `waiting_for_input`
+/// doesn't leave the UI stuck showing that for minutes after fresh terminal
+/// output shows the user answered and work resumed.
+const PEON_AGENT_OVERWRITE_SECS: u64 = 15;
+
+/// Same priority gate as `should_overwrite`, for Peon's own write path
+/// specifically. Every other source keeps the same rule; only the `agent`
+/// staleness window is shortened, since Peon reacting to genuinely fresh
+/// terminal output is exactly the correction a stuck attention signal needs.
+pub fn peon_should_overwrite(source: &str, last_modified_secs_ago: Option<u64>) -> bool {
+    match source {
+        "agent" => last_modified_secs_ago.map(|s| s > PEON_AGENT_OVERWRITE_SECS).unwrap_or(false),
+        _ => should_overwrite(source, last_modified_secs_ago),
+    }
+}
+
 pub fn build_prompt(output: &[String]) -> String {
     let output_text: String = output.iter()
         .map(|l| l.as_str())
@@ -663,6 +682,27 @@ mod tests {
         assert!(should_overwrite("process", None));
         assert!(should_overwrite("unknown", None));
         assert!(should_overwrite("", None));             // absent source
+    }
+
+    #[test]
+    fn test_peon_should_overwrite_agent_uses_short_window() {
+        // agent metadata modified 1 minute ago is stale enough for Peon,
+        // even though the full 5-minute should_overwrite window would say no.
+        assert!(peon_should_overwrite("agent", Some(60)));
+        assert!(!should_overwrite("agent", Some(60)));
+
+        // still yields to a signal that just landed, avoiding immediate flicker.
+        assert!(!peon_should_overwrite("agent", Some(5)));
+        assert!(!peon_should_overwrite("agent", None));
+    }
+
+    #[test]
+    fn test_peon_should_overwrite_matches_should_overwrite_for_other_sources() {
+        for source in ["user", "peon", "backend_inference", "process", "unknown", ""] {
+            for age in [None, Some(0), Some(60), Some(600)] {
+                assert_eq!(peon_should_overwrite(source, age), should_overwrite(source, age));
+            }
+        }
     }
 
     #[test]

@@ -585,9 +585,12 @@ impl MetadataStore {
     }
 
     /// Writes a deterministic, harness-supplied attention signal (e.g. from a Claude Code
-    /// `Notification` hook), gated by the same priority/staleness rule Peon respects: it
-    /// cannot clobber fresh `user` or fresh `agent` metadata, but always outranks
-    /// peon/backend_inference/process/unknown.
+    /// `Notification` hook), gated by `should_overwrite`'s priority/staleness rule: it
+    /// cannot clobber fresh `user` metadata, and cannot immediately clobber another fresh
+    /// `agent` write either, but always outranks peon/backend_inference/process/unknown.
+    /// Peon's own write path uses the shorter `peon_should_overwrite` window instead, so
+    /// Peon can correct a stale `agent` status well before this 5-minute self-refresh
+    /// window would let a second hook event do the same.
     pub fn merge_agent_attention_signal(
         &self,
         id: &str,
