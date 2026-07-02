@@ -3,7 +3,7 @@ import { acceleratorFromKeyboardEvent } from "../hotkeyCapture";
 import type { AppSettings, HotkeySettings, RetentionSettings, SaveHotkeysResult } from "../appSettingsTypes";
 import type { ProviderSettings, ProviderModelsResponse } from "../providerTypes";
 import type { ProviderRuntimeResponse } from "../api";
-import type { HarnessConfig } from "../harnessTypes";
+import type { HarnessConfig, AttentionHookStatusResponse } from "../harnessTypes";
 import ProviderSettingsSection from "./ProviderSettingsSection";
 
 type HotkeyAction = keyof HotkeySettings;
@@ -47,6 +47,9 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
   const [ollamaBaseUrlDraft, setOllamaBaseUrlDraft] = useState<string>(initialSettings.providers.ollamaBaseUrl);
   const [activeDraft, setActiveDraft] = useState<string[]>(activeHarnessIds);
   const [activeSaveStatus, setActiveSaveStatus] = useState<string | null>(null);
+  const [claudeHookStatus, setClaudeHookStatus] = useState<AttentionHookStatusResponse | null>(null);
+  const [claudeHookInstalling, setClaudeHookInstalling] = useState(false);
+  const hasClaudeCodeHarness = harnesses.some((h) => h.id === "claude-code");
 
   useLayoutEffect(() => {
     const modal = modalRef.current;
@@ -112,6 +115,33 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
       window.orkworks.setHotkeyCaptureActive(false);
     };
   }, [capturing]);
+
+  useEffect(() => {
+    if (!hasClaudeCodeHarness) return;
+    let cancelled = false;
+    window.orkworks.getClaudeCodeHookStatus().then((status) => {
+      if (!cancelled) setClaudeHookStatus(status);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [hasClaudeCodeHarness]);
+
+  async function installClaudeHookHandler() {
+    const confirmed = window.confirm(
+      "This will add a Notification hook entry to .claude/settings.local.json in this workspace, " +
+      "so OrkWorks can detect when Claude Code is waiting for input. Continue?"
+    );
+    if (!confirmed) return;
+
+    setClaudeHookInstalling(true);
+    try {
+      const status = await window.orkworks.installClaudeCodeHook();
+      setClaudeHookStatus(status);
+    } finally {
+      setClaudeHookInstalling(false);
+    }
+  }
 
   useEffect(() => {
     const ids = providerDraft.providers.map((p) => p.id);
@@ -244,6 +274,27 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
               </span>
             )}
           </div>
+
+          {hasClaudeCodeHarness && (
+            <div className="settings-config-footer">
+              <span className="settings-config-status">
+                Claude Code attention signal:{" "}
+                {claudeHookStatus === null
+                  ? "checking…"
+                  : claudeHookStatus.installed
+                  ? "✓ Installed"
+                  : "Not configured"}
+              </span>
+              {claudeHookStatus && !claudeHookStatus.installed && (
+                <button type="button" onClick={installClaudeHookHandler} disabled={claudeHookInstalling}>
+                  {claudeHookInstalling ? "Installing…" : "Install Notification hook"}
+                </button>
+              )}
+              {claudeHookStatus?.error && (
+                <span className="settings-config-status">{claudeHookStatus.error}</span>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="settings-section">

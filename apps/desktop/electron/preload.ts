@@ -13,6 +13,8 @@ contextBridge.exposeInMainWorld("orkworks", {
   saveProviderSettings: (providers: unknown): Promise<unknown> => ipcRenderer.invoke("save-provider-settings", providers),
   getProviderModels: (providerId: string): Promise<unknown> => ipcRenderer.invoke("get-provider-models", providerId),
   getProviderLabels: (): Promise<unknown> => ipcRenderer.invoke("get-provider-labels"),
+  getClaudeCodeHookStatus: (): Promise<unknown> => ipcRenderer.invoke("get-claude-code-hook-status"),
+  installClaudeCodeHook: (): Promise<unknown> => ipcRenderer.invoke("install-claude-code-hook"),
   setHotkeyCaptureActive: (active: boolean) => {
     ipcRenderer.send("orkworks:hotkey-capture-active", active);
   },

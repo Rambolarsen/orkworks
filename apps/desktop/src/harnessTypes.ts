@@ -21,3 +21,8 @@ export interface CreateSessionOptions {
   model?: string;
   initialPrompt?: string;
 }
+
+export interface AttentionHookStatusResponse {
+  installed: boolean;
+  error?: string;
+}

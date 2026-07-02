@@ -63,6 +63,16 @@ test("SettingsModal renders a Model providers section", () => {
   assert.match(source, /getProviderModels/);
 });
 
+test("SettingsModal offers a Claude Code attention hook install affordance", () => {
+  const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
+  assert.match(source, /getClaudeCodeHookStatus/);
+  assert.match(source, /installClaudeCodeHook/);
+  assert.match(source, /hasClaudeCodeHarness/);
+  assert.match(source, /Not configured/);
+  assert.match(source, /Install Notification hook/);
+  assert.match(source, /window\.confirm/);
+});
+
 test("ProviderSettingsSection keeps model provider editing simplified", () => {
   const source = readFileSync(new URL("../src/components/ProviderSettingsSection.tsx", import.meta.url), "utf8");
   assert.match(source, /Loading model provider settings/);
