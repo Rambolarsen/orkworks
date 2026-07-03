@@ -422,18 +422,23 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
                 let _ = writer.write_all(data.as_bytes());
                 let _ = writer.flush();
                 if let Some(line) = collect_input_line(&mut input_buf, &data) {
-                    let ws_guard = state.workspace.lock().unwrap();
-                    if let Some(ref ws) = *ws_guard {
-                        if let Some(mut meta) = ws.metadata.read_session(&id) {
-                            meta.label = line.clone();
-                            meta.last_user_input = Some(line.clone());
-                            ws.metadata.write_session(&meta);
+                    let is_sensitive = {
+                        let sessions = state.sessions.lock().unwrap();
+                        sessions.get(&id)
+                            .map(|h| peon::looks_like_password_prompt(&h.output_buffer.last_n(5)))
+                            .unwrap_or(false)
+                    };
+                    if !is_sensitive {
+                        let ws_guard = state.workspace.lock().unwrap();
+                        if let Some(ref ws) = *ws_guard {
+                            if let Some(mut meta) = ws.metadata.read_session(&id) {
+                                meta.last_user_input = Some(line.clone());
+                                ws.metadata.write_session(&meta);
+                            }
                         }
                     }
-                    drop(ws_guard);
                     let mut sessions = state.sessions.lock().unwrap();
                     if let Some(handle) = sessions.get_mut(&id) {
-                        handle.info.label = line.clone();
                         if peon::is_terminal_observed_status(handle.info.observed_status.as_deref()) {
                             handle.info.observed_status = None;
                         }
@@ -452,7 +457,7 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
                             }
                         }
                     }
-                    if state.peon.config.enabled && line.len() > 10 {
+                    if state.peon.config.enabled && line.len() > 10 && !is_sensitive {
                         state.peon.label_hint.write().unwrap().insert(id.clone(), line);
                         state.peon.label_pending.write().unwrap().insert(id.clone());
                     }
@@ -563,21 +568,23 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
 
                                 let mut triggered_label = false;
                                 if let Some(line) = collect_input_line(&mut input_buf, &data) {
-                                    let ws_guard = state.workspace.lock().unwrap();
-                                    if let Some(ref ws) = *ws_guard {
-                                        if let Some(mut meta) = ws.metadata.read_session(&id) {
-                                            meta.label = line.clone();
-                                            meta.last_user_input = Some(line.clone());
-                                            ws.metadata.write_session(&meta);
+                                    let is_sensitive = {
+                                        let sessions = state.sessions.lock().unwrap();
+                                        sessions.get(&id)
+                                            .map(|h| peon::looks_like_password_prompt(&h.output_buffer.last_n(5)))
+                                            .unwrap_or(false)
+                                    };
+                                    if !is_sensitive {
+                                        let ws_guard = state.workspace.lock().unwrap();
+                                        if let Some(ref ws) = *ws_guard {
+                                            if let Some(mut meta) = ws.metadata.read_session(&id) {
+                                                meta.last_user_input = Some(line.clone());
+                                                ws.metadata.write_session(&meta);
+                                            }
                                         }
                                     }
-                                    drop(ws_guard);
-                                    let mut sessions = state.sessions.lock().unwrap();
-                                    if let Some(handle) = sessions.get_mut(&id) {
-                                        handle.info.label = line.clone();
-                                    }
-                                    drop(sessions);
-                                    if state.peon.config.enabled && line.len() > 10 {
+                                    drop(state.sessions.lock().unwrap());
+                                    if state.peon.config.enabled && line.len() > 10 && !is_sensitive {
                                         state.peon.label_hint.write().unwrap().insert(id.clone(), line);
                                         state.peon.label_pending.write().unwrap().insert(id.clone());
                                         triggered_label = true;

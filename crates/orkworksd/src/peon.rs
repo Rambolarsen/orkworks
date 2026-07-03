@@ -151,6 +151,16 @@ pub fn detect_usage_limit(patterns: &[&str], lines: &[String]) -> bool {
     })
 }
 
+/// Returns true if recent terminal output looks like it prompted for a password or passphrase.
+/// Used to suppress raw input from being stored as the session label.
+pub fn looks_like_password_prompt(recent_lines: &[String]) -> bool {
+    let patterns = ["password", "passphrase", "pin:"];
+    recent_lines.iter().rev().take(3).any(|line| {
+        let lower = strip_ansi(line).to_lowercase();
+        patterns.iter().any(|p| lower.contains(p))
+    })
+}
+
 /// Returns the "reset in X" fragment from the usage-limit line, if present.
 pub fn detect_usage_limit_hint(patterns: &[&str], lines: &[String]) -> Option<String> {
     if patterns.is_empty() { return None; }

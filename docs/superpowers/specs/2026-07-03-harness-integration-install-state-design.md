@@ -270,7 +270,7 @@ Claude Code is the concrete first migration:
 - keep the underlying Notification hook mechanism and explicit user confirmation
 - strengthen install ownership tracking so uninstall can safely remove only the OrkWorks-installed hook/config
 
-This design does not require equivalent install support for Codex, OpenCode, Gemini CLI, or Aider immediately. They can report `detected` and `installed: unknown|not_installed` until a concrete OrkWorks-owned integration exists.
+This design does not require equivalent install support for Codex, OpenCode, Gemini CLI, or Aider immediately. Until a concrete OrkWorks-owned integration exists, they should report `detected` plus `installed.state = unsupported`.
 
 For the first slice, built-in harnesses without a concrete OrkWorks-managed integration should report `installed.state = unsupported`, not `not_installed`.
 
