@@ -404,10 +404,23 @@ pub(crate) fn resolve_session_launch(
             let model = req.model.clone().or_else(|| {
                 (!config.default_model.is_empty()).then(|| config.default_model.clone())
             });
-            let model_value = format!("{}{}", config.model_prefix, model.as_deref().unwrap_or(""));
-            let args: Vec<String> = config.args.iter().map(|arg| {
-                arg.replace("{model}", &model_value)
-            }).collect();
+            let args: Vec<String> = match model.as_deref() {
+                Some(m) => {
+                    let model_value = format!("{}{}", config.model_prefix, m);
+                    config.args.iter().map(|arg| arg.replace("{model}", &model_value)).collect()
+                }
+                None => {
+                    let mut out: Vec<String> = Vec::new();
+                    for arg in &config.args {
+                        if arg.contains("{model}") {
+                            out.pop(); // drop the preceding flag (e.g. "--model")
+                        } else {
+                            out.push(arg.clone());
+                        }
+                    }
+                    out
+                }
+            };
             return ResolvedSessionLaunch {
                 session_harness_id: Some(config.id.clone()),
                 adapter_harness_id: Some(config.harness.clone()),
@@ -1536,6 +1549,33 @@ mod tests {
         assert_eq!(launch.session_harness_id.as_deref(), Some("codex"));
         assert_eq!(launch.adapter_harness_id.as_deref(), Some("codex"));
         assert_eq!(launch.command.program, "codex");
+    }
+
+    #[test]
+    fn resolve_session_launch_opencode_no_model_omits_model_args() {
+        let harnesses = crate::harness_registry::builtin_harness_configs();
+        let launch = resolve_session_launch(
+            &harnesses,
+            &CreateSessionRequest { harness_id: Some("opencode".into()), model: None, initial_prompt: None },
+            "/repo".into(),
+        );
+        assert!(!launch.command.args.contains(&"--model".into()), "bare --model should be dropped");
+        assert!(!launch.command.args.iter().any(|a| a.starts_with("ollama/")), "bare prefix should not appear");
+    }
+
+    #[test]
+    fn resolve_session_launch_opencode_with_model_uses_prefix() {
+        let harnesses = crate::harness_registry::builtin_harness_configs();
+        let launch = resolve_session_launch(
+            &harnesses,
+            &CreateSessionRequest {
+                harness_id: Some("opencode".into()),
+                model: Some("qwen2.5-coder:latest".into()),
+                initial_prompt: None,
+            },
+            "/repo".into(),
+        );
+        assert!(launch.command.args.contains(&"ollama/qwen2.5-coder:latest".into()));
     }
 
     #[test]
