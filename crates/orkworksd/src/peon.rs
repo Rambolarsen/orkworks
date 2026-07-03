@@ -349,9 +349,9 @@ pub fn parse_inference(stdout: &str) -> Option<PeonInference> {
 /// `last_modified_secs_ago`: seconds since the metadata file was last modified.
 /// None means the file doesn't exist or has no timestamp.
 /// Returns true if the observed status is a terminal state that should be
-/// cleared when new terminal output arrives (idle, stale, done).
+/// cleared when new terminal output arrives (idle, stale, done, waiting_for_input).
 pub fn is_terminal_observed_status(observed: Option<&str>) -> bool {
-    matches!(observed, Some("idle" | "stale" | "done"))
+    matches!(observed, Some("idle" | "stale" | "done" | "waiting_for_input"))
 }
 
 pub fn should_overwrite(source: &str, last_modified_secs_ago: Option<u64>) -> bool {
@@ -741,8 +741,8 @@ mod tests {
         assert!(is_terminal_observed_status(Some("idle")));
         assert!(is_terminal_observed_status(Some("stale")));
         assert!(is_terminal_observed_status(Some("done")));
+        assert!(is_terminal_observed_status(Some("waiting_for_input")));
         assert!(!is_terminal_observed_status(Some("working")));
-        assert!(!is_terminal_observed_status(Some("waiting_for_input")));
         assert!(!is_terminal_observed_status(Some("blocked")));
         assert!(!is_terminal_observed_status(Some("failed")));
         assert!(!is_terminal_observed_status(None));
