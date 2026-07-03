@@ -413,6 +413,56 @@ pub(crate) fn builtin_adapters() -> HashMap<String, harness::HarnessAdapter> {
     );
     map.insert("codex".into(), codex);
 
+    let gemini_caps = harness::HarnessCapabilities {
+        launch: true,
+        resume_exact: false,
+        resume_latest_in_cwd: false,
+        resume_latest_in_repo: false,
+        detect_session_id: false,
+        detect_model: false,
+        detect_context_usage: false,
+        detect_capacity: false,
+        native_voice: false,
+    };
+    let gemini = harness::HarnessAdapter::template(
+        "gemini",
+        "Gemini CLI",
+        gemini_caps,
+        vec![],
+        harness::CommandTemplate {
+            command: "gemini".into(),
+            args: vec![],
+        },
+        None,
+        None,
+    );
+    map.insert("gemini".into(), gemini);
+
+    let aider_caps = harness::HarnessCapabilities {
+        launch: true,
+        resume_exact: false,
+        resume_latest_in_cwd: false,
+        resume_latest_in_repo: false,
+        detect_session_id: false,
+        detect_model: false,
+        detect_context_usage: false,
+        detect_capacity: false,
+        native_voice: false,
+    };
+    let aider = harness::HarnessAdapter::template(
+        "aider",
+        "Aider",
+        aider_caps,
+        vec![],
+        harness::CommandTemplate {
+            command: "aider".into(),
+            args: vec![],
+        },
+        None,
+        None,
+    );
+    map.insert("aider".into(), aider);
+
     map
 }
 
