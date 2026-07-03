@@ -13,7 +13,7 @@ pub(crate) fn workspace_hash(path: &std::path::Path) -> String {
     hex::encode(&result[..8])
 }
 
-pub(crate) fn orksworks_global_dir(workspace_path: &std::path::Path) -> Option<PathBuf> {
+pub(crate) fn orkworks_global_dir(workspace_path: &std::path::Path) -> Option<PathBuf> {
     dirs::home_dir().map(|h| {
         h.join(".orkworks")
             .join("workspaces")

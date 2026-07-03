@@ -7,7 +7,7 @@ use crate::session_view::{
     connectivity_for_status, derive_memory_state, detect_conflicts, merge_live_session_info,
     session_recommendation, terminal_outcome_for_status,
 };
-use crate::workspace_runtime::{iso_now, orksworks_global_dir};
+use crate::workspace_runtime::{iso_now, orkworks_global_dir};
 use crate::{git, harness, metadata, migration, peon, watcher, AppState, SessionHandle, WorkspaceState};
 use axum::{
     extract::{Path, State},
@@ -72,7 +72,7 @@ pub(crate) async fn set_workspace(
         return (axum::http::StatusCode::BAD_REQUEST, "not a directory").into_response();
     }
 
-    let global_dir = match orksworks_global_dir(&ws_path) {
+    let global_dir = match orkworks_global_dir(&ws_path) {
         Some(d) => d,
         None => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "no home directory").into_response(),
     };
