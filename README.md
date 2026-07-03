@@ -4,7 +4,7 @@ Local-first mission control for AI coding sessions. Peons observe individual ses
 
 ## State
 
-APM project bootstrapped — agent skills, hooks, and plugins are installed via [APM](https://github.com/anthropics/apm) in `orkworks/`. M1 (Electron app shell + Rust sidecar scaffold) is implemented, and the alpha release pipeline now packages desktop artifacts through GitHub Actions + electron-builder. Subsequent milestones are tracked as GitHub issues.
+APM project bootstrapped — agent skills, hooks, and plugins are installed via [APM](https://github.com/anthropics/apm) at the repo root. M1 (Electron app shell + Rust sidecar scaffold) is implemented, and the alpha release pipeline now packages desktop artifacts through GitHub Actions + electron-builder. Subsequent milestones are tracked as GitHub issues.
 
 ## Architecture
 
@@ -13,9 +13,10 @@ orkworks/
 ├─ apps/desktop/          # Electron + React/TypeScript + Dockview + xterm.js desktop UI
 ├─ crates/orkworksd/      # Rust sidecar (Axum HTTP/WS, PTY via portable-pty)
 ├─ docs/
-│  └─ adr/                # Architecture Decision Records
+│  ├─ adr/                # Architecture Decision Records
+│  └─ agents/             # Agent-facing docs (architecture, domain entities, APM)
 ├─ skills/                # Repo-level agent skills
-└─ examples/
+└─ specs/                 # Authoritative product specs
 ```
 
 - Electron launches Rust sidecar; UI talks to it over localhost HTTP/WebSocket
@@ -39,6 +40,7 @@ All metadata lives under `~/.orkworks/` (see [ADR 0018](docs/adr/0018-global-met
 - `~/.orkworks/workspaces/<hash>/recommendations/<id>.json` — Taskmaster recommendation state and history
 - `~/.orkworks/workspaces/<hash>/workspace.json` — workspace memory, including the last active session
 - `~/.orkworks/harnesses.json` — global harness definitions
+- `~/.orkworks/hook-scripts/` — stable copies of harness reporter scripts, so installed hooks survive app updates and packaging path changes
 - Priority: user > agent > peon > backend_inference > process > unknown (see [ADR 0005](docs/adr/0005-metadata-source-priority.md))
 - Peon reads terminal output, writes inferred metadata, never types into terminals
 - Harnesses can write deterministic attention signals at `agent` priority via `POST /sessions/:id/attention`; installation is explicit and user-confirmed only ([ADR 0019](docs/adr/0019-attention-signal-endpoint-opt-in-hook-install.md))
@@ -47,7 +49,7 @@ All metadata lives under `~/.orkworks/` (see [ADR 0018](docs/adr/0018-global-met
 ## Setup
 
 ```bash
-cd orkworks
+# from the repo root
 apm install
 ```
 
@@ -104,23 +106,24 @@ podman compose run --rm dev cargo test    --manifest-path crates/orkworksd/Cargo
 
 ## Peon configuration
 
-Peon runs in the Rust sidecar as a background task. After a session's terminal goes quiet for `PEON_INTERVAL` seconds (default `5`), Peon shells out to a configurable harness, asks it to classify the recent output, and writes the result to `.orkworks/sessions/<id>.json`. User input into the terminal also resets this debounce window — typing counts as activity. While an inference is in flight for a session, a second one is not launched for the same session.
+Peon runs in the Rust sidecar as a background task. After a session's terminal goes quiet, Peon asks a model provider to classify the recent output and writes the result to `~/.orkworks/workspaces/<hash>/sessions/<id>.json`. User input into the terminal also resets this debounce window — typing counts as activity. While an inference is in flight for a session, a second one is not launched for the same session. Sessions quiet past `PEON_IDLE_TIMEOUT` are marked idle by timer, without an LLM call.
 
-Tune via environment variables on `orkworksd`:
+Which tool performs the inference is no longer chosen by environment variable: Peon routes through the model-provider fallback system (`providers.rs`), which skips disabled/capped providers in fallback order. The per-provider Peon model is configured in the app's Settings.
+
+The observation loop itself is tuned via environment variables on `orkworksd`:
 
 | Variable | Default | Purpose |
 | -------- | ------- | ------- |
 | `PEON_ENABLED` | `true` | Set to `false`/`0` to disable Peon entirely |
-| `PEON_INTERVAL` | `5` | Seconds of terminal silence before inference fires |
-| `PEON_HARNESS` | `opencode` | Binary Peon shells out to for classification |
-| `PEON_HARNESS_ARGS_JSON` | `["run","--pure"]` | JSON array of args passed to the harness (falls back to space-split `PEON_HARNESS_ARGS`) |
-| `PEON_MODEL` | unset | Reserved for harness model selection |
-| `PEON_MAX_LINES` | `200` | Ring-buffer size of terminal lines fed to the harness |
-| `PEON_TIMEOUT` | `30` | Seconds before a harness invocation is killed |
+| `PEON_INTERVAL` | `5` | Seconds between Peon scan cycles |
+| `PEON_IDLE_TIMEOUT` | `15` | Seconds of terminal silence before a session is marked idle by timer |
+| `PEON_MAX_LINES` | `200` | Ring-buffer size of terminal lines fed to inference |
+
+(`PEON_HARNESS`, `PEON_HARNESS_ARGS_JSON`, `PEON_MODEL`, and `PEON_TIMEOUT` are legacy — still parsed, but session inference no longer uses them.)
 
 ## Agent plugins
 
-Managed via APM in `orkworks/apm.yml`. Running `apm install` populates skills and hooks for all configured targets (claude, codex, copilot, opencode).
+Managed via APM in `apm.yml` at the repo root. Running `apm install` from the repo root populates skills and hooks for all configured targets (claude, codex, copilot, opencode).
 
 Development agents should follow `AGENTS.md`, including the requirement to invoke and follow relevant Superpowers skills before implementation, debugging, review, verification, commit, push, or PR work.
 
@@ -135,6 +138,7 @@ opencode /Users/froomiebot/workspace/orkworks
 | [obra/superpowers](https://github.com/obra/superpowers) | Agentic skills framework & methodology |
 | [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail) | YAGNI-minimalist ruleset |
 | [thedotmack/claude-mem](https://github.com/thedotmack/claude-mem) | Persistent memory for Claude |
+| [leonardomso/rust-skills](https://github.com/leonardomso/rust-skills) | Rust coding rules for work under `crates/` |
 
 ## Repo skills
 
@@ -144,6 +148,7 @@ The `skills/` directory contains repo-level agent skills that are committed with
 | ----- | ----------- |
 | [starting-work](skills/starting-work/SKILL.md) | Branch/worktree setup and per-checkout workflow for new code changes |
 | [cutting-release](skills/cutting-release/SKILL.md) | Version bump, tag push, CI monitoring, and release verification workflow |
+| [adding-harness](skills/adding-harness/SKILL.md) | Checklist for adding or changing a harness adapter (launch, resume, session ID capture, voice, capacity) |
 | [writing-skills](skills/writing-skills/SKILL.md) | TDD-based skill creation following the Agent Skills standard |
 | [clean-ddd-hexagonal](skills/clean-ddd-hexagonal/SKILL.md) | Clean Architecture + DDD + Hexagonal patterns, language-agnostic |
 

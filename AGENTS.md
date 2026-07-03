@@ -197,7 +197,9 @@ Electron + React/TypeScript frontend (`apps/desktop/`) communicates with a Rust 
 - `domain/session/` — value objects, entity (aggregate root), domain events, repository trait, lifecycle service
 - `application/session/` — command DTOs, driven port interfaces (PtySpawner, PtyKiller, GitDetector), use case handlers
 - `infrastructure/` — repository adapter, PTY/git adapters, SessionModule composition root
-- `main.rs` — thin HTTP handlers delegating to SessionModule; PTY management (SessionHandle) and Peon loop remain in AppState
+- `http/` — thin HTTP handler submodules (session, harness, provider, retention, attention hook) delegating to SessionModule and AppState
+- `runtime/` — background tasks: terminal/PTY runtime, Peon observation loop, retention cleanup
+- `main.rs` — Axum router, `AppState`/`SessionHandle` struct definitions, startup
 
 See [`docs/agents/architecture.md`](docs/agents/architecture.md) for the full inter-component breakdown (port discovery, preload bridge, API data flow, Rust modules, panel layout).
 See [`docs/agents/domain-entities.md`](docs/agents/domain-entities.md) for the current Rust domain model: session aggregate, value objects, domain events, repository port, lifecycle service, and terminology boundaries.
@@ -206,6 +208,7 @@ See [`docs/agents/domain-entities.md`](docs/agents/domain-entities.md) for the c
 
 - `~/.orkworks/workspaces/<hash>/sessions/<id>.json` — session state
 - `~/.orkworks/workspaces/<hash>/events/<id>.ndjson` — append-only event log
+- `~/.orkworks/workspaces/<hash>/events/<id>.terminal` — persisted terminal output ring buffer
 - `~/.orkworks/workspaces/<hash>/capacity/<id>.json` — capacity per model/harness
 - `~/.orkworks/workspaces/<hash>/recommendations/<id>.json` — Taskmaster recommendation state and history
 - `~/.orkworks/workspaces/<hash>/workspace.json` — workspace memory, including the last active session

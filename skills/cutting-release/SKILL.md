@@ -54,6 +54,8 @@ git tag "$TAG"
 git push origin "$TAG"
 ```
 
+The tag must exactly match `v` + the `version` in `apps/desktop/package.json` — the workflow's "Guard tag/version drift" step fails every build job if they differ.
+
 ### 4. Monitor the release workflow
 
 The tag push triggers `.github/workflows/release.yml`. Watch it:

@@ -7,6 +7,14 @@ description: Use before adding or changing an OrkWorks harness adapter so launch
 
 Use this skill before adding a new harness or changing an existing harness adapter.
 
+## Where harness code lives
+
+- `crates/orkworksd/src/harness_registry.rs` — built-in `HarnessConfig` entries (id, name, command/args, default model, model prefix, voice capabilities) and persistence of user-defined configs to `~/.orkworks/harnesses.json`
+- `crates/orkworksd/src/harness.rs` — `HarnessAdapterConfig`/`HarnessAdapter` (launch/resume command templates, capability flags, resume strategy selection, usage-limit patterns)
+- `crates/orkworksd/src/providers.rs` — Peon inference provider definitions (`builtin_provider_registry()`). This is currently a separate registry: a harness that should also serve as a Peon inference tool needs a matching `ProviderDefinition` here. (A unification that derives providers from `HarnessConfig` is designed but not yet implemented — `docs/superpowers/specs/2026-07-03-harness-registry-unification-design.md`.)
+- `crates/orkworksd/src/http/harness_handlers.rs` — harness CRUD endpoints
+- `apps/desktop/src/harnessTypes.ts` — renderer-side harness types
+
 ## Required Checks
 
 1. Confirm the harness is covered by an authoritative OrkWorks spec or create/update the spec first.

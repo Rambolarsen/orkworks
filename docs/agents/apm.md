@@ -1,16 +1,16 @@
 # APM and Agent Plugins
 
-Dependencies are managed by [APM](https://github.com/anthropics/apm) in the `orkworks/` directory. The `apm.yml` defines targets (claude, codex, copilot, opencode) and dependencies. Running `apm install` populates generated agent assets:
+Dependencies are managed by [APM](https://github.com/anthropics/apm) at the repo root. The root `apm.yml` defines targets (claude, codex, copilot, opencode) and dependencies. Running `apm install` from the repo root populates generated agent assets:
 
 | Path | Contents |
 | ---- | -------- |
-| `orkworks/apm_modules/` | Cloned dependency sources (gitignored) |
-| `orkworks/apm.lock.yaml` | Resolved lock file (gitignored) |
-| `orkworks/.agents/skills/` | Skills for all targets |
-| `orkworks/.claude/` | Claude Code hooks + skills |
-| `orkworks/.codex/` | Codex hooks |
-| `orkworks/.github/hooks/` | Copilot hooks |
-| `orkworks/.opencode/` | OpenCode target |
+| `apm_modules/` | Cloned dependency sources (gitignored) |
+| `apm.lock.yaml` | Resolved lock file (gitignored) |
+| `.agents/skills/` | Skills for all targets |
+| `.claude/` | Claude Code hooks + skills |
+| `.codex/` | Codex hooks |
+| `.github/hooks/` | Copilot hooks |
+| `.opencode/` | OpenCode target |
 
 ## Superpowers
 
@@ -18,7 +18,7 @@ Dependencies are managed by [APM](https://github.com/anthropics/apm) in the `ork
 
 ```json
 {
-  "plugin": ["orkworks/apm_modules/obra/superpowers/.opencode/plugins/superpowers.js"]
+  "plugin": ["apm_modules/obra/superpowers/.opencode/plugins/superpowers.js"]
 }
 ```
 
@@ -28,7 +28,7 @@ Dependencies are managed by [APM](https://github.com/anthropics/apm) in the `ork
 
 ```json
 {
-  "plugin": ["orkworks/apm_modules/DietrichGebert/ponytail/.opencode/plugins/ponytail.mjs"]
+  "plugin": ["apm_modules/DietrichGebert/ponytail/.opencode/plugins/ponytail.mjs"]
 }
 ```
 
@@ -48,6 +48,9 @@ The `skills/` directory contains repo-level agent skills committed with the proj
 
 | Skill | Description |
 | ----- | ----------- |
+| `starting-work` | Branch/worktree setup and per-checkout workflow for new code changes |
+| `cutting-release` | Version bump, tag push, CI monitoring, and release verification workflow |
+| `adding-harness` | Checklist for adding or changing a harness adapter |
 | `writing-skills` | TDD-based skill creation following the Agent Skills standard |
 | `clean-ddd-hexagonal` | Clean Architecture + DDD + Hexagonal patterns, language-agnostic |
 
@@ -59,7 +62,7 @@ The `skills/` directory contains repo-level agent skills committed with the proj
 
 Update this file when:
 
-- `orkworks/apm.yml` changes (new targets, new plugins, removed plugins)
+- `apm.yml` changes (new targets, new plugins, removed plugins)
 - `opencode.json` changes (new plugin paths or configuration)
 - A new APM plugin is added or removed
 - Generated path layout changes after `apm install`
