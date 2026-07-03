@@ -773,6 +773,7 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
     // Remembered sessions (at_usage_limit = None) inherit the harness state.
     let mut harness_capped: HashMap<String, bool> = HashMap::new();
     let mut harness_reset_hint: HashMap<String, String> = HashMap::new();
+    let mut provider_checking: HashSet<String> = HashSet::new();
     for info in &infos {
         if let (Some(hid), Some(capped)) = (&info.harness_id, info.at_usage_limit) {
             let entry = harness_capped.entry(hid.clone()).or_insert(false);
@@ -780,6 +781,13 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
         }
         if let (Some(hid), Some(hint)) = (&info.harness_id, &info.usage_limit_reset_hint) {
             harness_reset_hint.entry(hid.clone()).or_insert_with(|| hint.clone());
+        }
+        if info.capacity_check_pending == Some(true) {
+            if let Some(pid) = &info.model_provider_id {
+                provider_checking.insert(pid.clone());
+            } else if let Some(hid) = &info.harness_id {
+                provider_checking.insert(hid.clone());
+            }
         }
     }
     if !harness_capped.is_empty() {
@@ -796,7 +804,7 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
             }
         }
     }
-    state.providers.update_session_capping(harness_capped, harness_reset_hint);
+    state.providers.update_session_capping(harness_capped, harness_reset_hint, provider_checking);
 
     let mut cwd_counts: HashMap<String, usize> = HashMap::new();
     for info in &infos {

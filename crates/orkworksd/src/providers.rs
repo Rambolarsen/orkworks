@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::Read;
 use std::io::Write as IoWrite;
 use std::process::{Command, Stdio};
@@ -539,6 +539,7 @@ pub struct ProviderManager {
     runner: Arc<dyn ProviderRunner>,
     session_capped: Arc<RwLock<HashMap<String, bool>>>,
     session_reset_hint: Arc<RwLock<HashMap<String, String>>>,
+    session_checking: Arc<RwLock<HashSet<String>>>,
 }
 
 impl ProviderManager {
@@ -556,6 +557,7 @@ impl ProviderManager {
             }),
             session_capped: Arc::new(RwLock::new(HashMap::new())),
             session_reset_hint: Arc::new(RwLock::new(HashMap::new())),
+            session_checking: Arc::new(RwLock::new(HashSet::new())),
         }
     }
 
@@ -565,9 +567,11 @@ impl ProviderManager {
         &self,
         capped: HashMap<String, bool>,
         reset_hints: HashMap<String, String>,
+        checking: HashSet<String>,
     ) {
         *self.session_capped.write().unwrap() = capped;
         *self.session_reset_hint.write().unwrap() = reset_hints;
+        *self.session_checking.write().unwrap() = checking;
     }
 
     pub fn apply_settings(&self, settings: ProviderSettingsPayload) -> ProviderApplyStatus {
@@ -593,11 +597,16 @@ impl ProviderManager {
         let runtime = self.runtime.read().unwrap().clone();
         let session_capped = self.session_capped.read().unwrap().clone();
         let session_reset_hint = self.session_reset_hint.read().unwrap().clone();
+        let session_checking = self.session_checking.read().unwrap().clone();
 
         let providers = settings.providers.iter().map(|entry| {
             let effective = entry.effective_state();
             let session_is_capped = session_capped.get(&entry.id).copied().unwrap_or(false);
-            let effective_str = if session_is_capped && effective != ProviderEffectiveState::Disabled {
+            let effective_str = if effective == ProviderEffectiveState::Disabled {
+                "disabled"
+            } else if session_checking.contains(&entry.id) {
+                "checking_capacity"
+            } else if session_is_capped {
                 "capped"
             } else {
                 match effective {
@@ -605,7 +614,7 @@ impl ProviderManager {
                     ProviderEffectiveState::Degraded => "degraded",
                     ProviderEffectiveState::Capped => "capped",
                     ProviderEffectiveState::Unknown => "unknown",
-                    ProviderEffectiveState::Disabled => "disabled",
+                    ProviderEffectiveState::Disabled => unreachable!(),
                 }
             };
             let label = self.registry.iter()
@@ -1029,6 +1038,7 @@ impl ProviderManager {
             runner: Arc::new(FakeRunner { specs }),
             session_capped: Arc::new(RwLock::new(HashMap::new())),
             session_reset_hint: Arc::new(RwLock::new(HashMap::new())),
+            session_checking: Arc::new(RwLock::new(HashSet::new())),
         }
     }
 
@@ -1047,6 +1057,7 @@ impl ProviderManager {
             runner: Arc::new(FakeRunner { specs }),
             session_capped: Arc::new(RwLock::new(HashMap::new())),
             session_reset_hint: Arc::new(RwLock::new(HashMap::new())),
+            session_checking: Arc::new(RwLock::new(HashSet::new())),
         }
     }
 }
@@ -1180,6 +1191,42 @@ mod tests {
 
         let claude = response.providers.iter().find(|provider| provider.id == "claude-code").unwrap();
         assert_eq!(claude.runtime.fallback_step, Some(2));
+    }
+
+    #[test]
+    fn pending_capacity_overrides_runtime_state_for_enabled_provider() {
+        let manager = ProviderManager::for_tests(
+            sample_settings(vec![entry("opencode")]),
+            registry_with(vec![fake_provider("opencode")]),
+        );
+
+        manager.update_session_capping(
+            HashMap::from([("opencode".into(), false)]),
+            HashMap::new(),
+            HashSet::from(["opencode".into()]),
+        );
+
+        let response = manager.get_providers_response();
+        let opencode = response.providers.iter().find(|provider| provider.id == "opencode").unwrap();
+        assert_eq!(opencode.effective_state, "checking_capacity");
+    }
+
+    #[test]
+    fn disabled_provider_stays_disabled_when_pending() {
+        let manager = ProviderManager::for_tests(
+            sample_settings(vec![entry("opencode").enabled(false)]),
+            registry_with(vec![fake_provider("opencode")]),
+        );
+
+        manager.update_session_capping(
+            HashMap::from([("opencode".into(), false)]),
+            HashMap::new(),
+            HashSet::from(["opencode".into()]),
+        );
+
+        let response = manager.get_providers_response();
+        let opencode = response.providers.iter().find(|provider| provider.id == "opencode").unwrap();
+        assert_eq!(opencode.effective_state, "disabled");
     }
 
     #[test]
