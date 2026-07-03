@@ -499,6 +499,7 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
                     raw_persist_lines.push(String::from_utf8_lossy(&line[..end]).into_owned());
                 }
 
+                let mut codex_thread_id: Option<String> = None;
                 if state.peon.config.enabled {
                     let mut sessions = state.sessions.lock().unwrap();
                     if let Some(handle) = sessions.get_mut(&id) {
@@ -520,6 +521,22 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
                         if peon::is_terminal_observed_status(handle.info.observed_status.as_deref()) {
                             handle.info.observed_status = None;
                         }
+                        if handle.info.harness_id.as_deref() == Some("codex") {
+                            codex_thread_id = raw_persist_lines.iter()
+                                .find_map(|line| codex_thread_id_from_jsonl_line(line));
+                        }
+                    }
+                }
+
+                if let Some(thread_id) = codex_thread_id {
+                    let ws_guard = state.workspace.lock().unwrap();
+                    if let Some(ref ws) = *ws_guard {
+                        let report = metadata::HarnessSessionReport {
+                            harness_session_id: thread_id,
+                            source: "codex_jsonl".into(),
+                            confidence: 0.99,
+                        };
+                        let _ = ws.metadata.merge_harness_session_report(&id, &report, &iso_now());
                     }
                 }
 
