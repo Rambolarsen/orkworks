@@ -94,9 +94,18 @@ OrkWorks-managed integration state:
 - `partial`
 - `outdated`
 - `conflict`
+- `unsupported`
 - `unknown`
 
 `installed` is intentionally typed rather than boolean because hook/config state can drift, partially fail, or conflict with user-managed edits.
+
+Each installed-state payload must also carry ownership/provenance information for uninstall decisions:
+
+- `owned`: OrkWorks can prove the installed integration was created or adopted by OrkWorks
+- `unowned`: integration exists, but OrkWorks cannot prove ownership
+- `unknown`: ownership could not be determined
+
+This ownership field is separate from the install-state enum because `installed` alone is not enough to decide whether uninstall is safe.
 
 ### Behavior Matrix
 
@@ -104,6 +113,8 @@ OrkWorks-managed integration state:
 - `enabled=true`, `detected=not_detected`: valid. The UI should show the harness as available in principle but not runnable from the current app environment.
 - `enabled=true`, `detected=detected`, `installed=not_installed`: valid. The harness can launch, but OrkWorks-specific integration is not configured.
 - `installed=partial|outdated|conflict`: the UI should not flatten these to "installed". They require specific messaging and usually a repair/reinstall action.
+- `installed=unsupported`: valid. The harness has no current OrkWorks-managed integration flow, so the UI should show status only and no install/uninstall action.
+- `installed=installed`, `ownership=unowned|unknown`: valid. The UI should show the integration as present but uninstall must be blocked.
 
 This avoids implying that a harness is fully ready when only one of the three axes is satisfied.
 
@@ -124,7 +135,7 @@ This is a narrow in-process abstraction, not a plugin framework. It should be im
 For the first slice:
 
 - Claude Code gets full detect/install/uninstall/status support for the Notification hook path
-- other built-in harnesses may initially return detection status plus `unknown` or `not_installed` integration state if no OrkWorks-owned integration exists yet
+- other built-in harnesses may initially return detection status plus `unsupported` integration state if no OrkWorks-owned integration exists yet
 
 ### Ownership Tracking
 
@@ -138,6 +149,25 @@ Install operations must either:
 The uninstall path must remove only OrkWorks-owned entries. If the config has drifted and ownership cannot be proven, the driver must return `conflict` or `not_owned_by_orkworks` rather than deleting ambiguous user-managed configuration.
 
 For Claude Code specifically, this means the current substring-based idempotency/status check is not sufficient for safe uninstall on its own. The Claude integration needs a stronger ownership marker or manifest before uninstall is added.
+
+Ownership data for workspace-local integrations should live with the workspace-scoped integration, not as a global machine-wide assertion. For Claude Code, that means any manifest, if used, should live in workspace-scoped OrkWorks metadata rather than a global cross-workspace store.
+
+### Scope Rules
+
+The three axes intentionally live at different scopes, and the API/UI must not blur them:
+
+- `enabled` is workspace-scoped
+- `detected` is app-environment scoped for the current OrkWorks launch
+- `installed` is integration-scoped; for Claude Code in this slice, it is workspace-scoped because `.claude/settings.local.json` is workspace-local
+
+`GET /harnesses/integration-status` should return the mixed-scope view explicitly. When no workspace is open:
+
+- `detected` should still be reported
+- `enabled` should be omitted or reported as unavailable with a workspace-scoped detail
+- workspace-local `installed` states should return `unknown` with a detail like "Open a workspace to inspect integration state."
+- install/uninstall actions should be unavailable
+
+The response model should make this explicit rather than implying every field is always meaningful in every app state.
 
 ### API Shape
 
@@ -157,14 +187,20 @@ Suggested status response shape:
 ```json
 {
   "harnessId": "claude-code",
-  "enabled": true,
+  "enabled": {
+    "state": "enabled",
+    "scope": "workspace"
+  },
   "detected": {
     "state": "detected",
+    "scope": "app_environment",
     "resolvedPath": "/usr/local/bin/claude",
     "detail": "Command found in app environment."
   },
   "installed": {
     "state": "installed",
+    "scope": "workspace",
+    "ownership": "owned",
     "detail": "Notification hook installed in .claude/settings.local.json."
   },
   "actions": {
@@ -182,8 +218,9 @@ Install/uninstall responses should carry typed error codes rather than generic s
 - `not_owned_by_orkworks`
 - `partial_install`
 - `unsupported_harness`
-- `already_installed`
-- `already_uninstalled`
+- `workspace_required`
+
+Install/uninstall should be idempotent success operations when the end state is already satisfied. Repeating install on an already-installed owned integration should return success plus current status; repeating uninstall when nothing OrkWorks owns is installed should also return success plus current status. Typed errors should be reserved for real failures or unsafe states, not for harmless repeats.
 
 ### Settings UI
 
@@ -205,8 +242,9 @@ Examples:
 Action behavior:
 
 - `Install` when the harness is detected and integration is not installed
-- `Uninstall` when OrkWorks-managed integration is installed and owned by OrkWorks
-- disabled or replaced with explanatory text for `partial`, `conflict`, `unknown`, or unsupported states
+- `Uninstall` when OrkWorks-managed integration is installed and ownership is `owned`
+- no install/uninstall action for `unsupported`
+- disabled or replaced with explanatory text for `partial`, `conflict`, `unknown`, `ownership=unowned|unknown`, or workspace-unavailable states
 
 The existing workspace-level save flow for enabled harnesses can remain, but the status/action portion should refresh from the backend after every install/uninstall attempt so the UI reflects the real state rather than an optimistic assumption.
 
@@ -216,7 +254,7 @@ Built-in harnesses:
 
 - always remain visible
 - are never deleted through uninstall
-- move between disconnected and connected states based on integration status
+- retain independent `enabled`, `detected`, and `installed` state; uninstall changes only OrkWorks-managed integration state
 
 Custom harnesses:
 
@@ -234,12 +272,24 @@ Claude Code is the concrete first migration:
 
 This design does not require equivalent install support for Codex, OpenCode, Gemini CLI, or Aider immediately. They can report `detected` and `installed: unknown|not_installed` until a concrete OrkWorks-owned integration exists.
 
+For the first slice, built-in harnesses without a concrete OrkWorks-managed integration should report `installed.state = unsupported`, not `not_installed`.
+
+### Legacy Claude Migration
+
+Existing Claude hook installs may predate ownership tracking. The first implementation must define a stable backward-compatibility rule:
+
+- if a Claude hook entry is present but matches only the old substring-based detection and has no ownership marker/manifest, report it as `installed.state = conflict` with `ownership = unknown`
+- offer reinstall/adopt behavior only through an explicit user action
+- do not allow uninstall of that legacy state until OrkWorks can either adopt it safely or replace it with an owned install
+
+This keeps old installs visible without pretending uninstall is safe.
+
 ## Error Handling And UX
 
 - If no workspace is open, install/uninstall should fail with a clear workspace-scoped error.
 - If the command is missing from the app environment, install should fail with `command_not_found`.
 - If the target config is malformed or modified in a way ownership cannot be proven, return `config_conflict` or `not_owned_by_orkworks` and leave files untouched.
-- If uninstall is requested when nothing OrkWorks owns is installed, return `already_uninstalled`.
+- If uninstall is requested when nothing OrkWorks owns is installed, return success with unchanged current status.
 - After every action, the renderer should re-read integration status from the backend before updating badges or button states.
 
 ## Testing And Validation
@@ -251,6 +301,7 @@ Implementation should verify:
 - install idempotency for repeated actions
 - uninstall safety when ownership markers/manifests are missing or ambiguous
 - Claude-specific hook install/uninstall round trip, including malformed config and drifted config cases
+- legacy Claude hook detection without ownership markers, including blocked uninstall behavior
 - handler coverage for status/install/uninstall endpoints and typed errors
 - renderer coverage for the Settings state matrix so actions and messaging change correctly across combinations
 
@@ -262,7 +313,6 @@ Important negative cases:
 
 ## Open Questions
 
-- For harnesses with no current OrkWorks-owned integration, should the UI say `Installed: Not applicable` or keep `Installed: Not installed/unknown` until support exists? The implementation should pick one consistent label and document it.
 - For Claude Code ownership tracking, is an inline marker in the config entry sufficient, or is a manifest file under `~/.orkworks/` safer? Either is acceptable as long as uninstall safety is explicit and testable.
 
 ## Documentation Impact
