@@ -25,9 +25,10 @@ interface SessionDetailPanelProps {
   sessions: SessionInfo[];
   activeSessionId: string | null;
   onResumeSession: (id: string) => void;
+  showDebugMetadata: boolean;
 }
 
-function SessionDetailPanel({ sessions, activeSessionId, onResumeSession }: SessionDetailPanelProps) {
+function SessionDetailPanel({ sessions, activeSessionId, onResumeSession, showDebugMetadata }: SessionDetailPanelProps) {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
     const interval = setInterval(() => setNow(new Date()), 1000);
@@ -156,6 +157,18 @@ function SessionDetailPanel({ sessions, activeSessionId, onResumeSession }: Sess
               <span className="session-detail-value-sub">{providerContext.modelProvider}</span>
             </div>
           </div>
+          {showDebugMetadata && (
+            <>
+              <div className="detail-fact">
+                <div className="session-detail-label">OrkWorks session ID</div>
+                <div className="session-detail-value">{active.id}</div>
+              </div>
+              <div className="detail-fact">
+                <div className="session-detail-label">Harness session ID</div>
+                <div className="session-detail-value">{active.resume?.harnessSessionId ?? "Not captured"}</div>
+              </div>
+            </>
+          )}
         </div>
 
         {active.branch && (

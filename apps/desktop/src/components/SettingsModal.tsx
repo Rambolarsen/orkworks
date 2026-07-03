@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { acceleratorFromKeyboardEvent } from "../hotkeyCapture";
-import type { AppSettings, HotkeySettings, RetentionSettings, SaveHotkeysResult } from "../appSettingsTypes";
+import type { AppSettings, DebugSettings, HotkeySettings, RetentionSettings, SaveHotkeysResult } from "../appSettingsTypes";
 import type { ProviderSettings, ProviderModelsResponse } from "../providerTypes";
 import type { ProviderRuntimeResponse } from "../api";
 import type { HarnessConfig, AttentionHookStatusResponse } from "../harnessTypes";
@@ -40,6 +40,8 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
   const [saving, setSaving] = useState(false);
   const [retention, setRetention] = useState<RetentionSettings>(initialSettings.retention);
   const [retentionSaveStatus, setRetentionSaveStatus] = useState<string | null>(null);
+  const [debugSettings, setDebugSettings] = useState<DebugSettings>(initialSettings.debug);
+  const [debugSaveStatus, setDebugSaveStatus] = useState<string | null>(null);
   const [providerDraft, setProviderDraft] = useState<ProviderSettings>(initialSettings.providers);
   const [providerModels, setProviderModels] = useState<Record<string, string[]>>({});
   const [providerSaveStatus, setProviderSaveStatus] = useState<string | null>(null);
@@ -178,6 +180,18 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
     }
   }
 
+  async function saveDebugSettings(debug: DebugSettings) {
+    setDebugSaveStatus(null);
+    try {
+      const result = await window.orkworks.saveDebugSettings(debug);
+      setDebugSettings(result.settings.debug);
+      onSaved(result.settings);
+      setDebugSaveStatus("Saved");
+    } catch {
+      setDebugSaveStatus("Couldn't save debug settings.");
+    }
+  }
+
   async function save() {
     setSaving(true);
     setErrors({});
@@ -293,6 +307,34 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
               {claudeHookStatus?.error && (
                 <span className="settings-config-status">{claudeHookStatus.error}</span>
               )}
+            </div>
+          )}
+        </div>
+
+        <div className="settings-section">
+          <h3>Debug</h3>
+          <p className="settings-section-copy">
+            Reveal internal metadata in session details when you need to debug session state.
+          </p>
+
+          <div className="settings-config-list">
+            <label className="settings-config-item">
+              <input
+                type="checkbox"
+                checked={debugSettings.showSessionIds}
+                onChange={(e) => {
+                  const next = { showSessionIds: e.target.checked };
+                  setDebugSettings(next);
+                  saveDebugSettings(next);
+                }}
+              />
+              <span>Show debug metadata</span>
+            </label>
+          </div>
+
+          {debugSaveStatus && (
+            <div className={`retention-status ${debugSaveStatus === "Saved" ? "retention-status--ok" : ""}`}>
+              {debugSaveStatus}
             </div>
           )}
         </div>

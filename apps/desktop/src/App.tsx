@@ -411,6 +411,7 @@ function App() {
       <DockviewApp
         backendStatus={backendStatus}
         workspace={workspace}
+        debugSettings={settings?.debug ?? { showSessionIds: false }}
         sessions={sessions}
         activeSessionId={activeSessionId}
         resumeTick={resumeTick}

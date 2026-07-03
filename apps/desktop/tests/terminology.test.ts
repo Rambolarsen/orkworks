@@ -22,6 +22,9 @@ test("SessionDetailPanel distinguishes coding tool from model provider", () => {
   const text = source("../src/components/SessionDetailPanel.tsx");
   assert.match(text, />Coding tool</);
   assert.match(text, />Provider state</);
+  assert.match(text, /OrkWorks session ID/);
+  assert.match(text, /Harness session ID/);
+  assert.match(text, /Not captured/);
   assert.doesNotMatch(text, />Provider</);
   assert.doesNotMatch(text, />State</);
   // Model provider is demoted to a muted sub-line under the model name, not its own labeled row.

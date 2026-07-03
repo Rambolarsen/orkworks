@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld("orkworks", {
   getSettings: (): Promise<unknown> => ipcRenderer.invoke("get-settings"),
   saveHotkeys: (hotkeys: unknown): Promise<unknown> => ipcRenderer.invoke("save-hotkeys", hotkeys),
   saveRetention: (retention: unknown): Promise<unknown> => ipcRenderer.invoke("save-retention", retention),
+  saveDebugSettings: (debug: unknown): Promise<unknown> => ipcRenderer.invoke("save-debug-settings", debug),
   saveProviderSettings: (providers: unknown): Promise<unknown> => ipcRenderer.invoke("save-provider-settings", providers),
   getProviderModels: (providerId: string): Promise<unknown> => ipcRenderer.invoke("get-provider-models", providerId),
   getProviderLabels: (): Promise<unknown> => ipcRenderer.invoke("get-provider-labels"),
