@@ -100,6 +100,21 @@ test("SessionInfo type accepts connectivity, terminalOutcome, resumeOptions, and
   assert.equal(session.resumeOptions[1].available, false);
 });
 
+test("SessionInfo type accepts capacityCheckPending", () => {
+  const session: SessionInfo = {
+    id: "pending-test",
+    label: "Pending Test",
+    status: "running",
+    cwd: "/tmp/project",
+    created_at: "2026-07-03T09:00:00Z",
+    memoryState: "live",
+    resumeStrategy: "none",
+    capacityCheckPending: true,
+  };
+
+  assert.equal(session.capacityCheckPending, true);
+});
+
 test("api.ts declares canonical terminology aliases on SessionInfo", () => {
   const source = readFileSync(new URL("../src/api.ts", import.meta.url), "utf8");
   assert.match(source, /harnessId\?: string/);

@@ -69,6 +69,7 @@ export interface Session {
   failedCommand?: string;
   failedTest?: string;
   capacityHints?: string[];
+  capacityCheckPending?: boolean;
   peonLastInference?: string;
   conflictWarning?: string;
   recommendation?: string;
@@ -103,6 +104,9 @@ export function needsAttention(session: Session): boolean {
 }
 
 export function sessionAttentionStatus(session: Session): string {
+  if (session.capacityCheckPending) {
+    return "checking_capacity";
+  }
   return session.observedStatus ?? session.status;
 }
 

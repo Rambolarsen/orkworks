@@ -67,3 +67,19 @@ test("sessionAttentionStatus falls back to lifecycle status when no observed", (
   };
   assert.equal(sessionAttentionStatus(session), "running");
 });
+
+test("sessionAttentionStatus prefers checking_capacity over capped while pending", () => {
+  const session: SessionInfo = {
+    id: "pending",
+    label: "Pending",
+    status: "running",
+    cwd: "/tmp",
+    created_at: "now",
+    memoryState: "live",
+    resumeStrategy: "none",
+    capacityCheckPending: true,
+    atUsageLimit: true,
+  };
+
+  assert.equal(sessionAttentionStatus(session), "checking_capacity");
+});

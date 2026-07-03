@@ -55,6 +55,25 @@ test("buildProviderViewModel sorts by fallback order and marks stale applied rev
   assert.equal(model.isStale, true);
 });
 
+test("buildProviderViewModel preserves runtime checking_capacity state", () => {
+  const runtime = sampleRuntime({
+    providers: [
+      {
+        id: "opencode",
+        label: "OpenCode",
+        enabled: true,
+        fallbackOrder: 0,
+        effectiveState: "checking_capacity",
+        runtime: { fallbackStep: 1, lastErrorSummary: "usage limit reached", resetHint: "resets soon" },
+      },
+      sampleRuntime().providers[1],
+    ],
+  });
+
+  const model = buildProviderViewModel(sampleSettings(), runtime);
+  assert.equal(model.rows[0].effectiveState, "checking_capacity");
+});
+
 test("SettingsModal renders a Model providers section", () => {
   const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
   assert.match(source, /Model providers/);

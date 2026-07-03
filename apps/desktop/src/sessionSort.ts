@@ -3,6 +3,7 @@ import type { SessionInfo } from "./api";
 export const ATTENTION_PRIORITY: Record<string, number> = {
   waiting_for_input: 0,
   blocked: 1,
+  checking_capacity: 2,
   capped: 2,
   failed: 3,
   done: 4,
@@ -26,6 +27,7 @@ export function needsAttention(status: string): boolean {
 
 export function sessionAttentionStatus(session: SessionInfo): string {
   if (session.memoryState !== "live") return session.status;
+  if (session.capacityCheckPending) return "checking_capacity";
   if (session.atUsageLimit) return "capped";
   return session.observedStatus ?? session.status;
 }

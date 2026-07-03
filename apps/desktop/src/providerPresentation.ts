@@ -56,7 +56,7 @@ export function buildProviderViewModel(
       label: rt?.label ?? entry.id,
       enabled: entry.enabled,
       fallbackOrder: entry.fallbackOrder,
-      effectiveState: deriveEffectiveState(entry),
+      effectiveState: rt?.effectiveState ?? deriveEffectiveState(entry),
       defaultState: entry.defaultState,
       overrideState: entry.overrideState,
       lastErrorSummary: rt?.runtime.lastErrorSummary ?? null,
