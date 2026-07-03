@@ -260,7 +260,9 @@ pub(crate) async fn resume_session(
             handle.info = info.clone();
             handle.kill_tx = kill_tx;
             handle.output_buffer = peon::RingBuffer::new(state.peon.config.max_lines);
+            handle.scan_buf = String::new();
             handle.command = command;
+            handle.at_usage_limit_latched = false;
         } else {
             sessions.insert(
                 id.clone(),
@@ -271,6 +273,7 @@ pub(crate) async fn resume_session(
                     scan_buf: String::new(),
                     command,
                     initial_prompt: None,
+                    at_usage_limit_latched: false,
                 },
             );
         }
@@ -523,6 +526,7 @@ pub(crate) async fn create_session(
         scan_buf: String::new(),
         command: resolved_launch.command,
         initial_prompt: req.initial_prompt.clone(),
+        at_usage_limit_latched: false,
     };
 
     state.sessions.lock().unwrap().insert(id.clone(), handle);
@@ -590,15 +594,15 @@ pub(crate) async fn create_session(
 
 pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let harnesses = state.harnesses.read().await.clone();
-    let live_sessions: Vec<(SessionInfo, Vec<String>, String)> = {
+    let live_sessions: Vec<(SessionInfo, Vec<String>, String, bool)> = {
         let sessions = state.sessions.lock().unwrap();
-        sessions.values().map(|h| (h.info.clone(), h.output_buffer.snapshot(), h.scan_buf.clone())).collect()
+        sessions.values().map(|h| (h.info.clone(), h.output_buffer.snapshot(), h.scan_buf.clone(), h.at_usage_limit_latched)).collect()
     };
 
     let ws_guard = state.workspace.lock().unwrap();
     let metadata_map = ws_guard.as_ref().map(|ws| {
         let mut metadata = HashMap::new();
-        for (info, _, _) in &live_sessions {
+        for (info, _, _, _) in &live_sessions {
             if let Some(meta) = ws.metadata.read_session(&info.id) {
                 metadata.insert(info.id.clone(), meta);
             }
@@ -610,11 +614,11 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
     drop(ws_guard);
 
     let all_memory_ids: HashSet<String> = live_sessions.iter()
-        .map(|(info, _, _)| info.id.clone())
+        .map(|(info, _, _, _)| info.id.clone())
         .collect();
 
     let peon_times = state.peon.last_inference.read().unwrap();
-    let mut infos: Vec<SessionInfo> = live_sessions.into_iter().map(|(info, snapshot, scan_buf)| {
+    let mut infos: Vec<SessionInfo> = live_sessions.into_iter().map(|(info, snapshot, scan_buf, prev_latch)| {
         let id = info.id.clone();
         let meta = metadata_map.get(&id);
         let session_harness_id = meta.and_then(|m| (!m.harness.is_empty()).then(|| m.harness.as_str()));
@@ -625,7 +629,8 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
             .as_deref()
             .and_then(|hid| state.adapters.get(hid));
         merged.at_usage_limit = limit_adapter
-            .map(|adapter| peon::detect_usage_limit(adapter.limit_patterns, &snapshot)
+            .map(|adapter| prev_latch
+                || peon::detect_usage_limit(adapter.limit_patterns, &snapshot)
                 || peon::detect_usage_limit_raw(adapter.limit_patterns, &scan_buf));
         merged.usage_limit_reset_hint = limit_adapter
             .and_then(|adapter| peon::detect_usage_limit_hint(adapter.limit_patterns, &snapshot)
@@ -694,6 +699,18 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
             provider_model: meta.provider_model.clone(),
             provider_state: meta.provider_state.clone(),
         });
+    }
+
+    // Write back newly latched usage limits so they survive ring buffer scroll-off.
+    {
+        let mut sessions = state.sessions.lock().unwrap();
+        for info in &infos {
+            if info.at_usage_limit == Some(true) {
+                if let Some(handle) = sessions.get_mut(&info.id) {
+                    handle.at_usage_limit_latched = true;
+                }
+            }
+        }
     }
 
     // Propagate capacity state across all sessions sharing a harness.
@@ -996,6 +1013,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
+                at_usage_limit_latched: false,
             },
         );
 
@@ -1197,6 +1215,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
+                at_usage_limit_latched: false,
             },
         );
 
@@ -1255,6 +1274,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
+                at_usage_limit_latched: false,
             },
         );
 
@@ -1361,6 +1381,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command("/tmp/project".into()),
                 initial_prompt: None,
+                at_usage_limit_latched: false,
             },
         );
 

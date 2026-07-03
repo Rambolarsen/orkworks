@@ -54,6 +54,8 @@ struct SessionHandle {
     scan_buf: String,
     command: harness::CommandSpec,
     initial_prompt: Option<String>,
+    // Sticky: once usage limit is detected it stays true until the session is killed/resumed.
+    at_usage_limit_latched: bool,
 }
 
 struct WorkspaceState {
@@ -462,6 +464,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: harness_registry::default_shell_command("/tmp".into()),
                 initial_prompt: None,
+                at_usage_limit_latched: false,
             });
 
         let sessions = state.sessions.lock().unwrap();

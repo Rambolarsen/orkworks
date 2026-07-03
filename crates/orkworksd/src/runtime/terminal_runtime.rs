@@ -837,6 +837,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: harness::CommandSpec { program: "/bin/sh".into(), args: vec!["-i".into(), "-l".into()], cwd: "/tmp".into() },
                 initial_prompt: None,
+                at_usage_limit_latched: false,
             },
         );
 
