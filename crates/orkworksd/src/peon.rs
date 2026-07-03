@@ -127,7 +127,7 @@ impl RingBuffer {
 }
 
 /// Strips ANSI CSI escape sequences (e.g. \x1b[31m) so pattern matching works on raw PTY output.
-fn strip_ansi(s: &str) -> String {
+pub fn strip_ansi(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut chars = s.chars().peekable();
     while let Some(c) = chars.next() {
@@ -159,6 +159,27 @@ pub fn looks_like_password_prompt(recent_lines: &[String]) -> bool {
         let lower = strip_ansi(line).to_lowercase();
         patterns.iter().any(|p| lower.contains(p))
     })
+}
+
+/// Detects usage limit in a raw text blob (for TUI apps that use cursor positioning, not newlines).
+pub fn detect_usage_limit_raw(patterns: &[&str], text: &str) -> bool {
+    if patterns.is_empty() { return false; }
+    let lower = strip_ansi(text).to_lowercase();
+    patterns.iter().any(|p| lower.contains(&p.to_lowercase()[..]))
+}
+
+/// Extracts reset hint from a raw text blob (for TUI apps that use cursor positioning, not newlines).
+pub fn detect_usage_limit_hint_raw(patterns: &[&str], text: &str) -> Option<String> {
+    if patterns.is_empty() { return None; }
+    let plain = strip_ansi(text);
+    let lower = plain.to_lowercase();
+    if !patterns.iter().any(|p| lower.contains(&p.to_lowercase()[..])) {
+        return None;
+    }
+    let idx = lower.find("resets in").or_else(|| lower.find("reset in")).or_else(|| lower.find("try again at"))?;
+    let fragment = &plain[idx..];
+    let end = fragment.find(['.', '\n']).unwrap_or(fragment.len());
+    Some(fragment[..end].trim().to_string())
 }
 
 /// Returns the "reset in X" fragment from the usage-limit line, if present.

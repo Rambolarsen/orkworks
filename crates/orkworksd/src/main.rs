@@ -50,6 +50,8 @@ struct SessionHandle {
     info: SessionInfo,
     kill_tx: tokio::sync::watch::Sender<bool>,
     output_buffer: peon::RingBuffer,
+    // Rolling raw PTY text (ANSI-stripped) for TUI apps that use cursor positioning instead of newlines.
+    scan_buf: String,
     command: harness::CommandSpec,
     initial_prompt: Option<String>,
 }
@@ -457,6 +459,7 @@ mod tests {
                 info: info.clone(),
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
+                scan_buf: String::new(),
                 command: harness_registry::default_shell_command("/tmp".into()),
                 initial_prompt: None,
             });

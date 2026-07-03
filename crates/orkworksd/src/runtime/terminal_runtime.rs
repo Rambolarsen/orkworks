@@ -508,6 +508,15 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
                                 handle.output_buffer.push(trimmed.to_string());
                             }
                         }
+                        // Also feed raw PTY chunk into scan_buf for TUI apps (cursor-positioned, no newlines).
+                        let stripped = peon::strip_ansi(&String::from_utf8_lossy(&data));
+                        handle.scan_buf.push_str(&stripped);
+                        const MAX_SCAN: usize = 8192;
+                        if handle.scan_buf.len() > MAX_SCAN {
+                            let drop = handle.scan_buf.len() - MAX_SCAN;
+                            let drop = (drop..drop + 4).find(|&i| handle.scan_buf.is_char_boundary(i)).unwrap_or(drop);
+                            handle.scan_buf.drain(..drop);
+                        }
                         if peon::is_terminal_observed_status(handle.info.observed_status.as_deref()) {
                             handle.info.observed_status = None;
                         }
@@ -825,6 +834,7 @@ mod tests {
                 info: test_session_info(id.clone(), "Test", "/tmp", "creating", "now"),
                 kill_tx,
                 output_buffer: crate::peon::RingBuffer::new(200),
+                scan_buf: String::new(),
                 command: harness::CommandSpec { program: "/bin/sh".into(), args: vec!["-i".into(), "-l".into()], cwd: "/tmp".into() },
                 initial_prompt: None,
             },

@@ -143,6 +143,7 @@ mod tests {
                 ),
                 kill_tx,
                 output_buffer: crate::peon::RingBuffer::new(200),
+                scan_buf: String::new(),
                 command: crate::harness_registry::default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
             },

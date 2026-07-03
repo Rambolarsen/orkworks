@@ -255,6 +255,7 @@ mod tests {
                 },
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
+                scan_buf: String::new(),
                 command: harness::CommandSpec { program: "/bin/sh".into(), args: vec!["-i".into(), "-l".into()], cwd: "/tmp".into() },
                 initial_prompt: None,
             };
@@ -413,6 +414,7 @@ mod tests {
                 },
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
+                scan_buf: String::new(),
                 command: harness::CommandSpec { program: "/bin/sh".into(), args: vec!["-i".into(), "-l".into()], cwd: "/tmp".into() },
                 initial_prompt: None,
             };
@@ -482,6 +484,7 @@ mod tests {
                 },
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
+                scan_buf: String::new(),
                 command: crate::harness_registry::default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
             };
@@ -560,6 +563,7 @@ mod tests {
                 },
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
+                scan_buf: String::new(),
                 command: crate::harness_registry::default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
             };
@@ -699,6 +703,7 @@ mod tests {
                 },
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
+                scan_buf: String::new(),
                 command: crate::harness_registry::default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
             };

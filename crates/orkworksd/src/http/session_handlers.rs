@@ -268,6 +268,7 @@ pub(crate) async fn resume_session(
                     info: info.clone(),
                     kill_tx,
                     output_buffer: peon::RingBuffer::new(state.peon.config.max_lines),
+                    scan_buf: String::new(),
                     command,
                     initial_prompt: None,
                 },
@@ -506,6 +507,7 @@ pub(crate) async fn create_session(
         info: info.clone(),
         kill_tx,
         output_buffer: peon::RingBuffer::new(state.peon.config.max_lines),
+        scan_buf: String::new(),
         command: resolved_launch.command,
         initial_prompt: req.initial_prompt.clone(),
     };
@@ -575,15 +577,15 @@ pub(crate) async fn create_session(
 
 pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let harnesses = state.harnesses.read().await.clone();
-    let live_sessions: Vec<(SessionInfo, Vec<String>)> = {
+    let live_sessions: Vec<(SessionInfo, Vec<String>, String)> = {
         let sessions = state.sessions.lock().unwrap();
-        sessions.values().map(|h| (h.info.clone(), h.output_buffer.snapshot())).collect()
+        sessions.values().map(|h| (h.info.clone(), h.output_buffer.snapshot(), h.scan_buf.clone())).collect()
     };
 
     let ws_guard = state.workspace.lock().unwrap();
     let metadata_map = ws_guard.as_ref().map(|ws| {
         let mut metadata = HashMap::new();
-        for (info, _) in &live_sessions {
+        for (info, _, _) in &live_sessions {
             if let Some(meta) = ws.metadata.read_session(&info.id) {
                 metadata.insert(info.id.clone(), meta);
             }
@@ -595,11 +597,11 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
     drop(ws_guard);
 
     let all_memory_ids: HashSet<String> = live_sessions.iter()
-        .map(|(info, _)| info.id.clone())
+        .map(|(info, _, _)| info.id.clone())
         .collect();
 
     let peon_times = state.peon.last_inference.read().unwrap();
-    let mut infos: Vec<SessionInfo> = live_sessions.into_iter().map(|(info, snapshot)| {
+    let mut infos: Vec<SessionInfo> = live_sessions.into_iter().map(|(info, snapshot, scan_buf)| {
         let id = info.id.clone();
         let meta = metadata_map.get(&id);
         let session_harness_id = meta.and_then(|m| (!m.harness.is_empty()).then(|| m.harness.as_str()));
@@ -610,9 +612,11 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
             .as_deref()
             .and_then(|hid| state.adapters.get(hid));
         merged.at_usage_limit = limit_adapter
-            .map(|adapter| peon::detect_usage_limit(adapter.limit_patterns, &snapshot));
+            .map(|adapter| peon::detect_usage_limit(adapter.limit_patterns, &snapshot)
+                || peon::detect_usage_limit_raw(adapter.limit_patterns, &scan_buf));
         merged.usage_limit_reset_hint = limit_adapter
-            .and_then(|adapter| peon::detect_usage_limit_hint(adapter.limit_patterns, &snapshot));
+            .and_then(|adapter| peon::detect_usage_limit_hint(adapter.limit_patterns, &snapshot)
+                .or_else(|| peon::detect_usage_limit_hint_raw(adapter.limit_patterns, &scan_buf)));
         merged
     }).collect();
 
@@ -677,6 +681,26 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
             provider_model: meta.provider_model.clone(),
             provider_state: meta.provider_state.clone(),
         });
+    }
+
+    // Propagate capacity state across all sessions sharing a harness.
+    // Live sessions (at_usage_limit = Some(...)) are the source of truth.
+    // Remembered sessions (at_usage_limit = None) inherit the harness state.
+    let mut harness_capped: HashMap<String, bool> = HashMap::new();
+    for info in &infos {
+        if let (Some(hid), Some(capped)) = (&info.harness_id, info.at_usage_limit) {
+            let entry = harness_capped.entry(hid.clone()).or_insert(false);
+            *entry = *entry || capped;
+        }
+    }
+    if !harness_capped.is_empty() {
+        for info in &mut infos {
+            if let Some(ref hid) = info.harness_id {
+                if let Some(&capped) = harness_capped.get(hid) {
+                    info.at_usage_limit = Some(capped);
+                }
+            }
+        }
     }
 
     let mut cwd_counts: HashMap<String, usize> = HashMap::new();
@@ -946,6 +970,7 @@ mod tests {
                 },
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
+                scan_buf: String::new(),
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
             },
@@ -1146,6 +1171,7 @@ mod tests {
                 ),
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
+                scan_buf: String::new(),
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
             },
@@ -1203,6 +1229,7 @@ mod tests {
                 },
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
+                scan_buf: String::new(),
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
             },
@@ -1308,6 +1335,7 @@ mod tests {
                 },
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
+                scan_buf: String::new(),
                 command: default_shell_command("/tmp/project".into()),
                 initial_prompt: None,
             },

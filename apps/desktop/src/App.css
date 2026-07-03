@@ -1240,12 +1240,12 @@ html, body, #root {
   background: var(--surface-1);
 }
 
-.orkworks-dockview .dv-groupview.dv-active-group > .dv-tabs-and-actions-container {
-  border-top: 2px solid var(--accent);
+.orkworks-dockview .dv-groupview > .dv-tabs-and-actions-container {
+  border-top: 2px solid transparent;
 }
 
-.orkworks-dockview .dv-groupview.dv-inactive-group > .dv-tabs-and-actions-container {
-  border-top: 2px solid transparent;
+.orkworks-dockview .dv-groupview:focus-within > .dv-tabs-and-actions-container {
+  border-top: 2px solid var(--accent);
 }
 
 .orkworks-dockview .dv-tab {
