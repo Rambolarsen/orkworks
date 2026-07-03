@@ -60,7 +60,7 @@ pub(crate) struct HarnessConfig {
     pub(crate) capabilities: HarnessVoiceCapabilities,
     #[serde(rename = "isBuiltin", default)]
     pub(crate) is_builtin: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) peon: Option<HarnessPeonConfig>,
 }
 

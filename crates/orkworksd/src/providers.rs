@@ -12,6 +12,7 @@ use reqwest::Client as HttpClient;
 use serde::{Deserialize, Serialize};
 
 use crate::peon;
+use crate::harness_registry;
 
 // --- Ollama API types ---
 
@@ -131,139 +132,55 @@ pub struct ProviderApplyStatus {
 
 #[derive(Clone, Debug)]
 pub struct ProviderDefinition {
-    pub id: &'static str,
-    pub label: &'static str,
-    pub command: &'static str,
-    pub default_args: &'static [&'static str],
-    pub model_arg_template: Option<&'static str>,
+    pub id: String,
+    pub label: String,
+    pub command: String,
+    pub default_args: Vec<String>,
+    pub model_arg_template: Option<String>,
     pub supports_model: bool,
     pub timeout_secs: u64,
-    pub list_models_command: Option<&'static str>,
-    pub list_models_args: &'static [&'static str],
-    pub static_models: &'static [&'static str],
+    pub list_models_command: Option<String>,
+    pub list_models_args: Vec<String>,
+    pub static_models: Vec<String>,
     pub http_list_models: bool,
 }
 
+fn derive_from_harness_configs() -> Vec<ProviderDefinition> {
+    harness_registry::builtin_harness_configs()
+        .into_iter()
+        .filter_map(|h| {
+            let peon = h.peon?;
+            Some(ProviderDefinition {
+                id: h.id,
+                label: h.name,
+                command: peon.command_override.unwrap_or(h.command),
+                default_args: peon.args,
+                model_arg_template: peon.model_arg_template,
+                supports_model: peon.supports_model,
+                timeout_secs: peon.timeout_secs,
+                list_models_command: peon.list_models_command,
+                list_models_args: peon.list_models_args,
+                static_models: peon.static_models,
+                http_list_models: peon.http_list_models,
+            })
+        })
+        .collect()
+}
+
 pub fn builtin_provider_registry() -> Vec<ProviderDefinition> {
-    vec![
-        ProviderDefinition {
-            id: "opencode",
-            label: "OpenCode",
-            command: "opencode",
-            default_args: &["run", "--pure"],
-            model_arg_template: Some("--model={model}"),
-            supports_model: true,
-            timeout_secs: 30,
-            list_models_command: Some("opencode"),
-            list_models_args: &["models"],
-            static_models: &[],
-            http_list_models: false,
-        },
-        ProviderDefinition {
-            id: "claude-code",
-            label: "Claude Code",
-            command: "claude",
-            default_args: &["-p"],
-            model_arg_template: Some("--model={model}"),
-            supports_model: true,
-            timeout_secs: 30,
-            list_models_command: None,
-            list_models_args: &[],
-            static_models: &[
-                "claude-sonnet-4-6",
-                "claude-opus-4-20250514",
-                "claude-opus-4-1-20250805",
-                "claude-sonnet-4-5-20250929",
-                "claude-haiku-3-5-20241022",
-            ],
-            http_list_models: false,
-        },
-        ProviderDefinition {
-            id: "codex",
-            label: "Codex",
-            command: "codex",
-            default_args: &["exec"],
-            model_arg_template: Some("--model={model}"),
-            supports_model: true,
-            timeout_secs: 30,
-            list_models_command: None,
-            list_models_args: &[],
-            static_models: &[
-                "gpt-5-codex",
-                "gpt-5",
-                "gpt-5-mini",
-                "gpt-5-nano",
-            ],
-            http_list_models: false,
-        },
-        ProviderDefinition {
-            id: "gemini",
-            label: "Gemini CLI",
-            command: "gemini",
-            default_args: &[],
-            model_arg_template: Some("--model={model}"),
-            supports_model: true,
-            timeout_secs: 30,
-            list_models_command: None,
-            list_models_args: &[],
-            static_models: &[
-                "gemini-2.5-pro",
-                "gemini-2.5-flash",
-                "gemini-2.0-flash",
-            ],
-            http_list_models: false,
-        },
-        ProviderDefinition {
-            id: "aider",
-            label: "Aider",
-            command: "aider",
-            default_args: &[],
-            model_arg_template: Some("--model={model}"),
-            supports_model: true,
-            timeout_secs: 60,
-            list_models_command: None,
-            list_models_args: &[],
-            static_models: &[
-                "claude-sonnet-4-6",
-                "claude-opus-4-20250514",
-                "gpt-4o",
-                "gpt-5",
-                "gemini-2.5-pro",
-            ],
-            http_list_models: false,
-        },
-        ProviderDefinition {
-            id: "gh-copilot",
-            label: "Copilot",
-            command: "gh",
-            default_args: &["copilot", "suggest"],
-            model_arg_template: Some("--model={model}"),
-            supports_model: true,
-            timeout_secs: 30,
-            list_models_command: None,
-            list_models_args: &[],
-            static_models: &[
-                "gpt-4o",
-                "gpt-5",
-                "claude-sonnet-4-6",
-                "gemini-2.5-pro",
-            ],
-            http_list_models: false,
-        },
-        ProviderDefinition {
-            id: "ollama",
-            label: "Ollama",
-            command: "",
-            default_args: &[],
-            model_arg_template: None,
-            supports_model: false,
-            timeout_secs: 30,
-            list_models_command: None,
-            list_models_args: &[],
-            static_models: &[],
-            http_list_models: true,
-        },
-    ]
+    vec![ProviderDefinition {
+        id: "ollama".into(),
+        label: "Ollama".into(),
+        command: String::new(),
+        default_args: vec![],
+        model_arg_template: None,
+        supports_model: false,
+        timeout_secs: 30,
+        list_models_command: None,
+        list_models_args: vec![],
+        static_models: vec![],
+        http_list_models: true,
+    }]
 }
 
 // --- Runtime types ---
@@ -546,8 +463,12 @@ impl ProviderManager {
     pub fn new() -> Self {
         let settings = Arc::new(RwLock::new(ProviderSettingsPayload::default()));
         let runtime = Arc::new(RwLock::new(HashMap::new()));
+        let registry: Vec<ProviderDefinition> = derive_from_harness_configs()
+            .into_iter()
+            .chain(builtin_provider_registry())
+            .collect();
         Self {
-            registry: builtin_provider_registry(),
+            registry,
             settings: settings.clone(),
             applied_revision: Arc::new(RwLock::new(None)),
             runtime,
@@ -618,8 +539,8 @@ impl ProviderManager {
                 }
             };
             let label = self.registry.iter()
-                .find(|d| d.id == entry.id.as_str())
-                .map(|d| d.label.to_string())
+                .find(|d| d.id == entry.id)
+                .map(|d| d.label.clone())
                 .unwrap_or_else(|| entry.id.clone());
             let mut rt = runtime.get(&entry.id).cloned().unwrap_or_default();
             if rt.reset_hint.is_none() {
@@ -649,11 +570,11 @@ impl ProviderManager {
         }
 
         if definition.list_models_command.is_none() || definition.list_models_args.is_empty() {
-            return Ok(definition.static_models.iter().map(|s| s.to_string()).collect());
+            return Ok(definition.static_models.clone());
         }
 
-        let command = definition.list_models_command.unwrap();
-        let args = definition.list_models_args;
+        let command = definition.list_models_command.as_deref().unwrap();
+        let args = &definition.list_models_args;
 
         let mut child = std::process::Command::new(command)
             .args(args)
@@ -770,16 +691,16 @@ impl ProviderManager {
                 }
             };
 
-            let mut args: Vec<String> = definition.default_args.iter().map(|s| s.to_string()).collect();
+            let mut args: Vec<String> = definition.default_args.clone();
             if definition.supports_model {
                 if let Some(model) = &settings.peon_model {
-                    if let Some(template) = definition.model_arg_template {
+                    if let Some(template) = definition.model_arg_template.as_deref() {
                         args.push(template.replace("{model}", model));
                     }
                 }
             }
 
-            let result = self.runner.run(&entry.id, definition.command, &args, &prompt, definition.timeout_secs);
+            let result = self.runner.run(&entry.id, &definition.command, &args, &prompt, definition.timeout_secs);
 
             if result.success {
                 if let Some(inference) = peon::parse_inference(&result.stdout) {
@@ -801,7 +722,7 @@ impl ProviderManager {
                     };
                     let observation = ProviderObservation {
                         provider_id: entry.id.clone(),
-                        provider_label: definition.label.to_string(),
+                        provider_label: definition.label.clone(),
                         provider_model: settings.peon_model.clone(),
                         provider_state: state_str.to_string(),
                     };
@@ -1030,8 +951,12 @@ impl ProviderManager {
     pub fn for_tests(settings: ProviderSettingsPayload, fakes: Vec<FakeProvider>) -> Self {
         let specs: HashMap<String, FakeProvider> =
             fakes.into_iter().map(|f| (f.id.to_string(), f)).collect();
+        let registry: Vec<ProviderDefinition> = derive_from_harness_configs()
+            .into_iter()
+            .chain(builtin_provider_registry())
+            .collect();
         Self {
-            registry: builtin_provider_registry(),
+            registry,
             settings: Arc::new(RwLock::new(settings)),
             applied_revision: Arc::new(RwLock::new(None)),
             runtime: Arc::new(RwLock::new(HashMap::new())),
@@ -1233,16 +1158,16 @@ mod tests {
     fn list_models_returns_empty_when_no_list_command_configured() {
         let manager = ProviderManager::for_tests_with_registry(
             vec![ProviderDefinition {
-                id: "test-provider",
-                label: "Test",
-                command: "test",
-                default_args: &[],
+                id: "test-provider".into(),
+                label: "Test".into(),
+                command: "test".into(),
+                default_args: vec![],
                 model_arg_template: None,
                 supports_model: false,
                 timeout_secs: 30,
                 list_models_command: None,
-                list_models_args: &[],
-                static_models: &[],
+                list_models_args: vec![],
+                static_models: vec![],
                 http_list_models: false,
             }],
             sample_settings(vec![]),
@@ -1257,16 +1182,16 @@ mod tests {
     fn list_models_returns_static_models_when_no_command() {
         let manager = ProviderManager::for_tests_with_registry(
             vec![ProviderDefinition {
-                id: "claude-code",
-                label: "Claude Code",
-                command: "claude",
-                default_args: &[],
+                id: "claude-code".into(),
+                label: "Claude Code".into(),
+                command: "claude".into(),
+                default_args: vec![],
                 model_arg_template: None,
                 supports_model: false,
                 timeout_secs: 30,
                 list_models_command: None,
-                list_models_args: &[],
-                static_models: &["sonnet", "opus", "haiku"],
+                list_models_args: vec![],
+                static_models: vec!["sonnet".into(), "opus".into(), "haiku".into()],
                 http_list_models: false,
             }],
             sample_settings(vec![]),
