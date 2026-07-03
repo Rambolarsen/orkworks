@@ -89,28 +89,32 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                 }
 
                 if let Some(inf) = inference {
-                    let ws_guard = state_clone.workspace.lock().unwrap();
-                    if let Some(ref ws) = *ws_guard {
-                        let should_write = ws.metadata.read_session(&id)
-                            .map(|m| {
-                                let age = ws.metadata.session_modified_secs_ago(&id);
-                                peon::peon_should_overwrite(&m.metadata_source, age)
-                            })
-                            .unwrap_or(true);
-
-                        if should_write {
-                            ws.metadata.merge_peon_inference(&id, &inf, &now_iso, provider_result.observation.as_ref());
-                            if let Some(ref summary) = inf.summary {
-                                let label: String = summary.chars().take(100).collect();
-                                if let Some(handle) = state_clone.sessions.lock().unwrap().get_mut(&id) {
-                                    handle.info.label = label;
-                                }
+                    // Collect label update while holding workspace lock, then drop before taking sessions.
+                    let label_update: Option<String> = {
+                        let ws_guard = state_clone.workspace.lock().unwrap();
+                        if let Some(ref ws) = *ws_guard {
+                            let should_write = ws.metadata.read_session(&id)
+                                .map(|m| {
+                                    let age = ws.metadata.session_modified_secs_ago(&id);
+                                    peon::peon_should_overwrite(&m.metadata_source, age)
+                                })
+                                .unwrap_or(true);
+                            if should_write {
+                                ws.metadata.merge_peon_inference(&id, &inf, &now_iso, provider_result.observation.as_ref());
+                                inf.summary.as_ref().map(|s| s.chars().take(100).collect())
+                            } else {
+                                tracing::debug!(session_id = %id, "peon: skipping, higher-priority source exists");
+                                None
                             }
                         } else {
-                            tracing::debug!(session_id = %id, "peon: skipping, higher-priority source exists");
+                            None
+                        }
+                    }; // ws_guard dropped
+                    if let Some(label) = label_update {
+                        if let Some(handle) = state_clone.sessions.lock().unwrap().get_mut(&id) {
+                            handle.info.label = label;
                         }
                     }
-
                 }
 
                 let mut last_inf = state_clone.peon.last_inference.write().unwrap();
@@ -151,20 +155,24 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
             drop(last_output);
 
             if !silent_ids.is_empty() {
-                let ws_guard = state.workspace.lock().unwrap();
-                let mut sessions = state.sessions.lock().unwrap();
-                if let Some(ref ws) = *ws_guard {
-                    for id in &silent_ids {
-                        if let Some(mut meta) = ws.metadata.read_session(id) {
-                            if meta.observed_status.is_none() {
-                                meta.observed_status = Some("idle".into());
-                                meta.metadata_source = "process".into();
-                                ws.metadata.write_session(&meta);
+                {
+                    let ws_guard = state.workspace.lock().unwrap();
+                    if let Some(ref ws) = *ws_guard {
+                        for id in &silent_ids {
+                            if let Some(mut meta) = ws.metadata.read_session(id) {
+                                if meta.observed_status.is_none() {
+                                    meta.observed_status = Some("idle".into());
+                                    meta.metadata_source = "process".into();
+                                    ws.metadata.write_session(&meta);
+                                }
                             }
                         }
-                        if let Some(handle) = sessions.get_mut(id) {
-                            handle.info.observed_status = Some("idle".into());
-                        }
+                    }
+                } // ws_guard dropped
+                let mut sessions = state.sessions.lock().unwrap();
+                for id in &silent_ids {
+                    if let Some(handle) = sessions.get_mut(id) {
+                        handle.info.observed_status = Some("idle".into());
                     }
                 }
             }
