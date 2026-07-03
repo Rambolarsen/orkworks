@@ -158,7 +158,14 @@ function App() {
     }
   }, []);
 
-  const handleCreateSession = useCallback(() => {
+  const handleCreateSession = useCallback(async () => {
+    try {
+      const baseUrl = await window.orkworks.getBackendUrl();
+      const runtime = await getProviders(baseUrl);
+      setProviderRuntime(runtime);
+    } catch {
+      // dialog still opens; provider states just won't show
+    }
     setNewSessionDialogOpen(true);
   }, []);
 
