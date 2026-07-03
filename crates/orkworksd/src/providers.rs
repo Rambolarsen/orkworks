@@ -537,6 +537,8 @@ pub struct ProviderManager {
     applied_revision: Arc<RwLock<Option<u64>>>,
     runtime: Arc<RwLock<HashMap<String, ProviderRuntimeEntry>>>,
     runner: Arc<dyn ProviderRunner>,
+    session_capped: Arc<RwLock<HashMap<String, bool>>>,
+    session_reset_hint: Arc<RwLock<HashMap<String, String>>>,
 }
 
 impl ProviderManager {
@@ -552,7 +554,20 @@ impl ProviderManager {
                 process: ProcessRunner,
                 http: HttpRunner { settings },
             }),
+            session_capped: Arc::new(RwLock::new(HashMap::new())),
+            session_reset_hint: Arc::new(RwLock::new(HashMap::new())),
         }
+    }
+
+    /// Called by list_sessions after each peon scan cycle to keep provider
+    /// capacity state in sync with what sessions actually observe.
+    pub fn update_session_capping(
+        &self,
+        capped: HashMap<String, bool>,
+        reset_hints: HashMap<String, String>,
+    ) {
+        *self.session_capped.write().unwrap() = capped;
+        *self.session_reset_hint.write().unwrap() = reset_hints;
     }
 
     pub fn apply_settings(&self, settings: ProviderSettingsPayload) -> ProviderApplyStatus {
@@ -576,20 +591,31 @@ impl ProviderManager {
         let settings = self.settings.read().unwrap().clone();
         let applied_revision = *self.applied_revision.read().unwrap();
         let runtime = self.runtime.read().unwrap().clone();
+        let session_capped = self.session_capped.read().unwrap().clone();
+        let session_reset_hint = self.session_reset_hint.read().unwrap().clone();
 
         let providers = settings.providers.iter().map(|entry| {
             let effective = entry.effective_state();
-            let effective_str = match effective {
-                ProviderEffectiveState::Healthy => "healthy",
-                ProviderEffectiveState::Degraded => "degraded",
-                ProviderEffectiveState::Capped => "capped",
-                ProviderEffectiveState::Unknown => "unknown",
-                ProviderEffectiveState::Disabled => "disabled",
+            let session_is_capped = session_capped.get(&entry.id).copied().unwrap_or(false);
+            let effective_str = if session_is_capped && effective != ProviderEffectiveState::Disabled {
+                "capped"
+            } else {
+                match effective {
+                    ProviderEffectiveState::Healthy => "healthy",
+                    ProviderEffectiveState::Degraded => "degraded",
+                    ProviderEffectiveState::Capped => "capped",
+                    ProviderEffectiveState::Unknown => "unknown",
+                    ProviderEffectiveState::Disabled => "disabled",
+                }
             };
             let label = self.registry.iter()
                 .find(|d| d.id == entry.id.as_str())
                 .map(|d| d.label.to_string())
                 .unwrap_or_else(|| entry.id.clone());
+            let mut rt = runtime.get(&entry.id).cloned().unwrap_or_default();
+            if rt.reset_hint.is_none() {
+                rt.reset_hint = session_reset_hint.get(&entry.id).cloned();
+            }
 
             ProviderEntry {
                 id: entry.id.clone(),
@@ -597,7 +623,7 @@ impl ProviderManager {
                 enabled: entry.enabled,
                 fallback_order: entry.fallback_order,
                 effective_state: effective_str.to_string(),
-                runtime: runtime.get(&entry.id).cloned().unwrap_or_default(),
+                runtime: rt,
             }
         }).collect();
 
@@ -1001,6 +1027,8 @@ impl ProviderManager {
             applied_revision: Arc::new(RwLock::new(None)),
             runtime: Arc::new(RwLock::new(HashMap::new())),
             runner: Arc::new(FakeRunner { specs }),
+            session_capped: Arc::new(RwLock::new(HashMap::new())),
+            session_reset_hint: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -1017,6 +1045,8 @@ impl ProviderManager {
             applied_revision: Arc::new(RwLock::new(None)),
             runtime: Arc::new(RwLock::new(HashMap::new())),
             runner: Arc::new(FakeRunner { specs }),
+            session_capped: Arc::new(RwLock::new(HashMap::new())),
+            session_reset_hint: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 }

@@ -711,6 +711,7 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
             }
         }
     }
+    state.providers.update_session_capping(harness_capped, harness_reset_hint);
 
     let mut cwd_counts: HashMap<String, usize> = HashMap::new();
     for info in &infos {
