@@ -143,11 +143,11 @@ pub fn strip_ansi(s: &str) -> String {
     out
 }
 
-pub fn detect_usage_limit(patterns: &[&str], lines: &[String]) -> bool {
+pub fn detect_usage_limit<S: AsRef<str>>(patterns: &[S], lines: &[String]) -> bool {
     if patterns.is_empty() { return false; }
     lines.iter().any(|line| {
         let lower = strip_ansi(line).to_lowercase();
-        patterns.iter().any(|p| lower.contains(&p.to_lowercase()[..]))
+        patterns.iter().any(|p| lower.contains(p.as_ref().to_lowercase().as_str()))
     })
 }
 
@@ -162,18 +162,18 @@ pub fn looks_like_password_prompt(recent_lines: &[String]) -> bool {
 }
 
 /// Detects usage limit in a raw text blob (for TUI apps that use cursor positioning, not newlines).
-pub fn detect_usage_limit_raw(patterns: &[&str], text: &str) -> bool {
+pub fn detect_usage_limit_raw<S: AsRef<str>>(patterns: &[S], text: &str) -> bool {
     if patterns.is_empty() { return false; }
     let lower = strip_ansi(text).to_lowercase();
-    patterns.iter().any(|p| lower.contains(&p.to_lowercase()[..]))
+    patterns.iter().any(|p| lower.contains(p.as_ref().to_lowercase().as_str()))
 }
 
 /// Extracts reset hint from a raw text blob (for TUI apps that use cursor positioning, not newlines).
-pub fn detect_usage_limit_hint_raw(patterns: &[&str], text: &str) -> Option<String> {
+pub fn detect_usage_limit_hint_raw<S: AsRef<str>>(patterns: &[S], text: &str) -> Option<String> {
     if patterns.is_empty() { return None; }
     let plain = strip_ansi(text);
     let lower = plain.to_lowercase();
-    if !patterns.iter().any(|p| lower.contains(&p.to_lowercase()[..])) {
+    if !patterns.iter().any(|p| lower.contains(p.as_ref().to_lowercase().as_str())) {
         return None;
     }
     let idx = lower.find("resets in").or_else(|| lower.find("reset in")).or_else(|| lower.find("try again at"))?;
@@ -183,12 +183,12 @@ pub fn detect_usage_limit_hint_raw(patterns: &[&str], text: &str) -> Option<Stri
 }
 
 /// Returns the "reset in X" fragment from the usage-limit line, if present.
-pub fn detect_usage_limit_hint(patterns: &[&str], lines: &[String]) -> Option<String> {
+pub fn detect_usage_limit_hint<S: AsRef<str>>(patterns: &[S], lines: &[String]) -> Option<String> {
     if patterns.is_empty() { return None; }
     lines.iter().rev().find_map(|line| {
         let plain = strip_ansi(line);
         let lower = plain.to_lowercase();
-        if !patterns.iter().any(|p| lower.contains(&p.to_lowercase()[..])) {
+        if !patterns.iter().any(|p| lower.contains(p.as_ref().to_lowercase().as_str())) {
             return None;
         }
         let idx = lower.find("resets in").or_else(|| lower.find("reset in")).or_else(|| lower.find("try again at"))?;
@@ -848,7 +848,7 @@ echo '{"status":"working","confidence":0.9}'
     #[test]
     fn detect_usage_limit_returns_false_when_no_patterns() {
         let lines: Vec<String> = vec!["usage limit reached".into()];
-        assert!(!detect_usage_limit(&[], &lines));
+        assert!(!detect_usage_limit::<&str>(&[], &lines));
     }
 
     #[test]

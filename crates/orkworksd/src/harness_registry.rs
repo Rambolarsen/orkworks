@@ -183,7 +183,7 @@ pub(crate) fn builtin_adapters() -> HashMap<String, harness::HarnessAdapter> {
         "generic-shell",
         "Generic Shell",
         default_capabilities(),
-        &[],
+        vec![],
         harness::CommandTemplate {
             command: program.clone(),
             args: args.clone(),
@@ -208,7 +208,7 @@ pub(crate) fn builtin_adapters() -> HashMap<String, harness::HarnessAdapter> {
         "opencode",
         "OpenCode",
         opencode_caps.clone(),
-        &["usage limit reached"],
+        vec!["usage limit reached".to_string()],
         harness::CommandTemplate {
             command: "opencode".into(),
             args: vec![],
@@ -239,7 +239,7 @@ pub(crate) fn builtin_adapters() -> HashMap<String, harness::HarnessAdapter> {
         "claude-code",
         "Claude Code",
         claude_caps.clone(),
-        &[],
+        vec![],
         harness::CommandTemplate {
             command: "claude".into(),
             args: vec![],
@@ -270,7 +270,7 @@ pub(crate) fn builtin_adapters() -> HashMap<String, harness::HarnessAdapter> {
         "codex",
         "Codex",
         codex_caps,
-        &["you've hit your usage limit"],
+        vec!["you've hit your usage limit".to_string()],
         harness::CommandTemplate {
             command: "codex".into(),
             args: vec![],
