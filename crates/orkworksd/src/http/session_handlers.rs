@@ -687,10 +687,14 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
     // Live sessions (at_usage_limit = Some(...)) are the source of truth.
     // Remembered sessions (at_usage_limit = None) inherit the harness state.
     let mut harness_capped: HashMap<String, bool> = HashMap::new();
+    let mut harness_reset_hint: HashMap<String, String> = HashMap::new();
     for info in &infos {
         if let (Some(hid), Some(capped)) = (&info.harness_id, info.at_usage_limit) {
             let entry = harness_capped.entry(hid.clone()).or_insert(false);
             *entry = *entry || capped;
+        }
+        if let (Some(hid), Some(hint)) = (&info.harness_id, &info.usage_limit_reset_hint) {
+            harness_reset_hint.entry(hid.clone()).or_insert_with(|| hint.clone());
         }
     }
     if !harness_capped.is_empty() {
@@ -698,6 +702,11 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
             if let Some(ref hid) = info.harness_id {
                 if let Some(&capped) = harness_capped.get(hid) {
                     info.at_usage_limit = Some(capped);
+                }
+                if info.usage_limit_reset_hint.is_none() {
+                    if let Some(hint) = harness_reset_hint.get(hid) {
+                        info.usage_limit_reset_hint = Some(hint.clone());
+                    }
                 }
             }
         }
