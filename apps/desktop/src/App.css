@@ -288,6 +288,13 @@ html, body, #root {
   margin-top: 12px;
 }
 
+.settings-config-item-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .settings-config-item {
   display: flex;
   align-items: center;
@@ -302,6 +309,12 @@ html, body, #root {
   accent-color: var(--accent-strong);
 }
 
+.settings-config-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .settings-config-footer {
   display: flex;
   align-items: center;
@@ -309,17 +322,20 @@ html, body, #root {
   margin-top: 12px;
 }
 
-.settings-config-footer button {
+.settings-config-footer button,
+.settings-config-item-actions button {
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
   padding: 5px 9px;
   color: var(--text-secondary);
   background: var(--surface-2);
   font: inherit;
+  font-size: var(--text-sm);
   cursor: pointer;
 }
 
-.settings-config-footer button:hover {
+.settings-config-footer button:hover,
+.settings-config-item-actions button:hover {
   background: var(--surface-3);
 }
 

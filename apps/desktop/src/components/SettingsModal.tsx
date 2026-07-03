@@ -269,14 +269,34 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
               .filter((h) => h.id !== "generic-shell")
               .sort((a, b) => a.name.localeCompare(b.name))
               .map((h) => (
-                <label key={h.id} className="settings-config-item">
-                  <input
-                    type="checkbox"
-                    checked={activeDraft.includes(h.id)}
-                    onChange={() => toggleHarness(h.id)}
-                  />
-                  <span>{h.name}</span>
-                </label>
+                <div key={h.id} className="settings-config-item-row">
+                  <label className="settings-config-item">
+                    <input
+                      type="checkbox"
+                      checked={activeDraft.includes(h.id)}
+                      onChange={() => toggleHarness(h.id)}
+                    />
+                    <span>{h.name}</span>
+                  </label>
+                  {h.id === "claude-code" && activeDraft.includes(h.id) && (
+                    <div className="settings-config-item-actions">
+                      {claudeHookStatus === null && (
+                        <span className="settings-config-status">checking attention hook…</span>
+                      )}
+                      {claudeHookStatus?.installed && (
+                        <span className="settings-config-status settings-config-status--ok">✓ Attention hook installed</span>
+                      )}
+                      {claudeHookStatus && !claudeHookStatus.installed && (
+                        <button type="button" onClick={installClaudeHookHandler} disabled={claudeHookInstalling}>
+                          {claudeHookInstalling ? "Installing…" : "Install attention hook"}
+                        </button>
+                      )}
+                      {claudeHookStatus?.error && (
+                        <span className="settings-config-status">{claudeHookStatus.error}</span>
+                      )}
+                    </div>
+                  )}
+                </div>
               ))}
           </div>
 
@@ -288,27 +308,6 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
               </span>
             )}
           </div>
-
-          {hasClaudeCodeHarness && (
-            <div className="settings-config-footer">
-              <span className="settings-config-status">
-                Claude Code attention signal:{" "}
-                {claudeHookStatus === null
-                  ? "checking…"
-                  : claudeHookStatus.installed
-                  ? "✓ Installed"
-                  : "Not configured"}
-              </span>
-              {claudeHookStatus && !claudeHookStatus.installed && (
-                <button type="button" onClick={installClaudeHookHandler} disabled={claudeHookInstalling}>
-                  {claudeHookInstalling ? "Installing…" : "Install Notification hook"}
-                </button>
-              )}
-              {claudeHookStatus?.error && (
-                <span className="settings-config-status">{claudeHookStatus.error}</span>
-              )}
-            </div>
-          )}
         </div>
 
         <div className="settings-section">
