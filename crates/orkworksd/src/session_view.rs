@@ -113,7 +113,8 @@ pub(crate) fn merge_live_session_info(
         failed_test: meta.and_then(|m| m.failed_test.clone()).or(info.failed_test),
         capacity_hints: meta.and_then(|m| m.capacity_hints.clone()).or(info.capacity_hints),
         at_usage_limit: None,
-            usage_limit_reset_hint: None,
+        capacity_check_pending: info.capacity_check_pending,
+        usage_limit_reset_hint: None,
         metadata_source: meta.map(|m| m.metadata_source.clone()).or(info.metadata_source),
         metadata_confidence: meta.map(|m| m.metadata_confidence).or(info.metadata_confidence),
         peon_last_inference: meta
@@ -201,6 +202,7 @@ mod tests {
             failed_test: None,
             capacity_hints: None,
             at_usage_limit: None,
+            capacity_check_pending: None,
             usage_limit_reset_hint: None,
             metadata_source: None,
             metadata_confidence: None,

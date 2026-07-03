@@ -56,6 +56,9 @@ struct SessionHandle {
     initial_prompt: Option<String>,
     // Sticky: once usage limit is detected it stays true until the session is killed/resumed.
     at_usage_limit_latched: bool,
+    capacity_check_pending: bool,
+    resume_scan_origin: Option<(usize, usize)>,
+    pending_capacity_visible_once: bool,
 }
 
 struct WorkspaceState {
@@ -260,6 +263,7 @@ pub(crate) mod test_support {
             failed_test: None,
             capacity_hints: None,
             at_usage_limit: None,
+            capacity_check_pending: None,
             usage_limit_reset_hint: None,
             metadata_source: None,
             metadata_confidence: None,
@@ -465,6 +469,9 @@ mod tests {
                 command: harness_registry::default_shell_command("/tmp".into()),
                 initial_prompt: None,
                 at_usage_limit_latched: false,
+                capacity_check_pending: false,
+                resume_scan_origin: None,
+                pending_capacity_visible_once: false,
             });
 
         let sessions = state.sessions.lock().unwrap();

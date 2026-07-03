@@ -147,6 +147,9 @@ mod tests {
                 command: crate::harness_registry::default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
                 at_usage_limit_latched: false,
+                capacity_check_pending: false,
+                resume_scan_origin: None,
+                pending_capacity_visible_once: false,
             },
         );
 

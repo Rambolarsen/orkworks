@@ -202,6 +202,7 @@ pub(crate) async fn resume_session(
     };
 
     let (kill_tx, _kill_rx) = tokio::sync::watch::channel(false);
+    let capacity_check_pending = capabilities.detect_capacity;
     let info = SessionInfo {
         id: id.clone(),
         label: meta.label.clone(),
@@ -227,6 +228,7 @@ pub(crate) async fn resume_session(
         failed_test: None,
         capacity_hints: None,
         at_usage_limit: None,
+        capacity_check_pending: capacity_check_pending.then_some(true),
         usage_limit_reset_hint: None,
         metadata_source: Some("process".into()),
         metadata_confidence: Some(1.0),
@@ -263,6 +265,9 @@ pub(crate) async fn resume_session(
             handle.scan_buf = String::new();
             handle.command = command;
             handle.at_usage_limit_latched = false;
+            handle.capacity_check_pending = capacity_check_pending;
+            handle.resume_scan_origin = capacity_check_pending.then_some((0, 0));
+            handle.pending_capacity_visible_once = false;
         } else {
             sessions.insert(
                 id.clone(),
@@ -274,6 +279,9 @@ pub(crate) async fn resume_session(
                     command,
                     initial_prompt: None,
                     at_usage_limit_latched: false,
+                    capacity_check_pending,
+                    resume_scan_origin: capacity_check_pending.then_some((0, 0)),
+                    pending_capacity_visible_once: false,
                 },
             );
         }
@@ -492,6 +500,7 @@ pub(crate) async fn create_session(
         failed_test: None,
         capacity_hints: None,
         at_usage_limit: None,
+        capacity_check_pending: None,
         usage_limit_reset_hint: None,
         metadata_source: None,
         metadata_confidence: None,
@@ -527,6 +536,9 @@ pub(crate) async fn create_session(
         command: resolved_launch.command,
         initial_prompt: req.initial_prompt.clone(),
         at_usage_limit_latched: false,
+        capacity_check_pending: false,
+        resume_scan_origin: None,
+        pending_capacity_visible_once: false,
     };
 
     state.sessions.lock().unwrap().insert(id.clone(), handle);
@@ -594,15 +606,25 @@ pub(crate) async fn create_session(
 
 pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let harnesses = state.harnesses.read().await.clone();
-    let live_sessions: Vec<(SessionInfo, Vec<String>, String, bool)> = {
+    let live_sessions: Vec<(SessionInfo, Vec<String>, String, bool, bool, Option<(usize, usize)>, bool)> = {
         let sessions = state.sessions.lock().unwrap();
-        sessions.values().map(|h| (h.info.clone(), h.output_buffer.snapshot(), h.scan_buf.clone(), h.at_usage_limit_latched)).collect()
+        sessions.values().map(|h| {
+            (
+                h.info.clone(),
+                h.output_buffer.snapshot(),
+                h.scan_buf.clone(),
+                h.at_usage_limit_latched,
+                h.capacity_check_pending,
+                h.resume_scan_origin,
+                h.pending_capacity_visible_once,
+            )
+        }).collect()
     };
 
     let ws_guard = state.workspace.lock().unwrap();
     let metadata_map = ws_guard.as_ref().map(|ws| {
         let mut metadata = HashMap::new();
-        for (info, _, _, _) in &live_sessions {
+        for (info, _, _, _, _, _, _) in &live_sessions {
             if let Some(meta) = ws.metadata.read_session(&info.id) {
                 metadata.insert(info.id.clone(), meta);
             }
@@ -614,17 +636,23 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
     drop(ws_guard);
 
     let all_memory_ids: HashSet<String> = live_sessions.iter()
-        .map(|(info, _, _, _)| info.id.clone())
+        .map(|(info, _, _, _, _, _, _)| info.id.clone())
         .collect();
 
     let peon_times = state.peon.last_inference.read().unwrap();
-    let mut infos: Vec<SessionInfo> = live_sessions.into_iter().map(|(info, snapshot, scan_buf, prev_latch)| {
+    let mut pending_transitions: Vec<(String, bool, bool)> = Vec::new();
+    let mut infos: Vec<SessionInfo> = live_sessions.into_iter().map(|(info, snapshot, scan_buf, prev_latch, pending, origin, pending_visible_once)| {
         let id = info.id.clone();
         let meta = metadata_map.get(&id);
         let session_harness_id = meta.and_then(|m| (!m.harness.is_empty()).then(|| m.harness.as_str()));
         let adapter_harness_id = resolve_adapter_harness_id(&harnesses, session_harness_id);
         let caps = capabilities_for_harness(&state.adapters, adapter_harness_id.as_deref());
         let mut merged = merge_live_session_info(info, meta, peon_times.get(&id), &caps);
+        let has_fresh_resume_output = pending
+            && !pending_visible_once
+            && origin.map(|(line_count, scan_len)| {
+                snapshot.len() > line_count || scan_buf.len() > scan_len
+            }).unwrap_or(false);
         let limit_adapter = adapter_harness_id
             .as_deref()
             .and_then(|hid| state.adapters.get(hid));
@@ -635,6 +663,12 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
         merged.usage_limit_reset_hint = limit_adapter
             .and_then(|adapter| peon::detect_usage_limit_hint(adapter.limit_patterns, &snapshot)
                 .or_else(|| peon::detect_usage_limit_hint_raw(adapter.limit_patterns, &scan_buf)));
+        merged.capacity_check_pending = if pending && !pending_visible_once {
+            Some(true)
+        } else {
+            None
+        };
+        pending_transitions.push((id, has_fresh_resume_output, pending_visible_once));
         merged
     }).collect();
 
@@ -673,6 +707,7 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
             failed_test: meta.failed_test.clone(),
             capacity_hints: meta.capacity_hints.clone(),
             at_usage_limit: None,
+            capacity_check_pending: None,
             usage_limit_reset_hint: None,
             metadata_source: Some(meta.metadata_source.clone()),
             metadata_confidence: Some(meta.metadata_confidence),
@@ -709,6 +744,26 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
                 if let Some(handle) = sessions.get_mut(&info.id) {
                     handle.at_usage_limit_latched = true;
                 }
+            }
+        }
+        for (id, has_fresh_resume_output, pending_visible_once) in &pending_transitions {
+            let Some(handle) = sessions.get_mut(id) else {
+                continue;
+            };
+            if !handle.capacity_check_pending {
+                continue;
+            }
+            if *pending_visible_once {
+                handle.capacity_check_pending = false;
+                handle.resume_scan_origin = None;
+                handle.pending_capacity_visible_once = false;
+                handle.info.capacity_check_pending = None;
+            } else if *has_fresh_resume_output {
+                handle.pending_capacity_visible_once = true;
+                handle.resume_scan_origin = None;
+                handle.info.capacity_check_pending = Some(true);
+            } else {
+                handle.info.capacity_check_pending = Some(true);
             }
         }
     }
@@ -1014,6 +1069,9 @@ mod tests {
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
                 at_usage_limit_latched: false,
+                capacity_check_pending: false,
+                resume_scan_origin: None,
+                pending_capacity_visible_once: false,
             },
         );
 
@@ -1216,6 +1274,9 @@ mod tests {
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
                 at_usage_limit_latched: false,
+                capacity_check_pending: false,
+                resume_scan_origin: None,
+                pending_capacity_visible_once: false,
             },
         );
 
@@ -1275,6 +1336,9 @@ mod tests {
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
                 at_usage_limit_latched: false,
+                capacity_check_pending: false,
+                resume_scan_origin: None,
+                pending_capacity_visible_once: false,
             },
         );
 
@@ -1382,6 +1446,9 @@ mod tests {
                 command: default_shell_command("/tmp/project".into()),
                 initial_prompt: None,
                 at_usage_limit_latched: false,
+                capacity_check_pending: false,
+                resume_scan_origin: None,
+                pending_capacity_visible_once: false,
             },
         );
 
@@ -1399,6 +1466,138 @@ mod tests {
             session.get("lastActivityAt").and_then(|value| value.as_str()),
             Some("2026-06-28T09:05:00Z"),
         );
+    }
+
+    #[tokio::test]
+    async fn list_sessions_keeps_pending_without_fresh_resume_output() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = Arc::new(crate::AppState {
+            session_module: crate::infrastructure::session_module::SessionModule::new(),
+            sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
+            workspace: std::sync::Mutex::new(None),
+            peon: crate::PeonState {
+                last_output: std::sync::RwLock::new(std::collections::HashMap::new()),
+                last_inference: std::sync::RwLock::new(std::collections::HashMap::new()),
+                in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
+                label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
+                label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
+                config: peon::PeonConfig::from_env(),
+            },
+            adapters: crate::harness_registry::builtin_adapters(),
+            retention_config: tokio::sync::RwLock::new(crate::RetentionConfig::default()),
+            harnesses: tokio::sync::RwLock::new(vec![]),
+            bound_port: std::sync::atomic::AtomicU16::new(0),
+            providers: crate::providers::ProviderManager::new(),
+        });
+
+        let session_id = "resume-pending-empty".to_string();
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        state.sessions.lock().unwrap().insert(
+            session_id.clone(),
+            SessionHandle {
+                info: SessionInfo {
+                    harness_id: Some("codex".into()),
+                    capacity_check_pending: Some(true),
+                    ..test_session_info(
+                        session_id.clone(),
+                        "Resume Pending Empty",
+                        dir.path().display().to_string(),
+                        "running",
+                        "now",
+                    )
+                },
+                kill_tx,
+                output_buffer: peon::RingBuffer::new(200),
+                scan_buf: String::new(),
+                command: default_shell_command(dir.path().display().to_string()),
+                initial_prompt: None,
+                at_usage_limit_latched: false,
+                capacity_check_pending: true,
+                resume_scan_origin: Some((0, 0)),
+                pending_capacity_visible_once: false,
+            },
+        );
+
+        let response = list_sessions(State(state)).await.into_response();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let sessions: Vec<serde_json::Value> = serde_json::from_slice(&bytes).unwrap();
+        let session = sessions
+            .iter()
+            .find(|session| session.get("id").and_then(|id| id.as_str()) == Some(session_id.as_str()))
+            .unwrap();
+
+        assert_eq!(session.get("capacityCheckPending").and_then(|value| value.as_bool()), Some(true));
+    }
+
+    #[tokio::test]
+    async fn list_sessions_requires_one_visible_fresh_output_cycle_before_clearing_pending() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = Arc::new(crate::AppState {
+            session_module: crate::infrastructure::session_module::SessionModule::new(),
+            sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
+            workspace: std::sync::Mutex::new(None),
+            peon: crate::PeonState {
+                last_output: std::sync::RwLock::new(std::collections::HashMap::new()),
+                last_inference: std::sync::RwLock::new(std::collections::HashMap::new()),
+                in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
+                label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
+                label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
+                config: peon::PeonConfig::from_env(),
+            },
+            adapters: crate::harness_registry::builtin_adapters(),
+            retention_config: tokio::sync::RwLock::new(crate::RetentionConfig::default()),
+            harnesses: tokio::sync::RwLock::new(vec![]),
+            bound_port: std::sync::atomic::AtomicU16::new(0),
+            providers: crate::providers::ProviderManager::new(),
+        });
+
+        let session_id = "resume-pending-fresh".to_string();
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        let mut output_buffer = peon::RingBuffer::new(200);
+        output_buffer.push("Welcome back".into());
+        state.sessions.lock().unwrap().insert(
+            session_id.clone(),
+            SessionHandle {
+                info: SessionInfo {
+                    harness_id: Some("codex".into()),
+                    capacity_check_pending: Some(true),
+                    ..test_session_info(
+                        session_id.clone(),
+                        "Resume Pending Fresh",
+                        dir.path().display().to_string(),
+                        "running",
+                        "now",
+                    )
+                },
+                kill_tx,
+                output_buffer,
+                scan_buf: String::new(),
+                command: default_shell_command(dir.path().display().to_string()),
+                initial_prompt: None,
+                at_usage_limit_latched: false,
+                capacity_check_pending: true,
+                resume_scan_origin: Some((0, 0)),
+                pending_capacity_visible_once: false,
+            },
+        );
+
+        let response = list_sessions(State(state.clone())).await.into_response();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let sessions: Vec<serde_json::Value> = serde_json::from_slice(&bytes).unwrap();
+        let session = sessions
+            .iter()
+            .find(|session| session.get("id").and_then(|id| id.as_str()) == Some(session_id.as_str()))
+            .unwrap();
+        assert_eq!(session.get("capacityCheckPending").and_then(|value| value.as_bool()), Some(true));
+
+        let response = list_sessions(State(state)).await.into_response();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let sessions: Vec<serde_json::Value> = serde_json::from_slice(&bytes).unwrap();
+        let session = sessions
+            .iter()
+            .find(|session| session.get("id").and_then(|id| id.as_str()) == Some(session_id.as_str()))
+            .unwrap();
+        assert_eq!(session.get("capacityCheckPending"), None);
     }
 
     #[tokio::test]

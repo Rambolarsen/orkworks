@@ -855,6 +855,9 @@ mod tests {
                 command: harness::CommandSpec { program: "/bin/sh".into(), args: vec!["-i".into(), "-l".into()], cwd: "/tmp".into() },
                 initial_prompt: None,
                 at_usage_limit_latched: false,
+                capacity_check_pending: false,
+                resume_scan_origin: None,
+                pending_capacity_visible_once: false,
             },
         );
 

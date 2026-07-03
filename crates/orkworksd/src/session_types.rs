@@ -46,6 +46,8 @@ pub(crate) struct SessionInfo {
     pub(crate) capacity_hints: Option<Vec<String>>,
     #[serde(rename = "atUsageLimit", skip_serializing_if = "Option::is_none")]
     pub(crate) at_usage_limit: Option<bool>,
+    #[serde(rename = "capacityCheckPending", skip_serializing_if = "Option::is_none")]
+    pub(crate) capacity_check_pending: Option<bool>,
     #[serde(rename = "usageLimitResetHint", skip_serializing_if = "Option::is_none")]
     pub(crate) usage_limit_reset_hint: Option<String>,
     #[serde(rename = "metadataSource")]
@@ -129,6 +131,7 @@ mod tests {
             failed_test: None,
             capacity_hints: None,
             at_usage_limit: None,
+            capacity_check_pending: None,
             usage_limit_reset_hint: None,
             metadata_source: None,
             metadata_confidence: None,
@@ -198,6 +201,17 @@ mod tests {
         assert!(json.contains("\"metadataConfidence\":1.0"));
         assert!(json.contains("\"observedStatus\":\"waiting_for_input\""));
         assert!(json.contains("\"needsUserInput\":true"));
+    }
+
+    #[test]
+    fn session_info_serializes_capacity_check_pending() {
+        let info = SessionInfo {
+            capacity_check_pending: Some(true),
+            ..test_session_info("test", "Test", "/tmp", "running", "now")
+        };
+
+        let json = serde_json::to_string(&info).unwrap();
+        assert!(json.contains("\"capacityCheckPending\":true"));
     }
 
     #[test]

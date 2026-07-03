@@ -267,6 +267,9 @@ mod tests {
                 command: harness::CommandSpec { program: "/bin/sh".into(), args: vec!["-i".into(), "-l".into()], cwd: "/tmp".into() },
                 initial_prompt: None,
                 at_usage_limit_latched: false,
+                capacity_check_pending: false,
+                resume_scan_origin: None,
+                pending_capacity_visible_once: false,
             };
             handle.output_buffer.push("running cargo test...".into());
             handle.output_buffer.push("test result: ok. 5 passed; 0 failed;".into());
@@ -427,6 +430,9 @@ mod tests {
                 command: harness::CommandSpec { program: "/bin/sh".into(), args: vec!["-i".into(), "-l".into()], cwd: "/tmp".into() },
                 initial_prompt: None,
                 at_usage_limit_latched: false,
+                capacity_check_pending: false,
+                resume_scan_origin: None,
+                pending_capacity_visible_once: false,
             };
             handle.output_buffer.push("quiet output".into());
             state.sessions.lock().unwrap().insert(session_id.clone(), handle);
@@ -498,6 +504,9 @@ mod tests {
                 command: crate::harness_registry::default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
                 at_usage_limit_latched: false,
+                capacity_check_pending: false,
+                resume_scan_origin: None,
+                pending_capacity_visible_once: false,
             };
             handle.output_buffer.push("quiet output".into());
             state.sessions.lock().unwrap().insert(session_id.clone(), handle);
@@ -578,6 +587,9 @@ mod tests {
                 command: crate::harness_registry::default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
                 at_usage_limit_latched: false,
+                capacity_check_pending: false,
+                resume_scan_origin: None,
+                pending_capacity_visible_once: false,
             };
             handle.output_buffer.push("some past output".into());
             state.sessions.lock().unwrap().insert(session_id.clone(), handle);
@@ -719,6 +731,9 @@ mod tests {
                 command: crate::harness_registry::default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
                 at_usage_limit_latched: false,
+                capacity_check_pending: false,
+                resume_scan_origin: None,
+                pending_capacity_visible_once: false,
             };
             state.sessions.lock().unwrap().insert(session_id.clone(), handle);
         }
