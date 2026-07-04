@@ -7,7 +7,7 @@ Mission Control for AI Agents
 
 Product name: **OrkWorks**.
 
-Protocol directory: **`.orkworks/`** (under `~/.orkworks/`, see [ADR 0018](docs/adr/0018-global-metadata-store.md)).
+Protocol directory: **`.orkworks/`** (under `~/.orkworks/`, see [ADR 0018](../docs/adr/0018-global-metadata-store.md)).
 
 Low-cost metadata worker: **Peon**.
 
