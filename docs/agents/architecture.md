@@ -51,7 +51,7 @@ Single binary. Top-level modules:
   - `hook_handlers.rs` — Claude Code attention hook install/status (`GET /workspace/attention-hook/status`, `POST /workspace/attention-hook/install`), reporter script path resolution
   - `provider_handlers.rs` — provider query handlers (`GET /providers`, `GET /providers/:id/models`, `POST /settings/providers`)
   - `retention_handlers.rs` — retention config handler (`POST /settings/retention`)
-  - `session_handlers.rs` — session/workspace HTTP handlers (`POST /workspace`, `GET/POST /sessions`, `DELETE /sessions/:id`, `POST /sessions/:id/resume`, `POST /sessions/:id/harness-session`, etc.) and associated request/response types
+  - `session_handlers.rs` — session/workspace HTTP handlers (`POST /workspace`, `GET/POST /sessions`, `DELETE /sessions/:id`, `POST /sessions/:id/resume`, `POST /sessions/:id/harness-session`, etc.) and associated request/response types. `POST /workspace` reconciles sessions orphaned by a previous daemon run via `metadata::reconcile_orphaned_session`: stale "running"/"creating" sessions are completed to `ended`, and sessions persisted mid-`ending` consume their `pendingTerminalStatus` as the final status so they cannot stay stuck in the ending phase
 - `runtime/` — background-task and PTY submodules:
   - `peon_runtime.rs` — `peon_loop` (continuous Peon observation loop)
   - `retention.rs` — `retention_cleanup_task`, `retention_cleanup_once`

@@ -139,7 +139,7 @@ High-level work phase:
 
 This remains intentionally coarse.
 
-`Phase` still exists in code today as a type alias to `WorkPhase` for compatibility, but the canonical domain term is now `WorkPhase`.
+The old `Phase` name is fully retired; `WorkPhase` is the canonical domain term. Legacy metadata files that still contain a `phase` field are normalized to `workPhase` on read.
 
 ### `LifecyclePhase`
 

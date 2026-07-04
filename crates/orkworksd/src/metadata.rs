@@ -262,7 +262,7 @@ fn snapshot_from_legacy_observed_status(
     })
 }
 
-fn canonical_null_snapshot(
+pub(crate) fn canonical_null_snapshot(
     source: &str,
     observed_at: Option<String>,
 ) -> ObservedStatusSnapshotMetadata {
@@ -272,6 +272,41 @@ fn canonical_null_snapshot(
         confidence: None,
         observed_at,
     }
+}
+
+/// Completes the lifecycle of a session orphaned by a previous daemon run.
+///
+/// Sessions found "running"/"creating" on workspace open have no live process.
+/// A session persisted mid-`ending` must consume its `pending_terminal_status`
+/// as the final status here — writing a bare terminal `status` while
+/// `lifecycle_phase` stays "ending" would be reverted by
+/// `normalize_session_metadata`, which forces `status` back to "running" for
+/// in-flight endings.
+pub(crate) fn reconcile_orphaned_session(mut meta: SessionMetadata, now: &str) -> SessionMetadata {
+    let final_status = if meta.lifecycle_phase == "ending" {
+        meta.pending_terminal_status
+            .take()
+            .unwrap_or_else(|| "error".into())
+    } else {
+        "ended".into()
+    };
+    if meta.final_observed_status_snapshot.is_none() {
+        meta.final_observed_status_snapshot = Some(
+            meta.ending_observed_status_snapshot
+                .clone()
+                .or_else(|| snapshot_from_legacy_observed_status(&meta))
+                .unwrap_or_else(|| canonical_null_snapshot("recovery", Some(now.to_string()))),
+        );
+    }
+    meta.lifecycle_phase = "ended".into();
+    meta.terminal_outcome = Some(final_status.clone());
+    meta.status = final_status;
+    meta.connectivity = "offline".into();
+    meta.pending_terminal_status = None;
+    meta.ending_observed_status_snapshot = None;
+    meta.observed_status = None;
+    meta.last_activity = now.to_string();
+    meta
 }
 
 pub fn derive_resume_options(
@@ -480,6 +515,47 @@ fn normalize_recovery_prefers_existing_final_snapshot() {
             .as_ref()
             .and_then(|x| x.value.as_deref()),
         Some("done")
+    );
+}
+
+#[cfg(test)]
+#[test]
+fn reconcile_orphaned_mid_ending_session_consumes_pending_status_and_survives_normalize() {
+    let raw = r#"{"id":"s7","label":"T","workspace":"/tmp","task":"","harnessId":"","modelId":"","cwd":"/tmp","status":"running","lifecyclePhase":"ending","pendingTerminalStatus":"killed","endingObservedStatusSnapshot":{"value":"blocked","source":"peon","confidence":0.8,"observedAt":"before"},"createdAt":"now","lastActivity":"now","metadataSource":"peon","metadataConfidence":0.8}"#;
+    let meta = reconcile_orphaned_session(serde_json::from_str(raw).unwrap(), "later");
+    assert_eq!(meta.status, "killed");
+    assert_eq!(meta.lifecycle_phase, "ended");
+    assert_eq!(meta.terminal_outcome.as_deref(), Some("killed"));
+    assert_eq!(meta.pending_terminal_status, None);
+    assert_eq!(meta.ending_observed_status_snapshot, None);
+    assert_eq!(
+        meta.final_observed_status_snapshot
+            .as_ref()
+            .and_then(|x| x.value.as_deref()),
+        Some("blocked")
+    );
+
+    // A read of the reconciled file must not flip the session back to running.
+    let normalized = normalize_session_metadata(
+        serde_json::from_str(&serde_json::to_string(&meta).unwrap()).unwrap(),
+    );
+    assert_eq!(normalized.status, "killed");
+    assert_eq!(normalized.lifecycle_phase, "ended");
+}
+
+#[cfg(test)]
+#[test]
+fn reconcile_orphaned_running_session_freezes_legacy_observed_status() {
+    let raw = r#"{"id":"s8","label":"T","workspace":"/tmp","task":"","harnessId":"","modelId":"","cwd":"/tmp","status":"running","lifecyclePhase":"active","observedStatus":"blocked","createdAt":"now","lastActivity":"now","metadataSource":"peon","metadataConfidence":0.8}"#;
+    let meta = reconcile_orphaned_session(serde_json::from_str(raw).unwrap(), "later");
+    assert_eq!(meta.status, "ended");
+    assert_eq!(meta.lifecycle_phase, "ended");
+    assert_eq!(meta.observed_status, None);
+    assert_eq!(
+        meta.final_observed_status_snapshot
+            .as_ref()
+            .and_then(|x| x.value.as_deref()),
+        Some("blocked")
     );
 }
 

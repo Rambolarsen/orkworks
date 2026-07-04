@@ -103,13 +103,10 @@ pub(crate) async fn set_workspace(
     // On restart state.sessions is empty, so anything still "running" in metadata is orphaned.
     if let Some(ref ws) = *ws {
         let now = iso_now();
-        for mut meta in ws.metadata.read_all_sessions() {
+        for meta in ws.metadata.read_all_sessions() {
             if meta.status == "running" || meta.status == "creating" {
-                meta.status = "ended".to_string();
-                meta.connectivity = connectivity_for_status("ended").to_string();
-                meta.terminal_outcome = terminal_outcome_for_status("ended");
-                meta.last_activity = now.clone();
-                ws.metadata.write_session(&meta);
+                ws.metadata
+                    .write_session(&metadata::reconcile_orphaned_session(meta, &now));
             }
         }
     }
@@ -219,10 +216,9 @@ pub(crate) async fn resume_session(
         cwd: command.cwd.clone(),
         created_at: meta.created_at.clone(),
         last_activity_at: Some(now.clone()),
-        final_observed_status: meta
-            .final_observed_status_snapshot
-            .as_ref()
-            .and_then(|snapshot| snapshot.value.clone()),
+        // The frozen final state belongs to the previous run; a resumed session
+        // is live again and must not resurface it as attention.
+        final_observed_status: None,
         observed_status: None,
         summary: meta.summary.clone(),
         next_action: meta.next_action.clone(),
@@ -298,6 +294,15 @@ pub(crate) async fn resume_session(
         if let Some(ref ws) = *ws_guard {
             if let Some(mut stored_meta) = ws.metadata.read_session(&id) {
                 stored_meta.status = "creating".to_string();
+                // Restart the lifecycle and drop the previous run's frozen
+                // state; otherwise merge_live_session_info keeps reporting the
+                // stale "ended" phase (and its final observed status) until the
+                // terminal attaches and writes "running".
+                stored_meta.lifecycle_phase = "creating".to_string();
+                stored_meta.pending_terminal_status = None;
+                stored_meta.ending_observed_status_snapshot = None;
+                stored_meta.final_observed_status_snapshot = None;
+                stored_meta.observed_status = None;
                 stored_meta.connectivity = connectivity_for_status("creating").to_string();
                 stored_meta.terminal_outcome = terminal_outcome_for_status("creating");
                 stored_meta.last_activity = now.clone();
@@ -866,8 +871,13 @@ pub(crate) async fn delete_session(
         }
         None => return axum::http::StatusCode::NOT_FOUND,
     }
-    crate::runtime::terminal_runtime::set_session_status(&state, &id, "killed");
-    crate::runtime::terminal_runtime::schedule_session_ending_finalization(state.clone(), id.clone());
+    if crate::runtime::terminal_runtime::set_session_status(&state, &id, "killed") {
+        crate::runtime::terminal_runtime::schedule_session_ending_finalization(
+            state.clone(),
+            id.clone(),
+            "killed".to_string(),
+        );
+    }
     state.peon.last_output.write().unwrap().remove(&id);
     state.peon.last_inference.write().unwrap().remove(&id);
     axum::http::StatusCode::OK

@@ -96,8 +96,6 @@ pub enum WorkPhase {
     Unknown,
 }
 
-pub type Phase = WorkPhase;
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LifecyclePhase {

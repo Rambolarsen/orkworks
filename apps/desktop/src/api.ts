@@ -7,6 +7,16 @@ export type TerminalOutcome = "ended" | "killed" | "error";
 export type WorkPhase = "ideation" | "implementation" | "review" | "debugging" | "unknown";
 export type LifecyclePhase = "creating" | "active" | "ending" | "ended";
 
+/** Lifecycle phase with the migration fallback for payloads that predate `lifecyclePhase`. */
+export function effectiveLifecyclePhase(
+  status: string,
+  lifecyclePhase: LifecyclePhase | undefined,
+): LifecyclePhase {
+  if (lifecyclePhase) return lifecyclePhase;
+  if (status === "creating") return "creating";
+  return status === "running" ? "active" : "ended";
+}
+
 export interface ResumeMemory {
   state: "available" | "unavailable";
   preferredStrategy: ResumeStrategy;

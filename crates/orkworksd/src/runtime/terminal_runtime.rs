@@ -134,11 +134,22 @@ fn make_pty_system() -> ConPtySystem {
     ConPtySystem {}
 }
 
-pub(crate) fn set_session_status(state: &Arc<AppState>, id: &str, status: &str) {
+/// Applies a status transition to the in-memory handle and persisted metadata.
+///
+/// Terminal statuses ("killed"/"ended"/"error") transition the session into the
+/// "ending" lifecycle phase. That transition is applied at most once: repeated
+/// terminal calls for a session already in "ending" or "ended" are no-ops, so
+/// racing exit paths (e.g. DELETE handler + kill-signal branch) cannot clobber
+/// the captured ending snapshot or re-open a finalized session. Returns whether
+/// the transition was applied — callers schedule finalization only on `true`.
+pub(crate) fn set_session_status(state: &Arc<AppState>, id: &str, status: &str) -> bool {
     let is_terminal = matches!(status, "killed" | "ended" | "error");
-    let session_resume = {
+    let (handle_decision, session_resume) = {
         let mut sessions = state.sessions.lock().unwrap();
         if let Some(handle) = sessions.get_mut(id) {
+            if is_terminal && matches!(handle.info.lifecycle_phase.as_str(), "ending" | "ended") {
+                return false;
+            }
             if is_terminal {
                 handle.info.status = "running".to_string();
                 handle.info.lifecycle_phase = "ending".to_string();
@@ -158,15 +169,24 @@ pub(crate) fn set_session_status(state: &Arc<AppState>, id: &str, status: &str) 
             if is_terminal {
                 handle.info.observed_status = None;
             }
-            (handle.info.resume.clone(), handle.info.resumed_from.clone())
+            (Some(true), (handle.info.resume.clone(), handle.info.resumed_from.clone()))
         } else {
-            (None, None)
+            (None, (None, None))
         }
     };
     let now = iso_now();
+    let mut applied = handle_decision.unwrap_or(false);
     let ws_guard = state.workspace.lock().unwrap();
     if let Some(ref ws) = *ws_guard {
         if let Some(mut meta) = ws.metadata.read_session(id) {
+            // With no in-memory handle, the persisted lifecycle is the guard authority.
+            if handle_decision.is_none()
+                && is_terminal
+                && matches!(meta.lifecycle_phase.as_str(), "ending" | "ended")
+            {
+                return false;
+            }
+            applied = true;
             if is_terminal {
                 meta.status = "running".to_string();
                 meta.lifecycle_phase = "ending".to_string();
@@ -201,26 +221,17 @@ pub(crate) fn set_session_status(state: &Arc<AppState>, id: &str, status: &str) 
             }
             ws.metadata.write_session(&meta);
         }
-        ws.metadata.append_event(id, &metadata::Event {
-            event_type: "session.status".into(),
-            timestamp: now,
-            status: status.to_string(),
-            observed_status: None,
-            confidence: None,
-        });
+        if applied {
+            ws.metadata.append_event(id, &metadata::Event {
+                event_type: "session.status".into(),
+                timestamp: now,
+                status: status.to_string(),
+                observed_status: None,
+                confidence: None,
+            });
+        }
     }
-}
-
-fn canonical_null_snapshot(
-    source: &str,
-    observed_at: Option<String>,
-) -> metadata::ObservedStatusSnapshotMetadata {
-    metadata::ObservedStatusSnapshotMetadata {
-        value: None,
-        source: source.to_string(),
-        confidence: None,
-        observed_at,
-    }
+    applied
 }
 
 fn final_snapshot_from_inference(
@@ -245,13 +256,17 @@ fn fallback_final_snapshot(
     meta.ending_observed_status_snapshot
         .clone()
         .or_else(|| meta.final_observed_status_snapshot.clone())
-        .unwrap_or_else(|| canonical_null_snapshot("recovery", Some(observed_at.to_string())))
+        .unwrap_or_else(|| metadata::canonical_null_snapshot("recovery", Some(observed_at.to_string())))
 }
 
+/// `fallback_terminal_status` is the terminal status the exit path intended;
+/// it is used when metadata is unavailable (no workspace open, file missing),
+/// since `pending_terminal_status` is only persisted there.
 pub(crate) fn complete_session_ending(
     state: &Arc<AppState>,
     id: &str,
     final_snapshot: metadata::ObservedStatusSnapshotMetadata,
+    fallback_terminal_status: &str,
 ) {
     let now = iso_now();
     let mut final_status: Option<String> = None;
@@ -266,7 +281,7 @@ pub(crate) fn complete_session_ending(
                 let pending = meta
                     .pending_terminal_status
                     .clone()
-                    .unwrap_or_else(|| "error".into());
+                    .unwrap_or_else(|| fallback_terminal_status.into());
                 meta.status = pending.clone();
                 meta.lifecycle_phase = "ended".into();
                 meta.connectivity = connectivity_for_status(&pending).to_string();
@@ -289,7 +304,7 @@ pub(crate) fn complete_session_ending(
         }
     }
 
-    let pending = final_status.unwrap_or_else(|| "error".into());
+    let pending = final_status.unwrap_or_else(|| fallback_terminal_status.into());
     let mut sessions = state.sessions.lock().unwrap();
     if let Some(handle) = sessions.get_mut(id) {
         if handle.info.lifecycle_phase == "ended" {
@@ -305,7 +320,11 @@ pub(crate) fn complete_session_ending(
     }
 }
 
-pub(crate) async fn finalize_session_ending(state: Arc<AppState>, id: String) {
+pub(crate) async fn finalize_session_ending(
+    state: Arc<AppState>,
+    id: String,
+    fallback_terminal_status: String,
+) {
     let output_snapshot = {
         let sessions = state.sessions.lock().unwrap();
         match sessions.get(&id) {
@@ -338,20 +357,19 @@ pub(crate) async fn finalize_session_ending(state: Arc<AppState>, id: String) {
     };
 
     let now = iso_now();
+    let inferred_snapshot =
+        final_snapshot_from_inference(scan_result.as_ref().and_then(|result| result.inference.as_ref()), &now);
     let final_snapshot = {
         let ws_guard = state.workspace.lock().unwrap();
-        let Some(ref ws) = *ws_guard else {
-            return;
-        };
-        let Some(meta) = ws.metadata.read_session(&id) else {
-            return;
-        };
+        let meta = ws_guard
+            .as_ref()
+            .and_then(|ws| ws.metadata.read_session(&id));
 
-        if meta.lifecycle_phase == "ended" {
+        if meta.as_ref().is_some_and(|m| m.lifecycle_phase == "ended") {
             return;
         }
 
-        if let Some(ref result) = scan_result {
+        if let (Some(ref ws), Some(ref result)) = (ws_guard.as_ref(), scan_result.as_ref()) {
             if let Some(ref observation) = result.observation {
                 ws.metadata.persist_provider_context(&id, observation);
             }
@@ -364,20 +382,28 @@ pub(crate) async fn finalize_session_ending(state: Arc<AppState>, id: String) {
             }
         }
 
-        final_snapshot_from_inference(scan_result.as_ref().and_then(|result| result.inference.as_ref()), &now)
-            .unwrap_or_else(|| fallback_final_snapshot(&meta, &now))
+        inferred_snapshot.unwrap_or_else(|| match meta {
+            Some(ref meta) => fallback_final_snapshot(meta, &now),
+            // Metadata unavailable: still complete the ending so the in-memory
+            // session does not stay stuck in the "ending" phase.
+            None => metadata::canonical_null_snapshot("recovery", Some(now.clone())),
+        })
     };
 
-    complete_session_ending(&state, &id, final_snapshot);
+    complete_session_ending(&state, &id, final_snapshot, &fallback_terminal_status);
 }
 
-pub(crate) fn schedule_session_ending_finalization(state: Arc<AppState>, id: String) {
+pub(crate) fn schedule_session_ending_finalization(
+    state: Arc<AppState>,
+    id: String,
+    fallback_terminal_status: String,
+) {
     if tokio::runtime::Handle::try_current().is_err() {
         return;
     }
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_secs(0)).await;
-        finalize_session_ending(state, id).await;
+        finalize_session_ending(state, id, fallback_terminal_status).await;
     });
 }
 
@@ -396,7 +422,9 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
     };
 
     if *kill_rx.borrow() {
-        set_session_status(&state, &id, "killed");
+        if set_session_status(&state, &id, "killed") {
+            schedule_session_ending_finalization(state.clone(), id.clone(), "killed".to_string());
+        }
         let _ = ws.close().await;
         return;
     }
@@ -451,8 +479,9 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
     let (initial_rows, initial_cols) = tokio::select! {
         _ = kill_rx.changed() => {
             if *kill_rx.borrow() {
-                set_session_status(&state, &id, "killed");
-                schedule_session_ending_finalization(state.clone(), id.clone());
+                if set_session_status(&state, &id, "killed") {
+                    schedule_session_ending_finalization(state.clone(), id.clone(), "killed".to_string());
+                }
                 let _ = ws.close().await;
                 return;
             }
@@ -498,8 +527,9 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
         Ok(p) => p,
         Err(e) => {
             tracing::error!(error = %e, "failed to open PTY");
-            set_session_status(&state, &id, "error");
-            schedule_session_ending_finalization(state.clone(), id.clone());
+            if set_session_status(&state, &id, "error") {
+                schedule_session_ending_finalization(state.clone(), id.clone(), "error".to_string());
+            }
             let _ = ws.close().await;
             return;
         }
@@ -530,8 +560,9 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
         Ok(c) => c,
         Err(e) => {
             tracing::error!(error = %e, "failed to spawn shell");
-            set_session_status(&state, &id, "error");
-            schedule_session_ending_finalization(state.clone(), id.clone());
+            if set_session_status(&state, &id, "error") {
+                schedule_session_ending_finalization(state.clone(), id.clone(), "error".to_string());
+            }
             let _ = ws.close().await;
             return;
         }
@@ -541,8 +572,9 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
         Ok(r) => r,
         Err(e) => {
             tracing::error!(error = %e, "failed to clone PTY reader");
-            set_session_status(&state, &id, "error");
-            schedule_session_ending_finalization(state.clone(), id.clone());
+            if set_session_status(&state, &id, "error") {
+                schedule_session_ending_finalization(state.clone(), id.clone(), "error".to_string());
+            }
             let _ = ws.close().await;
             return;
         }
@@ -552,8 +584,9 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
         Ok(w) => w,
         Err(e) => {
             tracing::error!(error = %e, "failed to take PTY writer");
-            set_session_status(&state, &id, "error");
-            schedule_session_ending_finalization(state.clone(), id.clone());
+            if set_session_status(&state, &id, "error") {
+                schedule_session_ending_finalization(state.clone(), id.clone(), "error".to_string());
+            }
             let _ = ws.close().await;
             return;
         }
@@ -688,8 +721,9 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
                 if *kill_rx.borrow() {
                     tracing::info!(session_id = %id, "kill signal received");
                     let _ = child.kill();
-                    set_session_status(&state, &id, "killed");
-                    schedule_session_ending_finalization(state.clone(), id.clone());
+                    if set_session_status(&state, &id, "killed") {
+                        schedule_session_ending_finalization(state.clone(), id.clone(), "killed".to_string());
+                    }
                     break;
                 }
             }
@@ -787,8 +821,9 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
                         // PTY reader channel closed: child process exited (e.g. user typed "exit").
                         // Reap the child and clean up so the frontend's WebSocket onclose fires.
                         let _ = child.kill();
-                        set_session_status(&state, &id, "ended");
-                        schedule_session_ending_finalization(state.clone(), id.clone());
+                        if set_session_status(&state, &id, "ended") {
+                            schedule_session_ending_finalization(state.clone(), id.clone(), "ended".to_string());
+                        }
                         break;
                     }
                 }
@@ -861,8 +896,9 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
                             TerminalAction::Kill => {
                                 tracing::info!(session_id = %id, "kill message received");
                                 let _ = child.kill();
-                                set_session_status(&state, &id, "killed");
-                                schedule_session_ending_finalization(state.clone(), id.clone());
+                                if set_session_status(&state, &id, "killed") {
+                                    schedule_session_ending_finalization(state.clone(), id.clone(), "killed".to_string());
+                                }
                                 break;
                             }
                             TerminalAction::Noop => {}
@@ -870,18 +906,17 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
                     }
                     Some(Ok(Message::Close(_))) | None => {
                         let _ = child.kill();
-                        if *kill_rx.borrow() {
-                            set_session_status(&state, &id, "killed");
-                        } else {
-                            set_session_status(&state, &id, "ended");
+                        let outcome = if *kill_rx.borrow() { "killed" } else { "ended" };
+                        if set_session_status(&state, &id, outcome) {
+                            schedule_session_ending_finalization(state.clone(), id.clone(), outcome.to_string());
                         }
-                        schedule_session_ending_finalization(state.clone(), id.clone());
                         break;
                     }
                     _ => {
                         let _ = child.kill();
-                        set_session_status(&state, &id, "error");
-                        schedule_session_ending_finalization(state.clone(), id.clone());
+                        if set_session_status(&state, &id, "error") {
+                            schedule_session_ending_finalization(state.clone(), id.clone(), "error".to_string());
+                        }
                         break;
                     }
                 }
@@ -1163,6 +1198,127 @@ mod tests {
     }
 
     #[test]
+    fn repeated_terminal_status_is_a_noop_and_preserves_the_ending_snapshot() {
+        let dir = tempfile::tempdir().unwrap();
+        let orkworks = dir.path().join(".orkworks");
+        std::fs::create_dir_all(orkworks.join("sessions")).unwrap();
+        std::fs::create_dir_all(orkworks.join("events")).unwrap();
+
+        let state = Arc::new(crate::AppState {
+            session_module: crate::infrastructure::session_module::SessionModule::new(),
+            sessions: Mutex::new(HashMap::new()),
+            workspace: Mutex::new(Some(crate::WorkspaceState {
+                path: dir.path().to_path_buf(),
+                metadata: metadata::MetadataStore::new(&orkworks),
+                watcher: crate::watcher::MetadataWatcher::start(&orkworks.join("sessions")),
+            })),
+            peon: crate::PeonState {
+                last_output: RwLock::new(HashMap::new()),
+                last_inference: RwLock::new(HashMap::new()),
+                in_flight: RwLock::new(HashSet::new()),
+                label_hint: RwLock::new(HashMap::new()),
+                label_pending: RwLock::new(HashSet::new()),
+                config: crate::peon::PeonConfig::from_env(),
+            },
+            adapters: crate::harness_registry::builtin_adapters(),
+            retention_config: tokio::sync::RwLock::new(crate::RetentionConfig::default()),
+            harnesses: tokio::sync::RwLock::new(vec![]),
+            bound_port: AtomicU16::new(0),
+            providers: crate::providers::ProviderManager::new(),
+        });
+
+        let session_id = "ending-idempotent".to_string();
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        let mut info = test_session_info(session_id.clone(), "Test", dir.path().display().to_string(), "running", "now");
+        info.lifecycle_phase = "active".into();
+        state.sessions.lock().unwrap().insert(
+            session_id.clone(),
+            crate::SessionHandle {
+                info,
+                kill_tx,
+                output_buffer: crate::peon::RingBuffer::new(200),
+                scan_buf: String::new(),
+                command: crate::harness_registry::default_shell_command(dir.path().display().to_string()),
+                initial_prompt: None,
+                at_usage_limit_latched: false,
+                capacity_check_pending: false,
+                resume_scan_origin: None,
+                pending_capacity_visible_once: false,
+            },
+        );
+
+        {
+            let ws_guard = state.workspace.lock().unwrap();
+            let ws = ws_guard.as_ref().unwrap();
+            ws.metadata.write_session(&metadata::SessionMetadata {
+                id: session_id.clone(),
+                label: "Test".into(),
+                workspace: dir.path().display().to_string(),
+                task: "".into(),
+                harness: "".into(),
+                model: "".into(),
+                cwd: dir.path().display().to_string(),
+                status: "running".into(),
+                work_phase: "unknown".into(),
+                lifecycle_phase: "active".into(),
+                connectivity: "online".into(),
+                terminal_outcome: None,
+                pending_terminal_status: None,
+                observed_status: Some("blocked".into()),
+                ending_observed_status_snapshot: None,
+                final_observed_status_snapshot: None,
+                summary: None,
+                next_action: None,
+                needs_user_input: None,
+                detected_question: None,
+                suggested_options: None,
+                blocker_description: None,
+                failed_command: None,
+                failed_test: None,
+                capacity_hints: None,
+                peon_last_inference: None,
+                provider_id: None,
+                provider_label: None,
+                provider_model: None,
+                provider_state: None,
+                created_at: "now".into(),
+                last_activity: "now".into(),
+                metadata_source: "peon".into(),
+                metadata_confidence: 0.8,
+                repo_root: None,
+                branch: None,
+                dirty: None,
+                changed_files: None,
+                is_worktree: None,
+                resume: None,
+                resume_options: vec![],
+                harness_session_id_source: None,
+                harness_session_id_confidence: None,
+                harness_session_id_captured_at: None,
+                resumed_from: None,
+                last_user_input: None,
+            });
+        }
+
+        // First exit path wins and captures the observed status.
+        assert!(set_session_status(&state, &session_id, "killed"));
+        // A racing exit path (e.g. the kill-signal branch) must not re-snapshot.
+        assert!(!set_session_status(&state, &session_id, "killed"));
+
+        let ws_guard = state.workspace.lock().unwrap();
+        let ws = ws_guard.as_ref().unwrap();
+        let meta = ws.metadata.read_session(&session_id).unwrap();
+        assert_eq!(meta.lifecycle_phase, "ending");
+        assert_eq!(meta.pending_terminal_status.as_deref(), Some("killed"));
+        assert_eq!(
+            meta.ending_observed_status_snapshot
+                .as_ref()
+                .and_then(|snapshot| snapshot.value.as_deref()),
+            Some("blocked")
+        );
+    }
+
+    #[test]
     fn complete_session_ending_sets_terminal_status_and_clears_pending_state() {
         let dir = tempfile::tempdir().unwrap();
         let orkworks = dir.path().join(".orkworks");
@@ -1279,6 +1435,7 @@ mod tests {
                 confidence: Some(0.91),
                 observed_at: Some("after".into()),
             },
+            "killed",
         );
 
         let session = state.sessions.lock().unwrap().get(&session_id).unwrap().info.clone();
@@ -1429,7 +1586,7 @@ mod tests {
             });
         }
 
-        finalize_session_ending(state.clone(), session_id.clone()).await;
+        finalize_session_ending(state.clone(), session_id.clone(), "ended".to_string()).await;
 
         let session = state.sessions.lock().unwrap().get(&session_id).unwrap().info.clone();
         assert_eq!(session.status, "ended");

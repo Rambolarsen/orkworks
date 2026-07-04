@@ -1,4 +1,4 @@
-import type { LifecyclePhase, SessionInfo } from "../api.ts";
+import { effectiveLifecyclePhase, type SessionInfo } from "../api.ts";
 
 declare const __sessionIdBrand: unique symbol;
 export type SessionId = string & { readonly [__sessionIdBrand]: true };
@@ -116,13 +116,7 @@ export function sessionAttentionStatus(session: Session): string {
   if (session.capacityCheckPending) {
     return "checking_capacity";
   }
-  const lifecyclePhase = session.lifecyclePhase
-    ?? (session.status === SessionStatus.Creating
-      ? LifecyclePhaseValue.Creating
-      : session.status === SessionStatus.Running
-        ? LifecyclePhaseValue.Active
-        : LifecyclePhaseValue.Ended);
-  if (lifecyclePhase === LifecyclePhaseValue.Active) {
+  if (effectiveLifecyclePhase(session.status, session.lifecyclePhase) === "active") {
     return session.observedStatus ?? session.status;
   }
   return session.finalObservedStatus ?? session.status;
@@ -141,11 +135,7 @@ export function sortSessions(sessions: Session[]): Session[] {
 }
 
 export function fromApiDto(dto: SessionInfo): Session {
-  const lifecyclePhase = (dto.lifecyclePhase ?? (dto.status === "creating"
-    ? LifecyclePhaseValue.Creating
-    : dto.status === "running"
-      ? LifecyclePhaseValue.Active
-      : LifecyclePhaseValue.Ended)) as LifecyclePhase;
+  const lifecyclePhase = effectiveLifecyclePhase(dto.status, dto.lifecyclePhase);
   const session: Session = {
     id: dto.id as SessionId,
     label: dto.label,
