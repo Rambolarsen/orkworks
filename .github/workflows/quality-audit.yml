@@ -83,13 +83,16 @@ jobs:
             audited area that fits this skill. Say which area you chose and why.
 
             Noise valve: before filing anything, count OPEN issues whose body
-            contains "Provenance: quality-audit". If there are 10 or more, do NOT
-            file new issues — write your findings to the job summary instead and
-            note that the backlog valve is closed. The valve applies to EVERY new
-            issue, including those grooming-the-board would file (spec-gap and
-            stranded-branch findings). Grooming's backlog-reducing actions —
-            closing duplicates, closing done-but-open issues, commenting — stay
-            allowed while the valve is closed.
+            contains "Provenance: quality-audit". Your filing budget for this
+            run is (10 minus that count). Rank your findings most-severe first
+            and file only within the budget; findings that don't fit go to the
+            job summary. If the budget is zero or negative, file nothing —
+            write all findings to the job summary and note that the backlog
+            valve is closed. The budget applies to EVERY new issue, including
+            those grooming-the-board would file (spec-gap and stranded-branch
+            findings). Grooming's backlog-reducing actions — closing
+            duplicates, closing done-but-open issues, commenting — stay
+            allowed even at zero budget.
 
             You have read-only access to repository contents: where
             grooming-the-board says to fix docs drift directly, file its
