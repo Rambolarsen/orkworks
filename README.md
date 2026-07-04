@@ -80,6 +80,8 @@ Normal pull requests use `.github/workflows/pr-ci.yml`. That workflow routes by 
 - `crates/orkworksd/**` runs Rust tests
 - PRs that touch neither surface get a lightweight passing no-op check for status clarity
 
+A third workflow, `.github/workflows/quality-audit.yml`, runs weekly on a schedule: it rotates through the audit skills in `skills/` (blind spots, test honesty, failure paths, board grooming, UI signal integrity) and files scoped quality issues. It authenticates with a Claude Pro/Max subscription via the `CLAUDE_CODE_OAUTH_TOKEN` repo secret (generate with `claude setup-token`; API-key alternative documented in the workflow header) and can be run manually from the Actions tab with a specific skill.
+
 ## Containerized dev environment (optional)
 
 A Podman/OCI toolchain container lets you build, type-check, and test OrkWorks without installing Node, Rust, or the Electron toolchain on the host. It's an **alternative** to the native pnpm flow above, not a replacement — GUI runs still use the native flow (see [issue #80](https://github.com/Rambolarsen/orkworks/issues/80) Tier 2). Toolchain versions are pinned in `rust-toolchain.toml`, `.nvmrc`, and `packageManager` so the container and host agree.
