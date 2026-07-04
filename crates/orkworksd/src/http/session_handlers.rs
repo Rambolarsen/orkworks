@@ -658,11 +658,11 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
             .and_then(|hid| state.adapters.get(hid));
         merged.at_usage_limit = limit_adapter
             .map(|adapter| prev_latch
-                || peon::detect_usage_limit(adapter.limit_patterns, &snapshot)
-                || peon::detect_usage_limit_raw(adapter.limit_patterns, &scan_buf));
+                || peon::detect_usage_limit(&adapter.limit_patterns, &snapshot)
+                || peon::detect_usage_limit_raw(&adapter.limit_patterns, &scan_buf));
         merged.usage_limit_reset_hint = limit_adapter
-            .and_then(|adapter| peon::detect_usage_limit_hint(adapter.limit_patterns, &snapshot)
-                .or_else(|| peon::detect_usage_limit_hint_raw(adapter.limit_patterns, &scan_buf)));
+            .and_then(|adapter| peon::detect_usage_limit_hint(&adapter.limit_patterns, &snapshot)
+                .or_else(|| peon::detect_usage_limit_hint_raw(&adapter.limit_patterns, &scan_buf)));
         merged.capacity_check_pending = if pending && !pending_visible_once {
             Some(true)
         } else {

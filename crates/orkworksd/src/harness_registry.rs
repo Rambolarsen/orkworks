@@ -17,6 +17,33 @@ pub(crate) struct HarnessVoiceCapabilities {
     pub(crate) orkworks_voice_commands: bool,
 }
 
+/// Peon inference config for a harness instance. When present the harness
+/// participates in model probing and provider capacity checks.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub(crate) struct HarnessPeonConfig {
+    /// Overrides the harness command for headless invocation (rarely needed).
+    #[serde(rename = "commandOverride", skip_serializing_if = "Option::is_none")]
+    pub(crate) command_override: Option<String>,
+    #[serde(default)]
+    pub(crate) args: Vec<String>,
+    #[serde(rename = "modelArgTemplate", skip_serializing_if = "Option::is_none")]
+    pub(crate) model_arg_template: Option<String>,
+    #[serde(rename = "supportsModel", default)]
+    pub(crate) supports_model: bool,
+    #[serde(rename = "timeoutSecs", default = "default_peon_timeout")]
+    pub(crate) timeout_secs: u64,
+    #[serde(rename = "listModelsCommand", skip_serializing_if = "Option::is_none")]
+    pub(crate) list_models_command: Option<String>,
+    #[serde(rename = "listModelsArgs", default)]
+    pub(crate) list_models_args: Vec<String>,
+    #[serde(rename = "staticModels", default)]
+    pub(crate) static_models: Vec<String>,
+    #[serde(rename = "httpListModels", default)]
+    pub(crate) http_list_models: bool,
+}
+
+fn default_peon_timeout() -> u64 { 30 }
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct HarnessConfig {
     pub(crate) id: String,
@@ -33,6 +60,8 @@ pub(crate) struct HarnessConfig {
     pub(crate) capabilities: HarnessVoiceCapabilities,
     #[serde(rename = "isBuiltin", default)]
     pub(crate) is_builtin: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) peon: Option<HarnessPeonConfig>,
 }
 
 fn shell_cmd() -> (String, Vec<String>) {
@@ -64,6 +93,23 @@ pub(crate) fn builtin_harness_configs() -> Vec<HarnessConfig> {
             model_prefix: String::new(),
             capabilities: HarnessVoiceCapabilities::default(),
             is_builtin: true,
+            peon: Some(HarnessPeonConfig {
+                command_override: None,
+                args: vec!["-p".into()],
+                model_arg_template: Some("--model={model}".into()),
+                supports_model: true,
+                timeout_secs: 30,
+                list_models_command: None,
+                list_models_args: vec![],
+                static_models: vec![
+                    "claude-sonnet-4-6".into(),
+                    "claude-opus-4-20250514".into(),
+                    "claude-opus-4-1-20250805".into(),
+                    "claude-sonnet-4-5-20250929".into(),
+                    "claude-haiku-3-5-20241022".into(),
+                ],
+                http_list_models: false,
+            }),
         },
         HarnessConfig {
             id: "opencode".into(),
@@ -75,6 +121,17 @@ pub(crate) fn builtin_harness_configs() -> Vec<HarnessConfig> {
             model_prefix: "ollama/".into(),
             capabilities: HarnessVoiceCapabilities::default(),
             is_builtin: true,
+            peon: Some(HarnessPeonConfig {
+                command_override: None,
+                args: vec!["run".into(), "--pure".into()],
+                model_arg_template: Some("--model={model}".into()),
+                supports_model: true,
+                timeout_secs: 30,
+                list_models_command: Some("opencode".into()),
+                list_models_args: vec!["models".into()],
+                static_models: vec![],
+                http_list_models: false,
+            }),
         },
         HarnessConfig {
             id: "codex".into(),
@@ -86,28 +143,103 @@ pub(crate) fn builtin_harness_configs() -> Vec<HarnessConfig> {
             model_prefix: String::new(),
             capabilities: HarnessVoiceCapabilities::default(),
             is_builtin: true,
+            peon: Some(HarnessPeonConfig {
+                command_override: None,
+                args: vec!["exec".into()],
+                model_arg_template: Some("--model={model}".into()),
+                supports_model: true,
+                timeout_secs: 30,
+                list_models_command: None,
+                list_models_args: vec![],
+                static_models: vec![
+                    "gpt-5-codex".into(),
+                    "gpt-5".into(),
+                    "gpt-5-mini".into(),
+                    "gpt-5-nano".into(),
+                ],
+                http_list_models: false,
+            }),
         },
         HarnessConfig {
             id: "gemini".into(),
             name: "Gemini CLI".into(),
-            harness: "generic-shell".into(),
+            harness: "gemini".into(),
             command: "gemini".into(),
             args: vec![],
             default_model: String::new(),
             model_prefix: String::new(),
             capabilities: HarnessVoiceCapabilities::default(),
             is_builtin: true,
+            peon: Some(HarnessPeonConfig {
+                command_override: None,
+                args: vec![],
+                model_arg_template: Some("--model={model}".into()),
+                supports_model: true,
+                timeout_secs: 30,
+                list_models_command: None,
+                list_models_args: vec![],
+                static_models: vec![
+                    "gemini-2.5-pro".into(),
+                    "gemini-2.5-flash".into(),
+                    "gemini-2.0-flash".into(),
+                ],
+                http_list_models: false,
+            }),
         },
         HarnessConfig {
             id: "aider".into(),
             name: "Aider".into(),
-            harness: "generic-shell".into(),
+            harness: "aider".into(),
             command: "aider".into(),
             args: vec!["--model".into(), "{model}".into()],
             default_model: "claude-sonnet-4-20250514".into(),
             model_prefix: "ollama_chat/".into(),
             capabilities: HarnessVoiceCapabilities::default(),
             is_builtin: true,
+            peon: Some(HarnessPeonConfig {
+                command_override: None,
+                args: vec![],
+                model_arg_template: Some("--model={model}".into()),
+                supports_model: true,
+                timeout_secs: 60,
+                list_models_command: None,
+                list_models_args: vec![],
+                static_models: vec![
+                    "claude-sonnet-4-6".into(),
+                    "claude-opus-4-20250514".into(),
+                    "gpt-4o".into(),
+                    "gpt-5".into(),
+                    "gemini-2.5-pro".into(),
+                ],
+                http_list_models: false,
+            }),
+        },
+        HarnessConfig {
+            id: "gh-copilot".into(),
+            name: "Copilot".into(),
+            harness: "generic-shell".into(),
+            command: "gh".into(),
+            args: vec!["copilot".into(), "suggest".into()],
+            default_model: String::new(),
+            model_prefix: String::new(),
+            capabilities: HarnessVoiceCapabilities::default(),
+            is_builtin: true,
+            peon: Some(HarnessPeonConfig {
+                command_override: None,
+                args: vec!["copilot".into(), "suggest".into()],
+                model_arg_template: Some("--model={model}".into()),
+                supports_model: true,
+                timeout_secs: 30,
+                list_models_command: None,
+                list_models_args: vec![],
+                static_models: vec![
+                    "gpt-4o".into(),
+                    "gpt-5".into(),
+                    "claude-sonnet-4-6".into(),
+                    "gemini-2.5-pro".into(),
+                ],
+                http_list_models: false,
+            }),
         },
         HarnessConfig {
             id: "generic-shell".into(),
@@ -119,6 +251,7 @@ pub(crate) fn builtin_harness_configs() -> Vec<HarnessConfig> {
             model_prefix: String::new(),
             capabilities: HarnessVoiceCapabilities::default(),
             is_builtin: true,
+            peon: None,
         },
     ]
 }
@@ -183,7 +316,7 @@ pub(crate) fn builtin_adapters() -> HashMap<String, harness::HarnessAdapter> {
         "generic-shell",
         "Generic Shell",
         default_capabilities(),
-        &[],
+        vec![],
         harness::CommandTemplate {
             command: program.clone(),
             args: args.clone(),
@@ -208,7 +341,7 @@ pub(crate) fn builtin_adapters() -> HashMap<String, harness::HarnessAdapter> {
         "opencode",
         "OpenCode",
         opencode_caps.clone(),
-        &["usage limit reached"],
+        vec!["usage limit reached".to_string()],
         harness::CommandTemplate {
             command: "opencode".into(),
             args: vec![],
@@ -239,7 +372,7 @@ pub(crate) fn builtin_adapters() -> HashMap<String, harness::HarnessAdapter> {
         "claude-code",
         "Claude Code",
         claude_caps.clone(),
-        &["you've hit your session limit"],
+        vec!["you've hit your session limit".to_string()],
         harness::CommandTemplate {
             command: "claude".into(),
             args: vec![],
@@ -270,7 +403,7 @@ pub(crate) fn builtin_adapters() -> HashMap<String, harness::HarnessAdapter> {
         "codex",
         "Codex",
         codex_caps,
-        &["you've hit your usage limit"],
+        vec!["you've hit your usage limit".to_string()],
         harness::CommandTemplate {
             command: "codex".into(),
             args: vec![],
@@ -279,6 +412,56 @@ pub(crate) fn builtin_adapters() -> HashMap<String, harness::HarnessAdapter> {
         None,
     );
     map.insert("codex".into(), codex);
+
+    let gemini_caps = harness::HarnessCapabilities {
+        launch: true,
+        resume_exact: false,
+        resume_latest_in_cwd: false,
+        resume_latest_in_repo: false,
+        detect_session_id: false,
+        detect_model: false,
+        detect_context_usage: false,
+        detect_capacity: false,
+        native_voice: false,
+    };
+    let gemini = harness::HarnessAdapter::template(
+        "gemini",
+        "Gemini CLI",
+        gemini_caps,
+        vec![],
+        harness::CommandTemplate {
+            command: "gemini".into(),
+            args: vec![],
+        },
+        None,
+        None,
+    );
+    map.insert("gemini".into(), gemini);
+
+    let aider_caps = harness::HarnessCapabilities {
+        launch: true,
+        resume_exact: false,
+        resume_latest_in_cwd: false,
+        resume_latest_in_repo: false,
+        detect_session_id: false,
+        detect_model: false,
+        detect_context_usage: false,
+        detect_capacity: false,
+        native_voice: false,
+    };
+    let aider = harness::HarnessAdapter::template(
+        "aider",
+        "Aider",
+        aider_caps,
+        vec![],
+        harness::CommandTemplate {
+            command: "aider".into(),
+            args: vec![],
+        },
+        None,
+        None,
+    );
+    map.insert("aider".into(), aider);
 
     map
 }
@@ -389,6 +572,7 @@ mod tests {
                 model_prefix: String::new(),
                 capabilities: HarnessVoiceCapabilities::default(),
                 is_builtin: false,
+                peon: None,
             };
 
             let harnesses_path = global_harnesses_path().unwrap();
@@ -447,6 +631,8 @@ mod tests {
     fn builtin_claude_adapter_has_session_limit_pattern() {
         let adapters = builtin_adapters();
         let claude = adapters.get("claude-code").unwrap();
-        assert!(claude.limit_patterns.contains(&"you've hit your session limit"));
+        assert!(claude
+            .limit_patterns
+            .contains(&"you've hit your session limit".to_string()));
     }
 }

@@ -20,6 +20,8 @@ pub struct HarnessAdapterConfig {
     #[serde(rename = "displayName")]
     pub display_name: String,
     pub capabilities: HarnessCapabilities,
+    #[serde(rename = "limitPatterns", default)]
+    pub limit_patterns: Vec<String>,
     pub launch: CommandTemplate,
     #[serde(rename = "resumeExact", skip_serializing_if = "Option::is_none")]
     pub resume_exact: Option<CommandTemplate>,
@@ -93,7 +95,7 @@ pub struct HarnessAdapter {
     pub id: String,
     pub display_name: String,
     pub capabilities: HarnessCapabilities,
-    pub limit_patterns: &'static [&'static str],
+    pub limit_patterns: Vec<String>,
     launch_template: CommandTemplate,
     exact_resume_template: Option<CommandTemplate>,
     latest_cwd_resume_template: Option<CommandTemplate>,
@@ -107,7 +109,7 @@ impl HarnessAdapter {
             id: config.id,
             display_name: config.display_name,
             capabilities: config.capabilities,
-            limit_patterns: &[],
+            limit_patterns: config.limit_patterns,
             launch_template: config.launch,
             exact_resume_template: config.resume_exact,
             latest_cwd_resume_template: config.resume_latest_cwd,
@@ -119,7 +121,7 @@ impl HarnessAdapter {
         id: impl Into<String>,
         display_name: impl Into<String>,
         capabilities: HarnessCapabilities,
-        limit_patterns: &'static [&'static str],
+        limit_patterns: Vec<String>,
         launch_template: CommandTemplate,
         exact_resume_template: Option<CommandTemplate>,
         latest_cwd_resume_template: Option<CommandTemplate>,
@@ -288,7 +290,7 @@ mod tests {
                 detect_capacity: false,
                 native_voice: false,
             },
-            &[],
+            vec![],
             CommandTemplate {
                 command: "custom-ai".into(),
                 args: vec!["--start".into()],
@@ -333,7 +335,7 @@ mod tests {
                 detect_capacity: false,
                 native_voice: false,
             },
-            &[],
+            vec![],
             CommandTemplate {
                 command: "custom-ai".into(),
                 args: vec!["--model".into(), "{model}".into()],
@@ -358,6 +360,7 @@ mod tests {
             id: "custom".into(),
             display_name: "Custom Harness".into(),
             capabilities: caps(),
+            limit_patterns: vec![],
             launch: CommandTemplate {
                 command: "custom-ai".into(),
                 args: vec!["--run".into()],
