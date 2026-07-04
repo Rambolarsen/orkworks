@@ -16,9 +16,12 @@ function session(id: string, created_at: string): SessionInfo {
   };
 }
 
+// groupForSession buckets by *local* calendar day, so fixtures near a day
+// boundary must be built in local time — UTC strings shift across the day
+// boundary depending on the machine's timezone.
 test("groupForSession buckets a session created earlier today as 'today'", () => {
-  const now = new Date("2026-06-28T18:00:00Z");
-  assert.equal(groupForSession(session("a", "2026-06-28T01:00:00Z"), now), "today");
+  const now = new Date(2026, 5, 28, 18, 0);
+  assert.equal(groupForSession(session("a", new Date(2026, 5, 28, 1, 0).toISOString()), now), "today");
 });
 
 test("groupForSession buckets a session from 3 days ago as 'week'", () => {
@@ -37,18 +40,18 @@ test("groupForSession buckets an unparseable created_at as 'earlier'", () => {
 });
 
 test("groupForSession reclassifies the same session as 'today' or 'earlier' depending on now, not just sessions", () => {
-  const createdYesterday = session("a", "2026-06-27T23:00:00Z");
-  const lateThatNight = new Date("2026-06-27T23:30:00Z");
-  const nextAfternoon = new Date("2026-06-28T14:00:00Z");
+  const createdYesterday = session("a", new Date(2026, 5, 27, 23, 0).toISOString());
+  const lateThatNight = new Date(2026, 5, 27, 23, 30);
+  const nextAfternoon = new Date(2026, 5, 28, 14, 0);
 
   assert.equal(groupForSession(createdYesterday, lateThatNight), "today");
   assert.equal(groupForSession(createdYesterday, nextAfternoon), "week");
 });
 
 test("groupSessions omits empty buckets and orders today, week, earlier", () => {
-  const now = new Date("2026-06-28T18:00:00Z");
+  const now = new Date(2026, 5, 28, 18, 0);
   const sessions = [
-    session("today-1", "2026-06-28T01:00:00Z"),
+    session("today-1", new Date(2026, 5, 28, 1, 0).toISOString()),
     session("old-1", "2026-06-01T00:00:00Z"),
   ];
 
