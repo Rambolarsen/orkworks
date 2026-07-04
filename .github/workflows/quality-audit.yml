@@ -85,8 +85,15 @@ jobs:
             Noise valve: before filing anything, count OPEN issues whose body
             contains "Provenance: quality-audit". If there are 10 or more, do NOT
             file new issues — write your findings to the job summary instead and
-            note that the backlog valve is closed. This valve does not apply to
-            grooming-the-board, which reduces backlog rather than adding to it.
+            note that the backlog valve is closed. The valve applies to EVERY new
+            issue, including those grooming-the-board would file (spec-gap and
+            stranded-branch findings). Grooming's backlog-reducing actions —
+            closing duplicates, closing done-but-open issues, commenting — stay
+            allowed while the valve is closed.
+
+            You have read-only access to repository contents: where
+            grooming-the-board says to fix docs drift directly, file its
+            docs-drift issue instead (subject to the valve above).
 
             Use the gh CLI for all GitHub reads and writes (it is authenticated
             via GH_TOKEN). File issues with checkbox acceptance criteria and the

@@ -22,7 +22,7 @@ Run each; skip none silently.
 3. **Open but out of scope** — issues describing work not covered by the specs, or barred by non-goals (`specs/orkworks-mvp.md` "Explicit MVP Non-Goals", `AGENTS.md` constraints). Action: comment noting the gap per the `AGENTS.md` rule; do not close — the owner decides.
 4. **Spec work with no issue** — spec sections describing undone work with no tracking issue. Action: file one, following the issue format in `skills/surfacing-blind-spots/` Phase 4.
 5. **Stranded branches and worktrees** — remote branches >7 days old with no merged PR and no recent commits. Action: comment on the branch's PR (or file a housekeeping issue) naming the rule; do not delete branches.
-6. **ADR and doc drift** — `docs/adr/README.md` index missing ADR files or listing wrong statuses; superseded ADRs not marked; skills listed in `AGENTS.md`/`docs/agents/apm.md` that don't match `skills/`. Action: these are docs-only fixes — fix them directly per the branch policy in `AGENTS.md`.
+6. **ADR and doc drift** — `docs/adr/README.md` index missing ADR files or listing wrong statuses; superseded ADRs not marked; skills listed in `AGENTS.md`/`docs/agents/apm.md` that don't match `skills/`. Action: these are docs-only fixes — fix them directly per the branch policy in `AGENTS.md`. If the run has no repository write access (e.g. the scheduled CI audit runs with `contents: read`), file a single docs-drift issue listing the exact fixes instead, using the issue format in `skills/surfacing-blind-spots/` Phase 4.
 
 ## Output
 

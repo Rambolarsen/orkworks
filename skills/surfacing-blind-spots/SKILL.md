@@ -71,15 +71,21 @@ Title: <area>: <specific defect or gap>
 
 ## Context
 What was found, how it was verified (file paths, commands run, spec sections).
-Which blind-spot question surfaced it.
+Which blind-spot question surfaced it. Name the spec section it traces to
+(or say "spec-gap" if it proposes a spec change).
 
 ## Acceptance criteria
 - [ ] Concrete, checkable outcome
 - [ ] ...
 
-Label/note: `quality-audit` provenance, plus spec section it traces to
-(or "spec-gap" if it proposes a spec change).
+*Provenance: quality-audit (<skill-name> skill).*
 ```
+
+The footer line must appear **verbatim**, with only the skill name substituted.
+Scheduled audit runs locate prior audit issues — for the backlog valve and for
+area rotation — by grepping issue bodies for the exact string
+`Provenance: quality-audit`. A paraphrased footer or a label instead of the
+footer makes the issue invisible to those checks.
 
 Finish with a summary to the user: findings filed (with issue links), findings dropped and why, and anything fixed on the spot during Phase 1.
 
