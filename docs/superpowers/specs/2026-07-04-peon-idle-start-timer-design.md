@@ -49,6 +49,15 @@ Existing behavior stays intact:
 - status writes for an already-running session must not reset the seeded timestamp
 - sessions already carrying a non-`None` `observed_status` remain excluded from the idle timer path
 
+### Missing startup timestamp
+
+If the idle loop observes a session that is already `running` but still has no
+`last_output` entry, it must treat that as a transient gap:
+
+- seed `last_output` with `Instant::now()`
+- skip idle classification for that tick
+- allow normal idle timeout behavior on later ticks
+
 ### Peon enablement
 
 Peon enablement is process-start configuration in the current backend, not a mid-session toggle.
