@@ -37,6 +37,9 @@ out/
 # Git worktrees
 .worktrees/
 
+# VitePress docs site (node_modules/ and dist/ are covered above)
+docs/.vitepress/cache/
+
 # APM dependencies and generated targets
 apm_modules/
 apm.lock.yaml
