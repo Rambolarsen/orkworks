@@ -26,10 +26,18 @@ export function needsAttention(status: string): boolean {
 }
 
 export function sessionAttentionStatus(session: SessionInfo): string {
-  if (session.memoryState !== "live") return session.status;
   if (session.capacityCheckPending) return "checking_capacity";
   if (session.atUsageLimit) return "capped";
-  return session.observedStatus ?? session.status;
+  const lifecyclePhase = session.lifecyclePhase
+    ?? (session.status === "creating"
+      ? "creating"
+      : session.status === "running"
+        ? "active"
+        : "ended");
+  if (lifecyclePhase === "active") {
+    return session.observedStatus ?? session.status;
+  }
+  return session.finalObservedStatus ?? session.status;
 }
 
 export function sortSessions(list: SessionInfo[]): SessionInfo[] {

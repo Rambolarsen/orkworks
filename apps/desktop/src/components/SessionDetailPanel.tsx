@@ -8,6 +8,7 @@ import {
   attentionLabel,
   attentionTone,
   detailActionZone,
+  lifecyclePhaseLabel,
   memoryStateLabel,
   relativeTime,
   situationHeadline,
@@ -15,6 +16,7 @@ import {
   sourceLabel,
   sourceWithConfidence,
   VOCAB,
+  workPhaseLabel,
 } from "../labels";
 import { pushToast } from "../feedback";
 import EmptyState from "./EmptyState";
@@ -66,6 +68,13 @@ function SessionDetailPanel({ sessions, activeSessionId, onResumeSession, showDe
     provenanceItems.push(
       <span key="peon" className="peon-value">
         Observed {relativeTime(active.peonLastInference, now) || active.peonLastInference}
+      </span>,
+    );
+  }
+  if (active.finalObservedStatus) {
+    provenanceItems.push(
+      <span key="final-attention" className="peon-value">
+        Final attention: {attentionLabel(active.finalObservedStatus)}
       </span>,
     );
   }
@@ -159,6 +168,14 @@ function SessionDetailPanel({ sessions, activeSessionId, onResumeSession, showDe
           </div>
           {showDebugMetadata && (
             <>
+              <div className="detail-fact">
+                <div className="session-detail-label">Work phase</div>
+                <div className="session-detail-value">{workPhaseLabel(active.workPhase)}</div>
+              </div>
+              <div className="detail-fact">
+                <div className="session-detail-label">Lifecycle</div>
+                <div className="session-detail-value">{lifecyclePhaseLabel(active.lifecyclePhase)}</div>
+              </div>
               <div className="detail-fact">
                 <div className="session-detail-label">OrkWorks session ID</div>
                 <div className="session-detail-value">{active.id}</div>

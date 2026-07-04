@@ -11,6 +11,23 @@ fn default_connectivity() -> String {
     "online".into()
 }
 
+fn default_work_phase() -> String {
+    "unknown".into()
+}
+
+fn default_lifecycle_phase() -> String {
+    String::new()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ObservedStatusSnapshotMetadata {
+    pub value: Option<String>,
+    pub source: String,
+    pub confidence: Option<f64>,
+    #[serde(rename = "observedAt")]
+    pub observed_at: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ResumeOption {
     pub strategy: ResumeStrategy,
@@ -50,13 +67,22 @@ pub struct SessionMetadata {
     pub model: String,
     pub cwd: String,
     pub status: String,
-    pub phase: String,
+    #[serde(rename = "workPhase", alias = "phase", default = "default_work_phase")]
+    pub work_phase: String,
+    #[serde(rename = "lifecyclePhase", default = "default_lifecycle_phase")]
+    pub lifecycle_phase: String,
     #[serde(default = "default_connectivity")]
     pub connectivity: String,
     #[serde(rename = "terminalOutcome", skip_serializing_if = "Option::is_none")]
     pub terminal_outcome: Option<String>,
+    #[serde(rename = "pendingTerminalStatus", skip_serializing_if = "Option::is_none")]
+    pub pending_terminal_status: Option<String>,
     #[serde(rename = "observedStatus")]
     pub observed_status: Option<String>,
+    #[serde(rename = "endingObservedStatusSnapshot", skip_serializing_if = "Option::is_none")]
+    pub ending_observed_status_snapshot: Option<ObservedStatusSnapshotMetadata>,
+    #[serde(rename = "finalObservedStatusSnapshot", skip_serializing_if = "Option::is_none")]
+    pub final_observed_status_snapshot: Option<ObservedStatusSnapshotMetadata>,
     pub summary: Option<String>,
     #[serde(rename = "nextAction")]
     pub next_action: Option<String>,
@@ -138,6 +164,16 @@ pub struct WorkspaceMemory {
 }
 
 fn normalize_session_metadata(mut meta: SessionMetadata) -> SessionMetadata {
+    meta.work_phase = normalize_work_phase(&meta.work_phase);
+
+    if meta.lifecycle_phase.is_empty() {
+        meta.lifecycle_phase = default_lifecycle_phase_for_status(&meta.status);
+    }
+
+    if meta.lifecycle_phase == "ending" && meta.status != "running" {
+        meta.status = "running".into();
+    }
+
     let inferred_terminal_outcome = match meta.status.as_str() {
         "ended" => Some("ended"),
         "killed" => Some("killed"),
@@ -153,7 +189,89 @@ fn normalize_session_metadata(mut meta: SessionMetadata) -> SessionMetadata {
         meta.connectivity = "offline".into();
     }
 
+    if meta.lifecycle_phase != "ending" {
+        meta.pending_terminal_status = None;
+        meta.ending_observed_status_snapshot = None;
+    }
+
+    if meta.lifecycle_phase == "ending" && meta.pending_terminal_status.is_none() {
+        meta.lifecycle_phase = "ended".into();
+        meta.status = "error".into();
+        meta.terminal_outcome = Some("error".into());
+        meta.connectivity = "offline".into();
+    }
+
+    if meta.lifecycle_phase == "ended" && meta.final_observed_status_snapshot.is_none() {
+        meta.final_observed_status_snapshot = Some(
+            meta.ending_observed_status_snapshot
+                .clone()
+                .or_else(|| snapshot_from_legacy_observed_status(&meta))
+                .unwrap_or_else(|| canonical_null_snapshot("recovery", None)),
+        );
+    }
+
+    if matches!(meta.lifecycle_phase.as_str(), "creating" | "ending" | "ended") {
+        meta.observed_status = None;
+    }
+
+    if matches!(meta.status.as_str(), "ended" | "killed" | "error") {
+        meta.lifecycle_phase = "ended".into();
+        if meta.final_observed_status_snapshot.is_none() {
+            meta.final_observed_status_snapshot = Some(
+                snapshot_from_legacy_observed_status(&meta)
+                    .unwrap_or_else(|| canonical_null_snapshot("recovery", None)),
+            );
+        }
+        meta.pending_terminal_status = None;
+        meta.ending_observed_status_snapshot = None;
+        meta.observed_status = None;
+    }
+
     meta
+}
+
+fn normalize_work_phase(raw: &str) -> String {
+    match raw {
+        "ideation" | "implementation" | "review" | "debugging" | "unknown" => raw.to_string(),
+        "" => "unknown".into(),
+        _ => "unknown".into(),
+    }
+}
+
+fn default_lifecycle_phase_for_status(status: &str) -> String {
+    match status {
+        "creating" => "creating".into(),
+        "running" => "active".into(),
+        "ended" | "killed" | "error" => "ended".into(),
+        _ => "active".into(),
+    }
+}
+
+fn snapshot_from_legacy_observed_status(
+    meta: &SessionMetadata,
+) -> Option<ObservedStatusSnapshotMetadata> {
+    meta.observed_status.as_ref().map(|status| ObservedStatusSnapshotMetadata {
+        value: Some(status.clone()),
+        source: if meta.metadata_source.is_empty() {
+            "recovery".into()
+        } else {
+            meta.metadata_source.clone()
+        },
+        confidence: Some(meta.metadata_confidence),
+        observed_at: Some(meta.last_activity.clone()),
+    })
+}
+
+fn canonical_null_snapshot(
+    source: &str,
+    observed_at: Option<String>,
+) -> ObservedStatusSnapshotMetadata {
+    ObservedStatusSnapshotMetadata {
+        value: None,
+        source: source.into(),
+        confidence: None,
+        observed_at,
+    }
 }
 
 pub fn derive_resume_options(
@@ -232,10 +350,14 @@ pub(crate) fn assert_session_metadata_serializes_connectivity_terminal_outcome_a
         model: String::new(),
         cwd: "/tmp".into(),
         status: "ended".into(),
-        phase: String::new(),
+        work_phase: "unknown".into(),
+        lifecycle_phase: "ended".into(),
         connectivity: "offline".into(),
         terminal_outcome: Some("ended".into()),
+        pending_terminal_status: None,
         observed_status: None,
+        ending_observed_status_snapshot: None,
+        final_observed_status_snapshot: Some(canonical_null_snapshot("recovery", None)),
         summary: None,
         next_action: None,
         needs_user_input: None,
@@ -278,6 +400,87 @@ pub(crate) fn assert_session_metadata_serializes_connectivity_terminal_outcome_a
 #[test]
 fn session_metadata_serializes_connectivity_terminal_outcome_and_last_activity() {
     assert_session_metadata_serializes_connectivity_terminal_outcome_and_last_activity();
+}
+
+#[cfg(test)]
+#[test]
+fn session_metadata_reads_legacy_phase_and_projects_final_observed_status() {
+    let raw = r#"{
+      "id":"s1",
+      "label":"Test",
+      "workspace":"/tmp",
+      "task":"",
+      "harnessId":"",
+      "modelId":"",
+      "cwd":"/tmp",
+      "status":"ended",
+      "phase":"review",
+      "createdAt":"now",
+      "lastActivity":"now",
+      "metadataSource":"process",
+      "metadataConfidence":1.0,
+      "observedStatus":"blocked"
+    }"#;
+    let meta = normalize_session_metadata(serde_json::from_str(raw).unwrap());
+    assert_eq!(meta.work_phase, "review");
+    assert_eq!(meta.lifecycle_phase, "ended");
+    assert_eq!(
+        meta.final_observed_status_snapshot
+            .as_ref()
+            .and_then(|x| x.value.as_deref()),
+        Some("blocked")
+    );
+}
+
+#[cfg(test)]
+#[test]
+fn normalize_terminal_legacy_metadata_builds_canonical_null_snapshot() {
+    let raw = r#"{"id":"s2","label":"T","workspace":"/tmp","task":"","harnessId":"","modelId":"","cwd":"/tmp","status":"ended","createdAt":"now","lastActivity":"now","metadataSource":"process","metadataConfidence":1.0}"#;
+    let meta = normalize_session_metadata(serde_json::from_str(raw).unwrap());
+    let snap = meta.final_observed_status_snapshot.unwrap();
+    assert_eq!(snap.value, None);
+    assert_eq!(snap.source, "recovery");
+    assert_eq!(snap.confidence, None);
+    assert_eq!(snap.observed_at, None);
+}
+
+#[cfg(test)]
+#[test]
+fn normalize_invalid_ending_without_pending_status_becomes_error_ended() {
+    let raw = r#"{"id":"s3","label":"T","workspace":"/tmp","task":"","harnessId":"","modelId":"","cwd":"/tmp","status":"running","lifecyclePhase":"ending","createdAt":"now","lastActivity":"now","metadataSource":"process","metadataConfidence":1.0}"#;
+    let meta = normalize_session_metadata(serde_json::from_str(raw).unwrap());
+    assert_eq!(meta.lifecycle_phase, "ended");
+    assert_eq!(meta.status, "error");
+}
+
+#[cfg(test)]
+#[test]
+fn normalize_unknown_legacy_phase_to_unknown_work_phase() {
+    let raw = r#"{"id":"s4","label":"T","workspace":"/tmp","task":"","harnessId":"","modelId":"","cwd":"/tmp","status":"running","phase":"freeform","createdAt":"now","lastActivity":"now","metadataSource":"process","metadataConfidence":1.0}"#;
+    let meta = normalize_session_metadata(serde_json::from_str(raw).unwrap());
+    assert_eq!(meta.work_phase, "unknown");
+}
+
+#[cfg(test)]
+#[test]
+fn normalize_pending_terminal_status_outside_ending_to_null_and_clear_live_observed_status() {
+    let raw = r#"{"id":"s5","label":"T","workspace":"/tmp","task":"","harnessId":"","modelId":"","cwd":"/tmp","status":"ended","lifecyclePhase":"ended","pendingTerminalStatus":"killed","observedStatus":"blocked","createdAt":"now","lastActivity":"now","metadataSource":"process","metadataConfidence":1.0}"#;
+    let meta = normalize_session_metadata(serde_json::from_str(raw).unwrap());
+    assert_eq!(meta.pending_terminal_status, None);
+    assert_eq!(meta.observed_status, None);
+}
+
+#[cfg(test)]
+#[test]
+fn normalize_recovery_prefers_existing_final_snapshot() {
+    let raw = r#"{"id":"s6","label":"T","workspace":"/tmp","task":"","harnessId":"","modelId":"","cwd":"/tmp","status":"running","lifecyclePhase":"ending","pendingTerminalStatus":"ended","finalObservedStatusSnapshot":{"value":"done","source":"peon","confidence":0.9,"observedAt":"now"},"createdAt":"now","lastActivity":"now","metadataSource":"process","metadataConfidence":1.0}"#;
+    let meta = normalize_session_metadata(serde_json::from_str(raw).unwrap());
+    assert_eq!(
+        meta.final_observed_status_snapshot
+            .as_ref()
+            .and_then(|x| x.value.as_deref()),
+        Some("done")
+    );
 }
 
 #[cfg(test)]
@@ -647,7 +850,7 @@ impl MetadataStore {
 
         meta.observed_status = inf.observed_status.clone().or(meta.observed_status);
         if let Some(ref phase) = inf.phase {
-            meta.phase = phase.clone();
+            meta.work_phase = normalize_work_phase(phase);
         }
         meta.summary = inf.summary.clone().or(meta.summary);
         if let Some(ref summary) = inf.summary {
@@ -794,10 +997,14 @@ mod tests {
             model: "".into(),
             cwd: "/tmp".into(),
             status: "running".into(),
-            phase: "implementation".into(),
+            work_phase: "implementation".into(),
+            lifecycle_phase: "active".into(),
             connectivity: "online".into(),
             terminal_outcome: None,
+            pending_terminal_status: None,
             observed_status: None,
+            ending_observed_status_snapshot: None,
+            final_observed_status_snapshot: None,
             summary: None,
             next_action: None,
             needs_user_input: None,
@@ -902,10 +1109,14 @@ mod tests {
             model: "".into(),
             cwd: "/tmp".into(),
             status: "running".into(),
-            phase: "".into(),
+            work_phase: "unknown".into(),
+            lifecycle_phase: "active".into(),
             connectivity: "online".into(),
             terminal_outcome: None,
+            pending_terminal_status: None,
             observed_status: None,
+            ending_observed_status_snapshot: None,
+            final_observed_status_snapshot: None,
             summary: None,
             next_action: None,
             needs_user_input: None,
@@ -986,10 +1197,14 @@ mod tests {
             model: "".into(),
             cwd: "/tmp".into(),
             status: "running".into(),
-            phase: "".into(),
+            work_phase: "unknown".into(),
+            lifecycle_phase: "active".into(),
             connectivity: "online".into(),
             terminal_outcome: None,
+            pending_terminal_status: None,
             observed_status: None,
+            ending_observed_status_snapshot: None,
+            final_observed_status_snapshot: None,
             summary: None,
             next_action: None,
             needs_user_input: None,
@@ -1064,10 +1279,14 @@ mod tests {
             model: "".into(),
             cwd: "/tmp".into(),
             status: "running".into(),
-            phase: "".into(),
+            work_phase: "unknown".into(),
+            lifecycle_phase: "active".into(),
             connectivity: "online".into(),
             terminal_outcome: None,
+            pending_terminal_status: None,
             observed_status: None,
+            ending_observed_status_snapshot: None,
+            final_observed_status_snapshot: None,
             summary: None,
             next_action: None,
             needs_user_input: None,

@@ -40,7 +40,11 @@ Current fields:
 - `status: SessionStatus`
 - `memory_state: MemoryState`
 - `attention_state: AttentionState`
-- `phase: Phase`
+- `work_phase: WorkPhase`
+- `lifecycle_phase: LifecyclePhase`
+- `pending_terminal_status: Option<TerminalOutcome>`
+- `ending_observed_status_snapshot: Option<ObservedStatusSnapshot>`
+- `final_observed_status_snapshot: Option<ObservedStatusSnapshot>`
 - `created_at: String`
 - `killed_at: Option<String>`
 - `last_active_at: Option<String>`
@@ -66,8 +70,11 @@ Behavior currently implemented on the entity:
 - `can_be_killed()`
 - `kill(now)`
 - `mark_running()`
+- `mark_active()`
+- `begin_ending(pending_terminal_status, ending_observed_status_snapshot)`
+- `complete_ending(final_observed_status_snapshot)`
 
-This is a fairly lean aggregate. Most orchestration still happens in application and infrastructure layers.
+The lifecycle behavior is still orchestrated by runtime/application code, but the aggregate now owns the `creating -> active -> ending -> ended` transition rules and the structured final-observed-state snapshots.
 
 ## Value objects
 
@@ -93,7 +100,7 @@ Lifecycle status:
 - `Ended`
 - `Error`
 
-This describes whether the session exists and what lifecycle phase it is in from the runtime’s perspective.
+This captures the process state or terminal outcome. During `LifecyclePhase::Ending`, the session intentionally remains `SessionStatus::Running` until completion chooses the final terminal outcome.
 
 ### `MemoryState`
 
@@ -120,7 +127,7 @@ Observed attention state:
 
 This is the domain form of the attention model used for sorting and UI emphasis. `needs_attention()` is defined here.
 
-### `Phase`
+### `WorkPhase`
 
 High-level work phase:
 
@@ -131,6 +138,43 @@ High-level work phase:
 - `Unknown`
 
 This remains intentionally coarse.
+
+`Phase` still exists in code today as a type alias to `WorkPhase` for compatibility, but the canonical domain term is now `WorkPhase`.
+
+### `LifecyclePhase`
+
+Explicit runtime lifecycle phase:
+
+- `Creating`
+- `Active`
+- `Ending`
+- `Ended`
+
+This is distinct from `SessionStatus`. It models where the session is in the lifecycle state machine even when the process-facing `status` remains `Running` during `Ending`.
+
+### `TerminalOutcome`
+
+Pending/final terminal outcome:
+
+- `Ended`
+- `Killed`
+- `Error`
+
+This is used while a session is in `LifecyclePhase::Ending` so the aggregate can defer choosing the terminal `SessionStatus` until finalization completes.
+
+### `ObservedStatusSnapshot`
+
+Structured frozen observer state:
+
+- `value: Option<AttentionState>`
+- `source: String`
+- `confidence: Option<f64>`
+- `observed_at: Option<String>`
+
+This is used for both:
+
+- `ending_observed_status_snapshot` captured when the session begins ending
+- `final_observed_status_snapshot` persisted when ending completes
 
 ## Domain events
 
@@ -171,6 +215,8 @@ Notable design choices:
 - creation accepts optional Git context and normalizes it into the aggregate
 - creation accepts optional harness/provider/model references
 - resume support is still tied to `crate::harness::ResumeMemory` and `ResumeStrategy`
+- creation initializes `work_phase = WorkPhase::Unknown`
+- creation initializes `lifecycle_phase = LifecyclePhase::Creating`
 
 The service is where aggregate construction rules currently live.
 

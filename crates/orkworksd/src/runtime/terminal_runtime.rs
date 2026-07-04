@@ -1,12 +1,13 @@
 use crate::harness_registry::default_shell_command;
 use crate::session_view::{connectivity_for_status, terminal_outcome_for_status};
 use crate::workspace_runtime::iso_now;
-use crate::{harness, metadata, peon, AppState};
+use crate::{harness, metadata, peon, providers, AppState};
 use axum::extract::ws::{Message, WebSocket};
 use portable_pty::{CommandBuilder, PtySize, PtySystem};
 use std::io::{Read, Write};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::time::Duration;
 
 #[cfg(unix)]
 use portable_pty::unix::UnixPtySystem;
@@ -138,9 +139,21 @@ pub(crate) fn set_session_status(state: &Arc<AppState>, id: &str, status: &str) 
     let session_resume = {
         let mut sessions = state.sessions.lock().unwrap();
         if let Some(handle) = sessions.get_mut(id) {
-            handle.info.status = status.to_string();
-            handle.info.connectivity = Some(connectivity_for_status(status).to_string());
-            handle.info.terminal_outcome = terminal_outcome_for_status(status);
+            if is_terminal {
+                handle.info.status = "running".to_string();
+                handle.info.lifecycle_phase = "ending".to_string();
+                handle.info.connectivity = Some(connectivity_for_status("running").to_string());
+                handle.info.terminal_outcome = None;
+            } else {
+                handle.info.status = status.to_string();
+                handle.info.lifecycle_phase = if status == "creating" {
+                    "creating".to_string()
+                } else {
+                    "active".to_string()
+                };
+                handle.info.connectivity = Some(connectivity_for_status(status).to_string());
+                handle.info.terminal_outcome = terminal_outcome_for_status(status);
+            }
             handle.info.last_activity_at = Some(iso_now());
             if is_terminal {
                 handle.info.observed_status = None;
@@ -154,9 +167,28 @@ pub(crate) fn set_session_status(state: &Arc<AppState>, id: &str, status: &str) 
     let ws_guard = state.workspace.lock().unwrap();
     if let Some(ref ws) = *ws_guard {
         if let Some(mut meta) = ws.metadata.read_session(id) {
-            meta.status = status.to_string();
-            meta.connectivity = connectivity_for_status(status).to_string();
-            meta.terminal_outcome = terminal_outcome_for_status(status);
+            if is_terminal {
+                meta.status = "running".to_string();
+                meta.lifecycle_phase = "ending".to_string();
+                meta.connectivity = connectivity_for_status("running").to_string();
+                meta.terminal_outcome = None;
+                meta.pending_terminal_status = Some(status.to_string());
+                meta.ending_observed_status_snapshot = Some(metadata::ObservedStatusSnapshotMetadata {
+                    value: meta.observed_status.clone(),
+                    source: meta.metadata_source.clone(),
+                    confidence: Some(meta.metadata_confidence),
+                    observed_at: Some(now.clone()),
+                });
+            } else {
+                meta.status = status.to_string();
+                meta.lifecycle_phase = if status == "creating" {
+                    "creating".to_string()
+                } else {
+                    "active".to_string()
+                };
+                meta.connectivity = connectivity_for_status(status).to_string();
+                meta.terminal_outcome = terminal_outcome_for_status(status);
+            }
             meta.last_activity = now.clone();
             if is_terminal {
                 meta.observed_status = None;
@@ -177,6 +209,176 @@ pub(crate) fn set_session_status(state: &Arc<AppState>, id: &str, status: &str) 
             confidence: None,
         });
     }
+}
+
+fn canonical_null_snapshot(
+    source: &str,
+    observed_at: Option<String>,
+) -> metadata::ObservedStatusSnapshotMetadata {
+    metadata::ObservedStatusSnapshotMetadata {
+        value: None,
+        source: source.to_string(),
+        confidence: None,
+        observed_at,
+    }
+}
+
+fn final_snapshot_from_inference(
+    inference: Option<&peon::PeonInference>,
+    observed_at: &str,
+) -> Option<metadata::ObservedStatusSnapshotMetadata> {
+    inference.and_then(|inf| {
+        let value = inf.observed_status.clone()?;
+        Some(metadata::ObservedStatusSnapshotMetadata {
+        value: Some(value),
+        source: "peon".into(),
+        confidence: Some(inf.confidence),
+        observed_at: Some(observed_at.to_string()),
+    })
+    })
+}
+
+fn fallback_final_snapshot(
+    meta: &metadata::SessionMetadata,
+    observed_at: &str,
+) -> metadata::ObservedStatusSnapshotMetadata {
+    meta.ending_observed_status_snapshot
+        .clone()
+        .or_else(|| meta.final_observed_status_snapshot.clone())
+        .unwrap_or_else(|| canonical_null_snapshot("recovery", Some(observed_at.to_string())))
+}
+
+pub(crate) fn complete_session_ending(
+    state: &Arc<AppState>,
+    id: &str,
+    final_snapshot: metadata::ObservedStatusSnapshotMetadata,
+) {
+    let now = iso_now();
+    let mut final_status: Option<String> = None;
+
+    {
+        let ws_guard = state.workspace.lock().unwrap();
+        if let Some(ref ws) = *ws_guard {
+            if let Some(mut meta) = ws.metadata.read_session(id) {
+                if meta.lifecycle_phase == "ended" {
+                    return;
+                }
+                let pending = meta
+                    .pending_terminal_status
+                    .clone()
+                    .unwrap_or_else(|| "error".into());
+                meta.status = pending.clone();
+                meta.lifecycle_phase = "ended".into();
+                meta.connectivity = connectivity_for_status(&pending).to_string();
+                meta.terminal_outcome = terminal_outcome_for_status(&pending);
+                meta.pending_terminal_status = None;
+                meta.ending_observed_status_snapshot = None;
+                meta.final_observed_status_snapshot = Some(final_snapshot.clone());
+                meta.observed_status = None;
+                meta.last_activity = now.clone();
+                ws.metadata.write_session(&meta);
+                ws.metadata.append_event(id, &metadata::Event {
+                    event_type: "session.status".into(),
+                    timestamp: now.clone(),
+                    status: pending.clone(),
+                    observed_status: final_snapshot.value.clone(),
+                    confidence: final_snapshot.confidence,
+                });
+                final_status = Some(pending);
+            }
+        }
+    }
+
+    let pending = final_status.unwrap_or_else(|| "error".into());
+    let mut sessions = state.sessions.lock().unwrap();
+    if let Some(handle) = sessions.get_mut(id) {
+        if handle.info.lifecycle_phase == "ended" {
+            return;
+        }
+        handle.info.status = pending.clone();
+        handle.info.lifecycle_phase = "ended".into();
+        handle.info.connectivity = Some(connectivity_for_status(&pending).to_string());
+        handle.info.terminal_outcome = terminal_outcome_for_status(&pending);
+        handle.info.observed_status = None;
+        handle.info.final_observed_status = final_snapshot.value.clone();
+        handle.info.last_activity_at = Some(now);
+    }
+}
+
+pub(crate) async fn finalize_session_ending(state: Arc<AppState>, id: String) {
+    let output_snapshot = {
+        let sessions = state.sessions.lock().unwrap();
+        match sessions.get(&id) {
+            Some(handle) if handle.info.lifecycle_phase == "ending" => handle.output_buffer.snapshot(),
+            _ => return,
+        }
+    };
+
+    let scan_result = if output_snapshot.is_empty() {
+        None
+    } else {
+        let timeout_secs = state.peon.config.final_scan_timeout_secs;
+        let state_clone = state.clone();
+        let output_clone = output_snapshot.clone();
+        match tokio::task::spawn_blocking(move || {
+            state_clone.providers.run_inference_with_timeout(
+                providers::PeonScope::Session,
+                &output_clone,
+                Some(timeout_secs),
+            )
+        })
+        .await
+        {
+            Ok(result) => Some(result),
+            Err(error) => {
+                tracing::warn!(session_id = %id, %error, "final peon scan task failed");
+                None
+            }
+        }
+    };
+
+    let now = iso_now();
+    let final_snapshot = {
+        let ws_guard = state.workspace.lock().unwrap();
+        let Some(ref ws) = *ws_guard else {
+            return;
+        };
+        let Some(meta) = ws.metadata.read_session(&id) else {
+            return;
+        };
+
+        if meta.lifecycle_phase == "ended" {
+            return;
+        }
+
+        if let Some(ref result) = scan_result {
+            if let Some(ref observation) = result.observation {
+                ws.metadata.persist_provider_context(&id, observation);
+            }
+            if result.inference.is_none() {
+                tracing::warn!(
+                    session_id = %id,
+                    timeout_secs = state.peon.config.final_scan_timeout_secs,
+                    "final peon scan returned no inference; finalizing with fallback snapshot"
+                );
+            }
+        }
+
+        final_snapshot_from_inference(scan_result.as_ref().and_then(|result| result.inference.as_ref()), &now)
+            .unwrap_or_else(|| fallback_final_snapshot(&meta, &now))
+    };
+
+    complete_session_ending(&state, &id, final_snapshot);
+}
+
+pub(crate) fn schedule_session_ending_finalization(state: Arc<AppState>, id: String) {
+    if tokio::runtime::Handle::try_current().is_err() {
+        return;
+    }
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(0)).await;
+        finalize_session_ending(state, id).await;
+    });
 }
 
 pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state: Arc<AppState>) {
@@ -250,6 +452,7 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
         _ = kill_rx.changed() => {
             if *kill_rx.borrow() {
                 set_session_status(&state, &id, "killed");
+                schedule_session_ending_finalization(state.clone(), id.clone());
                 let _ = ws.close().await;
                 return;
             }
@@ -296,6 +499,7 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
         Err(e) => {
             tracing::error!(error = %e, "failed to open PTY");
             set_session_status(&state, &id, "error");
+            schedule_session_ending_finalization(state.clone(), id.clone());
             let _ = ws.close().await;
             return;
         }
@@ -327,6 +531,7 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
         Err(e) => {
             tracing::error!(error = %e, "failed to spawn shell");
             set_session_status(&state, &id, "error");
+            schedule_session_ending_finalization(state.clone(), id.clone());
             let _ = ws.close().await;
             return;
         }
@@ -337,6 +542,7 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
         Err(e) => {
             tracing::error!(error = %e, "failed to clone PTY reader");
             set_session_status(&state, &id, "error");
+            schedule_session_ending_finalization(state.clone(), id.clone());
             let _ = ws.close().await;
             return;
         }
@@ -347,6 +553,7 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
         Err(e) => {
             tracing::error!(error = %e, "failed to take PTY writer");
             set_session_status(&state, &id, "error");
+            schedule_session_ending_finalization(state.clone(), id.clone());
             let _ = ws.close().await;
             return;
         }
@@ -482,6 +689,7 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
                     tracing::info!(session_id = %id, "kill signal received");
                     let _ = child.kill();
                     set_session_status(&state, &id, "killed");
+                    schedule_session_ending_finalization(state.clone(), id.clone());
                     break;
                 }
             }
@@ -580,6 +788,7 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
                         // Reap the child and clean up so the frontend's WebSocket onclose fires.
                         let _ = child.kill();
                         set_session_status(&state, &id, "ended");
+                        schedule_session_ending_finalization(state.clone(), id.clone());
                         break;
                     }
                 }
@@ -653,6 +862,7 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
                                 tracing::info!(session_id = %id, "kill message received");
                                 let _ = child.kill();
                                 set_session_status(&state, &id, "killed");
+                                schedule_session_ending_finalization(state.clone(), id.clone());
                                 break;
                             }
                             TerminalAction::Noop => {}
@@ -665,11 +875,13 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
                         } else {
                             set_session_status(&state, &id, "ended");
                         }
+                        schedule_session_ending_finalization(state.clone(), id.clone());
                         break;
                     }
                     _ => {
                         let _ = child.kill();
                         set_session_status(&state, &id, "error");
+                        schedule_session_ending_finalization(state.clone(), id.clone());
                         break;
                     }
                 }
@@ -708,6 +920,10 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
 mod tests {
     use super::*;
     use crate::test_support::*;
+    use crate::{metadata, providers};
+    use std::collections::{HashMap, HashSet};
+    use std::sync::{Arc, Mutex, RwLock};
+    use std::sync::atomic::AtomicU16;
 
     #[test]
     fn terminal_env_overrides_force_color_capability() {
@@ -887,16 +1103,345 @@ mod tests {
         );
 
         set_session_status(&state, "test-2", "ended");
-        assert_eq!(
-            state
-                .sessions
-                .lock()
-                .unwrap()
-                .get("test-2")
-                .unwrap()
-                .info
-                .status,
-            "ended"
+        let ended = state
+            .sessions
+            .lock()
+            .unwrap()
+            .get("test-2")
+            .unwrap()
+            .info
+            .clone();
+        assert_eq!(ended.status, "running");
+        assert_eq!(ended.lifecycle_phase, "ending");
+    }
+
+    #[test]
+    fn terminal_status_exit_paths_should_transition_through_ending_lifecycle() {
+        let state = Arc::new(crate::AppState {
+            session_module: crate::infrastructure::session_module::SessionModule::new(),
+            sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
+            workspace: std::sync::Mutex::new(None),
+            peon: crate::PeonState {
+                last_output: std::sync::RwLock::new(std::collections::HashMap::new()),
+                last_inference: std::sync::RwLock::new(std::collections::HashMap::new()),
+                in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
+                label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
+                label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
+                config: crate::peon::PeonConfig::from_env(),
+            },
+            adapters: crate::harness_registry::builtin_adapters(),
+            retention_config: tokio::sync::RwLock::new(crate::RetentionConfig::default()),
+            harnesses: tokio::sync::RwLock::new(vec![]),
+            bound_port: std::sync::atomic::AtomicU16::new(0),
+            providers: crate::providers::ProviderManager::new(),
+        });
+
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        let id = "test-ending".to_string();
+        let mut info = test_session_info(id.clone(), "Test", "/tmp", "running", "now");
+        info.lifecycle_phase = "active".into();
+        state.sessions.lock().unwrap().insert(
+            id.clone(),
+            crate::SessionHandle {
+                info,
+                kill_tx,
+                output_buffer: crate::peon::RingBuffer::new(200),
+                scan_buf: String::new(),
+                command: harness::CommandSpec { program: "/bin/sh".into(), args: vec!["-i".into(), "-l".into()], cwd: "/tmp".into() },
+                initial_prompt: None,
+                at_usage_limit_latched: false,
+                capacity_check_pending: false,
+                resume_scan_origin: None,
+                pending_capacity_visible_once: false,
+            },
         );
+
+        set_session_status(&state, "test-ending", "ended");
+        let session = state.sessions.lock().unwrap().get("test-ending").unwrap().info.clone();
+        assert_eq!(session.status, "running");
+        assert_eq!(session.lifecycle_phase, "ending");
+    }
+
+    #[test]
+    fn complete_session_ending_sets_terminal_status_and_clears_pending_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let orkworks = dir.path().join(".orkworks");
+        std::fs::create_dir_all(orkworks.join("sessions")).unwrap();
+        std::fs::create_dir_all(orkworks.join("events")).unwrap();
+
+        let state = Arc::new(crate::AppState {
+            session_module: crate::infrastructure::session_module::SessionModule::new(),
+            sessions: Mutex::new(HashMap::new()),
+            workspace: Mutex::new(Some(crate::WorkspaceState {
+                path: dir.path().to_path_buf(),
+                metadata: metadata::MetadataStore::new(&orkworks),
+                watcher: crate::watcher::MetadataWatcher::start(&orkworks.join("sessions")),
+            })),
+            peon: crate::PeonState {
+                last_output: RwLock::new(HashMap::new()),
+                last_inference: RwLock::new(HashMap::new()),
+                in_flight: RwLock::new(HashSet::new()),
+                label_hint: RwLock::new(HashMap::new()),
+                label_pending: RwLock::new(HashSet::new()),
+                config: crate::peon::PeonConfig::from_env(),
+            },
+            adapters: crate::harness_registry::builtin_adapters(),
+            retention_config: tokio::sync::RwLock::new(crate::RetentionConfig::default()),
+            harnesses: tokio::sync::RwLock::new(vec![]),
+            bound_port: AtomicU16::new(0),
+            providers: crate::providers::ProviderManager::new(),
+        });
+
+        let session_id = "ending-complete".to_string();
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        let mut info = test_session_info(session_id.clone(), "Test", dir.path().display().to_string(), "running", "now");
+        info.lifecycle_phase = "ending".into();
+        state.sessions.lock().unwrap().insert(
+            session_id.clone(),
+            crate::SessionHandle {
+                info,
+                kill_tx,
+                output_buffer: crate::peon::RingBuffer::new(200),
+                scan_buf: String::new(),
+                command: crate::harness_registry::default_shell_command(dir.path().display().to_string()),
+                initial_prompt: None,
+                at_usage_limit_latched: false,
+                capacity_check_pending: false,
+                resume_scan_origin: None,
+                pending_capacity_visible_once: false,
+            },
+        );
+
+        {
+            let ws_guard = state.workspace.lock().unwrap();
+            let ws = ws_guard.as_ref().unwrap();
+            ws.metadata.write_session(&metadata::SessionMetadata {
+                id: session_id.clone(),
+                label: "Test".into(),
+                workspace: dir.path().display().to_string(),
+                task: "".into(),
+                harness: "".into(),
+                model: "".into(),
+                cwd: dir.path().display().to_string(),
+                status: "running".into(),
+                work_phase: "unknown".into(),
+                lifecycle_phase: "ending".into(),
+                connectivity: "online".into(),
+                terminal_outcome: None,
+                pending_terminal_status: Some("killed".into()),
+                observed_status: None,
+                ending_observed_status_snapshot: Some(metadata::ObservedStatusSnapshotMetadata {
+                    value: Some("blocked".into()),
+                    source: "peon".into(),
+                    confidence: Some(0.6),
+                    observed_at: Some("before".into()),
+                }),
+                final_observed_status_snapshot: None,
+                summary: None,
+                next_action: None,
+                needs_user_input: None,
+                detected_question: None,
+                suggested_options: None,
+                blocker_description: None,
+                failed_command: None,
+                failed_test: None,
+                capacity_hints: None,
+                peon_last_inference: None,
+                provider_id: None,
+                provider_label: None,
+                provider_model: None,
+                provider_state: None,
+                created_at: "now".into(),
+                last_activity: "now".into(),
+                metadata_source: "process".into(),
+                metadata_confidence: 1.0,
+                repo_root: None,
+                branch: None,
+                dirty: None,
+                changed_files: None,
+                is_worktree: None,
+                resume: None,
+                resume_options: vec![],
+                harness_session_id_source: None,
+                harness_session_id_confidence: None,
+                harness_session_id_captured_at: None,
+                resumed_from: None,
+                last_user_input: None,
+            });
+        }
+
+        complete_session_ending(
+            &state,
+            &session_id,
+            metadata::ObservedStatusSnapshotMetadata {
+                value: Some("done".into()),
+                source: "peon".into(),
+                confidence: Some(0.91),
+                observed_at: Some("after".into()),
+            },
+        );
+
+        let session = state.sessions.lock().unwrap().get(&session_id).unwrap().info.clone();
+        assert_eq!(session.status, "killed");
+        assert_eq!(session.lifecycle_phase, "ended");
+        assert_eq!(session.terminal_outcome.as_deref(), Some("killed"));
+        assert_eq!(session.final_observed_status.as_deref(), Some("done"));
+
+        let ws_guard = state.workspace.lock().unwrap();
+        let ws = ws_guard.as_ref().unwrap();
+        let meta = ws.metadata.read_session(&session_id).unwrap();
+        assert_eq!(meta.status, "killed");
+        assert_eq!(meta.lifecycle_phase, "ended");
+        assert_eq!(meta.pending_terminal_status, None);
+        assert_eq!(meta.ending_observed_status_snapshot, None);
+        assert_eq!(
+            meta.final_observed_status_snapshot.unwrap().value.as_deref(),
+            Some("done")
+        );
+    }
+
+    #[tokio::test]
+    async fn finalize_session_ending_times_out_to_fallback_snapshot() {
+        let dir = tempfile::tempdir().unwrap();
+        let orkworks = dir.path().join(".orkworks");
+        std::fs::create_dir_all(orkworks.join("sessions")).unwrap();
+        std::fs::create_dir_all(orkworks.join("events")).unwrap();
+
+        let mut config = crate::peon::PeonConfig::from_env();
+        config.final_scan_timeout_secs = 0;
+
+        let state = Arc::new(crate::AppState {
+            session_module: crate::infrastructure::session_module::SessionModule::new(),
+            sessions: Mutex::new(HashMap::new()),
+            workspace: Mutex::new(Some(crate::WorkspaceState {
+                path: dir.path().to_path_buf(),
+                metadata: metadata::MetadataStore::new(&orkworks),
+                watcher: crate::watcher::MetadataWatcher::start(&orkworks.join("sessions")),
+            })),
+            peon: crate::PeonState {
+                last_output: RwLock::new(HashMap::new()),
+                last_inference: RwLock::new(HashMap::new()),
+                in_flight: RwLock::new(HashSet::new()),
+                label_hint: RwLock::new(HashMap::new()),
+                label_pending: RwLock::new(HashSet::new()),
+                config,
+            },
+            adapters: crate::harness_registry::builtin_adapters(),
+            retention_config: tokio::sync::RwLock::new(crate::RetentionConfig::default()),
+            harnesses: tokio::sync::RwLock::new(vec![]),
+            bound_port: AtomicU16::new(0),
+            providers: providers::ProviderManager::for_tests(
+                providers::ProviderSettingsPayload {
+                    version: 1,
+                    revision: 1,
+                    peon_model: None,
+                    ollama_base_url: providers::default_ollama_base_url(),
+                    providers: vec![providers::ProviderSettingsEntry {
+                        id: "opencode".to_string(),
+                        enabled: true,
+                        fallback_order: 0,
+                        default_state: providers::ProviderCapacityState::Healthy,
+                        override_state: None,
+                    }],
+                },
+                vec![providers::FakeProvider::new("opencode")
+                    .sleep_ms(50)
+                    .stdout(r#"{"observedStatus":"done","confidence":0.9}"#)],
+            ),
+        });
+
+        let session_id = "ending-timeout".to_string();
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        let mut info = test_session_info(session_id.clone(), "Test", dir.path().display().to_string(), "running", "now");
+        info.lifecycle_phase = "ending".into();
+        state.sessions.lock().unwrap().insert(
+            session_id.clone(),
+            crate::SessionHandle {
+                info,
+                kill_tx,
+                output_buffer: crate::peon::RingBuffer::new(200),
+                scan_buf: String::new(),
+                command: crate::harness_registry::default_shell_command(dir.path().display().to_string()),
+                initial_prompt: None,
+                at_usage_limit_latched: false,
+                capacity_check_pending: false,
+                resume_scan_origin: None,
+                pending_capacity_visible_once: false,
+            },
+        );
+        state.sessions.lock().unwrap().get_mut(&session_id).unwrap().output_buffer.push("final line".into());
+
+        {
+            let ws_guard = state.workspace.lock().unwrap();
+            let ws = ws_guard.as_ref().unwrap();
+            ws.metadata.write_session(&metadata::SessionMetadata {
+                id: session_id.clone(),
+                label: "Test".into(),
+                workspace: dir.path().display().to_string(),
+                task: "".into(),
+                harness: "".into(),
+                model: "".into(),
+                cwd: dir.path().display().to_string(),
+                status: "running".into(),
+                work_phase: "unknown".into(),
+                lifecycle_phase: "ending".into(),
+                connectivity: "online".into(),
+                terminal_outcome: None,
+                pending_terminal_status: Some("ended".into()),
+                observed_status: None,
+                ending_observed_status_snapshot: Some(metadata::ObservedStatusSnapshotMetadata {
+                    value: Some("blocked".into()),
+                    source: "peon".into(),
+                    confidence: Some(0.75),
+                    observed_at: Some("before".into()),
+                }),
+                final_observed_status_snapshot: None,
+                summary: None,
+                next_action: None,
+                needs_user_input: None,
+                detected_question: None,
+                suggested_options: None,
+                blocker_description: None,
+                failed_command: None,
+                failed_test: None,
+                capacity_hints: None,
+                peon_last_inference: None,
+                provider_id: None,
+                provider_label: None,
+                provider_model: None,
+                provider_state: None,
+                created_at: "now".into(),
+                last_activity: "now".into(),
+                metadata_source: "process".into(),
+                metadata_confidence: 1.0,
+                repo_root: None,
+                branch: None,
+                dirty: None,
+                changed_files: None,
+                is_worktree: None,
+                resume: None,
+                resume_options: vec![],
+                harness_session_id_source: None,
+                harness_session_id_confidence: None,
+                harness_session_id_captured_at: None,
+                resumed_from: None,
+                last_user_input: None,
+            });
+        }
+
+        finalize_session_ending(state.clone(), session_id.clone()).await;
+
+        let session = state.sessions.lock().unwrap().get(&session_id).unwrap().info.clone();
+        assert_eq!(session.status, "ended");
+        assert_eq!(session.lifecycle_phase, "ended");
+        assert_eq!(session.final_observed_status.as_deref(), Some("blocked"));
+
+        let ws_guard = state.workspace.lock().unwrap();
+        let ws = ws_guard.as_ref().unwrap();
+        let meta = ws.metadata.read_session(&session_id).unwrap();
+        let snapshot = meta.final_observed_status_snapshot.unwrap();
+        assert_eq!(meta.status, "ended");
+        assert_eq!(snapshot.value.as_deref(), Some("blocked"));
+        assert_eq!(snapshot.source, "peon");
     }
 }

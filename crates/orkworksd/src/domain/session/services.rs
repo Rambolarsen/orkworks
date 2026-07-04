@@ -25,7 +25,11 @@ impl SessionLifecycle {
             status: SessionStatus::Creating,
             memory_state: MemoryState::Live,
             attention_state: AttentionState::Idle,
-            phase: Phase::Unknown,
+            work_phase: WorkPhase::Unknown,
+            lifecycle_phase: LifecyclePhase::Creating,
+            pending_terminal_status: None,
+            ending_observed_status_snapshot: None,
+            final_observed_status_snapshot: None,
             created_at: created_at.clone(),
             killed_at: None,
             last_active_at: None,
@@ -156,5 +160,19 @@ mod tests {
         let events = SessionLifecycle::resume(&session, "later".into());
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_type(), "session.resumed");
+    }
+
+    #[test]
+    fn create_starts_in_creating_lifecycle_with_unknown_work_phase() {
+        let (session, _) = SessionLifecycle::create(
+            SessionId("s5".into()),
+            WorkspacePath(PathBuf::from("/ws")),
+            "Test".into(),
+            "/ws".into(),
+            None, None, None, "now".into(),
+            None, None,
+        );
+        assert_eq!(session.lifecycle_phase, LifecyclePhase::Creating);
+        assert_eq!(session.work_phase, WorkPhase::Unknown);
     }
 }

@@ -16,6 +16,10 @@ pub(crate) struct SessionInfo {
     pub(crate) harness: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) model: Option<String>,
+    #[serde(rename = "workPhase")]
+    pub(crate) work_phase: String,
+    #[serde(rename = "lifecyclePhase")]
+    pub(crate) lifecycle_phase: String,
     pub(crate) status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) connectivity: Option<String>,
@@ -25,6 +29,8 @@ pub(crate) struct SessionInfo {
     pub(crate) created_at: String,
     #[serde(rename = "lastActivityAt", skip_serializing_if = "Option::is_none")]
     pub(crate) last_activity_at: Option<String>,
+    #[serde(rename = "finalObservedStatus")]
+    pub(crate) final_observed_status: Option<String>,
     #[serde(rename = "observedStatus")]
     pub(crate) observed_status: Option<String>,
     pub(crate) summary: Option<String>,
@@ -114,12 +120,15 @@ mod tests {
             model_id: None,
             harness: None,
             model: None,
+            work_phase: "unknown".into(),
+            lifecycle_phase: "active".into(),
             status: status.into(),
             connectivity: None,
             terminal_outcome: None,
             cwd: cwd.into(),
             created_at: created_at.clone(),
             last_activity_at: Some(created_at),
+            final_observed_status: None,
             observed_status: None,
             summary: None,
             next_action: None,
@@ -220,5 +229,15 @@ mod tests {
         let json = serde_json::to_string(&info).unwrap();
         assert!(json.contains("\"metadataSource\":null"));
         assert!(json.contains("\"metadataConfidence\":null"));
+    }
+
+    #[test]
+    fn session_info_json_always_includes_final_observed_status_and_excludes_internal_snapshot_fields() {
+        let info = test_session_info("s7", "Label", "/tmp", "ended", "now");
+        let json = serde_json::to_string(&info).unwrap();
+        assert!(json.contains("\"finalObservedStatus\":null"));
+        assert!(!json.contains("finalObservedStatusSnapshot"));
+        assert!(!json.contains("pendingTerminalStatus"));
+        assert!(!json.contains("endingObservedStatusSnapshot"));
     }
 }

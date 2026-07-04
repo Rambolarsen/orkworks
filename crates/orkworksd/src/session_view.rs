@@ -87,6 +87,10 @@ pub(crate) fn merge_live_session_info(
         model: meta
             .and_then(|m| (!m.model.is_empty()).then(|| m.model.clone()))
             .or(info.model),
+        work_phase: meta.map(|m| m.work_phase.clone()).unwrap_or(info.work_phase),
+        lifecycle_phase: meta
+            .map(|m| m.lifecycle_phase.clone())
+            .unwrap_or(info.lifecycle_phase),
         status: info.status.clone(),
         connectivity: Some(connectivity_for_status(&info.status).to_string()),
         terminal_outcome: terminal_outcome_for_status(&info.status),
@@ -96,6 +100,13 @@ pub(crate) fn merge_live_session_info(
             .map(|m| m.last_activity.clone())
             .or(info.last_activity_at)
             .or_else(|| Some(info.created_at)),
+        final_observed_status: meta
+            .and_then(|m| {
+                m.final_observed_status_snapshot
+                    .as_ref()
+                    .and_then(|snapshot| snapshot.value.clone())
+            })
+            .or(info.final_observed_status),
         observed_status: meta.and_then(|m| m.observed_status.clone()).or(info.observed_status),
         summary: meta.and_then(|m| m.summary.clone()).or(info.summary),
         next_action: meta.and_then(|m| m.next_action.clone()).or(info.next_action),
@@ -185,12 +196,15 @@ mod tests {
             model_id: None,
             harness: None,
             model: None,
+            work_phase: "unknown".into(),
+            lifecycle_phase: "active".into(),
             status: status.clone(),
             connectivity: Some(connectivity_for_status(&status).to_string()),
             terminal_outcome: terminal_outcome_for_status(&status),
             cwd: cwd.into(),
             created_at: created_at.clone(),
             last_activity_at: Some(created_at),
+            final_observed_status: None,
             observed_status: None,
             summary: None,
             next_action: None,
@@ -305,10 +319,19 @@ mod tests {
             model: "".into(),
             cwd: "/tmp/project".into(),
             status: "ended".into(),
-            phase: "".into(),
+            work_phase: "unknown".into(),
+            lifecycle_phase: "ended".into(),
             connectivity: "offline".into(),
             terminal_outcome: Some("ended".into()),
+            pending_terminal_status: None,
             observed_status: None,
+            ending_observed_status_snapshot: None,
+            final_observed_status_snapshot: Some(metadata::ObservedStatusSnapshotMetadata {
+                value: None,
+                source: "recovery".into(),
+                confidence: None,
+                observed_at: None,
+            }),
             summary: None,
             next_action: None,
             needs_user_input: None,

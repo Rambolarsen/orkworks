@@ -6,6 +6,7 @@ import {
   attentionLabel,
   attentionTone,
   detailActionZone,
+  lifecyclePhaseLabel,
   memoryStateLabel,
   relativeTime,
   resumeActionLabel,
@@ -15,6 +16,7 @@ import {
   sourceLabel,
   sourceWithConfidence,
   VOCAB,
+  workPhaseLabel,
 } from "../src/labels.ts";
 
 function baseSession(overrides: Partial<SessionInfo> = {}): SessionInfo {
@@ -71,6 +73,21 @@ test("memoryStateLabel maps every memory state to a single word", () => {
   assert.equal(memoryStateLabel("resumable"), "Resumable");
   assert.equal(memoryStateLabel("remembered"), "Remembered");
   assert.equal(memoryStateLabel("unsupported"), "—");
+});
+
+test("workPhaseLabel and lifecyclePhaseLabel format session lifecycle fields", () => {
+  assert.equal(workPhaseLabel("ideation"), "Ideation");
+  assert.equal(workPhaseLabel("implementation"), "Implementation");
+  assert.equal(workPhaseLabel("review"), "Review");
+  assert.equal(workPhaseLabel("debugging"), "Debugging");
+  assert.equal(workPhaseLabel("unknown"), "Unknown");
+  assert.equal(workPhaseLabel(undefined), "Unknown");
+
+  assert.equal(lifecyclePhaseLabel("creating"), "Creating");
+  assert.equal(lifecyclePhaseLabel("active"), "Active");
+  assert.equal(lifecyclePhaseLabel("ending"), "Ending");
+  assert.equal(lifecyclePhaseLabel("ended"), "Ended");
+  assert.equal(lifecyclePhaseLabel(undefined), "Unknown");
 });
 
 test("resumeActionLabel produces button-ready prose for every resume strategy", () => {

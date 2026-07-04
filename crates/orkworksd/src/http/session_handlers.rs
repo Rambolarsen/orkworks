@@ -211,12 +211,18 @@ pub(crate) async fn resume_session(
         model_id: (!meta.model.is_empty()).then(|| meta.model.clone()),
         harness: (!meta.harness.is_empty()).then(|| meta.harness.clone()),
         model: (!meta.model.is_empty()).then(|| meta.model.clone()),
+        work_phase: meta.work_phase.clone(),
+        lifecycle_phase: "creating".into(),
         status: "creating".into(),
         connectivity: Some(connectivity_for_status("creating").into()),
         terminal_outcome: terminal_outcome_for_status("creating"),
         cwd: command.cwd.clone(),
         created_at: meta.created_at.clone(),
         last_activity_at: Some(now.clone()),
+        final_observed_status: meta
+            .final_observed_status_snapshot
+            .as_ref()
+            .and_then(|snapshot| snapshot.value.clone()),
         observed_status: None,
         summary: meta.summary.clone(),
         next_action: meta.next_action.clone(),
@@ -483,12 +489,15 @@ pub(crate) async fn create_session(
         model_id: resolved_launch.model.clone(),
         harness: resolved_launch.session_harness_id.clone(),
         model: resolved_launch.model.clone(),
+        work_phase: "unknown".into(),
+        lifecycle_phase: "creating".into(),
         status: "creating".into(),
         connectivity: Some(connectivity_for_status("creating").into()),
         terminal_outcome: terminal_outcome_for_status("creating"),
         cwd,
         created_at: now.clone(),
         last_activity_at: Some(now.clone()),
+        final_observed_status: None,
         observed_status: None,
         summary: None,
         next_action: None,
@@ -556,10 +565,14 @@ pub(crate) async fn create_session(
             model: resolved_launch.model.clone().unwrap_or_default(),
             cwd: info.cwd.clone(),
             status: "creating".into(),
-            phase: String::new(),
+            work_phase: "unknown".into(),
+            lifecycle_phase: "creating".into(),
             connectivity: "online".into(),
             terminal_outcome: None,
+            pending_terminal_status: None,
             observed_status: None,
+            ending_observed_status_snapshot: None,
+            final_observed_status_snapshot: None,
             summary: None,
             next_action: None,
             needs_user_input: None,
@@ -690,12 +703,18 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
             model_id: (!meta.model.is_empty()).then(|| meta.model.clone()),
             harness: (!meta.harness.is_empty()).then(|| meta.harness.clone()),
             model: (!meta.model.is_empty()).then(|| meta.model.clone()),
+            work_phase: meta.work_phase.clone(),
+            lifecycle_phase: meta.lifecycle_phase.clone(),
             status: meta.status.clone(),
             connectivity: Some(connectivity_for_status(&meta.status).into()),
             terminal_outcome: terminal_outcome_for_status(&meta.status),
             cwd: meta.cwd.clone(),
             created_at: meta.created_at.clone(),
             last_activity_at: Some(meta.last_activity.clone()),
+            final_observed_status: meta
+                .final_observed_status_snapshot
+                .as_ref()
+                .and_then(|snapshot| snapshot.value.clone()),
             observed_status: meta.observed_status.clone(),
             summary: meta.summary.clone(),
             next_action: meta.next_action.clone(),
@@ -837,7 +856,6 @@ pub(crate) async fn delete_session(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
-    let now = iso_now();
     let handle = {
         let sessions = state.sessions.lock().unwrap();
         sessions.get(&id).map(|h| h.kill_tx.clone())
@@ -848,36 +866,8 @@ pub(crate) async fn delete_session(
         }
         None => return axum::http::StatusCode::NOT_FOUND,
     }
-    {
-        let mut sessions = state.sessions.lock().unwrap();
-        if let Some(h) = sessions.get_mut(&id) {
-            h.info.status = "killed".to_string();
-            h.info.connectivity = Some(connectivity_for_status("killed").to_string());
-            h.info.terminal_outcome = terminal_outcome_for_status("killed");
-            h.info.last_activity_at = Some(now.clone());
-        }
-    }
-    let ws_guard = state.workspace.lock().unwrap();
-    if let Some(ref ws) = *ws_guard {
-        if let Some(mut meta) = ws.metadata.read_session(&id) {
-            meta.status = "killed".to_string();
-            meta.connectivity = connectivity_for_status("killed").to_string();
-            meta.terminal_outcome = terminal_outcome_for_status("killed");
-            meta.last_activity = now.clone();
-            ws.metadata.write_session(&meta);
-        }
-        ws.metadata.append_event(&id, &metadata::Event {
-            event_type: "session.killed".into(),
-            timestamp: now,
-            status: "killed".into(),
-            observed_status: None,
-            confidence: None,
-        });
-        // Preserve persisted terminal output: the session metadata file remains
-        // (status=killed), so the scrollback should remain accessible for the
-        // resulting remembered session.
-    }
-    drop(ws_guard);
+    crate::runtime::terminal_runtime::set_session_status(&state, &id, "killed");
+    crate::runtime::terminal_runtime::schedule_session_ending_finalization(state.clone(), id.clone());
     state.peon.last_output.write().unwrap().remove(&id);
     state.peon.last_inference.write().unwrap().remove(&id);
     axum::http::StatusCode::OK
@@ -982,10 +972,14 @@ mod tests {
                 model: "".into(),
                 cwd: dir.path().display().to_string(),
                 status: "running".into(),
-                phase: "".into(),
+                work_phase: "unknown".into(),
+                lifecycle_phase: "active".into(),
                 connectivity: "online".into(),
                 terminal_outcome: None,
+                pending_terminal_status: None,
                 observed_status: None,
+                ending_observed_status_snapshot: None,
+                final_observed_status_snapshot: None,
                 summary: None,
                 next_action: None,
                 needs_user_input: None,
@@ -1095,10 +1089,14 @@ mod tests {
                 model: "".into(),
                 cwd: dir.path().display().to_string(),
                 status: "running".into(),
-                phase: "".into(),
+                work_phase: "unknown".into(),
+                lifecycle_phase: "active".into(),
                 connectivity: "online".into(),
                 terminal_outcome: None,
+                pending_terminal_status: None,
                 observed_status: None,
+                ending_observed_status_snapshot: None,
+                final_observed_status_snapshot: None,
                 summary: None,
                 next_action: None,
                 needs_user_input: None,
@@ -1205,10 +1203,14 @@ mod tests {
                 model: "".into(),
                 cwd: dir.path().display().to_string(),
                 status: "running".into(),
-                phase: "".into(),
+                work_phase: "unknown".into(),
+                lifecycle_phase: "active".into(),
                 connectivity: "online".into(),
                 terminal_outcome: None,
+                pending_terminal_status: None,
                 observed_status: None,
+                ending_observed_status_snapshot: None,
+                final_observed_status_snapshot: None,
                 summary: None,
                 next_action: None,
                 needs_user_input: None,
@@ -1363,10 +1365,19 @@ mod tests {
                 model: "".into(),
                 cwd: dir.path().display().to_string(),
                 status: "killed".into(),
-                phase: "".into(),
+                work_phase: "unknown".into(),
+                lifecycle_phase: "ended".into(),
                 connectivity: "offline".into(),
                 terminal_outcome: Some("killed".into()),
+                pending_terminal_status: None,
                 observed_status: None,
+                ending_observed_status_snapshot: None,
+                final_observed_status_snapshot: Some(metadata::ObservedStatusSnapshotMetadata {
+                    value: None,
+                    source: "recovery".into(),
+                    confidence: None,
+                    observed_at: None,
+                }),
                 summary: None,
                 next_action: None,
                 needs_user_input: None,
@@ -1409,6 +1420,107 @@ mod tests {
             .count();
 
         assert_eq!(matching, 1);
+    }
+
+    #[tokio::test]
+    async fn delete_session_enters_ending_lifecycle_instead_of_marking_terminal_immediately() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let session_id = "delete-ending".to_string();
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+
+        state.sessions.lock().unwrap().insert(
+            session_id.clone(),
+            SessionHandle {
+                info: test_session_info(
+                    session_id.clone(),
+                    "Delete Ending",
+                    dir.path().display().to_string(),
+                    "running",
+                    "now",
+                ),
+                kill_tx,
+                output_buffer: peon::RingBuffer::new(200),
+                scan_buf: String::new(),
+                command: default_shell_command(dir.path().display().to_string()),
+                initial_prompt: None,
+                at_usage_limit_latched: false,
+                capacity_check_pending: false,
+                resume_scan_origin: None,
+                pending_capacity_visible_once: false,
+            },
+        );
+
+        {
+            let ws = state.workspace.lock().unwrap();
+            ws.as_ref().unwrap().metadata.write_session(&metadata::SessionMetadata {
+                id: session_id.clone(),
+                label: "Delete Ending".into(),
+                workspace: dir.path().display().to_string(),
+                task: "".into(),
+                harness: "".into(),
+                model: "".into(),
+                cwd: dir.path().display().to_string(),
+                status: "running".into(),
+                work_phase: "unknown".into(),
+                lifecycle_phase: "active".into(),
+                connectivity: "online".into(),
+                terminal_outcome: None,
+                pending_terminal_status: None,
+                observed_status: Some("blocked".into()),
+                ending_observed_status_snapshot: None,
+                final_observed_status_snapshot: None,
+                summary: None,
+                next_action: None,
+                needs_user_input: None,
+                detected_question: None,
+                suggested_options: None,
+                blocker_description: None,
+                failed_command: None,
+                failed_test: None,
+                capacity_hints: None,
+                peon_last_inference: None,
+                provider_id: None,
+                provider_label: None,
+                provider_model: None,
+                provider_state: None,
+                created_at: "now".into(),
+                last_activity: "now".into(),
+                metadata_source: "peon".into(),
+                metadata_confidence: 0.8,
+                repo_root: None,
+                branch: None,
+                dirty: None,
+                changed_files: None,
+                is_worktree: None,
+                resume: None,
+                resume_options: vec![],
+                harness_session_id_source: None,
+                harness_session_id_confidence: None,
+                harness_session_id_captured_at: None,
+                resumed_from: None,
+                last_user_input: None,
+            });
+        }
+
+        let response = delete_session(State(state.clone()), Path(session_id.clone())).await;
+        assert_eq!(response.into_response().status(), axum::http::StatusCode::OK);
+
+        let info = state.sessions.lock().unwrap().get(&session_id).unwrap().info.clone();
+        assert_eq!(info.status, "running");
+        assert_eq!(info.lifecycle_phase, "ending");
+
+        let ws = state.workspace.lock().unwrap();
+        let meta = ws.as_ref().unwrap().metadata.read_session(&session_id).unwrap();
+        assert_eq!(meta.status, "running");
+        assert_eq!(meta.lifecycle_phase, "ending");
+        assert_eq!(meta.pending_terminal_status.as_deref(), Some("killed"));
+        assert_eq!(
+            meta.ending_observed_status_snapshot
+                .as_ref()
+                .and_then(|snapshot| snapshot.value.as_deref()),
+            Some("blocked")
+        );
     }
 
     #[tokio::test]
@@ -1722,10 +1834,19 @@ mod tests {
                 model: "".into(),
                 cwd: dir.path().display().to_string(),
                 status: "ended".into(),
-                phase: "".into(),
+                work_phase: "unknown".into(),
+                lifecycle_phase: "ended".into(),
                 connectivity: "offline".into(),
                 terminal_outcome: Some("ended".into()),
+                pending_terminal_status: None,
                 observed_status: None,
+                ending_observed_status_snapshot: None,
+                final_observed_status_snapshot: Some(metadata::ObservedStatusSnapshotMetadata {
+                    value: None,
+                    source: "recovery".into(),
+                    confidence: None,
+                    observed_at: None,
+                }),
                 summary: None,
                 next_action: None,
                 needs_user_input: None,
