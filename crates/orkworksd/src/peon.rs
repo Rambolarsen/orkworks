@@ -16,6 +16,7 @@ pub struct PeonConfig {
     pub max_lines: usize,
     pub timeout_secs: u64,
     pub idle_timeout_secs: u64,
+    pub final_scan_timeout_secs: u64,
     pub enabled: bool,
 }
 
@@ -80,6 +81,16 @@ impl PeonConfig {
                     }
                 },
                 Err(_) => 15,
+            },
+            final_scan_timeout_secs: match std::env::var("PEON_FINAL_SCAN_TIMEOUT") {
+                Ok(raw) => match raw.parse() {
+                    Ok(v) => v,
+                    Err(_) => {
+                        tracing::warn!("PEON_FINAL_SCAN_TIMEOUT is not a valid number, using default 2");
+                        2
+                    }
+                },
+                Err(_) => 2,
             },
             enabled: std::env::var("PEON_ENABLED")
                 .ok()
@@ -176,7 +187,11 @@ pub fn detect_usage_limit_hint_raw(patterns: &[&str], text: &str) -> Option<Stri
     if !patterns.iter().any(|p| lower.contains(&p.to_lowercase()[..])) {
         return None;
     }
-    let idx = lower.find("resets in").or_else(|| lower.find("reset in")).or_else(|| lower.find("try again at"))?;
+    let idx = lower
+        .find("resets in")
+        .or_else(|| lower.find("reset in"))
+        .or_else(|| lower.find("resets "))
+        .or_else(|| lower.find("try again at"))?;
     let fragment = &plain[idx..];
     let end = fragment.find(['.', '\n']).unwrap_or(fragment.len());
     Some(fragment[..end].trim().to_string())
@@ -191,7 +206,11 @@ pub fn detect_usage_limit_hint(patterns: &[&str], lines: &[String]) -> Option<St
         if !patterns.iter().any(|p| lower.contains(&p.to_lowercase()[..])) {
             return None;
         }
-        let idx = lower.find("resets in").or_else(|| lower.find("reset in")).or_else(|| lower.find("try again at"))?;
+        let idx = lower
+            .find("resets in")
+            .or_else(|| lower.find("reset in"))
+            .or_else(|| lower.find("resets "))
+            .or_else(|| lower.find("try again at"))?;
         let fragment = &plain[idx..];
         let end = fragment.find(['.', '\n']).unwrap_or(fragment.len());
         Some(fragment[..end].trim().to_string())
@@ -523,6 +542,7 @@ mod tests {
         std::env::remove_var("PEON_MAX_LINES");
         std::env::remove_var("PEON_TIMEOUT");
         std::env::remove_var("PEON_IDLE_TIMEOUT");
+        std::env::remove_var("PEON_FINAL_SCAN_TIMEOUT");
 
         let config = PeonConfig::from_env();
         assert!(config.enabled);
@@ -533,6 +553,7 @@ mod tests {
         assert_eq!(config.max_lines, 200);
         assert_eq!(config.timeout_secs, 30);
         assert_eq!(config.idle_timeout_secs, 15);
+        assert_eq!(config.final_scan_timeout_secs, 2);
     }
 
     #[test]
@@ -547,6 +568,7 @@ mod tests {
         std::env::set_var("PEON_MAX_LINES", "100");
         std::env::set_var("PEON_TIMEOUT", "60");
         std::env::set_var("PEON_IDLE_TIMEOUT", "10");
+        std::env::set_var("PEON_FINAL_SCAN_TIMEOUT", "7");
 
         let config = PeonConfig::from_env();
         assert!(!config.enabled);
@@ -557,6 +579,7 @@ mod tests {
         assert_eq!(config.max_lines, 100);
         assert_eq!(config.timeout_secs, 60);
         assert_eq!(config.idle_timeout_secs, 10);
+        assert_eq!(config.final_scan_timeout_secs, 7);
 
         std::env::remove_var("PEON_ENABLED");
         std::env::remove_var("PEON_HARNESS");
@@ -567,6 +590,7 @@ mod tests {
         std::env::remove_var("PEON_MAX_LINES");
         std::env::remove_var("PEON_TIMEOUT");
         std::env::remove_var("PEON_IDLE_TIMEOUT");
+        std::env::remove_var("PEON_FINAL_SCAN_TIMEOUT");
     }
 
     #[test]
@@ -762,6 +786,7 @@ mod tests {
             max_lines: 200,
             timeout_secs: 30,
             idle_timeout_secs: 15,
+            final_scan_timeout_secs: 2,
             enabled: true,
         };
         let output = vec![
@@ -785,6 +810,7 @@ mod tests {
             max_lines: 200,
             timeout_secs: 30,
             idle_timeout_secs: 15,
+            final_scan_timeout_secs: 2,
             enabled: true,
         };
         let output = vec!["some output".to_string()];
@@ -839,6 +865,7 @@ echo '{"status":"working","confidence":0.9}'
             max_lines: 200,
             timeout_secs: 30,
             idle_timeout_secs: 15,
+            final_scan_timeout_secs: 2,
             enabled: true,
         };
         let result = run_inference(&config, &["hello from terminal".to_string()]);
@@ -881,5 +908,23 @@ echo '{"status":"working","confidence":0.9}'
         let mut lines: Vec<String> = (0..60).map(|_| "no match".into()).collect();
         lines[15] = "usage limit reached".into();
         assert!(detect_usage_limit(&["usage limit reached"], &lines));
+    }
+
+    #[test]
+    fn detect_usage_limit_hint_handles_claude_reset_time() {
+        let lines = vec!["You've hit your session limit · resets 5:10pm (Europe/Oslo)".into()];
+        assert_eq!(
+            detect_usage_limit_hint(&["you've hit your session limit"], &lines).as_deref(),
+            Some("resets 5:10pm (Europe/Oslo)")
+        );
+    }
+
+    #[test]
+    fn detect_usage_limit_hint_raw_handles_claude_reset_time() {
+        let text = "You've hit your session limit · resets 5:10pm (Europe/Oslo)";
+        assert_eq!(
+            detect_usage_limit_hint_raw(&["you've hit your session limit"], text).as_deref(),
+            Some("resets 5:10pm (Europe/Oslo)")
+        );
     }
 }

@@ -1,4 +1,4 @@
-import type { SessionInfo } from "./api";
+import { effectiveLifecyclePhase, type SessionInfo } from "./api.ts";
 
 export const ATTENTION_PRIORITY: Record<string, number> = {
   waiting_for_input: 0,
@@ -26,10 +26,12 @@ export function needsAttention(status: string): boolean {
 }
 
 export function sessionAttentionStatus(session: SessionInfo): string {
-  if (session.memoryState !== "live") return session.status;
   if (session.capacityCheckPending) return "checking_capacity";
   if (session.atUsageLimit) return "capped";
-  return session.observedStatus ?? session.status;
+  if (effectiveLifecyclePhase(session.status, session.lifecyclePhase) === "active") {
+    return session.observedStatus ?? session.status;
+  }
+  return session.finalObservedStatus ?? session.status;
 }
 
 export function sortSessions(list: SessionInfo[]): SessionInfo[] {

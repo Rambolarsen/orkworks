@@ -115,6 +115,25 @@ test("SessionInfo type accepts capacityCheckPending", () => {
   assert.equal(session.capacityCheckPending, true);
 });
 
+test("SessionInfo type accepts work, lifecycle, and final observed status fields", () => {
+  const session: SessionInfo = {
+    id: "phase-test",
+    label: "Phase Test",
+    status: "ended",
+    workPhase: "review",
+    lifecyclePhase: "ended",
+    finalObservedStatus: "blocked",
+    cwd: "/tmp/project",
+    created_at: "2026-07-04T09:00:00Z",
+    memoryState: "remembered",
+    resumeStrategy: "none",
+  };
+
+  assert.equal(session.workPhase, "review");
+  assert.equal(session.lifecyclePhase, "ended");
+  assert.equal(session.finalObservedStatus, "blocked");
+});
+
 test("api.ts declares canonical terminology aliases on SessionInfo", () => {
   const source = readFileSync(new URL("../src/api.ts", import.meta.url), "utf8");
   assert.match(source, /harnessId\?: string/);

@@ -161,6 +161,16 @@ test("SessionDetailPanel groups content into situation/actions/facts/provenance 
   assert.match(source, /sourceWithConfidence/);
 });
 
+test("SessionDetailPanel surfaces lifecycle, work phase, and frozen final attention metadata", () => {
+  const source = readFileSync(new URL("../src/components/SessionDetailPanel.tsx", import.meta.url), "utf8");
+
+  assert.match(
+    source,
+    /showDebugMetadata[\s\S]*>Work phase<[\s\S]*>Lifecycle<[\s\S]*>OrkWorks session ID</,
+  );
+  assert.match(source, /finalObservedStatus/);
+});
+
 test("SessionDetailPanel's action zone renders at most one move, via the shared detailActionZone derivation", () => {
   const source = readFileSync(new URL("../src/components/SessionDetailPanel.tsx", import.meta.url), "utf8");
 
@@ -202,6 +212,22 @@ test("sessionAttentionStatus falls back to lifecycle status when no observed", (
     id: "1", label: "test", status: "running", cwd: "/tmp", created_at: "now",
     memoryState: "live", resumeStrategy: "none",
   };
+  assert.equal(sessionAttentionStatus(session), "running");
+});
+
+test("sessionAttentionStatus ignores observed status outside active lifecycle", () => {
+  const session: SessionInfo = {
+    id: "1",
+    label: "ending",
+    status: "running",
+    lifecyclePhase: "ending",
+    observedStatus: "waiting_for_input",
+    cwd: "/tmp",
+    created_at: "now",
+    memoryState: "live",
+    resumeStrategy: "none",
+  };
+
   assert.equal(sessionAttentionStatus(session), "running");
 });
 

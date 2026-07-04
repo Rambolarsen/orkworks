@@ -1,4 +1,4 @@
-import type { SessionInfo } from "../api.ts";
+import { effectiveLifecyclePhase, type SessionInfo } from "../api.ts";
 
 declare const __sessionIdBrand: unique symbol;
 export type SessionId = string & { readonly [__sessionIdBrand]: true };
@@ -28,12 +28,19 @@ export enum AttentionState {
   Idle = "idle",
 }
 
-export enum Phase {
+export enum WorkPhaseValue {
   Ideation = "ideation",
   Implementation = "implementation",
   Review = "review",
   Debugging = "debugging",
   Unknown = "unknown",
+}
+
+export enum LifecyclePhaseValue {
+  Creating = "creating",
+  Active = "active",
+  Ending = "ending",
+  Ended = "ended",
 }
 
 export interface Session {
@@ -43,7 +50,8 @@ export interface Session {
   status: SessionStatus;
   memoryState: MemoryState;
   attentionState: AttentionState;
-  phase: Phase;
+  workPhase: WorkPhaseValue;
+  lifecyclePhase: LifecyclePhaseValue;
   created: Date;
   killed?: Date;
   lastActive?: Date;
@@ -58,6 +66,7 @@ export interface Session {
   changedFiles?: number;
   isWorktree?: boolean;
   observedStatus?: string;
+  finalObservedStatus?: string | null;
   metadataSource?: string;
   metadataConfidence?: number;
   summary?: string;
@@ -107,7 +116,10 @@ export function sessionAttentionStatus(session: Session): string {
   if (session.capacityCheckPending) {
     return "checking_capacity";
   }
-  return session.observedStatus ?? session.status;
+  if (effectiveLifecyclePhase(session.status, session.lifecyclePhase) === "active") {
+    return session.observedStatus ?? session.status;
+  }
+  return session.finalObservedStatus ?? session.status;
 }
 
 export function sortSessions(sessions: Session[]): Session[] {
@@ -123,14 +135,16 @@ export function sortSessions(sessions: Session[]): Session[] {
 }
 
 export function fromApiDto(dto: SessionInfo): Session {
-  return {
+  const lifecyclePhase = effectiveLifecyclePhase(dto.status, dto.lifecyclePhase);
+  const session: Session = {
     id: dto.id as SessionId,
     label: dto.label,
     workspacePath: dto.cwd,
     status: dto.status as SessionStatus,
     memoryState: dto.memoryState as MemoryState,
-    attentionState: (dto.observedStatus ?? dto.status) as AttentionState,
-    phase: Phase.Unknown,
+    attentionState: AttentionState.Working,
+    workPhase: (dto.workPhase ?? WorkPhaseValue.Unknown) as WorkPhaseValue,
+    lifecyclePhase: lifecyclePhase as LifecyclePhaseValue,
     created: new Date(dto.created_at),
     lastActive: dto.peonLastInference ? new Date(dto.peonLastInference) : undefined,
     cwd: dto.cwd,
@@ -144,6 +158,7 @@ export function fromApiDto(dto: SessionInfo): Session {
     changedFiles: dto.changedFiles,
     isWorktree: dto.isWorktree,
     observedStatus: dto.observedStatus,
+    finalObservedStatus: dto.finalObservedStatus,
     metadataSource: dto.metadataSource,
     metadataConfidence: dto.metadataConfidence,
     summary: dto.summary,
@@ -165,4 +180,6 @@ export function fromApiDto(dto: SessionInfo): Session {
     resume: dto.resume as Record<string, unknown> | undefined,
     resumedFrom: dto.resumedFrom,
   };
+  session.attentionState = sessionAttentionStatus(session) as AttentionState;
+  return session;
 }
