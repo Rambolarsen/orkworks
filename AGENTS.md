@@ -12,10 +12,11 @@ APM project bootstrapped — agent skills, hooks, and plugins are installed via 
 
 Use **pnpm** for all Node.js package management. Do not use npm or yarn for project package management tasks.
 
-GitHub Actions now has three distinct workflow classes:
+GitHub Actions now has four distinct workflow classes:
 
 - `.github/workflows/release.yml` for tag-driven release packaging only
 - `.github/workflows/pr-ci.yml` for pull-request validation on `main`
+- `.github/workflows/docs.yml` builds the VitePress docs site and deploys it to GitHub Pages on doc-path pushes to `main`
 - `.github/workflows/quality-audit.yml` for the weekly scheduled quality audit — rotates through the audit skills in `skills/` (one per week, so each fires roughly monthly) and files scoped issues per those skills' guardrails; requires the `CLAUDE_CODE_OAUTH_TOKEN` repo secret (subscription auth via `claude setup-token`; an `ANTHROPIC_API_KEY` swap is documented in the workflow header)
 
 PR CI is path-routed: desktop changes run desktop validation, Rust changes run Rust tests, and non-code PRs receive a lightweight passing no-op check.
@@ -101,6 +102,10 @@ All implementation work is tracked as GitHub issues: [https://github.com/Rambola
 Read these before starting any implementation work.
 
 If any authoritative spec file is missing or unreadable, stop and notify the user before proceeding. Do not infer scope from context alone.
+
+## Docs site
+
+Repo markdown is rendered as a docs site at https://rambolarsen.github.io/orkworks/ (VitePress config in `docs/.vitepress/`, deployed by `.github/workflows/docs.yml`). The markdown files in the repo are the single source of truth — the site is a rendering layer only. User-facing documentation lives in `docs/user/`; agents read it like any other repo markdown. The build fails on dead links, so keep links valid when moving or renaming docs.
 
 ## Development workflow
 
