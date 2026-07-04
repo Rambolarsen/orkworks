@@ -12,10 +12,11 @@ APM project bootstrapped — agent skills, hooks, and plugins are installed via 
 
 Use **pnpm** for all Node.js package management. Do not use npm or yarn for project package management tasks.
 
-GitHub Actions now has two distinct workflow classes:
+GitHub Actions now has three distinct workflow classes:
 
 - `.github/workflows/release.yml` for tag-driven release packaging only
 - `.github/workflows/pr-ci.yml` for pull-request validation on `main`
+- `.github/workflows/quality-audit.yml` for the weekly scheduled quality audit — rotates through the audit skills in `skills/` (one per week, so each fires roughly monthly) and files scoped issues per those skills' guardrails; requires the `ANTHROPIC_API_KEY` repo secret
 
 PR CI is path-routed: desktop changes run desktop validation, Rust changes run Rust tests, and non-code PRs receive a lightweight passing no-op check.
 
@@ -244,7 +245,9 @@ See [`docs/agents/apm.md`](docs/agents/apm.md) for the full plugin list, generat
 
 ## Repo-level skills
 
-The `skills/` directory contains committed repo skills (`starting-work`, `cutting-release`, `writing-skills`, `clean-ddd-hexagonal`, `adding-harness`, `surfacing-blind-spots`). Each is a directory with a `SKILL.md` following the [Agent Skills standard](https://agentskills.io/specification). Use `skills/adding-harness/` before adding or changing a harness adapter; it forces the launch/resume/session-ID/voice/capacity checklist for the harness. Use `skills/surfacing-blind-spots/` when closing out a session or when asked to generate quality-improvement tasks; it turns investigated uncertainties and project blind spots into scoped issues.
+The `skills/` directory contains committed repo skills (`starting-work`, `cutting-release`, `writing-skills`, `clean-ddd-hexagonal`, `adding-harness`, `surfacing-blind-spots`, `auditing-test-honesty`, `walking-failure-paths`, `grooming-the-board`, `auditing-signal-vs-noise`). Each is a directory with a `SKILL.md` following the [Agent Skills standard](https://agentskills.io/specification). Use `skills/adding-harness/` before adding or changing a harness adapter; it forces the launch/resume/session-ID/voice/capacity checklist for the harness. Use `skills/surfacing-blind-spots/` when closing out a session or when asked to generate quality-improvement tasks; it turns investigated uncertainties and project blind spots into scoped issues.
+
+Five of these are **audit skills** that generate quality-improvement work: `surfacing-blind-spots` (uncertainties and blind spots), `auditing-test-honesty` (tests that don't pin what they claim), `walking-failure-paths` (behavior under external failure), `grooming-the-board` (board/code/spec drift), and `auditing-signal-vs-noise` (UI truthfulness). They share the guardrail filter and issue format defined in `skills/surfacing-blind-spots/`. The weekly `quality-audit.yml` workflow rotates through them; they can also be run ad hoc.
 
 ## Doc currency check
 

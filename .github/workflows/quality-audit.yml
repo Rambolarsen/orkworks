@@ -1,0 +1,94 @@
+# Scheduled quality audit — third workflow class alongside release.yml (tag-driven
+# packaging) and pr-ci.yml (PR validation).
+#
+# Runs one repo audit skill from skills/ per week, rotating so each skill fires
+# roughly monthly. Skills investigate the codebase/board and file scoped issues
+# per their own guardrails (max ~5 per run, dedupe, spec alignment).
+#
+# Setup required once:
+#   - Repo secret ANTHROPIC_API_KEY (or switch to the Claude GitHub App and drop
+#     the github_token line — see github.com/anthropics/claude-code-action docs).
+#   - Actions must be allowed to create issues (Settings → Actions → General →
+#     Workflow permissions → "Read and write" is NOT needed; the explicit
+#     permissions block below is sufficient).
+#
+# Manual run: Actions → Quality audit → Run workflow → pick a skill.
+
+name: Quality audit
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+  workflow_dispatch:
+    inputs:
+      skill:
+        description: "Audit skill to run (default: weekly rotation)"
+        required: false
+        type: choice
+        options:
+          - surfacing-blind-spots
+          - auditing-test-honesty
+          - walking-failure-paths
+          - grooming-the-board
+          - auditing-signal-vs-noise
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write # grooming-the-board comments on stranded-branch PRs
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # grooming-the-board inspects branch ages
+
+      - name: Pick this week's skill
+        id: pick
+        env:
+          REQUESTED: ${{ inputs.skill }}
+        run: |
+          skills=(surfacing-blind-spots auditing-test-honesty walking-failure-paths grooming-the-board auditing-signal-vs-noise)
+          if [ -n "$REQUESTED" ]; then
+            skill="$REQUESTED"
+          else
+            week=$(date +%V)
+            skill="${skills[$((10#$week % ${#skills[@]}))]}"
+          fi
+          echo "skill=$skill" >> "$GITHUB_OUTPUT"
+          echo "Running audit skill: $skill" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Run audit
+        uses: anthropics/claude-code-action@v1
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          prompt: |
+            You are running a scheduled quality audit of this repository.
+
+            Read skills/${{ steps.pick.outputs.skill }}/SKILL.md and execute it
+            end to end. Read skills/surfacing-blind-spots/SKILL.md as well — it
+            defines the shared guardrail filter and issue format.
+
+            Area selection: search existing issues for "Provenance: quality-audit"
+            to see which areas were audited recently, and pick the least recently
+            audited area that fits this skill. Say which area you chose and why.
+
+            Noise valve: before filing anything, count OPEN issues whose body
+            contains "Provenance: quality-audit". If there are 10 or more, do NOT
+            file new issues — write your findings to the job summary instead and
+            note that the backlog valve is closed. This valve does not apply to
+            grooming-the-board, which reduces backlog rather than adding to it.
+
+            Use the gh CLI for all GitHub reads and writes (it is authenticated
+            via GH_TOKEN). File issues with checkbox acceptance criteria and the
+            provenance footer exactly as the skill specifies. Finish with the
+            skill's required summary, written to the job summary via
+            $GITHUB_STEP_SUMMARY.
+          claude_args: |
+            --allowedTools "Bash,Read,Grep,Glob"
