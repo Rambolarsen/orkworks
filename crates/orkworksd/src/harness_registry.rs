@@ -239,7 +239,7 @@ pub(crate) fn builtin_adapters() -> HashMap<String, harness::HarnessAdapter> {
         "claude-code",
         "Claude Code",
         claude_caps.clone(),
-        &[],
+        &["you've hit your session limit"],
         harness::CommandTemplate {
             command: "claude".into(),
             args: vec![],
@@ -441,5 +441,12 @@ mod tests {
         let harnesses = builtin_harness_configs();
         let result = resolve_adapter_harness_id(&harnesses, Some(""));
         assert_eq!(result, None, "Some(\"\") should behave like None and return None");
+    }
+
+    #[test]
+    fn builtin_claude_adapter_has_session_limit_pattern() {
+        let adapters = builtin_adapters();
+        let claude = adapters.get("claude-code").unwrap();
+        assert!(claude.limit_patterns.contains(&"you've hit your session limit"));
     }
 }
