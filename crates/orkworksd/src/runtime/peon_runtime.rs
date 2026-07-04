@@ -710,6 +710,149 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn peon_loop_does_not_mark_recently_started_silent_session_idle() {
+        let dir = tempfile::tempdir().unwrap();
+        let orkworks = dir.path().join(".orkworks");
+        std::fs::create_dir_all(orkworks.join("sessions")).unwrap();
+        std::fs::create_dir_all(orkworks.join("events")).unwrap();
+
+        let state = Arc::new(crate::AppState {
+            session_module: crate::infrastructure::session_module::SessionModule::new(),
+            sessions: Mutex::new(HashMap::new()),
+            workspace: Mutex::new(Some(crate::WorkspaceState {
+                path: dir.path().to_path_buf(),
+                metadata: metadata::MetadataStore::new(&orkworks),
+                watcher: crate::watcher::MetadataWatcher::start(&orkworks.join("sessions")),
+            })),
+            peon: crate::PeonState {
+                last_output: RwLock::new(HashMap::new()),
+                last_inference: RwLock::new(HashMap::new()),
+                in_flight: RwLock::new(HashSet::new()),
+                label_hint: RwLock::new(HashMap::new()),
+                label_pending: RwLock::new(HashSet::new()),
+                config: peon::PeonConfig {
+                    harness: dir.path().join("missing-harness").display().to_string(),
+                    harness_args: vec!["--print".into()],
+                    model: None,
+                    interval_secs: 1,
+                    max_lines: 200,
+                    timeout_secs: 10,
+                    idle_timeout_secs: 5,
+                    final_scan_timeout_secs: 2,
+                    enabled: true,
+                },
+            },
+            adapters: crate::harness_registry::builtin_adapters(),
+            retention_config: tokio::sync::RwLock::new(crate::RetentionConfig::default()),
+            harnesses: tokio::sync::RwLock::new(vec![]),
+            providers: providers::ProviderManager::new(),
+            bound_port: AtomicU16::new(0),
+        });
+
+        let session_id = "peon-recent-start-test".to_string();
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        let mut info = test_session_info(
+            session_id.clone(),
+            "Test",
+            dir.path().display().to_string(),
+            "creating",
+            "now",
+        );
+        info.lifecycle_phase = "creating".into();
+        info.metadata_source = Some("process".into());
+        info.metadata_confidence = Some(1.0);
+        state.sessions.lock().unwrap().insert(
+            session_id.clone(),
+            crate::SessionHandle {
+                info,
+                kill_tx,
+                output_buffer: peon::RingBuffer::new(200),
+                scan_buf: String::new(),
+                command: crate::harness_registry::default_shell_command(dir.path().display().to_string()),
+                initial_prompt: None,
+                at_usage_limit_latched: false,
+                capacity_check_pending: false,
+                resume_scan_origin: None,
+                pending_capacity_visible_once: false,
+            },
+        );
+
+        {
+            let ws_guard = state.workspace.lock().unwrap();
+            if let Some(ref ws) = *ws_guard {
+                ws.metadata.write_session(&metadata::SessionMetadata {
+                    id: session_id.clone(),
+                    label: "Test".into(),
+                    workspace: dir.path().display().to_string(),
+                    task: "".into(),
+                    harness: "".into(),
+                    model: "".into(),
+                    cwd: dir.path().display().to_string(),
+                    status: "creating".into(),
+                    work_phase: "unknown".into(),
+                    lifecycle_phase: "creating".into(),
+                    connectivity: "online".into(),
+                    terminal_outcome: None,
+                    pending_terminal_status: None,
+                    observed_status: None,
+                    ending_observed_status_snapshot: None,
+                    final_observed_status_snapshot: None,
+                    summary: None,
+                    next_action: None,
+                    needs_user_input: None,
+                    detected_question: None,
+                    suggested_options: None,
+                    blocker_description: None,
+                    failed_command: None,
+                    failed_test: None,
+                    capacity_hints: None,
+                    peon_last_inference: None,
+                    provider_id: None,
+                    provider_label: None,
+                    provider_model: None,
+                    provider_state: None,
+                    created_at: "now".into(),
+                    last_activity: "now".into(),
+                    metadata_source: "process".into(),
+                    metadata_confidence: 1.0,
+                    repo_root: None,
+                    branch: None,
+                    dirty: None,
+                    changed_files: None,
+                    is_worktree: None,
+                    resume: None,
+                    resume_options: vec![],
+                    harness_session_id_source: None,
+                    harness_session_id_confidence: None,
+                    harness_session_id_captured_at: None,
+                    resumed_from: None,
+                    last_user_input: None,
+                });
+            }
+        }
+
+        crate::runtime::terminal_runtime::set_session_status(&state, &session_id, "running");
+
+        let task = tokio::spawn(peon_loop(state.clone()));
+        tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+        task.abort();
+
+        let ws_guard = state.workspace.lock().unwrap();
+        if let Some(ref ws) = *ws_guard {
+            if let Some(meta) = ws.metadata.read_session(&session_id) {
+                assert_eq!(meta.observed_status, None);
+            } else {
+                panic!("session metadata not found");
+            }
+        } else {
+            panic!("workspace not set up");
+        }
+
+        let sessions = state.sessions.lock().unwrap();
+        assert_eq!(sessions.get(&session_id).unwrap().info.observed_status, None);
+    }
+
+    #[tokio::test]
     async fn peon_loop_does_not_overwrite_existing_observed_status_with_idle() {
         let dir = tempfile::tempdir().unwrap();
         let orkworks = dir.path().join(".orkworks");
