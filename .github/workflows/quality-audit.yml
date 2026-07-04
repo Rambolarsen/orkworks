@@ -6,8 +6,11 @@
 # per their own guardrails (max ~5 per run, dedupe, spec alignment).
 #
 # Setup required once:
-#   - Repo secret ANTHROPIC_API_KEY (or switch to the Claude GitHub App and drop
-#     the github_token line — see github.com/anthropics/claude-code-action docs).
+#   - Repo secret CLAUDE_CODE_OAUTH_TOKEN — subscription auth for Claude Pro/Max:
+#     run `claude setup-token` locally and paste the result into the secret.
+#     (API-key billing instead: set an ANTHROPIC_API_KEY secret and swap the
+#     claude_code_oauth_token input below for anthropic_api_key — they are
+#     mutually exclusive. See github.com/anthropics/claude-code-action docs.)
 #   - Actions must be allowed to create issues (Settings → Actions → General →
 #     Workflow permissions → "Read and write" is NOT needed; the explicit
 #     permissions block below is sufficient).
@@ -66,7 +69,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
           prompt: |
             You are running a scheduled quality audit of this repository.
