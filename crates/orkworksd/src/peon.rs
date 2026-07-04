@@ -176,7 +176,11 @@ pub fn detect_usage_limit_hint_raw(patterns: &[&str], text: &str) -> Option<Stri
     if !patterns.iter().any(|p| lower.contains(&p.to_lowercase()[..])) {
         return None;
     }
-    let idx = lower.find("resets in").or_else(|| lower.find("reset in")).or_else(|| lower.find("try again at"))?;
+    let idx = lower
+        .find("resets in")
+        .or_else(|| lower.find("reset in"))
+        .or_else(|| lower.find("resets "))
+        .or_else(|| lower.find("try again at"))?;
     let fragment = &plain[idx..];
     let end = fragment.find(['.', '\n']).unwrap_or(fragment.len());
     Some(fragment[..end].trim().to_string())
@@ -191,7 +195,11 @@ pub fn detect_usage_limit_hint(patterns: &[&str], lines: &[String]) -> Option<St
         if !patterns.iter().any(|p| lower.contains(&p.to_lowercase()[..])) {
             return None;
         }
-        let idx = lower.find("resets in").or_else(|| lower.find("reset in")).or_else(|| lower.find("try again at"))?;
+        let idx = lower
+            .find("resets in")
+            .or_else(|| lower.find("reset in"))
+            .or_else(|| lower.find("resets "))
+            .or_else(|| lower.find("try again at"))?;
         let fragment = &plain[idx..];
         let end = fragment.find(['.', '\n']).unwrap_or(fragment.len());
         Some(fragment[..end].trim().to_string())
@@ -881,5 +889,23 @@ echo '{"status":"working","confidence":0.9}'
         let mut lines: Vec<String> = (0..60).map(|_| "no match".into()).collect();
         lines[15] = "usage limit reached".into();
         assert!(detect_usage_limit(&["usage limit reached"], &lines));
+    }
+
+    #[test]
+    fn detect_usage_limit_hint_handles_claude_reset_time() {
+        let lines = vec!["You've hit your session limit · resets 5:10pm (Europe/Oslo)".into()];
+        assert_eq!(
+            detect_usage_limit_hint(&["you've hit your session limit"], &lines).as_deref(),
+            Some("resets 5:10pm (Europe/Oslo)")
+        );
+    }
+
+    #[test]
+    fn detect_usage_limit_hint_raw_handles_claude_reset_time() {
+        let text = "You've hit your session limit · resets 5:10pm (Europe/Oslo)";
+        assert_eq!(
+            detect_usage_limit_hint_raw(&["you've hit your session limit"], text).as_deref(),
+            Some("resets 5:10pm (Europe/Oslo)")
+        );
     }
 }
