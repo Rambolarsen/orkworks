@@ -782,10 +782,11 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
         if let (Some(hid), Some(hint)) = (&info.harness_id, &info.usage_limit_reset_hint) {
             harness_reset_hint.entry(hid.clone()).or_insert_with(|| hint.clone());
         }
+        // Keyed by harness id, matching harness_capped above — the checking
+        // state masks the capped display, so both must land on the same
+        // provider row even when the session's model provider differs.
         if info.capacity_check_pending == Some(true) {
-            if let Some(pid) = &info.model_provider_id {
-                provider_checking.insert(pid.clone());
-            } else if let Some(hid) = &info.harness_id {
+            if let Some(hid) = &info.harness_id {
                 provider_checking.insert(hid.clone());
             }
         }
@@ -1535,6 +1536,80 @@ mod tests {
             .unwrap();
 
         assert_eq!(session.get("capacityCheckPending").and_then(|value| value.as_bool()), Some(true));
+    }
+
+    #[tokio::test]
+    async fn list_sessions_keys_checking_state_by_harness_like_capped_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let settings = crate::providers::ProviderSettingsPayload {
+            version: 1,
+            revision: 1,
+            peon_model: None,
+            ollama_base_url: crate::providers::default_ollama_base_url(),
+            providers: vec![crate::providers::ProviderSettingsEntry {
+                id: "opencode".into(),
+                enabled: true,
+                fallback_order: 0,
+                default_state: crate::providers::ProviderCapacityState::Healthy,
+                override_state: None,
+            }],
+        };
+        let state = Arc::new(crate::AppState {
+            session_module: crate::infrastructure::session_module::SessionModule::new(),
+            sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
+            workspace: std::sync::Mutex::new(None),
+            peon: crate::PeonState {
+                last_output: std::sync::RwLock::new(std::collections::HashMap::new()),
+                last_inference: std::sync::RwLock::new(std::collections::HashMap::new()),
+                in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
+                label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
+                label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
+                config: peon::PeonConfig::from_env(),
+            },
+            adapters: crate::harness_registry::builtin_adapters(),
+            retention_config: tokio::sync::RwLock::new(crate::RetentionConfig::default()),
+            harnesses: tokio::sync::RwLock::new(vec![]),
+            bound_port: std::sync::atomic::AtomicU16::new(0),
+            providers: crate::providers::ProviderManager::for_tests(settings, vec![]),
+        });
+
+        // Session on the opencode harness whose model provider is ollama:
+        // capped state is keyed by harness, so checking must be too, or the
+        // pending badge lands on a different provider row than the capped one.
+        let session_id = "resume-pending-provider-mismatch".to_string();
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        state.sessions.lock().unwrap().insert(
+            session_id.clone(),
+            SessionHandle {
+                info: SessionInfo {
+                    harness_id: Some("opencode".into()),
+                    model_provider_id: Some("ollama".into()),
+                    capacity_check_pending: Some(true),
+                    ..test_session_info(
+                        session_id.clone(),
+                        "Resume Pending Provider Mismatch",
+                        dir.path().display().to_string(),
+                        "running",
+                        "now",
+                    )
+                },
+                kill_tx,
+                output_buffer: peon::RingBuffer::new(200),
+                scan_buf: String::new(),
+                command: default_shell_command(dir.path().display().to_string()),
+                initial_prompt: None,
+                at_usage_limit_latched: false,
+                capacity_check_pending: true,
+                resume_scan_origin: Some((0, 0)),
+                pending_capacity_visible_once: false,
+            },
+        );
+
+        list_sessions(State(state.clone())).await.into_response();
+
+        let response = state.providers.get_providers_response();
+        let opencode = response.providers.iter().find(|provider| provider.id == "opencode").unwrap();
+        assert_eq!(opencode.effective_state, "checking_capacity");
     }
 
     #[tokio::test]
