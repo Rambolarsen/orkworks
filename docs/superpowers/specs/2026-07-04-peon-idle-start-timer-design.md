@@ -17,7 +17,7 @@ That produces false attention state in the sessions list during harness startup 
 
 Use the existing `last_output` timestamp as the idle timer origin for new running sessions.
 
-When the terminal runtime transitions a session to `running`, it should seed `state.peon.last_output[session_id]` with `Instant::now()` if peon is enabled. After that:
+When the terminal runtime transitions a session to `running`, it should seed `state.peon.last_output[session_id]` with `Instant::now()` if peon is enabled and the session does not already have a `last_output` entry. After that:
 
 - real PTY output continues to refresh the same timestamp
 - input-triggered label inference continues to override the timestamp exactly as it does today
@@ -29,9 +29,9 @@ This is preferred over adding a second "running since" map because the bug only 
 
 ### Session start
 
-When a terminal session becomes `running`:
+When a terminal session enters `running` from a non-running state:
 
-- record `Instant::now()` in `state.peon.last_output` for that session if peon is enabled
+- record `Instant::now()` in `state.peon.last_output` for that session if peon is enabled and no timestamp exists yet
 - do not set `observed_status`
 
 ### Before first output
@@ -46,7 +46,14 @@ Existing behavior stays intact:
 
 - PTY output refreshes `last_output`
 - terminal input that already updates peon timing continues to do so
+- status writes for an already-running session must not reset the seeded timestamp
 - sessions already carrying a non-`None` `observed_status` remain excluded from the idle timer path
+
+### Peon enablement
+
+Peon enablement is process-start configuration in the current backend, not a mid-session toggle.
+
+This fix only needs to cover sessions started while `state.peon.config.enabled` is true. Dynamic enablement behavior is out of scope unless the runtime grows a real toggle path later.
 
 ## Files Affected
 
@@ -62,4 +69,6 @@ Add Rust tests in `crates/orkworksd/src/runtime/peon_runtime.rs` covering:
 - a just-started running session with no output is not marked `idle` on the next timer tick
 - a running session that stays silent past `idle_timeout_secs` is marked `idle`
 
-The first test should fail against current behavior and pass only after the runtime seeds the initial timestamp.
+Add a runtime-level test in `crates/orkworksd/src/runtime/terminal_runtime.rs` covering the real transition path that seeds `state.peon.last_output` when the session enters `running`.
+
+The no-idle test should fail against current behavior and pass only after the runtime seeds the initial timestamp through the real `running` transition path.
