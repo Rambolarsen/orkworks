@@ -145,15 +145,15 @@ pub struct ProviderDefinition {
     pub http_list_models: bool,
 }
 
-fn derive_from_harness_configs() -> Vec<ProviderDefinition> {
-    harness_registry::builtin_harness_configs()
-        .into_iter()
+fn derive_from_harness_configs(harnesses: &[harness_registry::HarnessConfig]) -> Vec<ProviderDefinition> {
+    harnesses
+        .iter()
         .filter_map(|h| {
-            let peon = h.peon?;
+            let peon = h.peon.clone()?;
             Some(ProviderDefinition {
-                id: h.id,
-                label: h.name,
-                command: peon.command_override.unwrap_or(h.command),
+                id: h.id.clone(),
+                label: h.name.clone(),
+                command: peon.command_override.unwrap_or_else(|| h.command.clone()),
                 default_args: peon.args,
                 model_arg_template: peon.model_arg_template,
                 supports_model: peon.supports_model,
@@ -461,9 +461,14 @@ pub struct ProviderManager {
 
 impl ProviderManager {
     pub fn new() -> Self {
+        let harnesses = harness_registry::builtin_harness_configs();
+        Self::new_with_harnesses(&harnesses)
+    }
+
+    pub fn new_with_harnesses(harnesses: &[harness_registry::HarnessConfig]) -> Self {
         let settings = Arc::new(RwLock::new(ProviderSettingsPayload::default()));
         let runtime = Arc::new(RwLock::new(HashMap::new()));
-        let registry: Vec<ProviderDefinition> = derive_from_harness_configs()
+        let registry: Vec<ProviderDefinition> = derive_from_harness_configs(harnesses)
             .into_iter()
             .chain(builtin_provider_registry())
             .collect();
@@ -951,7 +956,8 @@ impl ProviderManager {
     pub fn for_tests(settings: ProviderSettingsPayload, fakes: Vec<FakeProvider>) -> Self {
         let specs: HashMap<String, FakeProvider> =
             fakes.into_iter().map(|f| (f.id.to_string(), f)).collect();
-        let registry: Vec<ProviderDefinition> = derive_from_harness_configs()
+        let harnesses = harness_registry::builtin_harness_configs();
+        let registry: Vec<ProviderDefinition> = derive_from_harness_configs(&harnesses)
             .into_iter()
             .chain(builtin_provider_registry())
             .collect();
@@ -990,6 +996,7 @@ impl ProviderManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::harness_registry::{HarnessConfig, HarnessPeonConfig, HarnessVoiceCapabilities};
 
     struct TestEntryBuilder {
         id: &'static str,
@@ -1200,6 +1207,37 @@ mod tests {
 
         let result = manager.list_models("claude-code").unwrap();
         assert_eq!(result, vec!["sonnet", "opus", "haiku"]);
+    }
+
+    #[test]
+    fn provider_manager_uses_supplied_harness_peon_configs() {
+        let harnesses = vec![HarnessConfig {
+            id: "custom-ai".into(),
+            name: "Custom AI".into(),
+            harness: "generic-shell".into(),
+            command: "custom-ai".into(),
+            args: vec![],
+            default_model: String::new(),
+            model_prefix: String::new(),
+            capabilities: HarnessVoiceCapabilities::default(),
+            is_builtin: false,
+            peon: Some(HarnessPeonConfig {
+                command_override: Some("custom-ai-peon".into()),
+                args: vec!["infer".into()],
+                model_arg_template: Some("--model={model}".into()),
+                supports_model: true,
+                timeout_secs: 7,
+                list_models_command: None,
+                list_models_args: vec![],
+                static_models: vec!["custom-small".into(), "custom-large".into()],
+                http_list_models: false,
+            }),
+        }];
+
+        let manager = ProviderManager::new_with_harnesses(&harnesses);
+
+        let result = manager.list_models("custom-ai").unwrap();
+        assert_eq!(result, vec!["custom-small", "custom-large"]);
     }
 
     #[test]

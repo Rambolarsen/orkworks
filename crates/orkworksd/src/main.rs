@@ -107,6 +107,9 @@ async fn main() {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
+    let harnesses = load_harnesses();
+    let providers = providers::ProviderManager::new_with_harnesses(&harnesses);
+
     let state = Arc::new(AppState {
         session_module: SessionModule::new(),
         sessions: Mutex::new(HashMap::new()),
@@ -119,10 +122,10 @@ async fn main() {
             label_pending: StdRwLock::new(HashSet::new()),
             config: peon::PeonConfig::from_env(),
         },
-        providers: providers::ProviderManager::new(),
+        providers,
         adapters: builtin_adapters(),
         retention_config: tokio::sync::RwLock::new(RetentionConfig::default()),
-        harnesses: tokio::sync::RwLock::new(load_harnesses()),
+        harnesses: tokio::sync::RwLock::new(harnesses),
         bound_port: AtomicU16::new(0),
     });
 
