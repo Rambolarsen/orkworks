@@ -20,6 +20,8 @@ Two complementary questions expose the two failure modes of an AI work session: 
 
 For a codebase audit, pick a bounded area first. "The whole repo" produces shallow findings; one subsystem produces deep ones. Rotate areas across runs.
 
+**Start bounded, follow the data flow.** The boundary sets where investigation *starts*, not where it must stop. When a finding's severity depends on code outside the area (the other end of a socket, the caller of an API, the consumer of a file format), follow it — the first live run's biggest finding required reading the frontend peer of the audited Rust module. What the boundary forbids is *drifting*: opening unrelated subsystems because something looked interesting. Follow edges out of the area only to verify or size a finding you already have.
+
 ## Phase 1 — Agent uncertainty
 
 Ask yourself, in writing:
