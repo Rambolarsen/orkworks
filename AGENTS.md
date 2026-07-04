@@ -80,7 +80,9 @@ podman compose run --rm dev cargo test   --manifest-path crates/orkworksd/Cargo.
 
 All implementation work is tracked as GitHub issues: [https://github.com/Rambolarsen/orkworks/issues](https://github.com/Rambolarsen/orkworks/issues)
 
-- **Pick new work** from the issue board. Start with the lowest incomplete milestone and work through milestones in order.
+- **Prioritize stabilization work first.** Prefer issues that restore or stabilize existing functionality before starting new milestone feature work. This includes user-visible bugs, regressions, failing tests, and correctness or data-integrity bugs.
+- **Use milestone order for net-new work.** When no meaningful stabilization work is open, pick from the lowest incomplete milestone and work forward in milestone order.
+- **Break ties by user impact.** If both a bugfix and a feature slice are plausible next steps, favor current usability and data correctness.
 - **Add future work** as new issues. Break down into scoped, deliverable-sized issues with checkbox acceptance criteria.
 - **Keep issues in sync** with the codebase — close when done, update when scope changes.
 - If the issue board is inaccessible, do not guess at priorities. Stop and inform the user that issue board access is required before picking or closing work.

@@ -159,6 +159,11 @@ The `skills/` directory contains repo-level agent skills that are committed with
 
 [https://github.com/Rambolarsen/orkworks/issues](https://github.com/Rambolarsen/orkworks/issues)
 
+- Prefer issues that restore or stabilize current functionality before starting new milestone feature work.
+- Treat user-visible bugs, regressions, failing tests, and correctness or data-integrity bugs as stabilization work.
+- When no meaningful stabilization work is open, pick from the lowest incomplete milestone and work forward in milestone order.
+- If both a bugfix and a feature slice are plausible, break ties in favor of current usability and data correctness.
+
 ## Key naming
 
 | Term | Meaning |
