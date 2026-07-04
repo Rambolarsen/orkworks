@@ -244,7 +244,7 @@ See [`docs/agents/apm.md`](docs/agents/apm.md) for the full plugin list, generat
 
 ## Repo-level skills
 
-The `skills/` directory contains committed repo skills (`starting-work`, `cutting-release`, `writing-skills`, `clean-ddd-hexagonal`, `adding-harness`). Each is a directory with a `SKILL.md` following the [Agent Skills standard](https://agentskills.io/specification). Use `skills/adding-harness/` before adding or changing a harness adapter; it forces the launch/resume/session-ID/voice/capacity checklist for the harness.
+The `skills/` directory contains committed repo skills (`starting-work`, `cutting-release`, `writing-skills`, `clean-ddd-hexagonal`, `adding-harness`, `surfacing-blind-spots`). Each is a directory with a `SKILL.md` following the [Agent Skills standard](https://agentskills.io/specification). Use `skills/adding-harness/` before adding or changing a harness adapter; it forces the launch/resume/session-ID/voice/capacity checklist for the harness. Use `skills/surfacing-blind-spots/` when closing out a session or when asked to generate quality-improvement tasks; it turns investigated uncertainties and project blind spots into scoped issues.
 
 ## Doc currency check
 

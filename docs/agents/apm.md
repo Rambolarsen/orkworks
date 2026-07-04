@@ -53,6 +53,7 @@ The `skills/` directory contains repo-level agent skills committed with the proj
 | `adding-harness` | Checklist for adding or changing a harness adapter |
 | `writing-skills` | TDD-based skill creation following the Agent Skills standard |
 | `clean-ddd-hexagonal` | Clean Architecture + DDD + Hexagonal patterns, language-agnostic |
+| `surfacing-blind-spots` | End-of-session self-critique and codebase audit that files scoped quality issues |
 
 ### Anthropic Agent Skills (standard)
 
