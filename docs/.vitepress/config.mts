@@ -1,6 +1,9 @@
 import { readdirSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { basename, resolve } from 'node:path'
 import { defineConfig } from 'vitepress'
+
+const require = createRequire(import.meta.url)
 
 // Project root is docs/ (where .vitepress lives); srcDir is the repo root
 // so the existing markdown renders in place — the repo files stay the
@@ -33,6 +36,9 @@ export default defineConfig({
     '.claude/**',
     '.github/**',
     '.opencode/**',
+    '.codex/**',
+    '.vscode/**',
+    'DESIGN-IS-*/**',
     '**/node_modules/**',
     'docs/.vitepress/**',
     'docs/superpowers/plans/**',
@@ -51,6 +57,17 @@ export default defineConfig({
     /(^|\/)(AGENTS|CLAUDE|README)\.md/,
     /superpowers\/plans\//,
   ],
+  // srcDir sits outside this package, so pages under specs/ etc. cannot
+  // reach docs/node_modules via Node resolution during the SSR build.
+  // Pin vue imports to absolute paths instead.
+  vite: {
+    resolve: {
+      alias: [
+        { find: /^vue$/, replacement: require.resolve('vue') },
+        { find: /^vue\/server-renderer$/, replacement: require.resolve('vue/server-renderer') },
+      ],
+    },
+  },
   themeConfig: {
     nav: [
       { text: 'User Guide', link: '/docs/user/getting-started' },
