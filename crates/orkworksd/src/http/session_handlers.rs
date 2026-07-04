@@ -103,13 +103,10 @@ pub(crate) async fn set_workspace(
     // On restart state.sessions is empty, so anything still "running" in metadata is orphaned.
     if let Some(ref ws) = *ws {
         let now = iso_now();
-        for mut meta in ws.metadata.read_all_sessions() {
+        for meta in ws.metadata.read_all_sessions() {
             if meta.status == "running" || meta.status == "creating" {
-                meta.status = "ended".to_string();
-                meta.connectivity = connectivity_for_status("ended").to_string();
-                meta.terminal_outcome = terminal_outcome_for_status("ended");
-                meta.last_activity = now.clone();
-                ws.metadata.write_session(&meta);
+                ws.metadata
+                    .write_session(&metadata::reconcile_orphaned_session(meta, &now));
             }
         }
     }
@@ -211,12 +208,17 @@ pub(crate) async fn resume_session(
         model_id: (!meta.model.is_empty()).then(|| meta.model.clone()),
         harness: (!meta.harness.is_empty()).then(|| meta.harness.clone()),
         model: (!meta.model.is_empty()).then(|| meta.model.clone()),
+        work_phase: meta.work_phase.clone(),
+        lifecycle_phase: "creating".into(),
         status: "creating".into(),
         connectivity: Some(connectivity_for_status("creating").into()),
         terminal_outcome: terminal_outcome_for_status("creating"),
         cwd: command.cwd.clone(),
         created_at: meta.created_at.clone(),
         last_activity_at: Some(now.clone()),
+        // The frozen final state belongs to the previous run; a resumed session
+        // is live again and must not resurface it as attention.
+        final_observed_status: None,
         observed_status: None,
         summary: meta.summary.clone(),
         next_action: meta.next_action.clone(),
@@ -292,6 +294,15 @@ pub(crate) async fn resume_session(
         if let Some(ref ws) = *ws_guard {
             if let Some(mut stored_meta) = ws.metadata.read_session(&id) {
                 stored_meta.status = "creating".to_string();
+                // Restart the lifecycle and drop the previous run's frozen
+                // state; otherwise merge_live_session_info keeps reporting the
+                // stale "ended" phase (and its final observed status) until the
+                // terminal attaches and writes "running".
+                stored_meta.lifecycle_phase = "creating".to_string();
+                stored_meta.pending_terminal_status = None;
+                stored_meta.ending_observed_status_snapshot = None;
+                stored_meta.final_observed_status_snapshot = None;
+                stored_meta.observed_status = None;
                 stored_meta.connectivity = connectivity_for_status("creating").to_string();
                 stored_meta.terminal_outcome = terminal_outcome_for_status("creating");
                 stored_meta.last_activity = now.clone();
@@ -483,12 +494,15 @@ pub(crate) async fn create_session(
         model_id: resolved_launch.model.clone(),
         harness: resolved_launch.session_harness_id.clone(),
         model: resolved_launch.model.clone(),
+        work_phase: "unknown".into(),
+        lifecycle_phase: "creating".into(),
         status: "creating".into(),
         connectivity: Some(connectivity_for_status("creating").into()),
         terminal_outcome: terminal_outcome_for_status("creating"),
         cwd,
         created_at: now.clone(),
         last_activity_at: Some(now.clone()),
+        final_observed_status: None,
         observed_status: None,
         summary: None,
         next_action: None,
@@ -556,10 +570,14 @@ pub(crate) async fn create_session(
             model: resolved_launch.model.clone().unwrap_or_default(),
             cwd: info.cwd.clone(),
             status: "creating".into(),
-            phase: String::new(),
+            work_phase: "unknown".into(),
+            lifecycle_phase: "creating".into(),
             connectivity: "online".into(),
             terminal_outcome: None,
+            pending_terminal_status: None,
             observed_status: None,
+            ending_observed_status_snapshot: None,
+            final_observed_status_snapshot: None,
             summary: None,
             next_action: None,
             needs_user_input: None,
@@ -690,12 +708,18 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
             model_id: (!meta.model.is_empty()).then(|| meta.model.clone()),
             harness: (!meta.harness.is_empty()).then(|| meta.harness.clone()),
             model: (!meta.model.is_empty()).then(|| meta.model.clone()),
+            work_phase: meta.work_phase.clone(),
+            lifecycle_phase: meta.lifecycle_phase.clone(),
             status: meta.status.clone(),
             connectivity: Some(connectivity_for_status(&meta.status).into()),
             terminal_outcome: terminal_outcome_for_status(&meta.status),
             cwd: meta.cwd.clone(),
             created_at: meta.created_at.clone(),
             last_activity_at: Some(meta.last_activity.clone()),
+            final_observed_status: meta
+                .final_observed_status_snapshot
+                .as_ref()
+                .and_then(|snapshot| snapshot.value.clone()),
             observed_status: meta.observed_status.clone(),
             summary: meta.summary.clone(),
             next_action: meta.next_action.clone(),
@@ -782,10 +806,11 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
         if let (Some(hid), Some(hint)) = (&info.harness_id, &info.usage_limit_reset_hint) {
             harness_reset_hint.entry(hid.clone()).or_insert_with(|| hint.clone());
         }
+        // Keyed by harness id, matching harness_capped above — the checking
+        // state masks the capped display, so both must land on the same
+        // provider row even when the session's model provider differs.
         if info.capacity_check_pending == Some(true) {
-            if let Some(pid) = &info.model_provider_id {
-                provider_checking.insert(pid.clone());
-            } else if let Some(hid) = &info.harness_id {
+            if let Some(hid) = &info.harness_id {
                 provider_checking.insert(hid.clone());
             }
         }
@@ -836,7 +861,6 @@ pub(crate) async fn delete_session(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
-    let now = iso_now();
     let handle = {
         let sessions = state.sessions.lock().unwrap();
         sessions.get(&id).map(|h| h.kill_tx.clone())
@@ -847,36 +871,13 @@ pub(crate) async fn delete_session(
         }
         None => return axum::http::StatusCode::NOT_FOUND,
     }
-    {
-        let mut sessions = state.sessions.lock().unwrap();
-        if let Some(h) = sessions.get_mut(&id) {
-            h.info.status = "killed".to_string();
-            h.info.connectivity = Some(connectivity_for_status("killed").to_string());
-            h.info.terminal_outcome = terminal_outcome_for_status("killed");
-            h.info.last_activity_at = Some(now.clone());
-        }
+    if crate::runtime::terminal_runtime::set_session_status(&state, &id, "killed") {
+        crate::runtime::terminal_runtime::schedule_session_ending_finalization(
+            state.clone(),
+            id.clone(),
+            "killed".to_string(),
+        );
     }
-    let ws_guard = state.workspace.lock().unwrap();
-    if let Some(ref ws) = *ws_guard {
-        if let Some(mut meta) = ws.metadata.read_session(&id) {
-            meta.status = "killed".to_string();
-            meta.connectivity = connectivity_for_status("killed").to_string();
-            meta.terminal_outcome = terminal_outcome_for_status("killed");
-            meta.last_activity = now.clone();
-            ws.metadata.write_session(&meta);
-        }
-        ws.metadata.append_event(&id, &metadata::Event {
-            event_type: "session.killed".into(),
-            timestamp: now,
-            status: "killed".into(),
-            observed_status: None,
-            confidence: None,
-        });
-        // Preserve persisted terminal output: the session metadata file remains
-        // (status=killed), so the scrollback should remain accessible for the
-        // resulting remembered session.
-    }
-    drop(ws_guard);
     state.peon.last_output.write().unwrap().remove(&id);
     state.peon.last_inference.write().unwrap().remove(&id);
     axum::http::StatusCode::OK
@@ -981,10 +982,14 @@ mod tests {
                 model: "".into(),
                 cwd: dir.path().display().to_string(),
                 status: "running".into(),
-                phase: "".into(),
+                work_phase: "unknown".into(),
+                lifecycle_phase: "active".into(),
                 connectivity: "online".into(),
                 terminal_outcome: None,
+                pending_terminal_status: None,
                 observed_status: None,
+                ending_observed_status_snapshot: None,
+                final_observed_status_snapshot: None,
                 summary: None,
                 next_action: None,
                 needs_user_input: None,
@@ -1094,10 +1099,14 @@ mod tests {
                 model: "".into(),
                 cwd: dir.path().display().to_string(),
                 status: "running".into(),
-                phase: "".into(),
+                work_phase: "unknown".into(),
+                lifecycle_phase: "active".into(),
                 connectivity: "online".into(),
                 terminal_outcome: None,
+                pending_terminal_status: None,
                 observed_status: None,
+                ending_observed_status_snapshot: None,
+                final_observed_status_snapshot: None,
                 summary: None,
                 next_action: None,
                 needs_user_input: None,
@@ -1204,10 +1213,14 @@ mod tests {
                 model: "".into(),
                 cwd: dir.path().display().to_string(),
                 status: "running".into(),
-                phase: "".into(),
+                work_phase: "unknown".into(),
+                lifecycle_phase: "active".into(),
                 connectivity: "online".into(),
                 terminal_outcome: None,
+                pending_terminal_status: None,
                 observed_status: None,
+                ending_observed_status_snapshot: None,
+                final_observed_status_snapshot: None,
                 summary: None,
                 next_action: None,
                 needs_user_input: None,
@@ -1362,10 +1375,19 @@ mod tests {
                 model: "".into(),
                 cwd: dir.path().display().to_string(),
                 status: "killed".into(),
-                phase: "".into(),
+                work_phase: "unknown".into(),
+                lifecycle_phase: "ended".into(),
                 connectivity: "offline".into(),
                 terminal_outcome: Some("killed".into()),
+                pending_terminal_status: None,
                 observed_status: None,
+                ending_observed_status_snapshot: None,
+                final_observed_status_snapshot: Some(metadata::ObservedStatusSnapshotMetadata {
+                    value: None,
+                    source: "recovery".into(),
+                    confidence: None,
+                    observed_at: None,
+                }),
                 summary: None,
                 next_action: None,
                 needs_user_input: None,
@@ -1408,6 +1430,107 @@ mod tests {
             .count();
 
         assert_eq!(matching, 1);
+    }
+
+    #[tokio::test]
+    async fn delete_session_enters_ending_lifecycle_instead_of_marking_terminal_immediately() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let session_id = "delete-ending".to_string();
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+
+        state.sessions.lock().unwrap().insert(
+            session_id.clone(),
+            SessionHandle {
+                info: test_session_info(
+                    session_id.clone(),
+                    "Delete Ending",
+                    dir.path().display().to_string(),
+                    "running",
+                    "now",
+                ),
+                kill_tx,
+                output_buffer: peon::RingBuffer::new(200),
+                scan_buf: String::new(),
+                command: default_shell_command(dir.path().display().to_string()),
+                initial_prompt: None,
+                at_usage_limit_latched: false,
+                capacity_check_pending: false,
+                resume_scan_origin: None,
+                pending_capacity_visible_once: false,
+            },
+        );
+
+        {
+            let ws = state.workspace.lock().unwrap();
+            ws.as_ref().unwrap().metadata.write_session(&metadata::SessionMetadata {
+                id: session_id.clone(),
+                label: "Delete Ending".into(),
+                workspace: dir.path().display().to_string(),
+                task: "".into(),
+                harness: "".into(),
+                model: "".into(),
+                cwd: dir.path().display().to_string(),
+                status: "running".into(),
+                work_phase: "unknown".into(),
+                lifecycle_phase: "active".into(),
+                connectivity: "online".into(),
+                terminal_outcome: None,
+                pending_terminal_status: None,
+                observed_status: Some("blocked".into()),
+                ending_observed_status_snapshot: None,
+                final_observed_status_snapshot: None,
+                summary: None,
+                next_action: None,
+                needs_user_input: None,
+                detected_question: None,
+                suggested_options: None,
+                blocker_description: None,
+                failed_command: None,
+                failed_test: None,
+                capacity_hints: None,
+                peon_last_inference: None,
+                provider_id: None,
+                provider_label: None,
+                provider_model: None,
+                provider_state: None,
+                created_at: "now".into(),
+                last_activity: "now".into(),
+                metadata_source: "peon".into(),
+                metadata_confidence: 0.8,
+                repo_root: None,
+                branch: None,
+                dirty: None,
+                changed_files: None,
+                is_worktree: None,
+                resume: None,
+                resume_options: vec![],
+                harness_session_id_source: None,
+                harness_session_id_confidence: None,
+                harness_session_id_captured_at: None,
+                resumed_from: None,
+                last_user_input: None,
+            });
+        }
+
+        let response = delete_session(State(state.clone()), Path(session_id.clone())).await;
+        assert_eq!(response.into_response().status(), axum::http::StatusCode::OK);
+
+        let info = state.sessions.lock().unwrap().get(&session_id).unwrap().info.clone();
+        assert_eq!(info.status, "running");
+        assert_eq!(info.lifecycle_phase, "ending");
+
+        let ws = state.workspace.lock().unwrap();
+        let meta = ws.as_ref().unwrap().metadata.read_session(&session_id).unwrap();
+        assert_eq!(meta.status, "running");
+        assert_eq!(meta.lifecycle_phase, "ending");
+        assert_eq!(meta.pending_terminal_status.as_deref(), Some("killed"));
+        assert_eq!(
+            meta.ending_observed_status_snapshot
+                .as_ref()
+                .and_then(|snapshot| snapshot.value.as_deref()),
+            Some("blocked")
+        );
     }
 
     #[tokio::test]
@@ -1538,6 +1661,80 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn list_sessions_keys_checking_state_by_harness_like_capped_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let settings = crate::providers::ProviderSettingsPayload {
+            version: 1,
+            revision: 1,
+            peon_model: None,
+            ollama_base_url: crate::providers::default_ollama_base_url(),
+            providers: vec![crate::providers::ProviderSettingsEntry {
+                id: "opencode".into(),
+                enabled: true,
+                fallback_order: 0,
+                default_state: crate::providers::ProviderCapacityState::Healthy,
+                override_state: None,
+            }],
+        };
+        let state = Arc::new(crate::AppState {
+            session_module: crate::infrastructure::session_module::SessionModule::new(),
+            sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
+            workspace: std::sync::Mutex::new(None),
+            peon: crate::PeonState {
+                last_output: std::sync::RwLock::new(std::collections::HashMap::new()),
+                last_inference: std::sync::RwLock::new(std::collections::HashMap::new()),
+                in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
+                label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
+                label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
+                config: peon::PeonConfig::from_env(),
+            },
+            adapters: crate::harness_registry::builtin_adapters(),
+            retention_config: tokio::sync::RwLock::new(crate::RetentionConfig::default()),
+            harnesses: tokio::sync::RwLock::new(vec![]),
+            bound_port: std::sync::atomic::AtomicU16::new(0),
+            providers: crate::providers::ProviderManager::for_tests(settings, vec![]),
+        });
+
+        // Session on the opencode harness whose model provider is ollama:
+        // capped state is keyed by harness, so checking must be too, or the
+        // pending badge lands on a different provider row than the capped one.
+        let session_id = "resume-pending-provider-mismatch".to_string();
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        state.sessions.lock().unwrap().insert(
+            session_id.clone(),
+            SessionHandle {
+                info: SessionInfo {
+                    harness_id: Some("opencode".into()),
+                    model_provider_id: Some("ollama".into()),
+                    capacity_check_pending: Some(true),
+                    ..test_session_info(
+                        session_id.clone(),
+                        "Resume Pending Provider Mismatch",
+                        dir.path().display().to_string(),
+                        "running",
+                        "now",
+                    )
+                },
+                kill_tx,
+                output_buffer: peon::RingBuffer::new(200),
+                scan_buf: String::new(),
+                command: default_shell_command(dir.path().display().to_string()),
+                initial_prompt: None,
+                at_usage_limit_latched: false,
+                capacity_check_pending: true,
+                resume_scan_origin: Some((0, 0)),
+                pending_capacity_visible_once: false,
+            },
+        );
+
+        list_sessions(State(state.clone())).await.into_response();
+
+        let response = state.providers.get_providers_response();
+        let opencode = response.providers.iter().find(|provider| provider.id == "opencode").unwrap();
+        assert_eq!(opencode.effective_state, "checking_capacity");
+    }
+
+    #[tokio::test]
     async fn list_sessions_requires_one_visible_fresh_output_cycle_before_clearing_pending() {
         let dir = tempfile::tempdir().unwrap();
         let state = Arc::new(crate::AppState {
@@ -1647,10 +1844,19 @@ mod tests {
                 model: "".into(),
                 cwd: dir.path().display().to_string(),
                 status: "ended".into(),
-                phase: "".into(),
+                work_phase: "unknown".into(),
+                lifecycle_phase: "ended".into(),
                 connectivity: "offline".into(),
                 terminal_outcome: Some("ended".into()),
+                pending_terminal_status: None,
                 observed_status: None,
+                ending_observed_status_snapshot: None,
+                final_observed_status_snapshot: Some(metadata::ObservedStatusSnapshotMetadata {
+                    value: None,
+                    source: "recovery".into(),
+                    confidence: None,
+                    observed_at: None,
+                }),
                 summary: None,
                 next_action: None,
                 needs_user_input: None,

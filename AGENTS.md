@@ -140,7 +140,7 @@ Before OpenCode implementation work, verify that the skill tool lists Superpower
 
 When starting any task that will produce code changes, invoke the `starting-work` skill (in `skills/starting-work/`) before editing. It walks through the branch-vs-worktree decision, naming convention, and per-checkout setup that operationalize the rules in this section.
 
-**Never work on branches you don't own.** If the primary checkout is on a branch someone else created, do not add commits to it — open a worktree on your own branch instead. If you find yourself on a foreign branch in a worktree, stop and create a new one.
+**Don't stack commits on branches you don't own.** This rule exists to prevent two writers on one branch: an agent silently adding commits to a branch another agent or person is actively working on causes lost work, confusing history, and clobbered checkouts. It is not a ban on landing legitimate changes — if the branch owner explicitly asks you to push to their branch (e.g. applying review fixes to their PR), do so. Absent that permission: if the primary checkout is on a branch someone else created, do not add commits to it — open a worktree on your own branch instead. If you find yourself on a foreign branch in a worktree, stop and create a new one.
 
 **Direct to `main` is allowed for:**
 - Docs-only changes: `docs/`, `specs/`, ADRs, `README.md`, `AGENTS.md`, `CLAUDE.md`, and other `*.md` outside `apps/`/`crates/`.

@@ -4,6 +4,18 @@ export type MemoryState = "live" | "remembered" | "resumable" | "unsupported";
 export type ResumeStrategy = "exact" | "latest_cwd" | "latest_repo" | "none";
 export type SessionConnectivity = "online" | "offline";
 export type TerminalOutcome = "ended" | "killed" | "error";
+export type WorkPhase = "ideation" | "implementation" | "review" | "debugging" | "unknown";
+export type LifecyclePhase = "creating" | "active" | "ending" | "ended";
+
+/** Lifecycle phase with the migration fallback for payloads that predate `lifecyclePhase`. */
+export function effectiveLifecyclePhase(
+  status: string,
+  lifecyclePhase: LifecyclePhase | undefined,
+): LifecyclePhase {
+  if (lifecyclePhase) return lifecyclePhase;
+  if (status === "creating") return "creating";
+  return status === "running" ? "active" : "ended";
+}
 
 export interface ResumeMemory {
   state: "available" | "unavailable";
@@ -32,12 +44,15 @@ export interface SessionInfo {
   providerState?: ProviderEffectiveState;
   harness?: string;
   model?: string;
+  workPhase?: WorkPhase;
+  lifecyclePhase?: LifecyclePhase;
   status: string;
   connectivity?: SessionConnectivity;
   terminalOutcome?: TerminalOutcome;
   cwd: string;
   created_at: string;
   lastActivityAt?: string;
+  finalObservedStatus?: string | null;
   observedStatus?: string;
   summary?: string;
   nextAction?: string;

@@ -653,6 +653,15 @@ impl ProviderManager {
     }
 
     pub fn run_inference(&self, _scope: PeonScope, output: &[String]) -> ProviderRunResult {
+        self.run_inference_with_timeout(_scope, output, None)
+    }
+
+    pub fn run_inference_with_timeout(
+        &self,
+        _scope: PeonScope,
+        output: &[String],
+        timeout_secs_override: Option<u64>,
+    ) -> ProviderRunResult {
         let settings = self.settings.read().unwrap().clone();
         let prompt = peon::build_prompt(output);
 
@@ -705,7 +714,8 @@ impl ProviderManager {
                 }
             }
 
-            let result = self.runner.run(&entry.id, &definition.command, &args, &prompt, definition.timeout_secs);
+            let timeout_secs = timeout_secs_override.unwrap_or(definition.timeout_secs);
+            let result = self.runner.run(&entry.id, &definition.command, &args, &prompt, timeout_secs);
 
             if result.success {
                 if let Some(inference) = peon::parse_inference(&result.stdout) {
@@ -927,13 +937,20 @@ struct FakeRunner {
 
 #[cfg(test)]
 impl ProviderRunner for FakeRunner {
-    fn run(&self, id: &str, _command: &str, _args: &[String], _prompt: &str, _timeout_secs: u64) -> InvocationResult {
+    fn run(&self, id: &str, _command: &str, _args: &[String], _prompt: &str, timeout_secs: u64) -> InvocationResult {
         match self.specs.get(id) {
             Some(spec) => {
                 if let Some(ref counter) = spec.call_count {
                     counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 }
                 if spec.sleep_ms > 0 {
+                    if spec.sleep_ms > timeout_secs.saturating_mul(1000) {
+                        return InvocationResult {
+                            success: false,
+                            stdout: String::new(),
+                            stderr: "timed out".to_string(),
+                        };
+                    }
                     std::thread::sleep(std::time::Duration::from_millis(spec.sleep_ms));
                 }
                 InvocationResult {

@@ -81,6 +81,28 @@ export function memoryStateLabel(s: MemoryState): string {
   }
 }
 
+export function workPhaseLabel(phase: SessionInfo["workPhase"]): string {
+  switch (phase) {
+    case "ideation":       return "Ideation";
+    case "implementation": return "Implementation";
+    case "review":         return "Review";
+    case "debugging":      return "Debugging";
+    case "unknown":
+    case undefined:
+      return "Unknown";
+  }
+}
+
+export function lifecyclePhaseLabel(phase: SessionInfo["lifecyclePhase"]): string {
+  switch (phase) {
+    case "creating": return "Creating";
+    case "active":   return "Active";
+    case "ending":   return "Ending";
+    case "ended":    return "Ended";
+    case undefined:  return "Unknown";
+  }
+}
+
 export function resumeActionLabel(strategy: ResumeStrategy): string {
   switch (strategy) {
     case "exact":       return "Resume session";

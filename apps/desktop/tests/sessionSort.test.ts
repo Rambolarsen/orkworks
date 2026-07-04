@@ -68,6 +68,39 @@ test("sessionAttentionStatus falls back to lifecycle status when no observed", (
   assert.equal(sessionAttentionStatus(session), "running");
 });
 
+test("sessionAttentionStatus only uses live observed status while active", () => {
+  const session: SessionInfo = {
+    id: "1",
+    label: "Ending session",
+    status: "running",
+    lifecyclePhase: "ending",
+    observedStatus: "blocked",
+    cwd: "/tmp",
+    created_at: "now",
+    memoryState: "live",
+    resumeStrategy: "none",
+  };
+
+  assert.equal(sessionAttentionStatus(session), "running");
+});
+
+test("sessionAttentionStatus uses final observed status for ended sessions", () => {
+  const session: SessionInfo = {
+    id: "1",
+    label: "Ended session",
+    status: "ended",
+    lifecyclePhase: "ended",
+    finalObservedStatus: "blocked",
+    cwd: "/tmp",
+    created_at: "now",
+    memoryState: "remembered",
+    resumeStrategy: "none",
+  };
+
+  assert.equal(sessionAttentionStatus(session), "blocked");
+  assert.equal(needsAttention(sessionAttentionStatus(session)), true);
+});
+
 test("sessionAttentionStatus prefers checking_capacity over capped while pending", () => {
   const session: SessionInfo = {
     id: "pending",

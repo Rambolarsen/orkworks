@@ -24,6 +24,16 @@ pub enum SessionStatus {
     Error,
 }
 
+impl From<TerminalOutcome> for SessionStatus {
+    fn from(value: TerminalOutcome) -> Self {
+        match value {
+            TerminalOutcome::Ended => Self::Ended,
+            TerminalOutcome::Killed => Self::Killed,
+            TerminalOutcome::Error => Self::Error,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MemoryState {
@@ -78,12 +88,44 @@ impl AttentionState {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum Phase {
+pub enum WorkPhase {
     Ideation,
     Implementation,
     Review,
     Debugging,
     Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LifecyclePhase {
+    Creating,
+    Active,
+    Ending,
+    Ended,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TerminalOutcome {
+    Ended,
+    Killed,
+    Error,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ObservedStatusSnapshot {
+    pub value: Option<AttentionState>,
+    pub source: String,
+    pub confidence: Option<f64>,
+    #[serde(rename = "observedAt")]
+    pub observed_at: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SessionTransitionError {
+    InvalidPhase,
+    MissingPendingOutcome,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -142,5 +184,40 @@ mod tests {
         assert!(!AttentionState::Stale.needs_attention());
         assert!(!AttentionState::Working.needs_attention());
         assert!(!AttentionState::Idle.needs_attention());
+    }
+
+    #[test]
+    fn work_phase_and_lifecycle_phase_serde_roundtrip() {
+        let work_json = serde_json::to_string(&WorkPhase::Implementation).unwrap();
+        let work_back: WorkPhase = serde_json::from_str(&work_json).unwrap();
+        assert_eq!(work_back, WorkPhase::Implementation);
+
+        let lifecycle_json = serde_json::to_string(&LifecyclePhase::Ending).unwrap();
+        let lifecycle_back: LifecyclePhase = serde_json::from_str(&lifecycle_json).unwrap();
+        assert_eq!(lifecycle_back, LifecyclePhase::Ending);
+    }
+
+    #[test]
+    fn terminal_outcome_converts_to_terminal_status() {
+        assert_eq!(SessionStatus::from(TerminalOutcome::Ended), SessionStatus::Ended);
+        assert_eq!(SessionStatus::from(TerminalOutcome::Killed), SessionStatus::Killed);
+        assert_eq!(SessionStatus::from(TerminalOutcome::Error), SessionStatus::Error);
+    }
+
+    #[test]
+    fn observed_status_snapshot_preserves_structured_metadata() {
+        let snapshot = ObservedStatusSnapshot {
+            value: Some(AttentionState::Blocked),
+            source: "peon".into(),
+            confidence: Some(0.82),
+            observed_at: Some("2026-07-03T12:34:56Z".into()),
+        };
+        let json = serde_json::to_string(&snapshot).unwrap();
+        assert!(json.contains("\"observedAt\""));
+        let back: ObservedStatusSnapshot = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.value, Some(AttentionState::Blocked));
+        assert_eq!(back.source, "peon");
+        assert_eq!(back.confidence, Some(0.82));
+        assert_eq!(back.observed_at.as_deref(), Some("2026-07-03T12:34:56Z"));
     }
 }

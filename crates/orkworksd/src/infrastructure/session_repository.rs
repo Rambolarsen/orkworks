@@ -91,13 +91,13 @@ fn session_status_str(s: &SessionStatus) -> &'static str {
     }
 }
 
-fn phase_str(p: &Phase) -> &'static str {
+fn phase_str(p: &WorkPhase) -> &'static str {
     match p {
-        Phase::Ideation => "ideation",
-        Phase::Implementation => "implementation",
-        Phase::Review => "review",
-        Phase::Debugging => "debugging",
-        Phase::Unknown => "",
+        WorkPhase::Ideation => "ideation",
+        WorkPhase::Implementation => "implementation",
+        WorkPhase::Review => "review",
+        WorkPhase::Debugging => "debugging",
+        WorkPhase::Unknown => "",
     }
 }
 
@@ -113,12 +113,23 @@ fn meta_to_session(meta: &SessionMetadata) -> Session {
     let attention = AttentionState::from_str(
         meta.observed_status.as_deref().unwrap_or(&meta.status),
     );
-    let phase = match meta.phase.as_str() {
-        "ideation" => Phase::Ideation,
-        "implementation" => Phase::Implementation,
-        "review" => Phase::Review,
-        "debugging" => Phase::Debugging,
-        _ => Phase::Unknown,
+    let work_phase = match meta.work_phase.as_str() {
+        "ideation" => WorkPhase::Ideation,
+        "implementation" => WorkPhase::Implementation,
+        "review" => WorkPhase::Review,
+        "debugging" => WorkPhase::Debugging,
+        _ => WorkPhase::Unknown,
+    };
+    let lifecycle_phase = match meta.lifecycle_phase.as_str() {
+        "creating" => LifecyclePhase::Creating,
+        "active" => LifecyclePhase::Active,
+        "ending" => LifecyclePhase::Ending,
+        "ended" => LifecyclePhase::Ended,
+        _ => match status {
+            SessionStatus::Creating => LifecyclePhase::Creating,
+            SessionStatus::Running => LifecyclePhase::Active,
+            SessionStatus::Killed | SessionStatus::Ended | SessionStatus::Error => LifecyclePhase::Ended,
+        },
     };
 
     Session {
@@ -127,7 +138,11 @@ fn meta_to_session(meta: &SessionMetadata) -> Session {
         status,
         memory_state: MemoryState::Remembered,
         attention_state: attention,
-        phase,
+        work_phase,
+        lifecycle_phase,
+        pending_terminal_status: None,
+        ending_observed_status_snapshot: None,
+        final_observed_status_snapshot: None,
         created_at: meta.created_at.clone(),
         killed_at: None,
         last_active_at: Some(meta.last_activity.clone()),
@@ -158,7 +173,13 @@ fn session_to_metadata(session: &Session, existing: Option<&SessionMetadata>) ->
         model: session.model.clone().unwrap_or_default(),
         cwd: session.cwd.clone(),
         status: session_status_str(&session.status).to_string(),
-        phase: phase_str(&session.phase).to_string(),
+        work_phase: phase_str(&session.work_phase).to_string(),
+        lifecycle_phase: match session.lifecycle_phase {
+            LifecyclePhase::Creating => "creating".into(),
+            LifecyclePhase::Active => "active".into(),
+            LifecyclePhase::Ending => "ending".into(),
+            LifecyclePhase::Ended => "ended".into(),
+        },
         connectivity: if matches!(
             session.status,
             SessionStatus::Killed | SessionStatus::Ended | SessionStatus::Error
@@ -173,7 +194,14 @@ fn session_to_metadata(session: &Session, existing: Option<&SessionMetadata>) ->
             SessionStatus::Error => Some("error".into()),
             _ => None,
         },
+        pending_terminal_status: session.pending_terminal_status.as_ref().map(|status| match status {
+            TerminalOutcome::Ended => "ended".into(),
+            TerminalOutcome::Killed => "killed".into(),
+            TerminalOutcome::Error => "error".into(),
+        }),
         observed_status: existing.and_then(|meta| meta.observed_status.clone()),
+        ending_observed_status_snapshot: None,
+        final_observed_status_snapshot: None,
         summary: existing.and_then(|meta| meta.summary.clone()),
         next_action: existing.and_then(|meta| meta.next_action.clone()),
         needs_user_input: existing.and_then(|meta| meta.needs_user_input),
@@ -230,7 +258,11 @@ mod tests {
             status: SessionStatus::Ended,
             memory_state: MemoryState::Remembered,
             attention_state: AttentionState::Done,
-            phase: Phase::Review,
+            work_phase: WorkPhase::Review,
+            lifecycle_phase: LifecyclePhase::Ended,
+            pending_terminal_status: None,
+            ending_observed_status_snapshot: None,
+            final_observed_status_snapshot: None,
             created_at: "2026-06-28T09:00:00Z".into(),
             killed_at: None,
             last_active_at: Some("2026-06-28T09:05:00Z".into()),
@@ -267,10 +299,19 @@ mod tests {
             model: "gpt-5".into(),
             cwd: "/tmp".into(),
             status: "ended".into(),
-            phase: "review".into(),
+            work_phase: "review".into(),
+            lifecycle_phase: "ended".into(),
             connectivity: "offline".into(),
             terminal_outcome: Some("ended".into()),
+            pending_terminal_status: None,
             observed_status: Some("done".into()),
+            ending_observed_status_snapshot: None,
+            final_observed_status_snapshot: Some(crate::metadata::ObservedStatusSnapshotMetadata {
+                value: Some("done".into()),
+                source: "process".into(),
+                confidence: Some(1.0),
+                observed_at: Some("2026-06-28T09:05:00Z".into()),
+            }),
             summary: None,
             next_action: None,
             needs_user_input: None,

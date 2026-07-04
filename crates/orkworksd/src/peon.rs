@@ -16,6 +16,7 @@ pub struct PeonConfig {
     pub max_lines: usize,
     pub timeout_secs: u64,
     pub idle_timeout_secs: u64,
+    pub final_scan_timeout_secs: u64,
     pub enabled: bool,
 }
 
@@ -80,6 +81,16 @@ impl PeonConfig {
                     }
                 },
                 Err(_) => 15,
+            },
+            final_scan_timeout_secs: match std::env::var("PEON_FINAL_SCAN_TIMEOUT") {
+                Ok(raw) => match raw.parse() {
+                    Ok(v) => v,
+                    Err(_) => {
+                        tracing::warn!("PEON_FINAL_SCAN_TIMEOUT is not a valid number, using default 2");
+                        2
+                    }
+                },
+                Err(_) => 2,
             },
             enabled: std::env::var("PEON_ENABLED")
                 .ok()
@@ -531,6 +542,7 @@ mod tests {
         std::env::remove_var("PEON_MAX_LINES");
         std::env::remove_var("PEON_TIMEOUT");
         std::env::remove_var("PEON_IDLE_TIMEOUT");
+        std::env::remove_var("PEON_FINAL_SCAN_TIMEOUT");
 
         let config = PeonConfig::from_env();
         assert!(config.enabled);
@@ -541,6 +553,7 @@ mod tests {
         assert_eq!(config.max_lines, 200);
         assert_eq!(config.timeout_secs, 30);
         assert_eq!(config.idle_timeout_secs, 15);
+        assert_eq!(config.final_scan_timeout_secs, 2);
     }
 
     #[test]
@@ -555,6 +568,7 @@ mod tests {
         std::env::set_var("PEON_MAX_LINES", "100");
         std::env::set_var("PEON_TIMEOUT", "60");
         std::env::set_var("PEON_IDLE_TIMEOUT", "10");
+        std::env::set_var("PEON_FINAL_SCAN_TIMEOUT", "7");
 
         let config = PeonConfig::from_env();
         assert!(!config.enabled);
@@ -565,6 +579,7 @@ mod tests {
         assert_eq!(config.max_lines, 100);
         assert_eq!(config.timeout_secs, 60);
         assert_eq!(config.idle_timeout_secs, 10);
+        assert_eq!(config.final_scan_timeout_secs, 7);
 
         std::env::remove_var("PEON_ENABLED");
         std::env::remove_var("PEON_HARNESS");
@@ -575,6 +590,7 @@ mod tests {
         std::env::remove_var("PEON_MAX_LINES");
         std::env::remove_var("PEON_TIMEOUT");
         std::env::remove_var("PEON_IDLE_TIMEOUT");
+        std::env::remove_var("PEON_FINAL_SCAN_TIMEOUT");
     }
 
     #[test]
@@ -770,6 +786,7 @@ mod tests {
             max_lines: 200,
             timeout_secs: 30,
             idle_timeout_secs: 15,
+            final_scan_timeout_secs: 2,
             enabled: true,
         };
         let output = vec![
@@ -793,6 +810,7 @@ mod tests {
             max_lines: 200,
             timeout_secs: 30,
             idle_timeout_secs: 15,
+            final_scan_timeout_secs: 2,
             enabled: true,
         };
         let output = vec!["some output".to_string()];
@@ -847,6 +865,7 @@ echo '{"status":"working","confidence":0.9}'
             max_lines: 200,
             timeout_secs: 30,
             idle_timeout_secs: 15,
+            final_scan_timeout_secs: 2,
             enabled: true,
         };
         let result = run_inference(&config, &["hello from terminal".to_string()]);
