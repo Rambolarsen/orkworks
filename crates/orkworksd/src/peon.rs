@@ -172,6 +172,15 @@ pub fn looks_like_password_prompt(recent_lines: &[String]) -> bool {
     })
 }
 
+/// Returns true if a completed user input line is descriptive enough to become
+/// the session label. Harness slash commands, shell escapes, and short
+/// confirmations ("y", "2", "ok") say nothing about the task — skip them and
+/// let the Peon summary win instead.
+pub fn is_descriptive_input(line: &str) -> bool {
+    let trimmed = line.trim();
+    trimmed.chars().count() >= 4 && !trimmed.starts_with('/') && !trimmed.starts_with('!')
+}
+
 /// Detects usage limit in a raw text blob (for TUI apps that use cursor positioning, not newlines).
 pub fn detect_usage_limit_raw<S: AsRef<str>>(patterns: &[S], text: &str) -> bool {
     if patterns.is_empty() { return false; }
@@ -993,5 +1002,34 @@ echo '{"status":"working","confidence":0.9}'
             detect_usage_limit_hint(&["you've hit your session limit"], &lines).as_deref(),
             Some("resets in 2h")
         );
+    }
+
+    #[test]
+    fn descriptive_input_accepts_prose_task_text() {
+        assert!(is_descriptive_input("fix the peon label capture bug"));
+        assert!(is_descriptive_input("  review PR feedback  "));
+    }
+
+    #[test]
+    fn descriptive_input_rejects_slash_commands() {
+        assert!(!is_descriptive_input("/hooks"));
+        assert!(!is_descriptive_input("/effort high"));
+        assert!(!is_descriptive_input("  /compact"));
+    }
+
+    #[test]
+    fn descriptive_input_rejects_shell_escapes() {
+        assert!(!is_descriptive_input("!git status"));
+        assert!(!is_descriptive_input("! ls -la"));
+    }
+
+    #[test]
+    fn descriptive_input_rejects_short_confirmations() {
+        assert!(!is_descriptive_input("y"));
+        assert!(!is_descriptive_input("no"));
+        assert!(!is_descriptive_input("2"));
+        assert!(!is_descriptive_input("ok"));
+        assert!(!is_descriptive_input(""));
+        assert!(!is_descriptive_input("   "));
     }
 }
