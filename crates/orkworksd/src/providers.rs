@@ -128,6 +128,64 @@ pub struct ProviderApplyStatus {
     pub last_apply_error: Option<String>,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum OllamaVerificationStatus {
+    Connected,
+    ConnectedEmpty,
+    Failed,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum OllamaVerificationReasonCode {
+    Connected,
+    NoModelsReturned,
+    AllModelsFiltered,
+    InvalidUrl,
+    Unreachable,
+    Timeout,
+    HttpError,
+    ParseError,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OllamaVerificationResponse {
+    pub ok: bool,
+    #[serde(rename = "normalizedBaseUrl")]
+    pub normalized_base_url: String,
+    pub status: OllamaVerificationStatus,
+    #[serde(rename = "reasonCode")]
+    pub reason_code: OllamaVerificationReasonCode,
+    #[serde(rename = "httpStatus")]
+    pub http_status: Option<u16>,
+    pub models: Vec<String>,
+    #[serde(rename = "excludedModels")]
+    pub excluded_models: Vec<String>,
+    pub diagnostic: Option<String>,
+}
+
+pub(crate) fn normalize_ollama_base_url(raw: &str) -> Result<String, String> {
+    let trimmed = raw.trim().trim_end_matches('/');
+    let parsed = reqwest::Url::parse(trimmed).map_err(|_| "invalid Ollama URL".to_string())?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err("Ollama URL must start with http:// or https://".to_string());
+    }
+    if parsed.path() != "/" || parsed.query().is_some() || parsed.fragment().is_some() {
+        return Err("Ollama URL must be origin-only with no path, query, or fragment".to_string());
+    }
+    Ok(parsed.origin().unicode_serialization())
+}
+
+pub(crate) fn filter_peon_candidate_models(mut models: Vec<String>) -> (Vec<String>, Vec<String>) {
+    models.sort();
+    let (excluded, included): (Vec<_>, Vec<_>) = models.into_iter().partition(|name| {
+        let lower = name.to_ascii_lowercase();
+        lower.contains("embed") || lower.contains("embedding")
+    });
+    (included, excluded)
+}
+
 // --- Registry types ---
 
 #[derive(Clone, Debug)]
@@ -1346,5 +1404,29 @@ mod tests {
             e.contains("unreachable") || e.contains("connection refused"),
             "expected connection refused error, got: {e}"
         );
+    }
+
+    #[test]
+    fn normalize_ollama_base_url_trims_and_strips_trailing_slash() {
+        let normalized = normalize_ollama_base_url(" http://127.0.0.1:11434/ ").unwrap();
+        assert_eq!(normalized, "http://127.0.0.1:11434");
+    }
+
+    #[test]
+    fn normalize_ollama_base_url_rejects_non_origin_urls() {
+        let err = normalize_ollama_base_url("http://127.0.0.1:11434/api/tags").unwrap_err();
+        assert!(err.contains("origin-only"));
+    }
+
+    #[test]
+    fn filter_peon_candidate_models_excludes_embedding_names_case_insensitively() {
+        let (models, excluded) = filter_peon_candidate_models(vec![
+            "llama3.1:latest".into(),
+            "nomic-embed-text".into(),
+            "BGE-EMBED-M3:latest".into(),
+        ]);
+
+        assert_eq!(models, vec!["llama3.1:latest"]);
+        assert_eq!(excluded, vec!["BGE-EMBED-M3:latest", "nomic-embed-text"]);
     }
 }
