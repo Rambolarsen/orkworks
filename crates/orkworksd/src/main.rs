@@ -206,6 +206,37 @@ pub(crate) mod test_support {
     use super::*;
     use crate::session_types::MemoryState;
     use crate::session_view::{connectivity_for_status, terminal_outcome_for_status};
+    use std::sync::{Mutex as StdMutex, MutexGuard, OnceLock};
+
+    pub(crate) struct FakeHome {
+        previous: Option<std::ffi::OsString>,
+        _lock: MutexGuard<'static, ()>,
+    }
+
+    impl FakeHome {
+        pub(crate) fn set(home: &std::path::Path) -> Self {
+            static HOME_LOCK: OnceLock<StdMutex<()>> = OnceLock::new();
+            let lock = HOME_LOCK.get_or_init(|| StdMutex::new(()));
+            let _lock = lock.lock().unwrap();
+            let previous = std::env::var_os("HOME");
+            std::env::set_var("HOME", home);
+            Self { previous, _lock }
+        }
+    }
+
+    impl Drop for FakeHome {
+        fn drop(&mut self) {
+            match self.previous.take() {
+                Some(value) => std::env::set_var("HOME", value),
+                None => std::env::remove_var("HOME"),
+            }
+        }
+    }
+
+    pub(crate) fn with_fake_home<T>(home: &std::path::Path, f: impl FnOnce() -> T) -> T {
+        let _home = FakeHome::set(home);
+        f()
+    }
 
     pub(crate) fn test_app_state_with_workspace(path: &std::path::Path) -> Arc<AppState> {
         let metadata_root = path.join(".orkworks-test");

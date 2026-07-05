@@ -244,40 +244,7 @@ pub(crate) async fn install_attention_hook(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::test_app_state_with_workspace;
-    use std::sync::{Mutex as StdMutex, MutexGuard, OnceLock};
-
-    /// Mirrors harness_registry.rs's test helper: serializes tests that mutate the
-    /// process-global `HOME` env var so `dirs::home_dir()`-based code (like
-    /// ensure_stable_claude_hook_script) never touches the real developer/CI home
-    /// directory, and never races another test doing the same thing in parallel.
-    /// RAII rather than a closure so `#[tokio::test]` bodies can freely `.await`
-    /// while it's held — each test runs its own single-threaded runtime, so
-    /// holding the guard across an await point here can't deadlock.
-    struct FakeHome {
-        previous: Option<std::ffi::OsString>,
-        _lock: MutexGuard<'static, ()>,
-    }
-
-    impl FakeHome {
-        fn set(home: &std::path::Path) -> Self {
-            static HOME_LOCK: OnceLock<StdMutex<()>> = OnceLock::new();
-            let lock = HOME_LOCK.get_or_init(|| StdMutex::new(()));
-            let _lock = lock.lock().unwrap();
-            let previous = std::env::var_os("HOME");
-            std::env::set_var("HOME", home);
-            Self { previous, _lock }
-        }
-    }
-
-    impl Drop for FakeHome {
-        fn drop(&mut self) {
-            match self.previous.take() {
-                Some(value) => std::env::set_var("HOME", value),
-                None => std::env::remove_var("HOME"),
-            }
-        }
-    }
+    use crate::test_support::{test_app_state_with_workspace, FakeHome};
 
     #[test]
     fn resolve_claude_hook_script_path_prefers_packaged_layout_when_present() {

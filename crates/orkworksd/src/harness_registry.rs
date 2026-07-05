@@ -3,7 +3,6 @@ use crate::session_view::derive_memory_state;
 use crate::session_types::MemoryState;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::{Mutex as StdMutex, OnceLock};
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub(crate) struct HarnessVoiceCapabilities {
@@ -508,21 +507,7 @@ pub(crate) fn resolve_adapter_harness_id(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn with_fake_home<T>(home: &std::path::Path, f: impl FnOnce() -> T) -> T {
-        static HOME_LOCK: OnceLock<StdMutex<()>> = OnceLock::new();
-        let lock = HOME_LOCK.get_or_init(|| StdMutex::new(()));
-        let _guard = lock.lock().unwrap();
-        let previous = std::env::var_os("HOME");
-        std::env::set_var("HOME", home);
-        let result = f();
-        if let Some(value) = previous {
-            std::env::set_var("HOME", value);
-        } else {
-            std::env::remove_var("HOME");
-        }
-        result
-    }
+    use crate::test_support::with_fake_home;
 
     #[test]
     fn load_harnesses_merges_disk_overrides_with_builtins() {
