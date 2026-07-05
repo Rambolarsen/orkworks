@@ -179,14 +179,17 @@ pub fn detect_usage_limit_raw<S: AsRef<str>>(patterns: &[S], text: &str) -> bool
     patterns.iter().any(|p| lower.contains(p.as_ref().to_lowercase().as_str()))
 }
 
-/// Extracts reset hint from a raw text blob (for TUI apps that use cursor positioning, not newlines).
-pub fn detect_usage_limit_hint_raw<S: AsRef<str>>(patterns: &[S], text: &str) -> Option<String> {
-    if patterns.is_empty() { return None; }
-    let plain = strip_ansi(text);
-    let lower = plain.to_lowercase();
-    if !patterns.iter().any(|p| lower.contains(p.as_ref().to_lowercase().as_str())) {
-        return None;
-    }
+/// TUI status glyphs (spinners, separators, box drawing) that mark the end of
+/// a reset hint when screen content follows it without a newline.
+const HINT_STOP_GLYPHS: &[char] =
+    &['✳', '✻', '✽', '✶', '●', '○', '◐', '·', '│', '╭', '╰', '─', '—'];
+const HINT_MAX_CHARS: usize = 80;
+
+/// Extracts the bounded "resets in X" fragment from ANSI-stripped text.
+/// `lower` must be `plain.to_ascii_lowercase()`: ASCII lowercasing preserves
+/// byte length, so indices found in `lower` are valid char boundaries in
+/// `plain` (Unicode `to_lowercase` can shift byte offsets and panic here).
+fn extract_reset_hint(plain: &str, lower: &str) -> Option<String> {
     let idx = lower
         .find("resets in")
         .or_else(|| lower.find("reset in"))
@@ -198,11 +201,21 @@ pub fn detect_usage_limit_hint_raw<S: AsRef<str>>(patterns: &[S], text: &str) ->
     // screen (spinner, status bar) follows directly. Stop at the first status
     // glyph and cap the length so screen content can't leak into the hint.
     let fragment = &fragment[..end];
-    let end = fragment
-        .find(['✳', '✻', '✽', '✶', '●', '○', '◐', '│', '╭', '╰', '─', '—'])
-        .unwrap_or(fragment.len());
-    let hint: String = fragment[..end].trim().chars().take(60).collect();
-    Some(hint.trim_end().to_string())
+    let end = fragment.find(HINT_STOP_GLYPHS).unwrap_or(fragment.len());
+    let mut hint: String = fragment[..end].trim().chars().take(HINT_MAX_CHARS).collect();
+    hint.truncate(hint.trim_end().len());
+    Some(hint)
+}
+
+/// Extracts reset hint from a raw text blob (for TUI apps that use cursor positioning, not newlines).
+pub fn detect_usage_limit_hint_raw<S: AsRef<str>>(patterns: &[S], text: &str) -> Option<String> {
+    if patterns.is_empty() { return None; }
+    let plain = strip_ansi(text);
+    let lower = plain.to_ascii_lowercase();
+    if !patterns.iter().any(|p| lower.contains(p.as_ref().to_lowercase().as_str())) {
+        return None;
+    }
+    extract_reset_hint(&plain, &lower)
 }
 
 /// Returns the "reset in X" fragment from the usage-limit line, if present.
@@ -210,18 +223,11 @@ pub fn detect_usage_limit_hint<S: AsRef<str>>(patterns: &[S], lines: &[String]) 
     if patterns.is_empty() { return None; }
     lines.iter().rev().find_map(|line| {
         let plain = strip_ansi(line);
-        let lower = plain.to_lowercase();
+        let lower = plain.to_ascii_lowercase();
         if !patterns.iter().any(|p| lower.contains(p.as_ref().to_lowercase().as_str())) {
             return None;
         }
-        let idx = lower
-            .find("resets in")
-            .or_else(|| lower.find("reset in"))
-            .or_else(|| lower.find("resets "))
-            .or_else(|| lower.find("try again at"))?;
-        let fragment = &plain[idx..];
-        let end = fragment.find(['.', '\n']).unwrap_or(fragment.len());
-        Some(fragment[..end].trim().to_string())
+        extract_reset_hint(&plain, &lower)
     })
 }
 
@@ -955,6 +961,37 @@ echo '{"status":"working","confidence":0.9}'
         );
         let hint = detect_usage_limit_hint_raw(&["usage limit reached"], &text).unwrap();
         assert!(hint.starts_with("resets in 2h"));
-        assert!(hint.chars().count() <= 60, "hint too long: {hint}");
+        let len = hint.chars().count();
+        assert!((70..=80).contains(&len), "cap not applied near 80: {len} ({hint})");
+    }
+
+    #[test]
+    fn detect_usage_limit_hint_raw_stops_at_middle_dot_separator() {
+        let text = "You've hit your session limit · resets 1pm (Europe/Oslo) · /effort ────";
+        assert_eq!(
+            detect_usage_limit_hint_raw(&["you've hit your session limit"], text).as_deref(),
+            Some("resets 1pm (Europe/Oslo)")
+        );
+    }
+
+    #[test]
+    fn detect_usage_limit_hint_raw_survives_codepoints_that_shrink_when_lowercased() {
+        // Kelvin sign (3 bytes) lowercases to 'k' (1 byte); with Unicode
+        // to_lowercase the anchor index found in the lowered string is not a
+        // char boundary in the original and slicing panics.
+        let text = "\u{212A}\u{00E9} session limit reached, resets 5pm (UTC)";
+        assert_eq!(
+            detect_usage_limit_hint_raw(&["session limit"], text).as_deref(),
+            Some("resets 5pm (UTC)")
+        );
+    }
+
+    #[test]
+    fn detect_usage_limit_hint_line_path_is_bounded_too() {
+        let lines = vec!["You've hit your session limit · resets in 2h │ other column".into()];
+        assert_eq!(
+            detect_usage_limit_hint(&["you've hit your session limit"], &lines).as_deref(),
+            Some("resets in 2h")
+        );
     }
 }
