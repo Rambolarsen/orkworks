@@ -664,7 +664,8 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
 
     let peon_times = state.peon.last_inference.read().unwrap();
     let mut pending_transitions: Vec<(String, bool, bool)> = Vec::new();
-    let mut capped_rechecks: HashSet<String> = HashSet::new();
+    let mut capped_recheck_resets: HashSet<String> = HashSet::new();
+    let mut capped_clear_baselines: HashMap<String, (usize, usize)> = HashMap::new();
     let mut infos: Vec<SessionInfo> = live_sessions.into_iter().map(|(info, snapshot, scan_buf, prev_latch, pending, origin, pending_visible_once)| {
         let id = info.id.clone();
         let meta = metadata_map.get(&id);
@@ -679,23 +680,47 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
         let limit_adapter = adapter_harness_id
             .as_deref()
             .and_then(|hid| state.adapters.get(hid));
-        let cap_recheck_consumed = prev_latch && !pending && origin.is_some() && fresh_output_since_origin;
+        let stale_cap_recheck = prev_latch && !pending && origin.is_some();
+        let baseline_scoped_detection = !prev_latch && !pending && origin.is_some();
         merged.at_usage_limit = limit_adapter.map(|adapter| {
             let detected_full =
                 peon::detect_usage_limit(&adapter.limit_patterns, &snapshot)
                     || peon::detect_usage_limit_raw(&adapter.limit_patterns, &scan_buf);
-            if cap_recheck_consumed {
+            if stale_cap_recheck && fresh_output_since_origin {
                 let (line_count, scan_len) = origin.unwrap();
                 let fresh_lines = snapshot.get(line_count..).unwrap_or(&[]);
                 let fresh_scan = scan_buf.get(scan_len..).unwrap_or("");
-                peon::detect_usage_limit(&adapter.limit_patterns, fresh_lines)
-                    || peon::detect_usage_limit_raw(&adapter.limit_patterns, fresh_scan)
+                let detected_scoped =
+                    peon::detect_usage_limit(&adapter.limit_patterns, fresh_lines)
+                        || peon::detect_usage_limit_raw(&adapter.limit_patterns, fresh_scan);
+                capped_recheck_resets.insert(id.clone());
+                if !detected_scoped {
+                    capped_clear_baselines.insert(id.clone(), (snapshot.len(), scan_buf.len()));
+                }
+                detected_scoped
+            } else if baseline_scoped_detection {
+                let (line_count, scan_len) = origin.unwrap();
+                let fresh_lines = snapshot.get(line_count..).unwrap_or(&[]);
+                let fresh_scan = scan_buf.get(scan_len..).unwrap_or("");
+                let detected_scoped =
+                    peon::detect_usage_limit(&adapter.limit_patterns, fresh_lines)
+                        || peon::detect_usage_limit_raw(&adapter.limit_patterns, fresh_scan);
+                if detected_scoped {
+                    capped_recheck_resets.insert(id.clone());
+                }
+                detected_scoped
             } else {
                 prev_latch || detected_full
             }
         });
         merged.usage_limit_reset_hint = limit_adapter.and_then(|adapter| {
-            if cap_recheck_consumed {
+            if stale_cap_recheck && fresh_output_since_origin {
+                let (line_count, scan_len) = origin.unwrap();
+                let fresh_lines = snapshot.get(line_count..).unwrap_or(&[]);
+                let fresh_scan = scan_buf.get(scan_len..).unwrap_or("");
+                peon::detect_usage_limit_hint(&adapter.limit_patterns, fresh_lines)
+                    .or_else(|| peon::detect_usage_limit_hint_raw(&adapter.limit_patterns, fresh_scan))
+            } else if baseline_scoped_detection {
                 let (line_count, scan_len) = origin.unwrap();
                 let fresh_lines = snapshot.get(line_count..).unwrap_or(&[]);
                 let fresh_scan = scan_buf.get(scan_len..).unwrap_or("");
@@ -711,9 +736,6 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
         } else {
             None
         };
-        if cap_recheck_consumed {
-            capped_rechecks.insert(id.clone());
-        }
         pending_transitions.push((id, has_fresh_resume_output, pending_visible_once));
         merged
     }).collect();
@@ -796,11 +818,11 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
                 if info.at_usage_limit == Some(true) {
                     handle.at_usage_limit_latched = true;
                 }
-                if capped_rechecks.contains(&info.id) {
+                if let Some(origin) = capped_clear_baselines.get(&info.id) {
+                    handle.resume_scan_origin = Some(*origin);
+                    handle.at_usage_limit_latched = false;
+                } else if capped_recheck_resets.contains(&info.id) {
                     handle.resume_scan_origin = None;
-                    if info.at_usage_limit == Some(false) {
-                        handle.at_usage_limit_latched = false;
-                    }
                 }
             }
         }
@@ -1527,7 +1549,7 @@ mod tests {
             });
         }
 
-        let response = list_sessions(State(state)).await.into_response();
+        let response = list_sessions(State(state.clone())).await.into_response();
         let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let sessions: Vec<serde_json::Value> = serde_json::from_slice(&bytes).unwrap();
         let matching = sessions
@@ -1689,7 +1711,7 @@ mod tests {
             },
         );
 
-        let response = list_sessions(State(state)).await.into_response();
+        let response = list_sessions(State(state.clone())).await.into_response();
         let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let sessions: Vec<serde_json::Value> = serde_json::from_slice(&bytes).unwrap();
         let session = sessions
@@ -1755,7 +1777,7 @@ mod tests {
             },
         );
 
-        let response = list_sessions(State(state)).await.into_response();
+        let response = list_sessions(State(state.clone())).await.into_response();
         let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let sessions: Vec<serde_json::Value> = serde_json::from_slice(&bytes).unwrap();
         let session = sessions
@@ -1901,7 +1923,7 @@ mod tests {
             .unwrap();
         assert_eq!(session.get("capacityCheckPending").and_then(|value| value.as_bool()), Some(true));
 
-        let response = list_sessions(State(state)).await.into_response();
+        let response = list_sessions(State(state.clone())).await.into_response();
         let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let sessions: Vec<serde_json::Value> = serde_json::from_slice(&bytes).unwrap();
         let session = sessions
@@ -1915,6 +1937,19 @@ mod tests {
     async fn list_sessions_does_not_mark_remembered_sessions_capped_from_other_live_sessions() {
         let dir = tempfile::tempdir().unwrap();
         let state = test_app_state_with_workspace(dir.path());
+        state.providers.apply_settings(crate::providers::ProviderSettingsPayload {
+            version: 1,
+            revision: 1,
+            peon_model: None,
+            ollama_base_url: crate::providers::default_ollama_base_url(),
+            providers: vec![crate::providers::ProviderSettingsEntry {
+                id: "codex".into(),
+                enabled: true,
+                fallback_order: 0,
+                default_state: crate::providers::ProviderCapacityState::Unknown,
+                override_state: None,
+            }],
+        });
         {
             let ws = state.workspace.lock().unwrap();
             let ws = ws.as_ref().unwrap();
@@ -1978,7 +2013,7 @@ mod tests {
             },
         );
 
-        let response = list_sessions(State(state)).await.into_response();
+        let response = list_sessions(State(state.clone())).await.into_response();
         let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let sessions: Vec<serde_json::Value> = serde_json::from_slice(&bytes).unwrap();
         let live = sessions
@@ -1993,6 +2028,10 @@ mod tests {
         assert_eq!(live.get("atUsageLimit").and_then(|value| value.as_bool()), Some(true));
         assert_eq!(remembered.get("memoryState").and_then(|value| value.as_str()), Some("remembered"));
         assert_eq!(remembered.get("atUsageLimit"), None);
+
+        let providers = state.providers.get_providers_response();
+        let codex = providers.providers.iter().find(|provider| provider.id == "codex").unwrap();
+        assert_eq!(codex.effective_state, "capped");
     }
 
     #[tokio::test]
@@ -2051,7 +2090,17 @@ mod tests {
             },
         );
 
-        let response = list_sessions(State(state)).await.into_response();
+        let response = list_sessions(State(state.clone())).await.into_response();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let sessions: Vec<serde_json::Value> = serde_json::from_slice(&bytes).unwrap();
+        let session = sessions
+            .iter()
+            .find(|session| session.get("id").and_then(|id| id.as_str()) == Some(session_id.as_str()))
+            .unwrap();
+
+        assert_eq!(session.get("atUsageLimit").and_then(|value| value.as_bool()), Some(false));
+
+        let response = list_sessions(State(state.clone())).await.into_response();
         let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let sessions: Vec<serde_json::Value> = serde_json::from_slice(&bytes).unwrap();
         let session = sessions

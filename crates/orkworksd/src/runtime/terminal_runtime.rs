@@ -123,7 +123,7 @@ fn mark_usage_limit_recheck_on_input(state: &Arc<AppState>, id: &str) {
     let Some(handle) = sessions.get_mut(id) else {
         return;
     };
-    if !handle.at_usage_limit_latched || handle.capacity_check_pending {
+    if !handle.at_usage_limit_latched || handle.capacity_check_pending || handle.resume_scan_origin.is_some() {
         return;
     }
     let Some(harness_id) = handle.info.harness_id.as_deref() else {
@@ -1109,6 +1109,64 @@ mod tests {
         let msg = serde_json::json!({"type": "unknown"});
         let action = dispatch_terminal_message(&msg);
         assert_eq!(action, TerminalAction::Noop);
+    }
+
+    #[test]
+    fn mark_usage_limit_recheck_on_input_sets_origin_once() {
+        let state = Arc::new(crate::AppState {
+            session_module: crate::infrastructure::session_module::SessionModule::new(),
+            sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
+            workspace: std::sync::Mutex::new(None),
+            peon: crate::PeonState {
+                last_output: std::sync::RwLock::new(std::collections::HashMap::new()),
+                last_inference: std::sync::RwLock::new(std::collections::HashMap::new()),
+                in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
+                label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
+                label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
+                config: crate::peon::PeonConfig::from_env(),
+            },
+            adapters: crate::harness_registry::builtin_adapters(),
+            retention_config: tokio::sync::RwLock::new(crate::RetentionConfig::default()),
+            harnesses: tokio::sync::RwLock::new(vec![]),
+            bound_port: std::sync::atomic::AtomicU16::new(0),
+            providers: crate::providers::ProviderManager::new(),
+        });
+
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        let id = "codex-latched".to_string();
+        let mut output_buffer = crate::peon::RingBuffer::new(200);
+        output_buffer.push("You've hit your usage limit".into());
+        state.sessions.lock().unwrap().insert(
+            id.clone(),
+            crate::SessionHandle {
+                info: crate::test_support::test_session_info(id.clone(), "Codex", "/tmp", "running", "now"),
+                kill_tx,
+                output_buffer,
+                scan_buf: "abc".into(),
+                command: harness::CommandSpec { program: "/bin/sh".into(), args: vec!["-i".into(), "-l".into()], cwd: "/tmp".into() },
+                initial_prompt: None,
+                at_usage_limit_latched: true,
+                capacity_check_pending: false,
+                resume_scan_origin: None,
+                pending_capacity_visible_once: false,
+            },
+        );
+        state.sessions.lock().unwrap().get_mut(&id).unwrap().info.harness_id = Some("codex".into());
+
+        mark_usage_limit_recheck_on_input(&state, &id);
+        let first_origin = state.sessions.lock().unwrap().get(&id).unwrap().resume_scan_origin;
+        assert_eq!(first_origin, Some((1, 3)));
+
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut(&id).unwrap();
+            handle.output_buffer.push("more output".into());
+            handle.scan_buf.push_str("def");
+        }
+
+        mark_usage_limit_recheck_on_input(&state, &id);
+        let second_origin = state.sessions.lock().unwrap().get(&id).unwrap().resume_scan_origin;
+        assert_eq!(second_origin, first_origin);
     }
 
     #[test]
