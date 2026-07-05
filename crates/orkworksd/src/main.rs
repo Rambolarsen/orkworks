@@ -57,8 +57,10 @@ struct SessionHandle {
     // Sticky: once usage limit is detected it stays true until the session is killed/resumed.
     at_usage_limit_latched: bool,
     capacity_check_pending: bool,
+    output_lines_seen: u64,
+    scan_bytes_seen: u64,
     // Snapshot origin used for one-shot post-resume / post-input fresh-output checks.
-    resume_scan_origin: Option<(usize, usize)>,
+    resume_scan_origin: Option<(u64, u64)>,
     pending_capacity_visible_once: bool,
 }
 
@@ -486,6 +488,8 @@ mod tests {
                 initial_prompt: None,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
+                output_lines_seen: 0,
+                scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
             });

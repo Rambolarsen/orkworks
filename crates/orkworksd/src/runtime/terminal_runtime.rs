@@ -135,7 +135,7 @@ fn mark_usage_limit_recheck_on_input(state: &Arc<AppState>, id: &str) {
     if !adapter.capabilities.detect_capacity {
         return;
     }
-    handle.resume_scan_origin = Some((handle.output_buffer.len(), handle.scan_buf.len()));
+    handle.resume_scan_origin = Some((handle.output_lines_seen, handle.scan_bytes_seen));
 }
 
 pub(crate) fn should_forward_terminal_env(key: &str) -> bool {
@@ -778,8 +778,10 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
                                 handle.output_buffer.push(trimmed.to_string());
                             }
                         }
+                        handle.output_lines_seen += raw_persist_lines.len() as u64;
                         // Also feed raw PTY chunk into scan_buf for TUI apps (cursor-positioned, no newlines).
                         let stripped = peon::strip_ansi(&String::from_utf8_lossy(&data));
+                        handle.scan_bytes_seen += stripped.len() as u64;
                         handle.scan_buf.push_str(&stripped);
                         const MAX_SCAN: usize = 8192;
                         if handle.scan_buf.len() > MAX_SCAN {
@@ -1147,6 +1149,8 @@ mod tests {
                 initial_prompt: None,
                 at_usage_limit_latched: true,
                 capacity_check_pending: false,
+                output_lines_seen: 1,
+                scan_bytes_seen: 3,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
             },
@@ -1162,6 +1166,8 @@ mod tests {
             let handle = sessions.get_mut(&id).unwrap();
             handle.output_buffer.push("more output".into());
             handle.scan_buf.push_str("def");
+            handle.output_lines_seen += 1;
+            handle.scan_bytes_seen += 3;
         }
 
         mark_usage_limit_recheck_on_input(&state, &id);
@@ -1203,6 +1209,8 @@ mod tests {
                 initial_prompt: None,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
+                output_lines_seen: 0,
+                scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
             },
@@ -1270,6 +1278,8 @@ mod tests {
                 initial_prompt: None,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
+                output_lines_seen: 0,
+                scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
             },
@@ -1326,6 +1336,8 @@ mod tests {
                 initial_prompt: None,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
+                output_lines_seen: 0,
+                scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
             },
@@ -1447,6 +1459,8 @@ mod tests {
                 initial_prompt: None,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
+                output_lines_seen: 0,
+                scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
             },
@@ -1606,6 +1620,8 @@ mod tests {
                 initial_prompt: None,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
+                output_lines_seen: 0,
+                scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
             },

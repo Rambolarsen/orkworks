@@ -281,6 +281,8 @@ mod tests {
                 initial_prompt: None,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
+                output_lines_seen: 0,
+                scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
             };
@@ -448,6 +450,8 @@ mod tests {
                 initial_prompt: None,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
+                output_lines_seen: 0,
+                scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
             };
@@ -523,6 +527,8 @@ mod tests {
                 initial_prompt: None,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
+                output_lines_seen: 0,
+                scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
             };
@@ -607,6 +613,8 @@ mod tests {
                 initial_prompt: None,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
+                output_lines_seen: 0,
+                scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
             };
@@ -756,6 +764,8 @@ mod tests {
                 initial_prompt: None,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
+                output_lines_seen: 0,
+                scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
             };
@@ -905,6 +915,8 @@ mod tests {
                 initial_prompt: None,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
+                output_lines_seen: 0,
+                scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
             };
