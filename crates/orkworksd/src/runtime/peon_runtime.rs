@@ -106,8 +106,15 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                                 })
                                 .unwrap_or(true);
                             if should_write {
-                                ws.metadata.merge_peon_inference(&id, &inf, &now_iso, provider_result.observation.as_ref());
-                                inf.summary.as_ref().map(|s| s.chars().take(100).collect())
+                                match ws.metadata.merge_peon_inference(&id, &inf, &now_iso, provider_result.observation.as_ref()) {
+                                    Ok(()) => inf.summary.as_ref().map(|s| s.chars().take(100).collect()),
+                                    Err(error) => {
+                                        // Persist failed: keep the in-memory label in
+                                        // sync with what's actually on disk.
+                                        tracing::warn!(session_id = %id, %error, "peon: inference not persisted");
+                                        None
+                                    }
+                                }
                             } else {
                                 tracing::debug!(session_id = %id, "peon: skipping, higher-priority source exists");
                                 None

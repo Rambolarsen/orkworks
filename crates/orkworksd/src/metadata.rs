@@ -615,6 +615,30 @@ pub enum AttentionMergeResult {
     Accepted,
     Ignored,
     NotFound,
+    /// The signal was accepted but could not be persisted; callers must not
+    /// acknowledge it as delivered (the hook needs a non-2xx so it can retry).
+    PersistFailed,
+}
+
+/// Writes `contents` to `path` via a temp file in the same directory plus an
+/// atomic rename, so readers never observe a partially written file and a
+/// mid-write kill cannot corrupt the previous contents.
+fn write_atomic(path: &std::path::Path, contents: &str) -> std::io::Result<()> {
+    let tmp = tmp_write_path(path);
+    fs::write(&tmp, contents)?;
+    fs::rename(&tmp, path)
+}
+
+fn tmp_write_path(path: &std::path::Path) -> PathBuf {
+    let mut name = path.file_name().map(|n| n.to_os_string()).unwrap_or_default();
+    name.push(".tmp");
+    path.with_file_name(name)
+}
+
+fn corrupt_session_path(path: &std::path::Path) -> PathBuf {
+    let mut name = path.file_name().map(|n| n.to_os_string()).unwrap_or_default();
+    name.push(".corrupt");
+    path.with_file_name(name)
 }
 
 pub fn valid_harness_session_id(id: &str) -> bool {
@@ -666,7 +690,7 @@ impl MetadataStore {
         let path = self.workspace_memory_path();
         match serde_json::to_string_pretty(memory) {
             Ok(json) => {
-                if let Err(e) = fs::write(&path, json) {
+                if let Err(e) = write_atomic(&path, &json) {
                     warn!("failed to write workspace memory {:?}: {e}", path);
                 }
             }
@@ -683,38 +707,80 @@ impl MetadataStore {
         let mut sessions: Vec<SessionMetadata> = entries
             .filter_map(|entry| entry.ok())
             .filter(|entry| entry.path().extension().and_then(|e| e.to_str()) == Some("json"))
-            .filter_map(|entry| fs::read_to_string(entry.path()).ok())
-            .filter_map(|data| serde_json::from_str::<SessionMetadata>(&data).ok())
-            .map(normalize_session_metadata)
+            .filter_map(|entry| self.load_session_file(&entry.path()))
             .collect();
         sessions.sort_by(|a, b| a.created_at.cmp(&b.created_at));
         sessions
     }
 
-    pub fn write_session(&self, meta: &SessionMetadata) {
-        let dir = self.sessions_dir();
-        if let Err(e) = fs::create_dir_all(&dir) {
-            warn!("failed to create sessions dir {:?}: {e}", dir);
-            return;
-        }
-        let path = dir.join(format!("{}.json", meta.id));
-        match serde_json::to_string_pretty(meta) {
-            Ok(json) => {
-                if let Err(e) = fs::write(&path, json) {
-                    warn!("failed to write session {}: {e}", meta.id);
-                }
+    /// Reads and parses one session file. A file that exists but does not
+    /// parse is quarantined (renamed to `<id>.json.corrupt`) and logged, so a
+    /// corrupt session disappears from the list observably instead of
+    /// silently — and only once, not on every poll.
+    fn load_session_file(&self, path: &std::path::Path) -> Option<SessionMetadata> {
+        let data = match fs::read_to_string(path) {
+            Ok(data) => data,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
+            Err(e) => {
+                warn!("failed to read session file {:?}: {e}", path);
+                return None;
             }
-            Err(e) => warn!("failed to serialize session {}: {e}", meta.id),
+        };
+        match serde_json::from_str::<SessionMetadata>(&data) {
+            Ok(meta) => Some(normalize_session_metadata(meta)),
+            Err(e) => {
+                let quarantine = corrupt_session_path(path);
+                match fs::rename(path, &quarantine) {
+                    Ok(()) => warn!(
+                        "session file {:?} is corrupt ({e}); quarantined to {:?}",
+                        path, quarantine
+                    ),
+                    Err(rename_err) => warn!(
+                        "session file {:?} is corrupt ({e}) and could not be quarantined: {rename_err}",
+                        path
+                    ),
+                }
+                None
+            }
         }
+    }
+
+    /// Persists a session atomically: the JSON is written to a temp file in
+    /// the same directory and renamed into place, so a process killed
+    /// mid-write leaves the previous valid file, never a truncated one.
+    pub fn try_write_session(&self, meta: &SessionMetadata) -> std::io::Result<()> {
+        let dir = self.sessions_dir();
+        fs::create_dir_all(&dir)?;
+        let path = dir.join(format!("{}.json", meta.id));
+        let json = serde_json::to_string_pretty(meta)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        write_atomic(&path, &json)
+    }
+
+    pub fn write_session(&self, meta: &SessionMetadata) {
+        if let Err(e) = self.try_write_session(meta) {
+            warn!("failed to write session {}: {e}", meta.id);
+        }
+    }
+
+    /// True when a metadata file for this session is present on disk — even
+    /// one that no longer parses. Cleanup paths must treat a corrupt-but-
+    /// present session as existing, or it becomes undeletable.
+    pub fn session_file_exists(&self, id: &str) -> bool {
+        let path = self.sessions_dir().join(format!("{}.json", id));
+        path.exists() || corrupt_session_path(&path).exists()
     }
 
     pub fn delete_session(&self, id: &str) -> std::io::Result<()> {
         let path = self.sessions_dir().join(format!("{}.json", id));
-        match fs::remove_file(&path) {
-            Ok(_) => Ok(()),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(e) => Err(e),
+        for target in [path.clone(), corrupt_session_path(&path)] {
+            match fs::remove_file(&target) {
+                Ok(_) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => return Err(e),
+            }
         }
+        Ok(())
     }
 
     pub fn delete_events(&self, id: &str) -> std::io::Result<()> {
@@ -760,8 +826,7 @@ impl MetadataStore {
 
     pub fn read_session(&self, id: &str) -> Option<SessionMetadata> {
         let path = self.sessions_dir().join(format!("{}.json", id));
-        let data = fs::read_to_string(&path).ok()?;
-        serde_json::from_str(&data).ok().map(normalize_session_metadata)
+        self.load_session_file(&path)
     }
 
     pub fn session_modified_secs_ago(&self, id: &str) -> Option<u64> {
@@ -803,7 +868,9 @@ impl MetadataStore {
         meta.provider_label = Some(provider.provider_label.clone());
         meta.provider_model = provider.provider_model.clone();
         meta.provider_state = Some(provider.provider_state.clone());
-        self.write_session(&meta);
+        if let Err(e) = self.try_write_session(&meta) {
+            warn!("failed to persist provider context for {id}: {e}");
+        }
     }
 
     pub fn merge_harness_session_report(
@@ -893,7 +960,10 @@ impl MetadataStore {
         }
         meta.metadata_source = "agent".into();
         meta.metadata_confidence = 1.0;
-        self.write_session(&meta);
+        if let Err(e) = self.try_write_session(&meta) {
+            warn!("failed to persist attention signal for {id}: {e}");
+            return AttentionMergeResult::PersistFailed;
+        }
 
         self.append_event(id, &Event {
             event_type: "session.attention_reported".into(),
@@ -906,16 +976,19 @@ impl MetadataStore {
         AttentionMergeResult::Accepted
     }
 
+    /// Returns `Err` when the merged metadata could not be persisted, so the
+    /// caller does not treat the inference as landed (e.g. updating in-memory
+    /// state to match a write that never happened).
     pub fn merge_peon_inference(
         &self,
         id: &str,
         inf: &crate::peon::PeonInference,
         timestamp: &str,
         provider: Option<&crate::providers::ProviderObservation>,
-    ) {
+    ) -> std::io::Result<()> {
         let mut meta = match self.read_session(id) {
             Some(m) => m,
-            None => return,
+            None => return Ok(()),
         };
         let peon_harness_session_report =
             inf.harness_session_id.as_ref().map(|sid| HarnessSessionReport {
@@ -967,7 +1040,7 @@ impl MetadataStore {
             meta.provider_state = Some(p.provider_state.clone());
         }
 
-        self.write_session(&meta);
+        self.try_write_session(&meta)?;
 
         self.append_event(id, &Event {
             event_type: "peon.inference".into(),
@@ -980,6 +1053,7 @@ impl MetadataStore {
         if let Some(report) = peon_harness_session_report {
             let _ = self.merge_harness_session_report(id, &report, timestamp);
         }
+        Ok(())
     }
 
     fn terminal_output_path(&self, id: &str) -> PathBuf {
@@ -1236,7 +1310,7 @@ mod tests {
             detected_model: None,
             harness_session_id: None,
         };
-        store.merge_peon_inference("rename-test", &inf, "t1", None);
+        store.merge_peon_inference("rename-test", &inf, "t1", None).unwrap();
         let meta = store.read_session("rename-test").unwrap();
         // Peon no longer updates the label — harness/model are recorded but label is unchanged
         assert_eq!(meta.label, "Session abc12345");
@@ -1253,7 +1327,7 @@ mod tests {
             detected_model: Some("claude-sonnet-4-5".into()),
             harness_session_id: None,
         };
-        store.merge_peon_inference("rename-test", &inf2, "t2", None);
+        store.merge_peon_inference("rename-test", &inf2, "t2", None).unwrap();
         let meta2 = store.read_session("rename-test").unwrap();
         assert_eq!(meta2.label, "Session abc12345");
         assert_eq!(meta2.harness, "claude-code");
@@ -1331,7 +1405,7 @@ mod tests {
             harness_session_id: None,
         };
 
-        store.merge_peon_inference("test-peon-observer", &inf, "later", None);
+        store.merge_peon_inference("test-peon-observer", &inf, "later", None).unwrap();
 
         let meta = store.read_session("test-peon-observer").unwrap();
         assert_eq!(meta.status, "running");
@@ -1627,7 +1701,7 @@ mod tests {
             detected_model: Some("claude-sonnet-4-5".into()),
             harness_session_id: Some("sess-abc123".into()),
         };
-        store.merge_peon_inference("session-id-test", &inf, "2026-06-20T12:00:00Z", None);
+        store.merge_peon_inference("session-id-test", &inf, "2026-06-20T12:00:00Z", None).unwrap();
 
         let updated = store.read_session("session-id-test").unwrap();
         let resume = updated.resume.unwrap();
@@ -1672,7 +1746,7 @@ mod tests {
             detected_model: None,
             harness_session_id: Some("native-peon".into()),
         };
-        store.merge_peon_inference("peon-confidence-test", &inf, "2026-06-26T12:00:00Z", None);
+        store.merge_peon_inference("peon-confidence-test", &inf, "2026-06-26T12:00:00Z", None).unwrap();
 
         let updated = store.read_session("peon-confidence-test").unwrap();
         assert_eq!(
@@ -1699,7 +1773,7 @@ mod tests {
             detected_model: None,
             harness_session_id: Some("".into()),
         };
-        store.merge_peon_inference("empty-sid-test", &inf, "2026-06-20T12:00:00Z", None);
+        store.merge_peon_inference("empty-sid-test", &inf, "2026-06-20T12:00:00Z", None).unwrap();
 
         let updated = store.read_session("empty-sid-test").unwrap();
         assert!(updated.resume.is_none());
@@ -1724,7 +1798,7 @@ mod tests {
                 detected_model: None,
                 harness_session_id: Some("ab".into()),
             };
-            store.merge_peon_inference("short-sid", &inf, "2026-06-20T12:00:00Z", None);
+            store.merge_peon_inference("short-sid", &inf, "2026-06-20T12:00:00Z", None).unwrap();
             assert!(store.read_session("short-sid").unwrap().resume.is_none());
         }
 
@@ -1742,7 +1816,7 @@ mod tests {
                 detected_model: None,
                 harness_session_id: Some("not an id".into()),
             };
-            store.merge_peon_inference("whitespace-sid", &inf, "2026-06-20T12:00:00Z", None);
+            store.merge_peon_inference("whitespace-sid", &inf, "2026-06-20T12:00:00Z", None).unwrap();
             assert!(store.read_session("whitespace-sid").unwrap().resume.is_none());
         }
     }
@@ -1867,7 +1941,7 @@ mod tests {
             provider_state: "healthy".into(),
         };
 
-        store.merge_peon_inference("provider-context", &inf, "later", Some(&provider));
+        store.merge_peon_inference("provider-context", &inf, "later", Some(&provider)).unwrap();
 
         let meta = store.read_session("provider-context").unwrap();
         assert_eq!(meta.provider_id.as_deref(), Some("claude-code"));
@@ -1940,5 +2014,98 @@ mod tests {
         let meta = store.read_session("legacy-ended").unwrap();
         assert_eq!(meta.connectivity, "offline");
         assert_eq!(meta.terminal_outcome.as_deref(), Some("ended"));
+    }
+
+    #[test]
+    fn read_session_quarantines_corrupt_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        store.write_session(&test_metadata("corrupt-read"));
+
+        // Simulate a mid-write kill: truncated JSON left on disk.
+        let path = store.sessions_dir().join("corrupt-read.json");
+        std::fs::write(&path, "{\"id\": \"corrupt-read\", \"label\": \"Tru").unwrap();
+
+        assert!(store.read_session("corrupt-read").is_none());
+        assert!(
+            !path.exists(),
+            "corrupt session file must be quarantined, not left in place"
+        );
+        assert!(
+            store.sessions_dir().join("corrupt-read.json.corrupt").exists(),
+            "corrupt session file must be renamed to .corrupt so the loss is observable"
+        );
+    }
+
+    #[test]
+    fn read_all_sessions_skips_and_quarantines_corrupt_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        store.write_session(&test_metadata("healthy"));
+        std::fs::write(
+            store.sessions_dir().join("mangled.json"),
+            "{\"id\": \"mangled\",",
+        )
+        .unwrap();
+
+        let sessions = store.read_all_sessions();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].id, "healthy");
+        assert!(!store.sessions_dir().join("mangled.json").exists());
+        assert!(store.sessions_dir().join("mangled.json.corrupt").exists());
+    }
+
+    #[test]
+    fn write_session_leaves_no_temp_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        store.write_session(&test_metadata("tmp-clean"));
+
+        let leftovers: Vec<_> = std::fs::read_dir(store.sessions_dir())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().extension().and_then(|x| x.to_str()) != Some("json"))
+            .collect();
+        assert!(leftovers.is_empty(), "atomic write must not leave temp files: {leftovers:?}");
+        assert_eq!(store.read_session("tmp-clean").unwrap().id, "tmp-clean");
+    }
+
+    #[test]
+    fn try_write_session_reports_failure_when_sessions_dir_is_a_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        // A file squatting on the sessions dir path makes create_dir_all fail.
+        std::fs::write(store.sessions_dir(), "not a directory").unwrap();
+
+        assert!(store.try_write_session(&test_metadata("doomed")).is_err());
+    }
+
+    #[test]
+    fn merge_agent_attention_signal_reports_persist_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        store.write_session(&test_metadata("att-fail"));
+        // A directory squatting on the temp path makes the atomic write fail
+        // while the session itself remains readable.
+        std::fs::create_dir_all(store.sessions_dir().join("att-fail.json.tmp")).unwrap();
+
+        let result =
+            store.merge_agent_attention_signal("att-fail", "waiting_for_input", None, "now");
+        assert_eq!(result, AttentionMergeResult::PersistFailed);
+        // The stored metadata must not claim the signal landed.
+        let meta = store.read_session("att-fail").unwrap();
+        assert_eq!(meta.observed_status, None);
+    }
+
+    #[test]
+    fn merge_peon_inference_reports_persist_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        store.write_session(&test_metadata("peon-fail"));
+        std::fs::create_dir_all(store.sessions_dir().join("peon-fail.json.tmp")).unwrap();
+
+        let inf: crate::peon::PeonInference =
+            serde_json::from_str(r#"{"status":"working","confidence":0.9}"#).unwrap();
+        assert!(store.merge_peon_inference("peon-fail", &inf, "now", None).is_err());
     }
 }

@@ -394,6 +394,11 @@ pub(crate) async fn report_attention(
             axum::http::StatusCode::OK.into_response()
         }
         metadata::AttentionMergeResult::NotFound => axum::http::StatusCode::NOT_FOUND.into_response(),
+        // The signal was lost, not delivered — a 200 here would tell the
+        // harness hook its notification landed when it didn't.
+        metadata::AttentionMergeResult::PersistFailed => {
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
     }
 }
 
@@ -902,7 +907,9 @@ pub(crate) async fn forget_session(
         None => return axum::http::StatusCode::CONFLICT.into_response(),
     };
 
-    if ws.metadata.read_session(&id).is_none() {
+    // Existence, not parseability: a corrupt-but-present metadata file must
+    // still be forgettable, or the session becomes undeletable via the API.
+    if !ws.metadata.session_file_exists(&id) {
         return axum::http::StatusCode::NOT_FOUND.into_response();
     }
 
@@ -1270,6 +1277,73 @@ mod tests {
         let updated = ws.as_ref().unwrap().metadata.read_session("attention-known").unwrap();
         assert_eq!(updated.observed_status.as_deref(), Some("waiting_for_input"));
         assert_eq!(updated.metadata_source, "agent");
+    }
+
+    #[tokio::test]
+    async fn report_attention_returns_500_when_persist_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        {
+            let ws = state.workspace.lock().unwrap();
+            let store = &ws.as_ref().unwrap().metadata;
+            store.write_session(&test_session_metadata(
+                "attention-persist-fail",
+                "Known",
+                dir.path().display().to_string(),
+                "running",
+                "now",
+                "now",
+            ));
+            // A directory squatting on the atomic-write temp path makes the
+            // persist fail while the session stays readable.
+            std::fs::create_dir_all(
+                store.sessions_dir().join("attention-persist-fail.json.tmp"),
+            )
+            .unwrap();
+        }
+
+        let response = report_attention(
+            State(state),
+            Path("attention-persist-fail".into()),
+            Json(AttentionReportRequest {
+                status: "waiting_for_input".into(),
+                message: None,
+            }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(
+            response.status(),
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            "a lost attention signal must not be acknowledged with 200"
+        );
+    }
+
+    #[tokio::test]
+    async fn forget_session_deletes_session_with_unparseable_metadata_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let (json_path, corrupt_path) = {
+            let ws = state.workspace.lock().unwrap();
+            let store = &ws.as_ref().unwrap().metadata;
+            std::fs::create_dir_all(store.sessions_dir()).unwrap();
+            let json_path = store.sessions_dir().join("corrupt-forget.json");
+            std::fs::write(&json_path, "{\"id\": \"corrupt-forget\",").unwrap();
+            (json_path, store.sessions_dir().join("corrupt-forget.json.corrupt"))
+        };
+
+        let response = forget_session(State(state), Path("corrupt-forget".into()))
+            .await
+            .into_response();
+
+        assert_eq!(
+            response.status(),
+            axum::http::StatusCode::OK,
+            "a corrupt-but-present session file must be forgettable, not 404"
+        );
+        assert!(!json_path.exists());
+        assert!(!corrupt_path.exists());
     }
 
     #[tokio::test]
