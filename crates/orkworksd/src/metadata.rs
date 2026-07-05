@@ -1310,7 +1310,7 @@ mod tests {
             detected_model: None,
             harness_session_id: None,
         };
-        store.merge_peon_inference("rename-test", &inf, "t1", None);
+        store.merge_peon_inference("rename-test", &inf, "t1", None).unwrap();
         let meta = store.read_session("rename-test").unwrap();
         // Peon no longer updates the label — harness/model are recorded but label is unchanged
         assert_eq!(meta.label, "Session abc12345");
@@ -1327,7 +1327,7 @@ mod tests {
             detected_model: Some("claude-sonnet-4-5".into()),
             harness_session_id: None,
         };
-        store.merge_peon_inference("rename-test", &inf2, "t2", None);
+        store.merge_peon_inference("rename-test", &inf2, "t2", None).unwrap();
         let meta2 = store.read_session("rename-test").unwrap();
         assert_eq!(meta2.label, "Session abc12345");
         assert_eq!(meta2.harness, "claude-code");
@@ -1405,7 +1405,7 @@ mod tests {
             harness_session_id: None,
         };
 
-        store.merge_peon_inference("test-peon-observer", &inf, "later", None);
+        store.merge_peon_inference("test-peon-observer", &inf, "later", None).unwrap();
 
         let meta = store.read_session("test-peon-observer").unwrap();
         assert_eq!(meta.status, "running");
@@ -1701,7 +1701,7 @@ mod tests {
             detected_model: Some("claude-sonnet-4-5".into()),
             harness_session_id: Some("sess-abc123".into()),
         };
-        store.merge_peon_inference("session-id-test", &inf, "2026-06-20T12:00:00Z", None);
+        store.merge_peon_inference("session-id-test", &inf, "2026-06-20T12:00:00Z", None).unwrap();
 
         let updated = store.read_session("session-id-test").unwrap();
         let resume = updated.resume.unwrap();
@@ -1746,7 +1746,7 @@ mod tests {
             detected_model: None,
             harness_session_id: Some("native-peon".into()),
         };
-        store.merge_peon_inference("peon-confidence-test", &inf, "2026-06-26T12:00:00Z", None);
+        store.merge_peon_inference("peon-confidence-test", &inf, "2026-06-26T12:00:00Z", None).unwrap();
 
         let updated = store.read_session("peon-confidence-test").unwrap();
         assert_eq!(
@@ -1773,7 +1773,7 @@ mod tests {
             detected_model: None,
             harness_session_id: Some("".into()),
         };
-        store.merge_peon_inference("empty-sid-test", &inf, "2026-06-20T12:00:00Z", None);
+        store.merge_peon_inference("empty-sid-test", &inf, "2026-06-20T12:00:00Z", None).unwrap();
 
         let updated = store.read_session("empty-sid-test").unwrap();
         assert!(updated.resume.is_none());
@@ -1798,7 +1798,7 @@ mod tests {
                 detected_model: None,
                 harness_session_id: Some("ab".into()),
             };
-            store.merge_peon_inference("short-sid", &inf, "2026-06-20T12:00:00Z", None);
+            store.merge_peon_inference("short-sid", &inf, "2026-06-20T12:00:00Z", None).unwrap();
             assert!(store.read_session("short-sid").unwrap().resume.is_none());
         }
 
@@ -1816,7 +1816,7 @@ mod tests {
                 detected_model: None,
                 harness_session_id: Some("not an id".into()),
             };
-            store.merge_peon_inference("whitespace-sid", &inf, "2026-06-20T12:00:00Z", None);
+            store.merge_peon_inference("whitespace-sid", &inf, "2026-06-20T12:00:00Z", None).unwrap();
             assert!(store.read_session("whitespace-sid").unwrap().resume.is_none());
         }
     }
@@ -1941,7 +1941,7 @@ mod tests {
             provider_state: "healthy".into(),
         };
 
-        store.merge_peon_inference("provider-context", &inf, "later", Some(&provider));
+        store.merge_peon_inference("provider-context", &inf, "later", Some(&provider)).unwrap();
 
         let meta = store.read_session("provider-context").unwrap();
         assert_eq!(meta.provider_id.as_deref(), Some("claude-code"));
