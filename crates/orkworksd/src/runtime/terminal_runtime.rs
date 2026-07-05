@@ -118,6 +118,26 @@ pub(crate) fn collect_input_line(buf: &mut String, data: &str) -> Option<String>
     result
 }
 
+fn mark_usage_limit_recheck_on_input(state: &Arc<AppState>, id: &str) {
+    let mut sessions = state.sessions.lock().unwrap();
+    let Some(handle) = sessions.get_mut(id) else {
+        return;
+    };
+    if !handle.at_usage_limit_latched || handle.capacity_check_pending {
+        return;
+    }
+    let Some(harness_id) = handle.info.harness_id.as_deref() else {
+        return;
+    };
+    let Some(adapter) = state.adapters.get(harness_id) else {
+        return;
+    };
+    if !adapter.capabilities.detect_capacity {
+        return;
+    }
+    handle.resume_scan_origin = Some((handle.output_buffer.len(), handle.scan_buf.len()));
+}
+
 pub(crate) fn should_forward_terminal_env(key: &str) -> bool {
     key != "NODE_OPTIONS"
         && key != "VSCODE_INSPECTOR_OPTIONS"
@@ -661,6 +681,9 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
             if let TerminalAction::Input(data) = dispatch_terminal_message(&val) {
                 let _ = writer.write_all(data.as_bytes());
                 let _ = writer.flush();
+                if !data.is_empty() {
+                    mark_usage_limit_recheck_on_input(&state, &id);
+                }
                 if let Some(line) = collect_input_line(&mut input_buf, &data) {
                     let is_sensitive = {
                         let sessions = state.sessions.lock().unwrap();
@@ -839,6 +862,9 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
                             TerminalAction::Input(data) => {
                                 let _ = writer.write_all(data.as_bytes());
                                 let _ = writer.flush();
+                                if !data.is_empty() {
+                                    mark_usage_limit_recheck_on_input(&state, &id);
+                                }
 
                                 let mut triggered_label = false;
                                 if let Some(line) = collect_input_line(&mut input_buf, &data) {

@@ -664,6 +664,7 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
 
     let peon_times = state.peon.last_inference.read().unwrap();
     let mut pending_transitions: Vec<(String, bool, bool)> = Vec::new();
+    let mut capped_rechecks: HashSet<String> = HashSet::new();
     let mut infos: Vec<SessionInfo> = live_sessions.into_iter().map(|(info, snapshot, scan_buf, prev_latch, pending, origin, pending_visible_once)| {
         let id = info.id.clone();
         let meta = metadata_map.get(&id);
@@ -671,26 +672,48 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
         let adapter_harness_id = resolve_adapter_harness_id(&harnesses, session_harness_id);
         let caps = capabilities_for_harness(&state.adapters, adapter_harness_id.as_deref());
         let mut merged = merge_live_session_info(info, meta, peon_times.get(&id), &caps);
-        let has_fresh_resume_output = pending
-            && !pending_visible_once
-            && origin.map(|(line_count, scan_len)| {
-                snapshot.len() > line_count || scan_buf.len() > scan_len
-            }).unwrap_or(false);
+        let fresh_output_since_origin = origin.map(|(line_count, scan_len)| {
+            snapshot.len() > line_count || scan_buf.len() > scan_len
+        }).unwrap_or(false);
+        let has_fresh_resume_output = pending && !pending_visible_once && fresh_output_since_origin;
         let limit_adapter = adapter_harness_id
             .as_deref()
             .and_then(|hid| state.adapters.get(hid));
-        merged.at_usage_limit = limit_adapter
-            .map(|adapter| prev_latch
-                || peon::detect_usage_limit(&adapter.limit_patterns, &snapshot)
-                || peon::detect_usage_limit_raw(&adapter.limit_patterns, &scan_buf));
-        merged.usage_limit_reset_hint = limit_adapter
-            .and_then(|adapter| peon::detect_usage_limit_hint(&adapter.limit_patterns, &snapshot)
-                .or_else(|| peon::detect_usage_limit_hint_raw(&adapter.limit_patterns, &scan_buf)));
+        let cap_recheck_consumed = prev_latch && !pending && origin.is_some() && fresh_output_since_origin;
+        merged.at_usage_limit = limit_adapter.map(|adapter| {
+            let detected_full =
+                peon::detect_usage_limit(&adapter.limit_patterns, &snapshot)
+                    || peon::detect_usage_limit_raw(&adapter.limit_patterns, &scan_buf);
+            if cap_recheck_consumed {
+                let (line_count, scan_len) = origin.unwrap();
+                let fresh_lines = snapshot.get(line_count..).unwrap_or(&[]);
+                let fresh_scan = scan_buf.get(scan_len..).unwrap_or("");
+                peon::detect_usage_limit(&adapter.limit_patterns, fresh_lines)
+                    || peon::detect_usage_limit_raw(&adapter.limit_patterns, fresh_scan)
+            } else {
+                prev_latch || detected_full
+            }
+        });
+        merged.usage_limit_reset_hint = limit_adapter.and_then(|adapter| {
+            if cap_recheck_consumed {
+                let (line_count, scan_len) = origin.unwrap();
+                let fresh_lines = snapshot.get(line_count..).unwrap_or(&[]);
+                let fresh_scan = scan_buf.get(scan_len..).unwrap_or("");
+                peon::detect_usage_limit_hint(&adapter.limit_patterns, fresh_lines)
+                    .or_else(|| peon::detect_usage_limit_hint_raw(&adapter.limit_patterns, fresh_scan))
+            } else {
+                peon::detect_usage_limit_hint(&adapter.limit_patterns, &snapshot)
+                    .or_else(|| peon::detect_usage_limit_hint_raw(&adapter.limit_patterns, &scan_buf))
+            }
+        });
         merged.capacity_check_pending = if pending && !pending_visible_once {
             Some(true)
         } else {
             None
         };
+        if cap_recheck_consumed {
+            capped_rechecks.insert(id.clone());
+        }
         pending_transitions.push((id, has_fresh_resume_output, pending_visible_once));
         merged
     }).collect();
@@ -769,9 +792,15 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
     {
         let mut sessions = state.sessions.lock().unwrap();
         for info in &infos {
-            if info.at_usage_limit == Some(true) {
-                if let Some(handle) = sessions.get_mut(&info.id) {
+            if let Some(handle) = sessions.get_mut(&info.id) {
+                if info.at_usage_limit == Some(true) {
                     handle.at_usage_limit_latched = true;
+                }
+                if capped_rechecks.contains(&info.id) {
+                    handle.resume_scan_origin = None;
+                    if info.at_usage_limit == Some(false) {
+                        handle.at_usage_limit_latched = false;
+                    }
                 }
             }
         }
@@ -797,9 +826,9 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
         }
     }
 
-    // Propagate capacity state across all sessions sharing a harness.
-    // Live sessions (at_usage_limit = Some(...)) are the source of truth.
-    // Remembered sessions (at_usage_limit = None) inherit the harness state.
+    // Propagate capacity state across all live sessions sharing a harness.
+    // Remembered sessions keep their own frozen terminal state; only the
+    // provider row should reflect another live session's capped runtime state.
     let mut harness_capped: HashMap<String, bool> = HashMap::new();
     let mut harness_reset_hint: HashMap<String, String> = HashMap::new();
     let mut provider_checking: HashSet<String> = HashSet::new();
@@ -822,6 +851,9 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
     }
     if !harness_capped.is_empty() {
         for info in &mut infos {
+            if info.memory_state != MemoryState::Live {
+                continue;
+            }
             if let Some(ref hid) = info.harness_id {
                 if let Some(&capped) = harness_capped.get(hid) {
                     info.at_usage_limit = Some(capped);
@@ -1877,6 +1909,224 @@ mod tests {
             .find(|session| session.get("id").and_then(|id| id.as_str()) == Some(session_id.as_str()))
             .unwrap();
         assert_eq!(session.get("capacityCheckPending"), None);
+    }
+
+    #[tokio::test]
+    async fn list_sessions_does_not_mark_remembered_sessions_capped_from_other_live_sessions() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        {
+            let ws = state.workspace.lock().unwrap();
+            let ws = ws.as_ref().unwrap();
+            let mut remembered = test_session_metadata(
+                "remembered-codex",
+                "Remembered Codex",
+                dir.path().display().to_string(),
+                "ended",
+                "2026-07-05T09:00:00Z",
+                "2026-07-05T09:05:00Z",
+            );
+            remembered.harness = "codex".into();
+            remembered.cwd = dir.path().display().to_string();
+            ws.metadata.write_session(&remembered);
+
+            let mut live_meta = test_session_metadata(
+                "live-capped-codex",
+                "Live Capped Codex",
+                dir.path().display().to_string(),
+                "running",
+                "2026-07-05T09:00:00Z",
+                "2026-07-05T09:05:00Z",
+            );
+            live_meta.harness = "codex".into();
+            live_meta.cwd = dir.path().display().to_string();
+            live_meta.status = "running".into();
+            live_meta.lifecycle_phase = "active".into();
+            live_meta.connectivity = "online".into();
+            live_meta.terminal_outcome = None;
+            live_meta.final_observed_status_snapshot = None;
+            ws.metadata.write_session(&live_meta);
+        }
+
+        let live_id = "live-capped-codex".to_string();
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        let mut output_buffer = peon::RingBuffer::new(200);
+        output_buffer.push("You've hit your usage limit".into());
+        state.sessions.lock().unwrap().insert(
+            live_id.clone(),
+            SessionHandle {
+                info: SessionInfo {
+                    harness_id: Some("codex".into()),
+                    harness: Some("codex".into()),
+                    ..test_session_info(
+                        live_id.clone(),
+                        "Live Capped Codex",
+                        dir.path().display().to_string(),
+                        "running",
+                        "now",
+                    )
+                },
+                kill_tx,
+                output_buffer,
+                scan_buf: String::new(),
+                command: default_shell_command(dir.path().display().to_string()),
+                initial_prompt: None,
+                at_usage_limit_latched: false,
+                capacity_check_pending: false,
+                resume_scan_origin: None,
+                pending_capacity_visible_once: false,
+            },
+        );
+
+        let response = list_sessions(State(state)).await.into_response();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let sessions: Vec<serde_json::Value> = serde_json::from_slice(&bytes).unwrap();
+        let live = sessions
+            .iter()
+            .find(|session| session.get("id").and_then(|id| id.as_str()) == Some(live_id.as_str()))
+            .unwrap();
+        let remembered = sessions
+            .iter()
+            .find(|session| session.get("id").and_then(|id| id.as_str()) == Some("remembered-codex"))
+            .unwrap();
+
+        assert_eq!(live.get("atUsageLimit").and_then(|value| value.as_bool()), Some(true));
+        assert_eq!(remembered.get("memoryState").and_then(|value| value.as_str()), Some("remembered"));
+        assert_eq!(remembered.get("atUsageLimit"), None);
+    }
+
+    #[tokio::test]
+    async fn list_sessions_clears_live_capped_after_fresh_post_input_output_without_new_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+
+        let session_id = "codex-cap-clear".to_string();
+        {
+            let ws = state.workspace.lock().unwrap();
+            let ws = ws.as_ref().unwrap();
+            let mut meta = test_session_metadata(
+                session_id.clone(),
+                "Codex Cap Clear",
+                dir.path().display().to_string(),
+                "running",
+                "2026-07-05T09:00:00Z",
+                "2026-07-05T09:05:00Z",
+            );
+            meta.harness = "codex".into();
+            meta.cwd = dir.path().display().to_string();
+            meta.status = "running".into();
+            meta.lifecycle_phase = "active".into();
+            meta.connectivity = "online".into();
+            meta.terminal_outcome = None;
+            meta.final_observed_status_snapshot = None;
+            ws.metadata.write_session(&meta);
+        }
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        let mut output_buffer = peon::RingBuffer::new(200);
+        output_buffer.push("You've hit your usage limit".into());
+        output_buffer.push("Back in the thread and working again".into());
+        state.sessions.lock().unwrap().insert(
+            session_id.clone(),
+            SessionHandle {
+                info: SessionInfo {
+                    harness_id: Some("codex".into()),
+                    harness: Some("codex".into()),
+                    ..test_session_info(
+                        session_id.clone(),
+                        "Codex Cap Clear",
+                        dir.path().display().to_string(),
+                        "running",
+                        "now",
+                    )
+                },
+                kill_tx,
+                output_buffer,
+                scan_buf: String::new(),
+                command: default_shell_command(dir.path().display().to_string()),
+                initial_prompt: None,
+                at_usage_limit_latched: true,
+                capacity_check_pending: false,
+                resume_scan_origin: Some((1, 0)),
+                pending_capacity_visible_once: false,
+            },
+        );
+
+        let response = list_sessions(State(state)).await.into_response();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let sessions: Vec<serde_json::Value> = serde_json::from_slice(&bytes).unwrap();
+        let session = sessions
+            .iter()
+            .find(|session| session.get("id").and_then(|id| id.as_str()) == Some(session_id.as_str()))
+            .unwrap();
+
+        assert_eq!(session.get("atUsageLimit").and_then(|value| value.as_bool()), Some(false));
+    }
+
+    #[tokio::test]
+    async fn list_sessions_keeps_live_capped_when_fresh_post_input_output_still_contains_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+
+        let session_id = "codex-cap-still-capped".to_string();
+        {
+            let ws = state.workspace.lock().unwrap();
+            let ws = ws.as_ref().unwrap();
+            let mut meta = test_session_metadata(
+                session_id.clone(),
+                "Codex Cap Still Capped",
+                dir.path().display().to_string(),
+                "running",
+                "2026-07-05T09:00:00Z",
+                "2026-07-05T09:05:00Z",
+            );
+            meta.harness = "codex".into();
+            meta.cwd = dir.path().display().to_string();
+            meta.status = "running".into();
+            meta.lifecycle_phase = "active".into();
+            meta.connectivity = "online".into();
+            meta.terminal_outcome = None;
+            meta.final_observed_status_snapshot = None;
+            ws.metadata.write_session(&meta);
+        }
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        let mut output_buffer = peon::RingBuffer::new(200);
+        output_buffer.push("You've hit your usage limit".into());
+        output_buffer.push("You've hit your usage limit".into());
+        state.sessions.lock().unwrap().insert(
+            session_id.clone(),
+            SessionHandle {
+                info: SessionInfo {
+                    harness_id: Some("codex".into()),
+                    harness: Some("codex".into()),
+                    ..test_session_info(
+                        session_id.clone(),
+                        "Codex Cap Still Capped",
+                        dir.path().display().to_string(),
+                        "running",
+                        "now",
+                    )
+                },
+                kill_tx,
+                output_buffer,
+                scan_buf: String::new(),
+                command: default_shell_command(dir.path().display().to_string()),
+                initial_prompt: None,
+                at_usage_limit_latched: true,
+                capacity_check_pending: false,
+                resume_scan_origin: Some((1, 0)),
+                pending_capacity_visible_once: false,
+            },
+        );
+
+        let response = list_sessions(State(state)).await.into_response();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let sessions: Vec<serde_json::Value> = serde_json::from_slice(&bytes).unwrap();
+        let session = sessions
+            .iter()
+            .find(|session| session.get("id").and_then(|id| id.as_str()) == Some(session_id.as_str()))
+            .unwrap();
+
+        assert_eq!(session.get("atUsageLimit").and_then(|value| value.as_bool()), Some(true));
     }
 
     #[tokio::test]
