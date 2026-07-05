@@ -21,7 +21,7 @@ This design makes lifecycle a first-class domain concern:
 
 - the existing `phase` field is renamed to `workPhase`
 - a new `lifecyclePhase` field tracks runtime lifecycle explicitly
-- the final observed state is frozen into a dedicated `finalObservedStatus`
+- the final observed state is frozen into a dedicated `finalObservedStatusSnapshot`, with `finalObservedStatus` exposed only as a derived API/frontend projection
 
 ## Terminology
 
@@ -38,6 +38,8 @@ Values:
 - `unknown`
 
 Meaning: what kind of work the session appears to be doing.
+
+`workPhase` remains enum-constrained at the persistence and API boundary. Legacy or free-form Peon `phase` strings that do not match the allowed values must map to `unknown`. Backward-compatible reads should continue accepting legacy `phase` as an input alias during rollout.
 
 ### `lifecyclePhase`
 
@@ -64,15 +66,85 @@ Values:
 - `killed`
 - `error`
 
-Meaning: the current process state or terminal outcome.
+Meaning: the current lifecycle-visible process state or terminal outcome.
+
+`running` means the session has not yet completed lifecycle finalization. During `lifecyclePhase = ending`, the backing process may already have exited while `status` remains `running` until `complete_ending(...)` commits the terminal outcome.
 
 ### `observedStatus`
 
 Live Peon or agent-observed attention state. This is only meaningful while `lifecyclePhase = active`.
 
+### `ObservedStatusSnapshot`
+
+Canonical structured observer snapshot type used for ending-state capture, final frozen state, recovery, and finalization.
+
+Type:
+
+- `value: ObservedStatus | null`
+- `source: MetadataSource | "recovery" | "unknown"`
+- `confidence: number | null`
+- `observedAt: ISO-8601 timestamp | null`
+
+Rules:
+
+- the snapshot object itself may be present even when `value = null`
+- `source = "recovery"` is allowed for synthesized recovery-time snapshots
+- `source = "unknown"` is allowed when provenance is unavailable
+- `confidence = null` is allowed when the snapshot was synthesized or provenance is unavailable
+- `observedAt = null` is allowed when the original observation time is unavailable
+- canonical synthesized null snapshot is `{ value: null, source: "recovery", confidence: null, observedAt: null }`
+- canonical legacy backfill snapshot uses preserved source, confidence, and observedAt when available; otherwise `{ value: <legacy value>, source: "unknown", confidence: null, observedAt: null }`
+
+### `finalObservedStatusSnapshot`
+
+Frozen historical `ObservedStatusSnapshot` captured during the `ending` phase.
+
+Persisted JSON shape:
+
+```json
+{
+  "value": "blocked",
+  "source": "peon",
+  "confidence": 0.82,
+  "observedAt": "2026-07-03T12:34:56Z"
+}
+```
+
+Rules:
+
+- the object itself is nullable before lifecycle finalization completes
+- when present, it obeys the `ObservedStatusSnapshot` type above
+- this is the backend source of truth for historical observed state after `ended`
+- normalized or finalized `ended` sessions must have a populated snapshot object, using the canonical synthesized null snapshot when no observed value exists
+
 ### `finalObservedStatus`
 
-Frozen historical observed state captured during the `ending` phase. This is displayed for historical context after the session reaches `ended`.
+Frontend/API convenience field derived from `finalObservedStatusSnapshot.value`.
+
+Type: nullable string using the same observed-status vocabulary as `observedStatus`.
+
+### `endingObservedStatusSnapshot`
+
+Backend-internal `ObservedStatusSnapshot` captured atomically at `begin_ending(...)`.
+
+Persisted JSON shape:
+
+```json
+{
+  "value": "working",
+  "source": "agent",
+  "confidence": 1.0,
+  "observedAt": "2026-07-03T12:30:00Z"
+}
+```
+
+Rules:
+
+- the object is required while `lifecyclePhase = ending`
+- when present, it obeys the `ObservedStatusSnapshot` type above
+- object presence is distinct from object absence
+
+It exists only to guarantee deterministic fallback finalization and crash recovery. It is persisted for backend recovery and never exposed in frontend DTOs.
 
 ## Recommended Approach
 
@@ -91,6 +163,9 @@ The `Session` aggregate should own:
 - `work_phase`
 - `lifecycle_phase`
 - `status`
+- `pending_terminal_status`
+- `ending_observed_status_snapshot`
+- `final_observed_status_snapshot`
 
 The aggregate remains the source of truth for whether a session is live, ending, or terminal.
 
@@ -135,10 +210,18 @@ When the runtime marks the session as live:
 
 When the process exits for any reason, including normal exit, kill, or error:
 
-- preserve the intended terminal `status`
+- preserve the intended terminal `status` in a dedicated pending terminal field
 - transition `lifecyclePhase` to `ending`
 
 The runtime must always pass through `ending`. This rule is consistent across all exit paths.
+
+During `ending`:
+
+- `status` remains `running`
+- `pendingTerminalStatus` holds one of `ended`, `killed`, or `error`
+- `endingObservedStatusSnapshot` captures the last accepted live observed state atomically at `begin_ending`
+
+This avoids reporting a session as already terminal before finalization completes while still preserving the exit cause.
 
 ### Final scan completion
 
@@ -146,18 +229,22 @@ During `ending`, the runtime attempts one final Peon scan against the last buffe
 
 If the scan succeeds:
 
-- write `finalObservedStatus` from the final inference if present, otherwise preserve the last known observed state
+- if the final scan returns a valid snapshot object, use it as authoritative
+- a final inference snapshot with `value = null` is authoritative and must not fall back to `endingObservedStatusSnapshot`
+- if no final inference snapshot object is returned, preserve `endingObservedStatusSnapshot`
 - clear live `observedStatus`
 - transition `lifecyclePhase` to `ended`
-- set final `status` to `ended`, `killed`, or `error`
+- set final `status` from `pendingTerminalStatus`
+- clear `pendingTerminalStatus`
 
 If the scan fails or times out:
 
 - log the failure
-- preserve the last known observed state as `finalObservedStatus`
+- preserve `endingObservedStatusSnapshot` as `finalObservedStatusSnapshot`
 - clear live `observedStatus`
 - transition `lifecyclePhase` to `ended`
-- set final `status` to `ended`, `killed`, or `error`
+- set final `status` from `pendingTerminalStatus`
+- clear `pendingTerminalStatus`
 
 ## Final Scan Timeout
 
@@ -176,10 +263,31 @@ Lifecycle transitions should be represented explicitly in the Rust domain model 
 Required domain operations:
 
 - `mark_active()`
-- `begin_ending(pending_terminal_status)`
-- `complete_ending(final_terminal_status, final_observed_status)`
+- `begin_ending(pending_terminal_status, ending_observed_status_snapshot)`
+- `complete_ending(final_observed_status_snapshot)`
 
 The implementation should use these operation names unless a compile-time conflict forces a near-identical spelling. The domain API must make the state machine explicit and prevent skipping `ending`.
+
+`complete_ending(...)` must be idempotent so duplicate runtime notifications or overlapping final-scan completion paths cannot freeze the session twice.
+Timeout completion and final-scan completion race through the same idempotent operation; whichever commits first is authoritative.
+The first successful `complete_ending(...)` transition wins. Later completion attempts are no-ops.
+
+## Lifecycle Invariants
+
+| lifecyclePhase | status | pendingTerminalStatus | observedStatus | finalObservedStatusSnapshot | Peon inference | Attention hook writes |
+|---|---|---|---|---|---|---|
+| `creating` | `creating` | `null` | allowed but ignored for attention | `null` | no | no |
+| `active` | `running` | `null` | live | `null` | yes | yes |
+| `ending` | `running` | `ended` or `killed` or `error` | frozen input only, no new live writes | `null` until completion | one final attempt only | no |
+| `ended` | `ended` or `killed` or `error` | `null` | `null` | historical snapshot | no | no |
+
+Rules:
+
+- `status` must never be terminal while `lifecyclePhase = active`.
+- `pendingTerminalStatus` is required while `lifecyclePhase = ending`.
+- `endingObservedStatusSnapshot` is required while `lifecyclePhase = ending`, even when its value is `null`.
+- `finalObservedStatusSnapshot` must not be used for attention or sorting.
+- `observedStatus` must be cleared before or at `ending -> ended`.
 
 ## Peon Behavior
 
@@ -196,6 +304,11 @@ While `lifecyclePhase = ending`:
 
 - one final Peon inference attempt is allowed
 - runtime orchestration, not generic metadata merge logic, owns the timeout and completion rule
+- normal in-flight Peon results must be ignored once `begin_ending(...)` has been recorded
+- if Peon is disabled, the provider is unavailable, or the buffered snapshot is empty or useless, finalization skips inference and immediately freezes `endingObservedStatusSnapshot`
+- agent attention writes such as `POST /sessions/:id/attention` must be rejected or ignored unless `lifecyclePhase = active`
+- final-scan completion must freeze observer state exactly once
+- finalization may use only either the final-scan result or `endingObservedStatusSnapshot` captured at `begin_ending`
 
 ### Ended phase
 
@@ -203,7 +316,8 @@ While `lifecyclePhase = ended`:
 
 - Peon inference is disabled
 - `observedStatus` is no longer considered live state
-- `finalObservedStatus` is the only observer state shown for historical context
+- `finalObservedStatusSnapshot` is the persisted historical observer state
+- `finalObservedStatus` is a derived frontend/API convenience from `finalObservedStatusSnapshot.value`
 
 ## Persistence Model
 
@@ -214,14 +328,32 @@ Persist:
 - `workPhase`
 - `lifecyclePhase`
 - `status`
+- `pendingTerminalStatus`
+- `endingObservedStatusSnapshot`
 - `observedStatus`
-- `finalObservedStatus`
+- `finalObservedStatusSnapshot`
 
 Rules:
 
 - `observedStatus` is for active sessions only
-- `finalObservedStatus` is populated when the session completes ending
+- `pendingTerminalStatus` is only populated while `lifecyclePhase = ending`
+- `endingObservedStatusSnapshot` is written atomically during `begin_ending(...)` and is only populated while `lifecyclePhase = ending`
+- `finalObservedStatusSnapshot` is populated when the session completes ending
 - metadata persistence must reflect domain/runtime decisions, not invent lifecycle behavior on write
+
+### Normalization and recovery
+
+Persisted records must be normalized on read/startup.
+
+Rules:
+
+- if a persisted session is found in `lifecyclePhase = ending` with a valid `pendingTerminalStatus`, recover it to `lifecyclePhase = ended`
+- recovery finalization uses `pendingTerminalStatus` as the final `status`
+- recovery finalization uses `finalObservedStatusSnapshot` if already present, otherwise `endingObservedStatusSnapshot` if present, otherwise a synthesized snapshot from legacy or stale `observedStatus` if present, otherwise the canonical synthesized null snapshot `{ value: null, source: "recovery", confidence: null, observedAt: null }`
+- recovery finalization clears `pendingTerminalStatus` and live `observedStatus`
+- recovery may skip final inference because the original runtime snapshot owner is gone after restart
+- invalid combinations such as non-null `pendingTerminalStatus` outside `ending` must normalize to `pendingTerminalStatus = null`
+- invalid `ending` records without `pendingTerminalStatus` must normalize directly to `lifecyclePhase = ended`, `status = error`, and preserve any available historical observed state
 
 ### Events
 
@@ -233,6 +365,18 @@ Append timestamped lifecycle transition events covering:
 
 Final-scan timeout or failure should produce diagnostic logging and may emit a dedicated event, but it must not prevent the `ending -> ended` transition.
 
+## Runtime Ownership Constraint
+
+This refactor is not complete unless runtime lifecycle writes stop bypassing the domain path.
+
+Implementation constraint:
+
+- process-start, process-exit, kill, and error transitions must flow through domain/application lifecycle operations
+- runtime helpers that currently write status or metadata directly must be refactored to call those operations instead
+- metadata persistence becomes a projection of domain/runtime decisions, not an alternate authority
+
+This specifically includes exit/status handling in `crates/orkworksd/src/runtime/terminal_runtime.rs`.
+
 ## API and Frontend
 
 Expose to the frontend:
@@ -243,17 +387,27 @@ Expose to the frontend:
 - `observedStatus`
 - `finalObservedStatus`
 
+Do not expose `pendingTerminalStatus` to the frontend. It is an internal runtime/domain field used to preserve exit cause during `ending`.
+Do not expose `endingObservedStatusSnapshot` to the frontend. It is a backend-internal lifecycle recovery field.
+
 Frontend behavior:
 
 - attention and sorting use `observedStatus` only when `lifecyclePhase = active`
 - non-active sessions must never regain live attention from historical observer state
 - detail views display `finalObservedStatus` as historical context after the session has ended
 
+MVP API contract:
+
+- expose `finalObservedStatus` now
+- frontend DTOs always include `finalObservedStatus`, set to `finalObservedStatusSnapshot.value` when a snapshot exists, otherwise `null`
+- do not expose `finalObservedStatusSnapshot` in MVP frontend DTOs
+- a future advanced/debug API may expose `finalObservedStatusSnapshot` provenance explicitly, but that is not part of this MVP contract
+
 ## Non-goals
 
 - Do not change the set of observed attention-state values
 - Do not redesign the session list or detail panel layout
-- Do not change the meaning of `status`
+- Do not change the `status` value set or terminal outcome meanings; `running` remains the only non-terminal active/ending value, but it is not a guaranteed process-liveness flag once `lifecyclePhase = ending`
 - Do not add automatic terminal control or Peon autonomy beyond observer behavior
 
 ## Testing Requirements
@@ -278,6 +432,7 @@ Cover:
 - configured timeout overrides the default
 - timeout or inference failure still transitions to `ended`
 - no further Peon inference runs after `ended`
+- restart recovery finalizes persisted `ending` sessions deterministically
 
 ### Metadata/API tests
 
@@ -285,8 +440,11 @@ Cover:
 
 - `phase` is replaced by `workPhase`
 - `lifecyclePhase` serializes correctly
-- `finalObservedStatus` serializes when present
+- `finalObservedStatusSnapshot` serializes correctly
+- `finalObservedStatus` always serializes in frontend DTOs as `ObservedStatus | null`
 - active sessions do not expose stale final-state fields as live attention
+- `pendingTerminalStatus` normalizes to `null` outside `ending`
+- backend persistence may store recovery-only fields that frontend DTOs exclude
 
 ### Frontend tests
 
@@ -304,6 +462,7 @@ Cover:
 - `crates/orkworksd/src/infrastructure/session_repository.rs`
 - `crates/orkworksd/src/metadata.rs`
 - `crates/orkworksd/src/runtime/peon_runtime.rs`
+- `crates/orkworksd/src/runtime/terminal_runtime.rs`
 - `crates/orkworksd/src/http/session_handlers.rs`
 - `crates/orkworksd/src/session_types.rs`
 - `apps/desktop/src/api.ts`
@@ -314,7 +473,31 @@ Cover:
 
 ## Migration Notes
 
-This change renames a persisted field from `phase` to `workPhase`. Implementation should support backward-compatible reads for existing metadata files during rollout, while all new writes use `workPhase` consistently.
+This change renames a persisted field from `phase` to `workPhase` and introduces persisted `lifecyclePhase`, `pendingTerminalStatus`, `endingObservedStatusSnapshot`, `finalObservedStatusSnapshot`, plus projected or API-level `finalObservedStatus`.
+
+Backward-compatible read rules during rollout:
+
+- if `workPhase` is missing, read legacy `phase`
+- if the legacy `phase` value is free-form or unknown, coerce to `workPhase = unknown`
+- if `lifecyclePhase` is missing and `status` is `creating`, derive `lifecyclePhase = creating`
+- if `lifecyclePhase` is missing and `status` is `running`, derive `lifecyclePhase = active`
+- if `lifecyclePhase` is missing and `status` is `ended`, `killed`, or `error`, derive `lifecyclePhase = ended`
+- if `pendingTerminalStatus` is missing on a derived `creating`, `active`, or `ended` record, normalize it to `null`
+- if `pendingTerminalStatus` is non-null outside `ending`, normalize it to `null`
+- if `endingObservedStatusSnapshot` is missing outside `ending`, normalize it to `null`
+- if `endingObservedStatusSnapshot` is present outside `ending`, preserve it only long enough to finish normalization and then clear it
+- if `finalObservedStatusSnapshot` is missing on a derived terminal session and legacy `observedStatus` is present, synthesize a snapshot object from that legacy value with best-effort provenance
+- if `finalObservedStatusSnapshot` is missing on a derived terminal session and no legacy `observedStatus` exists, populate the canonical synthesized null snapshot
+- if `finalObservedStatus` is missing on a derived terminal session and `finalObservedStatusSnapshot` is present, expose `finalObservedStatusSnapshot.value`
+- if a session is derived terminal from legacy metadata, do not expose legacy `observedStatus` as live state
+
+Write rules:
+
+- all new writes use `workPhase`
+- all new writes populate `lifecyclePhase`
+- active sessions write `observedStatus` only
+- ending sessions write `pendingTerminalStatus` and `endingObservedStatusSnapshot`
+- ended sessions write `finalObservedStatusSnapshot`; API projection may emit `finalObservedStatus`
 
 ## Acceptance Summary
 
@@ -323,6 +506,6 @@ Issue `#26` is complete when:
 - lifecycle is domain-owned and explicit
 - the old work-classification `phase` name is retired in favor of `workPhase`
 - all exit paths flow through `ending`
-- final observer state is frozen into `finalObservedStatus`
+- final observer state is frozen into `finalObservedStatusSnapshot`, with `finalObservedStatus` derived for API or frontend convenience
 - timeout/failure of the final scan cannot block completion
 - frontend behavior keys off `lifecyclePhase` rather than ad hoc lifecycle inference
