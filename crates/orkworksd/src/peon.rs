@@ -194,7 +194,15 @@ pub fn detect_usage_limit_hint_raw<S: AsRef<str>>(patterns: &[S], text: &str) ->
         .or_else(|| lower.find("try again at"))?;
     let fragment = &plain[idx..];
     let end = fragment.find(['.', '\n']).unwrap_or(fragment.len());
-    Some(fragment[..end].trim().to_string())
+    // TUI redraws have no newline after the hint, so the rest of the redrawn
+    // screen (spinner, status bar) follows directly. Stop at the first status
+    // glyph and cap the length so screen content can't leak into the hint.
+    let fragment = &fragment[..end];
+    let end = fragment
+        .find(['✳', '✻', '✽', '✶', '●', '○', '◐', '│', '╭', '╰', '─', '—'])
+        .unwrap_or(fragment.len());
+    let hint: String = fragment[..end].trim().chars().take(60).collect();
+    Some(hint.trim_end().to_string())
 }
 
 /// Returns the "reset in X" fragment from the usage-limit line, if present.
@@ -926,5 +934,27 @@ echo '{"status":"working","confidence":0.9}'
             detect_usage_limit_hint_raw(&["you've hit your session limit"], text).as_deref(),
             Some("resets 5:10pm (Europe/Oslo)")
         );
+    }
+
+    #[test]
+    fn detect_usage_limit_hint_raw_stops_at_tui_status_glyphs() {
+        // TUI redraws have no newline after the hint — the spinner and status
+        // bar of the redrawn screen follow directly in the blob.
+        let text = "You've hit your session limit · resets 1pm (Europe/Oslo) ✳Worked for 1s ● high · /effort ────";
+        assert_eq!(
+            detect_usage_limit_hint_raw(&["you've hit your session limit"], text).as_deref(),
+            Some("resets 1pm (Europe/Oslo)")
+        );
+    }
+
+    #[test]
+    fn detect_usage_limit_hint_raw_caps_length_without_terminator() {
+        let text = format!(
+            "usage limit reached · resets in 2h {}",
+            "trailing pane text without any glyph or period ".repeat(5)
+        );
+        let hint = detect_usage_limit_hint_raw(&["usage limit reached"], &text).unwrap();
+        assert!(hint.starts_with("resets in 2h"));
+        assert!(hint.chars().count() <= 60, "hint too long: {hint}");
     }
 }
