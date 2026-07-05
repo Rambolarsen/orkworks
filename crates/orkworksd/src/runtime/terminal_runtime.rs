@@ -126,15 +126,6 @@ fn mark_usage_limit_recheck_on_input(state: &Arc<AppState>, id: &str) {
     if !handle.at_usage_limit_latched || handle.capacity_check_pending || handle.resume_scan_origin.is_some() {
         return;
     }
-    let Some(harness_id) = handle.info.harness_id.as_deref() else {
-        return;
-    };
-    let Some(adapter) = state.adapters.get(harness_id) else {
-        return;
-    };
-    if !adapter.capabilities.detect_capacity {
-        return;
-    }
     handle.resume_scan_origin = Some((handle.output_lines_seen, handle.scan_bytes_seen));
 }
 
@@ -1135,13 +1126,13 @@ mod tests {
         });
 
         let (kill_tx, _) = tokio::sync::watch::channel(false);
-        let id = "codex-latched".to_string();
+        let id = "codex-wrapper-latched".to_string();
         let mut output_buffer = crate::peon::RingBuffer::new(200);
         output_buffer.push("You've hit your usage limit".into());
         state.sessions.lock().unwrap().insert(
             id.clone(),
             crate::SessionHandle {
-                info: crate::test_support::test_session_info(id.clone(), "Codex", "/tmp", "running", "now"),
+                info: crate::test_support::test_session_info(id.clone(), "Codex Wrapper", "/tmp", "running", "now"),
                 kill_tx,
                 output_buffer,
                 scan_buf: "abc".into(),
@@ -1155,7 +1146,7 @@ mod tests {
                 pending_capacity_visible_once: false,
             },
         );
-        state.sessions.lock().unwrap().get_mut(&id).unwrap().info.harness_id = Some("codex".into());
+        state.sessions.lock().unwrap().get_mut(&id).unwrap().info.harness_id = Some("codex-wrapper".into());
 
         mark_usage_limit_recheck_on_input(&state, &id);
         let first_origin = state.sessions.lock().unwrap().get(&id).unwrap().resume_scan_origin;
