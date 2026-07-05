@@ -261,11 +261,15 @@ pub(crate) async fn resume_session(
     {
         let mut sessions = state.sessions.lock().unwrap();
         if let Some(handle) = sessions.get_mut(&id) {
+            if handle.terminal_attached {
+                return axum::http::StatusCode::CONFLICT.into_response();
+            }
             handle.info = info.clone();
             handle.kill_tx = kill_tx;
             handle.output_buffer = peon::RingBuffer::new(state.peon.config.max_lines);
             handle.scan_buf = String::new();
             handle.command = command;
+            handle.terminal_attached = false;
             handle.at_usage_limit_latched = false;
             handle.capacity_check_pending = capacity_check_pending;
             handle.output_lines_seen = 0;
@@ -282,6 +286,7 @@ pub(crate) async fn resume_session(
                     scan_buf: String::new(),
                     command,
                     initial_prompt: None,
+                    terminal_attached: false,
                     at_usage_limit_latched: false,
                     capacity_check_pending,
                     output_lines_seen: 0,
@@ -558,6 +563,7 @@ pub(crate) async fn create_session(
         scan_buf: String::new(),
         command: resolved_launch.command,
         initial_prompt: req.initial_prompt.clone(),
+        terminal_attached: false,
         at_usage_limit_latched: false,
         capacity_check_pending: false,
         output_lines_seen: 0,
@@ -1166,6 +1172,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
+                terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
                 output_lines_seen: 0,
@@ -1247,6 +1254,110 @@ mod tests {
         let updated_resume = updated.resume.unwrap();
         assert_eq!(updated_resume.harness_session_id.as_deref(), Some("native-123"));
         assert_ne!(updated_resume.last_seen_at.as_deref(), Some("before"));
+    }
+
+    #[tokio::test]
+    async fn resume_session_rejects_attached_live_handle() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let session_id = "resume-attached".to_string();
+        let resume = harness::ResumeMemory {
+            state: harness::ResumeState::Available,
+            preferred_strategy: harness::ResumeStrategy::LatestCwd,
+            harness_session_id: None,
+            latest_fallback: true,
+            last_seen_at: Some("before".into()),
+        };
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+
+        state.sessions.lock().unwrap().insert(
+            session_id.clone(),
+            SessionHandle {
+                info: SessionInfo {
+                    harness_id: Some("opencode".into()),
+                    harness: Some("opencode".into()),
+                    resume_strategy: harness::ResumeStrategy::LatestCwd,
+                    resume: Some(resume.clone()),
+                    ..test_session_info(
+                        session_id.clone(),
+                        "Resume Attached",
+                        dir.path().display().to_string(),
+                        "running",
+                        "before",
+                    )
+                },
+                kill_tx,
+                output_buffer: peon::RingBuffer::new(200),
+                scan_buf: String::new(),
+                command: default_shell_command(dir.path().display().to_string()),
+                initial_prompt: None,
+                terminal_attached: true,
+                at_usage_limit_latched: false,
+                capacity_check_pending: false,
+                output_lines_seen: 0,
+                scan_bytes_seen: 0,
+                resume_scan_origin: None,
+                pending_capacity_visible_once: false,
+            },
+        );
+
+        {
+            let ws = state.workspace.lock().unwrap();
+            ws.as_ref().unwrap().metadata.write_session(&metadata::SessionMetadata {
+                id: session_id.clone(),
+                label: "Resume Attached".into(),
+                workspace: dir.path().display().to_string(),
+                task: "".into(),
+                harness: "opencode".into(),
+                model: "".into(),
+                cwd: dir.path().display().to_string(),
+                status: "running".into(),
+                work_phase: "unknown".into(),
+                lifecycle_phase: "active".into(),
+                connectivity: "online".into(),
+                terminal_outcome: None,
+                pending_terminal_status: None,
+                observed_status: None,
+                ending_observed_status_snapshot: None,
+                final_observed_status_snapshot: None,
+                summary: None,
+                next_action: None,
+                needs_user_input: None,
+                detected_question: None,
+                suggested_options: None,
+                blocker_description: None,
+                failed_command: None,
+                failed_test: None,
+                capacity_hints: None,
+                peon_last_inference: None,
+                provider_id: None,
+                provider_label: None,
+                provider_model: None,
+                provider_state: None,
+                created_at: "before".into(),
+                last_activity: "before".into(),
+                metadata_source: "process".into(),
+                metadata_confidence: 1.0,
+                repo_root: None,
+                branch: None,
+                dirty: None,
+                changed_files: None,
+                is_worktree: None,
+                resume: Some(resume),
+                resume_options: vec![],
+                harness_session_id_source: None,
+                harness_session_id_confidence: None,
+                harness_session_id_captured_at: None,
+                resumed_from: None,
+                last_user_input: None,
+            });
+        }
+
+        let response = resume_session(State(state), Path(session_id))
+            .await
+            .into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::CONFLICT);
     }
 
     #[tokio::test]
@@ -1448,6 +1559,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
+                terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
                 output_lines_seen: 0,
@@ -1512,6 +1624,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
+                terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
                 output_lines_seen: 0,
@@ -1612,6 +1725,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
+                terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
                 output_lines_seen: 0,
@@ -1736,6 +1850,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command("/tmp/project".into()),
                 initial_prompt: None,
+                terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
                 output_lines_seen: 0,
@@ -1804,6 +1919,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
+                terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: true,
                 output_lines_seen: 1,
@@ -1884,6 +2000,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
+                terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: true,
                 output_lines_seen: 1,
@@ -1945,6 +2062,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
+                terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: true,
                 output_lines_seen: 1,
@@ -2046,6 +2164,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
+                terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
                 output_lines_seen: 1,
@@ -2125,6 +2244,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
+                terminal_attached: false,
                 at_usage_limit_latched: true,
                 capacity_check_pending: false,
                 output_lines_seen: 2,
@@ -2204,6 +2324,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
+                terminal_attached: false,
                 at_usage_limit_latched: true,
                 capacity_check_pending: false,
                 output_lines_seen: 2,
@@ -2272,6 +2393,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
+                terminal_attached: false,
                 at_usage_limit_latched: true,
                 capacity_check_pending: false,
                 output_lines_seen: 2,

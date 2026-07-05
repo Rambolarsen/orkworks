@@ -145,6 +145,43 @@ fn make_pty_system() -> ConPtySystem {
     ConPtySystem {}
 }
 
+pub(crate) struct TerminalAttachGuard {
+    state: Arc<AppState>,
+    session_id: String,
+}
+
+impl Drop for TerminalAttachGuard {
+    fn drop(&mut self) {
+        let mut sessions = self.state.sessions.lock().unwrap();
+        if let Some(handle) = sessions.get_mut(&self.session_id) {
+            handle.terminal_attached = false;
+        }
+    }
+}
+
+pub(crate) fn try_claim_terminal_attachment(
+    state: &Arc<AppState>,
+    id: &str,
+) -> Option<TerminalAttachGuard> {
+    let mut sessions = state.sessions.lock().unwrap();
+    let handle = sessions.get_mut(id)?;
+    let status = handle.info.status.as_str();
+    let lifecycle_phase = handle.info.lifecycle_phase.as_str();
+
+    if matches!(status, "killed" | "ended" | "error")
+        || matches!(lifecycle_phase, "ending" | "ended")
+        || handle.terminal_attached
+    {
+        return None;
+    }
+
+    handle.terminal_attached = true;
+    Some(TerminalAttachGuard {
+        state: state.clone(),
+        session_id: id.to_string(),
+    })
+}
+
 /// Applies a status transition to the in-memory handle and persisted metadata.
 ///
 /// Terminal statuses ("killed"/"ended"/"error") transition the session into the
@@ -419,6 +456,16 @@ pub(crate) fn schedule_session_ending_finalization(
 }
 
 pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state: Arc<AppState>) {
+    let _terminal_attach_guard = match try_claim_terminal_attachment(&state, &id) {
+        Some(guard) => guard,
+        None => {
+            tracing::warn!(session_id = %id, "rejected terminal WebSocket: session unavailable for attach");
+            let _ = ws.send(Message::Text("terminal unavailable".into())).await;
+            let _ = ws.close().await;
+            return;
+        }
+    };
+
     let kill_result = {
         let sessions = state.sessions.lock().unwrap();
         sessions.get(&id).map(|h| h.kill_tx.subscribe())
@@ -438,24 +485,6 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
         }
         let _ = ws.close().await;
         return;
-    }
-
-    {
-        let should_reject = {
-            let sessions = state.sessions.lock().unwrap();
-            sessions
-                .get(&id)
-                .map(|h| {
-                    let s = &h.info.status;
-                    s == "killed" || s == "ended" || s == "error"
-                })
-                .unwrap_or(false)
-        };
-        if should_reject {
-            tracing::warn!(session_id = %id, "rejected terminal WebSocket: session in terminal state");
-            let _ = ws.close().await;
-            return;
-        }
     }
 
     let cwd = {
@@ -1105,6 +1134,150 @@ mod tests {
     }
 
     #[test]
+    fn terminal_attachment_claim_rejects_duplicate_owner() {
+        let state = Arc::new(crate::AppState {
+            session_module: crate::infrastructure::session_module::SessionModule::new(),
+            sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
+            workspace: std::sync::Mutex::new(None),
+            peon: crate::PeonState {
+                last_output: std::sync::RwLock::new(std::collections::HashMap::new()),
+                last_inference: std::sync::RwLock::new(std::collections::HashMap::new()),
+                in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
+                label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
+                label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
+                config: crate::peon::PeonConfig::from_env(),
+            },
+            adapters: crate::harness_registry::builtin_adapters(),
+            retention_config: tokio::sync::RwLock::new(crate::RetentionConfig::default()),
+            harnesses: tokio::sync::RwLock::new(vec![]),
+            bound_port: std::sync::atomic::AtomicU16::new(0),
+            providers: crate::providers::ProviderManager::new(),
+        });
+
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        let id = "terminal-owner".to_string();
+        state.sessions.lock().unwrap().insert(
+            id.clone(),
+            crate::SessionHandle {
+                info: test_session_info(id.clone(), "Test", "/tmp", "running", "now"),
+                kill_tx,
+                output_buffer: crate::peon::RingBuffer::new(200),
+                scan_buf: String::new(),
+                command: harness::CommandSpec { program: "/bin/sh".into(), args: vec!["-i".into(), "-l".into()], cwd: "/tmp".into() },
+                initial_prompt: None,
+                terminal_attached: false,
+                at_usage_limit_latched: false,
+                capacity_check_pending: false,
+                output_lines_seen: 0,
+                scan_bytes_seen: 0,
+                resume_scan_origin: None,
+                pending_capacity_visible_once: false,
+            },
+        );
+
+        let first = try_claim_terminal_attachment(&state, &id);
+        assert!(first.is_some());
+        let second = try_claim_terminal_attachment(&state, &id);
+        assert!(second.is_none());
+    }
+
+    #[test]
+    fn terminal_attachment_claim_rejects_ending_session() {
+        let state = Arc::new(crate::AppState {
+            session_module: crate::infrastructure::session_module::SessionModule::new(),
+            sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
+            workspace: std::sync::Mutex::new(None),
+            peon: crate::PeonState {
+                last_output: std::sync::RwLock::new(std::collections::HashMap::new()),
+                last_inference: std::sync::RwLock::new(std::collections::HashMap::new()),
+                in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
+                label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
+                label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
+                config: crate::peon::PeonConfig::from_env(),
+            },
+            adapters: crate::harness_registry::builtin_adapters(),
+            retention_config: tokio::sync::RwLock::new(crate::RetentionConfig::default()),
+            harnesses: tokio::sync::RwLock::new(vec![]),
+            bound_port: std::sync::atomic::AtomicU16::new(0),
+            providers: crate::providers::ProviderManager::new(),
+        });
+
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        let id = "terminal-ending".to_string();
+        let mut info = test_session_info(id.clone(), "Test", "/tmp", "running", "now");
+        info.lifecycle_phase = "ending".into();
+        state.sessions.lock().unwrap().insert(
+            id.clone(),
+            crate::SessionHandle {
+                info,
+                kill_tx,
+                output_buffer: crate::peon::RingBuffer::new(200),
+                scan_buf: String::new(),
+                command: harness::CommandSpec { program: "/bin/sh".into(), args: vec!["-i".into(), "-l".into()], cwd: "/tmp".into() },
+                initial_prompt: None,
+                terminal_attached: false,
+                at_usage_limit_latched: false,
+                capacity_check_pending: false,
+                output_lines_seen: 0,
+                scan_bytes_seen: 0,
+                resume_scan_origin: None,
+                pending_capacity_visible_once: false,
+            },
+        );
+
+        assert!(try_claim_terminal_attachment(&state, &id).is_none());
+    }
+
+    #[test]
+    fn terminal_attachment_release_is_owner_scoped() {
+        let state = Arc::new(crate::AppState {
+            session_module: crate::infrastructure::session_module::SessionModule::new(),
+            sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
+            workspace: std::sync::Mutex::new(None),
+            peon: crate::PeonState {
+                last_output: std::sync::RwLock::new(std::collections::HashMap::new()),
+                last_inference: std::sync::RwLock::new(std::collections::HashMap::new()),
+                in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
+                label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
+                label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
+                config: crate::peon::PeonConfig::from_env(),
+            },
+            adapters: crate::harness_registry::builtin_adapters(),
+            retention_config: tokio::sync::RwLock::new(crate::RetentionConfig::default()),
+            harnesses: tokio::sync::RwLock::new(vec![]),
+            bound_port: std::sync::atomic::AtomicU16::new(0),
+            providers: crate::providers::ProviderManager::new(),
+        });
+
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        let id = "terminal-owner-scope".to_string();
+        state.sessions.lock().unwrap().insert(
+            id.clone(),
+            crate::SessionHandle {
+                info: test_session_info(id.clone(), "Test", "/tmp", "running", "now"),
+                kill_tx,
+                output_buffer: crate::peon::RingBuffer::new(200),
+                scan_buf: String::new(),
+                command: harness::CommandSpec { program: "/bin/sh".into(), args: vec!["-i".into(), "-l".into()], cwd: "/tmp".into() },
+                initial_prompt: None,
+                terminal_attached: false,
+                at_usage_limit_latched: false,
+                capacity_check_pending: false,
+                output_lines_seen: 0,
+                scan_bytes_seen: 0,
+                resume_scan_origin: None,
+                pending_capacity_visible_once: false,
+            },
+        );
+
+        let first = try_claim_terminal_attachment(&state, &id).unwrap();
+        assert!(try_claim_terminal_attachment(&state, &id).is_none());
+        assert!(state.sessions.lock().unwrap().get(&id).unwrap().terminal_attached);
+        drop(first);
+        assert!(!state.sessions.lock().unwrap().get(&id).unwrap().terminal_attached);
+    }
+
+    #[test]
     fn mark_usage_limit_recheck_on_input_sets_origin_once() {
         let state = Arc::new(crate::AppState {
             session_module: crate::infrastructure::session_module::SessionModule::new(),
@@ -1138,6 +1311,7 @@ mod tests {
                 scan_buf: "abc".into(),
                 command: harness::CommandSpec { program: "/bin/sh".into(), args: vec!["-i".into(), "-l".into()], cwd: "/tmp".into() },
                 initial_prompt: None,
+                terminal_attached: false,
                 at_usage_limit_latched: true,
                 capacity_check_pending: false,
                 output_lines_seen: 1,
@@ -1198,6 +1372,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: harness::CommandSpec { program: "/bin/sh".into(), args: vec!["-i".into(), "-l".into()], cwd: "/tmp".into() },
                 initial_prompt: None,
+                terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
                 output_lines_seen: 0,
@@ -1267,6 +1442,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: harness::CommandSpec { program: "/bin/sh".into(), args: vec!["-i".into(), "-l".into()], cwd: "/tmp".into() },
                 initial_prompt: None,
+                terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
                 output_lines_seen: 0,
@@ -1325,6 +1501,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: crate::harness_registry::default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
+                terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
                 output_lines_seen: 0,
@@ -1448,6 +1625,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: crate::harness_registry::default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
+                terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
                 output_lines_seen: 0,
@@ -1609,6 +1787,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: crate::harness_registry::default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
+                terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
                 output_lines_seen: 0,

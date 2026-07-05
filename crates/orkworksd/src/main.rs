@@ -54,6 +54,7 @@ struct SessionHandle {
     scan_buf: String,
     command: harness::CommandSpec,
     initial_prompt: Option<String>,
+    terminal_attached: bool,
     // Sticky: once usage limit is detected it stays true until the session is killed/resumed.
     at_usage_limit_latched: bool,
     capacity_check_pending: bool,
@@ -486,6 +487,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: harness_registry::default_shell_command("/tmp".into()),
                 initial_prompt: None,
+                terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
                 output_lines_seen: 0,
