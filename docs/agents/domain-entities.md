@@ -51,7 +51,7 @@ Current fields:
 - `harness_name: Option<String>`
 - `provider_id: Option<String>`
 - `task_description: Option<String>`
-- `label: String`
+- `label: String` — populated at creation, then from descriptive user terminal input (gated by `peon::is_descriptive_input`: command-prefixed `/` `!` `:` `#`, sub-4-char, and letter-less input is skipped) or from the Peon summary via inference merge
 - `cwd: String`
 - `model: Option<String>`
 - `repo_root: Option<String>`

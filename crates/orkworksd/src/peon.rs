@@ -172,6 +172,18 @@ pub fn looks_like_password_prompt(recent_lines: &[String]) -> bool {
     })
 }
 
+/// Returns true if a completed user input line is descriptive enough to become
+/// the session label. Command-prefixed input (harness slash commands, shell
+/// escapes, vim ex commands, shell comments / Claude Code memory shortcuts),
+/// input under 4 chars, and letter-less input (menu numbers, ports) say
+/// nothing about the task — skip them and let the Peon summary win instead.
+pub fn is_descriptive_input(line: &str) -> bool {
+    let trimmed = line.trim();
+    trimmed.chars().nth(3).is_some()
+        && !trimmed.starts_with(['/', '!', ':', '#'])
+        && trimmed.chars().any(char::is_alphabetic)
+}
+
 /// Detects usage limit in a raw text blob (for TUI apps that use cursor positioning, not newlines).
 pub fn detect_usage_limit_raw<S: AsRef<str>>(patterns: &[S], text: &str) -> bool {
     if patterns.is_empty() { return false; }
@@ -993,5 +1005,47 @@ echo '{"status":"working","confidence":0.9}'
             detect_usage_limit_hint(&["you've hit your session limit"], &lines).as_deref(),
             Some("resets in 2h")
         );
+    }
+
+    #[test]
+    fn descriptive_input_accepts_prose_task_text() {
+        assert!(is_descriptive_input("fix the peon label capture bug"));
+        assert!(is_descriptive_input("  review PR feedback  "));
+        // Non-leading '!' and '#' are prose, not command prefixes.
+        assert!(is_descriptive_input("fix the auth bug!"));
+        assert!(is_descriptive_input("close issue #42"));
+        // Exactly at the 4-char threshold.
+        assert!(is_descriptive_input("docs"));
+    }
+
+    #[test]
+    fn descriptive_input_rejects_command_prefixes() {
+        assert!(!is_descriptive_input("/hooks"));
+        assert!(!is_descriptive_input("/effort high"));
+        assert!(!is_descriptive_input("  /compact"));
+        assert!(!is_descriptive_input("!git status"));
+        assert!(!is_descriptive_input("! ls -la"));
+        assert!(!is_descriptive_input(":wq"));
+        assert!(!is_descriptive_input(":help split"));
+        assert!(!is_descriptive_input("#remember this pattern"));
+    }
+
+    #[test]
+    fn descriptive_input_rejects_short_confirmations() {
+        assert!(!is_descriptive_input("y"));
+        assert!(!is_descriptive_input("no"));
+        assert!(!is_descriptive_input("2"));
+        assert!(!is_descriptive_input("ok"));
+        // Just below the 4-char threshold.
+        assert!(!is_descriptive_input("yes"));
+        assert!(!is_descriptive_input(""));
+        assert!(!is_descriptive_input("   "));
+    }
+
+    #[test]
+    fn descriptive_input_rejects_letterless_input() {
+        assert!(!is_descriptive_input("8080"));
+        assert!(!is_descriptive_input("1234"));
+        assert!(!is_descriptive_input("....!!"));
     }
 }
