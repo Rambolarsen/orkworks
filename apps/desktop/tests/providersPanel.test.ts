@@ -101,3 +101,10 @@ test("ProviderSettingsSection keeps model provider editing simplified", () => {
   assert.doesNotMatch(source, /Clear override/);
   assert.doesNotMatch(source, /Last error/);
 });
+
+test("SettingsModal renders a visible candidate model list with a use action", () => {
+  const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
+  assert.match(source, /Use this model/);
+  assert.match(source, /ollama-candidate-list/);
+  assert.match(source, /selected-model/);
+});

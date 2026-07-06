@@ -31,3 +31,10 @@ test("SettingsModal auto-saves on model change", () => {
   assert.match(source, /savePeonModel/);
   assert.match(source, /saveProviderSettings/);
 });
+
+test("SettingsModal renders verify affordance and status region for Ollama", () => {
+  const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
+  assert.match(source, /Verify Ollama/);
+  assert.match(source, /role="status"/);
+  assert.match(source, /window\.orkworks\.verifyOllama/);
+});

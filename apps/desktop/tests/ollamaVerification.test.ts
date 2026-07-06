@@ -16,3 +16,9 @@ test("preload and window typing expose verifyOllama", () => {
   assert.match(preload, /verifyOllama:\s*\(baseUrl: string\)/);
   assert.match(types, /verifyOllama:\s*\(baseUrl: string\)\s*=>\s*Promise<OllamaVerificationResponse>/);
 });
+
+test("SettingsModal guards against stale verification results", () => {
+  const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
+  assert.match(source, /verifyRequestRef/);
+  assert.match(source, /normalizedBaseUrl/);
+});
