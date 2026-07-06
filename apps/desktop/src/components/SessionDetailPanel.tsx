@@ -13,13 +13,14 @@ import {
   relativeTime,
   situationHeadline,
   situationTail,
-  sourceLabel,
   sourceWithConfidence,
   VOCAB,
   workPhaseLabel,
 } from "../labels";
 import { pushToast } from "../feedback";
+import DetailField from "./DetailField";
 import EmptyState from "./EmptyState";
+import SourceBadge from "./SourceBadge";
 import StatusIndicator from "./StatusIndicator";
 import ResumeChooser from "./ResumeChooser";
 
@@ -59,9 +60,9 @@ function SessionDetailPanel({ sessions, activeSessionId, onResumeSession, showDe
   const provenanceItems: ReactNode[] = [];
   if (sourceTag) {
     provenanceItems.push(
-      <span key="source" className="source-badge" data-source={sourceLabel(sourceTag).toLowerCase()}>
+      <SourceBadge key="source" source={sourceTag}>
         {sourceWithConfidence(sourceTag, active.metadataConfidence)}
-      </span>,
+      </SourceBadge>,
     );
   }
   if (active.peonLastInference) {
@@ -147,43 +148,33 @@ function SessionDetailPanel({ sessions, activeSessionId, onResumeSession, showDe
       {/* Surface 3 — facts (demoted): everything the row and terminal don't say. */}
       <div className="detail-facts">
         <div className="detail-facts-grid">
-          <div className="detail-fact">
-            <div className="session-detail-label">Directory</div>
-            <div className="session-detail-value" title={active.cwd}>{folder}</div>
-          </div>
-          <div className="detail-fact">
-            <div className="session-detail-label">Provider state</div>
-            <div className="session-detail-value">{providerContext.providerState}</div>
-          </div>
-          <div className="detail-fact">
-            <div className="session-detail-label">Coding tool</div>
-            <div className="session-detail-value">{providerContext.codingTool}</div>
-          </div>
-          <div className="detail-fact">
-            <div className="session-detail-label">Model</div>
-            <div className="session-detail-value">
-              {providerContext.model}
-              <span className="session-detail-value-sub">{providerContext.modelProvider}</span>
-            </div>
-          </div>
+          <DetailField className="detail-fact" label="Directory" valueTitle={active.cwd}>
+            {folder}
+          </DetailField>
+          <DetailField className="detail-fact" label="Provider state">
+            {providerContext.providerState}
+          </DetailField>
+          <DetailField className="detail-fact" label="Coding tool">
+            {providerContext.codingTool}
+          </DetailField>
+          <DetailField className="detail-fact" label="Model">
+            {providerContext.model}
+            <span className="session-detail-value-sub">{providerContext.modelProvider}</span>
+          </DetailField>
           {showDebugMetadata && (
             <>
-              <div className="detail-fact">
-                <div className="session-detail-label">Work phase</div>
-                <div className="session-detail-value">{workPhaseLabel(active.workPhase)}</div>
-              </div>
-              <div className="detail-fact">
-                <div className="session-detail-label">Lifecycle</div>
-                <div className="session-detail-value">{lifecyclePhaseLabel(active.lifecyclePhase)}</div>
-              </div>
-              <div className="detail-fact">
-                <div className="session-detail-label">OrkWorks session ID</div>
-                <div className="session-detail-value">{active.id}</div>
-              </div>
-              <div className="detail-fact">
-                <div className="session-detail-label">Harness session ID</div>
-                <div className="session-detail-value">{active.resume?.harnessSessionId ?? "Not captured"}</div>
-              </div>
+              <DetailField className="detail-fact" label="Work phase">
+                {workPhaseLabel(active.workPhase)}
+              </DetailField>
+              <DetailField className="detail-fact" label="Lifecycle">
+                {lifecyclePhaseLabel(active.lifecyclePhase)}
+              </DetailField>
+              <DetailField className="detail-fact" label="OrkWorks session ID">
+                {active.id}
+              </DetailField>
+              <DetailField className="detail-fact" label="Harness session ID">
+                {active.resume?.harnessSessionId ?? "Not captured"}
+              </DetailField>
             </>
           )}
         </div>

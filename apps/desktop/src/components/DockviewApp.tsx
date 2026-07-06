@@ -8,6 +8,7 @@ import {
   type IDockviewPanelHeaderProps,
 } from "dockview-react";
 import type { SessionInfo, WorkspaceInfo } from "../api";
+import type { HarnessConfig } from "../harnessTypes";
 import type { DebugSettings } from "../appSettingsTypes";
 import SessionListPanel from "./SessionListPanel";
 import SessionDetailPanel from "./SessionDetailPanel";
@@ -21,6 +22,8 @@ interface DockviewAppData {
   debugSettings: DebugSettings;
   sessions: SessionInfo[];
   activeSessionId: string | null;
+  unreadIds: ReadonlySet<string>;
+  harnesses: HarnessConfig[];
   resumeTick: number;
   onSelectSession: (id: string) => void;
   onCreateSession: () => void;
@@ -41,6 +44,8 @@ function SessionsPanel() {
       workspace={ctx.workspace}
       sessions={ctx.sessions}
       activeSessionId={ctx.activeSessionId}
+      unreadIds={ctx.unreadIds}
+      harnesses={ctx.harnesses}
       onSelectSession={ctx.onSelectSession}
       onKillSession={ctx.onKillSession}
       onForgetSession={ctx.onForgetSession}
@@ -152,9 +157,9 @@ function layoutNeedsMigration(json: Record<string, unknown>): boolean {
 }
 
 function DockviewApp(props: DockviewAppData) {
-  const { backendStatus, workspace, debugSettings, sessions, activeSessionId, resumeTick, onSelectSession, onCreateSession, onKillSession, onForgetSession, onResumeSession, onFocusTerminal, onOpenWorkspace, dockviewApiRef } = props;
+  const { backendStatus, workspace, debugSettings, sessions, activeSessionId, unreadIds, harnesses, resumeTick, onSelectSession, onCreateSession, onKillSession, onForgetSession, onResumeSession, onFocusTerminal, onOpenWorkspace, dockviewApiRef } = props;
 
-  const ctxValue: DockviewAppData = { backendStatus, workspace, debugSettings, sessions, activeSessionId, resumeTick, onSelectSession, onCreateSession, onKillSession, onForgetSession, onResumeSession, onFocusTerminal, onOpenWorkspace, dockviewApiRef };
+  const ctxValue: DockviewAppData = { backendStatus, workspace, debugSettings, sessions, activeSessionId, unreadIds, harnesses, resumeTick, onSelectSession, onCreateSession, onKillSession, onForgetSession, onResumeSession, onFocusTerminal, onOpenWorkspace, dockviewApiRef };
 
   const initializedRef = useRef(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);

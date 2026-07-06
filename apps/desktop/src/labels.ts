@@ -48,6 +48,15 @@ export type AttentionTone =
   | "idle"
   | "neutral";
 
+/**
+ * Tones that interrupt: only these spell the attention word out on the
+ * session row. For working/done/idle the indicator glyph already says it —
+ * repeating the word was clutter.
+ */
+export function isLoudTone(tone: AttentionTone): boolean {
+  return tone === "needs-you" || tone === "failed" || tone === "blocked";
+}
+
 export function attentionTone(status: string): AttentionTone {
   switch (status) {
     case "waiting_for_input":

@@ -562,12 +562,16 @@ html, body, #root {
   margin: 0;
 }
 
+/* One line, triage only: indicator + name left; attention word (interrupt
+   tones), tool mark, time, unread dot, kill right. The indicator is the one
+   tone signal — no left-border accent. Everything else lives in Detail. */
 .session-row {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: var(--space-3) var(--space-5) var(--space-3) 13px;
-  border-left: 3px solid transparent;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 40px;
+  box-sizing: border-box;
+  padding: var(--space-3) var(--space-5);
   border-bottom: 1px solid var(--border-subtle);
   cursor: pointer;
   scroll-margin-top: 26px;
@@ -575,36 +579,31 @@ html, body, #root {
 }
 
 .session-row:hover { background: var(--border-subtle); }
+/* Unread tint outranks hover; selection outranks both. */
+.session-row--unread,
+.session-row--unread:hover { background: var(--surface-2); }
 .session-row[aria-selected="true"] { background: var(--surface-active); }
 .session-row[aria-selected="true"]:hover { background: var(--surface-active); }
 .session-row--remembered { opacity: 0.78; }
 
-.session-row[data-attention="needs-you"] { border-left-color: var(--attention-needs-you); }
-.session-row[data-attention="blocked"]   { border-left-color: var(--attention-blocked); }
-.session-row[data-attention="done"]      { border-left-color: var(--attention-done); }
-.session-row[data-attention="working"]   { border-left-color: var(--attention-working); }
-.session-row[data-attention="failed"]    { border-left-color: var(--attention-failed); }
-.session-row[data-attention="idle"]      { border-left-color: var(--attention-idle); }
-.session-row[data-attention="needs-you"] .session-row-label,
-.session-row[data-attention="failed"]    .session-row-label { font-weight: var(--weight-semibold); }
-
-.session-row-top {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: var(--space-2);
-}
+/* Which tones are "loud" lives in labels.ts (isLoudTone) — the component
+   stamps session-row--loud so this file never re-lists the tone set. */
+.session-row--loud   .session-row-label,
+.session-row--unread .session-row-label { font-weight: var(--weight-semibold); }
 
 .session-row-primary {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   min-width: 0;
+  flex: 1;
 }
 
 .session-row-secondary {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-3);
+  flex-shrink: 0;
 }
 
 .session-row-label {
@@ -617,22 +616,31 @@ html, body, #root {
   text-overflow: ellipsis;
 }
 
-.session-row-status {
-  padding-left: 22px;
+.session-row-attention {
   font-size: var(--text-sm);
-  color: var(--text-muted);
-  font-weight: var(--weight-regular);
+  font-weight: var(--weight-medium);
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
-.session-row-status[data-attention="needs-you"] { color: var(--attention-needs-you); font-weight: var(--weight-medium); }
-.session-row-status[data-attention="blocked"]   { color: var(--attention-blocked); }
-.session-row-status[data-attention="done"]      { color: var(--attention-done); }
-.session-row-status[data-attention="working"]   { color: var(--attention-working); }
-.session-row-status[data-attention="failed"]    { color: var(--attention-failed); font-weight: var(--weight-medium); }
-.session-row-status[data-attention="idle"]      { color: var(--attention-idle); }
+.session-row-attention[data-attention="needs-you"] { color: var(--attention-needs-you); }
+.session-row-attention[data-attention="failed"]    { color: var(--attention-failed); }
+.session-row-attention[data-attention="blocked"]   { color: var(--attention-blocked); }
+
+/* Grayscale on purpose: tone owns color on the row, so the tool mark reads
+   as metadata, not status. */
+.harness-icon {
+  display: block;
+  flex-shrink: 0;
+  fill: var(--text-faint);
+}
+
+.session-row-unread-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--unread-dot);
+  flex-shrink: 0;
+}
 
 .status-indicator {
   display: inline-flex;
@@ -676,7 +684,7 @@ html, body, #root {
   font-size: var(--text-xl);
   line-height: 1;
   cursor: pointer;
-  padding: 0 var(--space-2);
+  padding: 0 var(--space-1);
 }
 
 .session-row-kill:hover { color: var(--state-error); }
@@ -687,16 +695,22 @@ html, body, #root {
   color: var(--text-faint);
   line-height: 1;
   cursor: pointer;
-  padding: 0 var(--space-2);
-  opacity: 0.6;
+  padding: 0 var(--space-1);
   display: flex;
   align-items: center;
 }
 
-.session-row-forget:hover {
-  color: var(--state-error);
-  opacity: 1;
-}
+.session-row-forget:hover { color: var(--state-error); }
+
+/* Destructive controls surface on intent only — hover or keyboard focus —
+   so the resting list stays calm. opacity (not visibility/display) keeps
+   the buttons in the tab order and the row width stable. */
+.session-row-kill,
+.session-row-forget { opacity: 0; }
+.session-row:hover .session-row-kill,
+.session-row:hover .session-row-forget,
+.session-row-kill:focus-visible,
+.session-row-forget:focus-visible { opacity: 1; }
 
 .session-group-header {
   display: block;

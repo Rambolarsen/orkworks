@@ -17,6 +17,7 @@ const TONE_ICON: Partial<Record<AttentionTone, ComponentType<{ size?: number; cl
 };
 
 function StatusIndicator({ tone, label }: StatusIndicatorProps) {
+  if (tone === "neutral") return null; // no signal to show — matches the design contract
   const Icon = TONE_ICON[tone];
   if (!Icon) {
     return (

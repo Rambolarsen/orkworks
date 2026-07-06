@@ -150,8 +150,9 @@ test("SessionDetailPanel groups content into situation/actions/facts/provenance 
   assert.match(source, /detail-actions/);
   assert.match(source, /detail-facts/);
   assert.match(source, /detail-provenance/);
+  // Facts render through the DetailField primitive, so labels are props.
   for (const label of ["Directory", "Coding tool", "Model"]) {
-    assert.match(source, new RegExp(`>${label}<`));
+    assert.match(source, new RegExp(`<DetailField[^>]*label="${label}"`));
   }
   assert.match(source, /<GitBranch\b/);
   assert.match(source, /Select an agent session to see details/);
@@ -166,7 +167,7 @@ test("SessionDetailPanel surfaces lifecycle, work phase, and frozen final attent
 
   assert.match(
     source,
-    /showDebugMetadata[\s\S]*>Work phase<[\s\S]*>Lifecycle<[\s\S]*>OrkWorks session ID</,
+    /showDebugMetadata[\s\S]*label="Work phase"[\s\S]*label="Lifecycle"[\s\S]*label="OrkWorks session ID"/,
   );
   assert.match(source, /finalObservedStatus/);
 });

@@ -20,13 +20,16 @@ test("NewSessionDialog does not describe the initial prompt as sent to the provi
 
 test("SessionDetailPanel distinguishes coding tool from model provider", () => {
   const text = source("../src/components/SessionDetailPanel.tsx");
-  assert.match(text, />Coding tool</);
-  assert.match(text, />Provider state</);
+  // Field labels are DetailField props now, not inline element text.
+  assert.match(text, /label="Coding tool"/);
+  assert.match(text, /label="Provider state"/);
   assert.match(text, /OrkWorks session ID/);
   assert.match(text, /Harness session ID/);
   assert.match(text, /Not captured/);
   assert.doesNotMatch(text, />Provider</);
+  assert.doesNotMatch(text, /label="Provider"/);
   assert.doesNotMatch(text, />State</);
+  assert.doesNotMatch(text, /label="State"/);
   // Model provider is demoted to a muted sub-line under the model name, not its own labeled row.
   assert.match(text, /providerContext\.modelProvider/);
   assert.match(text, /session-detail-value-sub/);
