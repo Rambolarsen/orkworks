@@ -209,7 +209,6 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
     try {
       const result = await window.orkworks.verifyOllama(baseUrl);
       if (requestId !== verifyRequestRef.current) return;
-      if (result.normalizedBaseUrl !== normalizedDraft) return;
       setOllamaVerification({ phase: "done", result });
     } catch (error) {
       if (requestId !== verifyRequestRef.current) return;
