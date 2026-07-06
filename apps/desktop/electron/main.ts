@@ -265,6 +265,22 @@ app.whenReady().then(() => {
     return { ok: true, settings: rendererSettings(currentSettings) };
   });
 
+  ipcMain.handle("verify-ollama", async (_event, baseUrl: string) => {
+    const port = await portPromise;
+    const response = await fetch(`http://127.0.0.1:${port}/settings/providers/ollama/verify`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ baseUrl }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: "Couldn't verify Ollama." }));
+      throw new Error(error.error ?? "Couldn't verify Ollama.");
+    }
+
+    return await response.json();
+  });
+
   ipcMain.handle("get-provider-models", async (_event, providerId: string) => {
     if (providerModels.has(providerId)) {
       return { models: providerModels.get(providerId)! };
