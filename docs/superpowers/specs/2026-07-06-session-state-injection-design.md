@@ -75,7 +75,7 @@ To preserve the ability to converge, introduce a dedicated metadata source for t
 Rules:
 
 - injection writes set `metadataSource = "debug"`
-- injection writes set `metadataConfidence = null`
+- persisted session metadata writes set `metadataConfidence = 0.0` until the metadata store becomes nullable; projected frontend `SessionInfo` may emit `metadataConfidence = null` for debug-derived state
 - `debug` is lower priority than every normal runtime source: `user`, `agent`, `peon`, `backend_inference`, `process`, and `unknown`
 - a later non-debug write may overwrite a debug-injected value immediately, without waiting for staleness windows
 - UI source presentation should make the temporary nature clear by labeling the state as debug-derived
