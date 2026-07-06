@@ -31,3 +31,22 @@ export interface ProviderModelsResponse {
 export interface ProviderLabelsResponse {
   labels: Record<string, string>;
 }
+
+export interface OllamaVerificationResponse {
+  ok: boolean;
+  normalizedBaseUrl: string;
+  status: "connected" | "connected_empty" | "failed";
+  reasonCode:
+    | "connected"
+    | "no_models_returned"
+    | "all_models_filtered"
+    | "invalid_url"
+    | "unreachable"
+    | "timeout"
+    | "http_error"
+    | "parse_error";
+  httpStatus: number | null;
+  models: string[];
+  excludedModels: string[];
+  diagnostic: string | null;
+}

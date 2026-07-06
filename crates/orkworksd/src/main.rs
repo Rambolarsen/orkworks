@@ -34,7 +34,7 @@ use crate::http::harness_handlers::{
     create_harness, delete_harness, list_harnesses, update_harness,
 };
 use crate::http::hook_handlers::{get_attention_hook_status, install_attention_hook};
-use crate::http::provider_handlers::{get_provider_models, get_providers, set_provider_settings};
+use crate::http::provider_handlers::{get_provider_models, get_providers, set_provider_settings, verify_ollama_settings};
 use crate::http::retention_handlers::set_retention;
 use crate::http::session_handlers::{
     create_session, delete_session, forget_session, list_sessions, report_attention,
@@ -159,6 +159,7 @@ async fn main() {
         .route("/providers", get(get_providers))
         .route("/providers/:id/models", get(get_provider_models))
         .route("/settings/providers", post(set_provider_settings))
+        .route("/settings/providers/ollama/verify", post(verify_ollama_settings))
         .route("/workspace", post(set_workspace))
         .route("/workspace/active-session", post(set_active_session))
         .route("/workspace/active-harnesses", put(set_active_harnesses))

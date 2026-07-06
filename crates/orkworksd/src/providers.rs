@@ -128,6 +128,135 @@ pub struct ProviderApplyStatus {
     pub last_apply_error: Option<String>,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum OllamaVerificationStatus {
+    Connected,
+    ConnectedEmpty,
+    Failed,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum OllamaVerificationReasonCode {
+    Connected,
+    NoModelsReturned,
+    AllModelsFiltered,
+    InvalidUrl,
+    Unreachable,
+    Timeout,
+    HttpError,
+    ParseError,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OllamaVerificationResponse {
+    pub ok: bool,
+    #[serde(rename = "normalizedBaseUrl")]
+    pub normalized_base_url: String,
+    pub status: OllamaVerificationStatus,
+    #[serde(rename = "reasonCode")]
+    pub reason_code: OllamaVerificationReasonCode,
+    #[serde(rename = "httpStatus")]
+    pub http_status: Option<u16>,
+    pub models: Vec<String>,
+    #[serde(rename = "excludedModels")]
+    pub excluded_models: Vec<String>,
+    pub diagnostic: Option<String>,
+}
+
+pub(crate) fn normalize_ollama_base_url(raw: &str) -> Result<String, String> {
+    let trimmed = raw.trim().trim_end_matches('/');
+    let parsed = reqwest::Url::parse(trimmed).map_err(|_| "invalid Ollama URL".to_string())?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err("Ollama URL must start with http:// or https://".to_string());
+    }
+    if parsed.path() != "/" || parsed.query().is_some() || parsed.fragment().is_some() {
+        return Err("Ollama URL must be origin-only with no path, query, or fragment".to_string());
+    }
+    Ok(parsed.origin().unicode_serialization())
+}
+
+pub(crate) fn filter_peon_candidate_models(mut models: Vec<String>) -> (Vec<String>, Vec<String>) {
+    models.sort();
+    let (excluded, included): (Vec<_>, Vec<_>) = models.into_iter().partition(|name| {
+        let lower = name.to_ascii_lowercase();
+        lower.contains("embed") || lower.contains("embedding")
+    });
+    (included, excluded)
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct OllamaVerifyRequest {
+    #[serde(rename = "baseUrl")]
+    pub base_url: String,
+}
+
+fn build_ollama_verification_response(
+    normalized_base_url: String,
+    raw_models: Vec<String>,
+) -> OllamaVerificationResponse {
+    let (models, excluded_models) = filter_peon_candidate_models(raw_models);
+    let reason_code = if models.is_empty() {
+        if excluded_models.is_empty() {
+            OllamaVerificationReasonCode::NoModelsReturned
+        } else {
+            OllamaVerificationReasonCode::AllModelsFiltered
+        }
+    } else {
+        OllamaVerificationReasonCode::Connected
+    };
+    let status = if models.is_empty() {
+        OllamaVerificationStatus::ConnectedEmpty
+    } else {
+        OllamaVerificationStatus::Connected
+    };
+
+    OllamaVerificationResponse {
+        ok: true,
+        normalized_base_url,
+        status,
+        reason_code,
+        http_status: Some(200),
+        models,
+        excluded_models,
+        diagnostic: None,
+    }
+}
+
+fn failed_ollama_verification(
+    normalized_base_url: String,
+    error: reqwest::Error,
+) -> OllamaVerificationResponse {
+    let (reason_code, diagnostic) = if error.is_connect() {
+        (
+            OllamaVerificationReasonCode::Unreachable,
+            format!("Ollama endpoint unreachable at {normalized_base_url}"),
+        )
+    } else if error.is_timeout() {
+        (
+            OllamaVerificationReasonCode::Timeout,
+            "Ollama request timed out".to_string(),
+        )
+    } else {
+        (
+            OllamaVerificationReasonCode::HttpError,
+            format!("Ollama request failed: {error}"),
+        )
+    };
+
+    OllamaVerificationResponse {
+        ok: false,
+        normalized_base_url,
+        status: OllamaVerificationStatus::Failed,
+        reason_code,
+        http_status: None,
+        models: vec![],
+        excluded_models: vec![],
+        diagnostic: Some(diagnostic),
+    }
+}
+
 // --- Registry types ---
 
 #[derive(Clone, Debug)]
@@ -650,6 +779,99 @@ impl ProviderManager {
         };
 
         Ok(models)
+    }
+
+    pub fn verify_ollama(&self, base_url: &str) -> OllamaVerificationResponse {
+        let normalized = match normalize_ollama_base_url(base_url) {
+            Ok(value) => value,
+            Err(error) => {
+                return OllamaVerificationResponse {
+                    ok: false,
+                    normalized_base_url: base_url.trim().trim_end_matches('/').to_string(),
+                    status: OllamaVerificationStatus::Failed,
+                    reason_code: OllamaVerificationReasonCode::InvalidUrl,
+                    http_status: None,
+                    models: vec![],
+                    excluded_models: vec![],
+                    diagnostic: Some(error),
+                };
+            }
+        };
+        let client = HttpClient::new();
+        let url = format!("{normalized}/api/tags");
+
+        let (status, body) = match block_on_http(async {
+            tokio::time::timeout(Duration::from_secs(10), async {
+                let response = client.get(&url).send().await?;
+                let status = response.status();
+                let body = response.text().await?;
+                Ok::<_, reqwest::Error>((status, body))
+            })
+            .await
+        }) {
+            Ok(Ok((status, body))) => (status, body),
+            Ok(Err(error)) => {
+                if error.is_body() {
+                    return OllamaVerificationResponse {
+                        ok: false,
+                        normalized_base_url: normalized,
+                        status: OllamaVerificationStatus::Failed,
+                        reason_code: OllamaVerificationReasonCode::ParseError,
+                        http_status: None,
+                        models: vec![],
+                        excluded_models: vec![],
+                        diagnostic: Some(format!("failed to read Ollama response: {error}")),
+                    };
+                }
+                return failed_ollama_verification(normalized, error);
+            }
+            Err(_) => {
+                return OllamaVerificationResponse {
+                    ok: false,
+                    normalized_base_url: normalized,
+                    status: OllamaVerificationStatus::Failed,
+                    reason_code: OllamaVerificationReasonCode::Timeout,
+                    http_status: None,
+                    models: vec![],
+                    excluded_models: vec![],
+                    diagnostic: Some("Ollama request timed out".to_string()),
+                };
+            }
+        };
+
+        if !status.is_success() {
+            return OllamaVerificationResponse {
+                ok: false,
+                normalized_base_url: normalized,
+                status: OllamaVerificationStatus::Failed,
+                reason_code: OllamaVerificationReasonCode::HttpError,
+                http_status: Some(status.as_u16()),
+                models: vec![],
+                excluded_models: vec![],
+                diagnostic: Some(format!("Ollama returned HTTP {}", status.as_u16())),
+            };
+        }
+
+        let tags: OllamaTagsResponse = match serde_json::from_str(&body) {
+            Ok(parsed) => parsed,
+            Err(error) => {
+                return OllamaVerificationResponse {
+                    ok: false,
+                    normalized_base_url: normalized,
+                    status: OllamaVerificationStatus::Failed,
+                    reason_code: OllamaVerificationReasonCode::ParseError,
+                    http_status: Some(status.as_u16()),
+                    models: vec![],
+                    excluded_models: vec![],
+                    diagnostic: Some(format!("failed to parse Ollama /api/tags response: {error}")),
+                };
+            }
+        };
+
+        build_ollama_verification_response(
+            normalized,
+            tags.models.into_iter().map(|model| model.name).collect(),
+        )
     }
 
     pub fn run_inference(&self, _scope: PeonScope, output: &[String]) -> ProviderRunResult {
@@ -1346,5 +1568,68 @@ mod tests {
             e.contains("unreachable") || e.contains("connection refused"),
             "expected connection refused error, got: {e}"
         );
+    }
+
+    #[test]
+    fn normalize_ollama_base_url_trims_and_strips_trailing_slash() {
+        let normalized = normalize_ollama_base_url(" http://127.0.0.1:11434/ ").unwrap();
+        assert_eq!(normalized, "http://127.0.0.1:11434");
+    }
+
+    #[test]
+    fn normalize_ollama_base_url_rejects_non_origin_urls() {
+        let err = normalize_ollama_base_url("http://127.0.0.1:11434/api/tags").unwrap_err();
+        assert!(err.contains("origin-only"));
+    }
+
+    #[test]
+    fn filter_peon_candidate_models_excludes_embedding_names_case_insensitively() {
+        let (models, excluded) = filter_peon_candidate_models(vec![
+            "llama3.1:latest".into(),
+            "nomic-embed-text".into(),
+            "BGE-EMBED-M3:latest".into(),
+        ]);
+
+        assert_eq!(models, vec!["llama3.1:latest"]);
+        assert_eq!(excluded, vec!["BGE-EMBED-M3:latest", "nomic-embed-text"]);
+    }
+
+    #[test]
+    fn verify_ollama_all_models_filtered_is_connected_empty() {
+        let response = build_ollama_verification_response(
+            "http://127.0.0.1:11434".into(),
+            vec!["nomic-embed-text".into()],
+        );
+
+        assert!(response.ok);
+        assert_eq!(response.status, OllamaVerificationStatus::ConnectedEmpty);
+        assert!(response.models.is_empty());
+        assert_eq!(
+            response.reason_code,
+            OllamaVerificationReasonCode::AllModelsFiltered
+        );
+    }
+
+    #[test]
+    fn verify_ollama_unreachable_maps_to_failed_response() {
+        let manager = ProviderManager::for_tests(ProviderSettingsPayload::default(), vec![]);
+
+        let response = manager.verify_ollama("http://127.0.0.1:49999");
+        assert!(!response.ok);
+        assert_eq!(response.status, OllamaVerificationStatus::Failed);
+        assert_eq!(
+            response.reason_code,
+            OllamaVerificationReasonCode::Unreachable
+        );
+    }
+
+    #[test]
+    fn verify_ollama_invalid_url_maps_to_failed_response() {
+        let manager = ProviderManager::for_tests(ProviderSettingsPayload::default(), vec![]);
+
+        let response = manager.verify_ollama("http://127.0.0.1:11434/api");
+        assert!(!response.ok);
+        assert_eq!(response.status, OllamaVerificationStatus::Failed);
+        assert_eq!(response.reason_code, OllamaVerificationReasonCode::InvalidUrl);
     }
 }

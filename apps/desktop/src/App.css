@@ -428,6 +428,48 @@ html, body, #root {
   cursor: pointer;
 }
 
+.provider-verify-status {
+  margin-top: 8px;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+.provider-verify-status--ok {
+  color: var(--state-ok);
+}
+
+.provider-verify-status--error {
+  color: var(--state-error);
+}
+
+.ollama-candidate-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  max-height: 180px;
+  overflow: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.ollama-candidate-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.ollama-candidate-list li:last-child {
+  border-bottom: 0;
+}
+
+.selected-model {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
 .provider-card button:hover:not(:disabled) {
   background: var(--surface-3);
 }
@@ -1411,4 +1453,3 @@ html, body, #root {
 .new-session-config-item input[type="checkbox"] {
   accent-color: var(--accent-strong);
 }
-
