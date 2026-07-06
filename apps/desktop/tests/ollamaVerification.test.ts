@@ -21,4 +21,5 @@ test("SettingsModal guards against stale verification results", () => {
   const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
   assert.match(source, /verifyRequestRef/);
   assert.match(source, /normalizedBaseUrl/);
+  assert.match(source, /setOllamaVerification\(\{ phase: "idle" }\)/);
 });

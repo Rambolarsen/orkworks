@@ -177,7 +177,16 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
   }, [providerDraft.ollamaBaseUrl]);
 
   function normalizeBaseUrlDraft(baseUrl: string): string {
-    return baseUrl.trim().replace(/\/+$/, "");
+    const trimmed = baseUrl.trim().replace(/\/+$/, "");
+    try {
+      const parsed = new URL(trimmed);
+      if (parsed.pathname !== "/" || parsed.search || parsed.hash) {
+        return trimmed;
+      }
+      return parsed.origin;
+    } catch {
+      return trimmed;
+    }
   }
 
   function failedVerificationResult(baseUrl: string, diagnostic: string): OllamaVerificationResponse {
@@ -291,7 +300,11 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
 
   async function savePeonModel(model: string | null) {
     setProviderSaveStatus(null);
-    const next = { ...providerDraft, peonModel: model };
+    const nextBaseUrl =
+      ollamaVerification.phase === "done" && ollamaVerification.result.ok
+        ? ollamaVerification.result.normalizedBaseUrl
+        : normalizeBaseUrlDraft(ollamaBaseUrlDraft);
+    const next = { ...providerDraft, peonModel: model, ollamaBaseUrl: nextBaseUrl };
     setProviderDraft(next);
     await persistProviderSettings(next);
   }
@@ -455,9 +468,13 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
                 type="text"
                 placeholder="http://127.0.0.1:11434"
                 value={ollamaBaseUrlDraft}
-                onChange={(e) => setOllamaBaseUrlDraft(e.target.value.trim())}
+                onChange={(e) => {
+                  verifyRequestRef.current += 1;
+                  setOllamaVerification({ phase: "idle" });
+                  setOllamaBaseUrlDraft(e.target.value.trim());
+                }}
                 onBlur={() => {
-                  const normalized = ollamaBaseUrlDraft.trim().replace(/\/+$/, "");
+                  const normalized = normalizeBaseUrlDraft(ollamaBaseUrlDraft);
                   if (normalized !== providerDraft.ollamaBaseUrl && (normalized.startsWith("http://") || normalized.startsWith("https://"))) {
                     const next = { ...providerDraft, ollamaBaseUrl: normalized };
                     setProviderDraft(next);
