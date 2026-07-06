@@ -627,10 +627,12 @@ html, body, #root {
 .session-row-attention[data-attention="blocked"]   { color: var(--attention-blocked); }
 
 /* Grayscale on purpose: tone owns color on the row, so the tool mark reads
-   as metadata, not status. */
+   as metadata, not status. color covers the stroked fallback glyph
+   (currentColor); fill covers the vendored marks. */
 .harness-icon {
   display: block;
   flex-shrink: 0;
+  color: var(--text-faint);
   fill: var(--text-faint);
 }
 
@@ -704,13 +706,14 @@ html, body, #root {
 
 /* Destructive controls surface on intent only — hover or keyboard focus —
    so the resting list stays calm. opacity (not visibility/display) keeps
-   the buttons in the tab order and the row width stable. */
+   the buttons in the tab order and the row width stable; pointer-events
+   guards against taps on the invisible control (touch has no hover). */
 .session-row-kill,
-.session-row-forget { opacity: 0; }
+.session-row-forget { opacity: 0; pointer-events: none; }
 .session-row:hover .session-row-kill,
 .session-row:hover .session-row-forget,
 .session-row-kill:focus-visible,
-.session-row-forget:focus-visible { opacity: 1; }
+.session-row-forget:focus-visible { opacity: 1; pointer-events: auto; }
 
 .session-group-header {
   display: block;
