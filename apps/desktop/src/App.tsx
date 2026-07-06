@@ -5,6 +5,7 @@ import NewSessionDialog from "./components/NewSessionDialog";
 import SettingsModal from "./components/SettingsModal";
 import ToastRack from "./components/ToastRack";
 import { sortSessions } from "./sessionSort";
+import { EMPTY_UNREAD_STATE, clearUnread, trackUnread, type UnreadState } from "./sessionUnread";
 import { PANEL_DEFAULTS, buildDefaultLayout } from "./components/DockviewApp";
 import { VOCAB } from "./labels";
 import { pushToast } from "./feedback";
@@ -30,6 +31,7 @@ function App() {
   const [backendStatus, setBackendStatus] = useState<string>("connecting…");
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [unreadState, setUnreadState] = useState<UnreadState>(EMPTY_UNREAD_STATE);
   const [workspace, setWorkspaceState] = useState<WorkspaceInfo | null>(null);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -187,7 +189,14 @@ function App() {
     }
   }, []);
 
+  // Unread ("changed since you looked") is derived by diffing attention
+  // status between session snapshots; selecting a session marks it read.
+  useEffect(() => {
+    setUnreadState((prev) => trackUnread(prev, sessions, activeSessionId));
+  }, [sessions, activeSessionId]);
+
   const handleSelectSession = useCallback((id: string) => {
+    setUnreadState((prev) => clearUnread(prev, id));
     setActiveSessionId(id);
     const api = dockviewApiRef.current;
     if (api) {
@@ -421,6 +430,8 @@ function App() {
         debugSettings={settings?.debug ?? { showSessionIds: false }}
         sessions={sessions}
         activeSessionId={activeSessionId}
+        unreadIds={unreadState.unreadIds}
+        harnesses={harnesses}
         resumeTick={resumeTick}
         onSelectSession={handleSelectSession}
         onCreateSession={handleCreateSession}

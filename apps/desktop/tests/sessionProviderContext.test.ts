@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { sessionProviderContext } from "../src/sessionProviderContext.ts";
+import { harnessDisplayName, sessionProviderContext } from "../src/sessionProviderContext.ts";
 import type { SessionInfo } from "../src/api.ts";
 
 function sampleSession(overrides: Partial<SessionInfo> = {}): SessionInfo {
@@ -36,4 +36,16 @@ test("sessionProviderContext leaves model provider unknown when unavailable", ()
   assert.equal(context.codingTool, "OpenCode");
   assert.equal(context.modelProvider, "Unknown");
   assert.equal(context.model, "deepseek/deepseek-reasoner");
+});
+
+test("harnessDisplayName maps registry ids to display names and passes unknowns through", () => {
+  const harnesses = [
+    { id: "claude-code", name: "Claude Code" },
+    { id: "gemini", name: "Gemini CLI" },
+  ];
+  assert.equal(harnessDisplayName(harnesses, "gemini"), "Gemini CLI");
+  assert.equal(harnessDisplayName(harnesses, "claude-code"), "Claude Code");
+  // A custom harness id with no registry entry still shows something.
+  assert.equal(harnessDisplayName(harnesses, "my-custom-tool"), "my-custom-tool");
+  assert.equal(harnessDisplayName(harnesses, undefined), undefined);
 });

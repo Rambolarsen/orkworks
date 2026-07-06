@@ -1,16 +1,21 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { Trash2 } from "lucide-react";
 import type { SessionInfo, WorkspaceInfo } from "../api";
+import type { HarnessConfig } from "../harnessTypes";
 import { sessionAttentionStatus } from "../sessionSort";
+import { harnessDisplayName, sessionCodingTool } from "../sessionProviderContext";
 import { groupSessions } from "../sessionGroups";
-import { VOCAB, attentionLabel, attentionTone, relativeTime } from "../labels";
+import { VOCAB, attentionLabel, attentionTone, isLoudTone, relativeTime } from "../labels";
 import EmptyState from "./EmptyState";
 import StatusIndicator from "./StatusIndicator";
+import HarnessIcon from "./HarnessIcon";
 
 interface SessionListPanelProps {
   workspace: WorkspaceInfo | null;
   sessions: SessionInfo[];
   activeSessionId: string | null;
+  unreadIds: ReadonlySet<string>;
+  harnesses: HarnessConfig[];
   onSelectSession: (id: string) => void;
   onKillSession: (id: string) => void;
   onForgetSession: (id: string) => void;
@@ -26,6 +31,8 @@ function SessionListPanel({
   workspace,
   sessions,
   activeSessionId,
+  unreadIds,
+  harnesses,
   onSelectSession,
   onKillSession,
   onForgetSession,
@@ -115,6 +122,14 @@ function SessionListPanel({
               {group.items.map((s) => {
                 const attn = sessionAttentionStatus(s);
                 const tone = attentionTone(attn);
+                const remembered = s.memoryState !== "live";
+                // Unread is "changed since you looked" — a remembered session
+                // can't change under you, so the signal is suppressed there.
+                const unread = unreadIds.has(s.id) && !remembered;
+                const loud = isLoudTone(tone);
+                // Display name, never the raw harness id — ids leak into the
+                // icon tooltip/aria-label otherwise.
+                const tool = harnessDisplayName(harnesses, sessionCodingTool(s));
                 return (
                   <li
                     key={s.id}
@@ -124,57 +139,57 @@ function SessionListPanel({
                     }}
                     className={[
                       "session-row",
-                      s.memoryState !== "live" ? "session-row--remembered" : "",
+                      remembered ? "session-row--remembered" : "",
+                      unread ? "session-row--unread" : "",
+                      loud ? "session-row--loud" : "",
                     ].filter(Boolean).join(" ")}
                     role="option"
                     aria-selected={s.id === activeSessionId}
                     data-attention={tone}
                     onClick={() => handleSelect(s.id)}
                   >
-                    <div className="session-row-top">
-                      <div className="session-row-primary">
-                        <StatusIndicator tone={tone} label={attentionLabel(attn)} />
-                        <span className="session-row-label">{s.label}</span>
-                      </div>
-                      <div className="session-row-secondary">
-                        <span className="session-row-time">{lastActivity(s, now)}</span>
-                        {s.memoryState === "live" && (
-                          <button
-                            className="session-row-kill"
-                            type="button"
-                            aria-label="Kill session"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onKillSession(s.id);
-                            }}
-                          >
-                            &times;
-                          </button>
-                        )}
-                        {s.memoryState !== "live" && (
-                          <button
-                            className="session-row-forget"
-                            type="button"
-                            aria-label="Delete session"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (window.confirm("Permanently delete this session? The session record, events, and saved terminal scrollback cannot be restored.")) {
-                                onForgetSession(s.id);
-                              }
-                            }}
-                          >
-                            <Trash2 size={12} />
-                          </button>
-                        )}
-                      </div>
+                    <div className="session-row-primary">
+                      <StatusIndicator tone={tone} label={attentionLabel(attn)} />
+                      <span className="session-row-label">{s.label}</span>
                     </div>
-                    {tone !== "neutral" && (
-                      <div className="session-row-status" data-attention={tone}>
-                        {attn === "capped" && s.usageLimitResetHint
-                          ? `Capped · ${s.usageLimitResetHint}`
-                          : attentionLabel(attn)}
-                      </div>
-                    )}
+                    <div className="session-row-secondary">
+                      {loud && (
+                        <span className="session-row-attention" data-attention={tone}>
+                          {attentionLabel(attn)}
+                        </span>
+                      )}
+                      {tool && <HarnessIcon tool={tool} />}
+                      <span className="session-row-time">{lastActivity(s, now)}</span>
+                      {unread && <span className="session-row-unread-dot" aria-hidden="true" />}
+                      {s.memoryState === "live" && (
+                        <button
+                          className="session-row-kill"
+                          type="button"
+                          aria-label="Kill session"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onKillSession(s.id);
+                          }}
+                        >
+                          &times;
+                        </button>
+                      )}
+                      {s.memoryState !== "live" && (
+                        <button
+                          className="session-row-forget"
+                          type="button"
+                          aria-label="Delete session"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (window.confirm("Permanently delete this session? The session record, events, and saved terminal scrollback cannot be restored.")) {
+                              onForgetSession(s.id);
+                            }
+                          }}
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      )}
+                    </div>
                   </li>
                 );
               })}
