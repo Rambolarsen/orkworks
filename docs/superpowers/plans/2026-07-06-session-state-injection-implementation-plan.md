@@ -251,6 +251,8 @@ pub struct SessionMetadata {
 
 ```rust
 // crates/orkworksd/src/main.rs
+mod debug_state_injection;
+
 struct SessionHandle {
     info: SessionInfo,
     kill_tx: tokio::sync::watch::Sender<bool>,
@@ -307,6 +309,7 @@ rtk git commit -m "feat: add session state injection primitives"
   - `pub(crate) async fn apply_session_state_injection(State(state): State<Arc<AppState>>, Path(id): Path<String>, Json(req): Json<ApplySessionStateInjectionRequest>) -> impl IntoResponse`
   - `pub(crate) fn inject_session_state(state: &Arc<AppState>, id: &str, injection: SessionStateInjectionId, now: &str) -> Result<SessionInfo, axum::http::StatusCode>`
   - `pub(crate) fn apply_debug_overlay_projection(info: &mut SessionInfo, live_debug: Option<&metadata::DebugInjectionMetadata>, meta: Option<&SessionMetadata>)`
+  - `pub(crate) fn clear_superseded_debug_overlay(handle: &mut SessionHandle, meta: &mut SessionMetadata, effective_at_usage_limit: bool)`
 - Consumes:
   - `SessionStateInjectionId`
   - `SessionMetadata.debug_injection`
@@ -346,6 +349,20 @@ async fn apply_session_state_injection_returns_not_found_for_unknown_session() {
 async fn running_capped_overlay_does_not_cap_sibling_live_sessions_or_provider_state() {
     let dir = tempfile::tempdir().unwrap();
     let state = test_app_state_with_workspace(dir.path());
+
+    {
+        let ws_guard = state.workspace.lock().unwrap();
+        let ws = ws_guard.as_ref().unwrap();
+        for session_id in ["capped-target", "capped-sibling"] {
+            ws.metadata.write_session(&test_session_metadata(
+                session_id,
+                session_id,
+                dir.path(),
+                "running",
+                "active",
+            ));
+        }
+    }
 
     for session_id in ["capped-target", "capped-sibling"] {
         let (kill_tx, _) = tokio::sync::watch::channel(false);
@@ -405,6 +422,17 @@ async fn active_fake_ending_schedules_real_finalization_and_leaves_session_ended
     let dir = tempfile::tempdir().unwrap();
     let state = test_app_state_with_workspace(dir.path());
     let session_id = "ending-target".to_string();
+    {
+        let ws_guard = state.workspace.lock().unwrap();
+        let ws = ws_guard.as_ref().unwrap();
+        ws.metadata.write_session(&test_session_metadata(
+            &session_id,
+            "Ending Target",
+            dir.path(),
+            "running",
+            "active",
+        ));
+    }
     let (kill_tx, _) = tokio::sync::watch::channel(false);
     state.sessions.lock().unwrap().insert(
         session_id.clone(),
@@ -448,6 +476,100 @@ async fn active_fake_ending_schedules_real_finalization_and_leaves_session_ended
     let ended = sessions.iter().find(|s| s["id"] == session_id).unwrap();
     assert_eq!(ended.get("lifecyclePhase").and_then(|v| v.as_str()), Some("ended"));
 }
+
+#[tokio::test]
+async fn running_blocked_updates_live_and_persisted_session_state() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = test_app_state_with_workspace(dir.path());
+    let session_id = "blocked-target";
+
+    {
+        let ws_guard = state.workspace.lock().unwrap();
+        let ws = ws_guard.as_ref().unwrap();
+        ws.metadata.write_session(&test_session_metadata(
+            session_id,
+            "Blocked Target",
+            dir.path(),
+            "running",
+            "active",
+        ));
+    }
+
+    let (kill_tx, _) = tokio::sync::watch::channel(false);
+    state.sessions.lock().unwrap().insert(
+        session_id.to_string(),
+        SessionHandle {
+            info: test_session_info(session_id.to_string(), "Blocked Target", dir.path().display().to_string(), "running", "now"),
+            kill_tx,
+            output_buffer: peon::RingBuffer::new(200),
+            scan_buf: String::new(),
+            command: default_shell_command(dir.path().display().to_string()),
+            initial_prompt: None,
+            terminal_attached: false,
+            at_usage_limit_latched: false,
+            capacity_check_pending: false,
+            output_lines_seen: 0,
+            scan_bytes_seen: 0,
+            resume_scan_origin: None,
+            pending_capacity_visible_once: false,
+            debug_injection: None,
+        },
+    );
+
+    let injected = inject_session_state(&state, session_id, SessionStateInjectionId::RunningBlocked, "now").unwrap();
+    assert_eq!(injected.observed_status.as_deref(), Some("blocked"));
+    assert_eq!(injected.metadata_source.as_deref(), Some("debug"));
+
+    let ws_guard = state.workspace.lock().unwrap();
+    let ws = ws_guard.as_ref().unwrap();
+    let persisted = ws.metadata.read_session(session_id).unwrap();
+    assert_eq!(persisted.observed_status.as_deref(), Some("blocked"));
+    assert_eq!(persisted.metadata_source, "debug");
+}
+
+#[tokio::test]
+async fn running_capped_apply_response_is_projected_immediately() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = test_app_state_with_workspace(dir.path());
+    let session_id = "capped-now";
+
+    {
+        let ws_guard = state.workspace.lock().unwrap();
+        let ws = ws_guard.as_ref().unwrap();
+        ws.metadata.write_session(&test_session_metadata(
+            session_id,
+            "Capped Now",
+            dir.path(),
+            "running",
+            "active",
+        ));
+    }
+
+    let (kill_tx, _) = tokio::sync::watch::channel(false);
+    state.sessions.lock().unwrap().insert(
+        session_id.to_string(),
+        SessionHandle {
+            info: test_session_info(session_id.to_string(), "Capped Now", dir.path().display().to_string(), "running", "now"),
+            kill_tx,
+            output_buffer: peon::RingBuffer::new(200),
+            scan_buf: String::new(),
+            command: default_shell_command(dir.path().display().to_string()),
+            initial_prompt: None,
+            terminal_attached: false,
+            at_usage_limit_latched: false,
+            capacity_check_pending: false,
+            output_lines_seen: 0,
+            scan_bytes_seen: 0,
+            resume_scan_origin: None,
+            pending_capacity_visible_once: false,
+            debug_injection: None,
+        },
+    );
+
+    let injected = inject_session_state(&state, session_id, SessionStateInjectionId::RunningCapped, "now").unwrap();
+    assert_eq!(injected.at_usage_limit, Some(true));
+    assert_eq!(injected.usage_limit_reset_hint.as_deref(), Some("resets in 1h (debug)"));
+}
 ```
 
 - [ ] **Step 2: Run the focused Rust tests and verify they fail**
@@ -458,6 +580,8 @@ Run:
 rtk cargo test --manifest-path crates/orkworksd/Cargo.toml apply_session_state_injection
 rtk cargo test --manifest-path crates/orkworksd/Cargo.toml running_capped_overlay_does_not_cap_sibling_live_sessions_or_provider_state
 rtk cargo test --manifest-path crates/orkworksd/Cargo.toml active_fake_ending_schedules_real_finalization_and_leaves_session_ended
+rtk cargo test --manifest-path crates/orkworksd/Cargo.toml running_blocked_updates_live_and_persisted_session_state
+rtk cargo test --manifest-path crates/orkworksd/Cargo.toml running_capped_apply_response_is_projected_immediately
 ```
 
 Expected:
@@ -495,10 +619,16 @@ pub(crate) fn inject_session_state(
     injection: SessionStateInjectionId,
     now: &str,
 ) -> Result<SessionInfo, axum::http::StatusCode> {
+    let ws_guard = state.workspace.lock().unwrap();
+    let ws = ws_guard.as_ref().ok_or(axum::http::StatusCode::CONFLICT)?;
+    let mut meta = ws.metadata.read_session(id).ok_or(axum::http::StatusCode::NOT_FOUND)?;
+
     let mut sessions = state.sessions.lock().unwrap();
     let handle = sessions.get_mut(id).ok_or(axum::http::StatusCode::NOT_FOUND)?;
     handle.info.metadata_source = Some("debug".into());
     handle.info.metadata_confidence = None;
+    meta.metadata_source = "debug".into();
+    meta.metadata_confidence = 0.0;
 
     match injection {
         SessionStateInjectionId::ActiveFakeEnding => {
@@ -507,30 +637,55 @@ pub(crate) fn inject_session_state(
             handle.info.observed_status = None;
             handle.info.terminal_outcome = None;
             handle.debug_injection = None;
+            meta.status = "running".into();
+            meta.lifecycle_phase = "ending".into();
+            meta.observed_status = None;
+            meta.pending_terminal_status = None;
+            meta.final_observed_status_snapshot = None;
+            meta.debug_injection = None;
         }
         SessionStateInjectionId::EndedStaleLiveAttention => {
             handle.info.status = "ended".into();
             handle.info.lifecycle_phase = "ended".into();
             handle.info.observed_status = Some("waiting_for_input".into());
             handle.debug_injection = None;
+            meta.status = "ended".into();
+            meta.lifecycle_phase = "ended".into();
+            meta.observed_status = Some("waiting_for_input".into());
+            meta.final_observed_status_snapshot = Some("idle".into());
+            meta.debug_injection = None;
         }
         SessionStateInjectionId::EndedMissingFinalSnapshot => {
             handle.info.status = "ended".into();
             handle.info.lifecycle_phase = "ended".into();
             handle.info.final_observed_status = None;
             handle.debug_injection = None;
+            meta.status = "ended".into();
+            meta.lifecycle_phase = "ended".into();
+            meta.final_observed_status_snapshot = None;
+            meta.debug_injection = None;
         }
         SessionStateInjectionId::RunningBlocked => {
             handle.info.status = "running".into();
             handle.info.lifecycle_phase = "active".into();
             handle.info.observed_status = Some("blocked".into());
             handle.debug_injection = None;
+            meta.status = "running".into();
+            meta.lifecycle_phase = "active".into();
+            meta.observed_status = Some("blocked".into());
+            meta.final_observed_status_snapshot = None;
+            meta.debug_injection = None;
         }
         SessionStateInjectionId::RunningIdleTooEarly => {
             handle.info.status = "running".into();
             handle.info.lifecycle_phase = "active".into();
             handle.info.observed_status = Some("idle".into());
             handle.debug_injection = None;
+            meta.status = "running".into();
+            meta.lifecycle_phase = "active".into();
+            meta.observed_status = Some("idle".into());
+            meta.final_observed_status_snapshot = None;
+            meta.debug_injection = None;
         }
         SessionStateInjectionId::RunningCapped => {
             handle.info.status = "running".into();
@@ -540,30 +695,20 @@ pub(crate) fn inject_session_state(
                 usage_limit_reset_hint: Some("resets in 1h (debug)".into()),
                 applied_at: now.to_string(),
             });
-        }
-    }
-
-    let injected = handle.info.clone();
-    drop(sessions);
-
-    let ws_guard = state.workspace.lock().unwrap();
-    let ws = ws_guard.as_ref().ok_or(axum::http::StatusCode::CONFLICT)?;
-    let mut meta = ws.metadata.read_session(id).ok_or(axum::http::StatusCode::NOT_FOUND)?;
-    meta.metadata_source = "debug".into();
-    meta.metadata_confidence = 0.0;
-    match injection {
-        SessionStateInjectionId::RunningCapped => {
+            meta.status = "running".into();
+            meta.lifecycle_phase = "active".into();
             meta.debug_injection = Some(metadata::DebugInjectionMetadata {
                 attention: "capped".into(),
                 usage_limit_reset_hint: Some("resets in 1h (debug)".into()),
                 applied_at: now.to_string(),
             });
         }
-        _ => {
-            meta.debug_injection = None;
-        }
     }
+
     ws.metadata.write_session(&meta);
+    let mut injected = handle.info.clone();
+    apply_debug_overlay_projection(&mut injected, handle.debug_injection.as_ref(), Some(&meta));
+    drop(sessions);
     drop(ws_guard);
 
     if matches!(injection, SessionStateInjectionId::ActiveFakeEnding) {
@@ -580,16 +725,19 @@ pub(crate) fn inject_session_state(
 .route("/sessions/:id/debug-injection", post(apply_session_state_injection))
 ```
 
-- [ ] **Step 4: Apply the capped overlay only after provider propagation in `list_sessions`**
+- [ ] **Step 4: Apply the capped overlay only after provider propagation in `list_sessions`, and clear it once real runtime state supersedes it**
 
 ```rust
 for info in &mut infos {
-    let live_debug = {
-        let sessions = state.sessions.lock().unwrap();
-        sessions.get(&info.id).and_then(|handle| handle.debug_injection.as_ref().cloned())
-    };
-    if let Some(meta) = metadata_map.get(&info.id) {
-        apply_debug_overlay_projection(info, live_debug.as_ref(), Some(meta));
+    let ws_guard = state.workspace.lock().unwrap();
+    let ws = ws_guard.as_ref().unwrap();
+    if let Some(meta) = metadata_map.get_mut(&info.id) {
+        let mut sessions = state.sessions.lock().unwrap();
+        if let Some(handle) = sessions.get_mut(&info.id) {
+            clear_superseded_debug_overlay(handle, meta, info.at_usage_limit == Some(true));
+            apply_debug_overlay_projection(info, handle.debug_injection.as_ref(), Some(meta));
+            ws.metadata.write_session(meta);
+        }
     }
 }
 ```
@@ -611,6 +759,21 @@ pub(crate) fn apply_debug_overlay_projection(
         info.metadata_confidence = None;
     }
 }
+
+pub(crate) fn clear_superseded_debug_overlay(
+    handle: &mut SessionHandle,
+    meta: &mut SessionMetadata,
+    effective_at_usage_limit: bool,
+) {
+    let injected_capped = handle
+        .debug_injection
+        .as_ref()
+        .is_some_and(|debug| debug.attention == "capped");
+    if injected_capped && !effective_at_usage_limit {
+        handle.debug_injection = None;
+        meta.debug_injection = None;
+    }
+}
 ```
 
 - [ ] **Step 5: Run the focused Rust tests and verify they pass**
@@ -621,6 +784,8 @@ Run:
 rtk cargo test --manifest-path crates/orkworksd/Cargo.toml apply_session_state_injection
 rtk cargo test --manifest-path crates/orkworksd/Cargo.toml running_capped_overlay_does_not_cap_sibling_live_sessions_or_provider_state
 rtk cargo test --manifest-path crates/orkworksd/Cargo.toml active_fake_ending_schedules_real_finalization_and_leaves_session_ended
+rtk cargo test --manifest-path crates/orkworksd/Cargo.toml running_blocked_updates_live_and_persisted_session_state
+rtk cargo test --manifest-path crates/orkworksd/Cargo.toml running_capped_apply_response_is_projected_immediately
 ```
 
 Expected:
@@ -683,13 +848,15 @@ test("replaceSessionAfterInjection swaps only the matching session and keeps lis
 test("Electron main gates state injection behind show debug metadata", () => {
   const source = readFileSync(new URL("../electron/main.ts", import.meta.url), "utf8");
   assert.match(source, /currentSettings\.debug\.showSessionIds/);
+  assert.match(source, /list-session-state-injections/);
   assert.match(source, /apply-session-state-injection/);
 });
 
 test("preload exposes session state injection helpers", () => {
   const source = readFileSync(new URL("../electron/preload.ts", import.meta.url), "utf8");
-  assert.match(source, /listSessionStateInjections/);
-  assert.match(source, /applySessionStateInjection/);
+  assert.match(source, /listSessionStateInjections:\s*\(\)\s*=>\s*ipcRenderer\.invoke\("list-session-state-injections"\)/);
+  assert.match(source, /applySessionStateInjection:\s*\(sessionId: string, injectionId: string\)\s*=>/);
+  assert.match(source, /ipcRenderer\.invoke\("apply-session-state-injection"/);
 });
 ```
 
@@ -733,6 +900,16 @@ applySessionStateInjection: (sessionId: string, injectionId: string): Promise<un
 
 ```ts
 // apps/desktop/electron/main.ts
+ipcMain.handle("list-session-state-injections", async () => {
+  if (!(currentSettings ?? readSettings(app.getPath("userData"))).debug.showSessionIds) {
+    throw new Error("debug metadata must be enabled before using state injection");
+  }
+  const port = await portPromise;
+  const resp = await fetch(`http://127.0.0.1:${port}/sessions/debug-injections`);
+  if (!resp.ok) throw new Error(`list state injections failed: ${resp.status}`);
+  return resp.json();
+});
+
 ipcMain.handle("apply-session-state-injection", async (_event, payload: unknown) => {
   if (!(currentSettings ?? readSettings(app.getPath("userData"))).debug.showSessionIds) {
     throw new Error("debug metadata must be enabled before using state injection");
@@ -801,12 +978,16 @@ test("SessionDetailPanel renders a State injection control only in debug mode", 
   const source = readFileSync(new URL("../src/components/SessionDetailPanel.tsx", import.meta.url), "utf8");
   assert.match(source, /State injection/);
   assert.match(source, /showDebugMetadata/);
+  assert.match(source, /selectedInjectionId/);
+  assert.match(source, /Apply injection/);
 });
 
 test("App applies the returned injected snapshot immediately", () => {
   const source = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
   assert.match(source, /applySessionStateInjection/);
   assert.match(source, /replaceSessionAfterInjection/);
+  assert.match(source, /Applied state injection/);
+  assert.match(source, /Couldn\'t apply state injection/);
 });
 ```
 
@@ -879,6 +1060,7 @@ const [applyingInjection, setApplyingInjection] = useState(false);
         setApplyingInjection(true);
         try {
           await onApplyStateInjection(active.id, selectedInjectionId);
+          setSelectedInjectionId("");
         } finally {
           setApplyingInjection(false);
         }
@@ -966,7 +1148,7 @@ Run:
 rtk cargo test --manifest-path crates/orkworksd/Cargo.toml
 cd apps/desktop && node --experimental-strip-types --test tests/*.test.ts tests/*.test.mjs
 cd apps/desktop && pnpm exec tsc --noEmit
-rtk bash .claude/hooks/doc-check.sh
+bash .claude/hooks/doc-check.sh
 ```
 
 Expected:
