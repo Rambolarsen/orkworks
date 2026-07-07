@@ -81,6 +81,7 @@ Normal pull requests use `.github/workflows/pr-ci.yml`. That workflow routes by 
 - `apps/desktop/**` runs desktop type-check, tests, and build
 - `crates/orkworksd/**` runs Rust tests
 - PRs that touch neither surface get a lightweight passing no-op check for status clarity
+- Agent `/code-review` defaults to lightweight effort; escalate to medium effort or higher only for bigger/riskier changes such as architecture/runtime, concurrency/lifecycle, protocol/schema/migration, security-sensitive work, or unusually large diffs
 
 A third workflow, `.github/workflows/quality-audit.yml`, runs weekly on a schedule: it rotates through the audit skills in `skills/` (blind spots, test honesty, failure paths, board grooming, UI signal integrity) and files scoped quality issues. It authenticates with a Claude Pro/Max subscription via the `CLAUDE_CODE_OAUTH_TOKEN` repo secret (generate with `claude setup-token`; API-key alternative documented in the workflow header) and can be run manually from the Actions tab with a specific skill.
 
