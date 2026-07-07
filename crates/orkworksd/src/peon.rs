@@ -142,13 +142,48 @@ pub fn strip_ansi(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut chars = s.chars().peekable();
     while let Some(c) = chars.next() {
-        if c == '\x1b' {
-            if chars.peek() == Some(&'[') { chars.next(); }
-            for c2 in chars.by_ref() {
-                if c2.is_ascii_alphabetic() { break; }
-            }
-        } else {
+        if c != '\x1b' {
             out.push(c);
+            continue;
+        }
+        match chars.peek().copied() {
+            Some('[') => {
+                // CSI: ESC [ params final (final = 0x40–0x7E)
+                chars.next();
+                let mut final_byte = '\0';
+                for c2 in chars.by_ref() {
+                    if ('@'..='~').contains(&c2) { final_byte = c2; break; }
+                }
+                // Cursor-positioning finals: insert a space so adjacent screen
+                // regions don't merge into a single token after stripping.
+                if matches!(final_byte, 'A'|'B'|'C'|'D'|'E'|'F'|'G'|'H'|'d'|'f'|'s'|'u') {
+                    out.push(' ');
+                }
+            }
+            Some(']') => {
+                // OSC: ESC ] ... BEL  or  ESC \ (ST)
+                chars.next();
+                loop {
+                    match chars.next() {
+                        Some('\x07') | None => break,
+                        Some('\x1b') => { chars.next(); break; }
+                        _ => {}
+                    }
+                }
+            }
+            Some('O') => {
+                // SS3: ESC O x — function keys, consume the payload char
+                chars.next(); chars.next();
+            }
+            Some('(' | ')') => {
+                // Charset select: ESC ( x  or  ESC ) x
+                chars.next(); chars.next();
+            }
+            Some(_) => {
+                // Single-char escape: ESC 7/8/M/c/= etc.
+                chars.next();
+            }
+            None => {}
         }
     }
     out
@@ -1047,5 +1082,50 @@ echo '{"status":"working","confidence":0.9}'
         assert!(!is_descriptive_input("8080"));
         assert!(!is_descriptive_input("1234"));
         assert!(!is_descriptive_input("....!!"));
+    }
+
+    #[test]
+    fn strip_ansi_removes_sgr_without_separator() {
+        assert_eq!(strip_ansi("\x1b[1;31mhello\x1b[0m world"), "hello world");
+    }
+
+    #[test]
+    fn strip_ansi_inserts_space_for_cursor_moves() {
+        // ESC [ G = cursor horizontal absolute — fragments must not merge
+        assert_eq!(strip_ansi("Worked\x1b[Gfor"), "Worked for");
+        // ESC [ H = cursor position
+        assert_eq!(strip_ansi("left\x1b[1;1Hright"), "left right");
+        // ESC [ A/B/C/D = directional moves
+        assert_eq!(strip_ansi("a\x1b[Ab"), "a b");
+        assert_eq!(strip_ansi("a\x1b[Bb"), "a b");
+        assert_eq!(strip_ansi("a\x1b[Cb"), "a b");
+        assert_eq!(strip_ansi("a\x1b[Db"), "a b");
+    }
+
+    #[test]
+    fn strip_ansi_consumes_osc_sequences() {
+        // OSC terminated by BEL — must not leak trigger phrases into detection
+        assert_eq!(strip_ansi("\x1b]0;resets in 1pm\x07content"), "content");
+        // OSC terminated by ST (ESC \)
+        assert_eq!(strip_ansi("\x1b]2;title\x1b\\rest"), "rest");
+    }
+
+    #[test]
+    fn strip_ansi_consumes_single_char_and_ss3_escapes() {
+        // ESC 7 = save cursor, ESC 8 = restore cursor
+        assert_eq!(strip_ansi("\x1b7text\x1b8"), "text");
+        // SS3: ESC O P = F1
+        assert_eq!(strip_ansi("\x1bOP"), "");
+        // Charset select: ESC ( B
+        assert_eq!(strip_ansi("\x1b(Btext"), "text");
+    }
+
+    #[test]
+    fn strip_ansi_osc_title_does_not_trigger_usage_limit_hint() {
+        // OSC setting a window title containing a hint phrase must be invisible
+        // to detect_usage_limit_hint_raw so it doesn't produce spurious hints.
+        let raw = "\x1b]0;resets 1pm (Europe/Oslo)\x07\x1b[H\x1b[2J";
+        let result = detect_usage_limit_hint_raw(&["resets"], raw);
+        assert!(result.is_none(), "OSC title must not produce a usage-limit hint");
     }
 }
