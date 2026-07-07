@@ -1,11 +1,7 @@
-use crate::harness_registry::default_shell_command;
 use crate::session_view::{connectivity_for_status, terminal_outcome_for_status};
 use crate::workspace_runtime::iso_now;
 use crate::{harness, metadata, peon, providers, AppState};
 use axum::extract::ws::{Message, WebSocket};
-use portable_pty::{CommandBuilder, PtySize, PtySystem};
-use std::io::{Read, Write};
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -13,6 +9,8 @@ use std::time::Duration;
 use portable_pty::unix::UnixPtySystem;
 #[cfg(windows)]
 use portable_pty::win::conpty::ConPtySystem;
+#[cfg(test)]
+use crate::harness_registry::default_shell_command;
 
 pub(crate) fn terminal_env_overrides() -> Vec<(String, String)> {
     vec![
@@ -137,11 +135,11 @@ pub(crate) fn should_forward_terminal_env(key: &str) -> bool {
 }
 
 #[cfg(unix)]
-fn make_pty_system() -> UnixPtySystem {
+pub(crate) fn make_pty_system() -> UnixPtySystem {
     UnixPtySystem {}
 }
 #[cfg(windows)]
-fn make_pty_system() -> ConPtySystem {
+pub(crate) fn make_pty_system() -> ConPtySystem {
     ConPtySystem {}
 }
 
@@ -456,424 +454,74 @@ pub(crate) fn schedule_session_ending_finalization(
 }
 
 pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state: Arc<AppState>) {
-    let _terminal_attach_guard = match try_claim_terminal_attachment(&state, &id) {
-        Some(guard) => guard,
+    let attachment = match crate::runtime::session_runtime::claim_attachment(&state, &id) {
+        Some(claim) => claim,
         None => {
             tracing::warn!(session_id = %id, "rejected terminal WebSocket: session unavailable for attach");
-            let _ = ws.send(Message::Text("terminal unavailable".into())).await;
+            let _ = ws.send(Message::Text(
+                serde_json::json!({
+                    "type": "terminal-unavailable",
+                    "reason": "already-attached"
+                }).to_string().into()
+            )).await;
             let _ = ws.close().await;
             return;
         }
     };
-
-    let kill_result = {
-        let sessions = state.sessions.lock().unwrap();
-        sessions.get(&id).map(|h| h.kill_tx.subscribe())
-    };
-
-    let mut kill_rx = match kill_result {
-        Some(rx) => rx,
-        None => {
-            let _ = ws.close().await;
-            return;
-        }
-    };
-
-    if *kill_rx.borrow() {
-        if set_session_status(&state, &id, "killed") {
-            schedule_session_ending_finalization(state.clone(), id.clone(), "killed".to_string());
-        }
-        let _ = ws.close().await;
-        return;
-    }
-
-    let cwd = {
-        let sessions = state.sessions.lock().unwrap();
-        sessions
-            .get(&id)
-            .map(|h| h.info.cwd.clone())
-            .unwrap_or_else(|| {
-                std::env::current_dir()
-                    .map(|p| p.display().to_string())
-                    .unwrap_or_else(|_| "/".into())
-            })
-    };
-
-    let command = {
-        let sessions = state.sessions.lock().unwrap();
-        sessions
-            .get(&id)
-            .map(|h| h.command.clone())
-            .unwrap_or_else(|| default_shell_command(cwd.clone()))
-    };
-
-    let pty_sys = make_pty_system();
-
-    // Wait for the frontend's initial resize message so the PTY opens at the
-    // actual terminal dimensions, not the 24x80 fallback.  Without this, the
-    // spawned command writes its first prompt / banner at 80 columns while the
-    // frontend is already displaying at window width, producing choppy text.
-    // Non-resize messages that arrive first (e.g. a keypress racing the resize)
-    // are saved and replayed into the main loop after the PTY is ready.
-    let mut pending_first_msg: Option<String> = None;
-    let (initial_rows, initial_cols) = tokio::select! {
-        _ = kill_rx.changed() => {
-            if *kill_rx.borrow() {
-                if set_session_status(&state, &id, "killed") {
-                    schedule_session_ending_finalization(state.clone(), id.clone(), "killed".to_string());
-                }
-                let _ = ws.close().await;
-                return;
-            }
-            (24u16, 80u16)
-        }
-        _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => {
-            (24u16, 80u16)
-        }
-        msg = ws.recv() => {
-            match msg {
-                Some(Ok(Message::Text(text))) => {
-                    if let Ok(val) = serde_json::from_str::<serde_json::Value>(&text) {
-                        if val.get("type").and_then(|v| v.as_str()) == Some("resize") {
-                            let r = val.get("rows").and_then(|v| v.as_u64()).unwrap_or(24) as u16;
-                            let c = val.get("cols").and_then(|v| v.as_u64()).unwrap_or(80) as u16;
-                            (r, c)
-                        } else {
-                            pending_first_msg = Some(text);
-                            (24u16, 80u16)
-                        }
-                    } else {
-                        pending_first_msg = Some(text);
-                        (24u16, 80u16)
-                    }
-                }
-                Some(Ok(Message::Close(_))) | None => {
-                    let _ = ws.close().await;
-                    return;
-                }
-                _ => (24u16, 80u16),
-            }
-        }
-    };
-
-    let pty_size = PtySize {
-        rows: initial_rows,
-        cols: initial_cols,
-        pixel_width: 0,
-        pixel_height: 0,
-    };
-
-    let pair = match pty_sys.openpty(pty_size) {
-        Ok(p) => p,
-        Err(e) => {
-            tracing::error!(error = %e, "failed to open PTY");
-            if set_session_status(&state, &id, "error") {
-                schedule_session_ending_finalization(state.clone(), id.clone(), "error".to_string());
-            }
-            let _ = ws.close().await;
-            return;
-        }
-    };
-
-    let mut cmd = CommandBuilder::new(&command.program);
-    cmd.args(&command.args);
-    cmd.cwd(&command.cwd);
-    for (key, value) in std::env::vars() {
-        if should_forward_terminal_env(&key) {
-            cmd.env(&key, &value);
-        } else {
-            cmd.env_remove(&key);
-        }
-    }
-    for (key, value) in terminal_env_overrides() {
-        cmd.env(&key, &value);
-    }
-    let port = match state.bound_port.load(Ordering::Relaxed) {
-        0 => None,
-        value => Some(value),
-    };
-    for (key, value) in session_env_overrides(&id, port) {
-        cmd.env(&key, &value);
-    }
-
-    let mut child = match pair.slave.spawn_command(cmd) {
-        Ok(c) => c,
-        Err(e) => {
-            tracing::error!(error = %e, "failed to spawn shell");
-            if set_session_status(&state, &id, "error") {
-                schedule_session_ending_finalization(state.clone(), id.clone(), "error".to_string());
-            }
-            let _ = ws.close().await;
-            return;
-        }
-    };
-
-    let mut reader = match pair.master.try_clone_reader() {
-        Ok(r) => r,
-        Err(e) => {
-            tracing::error!(error = %e, "failed to clone PTY reader");
-            if set_session_status(&state, &id, "error") {
-                schedule_session_ending_finalization(state.clone(), id.clone(), "error".to_string());
-            }
-            let _ = ws.close().await;
-            return;
-        }
-    };
-
-    let mut writer = match pair.master.take_writer() {
-        Ok(w) => w,
-        Err(e) => {
-            tracing::error!(error = %e, "failed to take PTY writer");
-            if set_session_status(&state, &id, "error") {
-                schedule_session_ending_finalization(state.clone(), id.clone(), "error".to_string());
-            }
-            let _ = ws.close().await;
-            return;
-        }
-    };
-
-    set_session_status(&state, &id, "running");
-
-    // Send initial prompt to the PTY if one was set on session creation
-    {
-        let initial_prompt = {
-            let sessions = state.sessions.lock().unwrap();
-            sessions.get(&id).and_then(|h| h.initial_prompt.clone())
-        };
-        if let Some(prompt) = initial_prompt {
-            let prompt_bytes = format!("{}\n", prompt).into_bytes();
-            if let Err(e) = writer.write_all(&prompt_bytes) {
-                tracing::warn!(session_id = %id, error = %e, "failed to write initial prompt");
-            }
-        }
-    }
-
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
-    let id_for_reader = id.clone();
-
-    tokio::task::spawn_blocking(move || {
-        let mut buf = [0u8; 4096];
-    loop {
-            match reader.read(&mut buf) {
-                Ok(0) => break,
-                Ok(n) => {
-                    if tx.send(buf[..n].to_vec()).is_err() {
-                        break;
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!(session_id = %id_for_reader, error = %e, "PTY read error");
-                    break;
-                }
-            }
-        }
-    });
-
-    // Serial persistence writer: drains lines from an unbounded channel so that
-    // append + trim never race and chunks are persisted in arrival order.
-    let (persist_tx, mut persist_rx) =
-        tokio::sync::mpsc::unbounded_channel::<Vec<String>>();
-    let persist_state = state.clone();
-    let persist_id = id.clone();
-    let persist_writer = tokio::spawn(async move {
-        while let Some(lines) = persist_rx.recv().await {
-            let st = persist_state.clone();
-            let i = persist_id.clone();
-            let _ = tokio::task::spawn_blocking(move || {
-                let ws_guard = st.workspace.lock().unwrap();
-                if let Some(ref ws) = *ws_guard {
-                    ws.metadata.append_terminal_output_lines(&i, &lines);
-                }
-            })
-            .await;
-        }
-    });
-
-    // Byte-level buffer of unflushed terminal output. We split on raw '\n' so a
-    // chunk that splits a multi-byte UTF-8 sequence or breaks a line in the middle
-    // doesn't corrupt persistence: only complete lines are written, the rest
-    // stays here until more bytes arrive.
-    let mut persist_buffer: Vec<u8> = Vec::new();
     let mut input_buf = String::new();
-
-    if let Some(text) = pending_first_msg {
-        if let Ok(val) = serde_json::from_str::<serde_json::Value>(&text) {
-            if let TerminalAction::Input(data) = dispatch_terminal_message(&val) {
-                let _ = writer.write_all(data.as_bytes());
-                let _ = writer.flush();
-                if !data.is_empty() {
-                    mark_usage_limit_recheck_on_input(&state, &id);
-                }
-                if let Some(line) = collect_input_line(&mut input_buf, &data) {
-                    let is_sensitive = {
-                        let sessions = state.sessions.lock().unwrap();
-                        sessions.get(&id)
-                            .map(|h| peon::looks_like_password_prompt(&h.output_buffer.last_n(5)))
-                            .unwrap_or(false)
-                    };
-                    let label_worthy = !is_sensitive && peon::is_descriptive_input(&line);
-                    if !is_sensitive {
-                        let ws_guard = state.workspace.lock().unwrap();
-                        if let Some(ref ws) = *ws_guard {
-                            if let Some(mut meta) = ws.metadata.read_session(&id) {
-                                if label_worthy {
-                                    meta.label = line.clone();
-                                }
-                                meta.last_user_input = Some(line.clone());
-                                ws.metadata.write_session(&meta);
-                            }
-                        }
-                    }
-                    let mut sessions = state.sessions.lock().unwrap();
-                    if let Some(handle) = sessions.get_mut(&id) {
-                        if label_worthy {
-                            handle.info.label = line.clone();
-                        }
-                        if peon::is_terminal_observed_status(handle.info.observed_status.as_deref()) {
-                            handle.info.observed_status = None;
-                        }
-                    }
-                    drop(sessions);
-                    // Clear stale idle/done/stale state in metadata when user types.
-                    {
-                        let ws_guard = state.workspace.lock().unwrap();
-                        if let Some(ref ws) = *ws_guard {
-                            if let Some(mut meta) = ws.metadata.read_session(&id) {
-                                if peon::is_terminal_observed_status(meta.observed_status.as_deref()) {
-                                    meta.observed_status = None;
-                                    meta.metadata_source = "process".into();
-                                    ws.metadata.write_session(&meta);
-                                }
-                            }
-                        }
-                    }
-                    if state.peon.config.enabled && line.len() > 10 && label_worthy {
-                        state.peon.label_hint.write().unwrap().insert(id.clone(), line);
-                        state.peon.label_pending.write().unwrap().insert(id.clone());
-                    }
-                }
-                if state.peon.config.enabled && !data.is_empty() {
-                    state.peon.last_output.write().unwrap()
-                        .insert(id.clone(), tokio::time::Instant::now());
-                    state.peon.last_inference.write().unwrap().remove(&id);
-                }
-            }
+    let _ = ws.send(Message::Text(
+        serde_json::json!({
+            "type": "replay-start",
+            "cursor": attachment.replay_from,
+        }).to_string().into()
+    )).await;
+    for (_, chunk) in &attachment.replay_chunks {
+        if ws.send(Message::Binary(chunk.clone().into())).await.is_err() {
+            crate::runtime::session_runtime::release_attachment(&state, &id, attachment.generation);
+            let _ = ws.close().await;
+            return;
         }
     }
+    let _ = ws.send(Message::Text(
+        serde_json::json!({
+            "type": "replay-end",
+            "cursor": attachment.replay_to,
+        }).to_string().into()
+    )).await;
+
+    let generation = attachment.generation;
+    let mut events = attachment.events;
 
     loop {
         tokio::select! {
-            _ = kill_rx.changed() => {
-                if *kill_rx.borrow() {
-                    tracing::info!(session_id = %id, "kill signal received");
-                    let _ = child.kill();
-                    if set_session_status(&state, &id, "killed") {
-                        schedule_session_ending_finalization(state.clone(), id.clone(), "killed".to_string());
-                    }
-                    break;
-                }
-            }
-            data = rx.recv() => {
-                match data {
-                    Some(data) => {
-                persist_buffer.extend_from_slice(&data);
-
-                let mut raw_persist_lines: Vec<String> = Vec::new();
-                while let Some(nl) = persist_buffer.iter().position(|&b| b == b'\n') {
-                    let line: Vec<u8> = persist_buffer.drain(..=nl).collect();
-                    // Strip the trailing \n (and a preceding \r if present) so persisted
-                    // lines are bare content; replay re-adds line terminators.
-                    let end = if line.ends_with(b"\r\n") {
-                        line.len() - 2
-                    } else {
-                        line.len() - 1
-                    };
-                    raw_persist_lines.push(String::from_utf8_lossy(&line[..end]).into_owned());
-                }
-
-                let mut codex_thread_id: Option<String> = None;
-                if state.peon.config.enabled {
-                    let mut sessions = state.sessions.lock().unwrap();
-                    if let Some(handle) = sessions.get_mut(&id) {
-                        for raw in &raw_persist_lines {
-                            let trimmed = raw.trim();
-                            if !trimmed.is_empty() {
-                                handle.output_buffer.push(trimmed.to_string());
-                            }
-                        }
-                        handle.output_lines_seen += raw_persist_lines.len() as u64;
-                        // Also feed raw PTY chunk into scan_buf for TUI apps (cursor-positioned, no newlines).
-                        let stripped = peon::strip_ansi(&String::from_utf8_lossy(&data));
-                        handle.scan_bytes_seen += stripped.len() as u64;
-                        handle.scan_buf.push_str(&stripped);
-                        const MAX_SCAN: usize = 8192;
-                        if handle.scan_buf.len() > MAX_SCAN {
-                            let drop = handle.scan_buf.len() - MAX_SCAN;
-                            let drop = (drop..drop + 4).find(|&i| handle.scan_buf.is_char_boundary(i)).unwrap_or(drop);
-                            handle.scan_buf.drain(..drop);
-                        }
-                        if peon::is_terminal_observed_status(handle.info.observed_status.as_deref()) {
-                            handle.info.observed_status = None;
-                        }
-                        if handle.info.harness_id.as_deref() == Some("codex") {
-                            codex_thread_id = raw_persist_lines.iter()
-                                .find_map(|line| codex_thread_id_from_jsonl_line(line));
+            event = events.recv() => {
+                match event {
+                    Ok(crate::runtime::session_runtime::RuntimeEvent::Output { chunk, .. }) => {
+                        if ws.send(Message::Binary(chunk.into())).await.is_err() {
+                            break;
                         }
                     }
-                }
-
-                if let Some(thread_id) = codex_thread_id {
-                    let ws_guard = state.workspace.lock().unwrap();
-                    if let Some(ref ws) = *ws_guard {
-                        let report = metadata::HarnessSessionReport {
-                            harness_session_id: thread_id,
-                            source: "codex_jsonl".into(),
-                            confidence: 0.99,
-                        };
-                        let _ = ws.metadata.merge_harness_session_report(&id, &report, &iso_now());
-                    }
-                }
-
-                // Any PTY traffic at all counts as activity for Peon debounce —
-                // including chunks that haven't yet completed a line.
-                if state.peon.config.enabled {
-                    state.peon.last_output.write().unwrap()
-                        .insert(id.clone(), tokio::time::Instant::now());
-                    state.peon.last_inference.write().unwrap().remove(&id);
-                }
-
-                // New terminal output means the session is no longer idle.
-                // Clear any stale terminal observed status in metadata.
-                {
-                    let ws_guard = state.workspace.lock().unwrap();
-                    if let Some(ref ws) = *ws_guard {
-                        if let Some(mut meta) = ws.metadata.read_session(&id) {
-                            if peon::is_terminal_observed_status(meta.observed_status.as_deref()) {
-                                meta.observed_status = None;
-                                meta.metadata_source = "process".into();
-                                ws.metadata.write_session(&meta);
-                            }
-                        }
-                    }
-                }
-
-                if !raw_persist_lines.is_empty() {
-                    let _ = persist_tx.send(raw_persist_lines);
-                }
-
-                if ws.send(Message::Binary(data)).await.is_err() {
-                    break;
-                }
-                    }
-                    None => {
-                        // PTY reader channel closed: child process exited (e.g. user typed "exit").
-                        // Reap the child and clean up so the frontend's WebSocket onclose fires.
-                        let _ = child.kill();
-                        if set_session_status(&state, &id, "ended") {
-                            schedule_session_ending_finalization(state.clone(), id.clone(), "ended".to_string());
-                        }
+                    Ok(crate::runtime::session_runtime::RuntimeEvent::Ended { status }) => {
+                        let _ = ws.send(Message::Text(
+                            serde_json::json!({
+                                "type": "ended",
+                                "status": status,
+                            }).to_string().into()
+                        )).await;
                         break;
                     }
+                    Ok(crate::runtime::session_runtime::RuntimeEvent::Error { code, message }) => {
+                        let _ = ws.send(Message::Text(
+                            serde_json::json!({
+                                "type": "error",
+                                "code": code,
+                                "message": message,
+                            }).to_string().into()
+                        )).await;
+                        break;
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                 }
             }
             msg = ws.recv() => {
@@ -885,8 +533,6 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
                         };
                         match dispatch_terminal_message(&val) {
                             TerminalAction::Input(data) => {
-                                let _ = writer.write_all(data.as_bytes());
-                                let _ = writer.flush();
                                 if !data.is_empty() {
                                     mark_usage_limit_recheck_on_input(&state, &id);
                                 }
@@ -934,73 +580,41 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
                                     state.peon.last_output.write().unwrap().insert(id.clone(), ts);
                                     state.peon.last_inference.write().unwrap().remove(&id);
                                 }
+
+                                if crate::runtime::session_runtime::send_runtime_command(
+                                    &state,
+                                    &id,
+                                    crate::runtime::session_runtime::RuntimeCommand::Input(data),
+                                ).is_err() {
+                                    break;
+                                }
                             }
                             TerminalAction::Resize { rows, cols } => {
-                                if let Err(e) = pair.master.resize(PtySize {
-                                    rows,
-                                    cols,
-                                    pixel_width: 0,
-                                    pixel_height: 0,
-                                }) {
-                                    tracing::warn!(error = %e, "PTY resize error");
+                                if crate::runtime::session_runtime::update_runtime_size(&state, &id, rows, cols).is_err() {
+                                    break;
                                 }
                             }
                             TerminalAction::Kill => {
-                                tracing::info!(session_id = %id, "kill message received");
-                                let _ = child.kill();
-                                if set_session_status(&state, &id, "killed") {
-                                    schedule_session_ending_finalization(state.clone(), id.clone(), "killed".to_string());
+                                if crate::runtime::session_runtime::send_runtime_command(
+                                    &state,
+                                    &id,
+                                    crate::runtime::session_runtime::RuntimeCommand::Kill,
+                                ).is_err() {
+                                    break;
                                 }
-                                break;
                             }
                             TerminalAction::Noop => {}
                         }
                     }
-                    Some(Ok(Message::Close(_))) | None => {
-                        let _ = child.kill();
-                        let outcome = if *kill_rx.borrow() { "killed" } else { "ended" };
-                        if set_session_status(&state, &id, outcome) {
-                            schedule_session_ending_finalization(state.clone(), id.clone(), outcome.to_string());
-                        }
-                        break;
-                    }
-                    _ => {
-                        let _ = child.kill();
-                        if set_session_status(&state, &id, "error") {
-                            schedule_session_ending_finalization(state.clone(), id.clone(), "error".to_string());
-                        }
-                        break;
-                    }
+                    Some(Ok(Message::Close(_))) | None => break,
+                    _ => break,
                 }
             }
         }
     }
 
-    {
-        // Flush any unterminated tail so the user's last visible line survives.
-        if !persist_buffer.is_empty() {
-            let tail = String::from_utf8_lossy(&persist_buffer).into_owned();
-            let _ = persist_tx.send(vec![tail]);
-        }
-        // Close the channel and let the serial writer drain all pending appends
-        // before the trim runs, so trimming never races with a write.
-        drop(persist_tx);
-        let _ = persist_writer.await;
-
-        state.peon.last_output.write().unwrap().remove(&id);
-        state.peon.last_inference.write().unwrap().remove(&id);
-
-        let state_clone = state.clone();
-        let id_clone = id.clone();
-        tokio::task::spawn_blocking(move || {
-            let ws_guard = state_clone.workspace.lock().unwrap();
-            if let Some(ref ws) = *ws_guard {
-                ws.metadata.trim_terminal_output(&id_clone, metadata::TERMINAL_OUTPUT_MAX_LINES);
-            }
-        });
-    }
-
-    tracing::info!(session_id = %id, "session terminal ended");
+    crate::runtime::session_runtime::release_attachment(&state, &id, generation);
+    let _ = ws.close().await;
 }
 
 #[cfg(test)]
@@ -1169,6 +783,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: harness::CommandSpec { program: "/bin/sh".into(), args: vec!["-i".into(), "-l".into()], cwd: "/tmp".into() },
                 initial_prompt: None,
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
@@ -1219,6 +834,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: harness::CommandSpec { program: "/bin/sh".into(), args: vec!["-i".into(), "-l".into()], cwd: "/tmp".into() },
                 initial_prompt: None,
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
@@ -1264,6 +880,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: harness::CommandSpec { program: "/bin/sh".into(), args: vec!["-i".into(), "-l".into()], cwd: "/tmp".into() },
                 initial_prompt: None,
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
@@ -1315,6 +932,7 @@ mod tests {
                 scan_buf: "abc".into(),
                 command: harness::CommandSpec { program: "/bin/sh".into(), args: vec!["-i".into(), "-l".into()], cwd: "/tmp".into() },
                 initial_prompt: None,
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: true,
                 capacity_check_pending: false,
@@ -1376,6 +994,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: harness::CommandSpec { program: "/bin/sh".into(), args: vec!["-i".into(), "-l".into()], cwd: "/tmp".into() },
                 initial_prompt: None,
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
@@ -1446,6 +1065,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: harness::CommandSpec { program: "/bin/sh".into(), args: vec!["-i".into(), "-l".into()], cwd: "/tmp".into() },
                 initial_prompt: None,
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
@@ -1505,6 +1125,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: crate::harness_registry::default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
@@ -1629,6 +1250,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: crate::harness_registry::default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
@@ -1791,6 +1413,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: crate::harness_registry::default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,

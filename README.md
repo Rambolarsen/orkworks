@@ -29,6 +29,7 @@ orkworks/
 - The Electron main process owns app-level settings in `userData`, including canonical default hotkeys and persisted hotkeys that drive native menu accelerators
 - Session details show read-only `Coding tool`, `Model provider`, `Model`, and `Provider state` for the selected session. The backend fallback system (Peon skips disabled/capped model providers) remains in place behind the scenes.
 - Runtime lifecycle is explicit via `lifecyclePhase`; Peon writes live observer metadata such as `observedStatus` only while a session is active, and ended sessions use a frozen final observed snapshot (see [ADR 0021](docs/adr/0021-session-lifecycle-phases.md))
+- PTY lifetime is owned by the Rust sidecar session runtime rather than by a renderer WebSocket; active work survives terminal detach while `orkworksd` stays alive (see [ADR 0022](docs/adr/0022-session-runtime-owned-pty-lifetime.md))
 - Taskmaster consumes Peon reports and workspace context to propose the next session or user action
 - PTY handles only text I/O; voice (native harness) bypasses PTY entirely
 

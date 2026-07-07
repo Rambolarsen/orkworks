@@ -4,6 +4,10 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { terminalPtySize } from "./terminalSize";
 import { orkworksTerminalTheme } from "./terminalTheme";
 import { getTerminalOutput } from "./api";
+import {
+  parseTerminalControlMessage,
+  shouldReplayTerminalOutputOnClose,
+} from "./terminalProtocol";
 
 export interface TerminalHandle {
   id: string;
@@ -12,6 +16,7 @@ export interface TerminalHandle {
   fitAddon: FitAddon;
   wrapper: HTMLDivElement;
   ended: boolean;
+  disposed: boolean;
   pendingInput: string;
   resizeObserver: ResizeObserver;
 }
@@ -95,6 +100,7 @@ export function ensureTerminal(id: string, baseUrl: string): TerminalHandle {
     fitAddon,
     wrapper,
     ended: false,
+    disposed: false,
     pendingInput: "",
     resizeObserver,
   };
@@ -119,14 +125,51 @@ export function ensureTerminal(id: string, baseUrl: string): TerminalHandle {
     if (e.data instanceof ArrayBuffer) {
       receivedData = true;
       term.write(new Uint8Array(e.data));
+      return;
+    }
+
+    if (typeof e.data !== "string" || handle.disposed) {
+      return;
+    }
+
+    const message = parseTerminalControlMessage(e.data);
+    switch (message?.type) {
+      case "replay-start":
+      case "replay-end":
+        break;
+      case "ended":
+        term.options.disableStdin = true;
+        term.options.cursorBlink = false;
+        handle.ended = true;
+        break;
+      case "error":
+        term.options.disableStdin = true;
+        term.options.cursorBlink = false;
+        handle.ended = true;
+        term.writeln(`\r\n[terminal error: ${message.code}] ${message.message}`);
+        break;
+      case "terminal-unavailable":
+        term.options.disableStdin = true;
+        term.options.cursorBlink = false;
+        term.writeln(`\r\n[terminal unavailable: ${message.reason}]`);
+        break;
+      default:
+        break;
     }
   };
 
   ws.onclose = () => {
+    if (handle.disposed) {
+      return;
+    }
     term.options.disableStdin = true;
     term.options.cursorBlink = false;
-    handle.ended = true;
-    if (!receivedData) {
+    if (
+      shouldReplayTerminalOutputOnClose({
+        disposed: handle.disposed,
+        receivedData,
+      })
+    ) {
       getTerminalOutput(baseUrl, id).then((lines) => {
         for (const line of lines) term.writeln(line);
       }).catch(() => {
@@ -151,6 +194,7 @@ export function ensureTerminal(id: string, baseUrl: string): TerminalHandle {
 export function disposeTerminal(id: string): void {
   const handle = terminals.get(id);
   if (!handle) return;
+  handle.disposed = true;
   handle.resizeObserver.disconnect();
   try {
     handle.ws.close();

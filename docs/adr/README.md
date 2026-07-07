@@ -29,3 +29,4 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 | [0019](./0019-attention-signal-endpoint-opt-in-hook-install.md) | Attention signal via unauthenticated localhost endpoint, opt-in hook install only | accepted |
 | [0020](./0020-phosphor-visual-refresh-token-layer.md) | Phosphor visual refresh: cool-graphite + lime token layer | accepted |
 | [0021](./0021-session-lifecycle-phases.md) | Explicit session lifecycle phases with frozen final observed state | accepted |
+| [0022](./0022-session-runtime-owned-pty-lifetime.md) | Session-runtime-owned PTY lifetime | accepted |

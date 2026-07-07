@@ -200,6 +200,7 @@ Use normal engineering terminology for all other concepts. Peon and Taskmaster a
 Electron + React/TypeScript frontend (`apps/desktop/`) communicates with a Rust sidecar (`crates/orkworksd/`) over a dynamic localhost HTTP/WebSocket port. The desktop UI uses Dockview draggable panels around xterm.js terminal sessions. The sidecar manages PTY sessions, Git context, the metadata protocol (under `~/.orkworks/workspaces/<hash>/`), Peon observation, and Taskmaster recommendation state.
 
 - ADR 0017: Provider context is session-scoped (read-only in Details), not app-wide.
+- ADR 0022: PTY lifetime is session-runtime-owned in the sidecar; renderer terminal attachment is detachable and does not own process lifetime.
 
 **Rust module DDD layering** (`crates/orkworksd/src/`):
 - `domain/session/` — value objects, entity (aggregate root), domain events, repository trait, lifecycle service
@@ -224,6 +225,7 @@ See [`docs/agents/domain-entities.md`](docs/agents/domain-entities.md) for the c
 - `~/.orkworks/hook-scripts/` — stable copies of harness reporter scripts (e.g. the Claude Code Notification hook), installed hook commands always point here rather than at the packaged/dev source, so they keep working across app updates and packaging schemes whose own paths aren't stable at runtime (Linux AppImage's per-launch mount point, in particular)
 - Priority: user > agent > peon > backend_inference > process > unknown
 - Peon reads terminal output, writes inferred metadata, never types into terminals
+- Detached runtimes continue draining terminal output, persisting history, and feeding Peon while `orkworksd` stays alive; losing the renderer terminal attachment alone must not end the session
 - Taskmaster consumes normalized metadata and proposes cross-session transitions; v1 requires explicit user approval for every action
 
 ## Key conventions from specs
