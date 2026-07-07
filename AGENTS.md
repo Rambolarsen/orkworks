@@ -158,7 +158,7 @@ When starting any task that will produce code changes, invoke the `starting-work
 
 **One PR per logical unit of work.** A burst of 5–10 small commits in a few minutes that share a feature name is one PR, not ten commits on main. Squash or rebase locally before opening it.
 
-**Review gate:** PRs that touch code under `apps/desktop/` or `crates/orkworksd/` must have a `/code-review` run (medium effort or higher) before merge. Address findings or note why each is intentional in the PR description.
+**Review gate:** PRs that touch code under `apps/desktop/` or `crates/orkworksd/` must have a `/code-review` run before merge. Default to a lightweight review. Escalate to medium effort or higher only for bigger or riskier changes: cross-cutting architecture/runtime work, concurrency or lifecycle changes, protocol/schema/migration changes, security-sensitive work, or unusually large diffs (roughly more than 8 code files or 500 lines). Address findings or note why each is intentional in the PR description.
 
 **Squash-merge by default.** Preserve multiple commits only when the history tells a story worth keeping (e.g. a refactor followed by a focused fix on top).
 
