@@ -14,6 +14,7 @@ use tokio::sync::{broadcast, mpsc};
 pub(crate) const DEFAULT_TERMINAL_ROWS: u16 = 24;
 pub(crate) const DEFAULT_TERMINAL_COLS: u16 = 80;
 const DEFAULT_REPLAY_CAPACITY: usize = 256;
+const INITIAL_RESIZE_GRACE: std::time::Duration = std::time::Duration::from_millis(150);
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum RuntimeEvent {
@@ -207,6 +208,33 @@ pub(crate) fn update_runtime_size(
     tx.send(RuntimeCommand::Resize { rows, cols }).map_err(|_| ())
 }
 
+async fn capture_startup_runtime_state(
+    control_rx: &mut mpsc::UnboundedReceiver<RuntimeCommand>,
+    mut initial_size: PtySize,
+) -> (PtySize, Vec<RuntimeCommand>) {
+    let mut pending_commands = Vec::new();
+    let deadline = tokio::time::Instant::now() + INITIAL_RESIZE_GRACE;
+
+    loop {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+
+        match tokio::time::timeout(remaining, control_rx.recv()).await {
+            Ok(Some(RuntimeCommand::Resize { rows, cols })) => {
+                initial_size.rows = rows;
+                initial_size.cols = cols;
+                break;
+            }
+            Ok(Some(command)) => pending_commands.push(command),
+            Ok(None) | Err(_) => break,
+        }
+    }
+
+    (initial_size, pending_commands)
+}
+
 pub(crate) async fn start_session_runtime(
     state: Arc<AppState>,
     id: String,
@@ -217,6 +245,8 @@ pub(crate) async fn start_session_runtime(
     mut kill_rx: tokio::sync::watch::Receiver<bool>,
     initial_size: PtySize,
 ) -> Result<(), String> {
+    let (initial_size, pending_commands) =
+        capture_startup_runtime_state(&mut control_rx, initial_size).await;
     let pty_sys = make_pty_system();
     let pair = pty_sys.openpty(initial_size).map_err(|e| e.to_string())?;
 
@@ -313,6 +343,27 @@ pub(crate) async fn start_session_runtime(
             let prompt_bytes = format!("{}\n", prompt).into_bytes();
             if let Err(e) = writer.write_all(&prompt_bytes) {
                 tracing::warn!(session_id = %driver_id, error = %e, "failed to write initial prompt");
+            }
+        }
+
+        for command in pending_commands {
+            match command {
+                RuntimeCommand::Input(data) => {
+                    let _ = writer.write_all(data.as_bytes());
+                    let _ = writer.flush();
+                }
+                RuntimeCommand::Resize { rows, cols } => {
+                    let _ = master.lock().unwrap().resize(PtySize {
+                        rows,
+                        cols,
+                        pixel_width: 0,
+                        pixel_height: 0,
+                    });
+                }
+                RuntimeCommand::Kill => {
+                    kill_requested = true;
+                    let _ = driver_killer.lock().unwrap().kill();
+                }
             }
         }
 
@@ -474,6 +525,8 @@ pub(crate) async fn start_session_runtime(
                             }
                             drop(persist_tx);
                             let _ = persist_writer.await;
+                            driver_state.peon.last_output.write().unwrap().remove(&driver_id);
+                            driver_state.peon.last_inference.write().unwrap().remove(&driver_id);
                             {
                                 let mut sessions = driver_state.sessions.lock().unwrap();
                                 if let Some(handle) = sessions.get_mut(&driver_id) {
@@ -491,6 +544,14 @@ pub(crate) async fn start_session_runtime(
                                 driver_id.clone(),
                                 "error".to_string(),
                             );
+                            let trim_state = driver_state.clone();
+                            let trim_id = driver_id.clone();
+                            tokio::task::spawn_blocking(move || {
+                                let ws_guard = trim_state.workspace.lock().unwrap();
+                                if let Some(ref ws) = *ws_guard {
+                                    ws.metadata.trim_terminal_output(&trim_id, metadata::TERMINAL_OUTPUT_MAX_LINES);
+                                }
+                            });
                             break;
                         }
                     }
@@ -511,6 +572,7 @@ mod tests {
     use std::collections::{HashMap, HashSet};
     use std::sync::{Arc, Mutex, RwLock};
     use std::sync::atomic::AtomicU16;
+    use std::time::Duration;
 
     fn test_state_with_runtime_session(id: &str) -> Arc<crate::AppState> {
         let state = Arc::new(crate::AppState {
@@ -609,5 +671,65 @@ mod tests {
         assert!(first < second);
         assert!(second < third);
         assert_eq!(replay.next_cursor(), third + 1);
+    }
+
+    #[tokio::test]
+    async fn early_resize_after_start_sets_initial_pty_size_before_spawn() {
+        let dir = tempfile::tempdir().unwrap();
+        let output_path = dir.path().join("pty-size.txt");
+        let session_id = "runtime-size";
+        let state = test_state_with_runtime_session(session_id);
+
+        let (runtime, control_rx) = SessionRuntime::live(DEFAULT_TERMINAL_ROWS, DEFAULT_TERMINAL_COLS);
+        let output_tx = runtime.output_tx.clone();
+        let control_tx = runtime.control_tx.clone();
+
+        let command = harness::CommandSpec {
+            program: "/bin/sh".into(),
+            args: vec![
+                "-lc".into(),
+                format!("stty size > {}", output_path.display()),
+            ],
+            cwd: dir.path().display().to_string(),
+        };
+
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut(session_id).unwrap();
+            handle.command = command.clone();
+            handle.runtime = runtime;
+        }
+
+        let (_kill_tx, kill_rx) = tokio::sync::watch::channel(false);
+        let runtime_task = tokio::spawn(start_session_runtime(
+            state,
+            session_id.to_string(),
+            command,
+            None,
+            control_rx,
+            output_tx,
+            kill_rx,
+            PtySize {
+                rows: DEFAULT_TERMINAL_ROWS,
+                cols: DEFAULT_TERMINAL_COLS,
+                pixel_width: 0,
+                pixel_height: 0,
+            },
+        ));
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        control_tx.send(RuntimeCommand::Resize { rows: 40, cols: 120 }).unwrap();
+
+        runtime_task.await.unwrap().unwrap();
+
+        for _ in 0..20 {
+            if output_path.exists() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+
+        let size = std::fs::read_to_string(&output_path).unwrap();
+        assert_eq!(size.trim(), "40 120");
     }
 }
