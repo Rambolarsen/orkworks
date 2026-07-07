@@ -24,6 +24,7 @@ Thumbs.db
 
 # pnpm
 pnpm-debug.log*
+.pnpm-store/
 
 # Electron
 out/
