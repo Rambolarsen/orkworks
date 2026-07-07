@@ -3,45 +3,50 @@ import { effectiveLifecyclePhase, type SessionInfo } from "../api.ts";
 declare const __sessionIdBrand: unique symbol;
 export type SessionId = string & { readonly [__sessionIdBrand]: true };
 
-export enum SessionStatus {
-  Creating = "creating",
-  Running = "running",
-  Killed = "killed",
-  Ended = "ended",
-  Error = "error",
-}
+export const SessionStatus = {
+  Creating: "creating",
+  Running: "running",
+  Killed: "killed",
+  Ended: "ended",
+  Error: "error",
+} as const;
+export type SessionStatus = (typeof SessionStatus)[keyof typeof SessionStatus];
 
-export enum MemoryState {
-  Live = "live",
-  Remembered = "remembered",
-  Resumable = "resumable",
-  Unsupported = "unsupported",
-}
+export const MemoryState = {
+  Live: "live",
+  Remembered: "remembered",
+  Resumable: "resumable",
+  Unsupported: "unsupported",
+} as const;
+export type MemoryState = (typeof MemoryState)[keyof typeof MemoryState];
 
-export enum AttentionState {
-  WaitingForInput = "waiting_for_input",
-  Blocked = "blocked",
-  Failed = "failed",
-  Done = "done",
-  Stale = "stale",
-  Working = "working",
-  Idle = "idle",
-}
+export const AttentionState = {
+  WaitingForInput: "waiting_for_input",
+  Blocked: "blocked",
+  Failed: "failed",
+  Done: "done",
+  Stale: "stale",
+  Working: "working",
+  Idle: "idle",
+} as const;
+export type AttentionState = (typeof AttentionState)[keyof typeof AttentionState];
 
-export enum WorkPhaseValue {
-  Ideation = "ideation",
-  Implementation = "implementation",
-  Review = "review",
-  Debugging = "debugging",
-  Unknown = "unknown",
-}
+export const WorkPhaseValue = {
+  Ideation: "ideation",
+  Implementation: "implementation",
+  Review: "review",
+  Debugging: "debugging",
+  Unknown: "unknown",
+} as const;
+export type WorkPhaseValue = (typeof WorkPhaseValue)[keyof typeof WorkPhaseValue];
 
-export enum LifecyclePhaseValue {
-  Creating = "creating",
-  Active = "active",
-  Ending = "ending",
-  Ended = "ended",
-}
+export const LifecyclePhaseValue = {
+  Creating: "creating",
+  Active: "active",
+  Ending: "ending",
+  Ended: "ended",
+} as const;
+export type LifecyclePhaseValue = (typeof LifecyclePhaseValue)[keyof typeof LifecyclePhaseValue];
 
 export interface Session {
   id: SessionId;
