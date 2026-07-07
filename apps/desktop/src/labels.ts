@@ -1,5 +1,4 @@
 import type { MemoryState, ResumeOption, ResumeStrategy, SessionInfo } from "./api";
-import { AttentionState } from "./domain/session";
 
 /** Canonical vocabulary. One word per concept. */
 export const VOCAB = {
@@ -20,18 +19,23 @@ export const VOCAB = {
 } as const;
 
 /** Plain-language attention label. Pairs with attentionTone() for visual weight. */
-export function attentionLabel(status: AttentionState): string {
+export function attentionLabel(status: string): string {
   switch (status) {
-    case AttentionState.WaitingForInput:   return "Needs you";
-    case AttentionState.CheckingCapacity:  return "Checking capacity";
-    case AttentionState.Capped:            return "Capped";
-    case AttentionState.Blocked:           return "Blocked";
-    case AttentionState.Failed:            return "Failed";
-    case AttentionState.Done:              return "Done";
-    case AttentionState.Stale:             return "Idle";
-    case AttentionState.Idle:              return "Idle";
-    case AttentionState.Working:           return "Working";
-    case AttentionState.Neutral:           return "";
+    case "waiting_for_input": return "Needs you";
+    case "checking_capacity": return "Checking capacity";
+    case "capped":            return "Capped";
+    case "blocked":           return "Blocked";
+    case "failed":            return "Failed";
+    case "done":              return "Done";
+    case "stale":             return "Idle";
+    case "idle":              return "Idle";
+    case "working":           return "Working";
+    case "running":           return "Running";
+    case "creating":          return "Starting";
+    case "ended":             return "Ended";
+    case "killed":            return "Killed";
+    case "error":             return "Error";
+    default:                  return "Unknown";
   }
 }
 
@@ -53,18 +57,27 @@ export function isLoudTone(tone: AttentionTone): boolean {
   return tone === "needs-you" || tone === "failed" || tone === "blocked";
 }
 
-export function attentionTone(status: AttentionState): AttentionTone {
+export function attentionTone(status: string): AttentionTone {
   switch (status) {
-    case AttentionState.WaitingForInput:   return "needs-you";
-    case AttentionState.Failed:            return "failed";
-    case AttentionState.CheckingCapacity:
-    case AttentionState.Capped:
-    case AttentionState.Blocked:           return "blocked";
-    case AttentionState.Done:              return "done";
-    case AttentionState.Working:           return "working";
-    case AttentionState.Stale:
-    case AttentionState.Idle:              return "idle";
-    case AttentionState.Neutral:           return "neutral";
+    case "waiting_for_input":
+      return "needs-you";
+    case "failed":
+      return "failed";
+    case "checking_capacity":
+    case "capped":
+    case "blocked":
+      return "blocked";
+    case "done":
+      return "done";
+    case "working":
+    case "running":
+    case "creating":
+      return "working";
+    case "stale":
+    case "idle":
+      return "idle";
+    default:
+      return "neutral";
   }
 }
 

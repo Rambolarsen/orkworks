@@ -20,15 +20,12 @@ export enum MemoryState {
 
 export enum AttentionState {
   WaitingForInput = "waiting_for_input",
-  CheckingCapacity = "checking_capacity",
-  Capped = "capped",
   Blocked = "blocked",
   Failed = "failed",
   Done = "done",
   Stale = "stale",
   Working = "working",
   Idle = "idle",
-  Neutral = "neutral",
 }
 
 export enum WorkPhaseValue {
@@ -93,17 +90,19 @@ export interface Session {
   resumedFrom?: string;
 }
 
-export const ATTENTION_PRIORITY: Record<AttentionState, number> = {
+export const ATTENTION_PRIORITY: Record<string, number> = {
   [AttentionState.WaitingForInput]: 0,
-  [AttentionState.CheckingCapacity]: 1,
-  [AttentionState.Capped]: 2,
-  [AttentionState.Blocked]: 3,
-  [AttentionState.Failed]: 4,
-  [AttentionState.Done]: 5,
-  [AttentionState.Stale]: 6,
-  [AttentionState.Working]: 7,
-  [AttentionState.Idle]: 8,
-  [AttentionState.Neutral]: 99,
+  [AttentionState.Blocked]: 1,
+  [AttentionState.Failed]: 2,
+  [AttentionState.Done]: 3,
+  [AttentionState.Stale]: 4,
+  [AttentionState.Working]: 5,
+  [AttentionState.Idle]: 6,
+  creating: 7,
+  running: 8,
+  ended: 9,
+  killed: 10,
+  error: 11,
 };
 
 export function needsAttention(session: Session): boolean {
@@ -113,14 +112,14 @@ export function needsAttention(session: Session): boolean {
     || state === AttentionState.WaitingForInput;
 }
 
-export function sessionAttentionStatus(session: Session): AttentionState {
+export function sessionAttentionStatus(session: Session): string {
   if (session.capacityCheckPending) {
-    return AttentionState.CheckingCapacity;
+    return "checking_capacity";
   }
   if (effectiveLifecyclePhase(session.status, session.lifecyclePhase) === "active") {
-    return (session.observedStatus as AttentionState | undefined) ?? AttentionState.Idle;
+    return session.observedStatus ?? session.status;
   }
-  return (session.finalObservedStatus as AttentionState | undefined) ?? AttentionState.Neutral;
+  return session.finalObservedStatus ?? session.status;
 }
 
 export function sortSessions(sessions: Session[]): Session[] {
@@ -181,6 +180,6 @@ export function fromApiDto(dto: SessionInfo): Session {
     resume: dto.resume as Record<string, unknown> | undefined,
     resumedFrom: dto.resumedFrom,
   };
-  session.attentionState = sessionAttentionStatus(session);
+  session.attentionState = sessionAttentionStatus(session) as AttentionState;
   return session;
 }
