@@ -190,7 +190,7 @@ pub(crate) fn try_claim_terminal_attachment(
 /// the transition was applied — callers schedule finalization only on `true`.
 pub(crate) fn set_session_status(state: &Arc<AppState>, id: &str, status: &str) -> bool {
     let is_terminal = matches!(status, "killed" | "ended" | "error");
-    let (handle_decision, session_resume, entered_running) = {
+    let (handle_decision, session_resume, entered_running, entered_terminal) = {
         let mut sessions = state.sessions.lock().unwrap();
         if let Some(handle) = sessions.get_mut(id) {
             let entered_running = !is_terminal
@@ -222,12 +222,15 @@ pub(crate) fn set_session_status(state: &Arc<AppState>, id: &str, status: &str) 
                 Some(true),
                 (handle.info.resume.clone(), handle.info.resumed_from.clone()),
                 entered_running,
+                is_terminal,
             )
         } else {
-            (None, (None, None), false)
+            (None, (None, None), false, false)
         }
     };
-    if entered_running && state.peon.config.enabled {
+    if entered_terminal {
+        state.peon.last_output.write().unwrap().remove(id);
+    } else if entered_running && state.peon.config.enabled {
         state.peon.last_output.write().unwrap()
             .entry(id.to_string())
             .or_insert_with(tokio::time::Instant::now);

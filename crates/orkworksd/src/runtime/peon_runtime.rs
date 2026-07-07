@@ -159,7 +159,10 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                 let mut missing_last_output_ids = Vec::new();
 
                 for (id, handle) in sessions.iter() {
-                    if handle.info.status != "running" || handle.info.observed_status.is_some() {
+                    if handle.info.status != "running"
+                        || handle.info.lifecycle_phase != "active"
+                        || handle.info.observed_status.is_some()
+                    {
                         continue;
                     }
 
