@@ -128,23 +128,53 @@ The sidecar should create the PTY and spawn the child process at session creatio
 - recent output buffer for replay on attach
 - persisted terminal history integration
 - attachment state for the current interactive client
+- attachment token / generation for owner-scoped cleanup
+- last known terminal size for detached startup and later resizes
 - output cursor or equivalent replay marker
 
 The frontend socket should attach to this runtime, receive recent buffered output, then continue with live stream delivery.
 
+While detached, the session runtime must continue to:
+
+- drain PTY output
+- persist terminal history
+- feed Peon / metadata inference inputs
+- advance output cursors and replay buffers
+
+WebSocket delivery is optional fanout layered on top of the runtime reader. It must not be the thing that keeps PTY draining alive.
+
 ### Attachment rules
 
 - at most one interactive attachment per session
-- a new attach may reject if another live attachment still exists
-- stale attachments should be explicitly cleaned up so a real reattach can succeed
+- first implementation policy: reject a new interactive attach when another live attachment still exists
+- superseding a live attachment is out of scope for the first implementation and requires a separate design
+- stale attachments should be explicitly cleaned up so a real reattach can succeed, but cleanup must be owner-scoped
 - detach closes only the socket
 - kill/end/error transitions kill the PTY and end any attachment
+
+Stale-owner cleanup contract:
+
+- the runtime owns an attachment token or generation for the currently attached client
+- cleanup may only detach the matching token after a defined stale-owner check such as WebSocket close/error or heartbeat timeout
+- cleanup must never clear attachment ownership by session id alone
+- a rejected second attach must not clear or replace the current attachment token
 
 ### Frontend behavior
 
 - switching sessions detaches from the old session and attaches to the new one
 - hidden sessions do not need live xterm instances just to keep their work running
 - on attach, the client receives recent buffered output first, then live stream continuation
+- on first attach after detached startup, the client sends the current terminal size and the runtime resizes the existing PTY without restarting it
+
+### Initial terminal sizing
+
+Detached startup still needs a size contract. The first implementation should:
+
+- use the last known terminal size when the runtime already has one for that session
+- otherwise start the PTY at a fixed fallback size of `24x80`
+- resize the PTY on first attach when the frontend reports its actual rows/cols
+
+This avoids making durable terminal-size persistence a prerequisite for the refactor while still defining deterministic startup behavior.
 
 ## Output And Replay
 
@@ -154,9 +184,19 @@ First implementation requirements:
 
 - preserve the existing persisted terminal output path
 - add replay semantics for the recent in-memory live buffer
+- bound the replay buffer by bytes, lines, or both; truncation is acceptable as long as live continuation is reliable
 - do not require perfect full-screen TUI reconstruction beyond the existing scan/buffer model
 
 Correctness matters more than perfect visual fidelity in the first pass. Reattach must be reliable even if replay is only "recent output plus continued live stream."
+
+Attach/replay handoff contract:
+
+- runtime output must advance under a monotonic sequence number, byte offset, or equivalent cursor
+- an attaching client subscribes at a cursor
+- the runtime replays buffered output from that cursor
+- live streaming continues from the same stream/cursor boundary without gaps or ownership races
+
+The implementation may tolerate bounded duplicate replay better than dropped output, but it must define one explicit cursor model so detach/reattach does not depend on timing luck.
 
 ## Failure Handling
 
@@ -166,6 +206,7 @@ Required behavior:
 - PTY/process failure must still finalize the session
 - a second interactive attach must never create a second PTY
 - resume/kill/delete paths must operate on the sidecar-owned runtime, not on attachment existence
+- persisted sessions from an earlier `orkworksd` process must still reconcile through existing metadata/lifecycle rules, not be treated as live detached PTYs
 
 The implementation should prefer explicit cleanup over inference. If an attachment disappears unexpectedly, the runtime should mark the session as detached and remain active until the process actually ends or is explicitly killed.
 
@@ -176,9 +217,13 @@ Minimum regression coverage should include:
 - session runtime can start without any terminal attachment
 - detaching an attachment does not kill the PTY or transition the session to ended
 - reattaching to a detached active session resumes output delivery
-- second interactive attach is rejected or explicitly supersedes only after stale-owner cleanup, but never spawns a second PTY
+- second interactive attach is rejected while a live attachment exists and never spawns a second PTY
+- stale-owner cleanup only clears the matching attachment token / generation
 - kill/end/error transitions still finalize the session and close any attachment
 - resume paths still behave correctly with detached runtimes
+- detached runtimes continue draining PTY output, persisting history, and feeding Peon/metadata
+- detached startup uses the defined initial PTY size contract
+- attach replay uses the cursor handoff contract without dropped output across replay/live transition
 
 The first implementation should favor targeted Rust tests around runtime ownership and detach/reattach semantics. Frontend tests should focus on attach/detach orchestration rather than trying to emulate full PTY behavior.
 
@@ -190,8 +235,15 @@ This is a load-bearing architecture decision. Before implementation code lands, 
 - one interactive attachment per session remains the rule
 - detach/reattach is supported while the sidecar remains alive
 - app-restart runtime persistence is out of scope for the initial design
+- detach does not change `lifecyclePhase`; only process exit, kill, or runtime error does
 
-If ADR 0010 or another existing ADR is materially contradicted by the new behavior, supersede it rather than editing history in place.
+The ADR must explicitly align with:
+
+- ADR 0010 for PTY/xterm architecture ownership
+- ADR 0013 for the single-active-context constraint
+- ADR 0021 for session lifecycle phase semantics and terminal finalization behavior
+
+If ADR 0010, ADR 0021, or another existing ADR is materially contradicted by the new behavior, supersede it rather than editing history in place.
 
 ## Non-Goals
 
