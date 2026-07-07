@@ -1,6 +1,6 @@
 import { effectiveLifecyclePhase, type SessionInfo } from "./api.ts";
 
-export const ATTENTION_PRIORITY: Record<string, number> = {
+const ATTENTION_PRIORITY: Record<string, number> = {
   waiting_for_input: 0,
   blocked: 1,
   checking_capacity: 2,
