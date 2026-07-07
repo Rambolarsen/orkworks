@@ -14,6 +14,7 @@ use axum::{
     response::IntoResponse,
     Json,
 };
+use portable_pty::PtySize;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -198,6 +199,16 @@ pub(crate) async fn resume_session(
         (meta, command, strategy, capabilities)
     };
 
+    {
+        let sessions = state.sessions.lock().unwrap();
+        if let Some(handle) = sessions.get(&id) {
+            let still_live = !matches!(handle.info.lifecycle_phase.as_str(), "ended");
+            if handle.terminal_attached || still_live {
+                return axum::http::StatusCode::CONFLICT.into_response();
+            }
+        }
+    }
+
     let (kill_tx, _kill_rx) = tokio::sync::watch::channel(false);
     let capacity_check_pending = capabilities.detect_capacity;
     let info = SessionInfo {
@@ -209,10 +220,10 @@ pub(crate) async fn resume_session(
         harness: (!meta.harness.is_empty()).then(|| meta.harness.clone()),
         model: (!meta.model.is_empty()).then(|| meta.model.clone()),
         work_phase: meta.work_phase.clone(),
-        lifecycle_phase: "creating".into(),
-        status: "creating".into(),
-        connectivity: Some(connectivity_for_status("creating").into()),
-        terminal_outcome: terminal_outcome_for_status("creating"),
+        lifecycle_phase: "active".into(),
+        status: "running".into(),
+        connectivity: Some(connectivity_for_status("running").into()),
+        terminal_outcome: terminal_outcome_for_status("running"),
         cwd: command.cwd.clone(),
         created_at: meta.created_at.clone(),
         last_activity_at: Some(now.clone()),
@@ -258,43 +269,63 @@ pub(crate) async fn resume_session(
         provider_state: meta.provider_state.clone(),
     };
 
-    {
+    let (runtime, control_rx) = crate::runtime::session_runtime::SessionRuntime::live(
+        crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+        crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+    );
+    let output_tx = runtime.output_tx.clone();
+
+    let previous_handle = {
         let mut sessions = state.sessions.lock().unwrap();
-        if let Some(handle) = sessions.get_mut(&id) {
-            if handle.terminal_attached {
-                return axum::http::StatusCode::CONFLICT.into_response();
+        let previous = sessions.remove(&id);
+        sessions.insert(
+            id.clone(),
+            SessionHandle {
+                info: info.clone(),
+                kill_tx: kill_tx.clone(),
+                output_buffer: peon::RingBuffer::new(state.peon.config.max_lines),
+                scan_buf: String::new(),
+                command: command.clone(),
+                initial_prompt: None,
+                runtime,
+                terminal_attached: false,
+                at_usage_limit_latched: false,
+                capacity_check_pending,
+                output_lines_seen: 0,
+                scan_bytes_seen: 0,
+                resume_scan_origin: capacity_check_pending.then_some((0, 0)),
+                pending_capacity_visible_once: false,
+            },
+        );
+        previous
+    };
+
+    match crate::runtime::session_runtime::start_session_runtime(
+        state.clone(),
+        id.clone(),
+        command.clone(),
+        None,
+        control_rx,
+        output_tx,
+        kill_tx.subscribe(),
+        PtySize {
+            rows: crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+            cols: crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+            pixel_width: 0,
+            pixel_height: 0,
+        },
+    )
+    .await
+    {
+        Ok(()) => {}
+        Err(error) => {
+            tracing::error!(session_id = %id, %error, "failed to start resumed session runtime");
+            let mut sessions = state.sessions.lock().unwrap();
+            sessions.remove(&id);
+            if let Some(previous) = previous_handle {
+                sessions.insert(id.clone(), previous);
             }
-            handle.info = info.clone();
-            handle.kill_tx = kill_tx;
-            handle.output_buffer = peon::RingBuffer::new(state.peon.config.max_lines);
-            handle.scan_buf = String::new();
-            handle.command = command;
-            handle.terminal_attached = false;
-            handle.at_usage_limit_latched = false;
-            handle.capacity_check_pending = capacity_check_pending;
-            handle.output_lines_seen = 0;
-            handle.scan_bytes_seen = 0;
-            handle.resume_scan_origin = capacity_check_pending.then_some((0, 0));
-            handle.pending_capacity_visible_once = false;
-        } else {
-            sessions.insert(
-                id.clone(),
-                SessionHandle {
-                    info: info.clone(),
-                    kill_tx,
-                    output_buffer: peon::RingBuffer::new(state.peon.config.max_lines),
-                    scan_buf: String::new(),
-                    command,
-                    initial_prompt: None,
-                    terminal_attached: false,
-                    at_usage_limit_latched: false,
-                    capacity_check_pending,
-                    output_lines_seen: 0,
-                    scan_bytes_seen: 0,
-                    resume_scan_origin: capacity_check_pending.then_some((0, 0)),
-                    pending_capacity_visible_once: false,
-                },
-            );
+            return axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     }
 
@@ -302,18 +333,18 @@ pub(crate) async fn resume_session(
         let ws_guard = state.workspace.lock().unwrap();
         if let Some(ref ws) = *ws_guard {
             if let Some(mut stored_meta) = ws.metadata.read_session(&id) {
-                stored_meta.status = "creating".to_string();
+                stored_meta.status = "running".to_string();
                 // Restart the lifecycle and drop the previous run's frozen
                 // state; otherwise merge_live_session_info keeps reporting the
                 // stale "ended" phase (and its final observed status) until the
                 // terminal attaches and writes "running".
-                stored_meta.lifecycle_phase = "creating".to_string();
+                stored_meta.lifecycle_phase = "active".to_string();
                 stored_meta.pending_terminal_status = None;
                 stored_meta.ending_observed_status_snapshot = None;
                 stored_meta.final_observed_status_snapshot = None;
                 stored_meta.observed_status = None;
-                stored_meta.connectivity = connectivity_for_status("creating").to_string();
-                stored_meta.terminal_outcome = terminal_outcome_for_status("creating");
+                stored_meta.connectivity = connectivity_for_status("running").to_string();
+                stored_meta.terminal_outcome = terminal_outcome_for_status("running");
                 stored_meta.last_activity = now.clone();
                 stored_meta.resume = meta.resume.clone();
                 stored_meta.resume_options = meta.resume_options.clone();
@@ -323,7 +354,7 @@ pub(crate) async fn resume_session(
             ws.metadata.append_event(&id, &metadata::Event {
                 event_type: "session.resumed".into(),
                 timestamp: now,
-                status: "creating".into(),
+                status: "running".into(),
                 observed_status: None,
                 confidence: None,
             });
@@ -509,10 +540,10 @@ pub(crate) async fn create_session(
         harness: resolved_launch.session_harness_id.clone(),
         model: resolved_launch.model.clone(),
         work_phase: "unknown".into(),
-        lifecycle_phase: "creating".into(),
-        status: "creating".into(),
-        connectivity: Some(connectivity_for_status("creating").into()),
-        terminal_outcome: terminal_outcome_for_status("creating"),
+        lifecycle_phase: "active".into(),
+        status: "running".into(),
+        connectivity: Some(connectivity_for_status("running").into()),
+        terminal_outcome: terminal_outcome_for_status("running"),
         cwd,
         created_at: now.clone(),
         last_activity_at: Some(now.clone()),
@@ -556,23 +587,57 @@ pub(crate) async fn create_session(
         provider_state: None,
     };
 
-    let handle = SessionHandle {
-        info: info.clone(),
-        kill_tx,
-        output_buffer: peon::RingBuffer::new(state.peon.config.max_lines),
-        scan_buf: String::new(),
-        command: resolved_launch.command,
-        initial_prompt: req.initial_prompt.clone(),
-        terminal_attached: false,
-        at_usage_limit_latched: false,
-        capacity_check_pending: false,
-        output_lines_seen: 0,
-        scan_bytes_seen: 0,
-        resume_scan_origin: None,
-        pending_capacity_visible_once: false,
-    };
+    let command = resolved_launch.command.clone();
+    let initial_prompt = req.initial_prompt.clone();
+    let (runtime, control_rx) = crate::runtime::session_runtime::SessionRuntime::live(
+        crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+        crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+    );
+    let output_tx = runtime.output_tx.clone();
+    state.sessions.lock().unwrap().insert(
+        id.clone(),
+        SessionHandle {
+            info: info.clone(),
+            kill_tx: kill_tx.clone(),
+            output_buffer: peon::RingBuffer::new(state.peon.config.max_lines),
+            scan_buf: String::new(),
+            command: command.clone(),
+            initial_prompt: initial_prompt.clone(),
+            runtime,
+            terminal_attached: false,
+            at_usage_limit_latched: false,
+            capacity_check_pending: false,
+            output_lines_seen: 0,
+            scan_bytes_seen: 0,
+            resume_scan_origin: None,
+            pending_capacity_visible_once: false,
+        },
+    );
 
-    state.sessions.lock().unwrap().insert(id.clone(), handle);
+    match crate::runtime::session_runtime::start_session_runtime(
+        state.clone(),
+        id.clone(),
+        command,
+        initial_prompt,
+        control_rx,
+        output_tx,
+        kill_tx.subscribe(),
+        PtySize {
+            rows: crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+            cols: crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+            pixel_width: 0,
+            pixel_height: 0,
+        },
+    )
+    .await
+    {
+        Ok(()) => {}
+        Err(error) => {
+            tracing::error!(session_id = %id, %error, "failed to start session runtime");
+            state.sessions.lock().unwrap().remove(&id);
+            return axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    }
 
     let now = iso_now();
     let ws_guard = state.workspace.lock().unwrap();
@@ -586,9 +651,9 @@ pub(crate) async fn create_session(
             harness: resolved_launch.session_harness_id.clone().unwrap_or_default(),
             model: resolved_launch.model.clone().unwrap_or_default(),
             cwd: info.cwd.clone(),
-            status: "creating".into(),
+            status: "running".into(),
             work_phase: "unknown".into(),
-            lifecycle_phase: "creating".into(),
+            lifecycle_phase: "active".into(),
             connectivity: "online".into(),
             terminal_outcome: None,
             pending_terminal_status: None,
@@ -629,14 +694,14 @@ pub(crate) async fn create_session(
         ws.metadata.append_event(&id, &metadata::Event {
             event_type: "session.created".into(),
             timestamp: now,
-            status: "creating".into(),
+            status: "running".into(),
             observed_status: None,
             confidence: None,
         });
     }
     drop(ws_guard);
 
-    Json(info)
+    Json(info).into_response()
 }
 
 pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse {
@@ -956,16 +1021,10 @@ pub(crate) async fn delete_session(
     };
     match handle {
         Some(kill_tx) => {
+            crate::runtime::terminal_runtime::set_session_status(&state, &id, "killed");
             let _ = kill_tx.send(true);
         }
         None => return axum::http::StatusCode::NOT_FOUND,
-    }
-    if crate::runtime::terminal_runtime::set_session_status(&state, &id, "killed") {
-        crate::runtime::terminal_runtime::schedule_session_ending_finalization(
-            state.clone(),
-            id.clone(),
-            "killed".to_string(),
-        );
     }
     state.peon.last_output.write().unwrap().remove(&id);
     state.peon.last_inference.write().unwrap().remove(&id);
@@ -1172,6 +1231,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
@@ -1291,6 +1351,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: true,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
@@ -1306,6 +1367,114 @@ mod tests {
             ws.as_ref().unwrap().metadata.write_session(&metadata::SessionMetadata {
                 id: session_id.clone(),
                 label: "Resume Attached".into(),
+                workspace: dir.path().display().to_string(),
+                task: "".into(),
+                harness: "opencode".into(),
+                model: "".into(),
+                cwd: dir.path().display().to_string(),
+                status: "running".into(),
+                work_phase: "unknown".into(),
+                lifecycle_phase: "active".into(),
+                connectivity: "online".into(),
+                terminal_outcome: None,
+                pending_terminal_status: None,
+                observed_status: None,
+                ending_observed_status_snapshot: None,
+                final_observed_status_snapshot: None,
+                summary: None,
+                next_action: None,
+                needs_user_input: None,
+                detected_question: None,
+                suggested_options: None,
+                blocker_description: None,
+                failed_command: None,
+                failed_test: None,
+                capacity_hints: None,
+                peon_last_inference: None,
+                provider_id: None,
+                provider_label: None,
+                provider_model: None,
+                provider_state: None,
+                created_at: "before".into(),
+                last_activity: "before".into(),
+                metadata_source: "process".into(),
+                metadata_confidence: 1.0,
+                repo_root: None,
+                branch: None,
+                dirty: None,
+                changed_files: None,
+                is_worktree: None,
+                resume: Some(resume),
+                resume_options: vec![],
+                harness_session_id_source: None,
+                harness_session_id_confidence: None,
+                harness_session_id_captured_at: None,
+                resumed_from: None,
+                last_user_input: None,
+            });
+        }
+
+        let response = resume_session(State(state), Path(session_id))
+            .await
+            .into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::CONFLICT);
+    }
+
+    #[tokio::test]
+    async fn resume_session_rejects_detached_live_handle() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let session_id = "resume-detached-live".to_string();
+        let resume = harness::ResumeMemory {
+            state: harness::ResumeState::Available,
+            preferred_strategy: harness::ResumeStrategy::LatestCwd,
+            harness_session_id: None,
+            latest_fallback: true,
+            last_seen_at: Some("before".into()),
+        };
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+
+        state.sessions.lock().unwrap().insert(
+            session_id.clone(),
+            SessionHandle {
+                info: SessionInfo {
+                    harness_id: Some("opencode".into()),
+                    harness: Some("opencode".into()),
+                    resume_strategy: harness::ResumeStrategy::LatestCwd,
+                    resume: Some(resume.clone()),
+                    ..test_session_info(
+                        session_id.clone(),
+                        "Resume Detached Live",
+                        dir.path().display().to_string(),
+                        "running",
+                        "before",
+                    )
+                },
+                kill_tx,
+                output_buffer: peon::RingBuffer::new(200),
+                scan_buf: String::new(),
+                command: default_shell_command(dir.path().display().to_string()),
+                initial_prompt: None,
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                ),
+                terminal_attached: false,
+                at_usage_limit_latched: false,
+                capacity_check_pending: false,
+                output_lines_seen: 0,
+                scan_bytes_seen: 0,
+                resume_scan_origin: None,
+                pending_capacity_visible_once: false,
+            },
+        );
+
+        {
+            let ws = state.workspace.lock().unwrap();
+            ws.as_ref().unwrap().metadata.write_session(&metadata::SessionMetadata {
+                id: session_id.clone(),
+                label: "Resume Detached Live".into(),
                 workspace: dir.path().display().to_string(),
                 task: "".into(),
                 harness: "opencode".into(),
@@ -1559,6 +1728,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
@@ -1624,6 +1794,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
@@ -1725,6 +1896,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
@@ -1850,6 +2022,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command("/tmp/project".into()),
                 initial_prompt: None,
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
@@ -1919,6 +2092,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: true,
@@ -2000,6 +2174,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: true,
@@ -2062,6 +2237,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: true,
@@ -2164,6 +2340,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
@@ -2244,6 +2421,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: true,
                 capacity_check_pending: false,
@@ -2324,6 +2502,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: true,
                 capacity_check_pending: false,
@@ -2393,6 +2572,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: true,
                 capacity_check_pending: false,

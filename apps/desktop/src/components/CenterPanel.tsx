@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback } from "react";
 import "@xterm/xterm/css/xterm.css";
-import { ensureTerminal, getTerminal } from "../terminalStore";
+import { disposeTerminal, ensureTerminal, getTerminal } from "../terminalStore";
 import EmptyState from "./EmptyState";
 
 interface CenterPanelProps {
@@ -44,6 +44,11 @@ function CenterPanel({ backendStatus, sessionId }: CenterPanelProps) {
   }, []);
 
   useEffect(() => {
+    const previousId = activeIdRef.current;
+    if (previousId && backendStatus !== "connected") {
+      disposeTerminal(previousId);
+      activeIdRef.current = null;
+    }
     if (backendStatus !== "connected" || !sessionId) return;
     let cancelled = false;
 

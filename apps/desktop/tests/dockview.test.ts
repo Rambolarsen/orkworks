@@ -245,6 +245,15 @@ test("session detail exposes resumable session action", () => {
   assert.match(labelsSource, /resumeStrategy/);
 });
 
+test("CenterPanel keeps inactive terminals alive while switching sessions", () => {
+  const source = readFileSync(
+    new URL("../src/components/CenterPanel.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.doesNotMatch(source, /previousId !== sessionId[\s\S]*disposeTerminal\(previousId\)/);
+});
+
 test("session list marks remembered sessions separately from live sessions", () => {
   const source = readFileSync(
     new URL("../src/components/SessionListPanel.tsx", import.meta.url),
