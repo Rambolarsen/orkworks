@@ -1,37 +1,34 @@
 import { effectiveLifecyclePhase, type SessionInfo } from "./api.ts";
+import { AttentionState } from "./domain/session.ts";
 
-export const ATTENTION_PRIORITY: Record<string, number> = {
-  waiting_for_input: 0,
-  blocked: 1,
-  checking_capacity: 2,
-  capped: 2,
-  failed: 3,
-  done: 4,
-  stale: 4,
-  working: 5,
-  idle: 6,
-  creating: 7,
-  running: 8,
-  ended: 9,
-  killed: 10,
-  error: 11,
+const ATTENTION_PRIORITY: Record<AttentionState, number> = {
+  [AttentionState.WaitingForInput]: 0,
+  [AttentionState.CheckingCapacity]: 1,
+  [AttentionState.Capped]: 2,
+  [AttentionState.Blocked]: 3,
+  [AttentionState.Failed]: 4,
+  [AttentionState.Done]: 5,
+  [AttentionState.Stale]: 6,
+  [AttentionState.Working]: 7,
+  [AttentionState.Idle]: 8,
+  [AttentionState.Neutral]: 99,
 };
 
-export function needsAttention(status: string): boolean {
+export function needsAttention(status: AttentionState): boolean {
   return (
-    status === "blocked" ||
-    status === "failed" ||
-    status === "waiting_for_input"
+    status === AttentionState.Blocked ||
+    status === AttentionState.Failed ||
+    status === AttentionState.WaitingForInput
   );
 }
 
-export function sessionAttentionStatus(session: SessionInfo): string {
-  if (session.capacityCheckPending) return "checking_capacity";
-  if (session.atUsageLimit) return "capped";
+export function sessionAttentionStatus(session: SessionInfo): AttentionState {
+  if (session.capacityCheckPending) return AttentionState.CheckingCapacity;
+  if (session.atUsageLimit) return AttentionState.Capped;
   if (effectiveLifecyclePhase(session.status, session.lifecyclePhase) === "active") {
-    return session.observedStatus ?? session.status;
+    return (session.observedStatus as AttentionState | undefined) ?? AttentionState.Idle;
   }
-  return session.finalObservedStatus ?? session.status;
+  return (session.finalObservedStatus as AttentionState | undefined) ?? AttentionState.Neutral;
 }
 
 export function sortSessions(list: SessionInfo[]): SessionInfo[] {
