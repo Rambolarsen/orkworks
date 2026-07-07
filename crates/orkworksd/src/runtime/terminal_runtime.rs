@@ -190,9 +190,12 @@ pub(crate) fn try_claim_terminal_attachment(
 /// the transition was applied — callers schedule finalization only on `true`.
 pub(crate) fn set_session_status(state: &Arc<AppState>, id: &str, status: &str) -> bool {
     let is_terminal = matches!(status, "killed" | "ended" | "error");
-    let (handle_decision, session_resume) = {
+    let (handle_decision, session_resume, entered_running, entered_terminal) = {
         let mut sessions = state.sessions.lock().unwrap();
         if let Some(handle) = sessions.get_mut(id) {
+            let entered_running = !is_terminal
+                && status == "running"
+                && handle.info.status != "running";
             if is_terminal && matches!(handle.info.lifecycle_phase.as_str(), "ending" | "ended") {
                 return false;
             }
@@ -215,11 +218,23 @@ pub(crate) fn set_session_status(state: &Arc<AppState>, id: &str, status: &str) 
             if is_terminal {
                 handle.info.observed_status = None;
             }
-            (Some(true), (handle.info.resume.clone(), handle.info.resumed_from.clone()))
+            (
+                Some(true),
+                (handle.info.resume.clone(), handle.info.resumed_from.clone()),
+                entered_running,
+                is_terminal,
+            )
         } else {
-            (None, (None, None))
+            (None, (None, None), false, false)
         }
     };
+    if entered_terminal {
+        state.peon.last_output.write().unwrap().remove(id);
+    } else if entered_running && state.peon.config.enabled {
+        state.peon.last_output.write().unwrap()
+            .entry(id.to_string())
+            .or_insert_with(tokio::time::Instant::now);
+    }
     let now = iso_now();
     let mut applied = handle_decision.unwrap_or(false);
     let ws_guard = state.workspace.lock().unwrap();
@@ -1029,6 +1044,129 @@ mod tests {
             .clone();
         assert_eq!(ended.status, "running");
         assert_eq!(ended.lifecycle_phase, "ending");
+    }
+
+    #[test]
+    fn set_session_status_seeds_peon_last_output_when_session_enters_running() {
+        let state = Arc::new(crate::AppState {
+            session_module: crate::infrastructure::session_module::SessionModule::new(),
+            sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
+            workspace: std::sync::Mutex::new(None),
+            peon: crate::PeonState {
+                last_output: std::sync::RwLock::new(std::collections::HashMap::new()),
+                last_inference: std::sync::RwLock::new(std::collections::HashMap::new()),
+                in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
+                label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
+                label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
+                config: crate::peon::PeonConfig {
+                    enabled: true,
+                    ..crate::peon::PeonConfig::from_env()
+                },
+            },
+            adapters: crate::harness_registry::builtin_adapters(),
+            retention_config: tokio::sync::RwLock::new(crate::RetentionConfig::default()),
+            harnesses: tokio::sync::RwLock::new(vec![]),
+            bound_port: std::sync::atomic::AtomicU16::new(0),
+            providers: crate::providers::ProviderManager::new(),
+        });
+
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        let id = "running-seed-test".to_string();
+        let mut info = test_session_info(id.clone(), "Test", "/tmp", "creating", "now");
+        info.lifecycle_phase = "creating".into();
+        state.sessions.lock().unwrap().insert(
+            id.clone(),
+            crate::SessionHandle {
+                info,
+                kill_tx,
+                output_buffer: crate::peon::RingBuffer::new(200),
+                scan_buf: String::new(),
+                command: harness::CommandSpec {
+                    program: "/bin/sh".into(),
+                    args: vec!["-i".into(), "-l".into()],
+                    cwd: "/tmp".into(),
+                },
+                initial_prompt: None,
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
+                terminal_attached: false,
+                at_usage_limit_latched: false,
+                capacity_check_pending: false,
+                output_lines_seen: 0,
+                scan_bytes_seen: 0,
+                resume_scan_origin: None,
+                pending_capacity_visible_once: false,
+            },
+        );
+
+        assert!(state.peon.last_output.read().unwrap().get(&id).is_none());
+
+        set_session_status(&state, &id, "running");
+
+        assert!(
+            state.peon.last_output.read().unwrap().get(&id).is_some(),
+            "entering running should seed peon idle timing"
+        );
+    }
+
+    #[test]
+    fn set_session_status_running_does_not_reset_existing_peon_last_output() {
+        let state = Arc::new(crate::AppState {
+            session_module: crate::infrastructure::session_module::SessionModule::new(),
+            sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
+            workspace: std::sync::Mutex::new(None),
+            peon: crate::PeonState {
+                last_output: std::sync::RwLock::new(std::collections::HashMap::new()),
+                last_inference: std::sync::RwLock::new(std::collections::HashMap::new()),
+                in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
+                label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
+                label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
+                config: crate::peon::PeonConfig {
+                    enabled: true,
+                    ..crate::peon::PeonConfig::from_env()
+                },
+            },
+            adapters: crate::harness_registry::builtin_adapters(),
+            retention_config: tokio::sync::RwLock::new(crate::RetentionConfig::default()),
+            harnesses: tokio::sync::RwLock::new(vec![]),
+            bound_port: std::sync::atomic::AtomicU16::new(0),
+            providers: crate::providers::ProviderManager::new(),
+        });
+
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        let id = "running-seed-idempotent-test".to_string();
+        let mut info = test_session_info(id.clone(), "Test", "/tmp", "running", "now");
+        info.lifecycle_phase = "active".into();
+        state.sessions.lock().unwrap().insert(
+            id.clone(),
+            crate::SessionHandle {
+                info,
+                kill_tx,
+                output_buffer: crate::peon::RingBuffer::new(200),
+                scan_buf: String::new(),
+                command: harness::CommandSpec {
+                    program: "/bin/sh".into(),
+                    args: vec!["-i".into(), "-l".into()],
+                    cwd: "/tmp".into(),
+                },
+                initial_prompt: None,
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
+                terminal_attached: false,
+                at_usage_limit_latched: false,
+                capacity_check_pending: false,
+                output_lines_seen: 0,
+                scan_bytes_seen: 0,
+                resume_scan_origin: None,
+                pending_capacity_visible_once: false,
+            },
+        );
+
+        let seeded_at = tokio::time::Instant::now() - std::time::Duration::from_secs(3);
+        state.peon.last_output.write().unwrap().insert(id.clone(), seeded_at);
+
+        set_session_status(&state, &id, "running");
+
+        let actual = *state.peon.last_output.read().unwrap().get(&id).unwrap();
+        assert_eq!(actual, seeded_at);
     }
 
     #[test]
