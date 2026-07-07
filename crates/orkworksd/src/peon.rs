@@ -144,49 +144,88 @@ pub fn strip_ansi(s: &str) -> String {
     while let Some(c) = chars.next() {
         if c != '\x1b' {
             out.push(c);
-            continue;
-        }
-        match chars.peek().copied() {
-            Some('[') => {
-                // CSI: ESC [ params final (final = 0x40–0x7E)
-                chars.next();
-                let mut final_byte = '\0';
-                for c2 in chars.by_ref() {
-                    if ('@'..='~').contains(&c2) { final_byte = c2; break; }
-                }
-                // Cursor-positioning finals: insert a space so adjacent screen
-                // regions don't merge into a single token after stripping.
-                if matches!(final_byte, 'A'|'B'|'C'|'D'|'E'|'F'|'G'|'H'|'d'|'f'|'s'|'u') {
-                    out.push(' ');
-                }
-            }
-            Some(']') => {
-                // OSC: ESC ] ... BEL  or  ESC \ (ST)
-                chars.next();
-                loop {
-                    match chars.next() {
-                        Some('\x07') | None => break,
-                        Some('\x1b') => { chars.next(); break; }
-                        _ => {}
-                    }
-                }
-            }
-            Some('O') => {
-                // SS3: ESC O x — function keys, consume the payload char
-                chars.next(); chars.next();
-            }
-            Some('(' | ')') => {
-                // Charset select: ESC ( x  or  ESC ) x
-                chars.next(); chars.next();
-            }
-            Some(_) => {
-                // Single-char escape: ESC 7/8/M/c/= etc.
-                chars.next();
-            }
-            None => {}
+        } else {
+            strip_ansi_escape(&mut chars, &mut out);
         }
     }
     out
+}
+
+/// Processes one escape sequence starting immediately after the ESC byte.
+/// Extracted so OSC/DCS handlers can recurse when a bare ESC terminates the
+/// string command and starts a new sequence (e.g. `ESC ] title ESC [ H`).
+fn strip_ansi_escape<I: Iterator<Item = char>>(chars: &mut std::iter::Peekable<I>, out: &mut String) {
+    match chars.peek().copied() {
+        Some('[') => {
+            // CSI: ESC [ params final (final = 0x40–0x7E)
+            chars.next();
+            let mut final_byte = '\0';
+            for c2 in chars.by_ref() {
+                if ('@'..='~').contains(&c2) { final_byte = c2; break; }
+            }
+            // Cursor-positioning finals: insert a space so adjacent screen
+            // regions don't merge into a single token after stripping.
+            if matches!(final_byte, 'A'|'B'|'C'|'D'|'E'|'F'|'G'|'H'|'d'|'f'|'s'|'u') {
+                out.push(' ');
+            }
+        }
+        Some(']') => {
+            // OSC: ESC ] ... BEL  or  ESC \ (ST)
+            chars.next();
+            loop {
+                match chars.next() {
+                    Some('\x07') | None => break,
+                    Some('\x1b') => {
+                        if chars.peek() == Some(&'\\') {
+                            chars.next(); // proper ST — consume backslash
+                        } else {
+                            // Bare ESC terminates OSC and starts a new sequence;
+                            // recurse so the new sequence is handled correctly
+                            // (e.g. a cursor-move CSI still emits its space).
+                            strip_ansi_escape(chars, out);
+                        }
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        Some('P' | 'X' | '^' | '_') => {
+            // DCS/SOS/PM/APC: string-mode sequences terminated by ST (ESC \)
+            chars.next();
+            loop {
+                match chars.next() {
+                    None => break,
+                    Some('\x1b') => {
+                        if chars.peek() == Some(&'\\') {
+                            chars.next();
+                        } else {
+                            strip_ansi_escape(chars, out);
+                        }
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        Some('O') => {
+            // SS3: ESC O x — function keys, consume the payload char
+            chars.next(); chars.next();
+        }
+        Some('(' | ')') => {
+            // Charset select: ESC ( x  or  ESC ) x
+            chars.next(); chars.next();
+        }
+        Some('%') => {
+            // ESC % G (select UTF-8) / ESC % @ (select default) — two-char sequences
+            chars.next(); chars.next();
+        }
+        Some(_) => {
+            // Single-char escape: ESC 7/8/M/c/= etc.
+            chars.next();
+        }
+        None => {}
+    }
 }
 
 pub fn detect_usage_limit<S: AsRef<str>>(patterns: &[S], lines: &[String]) -> bool {
@@ -203,7 +242,10 @@ pub fn looks_like_password_prompt(recent_lines: &[String]) -> bool {
     let patterns = ["password", "passphrase", "pin:"];
     recent_lines.iter().rev().take(3).any(|line| {
         let lower = strip_ansi(line).to_lowercase();
-        patterns.iter().any(|p| lower.contains(p))
+        // Also check with whitespace collapsed: cursor-positioning moves insert
+        // spaces, which can split "passphrase" → "pass phrase".
+        let compact = lower.split_whitespace().collect::<String>();
+        patterns.iter().any(|p| lower.contains(p) || compact.contains(p))
     })
 }
 
@@ -1118,6 +1160,40 @@ echo '{"status":"working","confidence":0.9}'
         assert_eq!(strip_ansi("\x1bOP"), "");
         // Charset select: ESC ( B
         assert_eq!(strip_ansi("\x1b(Btext"), "text");
+    }
+
+    #[test]
+    fn strip_ansi_osc_followed_by_csi_does_not_leak_csi_final() {
+        // ESC ] title ESC [ H — the ESC [ is a new CSI, not ST; H must not leak
+        assert_eq!(strip_ansi("\x1b]0;title\x1b[Hcontent"), " content");
+        // Well-formed OSC + ST still works
+        assert_eq!(strip_ansi("\x1b]0;title\x1b\\rest"), "rest");
+    }
+
+    #[test]
+    fn strip_ansi_consumes_dcs_payload() {
+        // DCS: ESC P payload ESC \ — payload must not appear in output
+        assert_eq!(strip_ansi("\x1bP1$r0m\x1b\\ normal"), " normal");
+        // APC (kitty): ESC _ payload ESC \
+        assert_eq!(strip_ansi("\x1b_Ga=T;\x1b\\ text"), " text");
+    }
+
+    #[test]
+    fn strip_ansi_consumes_esc_percent_sequences() {
+        // ESC % G = select UTF-8, ESC % @ = select default — both two-char
+        assert_eq!(strip_ansi("\x1b%Gtext"), "text");
+        assert_eq!(strip_ansi("\x1b%@text"), "text");
+    }
+
+    #[test]
+    fn password_prompt_detected_despite_cursor_split() {
+        // A TUI rendering "passphrase:" with a cursor move inside the word
+        let lines = vec!["pass\x1b[Gphrase:".to_string()];
+        assert!(looks_like_password_prompt(&lines),
+            "cursor-split passphrase must still be detected");
+        let lines2 = vec!["pass\x1b[Gword:".to_string()];
+        assert!(looks_like_password_prompt(&lines2),
+            "cursor-split password must still be detected");
     }
 
     #[test]
