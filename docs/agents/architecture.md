@@ -55,7 +55,7 @@ Single binary. Top-level modules:
 - `runtime/` — background-task and PTY submodules:
   - `peon_runtime.rs` — `peon_loop` (continuous Peon observation loop)
   - `retention.rs` — `retention_cleanup_task`, `retention_cleanup_once`
-  - `session_runtime.rs` — session-runtime-owned PTY/process startup, output draining, replay state, attachment ownership, child wait/finalization
+  - `session_runtime.rs` — session-runtime-owned PTY/process startup, bounded PTY/persistence backpressure queues, output draining, replay state, attachment ownership, child wait/finalization
   - `terminal_http.rs` — `get_terminal_output`, `session_terminal_handler` (WebSocket upgrade / attach entrypoint)
   - `terminal_runtime.rs` — env helpers (`terminal_env_overrides`, `session_env_overrides`, `should_forward_terminal_env`), `TerminalAction` dispatch, `set_session_status`, websocket attach/detach transport
 - `git.rs` — git2-based context detection (repo root, branch, dirty check including untracked files while excluding ignored files)
