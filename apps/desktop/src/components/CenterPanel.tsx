@@ -45,10 +45,7 @@ function CenterPanel({ backendStatus, sessionId }: CenterPanelProps) {
 
   useEffect(() => {
     const previousId = activeIdRef.current;
-    if (
-      previousId
-      && (previousId !== sessionId || backendStatus !== "connected")
-    ) {
+    if (previousId && backendStatus !== "connected") {
       disposeTerminal(previousId);
       activeIdRef.current = null;
     }
