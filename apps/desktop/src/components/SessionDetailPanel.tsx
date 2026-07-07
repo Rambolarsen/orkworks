@@ -2,6 +2,7 @@ import { Fragment, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { GitBranch } from "lucide-react";
 import type { SessionInfo } from "../api";
+import { AttentionState } from "../domain/session";
 import { sessionProviderContext } from "../sessionProviderContext";
 import { sessionAttentionStatus } from "../sessionSort";
 import {
@@ -75,7 +76,7 @@ function SessionDetailPanel({ sessions, activeSessionId, onResumeSession, showDe
   if (active.finalObservedStatus) {
     provenanceItems.push(
       <span key="final-attention" className="peon-value">
-        Final attention: {attentionLabel(active.finalObservedStatus)}
+        Final attention: {attentionLabel(active.finalObservedStatus as AttentionState)}
       </span>,
     );
   }
