@@ -569,11 +569,11 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
                                                     meta.label = line.clone();
                                                 }
                                                 meta.last_user_input = Some(line.clone());
-                                                // Clear stale terminal-phase observed_status eagerly
-                                                // so the UI doesn't show "Idle" while the user types.
                                                 if peon::is_terminal_observed_status(meta.observed_status.as_deref()) {
                                                     meta.observed_status = None;
-                                                    meta.metadata_source = "process".into();
+                                                    // "user" blocks Peon from immediately re-writing idle/done;
+                                                    // it relinquishes on the next Peon inference write.
+                                                    meta.metadata_source = "user".into();
                                                 }
                                                 ws.metadata.write_session(&meta);
                                             }
@@ -589,6 +589,7 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
                                                 handle.info.observed_status.as_deref(),
                                             ) {
                                                 handle.info.observed_status = None;
+                                                handle.info.metadata_source = Some("user".into());
                                             }
                                         }
                                     }
@@ -1673,10 +1674,9 @@ mod tests {
 
     #[test]
     fn hint_min_len_gates_label_hint_eligibility() {
-        // Lines at or below HINT_MIN_LEN are too terse to be useful label hints.
         let short = "a".repeat(peon::HINT_MIN_LEN);
         let long  = "a".repeat(peon::HINT_MIN_LEN + 1);
-        assert!(!short.len() > peon::HINT_MIN_LEN);
-        assert!(long.len()  > peon::HINT_MIN_LEN);
+        assert!(short.len() <= peon::HINT_MIN_LEN);
+        assert!(long.len()   > peon::HINT_MIN_LEN);
     }
 }
