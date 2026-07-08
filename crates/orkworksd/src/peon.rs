@@ -250,6 +250,10 @@ pub fn looks_like_password_prompt(recent_lines: &[String]) -> bool {
 }
 
 /// Returns true if a completed user input line is descriptive enough to become
+/// Minimum line length for a completed user input to qualify as a Peon label hint.
+/// Lines shorter than this are too terse to reliably describe a task.
+pub const HINT_MIN_LEN: usize = 10;
+
 /// the session label. Command-prefixed input (harness slash commands, shell
 /// escapes, vim ex commands, shell comments / Claude Code memory shortcuts),
 /// input under 4 chars, and letter-less input (menu numbers, ports) say
