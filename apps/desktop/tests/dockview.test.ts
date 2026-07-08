@@ -261,9 +261,9 @@ test("session list marks remembered sessions separately from live sessions", () 
   );
 
   // Remembered is the negation of "live" — inverting this condition flips the class onto the wrong sessions.
-  assert.match(source, /const remembered = s\.memoryState !== "live"/);
+  assert.match(source, /const\s+remembered\s*=\s*s\.memoryState\s*!==\s*"live"/);
   // The remembered variable (not its inverse) drives the class — inverting the ternary would break this.
-  assert.match(source, /remembered \? "session-row--remembered"/);
+  assert.match(source, /remembered\s*\?\s*"session-row--remembered"/);
 });
 
 test("session list only offers kill for live sessions", () => {
