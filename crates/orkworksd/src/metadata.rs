@@ -1007,14 +1007,16 @@ impl MetadataStore {
         }
         meta.next_action = inf.next_action.clone().or(meta.next_action);
         meta.needs_user_input = inf.needs_user_input.or(meta.needs_user_input);
+        // Normalize: treat empty-string question as absent (LLM may emit "" instead of null).
+        let incoming_q = inf.detected_question.as_deref()
+            .filter(|q| !q.is_empty())
+            .map(str::to_string);
         // Options belong to their question; clear them when the question changes so
         // stale options never appear under a different question.
-        if inf.detected_question.is_some()
-            && inf.detected_question.as_deref() != meta.detected_question.as_deref()
-        {
+        if incoming_q.is_some() && incoming_q.as_deref() != meta.detected_question.as_deref() {
             meta.suggested_options = None;
         }
-        meta.detected_question = inf.detected_question.clone().or(meta.detected_question);
+        meta.detected_question = incoming_q.or(meta.detected_question);
         meta.suggested_options = inf.suggested_options.clone().or(meta.suggested_options);
         meta.blocker_description = inf.blocker_description.clone().or(meta.blocker_description);
         meta.failed_command = inf.failed_command.clone().or(meta.failed_command);
@@ -1452,6 +1454,43 @@ mod tests {
         let meta = store.read_session("sess-q-change").unwrap();
         assert_eq!(meta.detected_question.as_deref(), Some("What filename?"));
         assert!(meta.suggested_options.is_none(), "stale options must be cleared when question changes");
+
+        // Poll 3: different question WITH new options — new options must survive
+        store.merge_peon_inference("sess-q-change", &make_inf("New question?", Some(vec!["a".into(), "b".into()])), "t3", None).unwrap();
+        let meta = store.read_session("sess-q-change").unwrap();
+        assert_eq!(meta.detected_question.as_deref(), Some("New question?"));
+        assert_eq!(meta.suggested_options.as_deref(), Some(["a".to_string(), "b".to_string()].as_slice()),
+            "new options must be kept when question changes with options provided");
+    }
+
+    #[test]
+    fn empty_string_question_does_not_overwrite_real_question() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        store.write_session(&test_metadata("sess-q-empty"));
+
+        let inf_real = crate::peon::PeonInference {
+            detected_question: Some("Proceed?".into()),
+            suggested_options: Some(vec!["yes".into(), "no".into()]),
+            observed_status: None, phase: None, summary: None, next_action: None,
+            needs_user_input: None, blocker_description: None, failed_command: None,
+            failed_test: None, capacity_hints: None, confidence: 0.8,
+            detected_harness: None, detected_model: None, harness_session_id: None,
+        };
+        let inf_empty = crate::peon::PeonInference {
+            detected_question: Some("".into()),
+            suggested_options: None,
+            ..inf_real.clone()
+        };
+
+        store.merge_peon_inference("sess-q-empty", &inf_real, "t1", None).unwrap();
+        store.merge_peon_inference("sess-q-empty", &inf_empty, "t2", None).unwrap();
+
+        let meta = store.read_session("sess-q-empty").unwrap();
+        assert_eq!(meta.detected_question.as_deref(), Some("Proceed?"),
+            "empty-string question must not overwrite a real question");
+        assert_eq!(meta.suggested_options.as_deref(), Some(["yes".to_string(), "no".to_string()].as_slice()),
+            "options must not be cleared by an empty-string question");
     }
 
     #[test]
