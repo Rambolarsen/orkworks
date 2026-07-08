@@ -1,7 +1,6 @@
 use crate::runtime::terminal_runtime::{
     codex_thread_id_from_jsonl_line, make_pty_system, schedule_session_ending_finalization,
-    session_env_overrides, set_session_status, should_forward_terminal_env,
-    terminal_env_overrides,
+    session_env_overrides, set_session_status, should_forward_terminal_env, terminal_env_overrides,
 };
 use crate::workspace_runtime::iso_now;
 use crate::{harness, metadata, peon, AppState};
@@ -14,6 +13,8 @@ use tokio::sync::{broadcast, mpsc};
 pub(crate) const DEFAULT_TERMINAL_ROWS: u16 = 24;
 pub(crate) const DEFAULT_TERMINAL_COLS: u16 = 80;
 const DEFAULT_REPLAY_CAPACITY: usize = 256;
+const DRIVER_EVENT_BUFFER_CAPACITY: usize = 64;
+const PERSIST_QUEUE_CAPACITY: usize = 64;
 const INITIAL_RESIZE_GRACE: std::time::Duration = std::time::Duration::from_millis(150);
 
 #[derive(Clone, Debug, PartialEq)]
@@ -70,7 +71,10 @@ impl ReplayBuffer {
     }
 
     pub(crate) fn start_cursor(&self) -> u64 {
-        self.chunks.front().map(|(cursor, _)| *cursor).unwrap_or(self.next_cursor)
+        self.chunks
+            .front()
+            .map(|(cursor, _)| *cursor)
+            .unwrap_or(self.next_cursor)
     }
 
     pub(crate) fn snapshot(&self) -> Vec<(u64, Vec<u8>)> {
@@ -141,6 +145,14 @@ enum DriverEvent {
     WaitError(String),
 }
 
+fn make_driver_event_channel() -> (mpsc::Sender<DriverEvent>, mpsc::Receiver<DriverEvent>) {
+    mpsc::channel(DRIVER_EVENT_BUFFER_CAPACITY)
+}
+
+fn make_persist_channel() -> (mpsc::Sender<Vec<String>>, mpsc::Receiver<Vec<String>>) {
+    mpsc::channel(PERSIST_QUEUE_CAPACITY)
+}
+
 pub(crate) fn claim_attachment(state: &Arc<AppState>, id: &str) -> Option<AttachmentClaim> {
     let mut sessions = state.sessions.lock().unwrap();
     let handle = sessions.get_mut(id)?;
@@ -187,8 +199,11 @@ pub(crate) fn send_runtime_command(
 ) -> Result<(), ()> {
     let tx = {
         let sessions = state.sessions.lock().unwrap();
-        sessions.get(id).map(|handle| handle.runtime.control_tx.clone())
-    }.ok_or(())?;
+        sessions
+            .get(id)
+            .map(|handle| handle.runtime.control_tx.clone())
+    }
+    .ok_or(())?;
     tx.send(command).map_err(|_| ())
 }
 
@@ -205,7 +220,8 @@ pub(crate) fn update_runtime_size(
         handle.runtime.last_cols = cols;
         handle.runtime.control_tx.clone()
     };
-    tx.send(RuntimeCommand::Resize { rows, cols }).map_err(|_| ())
+    tx.send(RuntimeCommand::Resize { rows, cols })
+        .map_err(|_| ())
 }
 
 async fn capture_startup_runtime_state(
@@ -271,17 +287,14 @@ pub(crate) async fn start_session_runtime(
         cmd.env(&key, &value);
     }
 
-    let mut child = pair
-        .slave
-        .spawn_command(cmd)
-        .map_err(|e| e.to_string())?;
+    let mut child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
 
     let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
     let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
     let master = Arc::new(Mutex::new(pair.master));
     let killer = Arc::new(Mutex::new(child.clone_killer()));
 
-    let (driver_tx, mut driver_rx) = mpsc::unbounded_channel();
+    let (driver_tx, mut driver_rx) = make_driver_event_channel();
 
     let reader_id = id.clone();
     let reader_tx = driver_tx.clone();
@@ -291,7 +304,10 @@ pub(crate) async fn start_session_runtime(
             match reader.read(&mut buf) {
                 Ok(0) => break,
                 Ok(n) => {
-                    if reader_tx.send(DriverEvent::Output(buf[..n].to_vec())).is_err() {
+                    if reader_tx
+                        .blocking_send(DriverEvent::Output(buf[..n].to_vec()))
+                        .is_err()
+                    {
                         break;
                     }
                 }
@@ -310,10 +326,10 @@ pub(crate) async fn start_session_runtime(
             Ok(_) => DriverEvent::Exited,
             Err(e) => DriverEvent::WaitError(e.to_string()),
         };
-        let _ = wait_tx.send(event);
+        let _ = wait_tx.blocking_send(event);
     });
 
-    let (persist_tx, mut persist_rx) = mpsc::unbounded_channel::<Vec<String>>();
+    let (persist_tx, mut persist_rx) = make_persist_channel();
     let persist_state = state.clone();
     let persist_id = id.clone();
     let persist_writer = tokio::spawn(async move {
@@ -337,6 +353,7 @@ pub(crate) async fn start_session_runtime(
     tokio::spawn(async move {
         let mut writer = writer;
         let mut persist_buffer: Vec<u8> = Vec::new();
+        let mut pending_persist_batches: VecDeque<Vec<String>> = VecDeque::new();
         let mut kill_requested = false;
 
         if let Some(prompt) = initial_prompt {
@@ -379,6 +396,20 @@ pub(crate) async fn start_session_runtime(
                         Err(_) => break,
                     }
                 }
+                reserve = persist_tx.clone().reserve_owned(), if !pending_persist_batches.is_empty() => {
+                    match reserve {
+                        Ok(permit) => {
+                            permit.send(
+                                pending_persist_batches
+                                    .pop_front()
+                                    .expect("pending persist batches should exist when reserve branch runs"),
+                            );
+                        }
+                        Err(_) => {
+                            pending_persist_batches.clear();
+                        }
+                    }
+                }
                 Some(command) = control_rx.recv() => {
                     match command {
                         RuntimeCommand::Input(data) => {
@@ -399,7 +430,7 @@ pub(crate) async fn start_session_runtime(
                         }
                     }
                 }
-                Some(event) = driver_rx.recv() => {
+                Some(event) = driver_rx.recv(), if pending_persist_batches.len() < DRIVER_EVENT_BUFFER_CAPACITY => {
                     match event {
                         DriverEvent::Output(data) => {
                             persist_buffer.extend_from_slice(&data);
@@ -478,16 +509,21 @@ pub(crate) async fn start_session_runtime(
                             }
 
                             if !raw_persist_lines.is_empty() {
-                                let _ = persist_tx.send(raw_persist_lines);
+                                match persist_tx.try_send(raw_persist_lines) {
+                                    Ok(()) => {}
+                                    Err(tokio::sync::mpsc::error::TrySendError::Full(lines)) => {
+                                        pending_persist_batches.push_back(lines);
+                                    }
+                                    Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {}
+                                }
                             }
                         }
                         DriverEvent::Exited => {
+                            let mut final_persist_batches = pending_persist_batches;
                             if !persist_buffer.is_empty() {
-                                let tail = String::from_utf8_lossy(&persist_buffer).into_owned();
-                                let _ = persist_tx.send(vec![tail]);
+                                final_persist_batches
+                                    .push_back(vec![String::from_utf8_lossy(&persist_buffer).into_owned()]);
                             }
-                            drop(persist_tx);
-                            let _ = persist_writer.await;
 
                             driver_state.peon.last_output.write().unwrap().remove(&driver_id);
                             driver_state.peon.last_inference.write().unwrap().remove(&driver_id);
@@ -508,23 +544,31 @@ pub(crate) async fn start_session_runtime(
                                 driver_id.clone(),
                                 status.to_string(),
                             );
+
                             let trim_state = driver_state.clone();
                             let trim_id = driver_id.clone();
-                            tokio::task::spawn_blocking(move || {
-                                let ws_guard = trim_state.workspace.lock().unwrap();
-                                if let Some(ref ws) = *ws_guard {
-                                    ws.metadata.trim_terminal_output(&trim_id, metadata::TERMINAL_OUTPUT_MAX_LINES);
+                            tokio::spawn(async move {
+                                while let Some(lines) = final_persist_batches.pop_front() {
+                                    let _ = persist_tx.send(lines).await;
                                 }
+                                drop(persist_tx);
+                                let _ = persist_writer.await;
+                                let _ = tokio::task::spawn_blocking(move || {
+                                    let ws_guard = trim_state.workspace.lock().unwrap();
+                                    if let Some(ref ws) = *ws_guard {
+                                        ws.metadata.trim_terminal_output(&trim_id, metadata::TERMINAL_OUTPUT_MAX_LINES);
+                                    }
+                                })
+                                .await;
                             });
                             break;
                         }
                         DriverEvent::WaitError(error) => {
+                            let mut final_persist_batches = pending_persist_batches;
                             if !persist_buffer.is_empty() {
-                                let tail = String::from_utf8_lossy(&persist_buffer).into_owned();
-                                let _ = persist_tx.send(vec![tail]);
+                                final_persist_batches
+                                    .push_back(vec![String::from_utf8_lossy(&persist_buffer).into_owned()]);
                             }
-                            drop(persist_tx);
-                            let _ = persist_writer.await;
                             driver_state.peon.last_output.write().unwrap().remove(&driver_id);
                             driver_state.peon.last_inference.write().unwrap().remove(&driver_id);
                             {
@@ -546,11 +590,19 @@ pub(crate) async fn start_session_runtime(
                             );
                             let trim_state = driver_state.clone();
                             let trim_id = driver_id.clone();
-                            tokio::task::spawn_blocking(move || {
-                                let ws_guard = trim_state.workspace.lock().unwrap();
-                                if let Some(ref ws) = *ws_guard {
-                                    ws.metadata.trim_terminal_output(&trim_id, metadata::TERMINAL_OUTPUT_MAX_LINES);
+                            tokio::spawn(async move {
+                                while let Some(lines) = final_persist_batches.pop_front() {
+                                    let _ = persist_tx.send(lines).await;
                                 }
+                                drop(persist_tx);
+                                let _ = persist_writer.await;
+                                let _ = tokio::task::spawn_blocking(move || {
+                                    let ws_guard = trim_state.workspace.lock().unwrap();
+                                    if let Some(ref ws) = *ws_guard {
+                                        ws.metadata.trim_terminal_output(&trim_id, metadata::TERMINAL_OUTPUT_MAX_LINES);
+                                    }
+                                })
+                                .await;
                             });
                             break;
                         }
@@ -570,8 +622,8 @@ mod tests {
     use crate::harness;
     use crate::test_support::test_session_info;
     use std::collections::{HashMap, HashSet};
-    use std::sync::{Arc, Mutex, RwLock};
     use std::sync::atomic::AtomicU16;
+    use std::sync::{Arc, Mutex, RwLock};
     use std::time::Duration;
 
     fn test_state_with_runtime_session(id: &str) -> Arc<crate::AppState> {
@@ -645,7 +697,10 @@ mod tests {
         let wrong_generation = first.generation + 1;
 
         release_attachment(&state, "runtime-release", wrong_generation);
-        let still_attached = state.sessions.lock().unwrap()
+        let still_attached = state
+            .sessions
+            .lock()
+            .unwrap()
             .get("runtime-release")
             .unwrap()
             .runtime
@@ -653,7 +708,10 @@ mod tests {
         assert_eq!(still_attached, Some(first.generation));
 
         release_attachment(&state, "runtime-release", first.generation);
-        let detached = state.sessions.lock().unwrap()
+        let detached = state
+            .sessions
+            .lock()
+            .unwrap()
             .get("runtime-release")
             .unwrap()
             .runtime
@@ -680,7 +738,8 @@ mod tests {
         let session_id = "runtime-size";
         let state = test_state_with_runtime_session(session_id);
 
-        let (runtime, control_rx) = SessionRuntime::live(DEFAULT_TERMINAL_ROWS, DEFAULT_TERMINAL_COLS);
+        let (runtime, control_rx) =
+            SessionRuntime::live(DEFAULT_TERMINAL_ROWS, DEFAULT_TERMINAL_COLS);
         let output_tx = runtime.output_tx.clone();
         let control_tx = runtime.control_tx.clone();
 
@@ -718,7 +777,12 @@ mod tests {
         ));
 
         tokio::time::sleep(Duration::from_millis(100)).await;
-        control_tx.send(RuntimeCommand::Resize { rows: 40, cols: 120 }).unwrap();
+        control_tx
+            .send(RuntimeCommand::Resize {
+                rows: 40,
+                cols: 120,
+            })
+            .unwrap();
 
         runtime_task.await.unwrap().unwrap();
 
@@ -731,5 +795,128 @@ mod tests {
 
         let size = std::fs::read_to_string(&output_path).unwrap();
         assert_eq!(size.trim(), "40 120");
+    }
+
+    #[tokio::test]
+    async fn backpressure_flooding_runtime_still_exits_promptly_on_kill() {
+        let dir = tempfile::tempdir().unwrap();
+        let session_id = "runtime-flood";
+        let state = test_state_with_runtime_session(session_id);
+
+        let (runtime, control_rx) =
+            SessionRuntime::live(DEFAULT_TERMINAL_ROWS, DEFAULT_TERMINAL_COLS);
+        let output_tx = runtime.output_tx.clone();
+        let mut events = output_tx.subscribe();
+
+        let command = harness::CommandSpec {
+            program: "/bin/sh".into(),
+            args: vec![
+                "-lc".into(),
+                "i=0; while :; do printf 'flood%06d\\n' \"$i\"; i=$((i+1)); done".into(),
+            ],
+            cwd: dir.path().display().to_string(),
+        };
+
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut(session_id).unwrap();
+            handle.command = command.clone();
+            handle.runtime = runtime;
+        }
+
+        let (kill_tx, kill_rx) = tokio::sync::watch::channel(false);
+        let runtime_task = tokio::spawn(start_session_runtime(
+            state,
+            session_id.to_string(),
+            command,
+            None,
+            control_rx,
+            output_tx,
+            kill_rx,
+            PtySize {
+                rows: DEFAULT_TERMINAL_ROWS,
+                cols: DEFAULT_TERMINAL_COLS,
+                pixel_width: 0,
+                pixel_height: 0,
+            },
+        ));
+
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                match events.recv().await {
+                    Ok(RuntimeEvent::Output { .. }) => break,
+                    Ok(_) => {}
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(err) => panic!("unexpected runtime event error before kill: {err}"),
+                }
+            }
+        })
+        .await
+        .expect("flooding process should emit output quickly");
+
+        kill_tx.send(true).unwrap();
+
+        tokio::time::timeout(Duration::from_secs(3), runtime_task)
+            .await
+            .expect("kill should stop a flooding runtime promptly")
+            .unwrap()
+            .unwrap();
+
+        let ended_status = tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                match events.recv().await {
+                    Ok(RuntimeEvent::Ended { status }) => break status,
+                    Ok(_) => {}
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(err) => panic!("unexpected runtime event error after kill: {err}"),
+                }
+            }
+        })
+        .await
+        .expect("ended event should be emitted after kill");
+
+        assert_eq!(ended_status, "killed");
+    }
+
+    #[test]
+    fn backpressure_driver_event_channel_is_bounded() {
+        let (tx, mut rx) = make_driver_event_channel();
+
+        for _ in 0..DRIVER_EVENT_BUFFER_CAPACITY {
+            tx.try_send(DriverEvent::Output(vec![1]))
+                .expect("driver queue should accept up to its configured capacity");
+        }
+
+        assert!(
+            matches!(
+                tx.try_send(DriverEvent::Output(vec![2])),
+                Err(tokio::sync::mpsc::error::TrySendError::Full(
+                    DriverEvent::Output(_)
+                ))
+            ),
+            "driver queue must apply backpressure once full"
+        );
+
+        assert!(matches!(rx.try_recv(), Ok(DriverEvent::Output(_))));
+    }
+
+    #[test]
+    fn backpressure_persist_channel_is_bounded() {
+        let (tx, mut rx) = make_persist_channel();
+
+        for _ in 0..PERSIST_QUEUE_CAPACITY {
+            tx.try_send(vec!["line".into()])
+                .expect("persist queue should accept up to its configured capacity");
+        }
+
+        assert!(
+            matches!(
+                tx.try_send(vec!["overflow".into()]),
+                Err(tokio::sync::mpsc::error::TrySendError::Full(_))
+            ),
+            "persist queue must apply backpressure once full"
+        );
+
+        assert!(matches!(rx.try_recv(), Ok(lines) if lines == vec!["line".to_string()]));
     }
 }
