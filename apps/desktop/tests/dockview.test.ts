@@ -280,6 +280,19 @@ test("session list only offers kill for live sessions", () => {
   assert.doesNotMatch(nonLiveBlock, /session-row-kill/);
 });
 
+test("session list keeps tool/time metadata separate from unread and destructive controls", () => {
+  const panel = readFileSync(
+    new URL("../src/components/SessionListPanel.tsx", import.meta.url),
+    "utf8",
+  );
+  const css = readFileSync(new URL("../src/App.css", import.meta.url), "utf8");
+
+  assert.match(panel, /className="session-row-meta"[\s\S]*HarnessIcon[\s\S]*session-row-time/);
+  assert.match(panel, /className="session-row-actions"[\s\S]*session-row-unread-dot[\s\S]*session-row-(kill|forget)/);
+  assert.match(css, /\.session-row-meta\s*\{/);
+  assert.match(css, /\.session-row-actions\s*\{/);
+});
+
 test("session list routes attention through the labels module instead of raw enums", () => {
   const source = readFileSync(
     new URL("../src/components/SessionListPanel.tsx", import.meta.url),

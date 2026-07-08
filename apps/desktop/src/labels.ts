@@ -144,8 +144,8 @@ export function relativeTime(iso: string | undefined, now: Date = new Date()): s
   const t = new Date(iso).getTime();
   if (Number.isNaN(t)) return "";
   const diffSec = Math.max(0, Math.round((now.getTime() - t) / 1000));
-  if (diffSec < 5)     return "just now";
-  if (diffSec < 60)    return `${diffSec}s ago`;
+  if (diffSec < 10)    return "just now";
+  if (diffSec < 60)    return "<1m ago";
   if (diffSec < 3600)  return `${Math.round(diffSec / 60)}m ago`;
   if (diffSec < 86400) return `${Math.round(diffSec / 3600)}h ago`;
   return `${Math.round(diffSec / 86400)}d ago`;

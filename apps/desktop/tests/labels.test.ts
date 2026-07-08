@@ -115,7 +115,8 @@ test("sourceWithConfidence renders the confidence as a percentage", () => {
 test("relativeTime buckets recent timestamps into human-readable spans", () => {
   const now = new Date("2026-06-19T12:00:00Z");
   assert.equal(relativeTime("2026-06-19T11:59:59Z", now), "just now");
-  assert.equal(relativeTime("2026-06-19T11:59:30Z", now), "30s ago");
+  assert.equal(relativeTime("2026-06-19T11:59:51Z", now), "just now");
+  assert.equal(relativeTime("2026-06-19T11:59:30Z", now), "<1m ago");
   assert.equal(relativeTime("2026-06-19T11:55:00Z", now), "5m ago");
   assert.equal(relativeTime("2026-06-19T10:00:00Z", now), "2h ago");
   assert.equal(relativeTime("2026-06-17T12:00:00Z", now), "2d ago");
