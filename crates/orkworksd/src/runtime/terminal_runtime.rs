@@ -569,17 +569,30 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
                                                     meta.label = line.clone();
                                                 }
                                                 meta.last_user_input = Some(line.clone());
+                                                // Clear stale terminal-phase observed_status eagerly
+                                                // so the UI doesn't show "Idle" while the user types.
+                                                if peon::is_terminal_observed_status(meta.observed_status.as_deref()) {
+                                                    meta.observed_status = None;
+                                                    meta.metadata_source = "process".into();
+                                                }
                                                 ws.metadata.write_session(&meta);
                                             }
                                         }
                                     }
-                                    if label_worthy {
+                                    {
                                         let mut sessions = state.sessions.lock().unwrap();
                                         if let Some(handle) = sessions.get_mut(&id) {
-                                            handle.info.label = line.clone();
+                                            if label_worthy {
+                                                handle.info.label = line.clone();
+                                            }
+                                            if !is_sensitive && peon::is_terminal_observed_status(
+                                                handle.info.observed_status.as_deref(),
+                                            ) {
+                                                handle.info.observed_status = None;
+                                            }
                                         }
                                     }
-                                    if state.peon.config.enabled && line.len() > 10 && label_worthy {
+                                    if state.peon.config.enabled && line.len() > peon::HINT_MIN_LEN && label_worthy {
                                         state.peon.label_hint.write().unwrap().insert(id.clone(), line);
                                         state.peon.label_pending.write().unwrap().insert(id.clone());
                                         triggered_label = true;
@@ -1635,5 +1648,35 @@ mod tests {
         assert_eq!(meta.status, "ended");
         assert_eq!(snapshot.value.as_deref(), Some("blocked"));
         assert_eq!(snapshot.source, "peon");
+    }
+
+    #[test]
+    fn collect_input_line_returns_none_until_newline() {
+        let mut buf = String::new();
+        assert!(collect_input_line(&mut buf, "hel").is_none());
+        assert!(collect_input_line(&mut buf, "lo").is_none());
+        assert_eq!(collect_input_line(&mut buf, "\r\n").as_deref(), Some("hello"));
+        assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn collect_input_line_strips_trailing_whitespace() {
+        let mut buf = String::new();
+        assert_eq!(collect_input_line(&mut buf, "cargo build  \n").as_deref(), Some("cargo build"));
+    }
+
+    #[test]
+    fn collect_input_line_empty_line_is_none() {
+        let mut buf = String::new();
+        assert!(collect_input_line(&mut buf, "\n").is_none());
+    }
+
+    #[test]
+    fn hint_min_len_gates_label_hint_eligibility() {
+        // Lines at or below HINT_MIN_LEN are too terse to be useful label hints.
+        let short = "a".repeat(peon::HINT_MIN_LEN);
+        let long  = "a".repeat(peon::HINT_MIN_LEN + 1);
+        assert!(!short.len() > peon::HINT_MIN_LEN);
+        assert!(long.len()  > peon::HINT_MIN_LEN);
     }
 }
