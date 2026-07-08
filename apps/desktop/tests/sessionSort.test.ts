@@ -84,7 +84,7 @@ test("sessionAttentionStatus only uses live observed status while active", () =>
   assert.equal(sessionAttentionStatus(session), "running");
 });
 
-test("sessionAttentionStatus uses final observed status for ended sessions", () => {
+test("sessionAttentionStatus falls back to terminal lifecycle status for ended sessions", () => {
   const session: SessionInfo = {
     id: "1",
     label: "Ended session",
@@ -97,8 +97,8 @@ test("sessionAttentionStatus uses final observed status for ended sessions", () 
     resumeStrategy: "none",
   };
 
-  assert.equal(sessionAttentionStatus(session), "blocked");
-  assert.equal(needsAttention(sessionAttentionStatus(session)), true);
+  assert.equal(sessionAttentionStatus(session), "ended");
+  assert.equal(needsAttention(sessionAttentionStatus(session)), false);
 });
 
 test("sessionAttentionStatus prefers checking_capacity over capped while pending", () => {
@@ -115,4 +115,21 @@ test("sessionAttentionStatus prefers checking_capacity over capped while pending
   };
 
   assert.equal(sessionAttentionStatus(session), "checking_capacity");
+});
+
+test("sessionAttentionStatus ignores capacity badges for ended sessions", () => {
+  const session: SessionInfo = {
+    id: "ended-capped",
+    label: "Ended capped session",
+    status: "ended",
+    lifecyclePhase: "ended",
+    cwd: "/tmp",
+    created_at: "now",
+    memoryState: "remembered",
+    resumeStrategy: "none",
+    capacityCheckPending: true,
+    atUsageLimit: true,
+  };
+
+  assert.equal(sessionAttentionStatus(session), "ended");
 });

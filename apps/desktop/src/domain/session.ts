@@ -119,13 +119,13 @@ export function needsAttention(session: Session): boolean {
 }
 
 export function sessionAttentionStatus(session: Session): AttentionState {
+  if (effectiveLifecyclePhase(session.status, session.lifecyclePhase) !== "active") {
+    return AttentionState.Neutral;
+  }
   if (session.capacityCheckPending) {
     return AttentionState.CheckingCapacity;
   }
-  if (effectiveLifecyclePhase(session.status, session.lifecyclePhase) === "active") {
-    return (session.observedStatus as AttentionState | undefined) ?? AttentionState.Idle;
-  }
-  return (session.finalObservedStatus as AttentionState | undefined) ?? AttentionState.Neutral;
+  return (session.observedStatus as AttentionState | undefined) ?? AttentionState.Idle;
 }
 
 export function sortSessions(sessions: Session[]): Session[] {
