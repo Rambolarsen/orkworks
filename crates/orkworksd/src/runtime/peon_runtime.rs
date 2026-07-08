@@ -95,17 +95,19 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                 }
 
                 let mut inference_persisted = false;
+                let mut permanent_hold = false;
                 if let Some(inf) = inference {
                     // Collect label update while holding workspace lock, then drop before taking sessions.
                     let label_update: Option<String> = {
                         let ws_guard = state_clone.workspace.lock().unwrap();
                         if let Some(ref ws) = *ws_guard {
-                            let should_write = ws.metadata.read_session(&id)
+                            let (should_write, is_permanent) = ws.metadata.read_session(&id)
                                 .map(|m| {
                                     let age = ws.metadata.session_modified_secs_ago(&id);
-                                    peon::peon_should_overwrite(&m.metadata_source, age)
+                                    let overwrite = peon::peon_should_overwrite(&m.metadata_source, age);
+                                    (overwrite, m.metadata_source == "user")
                                 })
-                                .unwrap_or(true);
+                                .unwrap_or((true, false));
                             if should_write {
                                 match ws.metadata.merge_peon_inference(&id, &inf, &now_iso, provider_result.observation.as_ref()) {
                                     Ok(()) => {
@@ -119,6 +121,7 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                                 }
                             } else {
                                 tracing::debug!(session_id = %id, "peon: skipping, higher-priority source exists");
+                                permanent_hold = is_permanent;
                                 None
                             }
                         } else {
@@ -136,12 +139,16 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                 last_inf.insert(id.clone(), now_iso);
                 drop(last_inf);
 
-                // Keep re-evaluating unless inference was actually persisted AND the
-                // session reached a terminal observed status. A failed or skipped write
-                // must not suppress re-evaluation — the same output snapshot must remain
-                // eligible so Peon can retry once the transient failure or priority block
-                // clears, without waiting for brand-new PTY output.
-                if !(reached_terminal && inference_persisted) {
+                // Three scheduling outcomes:
+                // 1. Persisted + terminal: don't update last_output; lifecycle change removes session.
+                // 2. Permanent hold (user source) + terminal: remove from pool entirely; new PTY
+                //    output via terminal_runtime re-adds when the session becomes active again.
+                // 3. Everything else (failed write, transient hold, non-terminal): keep in pool.
+                if reached_terminal && inference_persisted {
+                    // outcome 1: leave last_output unchanged
+                } else if reached_terminal && permanent_hold {
+                    state_clone.peon.last_output.write().unwrap().remove(&id);
+                } else {
                     state_clone.peon.last_output.write().unwrap()
                         .insert(id.clone(), tokio::time::Instant::now());
                 }
@@ -577,7 +584,7 @@ mod tests {
 
         assert!(
             state.peon.last_inference.read().unwrap().contains_key(&session_id),
-            "failed Peon attempts should still be recorded to avoid tight retry loops"
+            "failed Peon attempts should still be recorded in last_inference"
         );
     }
 
@@ -1476,10 +1483,7 @@ mod tests {
         }
     }
 
-    // Regression test for Bug 1 in issue #87: when inference returns a terminal
-    // status ("idle") but the workspace is unavailable (persist fails / skipped),
-    // last_output must still be updated so the session stays eligible for retry
-    // on the next cycle, not silently dropped from the candidate pool.
+    // Regression: persist skipped must not drop session from candidate pool (issue #87).
     #[tokio::test]
     async fn peon_loop_retries_when_persist_skipped_despite_terminal_inference() {
         let dir = tempfile::tempdir().unwrap();
