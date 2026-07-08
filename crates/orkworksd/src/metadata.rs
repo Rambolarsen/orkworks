@@ -1007,6 +1007,13 @@ impl MetadataStore {
         }
         meta.next_action = inf.next_action.clone().or(meta.next_action);
         meta.needs_user_input = inf.needs_user_input.or(meta.needs_user_input);
+        // Options belong to their question; clear them when the question changes so
+        // stale options never appear under a different question.
+        if inf.detected_question.is_some()
+            && inf.detected_question.as_deref() != meta.detected_question.as_deref()
+        {
+            meta.suggested_options = None;
+        }
         meta.detected_question = inf.detected_question.clone().or(meta.detected_question);
         meta.suggested_options = inf.suggested_options.clone().or(meta.suggested_options);
         meta.blocker_description = inf.blocker_description.clone().or(meta.blocker_description);
@@ -1417,6 +1424,58 @@ mod tests {
         assert_eq!(raw["summary"], "Needs a decision");
         assert_eq!(raw["needsUserInput"], true);
         assert_eq!(raw["peonLastInference"], "later");
+    }
+
+    #[test]
+    fn suggested_options_cleared_when_question_changes_without_options() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        store.write_session(&test_metadata("sess-q-change"));
+
+        let make_inf = |question: &str, options: Option<Vec<String>>| crate::peon::PeonInference {
+            observed_status: Some("waiting_for_input".into()),
+            detected_question: Some(question.into()),
+            suggested_options: options,
+            phase: None, summary: None, next_action: None, needs_user_input: None,
+            blocker_description: None, failed_command: None, failed_test: None,
+            capacity_hints: None, confidence: 0.8,
+            detected_harness: None, detected_model: None, harness_session_id: None,
+        };
+
+        // Poll 1: question with options
+        store.merge_peon_inference("sess-q-change", &make_inf("Proceed?", Some(vec!["yes".into(), "no".into()])), "t1", None).unwrap();
+        let meta = store.read_session("sess-q-change").unwrap();
+        assert_eq!(meta.suggested_options.as_deref(), Some(["yes".to_string(), "no".to_string()].as_slice()));
+
+        // Poll 2: different question, no options — stale options must not persist
+        store.merge_peon_inference("sess-q-change", &make_inf("What filename?", None), "t2", None).unwrap();
+        let meta = store.read_session("sess-q-change").unwrap();
+        assert_eq!(meta.detected_question.as_deref(), Some("What filename?"));
+        assert!(meta.suggested_options.is_none(), "stale options must be cleared when question changes");
+    }
+
+    #[test]
+    fn suggested_options_kept_when_same_question_repeated_without_options() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        store.write_session(&test_metadata("sess-q-repeat"));
+
+        let make_inf = |question: &str, options: Option<Vec<String>>| crate::peon::PeonInference {
+            observed_status: Some("waiting_for_input".into()),
+            detected_question: Some(question.into()),
+            suggested_options: options,
+            phase: None, summary: None, next_action: None, needs_user_input: None,
+            blocker_description: None, failed_command: None, failed_test: None,
+            capacity_hints: None, confidence: 0.8,
+            detected_harness: None, detected_model: None, harness_session_id: None,
+        };
+
+        store.merge_peon_inference("sess-q-repeat", &make_inf("Proceed?", Some(vec!["yes".into(), "no".into()])), "t1", None).unwrap();
+        // Same question, no options re-emitted — should retain existing options
+        store.merge_peon_inference("sess-q-repeat", &make_inf("Proceed?", None), "t2", None).unwrap();
+        let meta = store.read_session("sess-q-repeat").unwrap();
+        assert_eq!(meta.suggested_options.as_deref(), Some(["yes".to_string(), "no".to_string()].as_slice()),
+            "options for the same question must be retained when re-poll omits them");
     }
 
     fn test_metadata(id: &str) -> SessionMetadata {
