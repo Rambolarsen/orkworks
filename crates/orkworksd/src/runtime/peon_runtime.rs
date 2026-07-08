@@ -94,29 +94,34 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                     }
                 }
 
+                let mut inference_persisted = false;
+                let mut permanent_hold = false;
                 if let Some(inf) = inference {
                     // Collect label update while holding workspace lock, then drop before taking sessions.
                     let label_update: Option<String> = {
                         let ws_guard = state_clone.workspace.lock().unwrap();
                         if let Some(ref ws) = *ws_guard {
-                            let should_write = ws.metadata.read_session(&id)
+                            let (should_write, is_permanent) = ws.metadata.read_session(&id)
                                 .map(|m| {
                                     let age = ws.metadata.session_modified_secs_ago(&id);
-                                    peon::peon_should_overwrite(&m.metadata_source, age)
+                                    let overwrite = peon::peon_should_overwrite(&m.metadata_source, age);
+                                    (overwrite, m.metadata_source == "user")
                                 })
-                                .unwrap_or(true);
+                                .unwrap_or((true, false));
                             if should_write {
                                 match ws.metadata.merge_peon_inference(&id, &inf, &now_iso, provider_result.observation.as_ref()) {
-                                    Ok(()) => inf.summary.as_ref().map(|s| s.chars().take(100).collect()),
+                                    Ok(()) => {
+                                        inference_persisted = true;
+                                        inf.summary.as_ref().map(|s| s.chars().take(100).collect())
+                                    }
                                     Err(error) => {
-                                        // Persist failed: keep the in-memory label in
-                                        // sync with what's actually on disk.
                                         tracing::warn!(session_id = %id, %error, "peon: inference not persisted");
                                         None
                                     }
                                 }
                             } else {
                                 tracing::debug!(session_id = %id, "peon: skipping, higher-priority source exists");
+                                permanent_hold = is_permanent;
                                 None
                             }
                         } else {
@@ -134,10 +139,16 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                 last_inf.insert(id.clone(), now_iso);
                 drop(last_inf);
 
-                // Keep re-evaluating unless the session reached a terminal
-                // observed status — otherwise peon fires once per output burst
-                // and never catches later transitions to done/failed/blocked.
-                if !reached_terminal {
+                // Three scheduling outcomes:
+                // 1. Persisted + terminal: don't update last_output; lifecycle change removes session.
+                // 2. Permanent hold (user source) + terminal: remove from pool entirely; new PTY
+                //    output via terminal_runtime re-adds when the session becomes active again.
+                // 3. Everything else (failed write, transient hold, non-terminal): keep in pool.
+                if reached_terminal && inference_persisted {
+                    // outcome 1: leave last_output unchanged
+                } else if reached_terminal && permanent_hold {
+                    state_clone.peon.last_output.write().unwrap().remove(&id);
+                } else {
                     state_clone.peon.last_output.write().unwrap()
                         .insert(id.clone(), tokio::time::Instant::now());
                 }
@@ -573,7 +584,7 @@ mod tests {
 
         assert!(
             state.peon.last_inference.read().unwrap().contains_key(&session_id),
-            "failed Peon attempts should still be recorded to avoid tight retry loops"
+            "failed Peon attempts should still be recorded in last_inference"
         );
     }
 
@@ -1470,5 +1481,115 @@ mod tests {
         } else {
             panic!("workspace not set up");
         }
+    }
+
+    // Regression: persist skipped must not drop session from candidate pool (issue #87).
+    #[tokio::test]
+    async fn peon_loop_retries_when_persist_skipped_despite_terminal_inference() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let state = Arc::new(crate::AppState {
+            session_module: crate::infrastructure::session_module::SessionModule::new(),
+            sessions: Mutex::new(HashMap::new()),
+            workspace: Mutex::new(None), // no workspace → persist is always skipped
+            peon: crate::PeonState {
+                last_output: RwLock::new(HashMap::new()),
+                last_inference: RwLock::new(HashMap::new()),
+                in_flight: RwLock::new(HashSet::new()),
+                label_hint: RwLock::new(HashMap::new()),
+                label_pending: RwLock::new(HashSet::new()),
+                config: peon::PeonConfig {
+                    harness: dir.path().join("missing-harness").display().to_string(),
+                    harness_args: vec![],
+                    model: None,
+                    interval_secs: 1,
+                    max_lines: 200,
+                    timeout_secs: 10,
+                    idle_timeout_secs: 30,
+                    final_scan_timeout_secs: 2,
+                    enabled: true,
+                },
+            },
+            adapters: crate::harness_registry::builtin_adapters(),
+            retention_config: tokio::sync::RwLock::new(crate::RetentionConfig::default()),
+            harnesses: tokio::sync::RwLock::new(vec![]),
+            bound_port: AtomicU16::new(0),
+            // FakeProvider returns "idle" → reached_terminal=true inside spawn_blocking
+            providers: providers::ProviderManager::for_tests(
+                providers::ProviderSettingsPayload {
+                    version: 1,
+                    revision: 1,
+                    peon_model: None,
+                    ollama_base_url: providers::default_ollama_base_url(),
+                    providers: vec![providers::ProviderSettingsEntry {
+                        id: "opencode".to_string(),
+                        enabled: true,
+                        fallback_order: 0,
+                        default_state: providers::ProviderCapacityState::Healthy,
+                        override_state: None,
+                    }],
+                },
+                vec![providers::FakeProvider::new("opencode")
+                    .stdout(r#"{"status":"idle","confidence":0.85}"#)],
+            ),
+        });
+
+        let session_id = "peon-retry-persist-skipped-test".to_string();
+        {
+            let (kill_tx, _) = tokio::sync::watch::channel(false);
+            let mut handle = crate::SessionHandle {
+                info: crate::session_types::SessionInfo {
+                    metadata_source: Some("process".into()),
+                    metadata_confidence: Some(1.0),
+                    ..test_session_info(
+                        session_id.clone(),
+                        "Test",
+                        dir.path().display().to_string(),
+                        "running",
+                        "now",
+                    )
+                },
+                kill_tx,
+                output_buffer: peon::RingBuffer::new(200),
+                scan_buf: String::new(),
+                command: crate::harness_registry::default_shell_command(
+                    dir.path().display().to_string(),
+                ),
+                initial_prompt: None,
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                ),
+                terminal_attached: false,
+                at_usage_limit_latched: false,
+                capacity_check_pending: false,
+                output_lines_seen: 0,
+                scan_bytes_seen: 0,
+                resume_scan_origin: None,
+                pending_capacity_visible_once: false,
+            };
+            handle.output_buffer.push("some terminal output".into());
+            state.sessions.lock().unwrap().insert(session_id.clone(), handle);
+        }
+
+        // Plant last_output 5s in the past — past the 1s interval, so session is
+        // immediately eligible as a candidate.
+        let before_test = tokio::time::Instant::now();
+        state.peon.last_output.write().unwrap().insert(
+            session_id.clone(),
+            before_test - std::time::Duration::from_secs(5),
+        );
+
+        let task = tokio::spawn(peon_loop(state.clone()));
+        tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+        task.abort();
+
+        let lo = state.peon.last_output.read().unwrap();
+        let updated_at = lo.get(&session_id).copied().expect("last_output entry removed");
+        assert!(
+            updated_at >= before_test,
+            "last_output should be refreshed even when persist is skipped and inference was terminal; \
+             session must remain eligible for retry, not silently exit the candidate pool"
+        );
     }
 }
