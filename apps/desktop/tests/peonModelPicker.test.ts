@@ -1,15 +1,34 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { pushProviderSettings } from "../electron/providerSettingsSync.ts";
+import type { ProviderSettings } from "../src/providerTypes.ts";
 
-test("ProviderSettings peonModel is nullable string", () => {
-  const settings = { version: 1 as const, revision: 0, peonModel: null, providers: [] };
-  assert.equal(settings.peonModel, null);
+function baseSettings(peonModel: ProviderSettings["peonModel"]): ProviderSettings {
+  return { version: 1, revision: 1, peonModel, ollamaBaseUrl: "http://127.0.0.1:11434", providers: [] };
+}
+
+const okResponse = () =>
+  new Response(JSON.stringify({ appliedRevision: 1, appliedAt: "now", lastApplyError: null }));
+
+test("pushProviderSettings sends peonModel:null to the sidecar", async () => {
+  const bodies: Record<string, unknown>[] = [];
+  const fetchImpl = async (_url: string, init?: RequestInit) => {
+    bodies.push(JSON.parse(String(init?.body)));
+    return okResponse();
+  };
+  await pushProviderSettings("http://127.0.0.1:4444", baseSettings(null), fetchImpl);
+  assert.equal(bodies[0]?.peonModel, null);
 });
 
-test("ProviderSettings peonModel can be set to a model string", () => {
-  const settings = { version: 1 as const, revision: 0, peonModel: "deepseek-v4-pro", providers: [] };
-  assert.equal(settings.peonModel, "deepseek-v4-pro");
+test("pushProviderSettings sends peonModel string to the sidecar", async () => {
+  const bodies: Record<string, unknown>[] = [];
+  const fetchImpl = async (_url: string, init?: RequestInit) => {
+    bodies.push(JSON.parse(String(init?.body)));
+    return okResponse();
+  };
+  await pushProviderSettings("http://127.0.0.1:4444", baseSettings("deepseek-v4-pro"), fetchImpl);
+  assert.equal(bodies[0]?.peonModel, "deepseek-v4-pro");
 });
 
 test("SettingsModal has a peon model selector", () => {

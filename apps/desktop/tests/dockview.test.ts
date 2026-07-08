@@ -260,8 +260,10 @@ test("session list marks remembered sessions separately from live sessions", () 
     "utf8",
   );
 
-  assert.match(source, /memoryState/);
-  assert.match(source, /session-row--remembered/);
+  // Remembered is the negation of "live" — inverting this condition flips the class onto the wrong sessions.
+  assert.match(source, /const\s+remembered\s*=\s*s\.memoryState\s*!==\s*"live"/);
+  // The remembered variable (not its inverse) drives the class — inverting the ternary would break this.
+  assert.match(source, /remembered\s*\?\s*"session-row--remembered"/);
 });
 
 test("session list only offers kill for live sessions", () => {
@@ -270,7 +272,12 @@ test("session list only offers kill for live sessions", () => {
     "utf8",
   );
 
+  // Kill button is gated to the live branch.
   assert.match(source, /s\.memoryState === "live" && \(\s*<button[\s\S]*session-row-kill/);
+  // Kill class must be absent from the non-live (remembered) branch.
+  const nonLiveBlock =
+    source.match(/\{s\.memoryState !== "live" && \([\s\S]*?\)\s*\}/)?.[0] ?? "";
+  assert.doesNotMatch(nonLiveBlock, /session-row-kill/);
 });
 
 test("session list routes attention through the labels module instead of raw enums", () => {
