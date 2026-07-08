@@ -209,3 +209,19 @@ test("detailActionZone omits the resume chooser when resumable but nothing to of
   const session = baseSession({ memoryState: "resumable", resumeStrategy: "none" });
   assert.deepEqual(detailActionZone(session, "idle"), { kind: "none" });
 });
+
+test("detailActionZone shows resume chooser for unsupported sessions when backend sends unavailable options", () => {
+  const session = baseSession({
+    memoryState: "unsupported",
+    resumeStrategy: "none",
+    resumeOptions: [
+      { strategy: "exact", label: "Resume exact session", available: false, preferred: false, reason: "No harness session id was captured" },
+    ],
+  });
+  const zone = detailActionZone(session, "idle");
+  assert.equal(zone.kind, "resume");
+  if (zone.kind === "resume") {
+    assert.equal(zone.options.length, 1);
+    assert.equal(zone.options[0].unavailable, true);
+  }
+});

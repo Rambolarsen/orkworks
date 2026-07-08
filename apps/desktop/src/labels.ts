@@ -222,7 +222,7 @@ export type DetailActionZone =
   | { kind: "resume"; options: ResumeChoice[]; note?: string };
 
 export function detailActionZone(session: SessionInfo, tone: AttentionTone): DetailActionZone {
-  if (session.memoryState === "resumable" || session.memoryState === "remembered") {
+  if (session.memoryState === "resumable" || session.memoryState === "remembered" || session.memoryState === "unsupported") {
     const options = resumeChoices(session);
     if (options.length === 0) return { kind: "none" };
     return {
