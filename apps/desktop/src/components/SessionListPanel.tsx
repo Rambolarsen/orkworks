@@ -148,9 +148,14 @@ function SessionListPanel({
                     data-attention={tone}
                     onClick={() => handleSelect(s.id)}
                   >
-                    <div className="session-row-primary">
-                      <StatusIndicator tone={tone} label={attentionLabel(attn)} />
-                      <span className="session-row-label">{s.label}</span>
+                    <div className="session-row-leading">
+                      <span className="session-row-unread-slot" aria-hidden="true">
+                        {unread && <span className="session-row-unread-dot" />}
+                      </span>
+                      <div className="session-row-primary">
+                        <StatusIndicator tone={tone} label={attentionLabel(attn)} />
+                        <span className="session-row-label">{s.label}</span>
+                      </div>
                     </div>
                     <div className="session-row-secondary">
                       {loud && (
@@ -165,7 +170,6 @@ function SessionListPanel({
                         <span className="session-row-time">{lastActivity(s, now)}</span>
                       </div>
                       <div className="session-row-actions">
-                        {unread && <span className="session-row-unread-dot" aria-hidden="true" />}
                         {s.memoryState === "live" && (
                           <button
                             className="session-row-kill"
