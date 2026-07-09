@@ -508,6 +508,111 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn peon_loop_does_not_repeat_inference_without_new_output() {
+        let dir = tempfile::tempdir().unwrap();
+        let orkworks = dir.path().join(".orkworks");
+        std::fs::create_dir_all(orkworks.join("sessions")).unwrap();
+        std::fs::create_dir_all(orkworks.join("events")).unwrap();
+
+        let call_counter = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+
+        let state = Arc::new(crate::AppState {
+            session_module: crate::infrastructure::session_module::SessionModule::new(),
+            sessions: Mutex::new(HashMap::new()),
+            workspace: Mutex::new(Some(crate::WorkspaceState {
+                path: dir.path().to_path_buf(),
+                metadata: metadata::MetadataStore::new(&orkworks),
+                watcher: crate::watcher::MetadataWatcher::start(&orkworks.join("sessions")),
+            })),
+            peon: crate::PeonState {
+                last_output: RwLock::new(HashMap::new()),
+                last_inference: RwLock::new(HashMap::new()),
+                in_flight: RwLock::new(HashSet::new()),
+                label_hint: RwLock::new(HashMap::new()),
+                label_pending: RwLock::new(HashSet::new()),
+                config: peon::PeonConfig {
+                    harness: dir.path().join("missing-harness").display().to_string(),
+                    harness_args: vec!["--print".into()],
+                    model: None,
+                    interval_secs: 1,
+                    max_lines: 200,
+                    timeout_secs: 10,
+                    idle_timeout_secs: 30,
+                    final_scan_timeout_secs: 2,
+                    enabled: true,
+                },
+            },
+            adapters: crate::harness_registry::builtin_adapters(),
+            retention_config: tokio::sync::RwLock::new(crate::RetentionConfig::default()),
+            harnesses: tokio::sync::RwLock::new(vec![]),
+            bound_port: AtomicU16::new(0),
+            providers: providers::ProviderManager::for_tests(
+                providers::ProviderSettingsPayload {
+                    version: 1,
+                    revision: 1,
+                    peon_model: None,
+                    ollama_base_url: providers::default_ollama_base_url(),
+                    providers: vec![providers::ProviderSettingsEntry {
+                        id: "opencode".to_string(),
+                        enabled: true,
+                        fallback_order: 0,
+                        default_state: providers::ProviderCapacityState::Healthy,
+                        override_state: None,
+                    }],
+                },
+                vec![providers::FakeProvider::new("opencode")
+                    .stdout(r#"{"observedStatus":"working","summary":"still working","confidence":0.85}"#)
+                    .with_counter(call_counter.clone())],
+            ),
+        });
+
+        let session_id = "peon-no-repeat-test".to_string();
+        {
+            let (kill_tx, _) = tokio::sync::watch::channel(false);
+            let mut handle = crate::SessionHandle {
+                info: crate::session_types::SessionInfo {
+                    metadata_source: Some("process".into()),
+                    metadata_confidence: Some(1.0),
+                    ..test_session_info(
+                        session_id.clone(),
+                        "Test",
+                        dir.path().display().to_string(),
+                        "running",
+                        "now",
+                    )
+                },
+                kill_tx,
+                output_buffer: peon::RingBuffer::new(200),
+                scan_buf: String::new(),
+                command: crate::harness_registry::default_shell_command(dir.path().display().to_string()),
+                initial_prompt: None,
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
+                terminal_attached: false,
+                at_usage_limit_latched: false,
+                capacity_check_pending: false,
+                output_lines_seen: 0,
+                scan_bytes_seen: 0,
+                resume_scan_origin: None,
+                pending_capacity_visible_once: false,
+            };
+            handle.output_buffer.push("unchanged output".into());
+            state.sessions.lock().unwrap().insert(session_id.clone(), handle);
+        }
+
+        state.peon.last_output.write().unwrap().insert(
+            session_id,
+            tokio::time::Instant::now() - std::time::Duration::from_secs(5),
+        );
+
+        let task = tokio::spawn(peon_loop(state.clone()));
+        tokio::time::sleep(std::time::Duration::from_millis(2600)).await;
+        task.abort();
+
+        let count = call_counter.load(std::sync::atomic::Ordering::SeqCst);
+        assert_eq!(count, 1, "Peon should not re-infer without new output");
+    }
+
+    #[tokio::test]
     async fn peon_loop_records_failed_inference_attempt() {
         let dir = tempfile::tempdir().unwrap();
 
@@ -738,6 +843,164 @@ mod tests {
         } else {
             panic!("workspace not set up");
         }
+    }
+
+    #[tokio::test]
+    async fn peon_loop_marks_silent_working_session_idle() {
+        let dir = tempfile::tempdir().unwrap();
+        let orkworks = dir.path().join(".orkworks");
+        std::fs::create_dir_all(orkworks.join("sessions")).unwrap();
+        std::fs::create_dir_all(orkworks.join("events")).unwrap();
+
+        let state = Arc::new(crate::AppState {
+            session_module: crate::infrastructure::session_module::SessionModule::new(),
+            sessions: Mutex::new(HashMap::new()),
+            workspace: Mutex::new(Some(crate::WorkspaceState {
+                path: dir.path().to_path_buf(),
+                metadata: metadata::MetadataStore::new(&orkworks),
+                watcher: crate::watcher::MetadataWatcher::start(&orkworks.join("sessions")),
+            })),
+            peon: crate::PeonState {
+                last_output: RwLock::new(HashMap::new()),
+                last_inference: RwLock::new(HashMap::new()),
+                in_flight: RwLock::new(HashSet::new()),
+                label_hint: RwLock::new(HashMap::new()),
+                label_pending: RwLock::new(HashSet::new()),
+                config: peon::PeonConfig {
+                    harness: dir.path().join("missing-harness").display().to_string(),
+                    harness_args: vec!["--print".into()],
+                    model: None,
+                    interval_secs: 1,
+                    max_lines: 200,
+                    timeout_secs: 10,
+                    idle_timeout_secs: 1,
+                    final_scan_timeout_secs: 2,
+                    enabled: true,
+                },
+            },
+            adapters: crate::harness_registry::builtin_adapters(),
+            retention_config: tokio::sync::RwLock::new(crate::RetentionConfig::default()),
+            harnesses: tokio::sync::RwLock::new(vec![]),
+            providers: providers::ProviderManager::new(),
+            bound_port: AtomicU16::new(0),
+        });
+
+        let session_id = "peon-working-idle-test".to_string();
+        {
+            let (kill_tx, _) = tokio::sync::watch::channel(false);
+            let mut info = test_session_info(
+                session_id.clone(),
+                "Test",
+                dir.path().display().to_string(),
+                "running",
+                "now",
+            );
+            info.lifecycle_phase = "active".into();
+            info.metadata_source = Some("peon".into());
+            info.metadata_confidence = Some(0.85);
+            info.observed_status = Some("working".into());
+            state.sessions.lock().unwrap().insert(
+                session_id.clone(),
+                crate::SessionHandle {
+                    info,
+                    kill_tx,
+                    output_buffer: peon::RingBuffer::new(200),
+                    scan_buf: String::new(),
+                    command: crate::harness_registry::default_shell_command(dir.path().display().to_string()),
+                    initial_prompt: None,
+                    runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
+                    terminal_attached: false,
+                    at_usage_limit_latched: false,
+                    capacity_check_pending: false,
+                    output_lines_seen: 0,
+                    scan_bytes_seen: 0,
+                    resume_scan_origin: None,
+                    pending_capacity_visible_once: false,
+                },
+            );
+        }
+
+        {
+            let ws_guard = state.workspace.lock().unwrap();
+            if let Some(ref ws) = *ws_guard {
+                ws.metadata.write_session(&metadata::SessionMetadata {
+                    id: session_id.clone(),
+                    label: "Test".into(),
+                    workspace: dir.path().display().to_string(),
+                    task: "".into(),
+                    harness: "".into(),
+                    model: "".into(),
+                    cwd: dir.path().display().to_string(),
+                    status: "running".into(),
+                    work_phase: "unknown".into(),
+                    lifecycle_phase: "active".into(),
+                    connectivity: "online".into(),
+                    terminal_outcome: None,
+                    pending_terminal_status: None,
+                    observed_status: Some("working".into()),
+                    ending_observed_status_snapshot: None,
+                    final_observed_status_snapshot: None,
+                    summary: Some("Still working".into()),
+                    next_action: None,
+                    needs_user_input: None,
+                    detected_question: None,
+                    suggested_options: None,
+                    blocker_description: None,
+                    failed_command: None,
+                    failed_test: None,
+                    capacity_hints: None,
+                    peon_last_inference: Some("before".into()),
+                    provider_id: None,
+                    provider_label: None,
+                    provider_model: None,
+                    provider_state: None,
+                    created_at: "now".into(),
+                    last_activity: "now".into(),
+                    metadata_source: "peon".into(),
+                    metadata_confidence: 0.85,
+                    repo_root: None,
+                    branch: None,
+                    dirty: None,
+                    changed_files: None,
+                    is_worktree: None,
+                    resume: None,
+                    resume_options: vec![],
+                    harness_session_id_source: None,
+                    harness_session_id_confidence: None,
+                    harness_session_id_captured_at: None,
+                    resumed_from: None,
+                    last_user_input: None,
+                });
+            }
+        }
+
+        state.peon.last_output.write().unwrap().insert(
+            session_id.clone(),
+            tokio::time::Instant::now() - std::time::Duration::from_secs(5),
+        );
+        state.peon.last_inference.write().unwrap().insert(session_id.clone(), "before".into());
+
+        let task = tokio::spawn(peon_loop(state.clone()));
+        tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
+        task.abort();
+
+        let ws_guard = state.workspace.lock().unwrap();
+        if let Some(ref ws) = *ws_guard {
+            if let Some(meta) = ws.metadata.read_session(&session_id) {
+                assert_eq!(meta.observed_status.as_deref(), Some("idle"));
+                assert_eq!(meta.metadata_source, "process");
+            } else {
+                panic!("session metadata not found");
+            }
+        } else {
+            panic!("workspace not set up");
+        }
+
+        let sessions = state.sessions.lock().unwrap();
+        assert_eq!(
+            sessions.get(&session_id).unwrap().info.observed_status.as_deref(),
+            Some("idle")
+        );
     }
 
     #[tokio::test]
