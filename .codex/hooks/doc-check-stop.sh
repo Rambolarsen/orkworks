@@ -26,6 +26,10 @@ else
   set -e
 fi
 
+if ! [[ "${doc_status}" =~ ^[0-9]+$ ]]; then
+  doc_status=1
+fi
+
 if [ "${doc_status}" -ne 0 ]; then
   if [ -n "${doc_output}" ]; then
     doc_output="[doc-check] Hook failed with exit ${doc_status}."$'\n'"${doc_output}"
