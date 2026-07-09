@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash '/Users/froomiebot/workspace/orkworks/.codex/hooks/doc-check.sh'"
+            "command": "bash '.codex/hooks/doc-check-stop.sh'"
           }
         ]
       }
