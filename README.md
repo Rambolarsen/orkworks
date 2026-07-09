@@ -132,6 +132,8 @@ The observation loop itself is tuned via environment variables on `orkworksd`:
 
 Managed via APM in `apm.yml` at the repo root. Running `apm install` from the repo root populates skills and hooks for all configured targets (claude, codex, copilot, opencode).
 
+For Codex specifically, the repo keeps a committed `.codex/hooks/doc-check-stop.sh` wrapper next to `.codex/hooks/doc-check.sh`. The wrapper converts doc-check output into valid Codex Stop-hook JSON, since Codex rejects plain-text Stop-hook stdout.
+
 Development agents should follow `AGENTS.md`, including the requirement to invoke and follow relevant Superpowers skills before implementation, debugging, review, verification, commit, push, or PR work.
 
 OpenCode must be started from the repo root, or with the repo root as the project path, so it loads the project `opencode.json`:

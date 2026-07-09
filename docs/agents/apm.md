@@ -8,9 +8,11 @@ Dependencies are managed by [APM](https://github.com/anthropics/apm) at the repo
 | `apm.lock.yaml` | Resolved lock file (gitignored) |
 | `.agents/skills/` | Skills for all targets |
 | `.claude/` | Claude Code hooks + skills |
-| `.codex/` | Codex hooks |
+| `.codex/` | Codex hooks, including the committed Stop-hook JSON wrapper |
 | `.github/hooks/` | Copilot hooks |
 | `.opencode/` | OpenCode target |
+
+Codex's repo-local Stop hook is a two-step setup: `.codex/hooks/doc-check.sh` remains the doc-diff detector, and `.codex/hooks/doc-check-stop.sh` wraps that output into valid Stop-hook JSON so Codex can surface the message without rejecting the hook output.
 
 ## Superpowers
 
