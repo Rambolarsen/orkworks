@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash '.codex/hooks/doc-check-stop.sh'"
+            "command": "ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd); bash \"$ROOT/.codex/hooks/doc-check-stop.sh\""
           }
         ]
       }
