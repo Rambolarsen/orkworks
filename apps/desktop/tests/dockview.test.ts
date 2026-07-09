@@ -288,9 +288,35 @@ test("session list keeps tool/time metadata separate from unread and destructive
   const css = readFileSync(new URL("../src/App.css", import.meta.url), "utf8");
 
   assert.match(panel, /className="session-row-meta"[\s\S]*HarnessIcon[\s\S]*session-row-time/);
-  assert.match(panel, /className="session-row-actions"[\s\S]*session-row-unread-dot[\s\S]*session-row-(kill|forget)/);
+  assert.match(panel, /className="session-row-leading"[\s\S]*session-row-unread-slot[\s\S]*session-row-primary/);
+  assert.match(panel, /session-row-unread-slot[\s\S]*session-row-unread-dot/);
+  assert.doesNotMatch(panel, /className="session-row-actions"[\s\S]*session-row-unread-dot/);
   assert.match(css, /\.session-row-meta\s*\{/);
   assert.match(css, /\.session-row-actions\s*\{/);
+});
+
+test("session list keeps the right-side metadata footprint compact", () => {
+  const css = readFileSync(new URL("../src/App.css", import.meta.url), "utf8");
+
+  assert.match(css, /\.session-row\s*\{[\s\S]*padding:\s*var\(--space-3\) var\(--space-5\) var\(--space-3\) var\(--space-2\);/);
+  assert.match(css, /\.session-row-leading\s*\{[\s\S]*gap:\s*6px;/);
+  assert.match(css, /\.session-row-unread-slot\s*\{[\s\S]*width:\s*6px;/);
+  assert.match(css, /\.session-row-secondary\s*\{[\s\S]*gap:\s*var\(--space-1\);/);
+  assert.match(css, /\.session-row-meta\s*\{[\s\S]*grid-template-columns:\s*12px 6ch;/);
+  assert.match(css, /\.session-row-meta\s*\{[\s\S]*column-gap:\s*var\(--space-2\);/);
+  assert.match(css, /\.session-row-actions\s*\{[\s\S]*gap:\s*0;/);
+  assert.match(css, /\.session-row-kill\s*\{[\s\S]*padding:\s*0 2px;/);
+  assert.match(css, /\.session-row-forget\s*\{[\s\S]*padding:\s*0 2px;/);
+});
+
+test("session list destructive controls still stop row selection propagation", () => {
+  const panel = readFileSync(
+    new URL("../src/components/SessionListPanel.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(panel, /className="session-row-kill"[\s\S]*e\.stopPropagation\(\)/);
+  assert.match(panel, /className="session-row-forget"[\s\S]*e\.stopPropagation\(\)/);
 });
 
 test("session list routes attention through the labels module instead of raw enums", () => {
