@@ -254,6 +254,17 @@ test("CenterPanel keeps inactive terminals alive while switching sessions", () =
   assert.doesNotMatch(source, /previousId !== sessionId[\s\S]*disposeTerminal\(previousId\)/);
 });
 
+test("TerminalPanel only opens the terminal for live sessions", () => {
+  const source = readFileSync(
+    new URL("../src/components/TerminalPanel.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(source, /session\.memoryState !== "live"/);
+  assert.match(source, /Select a live session to open its terminal\./);
+  assert.match(source, /return <CenterPanel backendStatus=\{backendStatus\} sessionId=\{session\.id\} \/>/);
+});
+
 test("session list marks remembered sessions separately from live sessions", () => {
   const source = readFileSync(
     new URL("../src/components/SessionListPanel.tsx", import.meta.url),
@@ -324,6 +335,32 @@ test("App restores the last active session from the initial workspace", () => {
 
   assert.match(source, /info\.lastActiveSessionId/);
   assert.match(source, /setActiveSessionId\(info\.lastActiveSessionId\)/);
+});
+
+test("App handles workspace switches atomically for terminal cleanup", () => {
+  const source = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+  const handleOpenWorkspace =
+    source.match(/const handleOpenWorkspace = useCallback\(async \(\) => \{([\s\S]*?)\n  \}, \[\]\);/)?.[1] ?? "";
+
+  assert.match(source, /import \{[^}]*disposeAllTerminals[^}]*pruneTerminals[^}]*\} from "\.\/terminalStore"/);
+  assert.match(source, /const refreshGenerationRef = useRef\(0\)/);
+  assert.match(handleOpenWorkspace, /refreshGenerationRef\.current \+= 1;/);
+  assert.match(handleOpenWorkspace, /disposeAllTerminals\(\);/);
+  assert.match(handleOpenWorkspace, /setSessions\(\[\]\);/);
+});
+
+test("App guards session refreshes and prunes terminals from live ids only", () => {
+  const source = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+  const refreshSessions =
+    source.match(/const refreshSessions = useCallback\(async \(\) => \{([\s\S]*?)\n  \}, \[\]\);/)?.[1] ?? "";
+
+  assert.match(refreshSessions, /const generation = refreshGenerationRef\.current;/);
+  assert.match(refreshSessions, /if \(generation !== refreshGenerationRef\.current\) return;/);
+  assert.match(refreshSessions, /filter\(\(s\) => s\.memoryState === "live"\)/);
+  assert.match(refreshSessions, /map\(\(s\) => s\.id\)/);
+  assert.match(refreshSessions, /new Set\(/);
+  assert.match(refreshSessions, /pruneTerminals\(liveSessionIds\)/);
+  assert.match(refreshSessions, /setSessions\(sortSessions\(list\)\)/);
 });
 
 test("preload exposes settings and hotkey capture APIs", () => {
