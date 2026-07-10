@@ -16,31 +16,38 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
         let pending: Vec<String> = state.peon.label_pending.write().unwrap().drain().collect();
 
         // Sessions with new output that has gone silent
-        let mut candidates: Vec<String> = {
+        let mut candidates: Vec<(String, Option<tokio::time::Instant>)> = {
             let last_output = state.peon.last_output.read().unwrap();
+            let last_processed_output = state.peon.last_processed_output.read().unwrap();
             let in_flight = state.peon.in_flight.read().unwrap();
             let sessions = state.sessions.lock().unwrap();
 
-            last_output.iter()
-                .filter(|(id, &t)| {
-                    t <= deadline
-                        && !in_flight.contains(*id)
+            last_output
+                .iter()
+                .filter_map(|(id, &t)| {
+                    let already_processed = last_processed_output.get(id).copied() == Some(t);
+                    (t <= deadline
+                        && !already_processed
+                        && !in_flight.contains(id)
                         && sessions
-                            .get(*id)
+                            .get(id)
                             .map(|handle| handle.info.lifecycle_phase == "active")
-                            .unwrap_or(false)
+                            .unwrap_or(false))
+                    .then(|| (id.clone(), Some(t)))
                 })
-                .map(|(id, _)| id.clone())
                 .collect()
         };
 
         for id in pending {
-            if !state.peon.in_flight.read().unwrap().contains(&id) && !candidates.contains(&id) {
-                candidates.push(id);
+            if !state.peon.in_flight.read().unwrap().contains(&id)
+                && !candidates.iter().any(|(candidate, _)| candidate == &id)
+            {
+                let output_at = state.peon.last_output.read().unwrap().get(&id).copied();
+                candidates.push((id, output_at));
             }
         }
 
-        for session_id in candidates {
+        for (session_id, output_at) in candidates {
             {
                 let mut in_flight = state.peon.in_flight.write().unwrap();
                 if !in_flight.insert(session_id.clone()) {
@@ -95,19 +102,17 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                 }
 
                 let mut inference_persisted = false;
-                let mut permanent_hold = false;
                 if let Some(inf) = inference {
                     // Collect label update while holding workspace lock, then drop before taking sessions.
                     let label_update: Option<String> = {
                         let ws_guard = state_clone.workspace.lock().unwrap();
                         if let Some(ref ws) = *ws_guard {
-                            let (should_write, is_permanent) = ws.metadata.read_session(&id)
+                            let should_write = ws.metadata.read_session(&id)
                                 .map(|m| {
                                     let age = ws.metadata.session_modified_secs_ago(&id);
-                                    let overwrite = peon::peon_should_overwrite(&m.metadata_source, age);
-                                    (overwrite, m.metadata_source == "user")
+                                    peon::peon_should_overwrite(&m.metadata_source, age)
                                 })
-                                .unwrap_or((true, false));
+                                .unwrap_or(true);
                             if should_write {
                                 match ws.metadata.merge_peon_inference(&id, &inf, &now_iso, provider_result.observation.as_ref()) {
                                     Ok(()) => {
@@ -121,7 +126,6 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                                 }
                             } else {
                                 tracing::debug!(session_id = %id, "peon: skipping, higher-priority source exists");
-                                permanent_hold = is_permanent;
                                 None
                             }
                         } else {
@@ -141,16 +145,21 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
 
                 // Three scheduling outcomes:
                 // 1. Persisted + terminal: don't update last_output; lifecycle change removes session.
-                // 2. Permanent hold (user source) + terminal: remove from pool entirely; new PTY
-                //    output via terminal_runtime re-adds when the session becomes active again.
-                // 3. Everything else (failed write, transient hold, non-terminal): keep in pool.
+                // 2. Any inference that did not persist: refresh retry eligibility because the
+                //    current state never landed and must be retried after the debounce window.
+                // 3. Persisted + non-terminal: mark the current output as processed until new
+                //    input/output arrives.
                 if reached_terminal && inference_persisted {
                     // outcome 1: leave last_output unchanged
-                } else if reached_terminal && permanent_hold {
-                    state_clone.peon.last_output.write().unwrap().remove(&id);
-                } else {
+                } else if !inference_persisted {
                     state_clone.peon.last_output.write().unwrap()
                         .insert(id.clone(), tokio::time::Instant::now());
+                    state_clone.peon.last_processed_output.write().unwrap().remove(&id);
+                } else {
+                    if let Some(processed_at) = output_at {
+                        state_clone.peon.last_processed_output.write().unwrap()
+                            .insert(id.clone(), processed_at);
+                    }
                 }
                 state_clone.peon.in_flight.write().unwrap().remove(&id);
             });
@@ -170,9 +179,10 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                 let mut missing_last_output_ids = Vec::new();
 
                 for (id, handle) in sessions.iter() {
+                    let observed = handle.info.observed_status.as_deref();
                     if handle.info.status != "running"
                         || handle.info.lifecycle_phase != "active"
-                        || handle.info.observed_status.is_some()
+                        || observed.is_some_and(|status| status != "working")
                     {
                         continue;
                     }
@@ -204,7 +214,9 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                     if let Some(ref ws) = *ws_guard {
                         for id in &silent_ids {
                             if let Some(mut meta) = ws.metadata.read_session(id) {
-                                if meta.observed_status.is_none() {
+                                if meta.observed_status.is_none()
+                                    || meta.observed_status.as_deref() == Some("working")
+                                {
                                     meta.observed_status = Some("idle".into());
                                     meta.metadata_source = "process".into();
                                     ws.metadata.write_session(&meta);
@@ -217,6 +229,7 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                 for id in &silent_ids {
                     if let Some(handle) = sessions.get_mut(id) {
                         handle.info.observed_status = Some("idle".into());
+                        handle.info.metadata_source = Some("process".into());
                     }
                 }
             }
@@ -259,6 +272,7 @@ mod tests {
             })),
             peon: crate::PeonState {
                 last_output: RwLock::new(HashMap::new()),
+                last_processed_output: RwLock::new(HashMap::new()),
                 last_inference: RwLock::new(HashMap::new()),
                 in_flight: RwLock::new(HashSet::new()),
                 label_hint: RwLock::new(HashMap::new()),
@@ -430,6 +444,7 @@ mod tests {
             })),
             peon: crate::PeonState {
                 last_output: RwLock::new(HashMap::new()),
+                last_processed_output: RwLock::new(HashMap::new()),
                 last_inference: RwLock::new(HashMap::new()),
                 in_flight: RwLock::new(HashSet::new()),
                 label_hint: RwLock::new(HashMap::new()),
@@ -526,6 +541,7 @@ mod tests {
             })),
             peon: crate::PeonState {
                 last_output: RwLock::new(HashMap::new()),
+                last_processed_output: RwLock::new(HashMap::new()),
                 last_inference: RwLock::new(HashMap::new()),
                 in_flight: RwLock::new(HashSet::new()),
                 label_hint: RwLock::new(HashMap::new()),
@@ -622,6 +638,7 @@ mod tests {
             workspace: Mutex::new(None),
             peon: crate::PeonState {
                 last_output: RwLock::new(HashMap::new()),
+                last_processed_output: RwLock::new(HashMap::new()),
                 last_inference: RwLock::new(HashMap::new()),
                 in_flight: RwLock::new(HashSet::new()),
                 label_hint: RwLock::new(HashMap::new()),
@@ -710,6 +727,7 @@ mod tests {
             })),
             peon: crate::PeonState {
                 last_output: RwLock::new(HashMap::new()),
+                last_processed_output: RwLock::new(HashMap::new()),
                 last_inference: RwLock::new(HashMap::new()),
                 in_flight: RwLock::new(HashSet::new()),
                 label_hint: RwLock::new(HashMap::new()),
@@ -862,6 +880,7 @@ mod tests {
             })),
             peon: crate::PeonState {
                 last_output: RwLock::new(HashMap::new()),
+                last_processed_output: RwLock::new(HashMap::new()),
                 last_inference: RwLock::new(HashMap::new()),
                 in_flight: RwLock::new(HashSet::new()),
                 label_hint: RwLock::new(HashMap::new()),
@@ -1020,6 +1039,7 @@ mod tests {
             })),
             peon: crate::PeonState {
                 last_output: RwLock::new(HashMap::new()),
+                last_processed_output: RwLock::new(HashMap::new()),
                 last_inference: RwLock::new(HashMap::new()),
                 in_flight: RwLock::new(HashSet::new()),
                 label_hint: RwLock::new(HashMap::new()),
@@ -1167,6 +1187,7 @@ mod tests {
             })),
             peon: crate::PeonState {
                 last_output: RwLock::new(HashMap::new()),
+                last_processed_output: RwLock::new(HashMap::new()),
                 last_inference: RwLock::new(HashMap::new()),
                 in_flight: RwLock::new(HashSet::new()),
                 label_hint: RwLock::new(HashMap::new()),
@@ -1312,6 +1333,7 @@ mod tests {
             })),
             peon: crate::PeonState {
                 last_output: RwLock::new(HashMap::new()),
+                last_processed_output: RwLock::new(HashMap::new()),
                 last_inference: RwLock::new(HashMap::new()),
                 in_flight: RwLock::new(HashSet::new()),
                 label_hint: RwLock::new(HashMap::new()),
@@ -1460,6 +1482,7 @@ mod tests {
             })),
             peon: crate::PeonState {
                 last_output: RwLock::new(HashMap::new()),
+                last_processed_output: RwLock::new(HashMap::new()),
                 last_inference: RwLock::new(HashMap::new()),
                 in_flight: RwLock::new(HashSet::new()),
                 label_hint: RwLock::new(HashMap::new()),
@@ -1608,6 +1631,7 @@ mod tests {
             })),
             peon: crate::PeonState {
                 last_output: RwLock::new(HashMap::new()),
+                last_processed_output: RwLock::new(HashMap::new()),
                 last_inference: RwLock::new(HashMap::new()),
                 in_flight: RwLock::new(HashSet::new()),
                 label_hint: RwLock::new(HashMap::new()),
@@ -1757,6 +1781,7 @@ mod tests {
             workspace: Mutex::new(None), // no workspace → persist is always skipped
             peon: crate::PeonState {
                 last_output: RwLock::new(HashMap::new()),
+                last_processed_output: RwLock::new(HashMap::new()),
                 last_inference: RwLock::new(HashMap::new()),
                 in_flight: RwLock::new(HashSet::new()),
                 label_hint: RwLock::new(HashMap::new()),
@@ -1853,6 +1878,125 @@ mod tests {
             updated_at >= before_test,
             "last_output should be refreshed even when persist is skipped and inference was terminal; \
              session must remain eligible for retry, not silently exit the candidate pool"
+        );
+    }
+
+    #[tokio::test]
+    async fn peon_loop_retries_when_persist_skipped_despite_non_terminal_inference() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let state = Arc::new(crate::AppState {
+            session_module: crate::infrastructure::session_module::SessionModule::new(),
+            sessions: Mutex::new(HashMap::new()),
+            workspace: Mutex::new(None), // no workspace → persist is always skipped
+            peon: crate::PeonState {
+                last_output: RwLock::new(HashMap::new()),
+                last_processed_output: RwLock::new(HashMap::new()),
+                last_inference: RwLock::new(HashMap::new()),
+                in_flight: RwLock::new(HashSet::new()),
+                label_hint: RwLock::new(HashMap::new()),
+                label_pending: RwLock::new(HashSet::new()),
+                config: peon::PeonConfig {
+                    harness: dir.path().join("missing-harness").display().to_string(),
+                    harness_args: vec![],
+                    model: None,
+                    interval_secs: 1,
+                    max_lines: 200,
+                    timeout_secs: 10,
+                    idle_timeout_secs: 30,
+                    final_scan_timeout_secs: 2,
+                    enabled: true,
+                },
+            },
+            adapters: crate::harness_registry::builtin_adapters(),
+            retention_config: tokio::sync::RwLock::new(crate::RetentionConfig::default()),
+            harnesses: tokio::sync::RwLock::new(vec![]),
+            bound_port: AtomicU16::new(0),
+            providers: providers::ProviderManager::for_tests(
+                providers::ProviderSettingsPayload {
+                    version: 1,
+                    revision: 1,
+                    peon_model: None,
+                    ollama_base_url: providers::default_ollama_base_url(),
+                    providers: vec![providers::ProviderSettingsEntry {
+                        id: "opencode".to_string(),
+                        enabled: true,
+                        fallback_order: 0,
+                        default_state: providers::ProviderCapacityState::Healthy,
+                        override_state: None,
+                    }],
+                },
+                vec![providers::FakeProvider::new("opencode")
+                    .stdout(r#"{"status":"working","confidence":0.85}"#)],
+            ),
+        });
+
+        let session_id = "peon-retry-non-terminal-persist-skipped-test".to_string();
+        {
+            let (kill_tx, _) = tokio::sync::watch::channel(false);
+            let mut handle = crate::SessionHandle {
+                info: crate::session_types::SessionInfo {
+                    metadata_source: Some("process".into()),
+                    metadata_confidence: Some(1.0),
+                    ..test_session_info(
+                        session_id.clone(),
+                        "Test",
+                        dir.path().display().to_string(),
+                        "running",
+                        "now",
+                    )
+                },
+                kill_tx,
+                output_buffer: peon::RingBuffer::new(200),
+                scan_buf: String::new(),
+                command: crate::harness_registry::default_shell_command(
+                    dir.path().display().to_string(),
+                ),
+                initial_prompt: None,
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                ),
+                terminal_attached: false,
+                at_usage_limit_latched: false,
+                capacity_check_pending: false,
+                output_lines_seen: 0,
+                scan_bytes_seen: 0,
+                resume_scan_origin: None,
+                pending_capacity_visible_once: false,
+            };
+            handle.output_buffer.push("some terminal output".into());
+            state.sessions.lock().unwrap().insert(session_id.clone(), handle);
+        }
+
+        let before_test = tokio::time::Instant::now();
+        state.peon.last_output.write().unwrap().insert(
+            session_id.clone(),
+            before_test - std::time::Duration::from_secs(5),
+        );
+
+        let task = tokio::spawn(peon_loop(state.clone()));
+        tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+        task.abort();
+
+        let lo = state.peon.last_output.read().unwrap();
+        let updated_at = lo
+            .get(&session_id)
+            .copied()
+            .expect("last_output entry removed");
+        assert!(
+            updated_at >= before_test,
+            "last_output should be refreshed even when persist is skipped and inference was non-terminal; \
+             session must remain eligible for retry after the debounce window"
+        );
+        assert!(
+            !state
+                .peon
+                .last_processed_output
+                .read()
+                .unwrap()
+                .contains_key(&session_id),
+            "persist-skipped non-terminal inference must not mark unchanged output as fully processed"
         );
     }
 }
