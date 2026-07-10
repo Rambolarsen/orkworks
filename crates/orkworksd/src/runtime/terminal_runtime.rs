@@ -230,6 +230,7 @@ pub(crate) fn set_session_status(state: &Arc<AppState>, id: &str, status: &str) 
     };
     if entered_terminal {
         state.peon.last_output.write().unwrap().remove(id);
+        state.peon.last_processed_output.write().unwrap().remove(id);
     } else if entered_running && state.peon.config.enabled {
         state.peon.last_output.write().unwrap()
             .entry(id.to_string())
@@ -607,6 +608,7 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
                                         tokio::time::Instant::now()
                                     };
                                     state.peon.last_output.write().unwrap().insert(id.clone(), ts);
+                                    state.peon.last_processed_output.write().unwrap().remove(&id);
                                     state.peon.last_inference.write().unwrap().remove(&id);
                                 }
 
@@ -788,6 +790,7 @@ mod tests {
             workspace: std::sync::Mutex::new(None),
             peon: crate::PeonState {
                 last_output: std::sync::RwLock::new(std::collections::HashMap::new()),
+                last_processed_output: std::sync::RwLock::new(std::collections::HashMap::new()),
                 last_inference: std::sync::RwLock::new(std::collections::HashMap::new()),
                 in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
                 label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
@@ -837,6 +840,7 @@ mod tests {
             workspace: std::sync::Mutex::new(None),
             peon: crate::PeonState {
                 last_output: std::sync::RwLock::new(std::collections::HashMap::new()),
+                last_processed_output: std::sync::RwLock::new(std::collections::HashMap::new()),
                 last_inference: std::sync::RwLock::new(std::collections::HashMap::new()),
                 in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
                 label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
@@ -885,6 +889,7 @@ mod tests {
             workspace: std::sync::Mutex::new(None),
             peon: crate::PeonState {
                 last_output: std::sync::RwLock::new(std::collections::HashMap::new()),
+                last_processed_output: std::sync::RwLock::new(std::collections::HashMap::new()),
                 last_inference: std::sync::RwLock::new(std::collections::HashMap::new()),
                 in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
                 label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
@@ -935,6 +940,7 @@ mod tests {
             workspace: std::sync::Mutex::new(None),
             peon: crate::PeonState {
                 last_output: std::sync::RwLock::new(std::collections::HashMap::new()),
+                last_processed_output: std::sync::RwLock::new(std::collections::HashMap::new()),
                 last_inference: std::sync::RwLock::new(std::collections::HashMap::new()),
                 in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
                 label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
@@ -999,6 +1005,7 @@ mod tests {
             workspace: std::sync::Mutex::new(None),
             peon: crate::PeonState {
                 last_output: std::sync::RwLock::new(std::collections::HashMap::new()),
+                last_processed_output: std::sync::RwLock::new(std::collections::HashMap::new()),
                 last_inference: std::sync::RwLock::new(std::collections::HashMap::new()),
                 in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
                 label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
@@ -1068,6 +1075,7 @@ mod tests {
             workspace: std::sync::Mutex::new(None),
             peon: crate::PeonState {
                 last_output: std::sync::RwLock::new(std::collections::HashMap::new()),
+                last_processed_output: std::sync::RwLock::new(std::collections::HashMap::new()),
                 last_inference: std::sync::RwLock::new(std::collections::HashMap::new()),
                 in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
                 label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
@@ -1130,6 +1138,7 @@ mod tests {
             workspace: std::sync::Mutex::new(None),
             peon: crate::PeonState {
                 last_output: std::sync::RwLock::new(std::collections::HashMap::new()),
+                last_processed_output: std::sync::RwLock::new(std::collections::HashMap::new()),
                 last_inference: std::sync::RwLock::new(std::collections::HashMap::new()),
                 in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
                 label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
@@ -1191,6 +1200,7 @@ mod tests {
             workspace: std::sync::Mutex::new(None),
             peon: crate::PeonState {
                 last_output: std::sync::RwLock::new(std::collections::HashMap::new()),
+                last_processed_output: std::sync::RwLock::new(std::collections::HashMap::new()),
                 last_inference: std::sync::RwLock::new(std::collections::HashMap::new()),
                 in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
                 label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
@@ -1251,6 +1261,7 @@ mod tests {
             })),
             peon: crate::PeonState {
                 last_output: RwLock::new(HashMap::new()),
+                last_processed_output: RwLock::new(HashMap::new()),
                 last_inference: RwLock::new(HashMap::new()),
                 in_flight: RwLock::new(HashSet::new()),
                 label_hint: RwLock::new(HashMap::new()),
@@ -1376,6 +1387,7 @@ mod tests {
             })),
             peon: crate::PeonState {
                 last_output: RwLock::new(HashMap::new()),
+                last_processed_output: RwLock::new(HashMap::new()),
                 last_inference: RwLock::new(HashMap::new()),
                 in_flight: RwLock::new(HashSet::new()),
                 label_hint: RwLock::new(HashMap::new()),
@@ -1522,6 +1534,7 @@ mod tests {
             })),
             peon: crate::PeonState {
                 last_output: RwLock::new(HashMap::new()),
+                last_processed_output: RwLock::new(HashMap::new()),
                 last_inference: RwLock::new(HashMap::new()),
                 in_flight: RwLock::new(HashSet::new()),
                 label_hint: RwLock::new(HashMap::new()),

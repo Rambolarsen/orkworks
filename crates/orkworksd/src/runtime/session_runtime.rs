@@ -492,6 +492,7 @@ pub(crate) async fn start_session_runtime(
                             if driver_state.peon.config.enabled {
                                 driver_state.peon.last_output.write().unwrap()
                                     .insert(driver_id.clone(), tokio::time::Instant::now());
+                                driver_state.peon.last_processed_output.write().unwrap().remove(&driver_id);
                                 driver_state.peon.last_inference.write().unwrap().remove(&driver_id);
                             }
 
@@ -526,6 +527,7 @@ pub(crate) async fn start_session_runtime(
                             }
 
                             driver_state.peon.last_output.write().unwrap().remove(&driver_id);
+                            driver_state.peon.last_processed_output.write().unwrap().remove(&driver_id);
                             driver_state.peon.last_inference.write().unwrap().remove(&driver_id);
 
                             {
@@ -570,6 +572,7 @@ pub(crate) async fn start_session_runtime(
                                     .push_back(vec![String::from_utf8_lossy(&persist_buffer).into_owned()]);
                             }
                             driver_state.peon.last_output.write().unwrap().remove(&driver_id);
+                            driver_state.peon.last_processed_output.write().unwrap().remove(&driver_id);
                             driver_state.peon.last_inference.write().unwrap().remove(&driver_id);
                             {
                                 let mut sessions = driver_state.sessions.lock().unwrap();
@@ -633,6 +636,7 @@ mod tests {
             workspace: Mutex::new(None),
             peon: crate::PeonState {
                 last_output: RwLock::new(HashMap::new()),
+                last_processed_output: RwLock::new(HashMap::new()),
                 last_inference: RwLock::new(HashMap::new()),
                 in_flight: RwLock::new(HashSet::new()),
                 label_hint: RwLock::new(HashMap::new()),

@@ -1027,6 +1027,7 @@ pub(crate) async fn delete_session(
         None => return axum::http::StatusCode::NOT_FOUND,
     }
     state.peon.last_output.write().unwrap().remove(&id);
+    state.peon.last_processed_output.write().unwrap().remove(&id);
     state.peon.last_inference.write().unwrap().remove(&id);
     axum::http::StatusCode::OK
 }
@@ -1068,6 +1069,7 @@ pub(crate) async fn forget_session(
 
     state.sessions.lock().unwrap().remove(&id);
     state.peon.last_output.write().unwrap().remove(&id);
+    state.peon.last_processed_output.write().unwrap().remove(&id);
     state.peon.last_inference.write().unwrap().remove(&id);
 
     axum::http::StatusCode::OK.into_response()
@@ -1760,6 +1762,7 @@ mod tests {
             })),
             peon: crate::PeonState {
                 last_output: std::sync::RwLock::new(std::collections::HashMap::new()),
+                last_processed_output: std::sync::RwLock::new(std::collections::HashMap::new()),
                 last_inference: std::sync::RwLock::new(std::collections::HashMap::new()),
                 in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
                 label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
@@ -1987,6 +1990,7 @@ mod tests {
             workspace: std::sync::Mutex::new(None),
             peon: crate::PeonState {
                 last_output: std::sync::RwLock::new(std::collections::HashMap::new()),
+                last_processed_output: std::sync::RwLock::new(std::collections::HashMap::new()),
                 last_inference: std::sync::RwLock::new(std::collections::HashMap::new()),
                 in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
                 label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
@@ -2058,6 +2062,7 @@ mod tests {
             workspace: std::sync::Mutex::new(None),
             peon: crate::PeonState {
                 last_output: std::sync::RwLock::new(std::collections::HashMap::new()),
+                last_processed_output: std::sync::RwLock::new(std::collections::HashMap::new()),
                 last_inference: std::sync::RwLock::new(std::collections::HashMap::new()),
                 in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
                 label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
@@ -2136,6 +2141,7 @@ mod tests {
             workspace: std::sync::Mutex::new(None),
             peon: crate::PeonState {
                 last_output: std::sync::RwLock::new(std::collections::HashMap::new()),
+                last_processed_output: std::sync::RwLock::new(std::collections::HashMap::new()),
                 last_inference: std::sync::RwLock::new(std::collections::HashMap::new()),
                 in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
                 label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
@@ -2201,6 +2207,7 @@ mod tests {
             workspace: std::sync::Mutex::new(None),
             peon: crate::PeonState {
                 last_output: std::sync::RwLock::new(std::collections::HashMap::new()),
+                last_processed_output: std::sync::RwLock::new(std::collections::HashMap::new()),
                 last_inference: std::sync::RwLock::new(std::collections::HashMap::new()),
                 in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
                 label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
@@ -2608,6 +2615,7 @@ mod tests {
             })),
             peon: crate::PeonState {
                 last_output: std::sync::RwLock::new(std::collections::HashMap::new()),
+                last_processed_output: std::sync::RwLock::new(std::collections::HashMap::new()),
                 last_inference: std::sync::RwLock::new(std::collections::HashMap::new()),
                 in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
                 label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),

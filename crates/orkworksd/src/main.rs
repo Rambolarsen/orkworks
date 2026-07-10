@@ -75,6 +75,7 @@ struct WorkspaceState {
 
 struct PeonState {
     last_output: StdRwLock<HashMap<String, tokio::time::Instant>>,
+    last_processed_output: StdRwLock<HashMap<String, tokio::time::Instant>>,
     last_inference: StdRwLock<HashMap<String, String>>,
     in_flight: StdRwLock<HashSet<String>>,
     label_hint: StdRwLock<HashMap<String, String>>,
@@ -121,6 +122,7 @@ async fn main() {
         workspace: Mutex::new(None),
         peon: PeonState {
             last_output: StdRwLock::new(HashMap::new()),
+            last_processed_output: StdRwLock::new(HashMap::new()),
             last_inference: StdRwLock::new(HashMap::new()),
             in_flight: StdRwLock::new(HashSet::new()),
             label_hint: StdRwLock::new(HashMap::new()),
@@ -252,6 +254,7 @@ pub(crate) mod test_support {
             })),
             peon: PeonState {
                 last_output: StdRwLock::new(HashMap::new()),
+                last_processed_output: StdRwLock::new(HashMap::new()),
                 last_inference: StdRwLock::new(HashMap::new()),
                 in_flight: StdRwLock::new(HashSet::new()),
                 label_hint: StdRwLock::new(HashMap::new()),
@@ -490,6 +493,7 @@ mod tests {
             workspace: Mutex::new(None),
             peon: PeonState {
                 last_output: StdRwLock::new(HashMap::new()),
+                last_processed_output: StdRwLock::new(HashMap::new()),
                 last_inference: StdRwLock::new(HashMap::new()),
                 in_flight: StdRwLock::new(HashSet::new()),
                 label_hint: StdRwLock::new(HashMap::new()),

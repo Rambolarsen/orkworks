@@ -53,7 +53,7 @@ Single binary. Top-level modules:
   - `retention_handlers.rs` — retention config handler (`POST /settings/retention`)
   - `session_handlers.rs` — session/workspace HTTP handlers (`POST /workspace`, `GET/POST /sessions`, `DELETE /sessions/:id`, `POST /sessions/:id/resume`, `POST /sessions/:id/harness-session`, etc.) and associated request/response types. `POST /workspace` reconciles sessions orphaned by a previous daemon run via `metadata::reconcile_orphaned_session`: stale "running"/"creating" sessions are completed to `ended`, and sessions persisted mid-`ending` consume their `pendingTerminalStatus` as the final status so they cannot stay stuck in the ending phase
 - `runtime/` — background-task and PTY submodules:
-  - `peon_runtime.rs` — `peon_loop` (continuous Peon observation loop)
+  - `peon_runtime.rs` — `peon_loop` (continuous Peon observation loop). It debounces on quiet terminal output, remembers which output snapshot has already been inferred so unchanged output is not reprocessed until fresh input/output arrives, retries terminal inferences that failed to persist, and applies the timer-based `working -> idle` fallback when a session goes silent past the idle timeout.
   - `retention.rs` — `retention_cleanup_task`, `retention_cleanup_once`
   - `session_runtime.rs` — session-runtime-owned PTY/process startup, bounded PTY/persistence backpressure queues, output draining, replay state, attachment ownership, child wait/finalization
   - `terminal_http.rs` — `get_terminal_output`, `session_terminal_handler` (WebSocket upgrade / attach entrypoint)
