@@ -10,6 +10,7 @@ import { DEFAULT_HOTKEYS, DEFAULT_RETENTION, normalizeDebugSettings, normalizePr
 import { pushProviderSettings } from "./providerSettingsSync";
 import type { ProviderSettings } from "./providerTypes";
 import { buildMenuTemplate } from "./menuTemplate";
+import { debugInjectionUrl, parseSessionStateInjectionPayload } from "./sessionStateInjectionIpc";
 
 app.setName("OrkWorks");
 
@@ -257,9 +258,9 @@ app.whenReady().then(() => {
     if (!(currentSettings ?? readSettings(app.getPath("userData"))).debug.showSessionIds) {
       throw new Error("debug metadata must be enabled before using state injection");
     }
-    const { sessionId, injectionId } = payload as { sessionId: string; injectionId: string };
+    const { sessionId, injectionId } = parseSessionStateInjectionPayload(payload);
     const port = await portPromise;
-    const resp = await fetch(`http://127.0.0.1:${port}/sessions/${sessionId}/debug-injection`, {
+    const resp = await fetch(debugInjectionUrl(port, sessionId), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ injectionId }),

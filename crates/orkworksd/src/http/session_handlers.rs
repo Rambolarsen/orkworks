@@ -1087,7 +1087,7 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
                 scan_bytes_seen,
                 origin,
                 pending_visible_once,
-                live_debug,
+                _live_debug,
             )| {
                 let id = info.id.clone();
                 let meta = metadata_map.get(&id);
@@ -1231,7 +1231,6 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
                 } else {
                     None
                 };
-                apply_debug_overlay_projection(&mut merged, live_debug.as_ref(), meta);
                 pending_transitions.push((id, has_fresh_resume_output, pending_visible_once));
                 merged
             },
@@ -1310,9 +1309,9 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
         infos.push(info);
     }
 
-    {
-        let ws_guard = state.workspace.lock().unwrap();
+    let cleared_metadata = {
         let mut sessions = state.sessions.lock().unwrap();
+        let mut cleared_metadata = Vec::new();
         for info in &mut infos {
             let runtime_at_usage_limit = info.at_usage_limit == Some(true);
             let Some(handle) = sessions.get_mut(&info.id) else {
@@ -1321,10 +1320,16 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
             let Some(meta) = metadata_map.get_mut(&info.id) else {
                 continue;
             };
-            if let Some(ref ws) = *ws_guard {
-                if clear_superseded_debug_overlay(handle, meta, runtime_at_usage_limit) {
-                    ws.metadata.write_session(meta);
-                }
+            if clear_superseded_debug_overlay(handle, meta, runtime_at_usage_limit) {
+                cleared_metadata.push(meta.clone());
+            }
+        }
+        cleared_metadata
+    };
+    if !cleared_metadata.is_empty() {
+        if let Some(ws) = state.workspace.lock().unwrap().as_ref() {
+            for meta in cleared_metadata {
+                ws.metadata.write_session(&meta);
             }
         }
     }
@@ -1768,6 +1773,24 @@ mod tests {
             .find(|provider| provider.id == "codex")
             .unwrap();
         assert_ne!(codex.effective_state, "capped");
+
+        let response = list_sessions(State(state.clone())).await.into_response();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let sessions: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
+        let sibling = sessions
+            .iter()
+            .find(|s| s["id"] == "capped-sibling")
+            .unwrap();
+        assert_ne!(
+            sibling.get("atUsageLimit").and_then(|v| v.as_bool()),
+            Some(true)
+        );
+        assert!(
+            !state.sessions.lock().unwrap()["capped-target"].at_usage_limit_latched,
+            "debug overlay must not become runtime capacity state"
+        );
     }
 
     #[tokio::test]
