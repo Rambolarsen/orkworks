@@ -23,7 +23,7 @@ import {
   setActiveWorkspaceSession,
   getProviders,
 } from "./api";
-import { disposeTerminal, getTerminal } from "./terminalStore";
+import { disposeAllTerminals, disposeTerminal, getTerminal, pruneTerminals } from "./terminalStore";
 import type { AppSettings } from "./appSettingsTypes";
 import type { HarnessConfig, CreateSessionOptions } from "./harnessTypes";
 
@@ -43,6 +43,7 @@ function App() {
   const [newSessionDialogOpen, setNewSessionDialogOpen] = useState(false);
   const dockviewApiRef = useRef<DockviewApi | null>(null);
   const sessionsHiddenLayoutRef = useRef<string | null>(null);
+  const refreshGenerationRef = useRef(0);
 
   useEffect(() => {
     if (backendStatus !== "connecting…") return;
@@ -77,9 +78,15 @@ function App() {
   }, [backendStatus]);
 
   const refreshSessions = useCallback(async () => {
+    const generation = refreshGenerationRef.current;
     try {
       const baseUrl = await window.orkworks.getBackendUrl();
       const list = await listSessions(baseUrl);
+      if (generation !== refreshGenerationRef.current) return;
+      const liveSessionIds = new Set(
+        list.filter((s) => s.memoryState === "live").map((s) => s.id),
+      );
+      pruneTerminals(liveSessionIds);
       setSessions(sortSessions(list));
     } catch {
       // Silent: polled every 2s; transient failures are reflected by the
@@ -126,6 +133,8 @@ function App() {
     try {
       const info = await window.orkworks.openWorkspace();
       if (info) {
+        refreshGenerationRef.current += 1;
+        disposeAllTerminals();
         setWorkspaceState(info);
         setActiveHarnessIds(info.activeHarnessIds ?? []);
         setBackendStatus("connecting…");
@@ -262,6 +271,8 @@ function App() {
     async function loadInitialWorkspace() {
       const info = await window.orkworks.getInitialWorkspace();
       if (!cancelled && info) {
+        refreshGenerationRef.current += 1;
+        disposeAllTerminals();
         setWorkspaceState(info);
         setActiveHarnessIds(info.activeHarnessIds ?? []);
         await refreshSessions();
