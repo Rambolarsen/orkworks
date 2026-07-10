@@ -12,6 +12,9 @@ contextBridge.exposeInMainWorld("orkworks", {
   saveRetention: (retention: unknown): Promise<unknown> => ipcRenderer.invoke("save-retention", retention),
   saveDebugSettings: (debug: unknown): Promise<unknown> => ipcRenderer.invoke("save-debug-settings", debug),
   saveProviderSettings: (providers: unknown): Promise<unknown> => ipcRenderer.invoke("save-provider-settings", providers),
+  listSessionStateInjections: (): Promise<unknown> => ipcRenderer.invoke("list-session-state-injections"),
+  applySessionStateInjection: (sessionId: string, injectionId: string): Promise<unknown> =>
+    ipcRenderer.invoke("apply-session-state-injection", { sessionId, injectionId }),
   verifyOllama: (baseUrl: string): Promise<unknown> => ipcRenderer.invoke("verify-ollama", baseUrl),
   getProviderModels: (providerId: string): Promise<unknown> => ipcRenderer.invoke("get-provider-models", providerId),
   getProviderLabels: (): Promise<unknown> => ipcRenderer.invoke("get-provider-labels"),

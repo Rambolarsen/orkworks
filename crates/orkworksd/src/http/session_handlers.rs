@@ -1,3 +1,4 @@
+use crate::debug_state_injection::SessionStateInjectionId;
 use crate::harness_registry::{
     adapter_for_harness, capabilities_for_harness, default_shell_command,
     resolve_adapter_harness_id,
@@ -8,7 +9,9 @@ use crate::session_view::{
     session_recommendation, terminal_outcome_for_status,
 };
 use crate::workspace_runtime::{iso_now, orkworks_global_dir};
-use crate::{git, harness, metadata, migration, peon, watcher, AppState, SessionHandle, WorkspaceState};
+use crate::{
+    git, harness, metadata, migration, peon, watcher, AppState, SessionHandle, WorkspaceState,
+};
 use axum::{
     extract::{Path, State},
     response::IntoResponse,
@@ -52,6 +55,12 @@ pub(crate) struct AttentionReportRequest {
     pub(crate) message: Option<String>,
 }
 
+#[derive(Deserialize)]
+pub(crate) struct ApplySessionStateInjectionRequest {
+    #[serde(rename = "injectionId")]
+    pub(crate) injection_id: String,
+}
+
 #[derive(Serialize)]
 pub(crate) struct WorkspaceResponse {
     pub(crate) path: String,
@@ -62,6 +71,267 @@ pub(crate) struct WorkspaceResponse {
     pub(crate) last_active_session_id: Option<String>,
     #[serde(rename = "activeHarnessIds", skip_serializing_if = "Vec::is_empty")]
     pub(crate) active_harness_ids: Vec<String>,
+}
+
+fn debug_capped_overlay(now: &str) -> metadata::DebugInjectionMetadata {
+    metadata::DebugInjectionMetadata {
+        attention: "capped".into(),
+        usage_limit_reset_hint: Some("resets in 1h (debug)".into()),
+        applied_at: now.to_string(),
+    }
+}
+
+pub(crate) async fn list_session_state_injections() -> impl IntoResponse {
+    Json(SessionStateInjectionId::options())
+}
+
+pub(crate) async fn apply_session_state_injection(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(req): Json<ApplySessionStateInjectionRequest>,
+) -> impl IntoResponse {
+    let Some(injection) = SessionStateInjectionId::parse(&req.injection_id) else {
+        return axum::http::StatusCode::BAD_REQUEST.into_response();
+    };
+
+    let now = iso_now();
+    match inject_session_state(&state, &id, injection, &now) {
+        Ok(info) => Json(info).into_response(),
+        Err(status) => status.into_response(),
+    }
+}
+
+pub(crate) fn inject_session_state(
+    state: &Arc<AppState>,
+    id: &str,
+    injection: SessionStateInjectionId,
+    now: &str,
+) -> Result<SessionInfo, axum::http::StatusCode> {
+    {
+        let ws_guard = state.workspace.lock().unwrap();
+        let ws = ws_guard.as_ref().ok_or(axum::http::StatusCode::CONFLICT)?;
+        if ws.metadata.read_session(id).is_none() {
+            return Err(axum::http::StatusCode::NOT_FOUND);
+        }
+    }
+
+    if matches!(injection, SessionStateInjectionId::ActiveFakeEnding) {
+        if !crate::runtime::terminal_runtime::set_session_status(state, id, "ended") {
+            return Err(axum::http::StatusCode::NOT_FOUND);
+        }
+
+        let mut injected = {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions
+                .get_mut(id)
+                .ok_or(axum::http::StatusCode::NOT_FOUND)?;
+            handle.info.metadata_source = Some("debug".into());
+            handle.info.metadata_confidence = None;
+            handle.debug_injection = None;
+            handle.info.clone()
+        };
+
+        let meta = {
+            let ws_guard = state.workspace.lock().unwrap();
+            let ws = ws_guard.as_ref().ok_or(axum::http::StatusCode::CONFLICT)?;
+            let mut meta = ws
+                .metadata
+                .read_session(id)
+                .ok_or(axum::http::StatusCode::NOT_FOUND)?;
+            meta.metadata_source = "debug".into();
+            meta.metadata_confidence = 0.0;
+            meta.debug_injection = None;
+            ws.metadata.write_session(&meta);
+            meta
+        };
+
+        apply_debug_overlay_projection(&mut injected, None, Some(&meta));
+        crate::runtime::terminal_runtime::schedule_session_ending_finalization(
+            state.clone(),
+            id.to_string(),
+            "ended".into(),
+        );
+        return Ok(injected);
+    }
+
+    let mut meta = {
+        let ws_guard = state.workspace.lock().unwrap();
+        let ws = ws_guard.as_ref().ok_or(axum::http::StatusCode::CONFLICT)?;
+        ws.metadata
+            .read_session(id)
+            .ok_or(axum::http::StatusCode::NOT_FOUND)?
+    };
+
+    let (mut injected, live_debug) = {
+        let mut sessions = state.sessions.lock().unwrap();
+        let handle = sessions
+            .get_mut(id)
+            .ok_or(axum::http::StatusCode::NOT_FOUND)?;
+        handle.info.metadata_source = Some("debug".into());
+        handle.info.metadata_confidence = None;
+
+        match injection {
+            SessionStateInjectionId::EndedStaleLiveAttention => {
+                handle.info.status = "ended".into();
+                handle.info.lifecycle_phase = "ended".into();
+                handle.info.observed_status = Some("waiting_for_input".into());
+                handle.info.final_observed_status = Some("idle".into());
+                handle.info.terminal_outcome = Some("ended".into());
+                handle.info.connectivity = Some("offline".into());
+                handle.debug_injection = None;
+            }
+            SessionStateInjectionId::EndedMissingFinalSnapshot => {
+                handle.info.status = "ended".into();
+                handle.info.lifecycle_phase = "ended".into();
+                handle.info.observed_status = None;
+                handle.info.final_observed_status = None;
+                handle.info.terminal_outcome = Some("ended".into());
+                handle.info.connectivity = Some("offline".into());
+                handle.debug_injection = None;
+            }
+            SessionStateInjectionId::RunningBlocked => {
+                handle.info.status = "running".into();
+                handle.info.lifecycle_phase = "active".into();
+                handle.info.observed_status = Some("blocked".into());
+                handle.info.final_observed_status = None;
+                handle.info.terminal_outcome = None;
+                handle.info.connectivity = Some("online".into());
+                handle.debug_injection = None;
+            }
+            SessionStateInjectionId::RunningIdleTooEarly => {
+                handle.info.status = "running".into();
+                handle.info.lifecycle_phase = "active".into();
+                handle.info.observed_status = Some("idle".into());
+                handle.info.final_observed_status = None;
+                handle.info.terminal_outcome = None;
+                handle.info.connectivity = Some("online".into());
+                handle.debug_injection = None;
+            }
+            SessionStateInjectionId::RunningCapped => {
+                handle.info.status = "running".into();
+                handle.info.lifecycle_phase = "active".into();
+                handle.info.observed_status = None;
+                handle.info.final_observed_status = None;
+                handle.info.terminal_outcome = None;
+                handle.info.connectivity = Some("online".into());
+                handle.debug_injection = Some(debug_capped_overlay(now));
+            }
+            SessionStateInjectionId::ActiveFakeEnding => unreachable!(),
+        }
+
+        (handle.info.clone(), handle.debug_injection.clone())
+    };
+
+    {
+        let ws_guard = state.workspace.lock().unwrap();
+        let ws = ws_guard.as_ref().ok_or(axum::http::StatusCode::CONFLICT)?;
+        meta.metadata_source = "debug".into();
+        meta.metadata_confidence = 0.0;
+
+        match injection {
+            SessionStateInjectionId::EndedStaleLiveAttention => {
+                meta.status = "ended".into();
+                meta.lifecycle_phase = "ended".into();
+                meta.observed_status = Some("waiting_for_input".into());
+                meta.final_observed_status_snapshot =
+                    Some(metadata::ObservedStatusSnapshotMetadata {
+                        value: Some("idle".into()),
+                        source: "debug".into(),
+                        confidence: None,
+                        observed_at: Some(now.to_string()),
+                    });
+                meta.pending_terminal_status = None;
+                meta.ending_observed_status_snapshot = None;
+                meta.terminal_outcome = Some("ended".into());
+                meta.connectivity = "offline".into();
+                meta.debug_injection = None;
+            }
+            SessionStateInjectionId::EndedMissingFinalSnapshot => {
+                meta.status = "ended".into();
+                meta.lifecycle_phase = "ended".into();
+                meta.observed_status = None;
+                meta.final_observed_status_snapshot = None;
+                meta.pending_terminal_status = None;
+                meta.ending_observed_status_snapshot = None;
+                meta.terminal_outcome = Some("ended".into());
+                meta.connectivity = "offline".into();
+                meta.debug_injection = None;
+            }
+            SessionStateInjectionId::RunningBlocked => {
+                meta.status = "running".into();
+                meta.lifecycle_phase = "active".into();
+                meta.observed_status = Some("blocked".into());
+                meta.final_observed_status_snapshot = None;
+                meta.pending_terminal_status = None;
+                meta.ending_observed_status_snapshot = None;
+                meta.terminal_outcome = None;
+                meta.connectivity = "online".into();
+                meta.debug_injection = None;
+            }
+            SessionStateInjectionId::RunningIdleTooEarly => {
+                meta.status = "running".into();
+                meta.lifecycle_phase = "active".into();
+                meta.observed_status = Some("idle".into());
+                meta.final_observed_status_snapshot = None;
+                meta.pending_terminal_status = None;
+                meta.ending_observed_status_snapshot = None;
+                meta.terminal_outcome = None;
+                meta.connectivity = "online".into();
+                meta.debug_injection = None;
+            }
+            SessionStateInjectionId::RunningCapped => {
+                meta.status = "running".into();
+                meta.lifecycle_phase = "active".into();
+                meta.observed_status = None;
+                meta.final_observed_status_snapshot = None;
+                meta.pending_terminal_status = None;
+                meta.ending_observed_status_snapshot = None;
+                meta.terminal_outcome = None;
+                meta.connectivity = "online".into();
+                meta.debug_injection = Some(debug_capped_overlay(now));
+            }
+            SessionStateInjectionId::ActiveFakeEnding => unreachable!(),
+        }
+
+        ws.metadata.write_session(&meta);
+    }
+
+    apply_debug_overlay_projection(&mut injected, live_debug.as_ref(), Some(&meta));
+    Ok(injected)
+}
+
+pub(crate) fn apply_debug_overlay_projection(
+    info: &mut SessionInfo,
+    live_debug: Option<&metadata::DebugInjectionMetadata>,
+    meta: Option<&metadata::SessionMetadata>,
+) {
+    let debug = live_debug.or_else(|| meta.and_then(|record| record.debug_injection.as_ref()));
+    let Some(debug) = debug else {
+        return;
+    };
+    if debug.attention == "capped" {
+        info.at_usage_limit = Some(true);
+        info.usage_limit_reset_hint = debug.usage_limit_reset_hint.clone();
+        info.metadata_source = Some("debug".into());
+        info.metadata_confidence = None;
+    }
+}
+
+pub(crate) fn clear_superseded_debug_overlay(
+    handle: &mut SessionHandle,
+    meta: &mut metadata::SessionMetadata,
+    runtime_at_usage_limit: bool,
+) -> bool {
+    let injected_capped = handle
+        .debug_injection
+        .as_ref()
+        .is_some_and(|debug| debug.attention == "capped");
+    if injected_capped && !runtime_at_usage_limit && meta.metadata_source != "debug" {
+        handle.debug_injection = None;
+        meta.debug_injection = None;
+        return true;
+    }
+    false
 }
 
 pub(crate) async fn set_workspace(
@@ -75,7 +345,13 @@ pub(crate) async fn set_workspace(
 
     let global_dir = match orkworks_global_dir(&ws_path) {
         Some(d) => d,
-        None => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "no home directory").into_response(),
+        None => {
+            return (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "no home directory",
+            )
+                .into_response()
+        }
     };
     for dir in &["sessions", "events", "capacity", "skills"] {
         if let Err(e) = std::fs::create_dir_all(global_dir.join(dir)) {
@@ -88,7 +364,9 @@ pub(crate) async fn set_workspace(
     migration::migrate_if_needed(&ws_path, &global_dir);
 
     let memory = store.read_workspace_memory();
-    let last_active_session_id = memory.as_ref().and_then(|m| m.last_active_session_id.clone());
+    let last_active_session_id = memory
+        .as_ref()
+        .and_then(|m| m.last_active_session_id.clone());
     let active_harness_ids = memory.map(|m| m.active_harness_ids).unwrap_or_default();
     let watch_dir = global_dir.join("sessions");
     let watcher = watcher::MetadataWatcher::start(&watch_dir);
@@ -133,11 +411,12 @@ pub(crate) async fn set_active_session(
     let ws_guard = state.workspace.lock().unwrap();
     if let Some(ref ws) = *ws_guard {
         let existing = ws.metadata.read_workspace_memory();
-        ws.metadata.write_workspace_memory(&metadata::WorkspaceMemory {
-            last_active_session_id: Some(req.session_id),
-            last_active_at: Some(now),
-            active_harness_ids: existing.map(|m| m.active_harness_ids).unwrap_or_default(),
-        });
+        ws.metadata
+            .write_workspace_memory(&metadata::WorkspaceMemory {
+                last_active_session_id: Some(req.session_id),
+                last_active_at: Some(now),
+                active_harness_ids: existing.map(|m| m.active_harness_ids).unwrap_or_default(),
+            });
         return axum::http::StatusCode::OK;
     }
     axum::http::StatusCode::CONFLICT
@@ -151,11 +430,14 @@ pub(crate) async fn set_active_harnesses(
     let ws_guard = state.workspace.lock().unwrap();
     if let Some(ref ws) = *ws_guard {
         let existing = ws.metadata.read_workspace_memory();
-        ws.metadata.write_workspace_memory(&metadata::WorkspaceMemory {
-            last_active_session_id: existing.as_ref().and_then(|m| m.last_active_session_id.clone()),
-            last_active_at: Some(now),
-            active_harness_ids: req.active_harness_ids,
-        });
+        ws.metadata
+            .write_workspace_memory(&metadata::WorkspaceMemory {
+                last_active_session_id: existing
+                    .as_ref()
+                    .and_then(|m| m.last_active_session_id.clone()),
+                last_active_at: Some(now),
+                active_harness_ids: req.active_harness_ids,
+            });
         return axum::http::StatusCode::OK;
     }
     axum::http::StatusCode::CONFLICT
@@ -295,6 +577,7 @@ pub(crate) async fn resume_session(
                 scan_bytes_seen: 0,
                 resume_scan_origin: capacity_check_pending.then_some((0, 0)),
                 pending_capacity_visible_once: false,
+                debug_injection: None,
             },
         );
         previous
@@ -351,13 +634,16 @@ pub(crate) async fn resume_session(
                 stored_meta.resumed_from = meta.resumed_from.clone();
                 ws.metadata.write_session(&stored_meta);
             }
-            ws.metadata.append_event(&id, &metadata::Event {
-                event_type: "session.resumed".into(),
-                timestamp: now,
-                status: "running".into(),
-                observed_status: None,
-                confidence: None,
-            });
+            ws.metadata.append_event(
+                &id,
+                &metadata::Event {
+                    event_type: "session.resumed".into(),
+                    timestamp: now,
+                    status: "running".into(),
+                    observed_status: None,
+                    confidence: None,
+                },
+            );
         }
     }
 
@@ -409,8 +695,12 @@ pub(crate) async fn report_harness_session(
         | metadata::HarnessSessionMergeResult::IgnoredLowerConfidence => {
             axum::http::StatusCode::OK.into_response()
         }
-        metadata::HarnessSessionMergeResult::NotFound => axum::http::StatusCode::NOT_FOUND.into_response(),
-        metadata::HarnessSessionMergeResult::Invalid => axum::http::StatusCode::BAD_REQUEST.into_response(),
+        metadata::HarnessSessionMergeResult::NotFound => {
+            axum::http::StatusCode::NOT_FOUND.into_response()
+        }
+        metadata::HarnessSessionMergeResult::Invalid => {
+            axum::http::StatusCode::BAD_REQUEST.into_response()
+        }
     }
 }
 
@@ -429,11 +719,16 @@ pub(crate) async fn report_attention(
         return axum::http::StatusCode::CONFLICT.into_response();
     };
 
-    match ws.metadata.merge_agent_attention_signal(&id, &req.status, req.message.as_deref(), &now) {
+    match ws
+        .metadata
+        .merge_agent_attention_signal(&id, &req.status, req.message.as_deref(), &now)
+    {
         metadata::AttentionMergeResult::Accepted | metadata::AttentionMergeResult::Ignored => {
             axum::http::StatusCode::OK.into_response()
         }
-        metadata::AttentionMergeResult::NotFound => axum::http::StatusCode::NOT_FOUND.into_response(),
+        metadata::AttentionMergeResult::NotFound => {
+            axum::http::StatusCode::NOT_FOUND.into_response()
+        }
         // The signal was lost, not delivered — a 200 here would tell the
         // harness hook its notification landed when it didn't.
         metadata::AttentionMergeResult::PersistFailed => {
@@ -474,7 +769,11 @@ pub(crate) fn resolve_session_launch(
             let args: Vec<String> = match model.as_deref() {
                 Some(m) => {
                     let model_value = format!("{}{}", config.model_prefix, m);
-                    config.args.iter().map(|arg| arg.replace("{model}", &model_value)).collect()
+                    config
+                        .args
+                        .iter()
+                        .map(|arg| arg.replace("{model}", &model_value))
+                        .collect()
                 }
                 None => {
                     let mut out: Vec<String> = Vec::new();
@@ -611,6 +910,7 @@ pub(crate) async fn create_session(
             scan_bytes_seen: 0,
             resume_scan_origin: None,
             pending_capacity_visible_once: false,
+            debug_injection: None,
         },
     );
 
@@ -648,7 +948,10 @@ pub(crate) async fn create_session(
             label: info.label.clone(),
             workspace: ws.path.display().to_string(),
             task: String::new(),
-            harness: resolved_launch.session_harness_id.clone().unwrap_or_default(),
+            harness: resolved_launch
+                .session_harness_id
+                .clone()
+                .unwrap_or_default(),
             model: resolved_launch.model.clone().unwrap_or_default(),
             cwd: info.cwd.clone(),
             status: "running".into(),
@@ -684,6 +987,7 @@ pub(crate) async fn create_session(
             changed_files: Some(meta_git_ctx.changed_files),
             is_worktree: Some(meta_git_ctx.is_worktree),
             last_user_input: None,
+            debug_injection: None,
             resume: info.resume.clone(),
             resume_options: vec![],
             harness_session_id_source: None,
@@ -691,13 +995,16 @@ pub(crate) async fn create_session(
             harness_session_id_captured_at: None,
             resumed_from: info.resumed_from.clone(),
         });
-        ws.metadata.append_event(&id, &metadata::Event {
-            event_type: "session.created".into(),
-            timestamp: now,
-            status: "running".into(),
-            observed_status: None,
-            confidence: None,
-        });
+        ws.metadata.append_event(
+            &id,
+            &metadata::Event {
+                event_type: "session.created".into(),
+                timestamp: now,
+                status: "running".into(),
+                observed_status: None,
+                confidence: None,
+            },
+        );
     }
     drop(ws_guard);
 
@@ -706,134 +1013,230 @@ pub(crate) async fn create_session(
 
 pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let harnesses = state.harnesses.read().await.clone();
-    let live_sessions: Vec<(SessionInfo, Vec<String>, String, bool, bool, u64, u64, Option<(u64, u64)>, bool)> = {
+    let live_sessions: Vec<(
+        SessionInfo,
+        Vec<String>,
+        String,
+        bool,
+        bool,
+        u64,
+        u64,
+        Option<(u64, u64)>,
+        bool,
+        Option<metadata::DebugInjectionMetadata>,
+    )> = {
         let sessions = state.sessions.lock().unwrap();
-        sessions.values().map(|h| {
-            (
-                h.info.clone(),
-                h.output_buffer.snapshot(),
-                h.scan_buf.clone(),
-                h.at_usage_limit_latched,
-                h.capacity_check_pending,
-                h.output_lines_seen,
-                h.scan_bytes_seen,
-                h.resume_scan_origin,
-                h.pending_capacity_visible_once,
-            )
-        }).collect()
+        sessions
+            .values()
+            .map(|h| {
+                (
+                    h.info.clone(),
+                    h.output_buffer.snapshot(),
+                    h.scan_buf.clone(),
+                    h.at_usage_limit_latched,
+                    h.capacity_check_pending,
+                    h.output_lines_seen,
+                    h.scan_bytes_seen,
+                    h.resume_scan_origin,
+                    h.pending_capacity_visible_once,
+                    h.debug_injection.clone(),
+                )
+            })
+            .collect()
     };
 
     let ws_guard = state.workspace.lock().unwrap();
-    let metadata_map = ws_guard.as_ref().map(|ws| {
-        let mut metadata = HashMap::new();
-        for (info, _, _, _, _, _, _, _, _) in &live_sessions {
-            if let Some(meta) = ws.metadata.read_session(&info.id) {
-                metadata.insert(info.id.clone(), meta);
+    let mut metadata_map = ws_guard
+        .as_ref()
+        .map(|ws| {
+            let mut metadata = HashMap::new();
+            for (info, _, _, _, _, _, _, _, _, _) in &live_sessions {
+                if let Some(meta) = ws.metadata.read_session(&info.id) {
+                    metadata.insert(info.id.clone(), meta);
+                }
             }
-        }
-        metadata
-    }).unwrap_or_default();
+            metadata
+        })
+        .unwrap_or_default();
 
-    let all_metadata_sessions = ws_guard.as_ref().map(|ws| ws.metadata.read_all_sessions()).unwrap_or_default();
+    let all_metadata_sessions = ws_guard
+        .as_ref()
+        .map(|ws| ws.metadata.read_all_sessions())
+        .unwrap_or_default();
     drop(ws_guard);
 
-    let all_memory_ids: HashSet<String> = live_sessions.iter()
-        .map(|(info, _, _, _, _, _, _, _, _)| info.id.clone())
+    let all_memory_ids: HashSet<String> = live_sessions
+        .iter()
+        .map(|(info, _, _, _, _, _, _, _, _, _)| info.id.clone())
         .collect();
 
     let peon_times = state.peon.last_inference.read().unwrap();
     let mut pending_transitions: Vec<(String, bool, bool)> = Vec::new();
     let mut capped_recheck_resets: HashSet<String> = HashSet::new();
     let mut capped_clear_baselines: HashMap<String, (u64, u64)> = HashMap::new();
-    let mut infos: Vec<SessionInfo> = live_sessions.into_iter().map(|(info, snapshot, scan_buf, prev_latch, pending, output_lines_seen, scan_bytes_seen, origin, pending_visible_once)| {
-        let id = info.id.clone();
-        let meta = metadata_map.get(&id);
-        let session_harness_id = meta.and_then(|m| (!m.harness.is_empty()).then(|| m.harness.as_str()));
-        let adapter_harness_id = resolve_adapter_harness_id(&harnesses, session_harness_id);
-        let caps = capabilities_for_harness(&state.adapters, adapter_harness_id.as_deref());
-        let mut merged = merge_live_session_info(info, meta, peon_times.get(&id), &caps);
-        let fresh_output_since_origin = origin.map(|(line_count, scan_len)| {
-            output_lines_seen > line_count || scan_bytes_seen > scan_len
-        }).unwrap_or(false);
-        let has_fresh_resume_output = pending && !pending_visible_once && fresh_output_since_origin;
-        let limit_adapter = adapter_harness_id
-            .as_deref()
-            .and_then(|hid| state.adapters.get(hid));
-        let stale_cap_recheck = prev_latch && !pending && origin.is_some();
-        let baseline_scoped_detection = !prev_latch && !pending && origin.is_some();
-        merged.at_usage_limit = limit_adapter.map(|adapter| {
-            let detected_full =
-                peon::detect_usage_limit(&adapter.limit_patterns, &snapshot)
-                    || peon::detect_usage_limit_raw(&adapter.limit_patterns, &scan_buf);
-            if stale_cap_recheck && fresh_output_since_origin {
-                let (line_count, scan_len) = origin.unwrap();
-                let line_window_start = output_lines_seen.saturating_sub(snapshot.len() as u64);
-                let scan_window_start = scan_bytes_seen.saturating_sub(scan_buf.len() as u64);
-                let fresh_line_start = line_count.saturating_sub(line_window_start) as usize;
-                let fresh_scan_start = scan_len.saturating_sub(scan_window_start) as usize;
-                let fresh_lines = snapshot.get(fresh_line_start.min(snapshot.len())..).unwrap_or(&[]);
-                let fresh_scan = scan_buf.get(fresh_scan_start.min(scan_buf.len())..).unwrap_or("");
-                let detected_scoped =
-                    peon::detect_usage_limit(&adapter.limit_patterns, fresh_lines)
-                        || peon::detect_usage_limit_raw(&adapter.limit_patterns, fresh_scan);
-                capped_recheck_resets.insert(id.clone());
-                if !detected_scoped {
-                    capped_clear_baselines.insert(id.clone(), (output_lines_seen, scan_bytes_seen));
-                }
-                detected_scoped
-            } else if baseline_scoped_detection {
-                let (line_count, scan_len) = origin.unwrap();
-                let line_window_start = output_lines_seen.saturating_sub(snapshot.len() as u64);
-                let scan_window_start = scan_bytes_seen.saturating_sub(scan_buf.len() as u64);
-                let fresh_line_start = line_count.saturating_sub(line_window_start) as usize;
-                let fresh_scan_start = scan_len.saturating_sub(scan_window_start) as usize;
-                let fresh_lines = snapshot.get(fresh_line_start.min(snapshot.len())..).unwrap_or(&[]);
-                let fresh_scan = scan_buf.get(fresh_scan_start.min(scan_buf.len())..).unwrap_or("");
-                let detected_scoped =
-                    peon::detect_usage_limit(&adapter.limit_patterns, fresh_lines)
-                        || peon::detect_usage_limit_raw(&adapter.limit_patterns, fresh_scan);
-                if detected_scoped {
-                    capped_recheck_resets.insert(id.clone());
-                }
-                detected_scoped
-            } else {
-                prev_latch || detected_full
-            }
-        });
-        merged.usage_limit_reset_hint = limit_adapter.and_then(|adapter| {
-            if stale_cap_recheck && fresh_output_since_origin {
-                let (line_count, scan_len) = origin.unwrap();
-                let line_window_start = output_lines_seen.saturating_sub(snapshot.len() as u64);
-                let scan_window_start = scan_bytes_seen.saturating_sub(scan_buf.len() as u64);
-                let fresh_line_start = line_count.saturating_sub(line_window_start) as usize;
-                let fresh_scan_start = scan_len.saturating_sub(scan_window_start) as usize;
-                let fresh_lines = snapshot.get(fresh_line_start.min(snapshot.len())..).unwrap_or(&[]);
-                let fresh_scan = scan_buf.get(fresh_scan_start.min(scan_buf.len())..).unwrap_or("");
-                peon::detect_usage_limit_hint(&adapter.limit_patterns, fresh_lines)
-                    .or_else(|| peon::detect_usage_limit_hint_raw(&adapter.limit_patterns, fresh_scan))
-            } else if baseline_scoped_detection {
-                let (line_count, scan_len) = origin.unwrap();
-                let line_window_start = output_lines_seen.saturating_sub(snapshot.len() as u64);
-                let scan_window_start = scan_bytes_seen.saturating_sub(scan_buf.len() as u64);
-                let fresh_line_start = line_count.saturating_sub(line_window_start) as usize;
-                let fresh_scan_start = scan_len.saturating_sub(scan_window_start) as usize;
-                let fresh_lines = snapshot.get(fresh_line_start.min(snapshot.len())..).unwrap_or(&[]);
-                let fresh_scan = scan_buf.get(fresh_scan_start.min(scan_buf.len())..).unwrap_or("");
-                peon::detect_usage_limit_hint(&adapter.limit_patterns, fresh_lines)
-                    .or_else(|| peon::detect_usage_limit_hint_raw(&adapter.limit_patterns, fresh_scan))
-            } else {
-                peon::detect_usage_limit_hint(&adapter.limit_patterns, &snapshot)
-                    .or_else(|| peon::detect_usage_limit_hint_raw(&adapter.limit_patterns, &scan_buf))
-            }
-        });
-        merged.capacity_check_pending = if pending && !pending_visible_once {
-            Some(true)
-        } else {
-            None
-        };
-        pending_transitions.push((id, has_fresh_resume_output, pending_visible_once));
-        merged
-    }).collect();
+    let mut infos: Vec<SessionInfo> = live_sessions
+        .into_iter()
+        .map(
+            |(
+                info,
+                snapshot,
+                scan_buf,
+                prev_latch,
+                pending,
+                output_lines_seen,
+                scan_bytes_seen,
+                origin,
+                pending_visible_once,
+                live_debug,
+            )| {
+                let id = info.id.clone();
+                let meta = metadata_map.get(&id);
+                let session_harness_id =
+                    meta.and_then(|m| (!m.harness.is_empty()).then(|| m.harness.as_str()));
+                let adapter_harness_id = resolve_adapter_harness_id(&harnesses, session_harness_id);
+                let caps = capabilities_for_harness(&state.adapters, adapter_harness_id.as_deref());
+                let mut merged = merge_live_session_info(info, meta, peon_times.get(&id), &caps);
+                let fresh_output_since_origin = origin
+                    .map(|(line_count, scan_len)| {
+                        output_lines_seen > line_count || scan_bytes_seen > scan_len
+                    })
+                    .unwrap_or(false);
+                let has_fresh_resume_output =
+                    pending && !pending_visible_once && fresh_output_since_origin;
+                let limit_adapter = adapter_harness_id
+                    .as_deref()
+                    .and_then(|hid| state.adapters.get(hid));
+                let stale_cap_recheck = prev_latch && !pending && origin.is_some();
+                let baseline_scoped_detection = !prev_latch && !pending && origin.is_some();
+                merged.at_usage_limit = limit_adapter.map(|adapter| {
+                    let detected_full =
+                        peon::detect_usage_limit(&adapter.limit_patterns, &snapshot)
+                            || peon::detect_usage_limit_raw(&adapter.limit_patterns, &scan_buf);
+                    if stale_cap_recheck && fresh_output_since_origin {
+                        let (line_count, scan_len) = origin.unwrap();
+                        let line_window_start =
+                            output_lines_seen.saturating_sub(snapshot.len() as u64);
+                        let scan_window_start =
+                            scan_bytes_seen.saturating_sub(scan_buf.len() as u64);
+                        let fresh_line_start =
+                            line_count.saturating_sub(line_window_start) as usize;
+                        let fresh_scan_start = scan_len.saturating_sub(scan_window_start) as usize;
+                        let fresh_lines = snapshot
+                            .get(fresh_line_start.min(snapshot.len())..)
+                            .unwrap_or(&[]);
+                        let fresh_scan = scan_buf
+                            .get(fresh_scan_start.min(scan_buf.len())..)
+                            .unwrap_or("");
+                        let detected_scoped =
+                            peon::detect_usage_limit(&adapter.limit_patterns, fresh_lines)
+                                || peon::detect_usage_limit_raw(
+                                    &adapter.limit_patterns,
+                                    fresh_scan,
+                                );
+                        capped_recheck_resets.insert(id.clone());
+                        if !detected_scoped {
+                            capped_clear_baselines
+                                .insert(id.clone(), (output_lines_seen, scan_bytes_seen));
+                        }
+                        detected_scoped
+                    } else if baseline_scoped_detection {
+                        let (line_count, scan_len) = origin.unwrap();
+                        let line_window_start =
+                            output_lines_seen.saturating_sub(snapshot.len() as u64);
+                        let scan_window_start =
+                            scan_bytes_seen.saturating_sub(scan_buf.len() as u64);
+                        let fresh_line_start =
+                            line_count.saturating_sub(line_window_start) as usize;
+                        let fresh_scan_start = scan_len.saturating_sub(scan_window_start) as usize;
+                        let fresh_lines = snapshot
+                            .get(fresh_line_start.min(snapshot.len())..)
+                            .unwrap_or(&[]);
+                        let fresh_scan = scan_buf
+                            .get(fresh_scan_start.min(scan_buf.len())..)
+                            .unwrap_or("");
+                        let detected_scoped =
+                            peon::detect_usage_limit(&adapter.limit_patterns, fresh_lines)
+                                || peon::detect_usage_limit_raw(
+                                    &adapter.limit_patterns,
+                                    fresh_scan,
+                                );
+                        if detected_scoped {
+                            capped_recheck_resets.insert(id.clone());
+                        }
+                        detected_scoped
+                    } else {
+                        prev_latch || detected_full
+                    }
+                });
+                merged.usage_limit_reset_hint = limit_adapter.and_then(|adapter| {
+                    if stale_cap_recheck && fresh_output_since_origin {
+                        let (line_count, scan_len) = origin.unwrap();
+                        let line_window_start =
+                            output_lines_seen.saturating_sub(snapshot.len() as u64);
+                        let scan_window_start =
+                            scan_bytes_seen.saturating_sub(scan_buf.len() as u64);
+                        let fresh_line_start =
+                            line_count.saturating_sub(line_window_start) as usize;
+                        let fresh_scan_start = scan_len.saturating_sub(scan_window_start) as usize;
+                        let fresh_lines = snapshot
+                            .get(fresh_line_start.min(snapshot.len())..)
+                            .unwrap_or(&[]);
+                        let fresh_scan = scan_buf
+                            .get(fresh_scan_start.min(scan_buf.len())..)
+                            .unwrap_or("");
+                        peon::detect_usage_limit_hint(&adapter.limit_patterns, fresh_lines).or_else(
+                            || {
+                                peon::detect_usage_limit_hint_raw(
+                                    &adapter.limit_patterns,
+                                    fresh_scan,
+                                )
+                            },
+                        )
+                    } else if baseline_scoped_detection {
+                        let (line_count, scan_len) = origin.unwrap();
+                        let line_window_start =
+                            output_lines_seen.saturating_sub(snapshot.len() as u64);
+                        let scan_window_start =
+                            scan_bytes_seen.saturating_sub(scan_buf.len() as u64);
+                        let fresh_line_start =
+                            line_count.saturating_sub(line_window_start) as usize;
+                        let fresh_scan_start = scan_len.saturating_sub(scan_window_start) as usize;
+                        let fresh_lines = snapshot
+                            .get(fresh_line_start.min(snapshot.len())..)
+                            .unwrap_or(&[]);
+                        let fresh_scan = scan_buf
+                            .get(fresh_scan_start.min(scan_buf.len())..)
+                            .unwrap_or("");
+                        peon::detect_usage_limit_hint(&adapter.limit_patterns, fresh_lines).or_else(
+                            || {
+                                peon::detect_usage_limit_hint_raw(
+                                    &adapter.limit_patterns,
+                                    fresh_scan,
+                                )
+                            },
+                        )
+                    } else {
+                        peon::detect_usage_limit_hint(&adapter.limit_patterns, &snapshot).or_else(
+                            || {
+                                peon::detect_usage_limit_hint_raw(
+                                    &adapter.limit_patterns,
+                                    &scan_buf,
+                                )
+                            },
+                        )
+                    }
+                });
+                merged.capacity_check_pending = if pending && !pending_visible_once {
+                    Some(true)
+                } else {
+                    None
+                };
+                apply_debug_overlay_projection(&mut merged, live_debug.as_ref(), meta);
+                pending_transitions.push((id, has_fresh_resume_output, pending_visible_once));
+                merged
+            },
+        )
+        .collect();
 
     // Append remembered (non-live) sessions from metadata
     for meta in &all_metadata_sessions {
@@ -845,7 +1248,7 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
         let caps = capabilities_for_harness(&state.adapters, adapter_harness_id.as_deref());
         let (memory_state, resume_strategy) =
             derive_memory_state(false, meta.resume.as_ref(), &caps);
-        infos.push(SessionInfo {
+        let mut info = SessionInfo {
             id: meta.id.clone(),
             label: meta.label.clone(),
             harness_id: (!meta.harness.is_empty()).then(|| meta.harness.clone()),
@@ -902,7 +1305,28 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
             provider: meta.provider_label.clone(),
             provider_model: meta.provider_model.clone(),
             provider_state: meta.provider_state.clone(),
-        });
+        };
+        apply_debug_overlay_projection(&mut info, None, Some(meta));
+        infos.push(info);
+    }
+
+    {
+        let ws_guard = state.workspace.lock().unwrap();
+        let mut sessions = state.sessions.lock().unwrap();
+        for info in &mut infos {
+            let runtime_at_usage_limit = info.at_usage_limit == Some(true);
+            let Some(handle) = sessions.get_mut(&info.id) else {
+                continue;
+            };
+            let Some(meta) = metadata_map.get_mut(&info.id) else {
+                continue;
+            };
+            if let Some(ref ws) = *ws_guard {
+                if clear_superseded_debug_overlay(handle, meta, runtime_at_usage_limit) {
+                    ws.metadata.write_session(meta);
+                }
+            }
+        }
     }
 
     // Write back newly latched usage limits so they survive ring buffer scroll-off.
@@ -950,12 +1374,17 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
     let mut harness_reset_hint: HashMap<String, String> = HashMap::new();
     let mut provider_checking: HashSet<String> = HashSet::new();
     for info in &infos {
+        if info.metadata_source.as_deref() == Some("debug") {
+            continue;
+        }
         if let (Some(hid), Some(capped)) = (&info.harness_id, info.at_usage_limit) {
             let entry = harness_capped.entry(hid.clone()).or_insert(false);
             *entry = *entry || capped;
         }
         if let (Some(hid), Some(hint)) = (&info.harness_id, &info.usage_limit_reset_hint) {
-            harness_reset_hint.entry(hid.clone()).or_insert_with(|| hint.clone());
+            harness_reset_hint
+                .entry(hid.clone())
+                .or_insert_with(|| hint.clone());
         }
         // Keyed by harness id, matching harness_capped above — the checking
         // state masks the capped display, so both must land on the same
@@ -983,7 +1412,27 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
             }
         }
     }
-    state.providers.update_session_capping(harness_capped, harness_reset_hint, provider_checking);
+    state
+        .providers
+        .update_session_capping(harness_capped, harness_reset_hint, provider_checking);
+
+    {
+        let sessions = state.sessions.lock().unwrap();
+        for info in &mut infos {
+            if info.metadata_source.as_deref() != Some("debug") {
+                continue;
+            }
+            if let Some(handle) = sessions.get(&info.id) {
+                apply_debug_overlay_projection(
+                    info,
+                    handle.debug_injection.as_ref(),
+                    metadata_map.get(&info.id),
+                );
+            } else if let Some(meta) = metadata_map.get(&info.id) {
+                apply_debug_overlay_projection(info, None, Some(meta));
+            }
+        }
+    }
 
     let mut cwd_counts: HashMap<String, usize> = HashMap::new();
     for info in &infos {
@@ -1004,7 +1453,8 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
 
     let conflict_warnings = detect_conflicts(&infos);
     for info in &mut infos {
-        info.conflict_warning = conflict_warnings.iter()
+        info.conflict_warning = conflict_warnings
+            .iter()
             .find(|(id, _)| id == &info.id)
             .map(|(_, w)| w.clone());
     }
@@ -1039,8 +1489,13 @@ pub(crate) async fn forget_session(
     {
         let sessions = state.sessions.lock().unwrap();
         if let Some(h) = sessions.get(&id) {
-            if h.info.status == "live" || h.info.status == "creating" || h.info.status == "running" {
-                return (axum::http::StatusCode::CONFLICT, "Cannot forget a live session. Kill it first.").into_response();
+            if h.info.status == "live" || h.info.status == "creating" || h.info.status == "running"
+            {
+                return (
+                    axum::http::StatusCode::CONFLICT,
+                    "Cannot forget a live session. Kill it first.",
+                )
+                    .into_response();
             }
         }
     }
@@ -1078,8 +1533,308 @@ pub(crate) async fn forget_session(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::*;
     use crate::runtime::terminal_runtime::set_session_status;
+    use crate::test_support::*;
+
+    fn write_running_test_metadata(
+        state: &Arc<AppState>,
+        dir: &tempfile::TempDir,
+        session_id: &str,
+        label: &str,
+    ) {
+        let ws = state.workspace.lock().unwrap();
+        ws.as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata::SessionMetadata {
+                id: session_id.into(),
+                label: label.into(),
+                workspace: dir.path().display().to_string(),
+                task: "".into(),
+                harness: "codex".into(),
+                model: "".into(),
+                cwd: dir.path().display().to_string(),
+                status: "running".into(),
+                work_phase: "unknown".into(),
+                lifecycle_phase: "active".into(),
+                connectivity: "online".into(),
+                terminal_outcome: None,
+                pending_terminal_status: None,
+                observed_status: Some("working".into()),
+                ending_observed_status_snapshot: None,
+                final_observed_status_snapshot: None,
+                summary: None,
+                next_action: None,
+                needs_user_input: None,
+                detected_question: None,
+                suggested_options: None,
+                blocker_description: None,
+                failed_command: None,
+                failed_test: None,
+                capacity_hints: None,
+                peon_last_inference: None,
+                provider_id: Some("codex".into()),
+                provider_label: Some("Codex".into()),
+                provider_model: None,
+                provider_state: None,
+                created_at: "now".into(),
+                last_activity: "now".into(),
+                metadata_source: "process".into(),
+                metadata_confidence: 1.0,
+                repo_root: None,
+                branch: None,
+                dirty: None,
+                changed_files: None,
+                is_worktree: None,
+                resume: None,
+                resume_options: vec![],
+                harness_session_id_source: None,
+                harness_session_id_confidence: None,
+                harness_session_id_captured_at: None,
+                resumed_from: None,
+                last_user_input: None,
+                debug_injection: None,
+            });
+    }
+
+    #[tokio::test]
+    async fn apply_session_state_injection_rejects_unknown_injection_ids() {
+        let state = test_app_state_with_workspace(tempfile::tempdir().unwrap().path());
+        let response = apply_session_state_injection(
+            State(state),
+            Path("missing".to_string()),
+            Json(ApplySessionStateInjectionRequest {
+                injection_id: "not_real".into(),
+            }),
+        )
+        .await
+        .into_response();
+        assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn running_blocked_updates_live_and_persisted_session_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let session_id = "blocked-target";
+        write_running_test_metadata(&state, &dir, session_id, "Blocked Target");
+
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        state.sessions.lock().unwrap().insert(
+            session_id.to_string(),
+            SessionHandle {
+                info: test_session_info(
+                    session_id.to_string(),
+                    "Blocked Target",
+                    dir.path().display().to_string(),
+                    "running",
+                    "now",
+                ),
+                kill_tx,
+                output_buffer: peon::RingBuffer::new(200),
+                scan_buf: String::new(),
+                command: default_shell_command(dir.path().display().to_string()),
+                initial_prompt: None,
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                ),
+                terminal_attached: false,
+                at_usage_limit_latched: false,
+                capacity_check_pending: false,
+                output_lines_seen: 0,
+                scan_bytes_seen: 0,
+                resume_scan_origin: None,
+                pending_capacity_visible_once: false,
+                debug_injection: None,
+            },
+        );
+
+        let injected = inject_session_state(
+            &state,
+            session_id,
+            crate::debug_state_injection::SessionStateInjectionId::RunningBlocked,
+            "now",
+        )
+        .unwrap();
+        assert_eq!(injected.observed_status.as_deref(), Some("blocked"));
+        assert_eq!(injected.metadata_source.as_deref(), Some("debug"));
+
+        let ws_guard = state.workspace.lock().unwrap();
+        let ws = ws_guard.as_ref().unwrap();
+        let persisted = ws.metadata.read_session(session_id).unwrap();
+        assert_eq!(persisted.observed_status.as_deref(), Some("blocked"));
+        assert_eq!(persisted.metadata_source, "debug");
+    }
+
+    #[tokio::test]
+    async fn running_capped_overlay_does_not_cap_sibling_live_sessions_or_provider_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        state
+            .providers
+            .apply_settings(crate::providers::ProviderSettingsPayload {
+                version: 1,
+                revision: 1,
+                peon_model: None,
+                ollama_base_url: crate::providers::default_ollama_base_url(),
+                providers: vec![crate::providers::ProviderSettingsEntry {
+                    id: "codex".into(),
+                    enabled: true,
+                    fallback_order: 0,
+                    default_state: crate::providers::ProviderCapacityState::Unknown,
+                    override_state: None,
+                }],
+            });
+
+        for session_id in ["capped-target", "capped-sibling"] {
+            write_running_test_metadata(&state, &dir, session_id, session_id);
+        }
+
+        for session_id in ["capped-target", "capped-sibling"] {
+            let (kill_tx, _) = tokio::sync::watch::channel(false);
+            state.sessions.lock().unwrap().insert(
+                session_id.to_string(),
+                SessionHandle {
+                    info: SessionInfo {
+                        harness_id: Some("codex".into()),
+                        harness: Some("codex".into()),
+                        metadata_source: Some("process".into()),
+                        metadata_confidence: Some(1.0),
+                        ..test_session_info(
+                            session_id.to_string(),
+                            session_id,
+                            dir.path().display().to_string(),
+                            "running",
+                            "now",
+                        )
+                    },
+                    kill_tx,
+                    output_buffer: peon::RingBuffer::new(200),
+                    scan_buf: String::new(),
+                    command: default_shell_command(dir.path().display().to_string()),
+                    initial_prompt: None,
+                    runtime: crate::runtime::session_runtime::SessionRuntime::detached(
+                        crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                        crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                    ),
+                    terminal_attached: false,
+                    at_usage_limit_latched: false,
+                    capacity_check_pending: false,
+                    output_lines_seen: 0,
+                    scan_bytes_seen: 0,
+                    resume_scan_origin: None,
+                    pending_capacity_visible_once: false,
+                    debug_injection: None,
+                },
+            );
+        }
+
+        let injected = inject_session_state(
+            &state,
+            "capped-target",
+            crate::debug_state_injection::SessionStateInjectionId::RunningCapped,
+            "now",
+        )
+        .unwrap();
+        assert_eq!(injected.at_usage_limit, Some(true));
+
+        let response = list_sessions(State(state.clone())).await.into_response();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let sessions: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
+        let target = sessions
+            .iter()
+            .find(|s| s["id"] == "capped-target")
+            .unwrap();
+        let sibling = sessions
+            .iter()
+            .find(|s| s["id"] == "capped-sibling")
+            .unwrap();
+        assert_eq!(
+            target.get("atUsageLimit").and_then(|v| v.as_bool()),
+            Some(true)
+        );
+        assert_ne!(
+            sibling.get("atUsageLimit").and_then(|v| v.as_bool()),
+            Some(true)
+        );
+
+        let providers = state.providers.get_providers_response();
+        let codex = providers
+            .providers
+            .iter()
+            .find(|provider| provider.id == "codex")
+            .unwrap();
+        assert_ne!(codex.effective_state, "capped");
+    }
+
+    #[tokio::test]
+    async fn active_fake_ending_schedules_real_finalization_and_leaves_session_ended() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let session_id = "ending-target".to_string();
+        write_running_test_metadata(&state, &dir, &session_id, "Ending Target");
+
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        state.sessions.lock().unwrap().insert(
+            session_id.clone(),
+            SessionHandle {
+                info: SessionInfo {
+                    lifecycle_phase: "active".into(),
+                    status: "running".into(),
+                    metadata_source: Some("process".into()),
+                    metadata_confidence: Some(1.0),
+                    ..test_session_info(
+                        session_id.clone(),
+                        "Ending Target",
+                        dir.path().display().to_string(),
+                        "running",
+                        "now",
+                    )
+                },
+                kill_tx,
+                output_buffer: peon::RingBuffer::new(200),
+                scan_buf: String::new(),
+                command: default_shell_command(dir.path().display().to_string()),
+                initial_prompt: None,
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                ),
+                terminal_attached: false,
+                at_usage_limit_latched: false,
+                capacity_check_pending: false,
+                output_lines_seen: 0,
+                scan_bytes_seen: 0,
+                resume_scan_origin: None,
+                pending_capacity_visible_once: false,
+                debug_injection: None,
+            },
+        );
+
+        let injected = inject_session_state(
+            &state,
+            &session_id,
+            crate::debug_state_injection::SessionStateInjectionId::ActiveFakeEnding,
+            "now",
+        )
+        .unwrap();
+        assert_eq!(injected.lifecycle_phase, "ending");
+
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        let response = list_sessions(State(state.clone())).await.into_response();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let sessions: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
+        let ended = sessions.iter().find(|s| s["id"] == session_id).unwrap();
+        assert_eq!(
+            ended.get("lifecyclePhase").and_then(|v| v.as_str()),
+            Some("ended")
+        );
+    }
 
     #[tokio::test]
     async fn harness_session_report_rejects_invalid_native_id() {
@@ -1125,54 +1880,58 @@ mod tests {
         let state = test_app_state_with_workspace(dir.path());
         {
             let ws = state.workspace.lock().unwrap();
-            ws.as_ref().unwrap().metadata.write_session(&metadata::SessionMetadata {
-                id: "known".into(),
-                label: "Known".into(),
-                workspace: dir.path().display().to_string(),
-                task: "".into(),
-                harness: "opencode".into(),
-                model: "".into(),
-                cwd: dir.path().display().to_string(),
-                status: "running".into(),
-                work_phase: "unknown".into(),
-                lifecycle_phase: "active".into(),
-                connectivity: "online".into(),
-                terminal_outcome: None,
-                pending_terminal_status: None,
-                observed_status: None,
-                ending_observed_status_snapshot: None,
-                final_observed_status_snapshot: None,
-                summary: None,
-                next_action: None,
-                needs_user_input: None,
-                detected_question: None,
-                suggested_options: None,
-                blocker_description: None,
-                failed_command: None,
-                failed_test: None,
-                capacity_hints: None,
-                peon_last_inference: None,
-                provider_id: None,
-                provider_label: None,
-                provider_model: None,
-                provider_state: None,
-                created_at: "now".into(),
-                last_activity: "now".into(),
-                metadata_source: "process".into(),
-                metadata_confidence: 1.0,
-                repo_root: None,
-                branch: None,
-                dirty: None,
-                changed_files: None,
-                is_worktree: None,
-                resume: None,
-                resume_options: vec![],
-                harness_session_id_source: None,
-                harness_session_id_confidence: None,
-                harness_session_id_captured_at: None,
-                resumed_from: None,
-                last_user_input: None,
-            });
+            ws.as_ref()
+                .unwrap()
+                .metadata
+                .write_session(&metadata::SessionMetadata {
+                    id: "known".into(),
+                    label: "Known".into(),
+                    workspace: dir.path().display().to_string(),
+                    task: "".into(),
+                    harness: "opencode".into(),
+                    model: "".into(),
+                    cwd: dir.path().display().to_string(),
+                    status: "running".into(),
+                    work_phase: "unknown".into(),
+                    lifecycle_phase: "active".into(),
+                    connectivity: "online".into(),
+                    terminal_outcome: None,
+                    pending_terminal_status: None,
+                    observed_status: None,
+                    ending_observed_status_snapshot: None,
+                    final_observed_status_snapshot: None,
+                    summary: None,
+                    next_action: None,
+                    needs_user_input: None,
+                    detected_question: None,
+                    suggested_options: None,
+                    blocker_description: None,
+                    failed_command: None,
+                    failed_test: None,
+                    capacity_hints: None,
+                    peon_last_inference: None,
+                    provider_id: None,
+                    provider_label: None,
+                    provider_model: None,
+                    provider_state: None,
+                    created_at: "now".into(),
+                    last_activity: "now".into(),
+                    metadata_source: "process".into(),
+                    metadata_confidence: 1.0,
+                    repo_root: None,
+                    branch: None,
+                    dirty: None,
+                    changed_files: None,
+                    is_worktree: None,
+                    resume: None,
+                    resume_options: vec![],
+                    harness_session_id_source: None,
+                    harness_session_id_confidence: None,
+                    harness_session_id_captured_at: None,
+                    resumed_from: None,
+                    last_user_input: None,
+                    debug_injection: None,
+                });
         }
 
         let response = report_harness_session(
@@ -1191,7 +1950,10 @@ mod tests {
         let ws = state.workspace.lock().unwrap();
         let updated = ws.as_ref().unwrap().metadata.read_session("known").unwrap();
         assert_eq!(
-            updated.resume.as_ref().and_then(|r| r.harness_session_id.as_deref()),
+            updated
+                .resume
+                .as_ref()
+                .and_then(|r| r.harness_session_id.as_deref()),
             Some("native-123"),
         );
     }
@@ -1233,7 +1995,10 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
-                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                ),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
@@ -1241,59 +2006,64 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
+                debug_injection: None,
             },
         );
 
         {
             let ws = state.workspace.lock().unwrap();
-            ws.as_ref().unwrap().metadata.write_session(&metadata::SessionMetadata {
-                id: session_id.clone(),
-                label: "Known".into(),
-                workspace: dir.path().display().to_string(),
-                task: "".into(),
-                harness: "opencode".into(),
-                model: "".into(),
-                cwd: dir.path().display().to_string(),
-                status: "running".into(),
-                work_phase: "unknown".into(),
-                lifecycle_phase: "active".into(),
-                connectivity: "online".into(),
-                terminal_outcome: None,
-                pending_terminal_status: None,
-                observed_status: None,
-                ending_observed_status_snapshot: None,
-                final_observed_status_snapshot: None,
-                summary: None,
-                next_action: None,
-                needs_user_input: None,
-                detected_question: None,
-                suggested_options: None,
-                blocker_description: None,
-                failed_command: None,
-                failed_test: None,
-                capacity_hints: None,
-                peon_last_inference: None,
-                provider_id: None,
-                provider_label: None,
-                provider_model: None,
-                provider_state: None,
-                created_at: "before".into(),
-                last_activity: "before".into(),
-                metadata_source: "process".into(),
-                metadata_confidence: 1.0,
-                repo_root: None,
-                branch: None,
-                dirty: None,
-                changed_files: None,
-                is_worktree: None,
-                resume: Some(resume),
-                resume_options: vec![],
-                harness_session_id_source: None,
-                harness_session_id_confidence: None,
-                harness_session_id_captured_at: None,
-                resumed_from: None,
-                last_user_input: None,
-            });
+            ws.as_ref()
+                .unwrap()
+                .metadata
+                .write_session(&metadata::SessionMetadata {
+                    id: session_id.clone(),
+                    label: "Known".into(),
+                    workspace: dir.path().display().to_string(),
+                    task: "".into(),
+                    harness: "opencode".into(),
+                    model: "".into(),
+                    cwd: dir.path().display().to_string(),
+                    status: "running".into(),
+                    work_phase: "unknown".into(),
+                    lifecycle_phase: "active".into(),
+                    connectivity: "online".into(),
+                    terminal_outcome: None,
+                    pending_terminal_status: None,
+                    observed_status: None,
+                    ending_observed_status_snapshot: None,
+                    final_observed_status_snapshot: None,
+                    summary: None,
+                    next_action: None,
+                    needs_user_input: None,
+                    detected_question: None,
+                    suggested_options: None,
+                    blocker_description: None,
+                    failed_command: None,
+                    failed_test: None,
+                    capacity_hints: None,
+                    peon_last_inference: None,
+                    provider_id: None,
+                    provider_label: None,
+                    provider_model: None,
+                    provider_state: None,
+                    created_at: "before".into(),
+                    last_activity: "before".into(),
+                    metadata_source: "process".into(),
+                    metadata_confidence: 1.0,
+                    repo_root: None,
+                    branch: None,
+                    dirty: None,
+                    changed_files: None,
+                    is_worktree: None,
+                    resume: Some(resume),
+                    resume_options: vec![],
+                    harness_session_id_source: None,
+                    harness_session_id_confidence: None,
+                    harness_session_id_captured_at: None,
+                    resumed_from: None,
+                    last_user_input: None,
+                    debug_injection: None,
+                });
         }
 
         let response = report_harness_session(
@@ -1312,9 +2082,17 @@ mod tests {
         set_session_status(&state, &session_id, "ended");
 
         let ws = state.workspace.lock().unwrap();
-        let updated = ws.as_ref().unwrap().metadata.read_session(&session_id).unwrap();
+        let updated = ws
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(&session_id)
+            .unwrap();
         let updated_resume = updated.resume.unwrap();
-        assert_eq!(updated_resume.harness_session_id.as_deref(), Some("native-123"));
+        assert_eq!(
+            updated_resume.harness_session_id.as_deref(),
+            Some("native-123")
+        );
         assert_ne!(updated_resume.last_seen_at.as_deref(), Some("before"));
     }
 
@@ -1353,7 +2131,10 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
-                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                ),
                 terminal_attached: true,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
@@ -1361,59 +2142,64 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
+                debug_injection: None,
             },
         );
 
         {
             let ws = state.workspace.lock().unwrap();
-            ws.as_ref().unwrap().metadata.write_session(&metadata::SessionMetadata {
-                id: session_id.clone(),
-                label: "Resume Attached".into(),
-                workspace: dir.path().display().to_string(),
-                task: "".into(),
-                harness: "opencode".into(),
-                model: "".into(),
-                cwd: dir.path().display().to_string(),
-                status: "running".into(),
-                work_phase: "unknown".into(),
-                lifecycle_phase: "active".into(),
-                connectivity: "online".into(),
-                terminal_outcome: None,
-                pending_terminal_status: None,
-                observed_status: None,
-                ending_observed_status_snapshot: None,
-                final_observed_status_snapshot: None,
-                summary: None,
-                next_action: None,
-                needs_user_input: None,
-                detected_question: None,
-                suggested_options: None,
-                blocker_description: None,
-                failed_command: None,
-                failed_test: None,
-                capacity_hints: None,
-                peon_last_inference: None,
-                provider_id: None,
-                provider_label: None,
-                provider_model: None,
-                provider_state: None,
-                created_at: "before".into(),
-                last_activity: "before".into(),
-                metadata_source: "process".into(),
-                metadata_confidence: 1.0,
-                repo_root: None,
-                branch: None,
-                dirty: None,
-                changed_files: None,
-                is_worktree: None,
-                resume: Some(resume),
-                resume_options: vec![],
-                harness_session_id_source: None,
-                harness_session_id_confidence: None,
-                harness_session_id_captured_at: None,
-                resumed_from: None,
-                last_user_input: None,
-            });
+            ws.as_ref()
+                .unwrap()
+                .metadata
+                .write_session(&metadata::SessionMetadata {
+                    id: session_id.clone(),
+                    label: "Resume Attached".into(),
+                    workspace: dir.path().display().to_string(),
+                    task: "".into(),
+                    harness: "opencode".into(),
+                    model: "".into(),
+                    cwd: dir.path().display().to_string(),
+                    status: "running".into(),
+                    work_phase: "unknown".into(),
+                    lifecycle_phase: "active".into(),
+                    connectivity: "online".into(),
+                    terminal_outcome: None,
+                    pending_terminal_status: None,
+                    observed_status: None,
+                    ending_observed_status_snapshot: None,
+                    final_observed_status_snapshot: None,
+                    summary: None,
+                    next_action: None,
+                    needs_user_input: None,
+                    detected_question: None,
+                    suggested_options: None,
+                    blocker_description: None,
+                    failed_command: None,
+                    failed_test: None,
+                    capacity_hints: None,
+                    peon_last_inference: None,
+                    provider_id: None,
+                    provider_label: None,
+                    provider_model: None,
+                    provider_state: None,
+                    created_at: "before".into(),
+                    last_activity: "before".into(),
+                    metadata_source: "process".into(),
+                    metadata_confidence: 1.0,
+                    repo_root: None,
+                    branch: None,
+                    dirty: None,
+                    changed_files: None,
+                    is_worktree: None,
+                    resume: Some(resume),
+                    resume_options: vec![],
+                    harness_session_id_source: None,
+                    harness_session_id_confidence: None,
+                    harness_session_id_captured_at: None,
+                    resumed_from: None,
+                    last_user_input: None,
+                    debug_injection: None,
+                });
         }
 
         let response = resume_session(State(state), Path(session_id))
@@ -1469,59 +2255,64 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
+                debug_injection: None,
             },
         );
 
         {
             let ws = state.workspace.lock().unwrap();
-            ws.as_ref().unwrap().metadata.write_session(&metadata::SessionMetadata {
-                id: session_id.clone(),
-                label: "Resume Detached Live".into(),
-                workspace: dir.path().display().to_string(),
-                task: "".into(),
-                harness: "opencode".into(),
-                model: "".into(),
-                cwd: dir.path().display().to_string(),
-                status: "running".into(),
-                work_phase: "unknown".into(),
-                lifecycle_phase: "active".into(),
-                connectivity: "online".into(),
-                terminal_outcome: None,
-                pending_terminal_status: None,
-                observed_status: None,
-                ending_observed_status_snapshot: None,
-                final_observed_status_snapshot: None,
-                summary: None,
-                next_action: None,
-                needs_user_input: None,
-                detected_question: None,
-                suggested_options: None,
-                blocker_description: None,
-                failed_command: None,
-                failed_test: None,
-                capacity_hints: None,
-                peon_last_inference: None,
-                provider_id: None,
-                provider_label: None,
-                provider_model: None,
-                provider_state: None,
-                created_at: "before".into(),
-                last_activity: "before".into(),
-                metadata_source: "process".into(),
-                metadata_confidence: 1.0,
-                repo_root: None,
-                branch: None,
-                dirty: None,
-                changed_files: None,
-                is_worktree: None,
-                resume: Some(resume),
-                resume_options: vec![],
-                harness_session_id_source: None,
-                harness_session_id_confidence: None,
-                harness_session_id_captured_at: None,
-                resumed_from: None,
-                last_user_input: None,
-            });
+            ws.as_ref()
+                .unwrap()
+                .metadata
+                .write_session(&metadata::SessionMetadata {
+                    id: session_id.clone(),
+                    label: "Resume Detached Live".into(),
+                    workspace: dir.path().display().to_string(),
+                    task: "".into(),
+                    harness: "opencode".into(),
+                    model: "".into(),
+                    cwd: dir.path().display().to_string(),
+                    status: "running".into(),
+                    work_phase: "unknown".into(),
+                    lifecycle_phase: "active".into(),
+                    connectivity: "online".into(),
+                    terminal_outcome: None,
+                    pending_terminal_status: None,
+                    observed_status: None,
+                    ending_observed_status_snapshot: None,
+                    final_observed_status_snapshot: None,
+                    summary: None,
+                    next_action: None,
+                    needs_user_input: None,
+                    detected_question: None,
+                    suggested_options: None,
+                    blocker_description: None,
+                    failed_command: None,
+                    failed_test: None,
+                    capacity_hints: None,
+                    peon_last_inference: None,
+                    provider_id: None,
+                    provider_label: None,
+                    provider_model: None,
+                    provider_state: None,
+                    created_at: "before".into(),
+                    last_activity: "before".into(),
+                    metadata_source: "process".into(),
+                    metadata_confidence: 1.0,
+                    repo_root: None,
+                    branch: None,
+                    dirty: None,
+                    changed_files: None,
+                    is_worktree: None,
+                    resume: Some(resume),
+                    resume_options: vec![],
+                    harness_session_id_source: None,
+                    harness_session_id_confidence: None,
+                    harness_session_id_captured_at: None,
+                    resumed_from: None,
+                    last_user_input: None,
+                    debug_injection: None,
+                });
         }
 
         let response = resume_session(State(state), Path(session_id))
@@ -1573,54 +2364,58 @@ mod tests {
         let state = test_app_state_with_workspace(dir.path());
         {
             let ws = state.workspace.lock().unwrap();
-            ws.as_ref().unwrap().metadata.write_session(&metadata::SessionMetadata {
-                id: "attention-known".into(),
-                label: "Known".into(),
-                workspace: dir.path().display().to_string(),
-                task: "".into(),
-                harness: "claude-code".into(),
-                model: "".into(),
-                cwd: dir.path().display().to_string(),
-                status: "running".into(),
-                work_phase: "unknown".into(),
-                lifecycle_phase: "active".into(),
-                connectivity: "online".into(),
-                terminal_outcome: None,
-                pending_terminal_status: None,
-                observed_status: None,
-                ending_observed_status_snapshot: None,
-                final_observed_status_snapshot: None,
-                summary: None,
-                next_action: None,
-                needs_user_input: None,
-                detected_question: None,
-                suggested_options: None,
-                blocker_description: None,
-                failed_command: None,
-                failed_test: None,
-                capacity_hints: None,
-                peon_last_inference: None,
-                provider_id: None,
-                provider_label: None,
-                provider_model: None,
-                provider_state: None,
-                created_at: "now".into(),
-                last_activity: "now".into(),
-                metadata_source: "process".into(),
-                metadata_confidence: 1.0,
-                repo_root: None,
-                branch: None,
-                dirty: None,
-                changed_files: None,
-                is_worktree: None,
-                resume: None,
-                resume_options: vec![],
-                harness_session_id_source: None,
-                harness_session_id_confidence: None,
-                harness_session_id_captured_at: None,
-                resumed_from: None,
-                last_user_input: None,
-            });
+            ws.as_ref()
+                .unwrap()
+                .metadata
+                .write_session(&metadata::SessionMetadata {
+                    id: "attention-known".into(),
+                    label: "Known".into(),
+                    workspace: dir.path().display().to_string(),
+                    task: "".into(),
+                    harness: "claude-code".into(),
+                    model: "".into(),
+                    cwd: dir.path().display().to_string(),
+                    status: "running".into(),
+                    work_phase: "unknown".into(),
+                    lifecycle_phase: "active".into(),
+                    connectivity: "online".into(),
+                    terminal_outcome: None,
+                    pending_terminal_status: None,
+                    observed_status: None,
+                    ending_observed_status_snapshot: None,
+                    final_observed_status_snapshot: None,
+                    summary: None,
+                    next_action: None,
+                    needs_user_input: None,
+                    detected_question: None,
+                    suggested_options: None,
+                    blocker_description: None,
+                    failed_command: None,
+                    failed_test: None,
+                    capacity_hints: None,
+                    peon_last_inference: None,
+                    provider_id: None,
+                    provider_label: None,
+                    provider_model: None,
+                    provider_state: None,
+                    created_at: "now".into(),
+                    last_activity: "now".into(),
+                    metadata_source: "process".into(),
+                    metadata_confidence: 1.0,
+                    repo_root: None,
+                    branch: None,
+                    dirty: None,
+                    changed_files: None,
+                    is_worktree: None,
+                    resume: None,
+                    resume_options: vec![],
+                    harness_session_id_source: None,
+                    harness_session_id_confidence: None,
+                    harness_session_id_captured_at: None,
+                    resumed_from: None,
+                    last_user_input: None,
+                    debug_injection: None,
+                });
         }
 
         let response = report_attention(
@@ -1636,8 +2431,16 @@ mod tests {
 
         assert_eq!(response.status(), axum::http::StatusCode::OK);
         let ws = state.workspace.lock().unwrap();
-        let updated = ws.as_ref().unwrap().metadata.read_session("attention-known").unwrap();
-        assert_eq!(updated.observed_status.as_deref(), Some("waiting_for_input"));
+        let updated = ws
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session("attention-known")
+            .unwrap();
+        assert_eq!(
+            updated.observed_status.as_deref(),
+            Some("waiting_for_input")
+        );
         assert_eq!(updated.metadata_source, "agent");
     }
 
@@ -1658,10 +2461,8 @@ mod tests {
             ));
             // A directory squatting on the atomic-write temp path makes the
             // persist fail while the session stays readable.
-            std::fs::create_dir_all(
-                store.sessions_dir().join("attention-persist-fail.json.tmp"),
-            )
-            .unwrap();
+            std::fs::create_dir_all(store.sessions_dir().join("attention-persist-fail.json.tmp"))
+                .unwrap();
         }
 
         let response = report_attention(
@@ -1692,7 +2493,10 @@ mod tests {
             std::fs::create_dir_all(store.sessions_dir()).unwrap();
             let json_path = store.sessions_dir().join("corrupt-forget.json");
             std::fs::write(&json_path, "{\"id\": \"corrupt-forget\",").unwrap();
-            (json_path, store.sessions_dir().join("corrupt-forget.json.corrupt"))
+            (
+                json_path,
+                store.sessions_dir().join("corrupt-forget.json.corrupt"),
+            )
         };
 
         let response = forget_session(State(state), Path("corrupt-forget".into()))
@@ -1730,7 +2534,10 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
-                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                ),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
@@ -1738,6 +2545,7 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
+                debug_injection: None,
             },
         );
 
@@ -1797,7 +2605,10 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
-                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                ),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
@@ -1805,6 +2616,7 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
+                debug_injection: None,
             },
         );
 
@@ -1863,15 +2675,20 @@ mod tests {
                 harness_session_id_captured_at: None,
                 resumed_from: None,
                 last_user_input: None,
+                debug_injection: None,
             });
         }
 
         let response = list_sessions(State(state.clone())).await.into_response();
-        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let sessions: Vec<serde_json::Value> = serde_json::from_slice(&bytes).unwrap();
         let matching = sessions
             .iter()
-            .filter(|session| session.get("id").and_then(|id| id.as_str()) == Some(session_id.as_str()))
+            .filter(|session| {
+                session.get("id").and_then(|id| id.as_str()) == Some(session_id.as_str())
+            })
             .count();
 
         assert_eq!(matching, 1);
@@ -1899,7 +2716,10 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
-                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                ),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
@@ -1907,70 +2727,90 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
+                debug_injection: None,
             },
         );
 
         {
             let ws = state.workspace.lock().unwrap();
-            ws.as_ref().unwrap().metadata.write_session(&metadata::SessionMetadata {
-                id: session_id.clone(),
-                label: "Delete Ending".into(),
-                workspace: dir.path().display().to_string(),
-                task: "".into(),
-                harness: "".into(),
-                model: "".into(),
-                cwd: dir.path().display().to_string(),
-                status: "running".into(),
-                work_phase: "unknown".into(),
-                lifecycle_phase: "active".into(),
-                connectivity: "online".into(),
-                terminal_outcome: None,
-                pending_terminal_status: None,
-                observed_status: Some("blocked".into()),
-                ending_observed_status_snapshot: None,
-                final_observed_status_snapshot: None,
-                summary: None,
-                next_action: None,
-                needs_user_input: None,
-                detected_question: None,
-                suggested_options: None,
-                blocker_description: None,
-                failed_command: None,
-                failed_test: None,
-                capacity_hints: None,
-                peon_last_inference: None,
-                provider_id: None,
-                provider_label: None,
-                provider_model: None,
-                provider_state: None,
-                created_at: "now".into(),
-                last_activity: "now".into(),
-                metadata_source: "peon".into(),
-                metadata_confidence: 0.8,
-                repo_root: None,
-                branch: None,
-                dirty: None,
-                changed_files: None,
-                is_worktree: None,
-                resume: None,
-                resume_options: vec![],
-                harness_session_id_source: None,
-                harness_session_id_confidence: None,
-                harness_session_id_captured_at: None,
-                resumed_from: None,
-                last_user_input: None,
-            });
+            ws.as_ref()
+                .unwrap()
+                .metadata
+                .write_session(&metadata::SessionMetadata {
+                    id: session_id.clone(),
+                    label: "Delete Ending".into(),
+                    workspace: dir.path().display().to_string(),
+                    task: "".into(),
+                    harness: "".into(),
+                    model: "".into(),
+                    cwd: dir.path().display().to_string(),
+                    status: "running".into(),
+                    work_phase: "unknown".into(),
+                    lifecycle_phase: "active".into(),
+                    connectivity: "online".into(),
+                    terminal_outcome: None,
+                    pending_terminal_status: None,
+                    observed_status: Some("blocked".into()),
+                    ending_observed_status_snapshot: None,
+                    final_observed_status_snapshot: None,
+                    summary: None,
+                    next_action: None,
+                    needs_user_input: None,
+                    detected_question: None,
+                    suggested_options: None,
+                    blocker_description: None,
+                    failed_command: None,
+                    failed_test: None,
+                    capacity_hints: None,
+                    peon_last_inference: None,
+                    provider_id: None,
+                    provider_label: None,
+                    provider_model: None,
+                    provider_state: None,
+                    created_at: "now".into(),
+                    last_activity: "now".into(),
+                    metadata_source: "peon".into(),
+                    metadata_confidence: 0.8,
+                    repo_root: None,
+                    branch: None,
+                    dirty: None,
+                    changed_files: None,
+                    is_worktree: None,
+                    resume: None,
+                    resume_options: vec![],
+                    harness_session_id_source: None,
+                    harness_session_id_confidence: None,
+                    harness_session_id_captured_at: None,
+                    resumed_from: None,
+                    last_user_input: None,
+                    debug_injection: None,
+                });
         }
 
         let response = delete_session(State(state.clone()), Path(session_id.clone())).await;
-        assert_eq!(response.into_response().status(), axum::http::StatusCode::OK);
+        assert_eq!(
+            response.into_response().status(),
+            axum::http::StatusCode::OK
+        );
 
-        let info = state.sessions.lock().unwrap().get(&session_id).unwrap().info.clone();
+        let info = state
+            .sessions
+            .lock()
+            .unwrap()
+            .get(&session_id)
+            .unwrap()
+            .info
+            .clone();
         assert_eq!(info.status, "running");
         assert_eq!(info.lifecycle_phase, "ending");
 
         let ws = state.workspace.lock().unwrap();
-        let meta = ws.as_ref().unwrap().metadata.read_session(&session_id).unwrap();
+        let meta = ws
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(&session_id)
+            .unwrap();
         assert_eq!(meta.status, "running");
         assert_eq!(meta.lifecycle_phase, "ending");
         assert_eq!(meta.pending_terminal_status.as_deref(), Some("killed"));
@@ -2026,7 +2866,10 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command("/tmp/project".into()),
                 initial_prompt: None,
-                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                ),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
@@ -2034,21 +2877,36 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
+                debug_injection: None,
             },
         );
 
         let response = list_sessions(State(state.clone())).await.into_response();
-        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let sessions: Vec<serde_json::Value> = serde_json::from_slice(&bytes).unwrap();
         let session = sessions
             .iter()
-            .find(|session| session.get("id").and_then(|id| id.as_str()) == Some(session_id.as_str()))
+            .find(|session| {
+                session.get("id").and_then(|id| id.as_str()) == Some(session_id.as_str())
+            })
             .unwrap();
 
-        assert_eq!(session.get("connectivity").and_then(|value| value.as_str()), Some("offline"));
-        assert_eq!(session.get("terminalOutcome").and_then(|value| value.as_str()), Some("ended"));
         assert_eq!(
-            session.get("lastActivityAt").and_then(|value| value.as_str()),
+            session.get("connectivity").and_then(|value| value.as_str()),
+            Some("offline")
+        );
+        assert_eq!(
+            session
+                .get("terminalOutcome")
+                .and_then(|value| value.as_str()),
+            Some("ended")
+        );
+        assert_eq!(
+            session
+                .get("lastActivityAt")
+                .and_then(|value| value.as_str()),
             Some("2026-06-28T09:05:00Z"),
         );
     }
@@ -2097,7 +2955,10 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
-                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                ),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: true,
@@ -2105,18 +2966,28 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: Some((0, 0)),
                 pending_capacity_visible_once: false,
+                debug_injection: None,
             },
         );
 
         let response = list_sessions(State(state.clone())).await.into_response();
-        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let sessions: Vec<serde_json::Value> = serde_json::from_slice(&bytes).unwrap();
         let session = sessions
             .iter()
-            .find(|session| session.get("id").and_then(|id| id.as_str()) == Some(session_id.as_str()))
+            .find(|session| {
+                session.get("id").and_then(|id| id.as_str()) == Some(session_id.as_str())
+            })
             .unwrap();
 
-        assert_eq!(session.get("capacityCheckPending").and_then(|value| value.as_bool()), Some(true));
+        assert_eq!(
+            session
+                .get("capacityCheckPending")
+                .and_then(|value| value.as_bool()),
+            Some(true)
+        );
     }
 
     #[tokio::test]
@@ -2180,7 +3051,10 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
-                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                ),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: true,
@@ -2188,13 +3062,18 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: Some((0, 0)),
                 pending_capacity_visible_once: false,
+                debug_injection: None,
             },
         );
 
-        list_sessions(State(state.clone())).await.into_response();
+        let _ = list_sessions(State(state.clone())).await.into_response();
 
         let response = state.providers.get_providers_response();
-        let opencode = response.providers.iter().find(|provider| provider.id == "opencode").unwrap();
+        let opencode = response
+            .providers
+            .iter()
+            .find(|provider| provider.id == "opencode")
+            .unwrap();
         assert_eq!(opencode.effective_state, "checking_capacity");
     }
 
@@ -2244,7 +3123,10 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
-                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                ),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: true,
@@ -2252,24 +3134,38 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: Some((0, 0)),
                 pending_capacity_visible_once: false,
+                debug_injection: None,
             },
         );
 
         let response = list_sessions(State(state.clone())).await.into_response();
-        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let sessions: Vec<serde_json::Value> = serde_json::from_slice(&bytes).unwrap();
         let session = sessions
             .iter()
-            .find(|session| session.get("id").and_then(|id| id.as_str()) == Some(session_id.as_str()))
+            .find(|session| {
+                session.get("id").and_then(|id| id.as_str()) == Some(session_id.as_str())
+            })
             .unwrap();
-        assert_eq!(session.get("capacityCheckPending").and_then(|value| value.as_bool()), Some(true));
+        assert_eq!(
+            session
+                .get("capacityCheckPending")
+                .and_then(|value| value.as_bool()),
+            Some(true)
+        );
 
         let response = list_sessions(State(state.clone())).await.into_response();
-        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let sessions: Vec<serde_json::Value> = serde_json::from_slice(&bytes).unwrap();
         let session = sessions
             .iter()
-            .find(|session| session.get("id").and_then(|id| id.as_str()) == Some(session_id.as_str()))
+            .find(|session| {
+                session.get("id").and_then(|id| id.as_str()) == Some(session_id.as_str())
+            })
             .unwrap();
         assert_eq!(session.get("capacityCheckPending"), None);
     }
@@ -2278,19 +3174,21 @@ mod tests {
     async fn list_sessions_does_not_mark_remembered_sessions_capped_from_other_live_sessions() {
         let dir = tempfile::tempdir().unwrap();
         let state = test_app_state_with_workspace(dir.path());
-        state.providers.apply_settings(crate::providers::ProviderSettingsPayload {
-            version: 1,
-            revision: 1,
-            peon_model: None,
-            ollama_base_url: crate::providers::default_ollama_base_url(),
-            providers: vec![crate::providers::ProviderSettingsEntry {
-                id: "codex".into(),
-                enabled: true,
-                fallback_order: 0,
-                default_state: crate::providers::ProviderCapacityState::Unknown,
-                override_state: None,
-            }],
-        });
+        state
+            .providers
+            .apply_settings(crate::providers::ProviderSettingsPayload {
+                version: 1,
+                revision: 1,
+                peon_model: None,
+                ollama_base_url: crate::providers::default_ollama_base_url(),
+                providers: vec![crate::providers::ProviderSettingsEntry {
+                    id: "codex".into(),
+                    enabled: true,
+                    fallback_order: 0,
+                    default_state: crate::providers::ProviderCapacityState::Unknown,
+                    override_state: None,
+                }],
+            });
         {
             let ws = state.workspace.lock().unwrap();
             let ws = ws.as_ref().unwrap();
@@ -2347,7 +3245,10 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
-                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                ),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
@@ -2355,11 +3256,14 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
+                debug_injection: None,
             },
         );
 
         let response = list_sessions(State(state.clone())).await.into_response();
-        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let sessions: Vec<serde_json::Value> = serde_json::from_slice(&bytes).unwrap();
         let live = sessions
             .iter()
@@ -2367,15 +3271,29 @@ mod tests {
             .unwrap();
         let remembered = sessions
             .iter()
-            .find(|session| session.get("id").and_then(|id| id.as_str()) == Some("remembered-codex"))
+            .find(|session| {
+                session.get("id").and_then(|id| id.as_str()) == Some("remembered-codex")
+            })
             .unwrap();
 
-        assert_eq!(live.get("atUsageLimit").and_then(|value| value.as_bool()), Some(true));
-        assert_eq!(remembered.get("memoryState").and_then(|value| value.as_str()), Some("remembered"));
+        assert_eq!(
+            live.get("atUsageLimit").and_then(|value| value.as_bool()),
+            Some(true)
+        );
+        assert_eq!(
+            remembered
+                .get("memoryState")
+                .and_then(|value| value.as_str()),
+            Some("remembered")
+        );
         assert_eq!(remembered.get("atUsageLimit"), None);
 
         let providers = state.providers.get_providers_response();
-        let codex = providers.providers.iter().find(|provider| provider.id == "codex").unwrap();
+        let codex = providers
+            .providers
+            .iter()
+            .find(|provider| provider.id == "codex")
+            .unwrap();
         assert_eq!(codex.effective_state, "capped");
     }
 
@@ -2428,7 +3346,10 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
-                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                ),
                 terminal_attached: false,
                 at_usage_limit_latched: true,
                 capacity_check_pending: false,
@@ -2436,28 +3357,47 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: Some((1, 0)),
                 pending_capacity_visible_once: false,
+                debug_injection: None,
             },
         );
 
         let response = list_sessions(State(state.clone())).await.into_response();
-        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let sessions: Vec<serde_json::Value> = serde_json::from_slice(&bytes).unwrap();
         let session = sessions
             .iter()
-            .find(|session| session.get("id").and_then(|id| id.as_str()) == Some(session_id.as_str()))
+            .find(|session| {
+                session.get("id").and_then(|id| id.as_str()) == Some(session_id.as_str())
+            })
             .unwrap();
 
-        assert_eq!(session.get("atUsageLimit").and_then(|value| value.as_bool()), Some(false));
+        assert_eq!(
+            session
+                .get("atUsageLimit")
+                .and_then(|value| value.as_bool()),
+            Some(false)
+        );
 
         let response = list_sessions(State(state.clone())).await.into_response();
-        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let sessions: Vec<serde_json::Value> = serde_json::from_slice(&bytes).unwrap();
         let session = sessions
             .iter()
-            .find(|session| session.get("id").and_then(|id| id.as_str()) == Some(session_id.as_str()))
+            .find(|session| {
+                session.get("id").and_then(|id| id.as_str()) == Some(session_id.as_str())
+            })
             .unwrap();
 
-        assert_eq!(session.get("atUsageLimit").and_then(|value| value.as_bool()), Some(false));
+        assert_eq!(
+            session
+                .get("atUsageLimit")
+                .and_then(|value| value.as_bool()),
+            Some(false)
+        );
     }
 
     #[tokio::test]
@@ -2509,7 +3449,10 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
-                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                ),
                 terminal_attached: false,
                 at_usage_limit_latched: true,
                 capacity_check_pending: false,
@@ -2517,18 +3460,28 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: Some((1, 0)),
                 pending_capacity_visible_once: false,
+                debug_injection: None,
             },
         );
 
         let response = list_sessions(State(state)).await.into_response();
-        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let sessions: Vec<serde_json::Value> = serde_json::from_slice(&bytes).unwrap();
         let session = sessions
             .iter()
-            .find(|session| session.get("id").and_then(|id| id.as_str()) == Some(session_id.as_str()))
+            .find(|session| {
+                session.get("id").and_then(|id| id.as_str()) == Some(session_id.as_str())
+            })
             .unwrap();
 
-        assert_eq!(session.get("atUsageLimit").and_then(|value| value.as_bool()), Some(true));
+        assert_eq!(
+            session
+                .get("atUsageLimit")
+                .and_then(|value| value.as_bool()),
+            Some(true)
+        );
     }
 
     #[tokio::test]
@@ -2579,7 +3532,10 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
-                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                ),
                 terminal_attached: false,
                 at_usage_limit_latched: true,
                 capacity_check_pending: false,
@@ -2587,18 +3543,28 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: Some((1, 0)),
                 pending_capacity_visible_once: false,
+                debug_injection: None,
             },
         );
 
         let response = list_sessions(State(state.clone())).await.into_response();
-        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let sessions: Vec<serde_json::Value> = serde_json::from_slice(&bytes).unwrap();
         let session = sessions
             .iter()
-            .find(|session| session.get("id").and_then(|id| id.as_str()) == Some(session_id.as_str()))
+            .find(|session| {
+                session.get("id").and_then(|id| id.as_str()) == Some(session_id.as_str())
+            })
             .unwrap();
 
-        assert_eq!(session.get("atUsageLimit").and_then(|value| value.as_bool()), Some(false));
+        assert_eq!(
+            session
+                .get("atUsageLimit")
+                .and_then(|value| value.as_bool()),
+            Some(false)
+        );
     }
 
     #[tokio::test]
@@ -2696,15 +3662,20 @@ mod tests {
                 harness_session_id_captured_at: None,
                 resumed_from: None,
                 last_user_input: None,
+                debug_injection: None,
             });
         }
 
         let response = list_sessions(State(state)).await.into_response();
-        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let sessions: Vec<serde_json::Value> = serde_json::from_slice(&bytes).unwrap();
         let session = sessions
             .iter()
-            .find(|session| session.get("id").and_then(|id| id.as_str()) == Some("remembered-derived"))
+            .find(|session| {
+                session.get("id").and_then(|id| id.as_str()) == Some("remembered-derived")
+            })
             .unwrap();
         let options = session
             .get("resumeOptions")
@@ -2787,11 +3758,21 @@ mod tests {
         let harnesses = crate::harness_registry::builtin_harness_configs();
         let launch = resolve_session_launch(
             &harnesses,
-            &CreateSessionRequest { harness_id: Some("opencode".into()), model: None, initial_prompt: None },
+            &CreateSessionRequest {
+                harness_id: Some("opencode".into()),
+                model: None,
+                initial_prompt: None,
+            },
             "/repo".into(),
         );
-        assert!(!launch.command.args.contains(&"--model".into()), "bare --model should be dropped");
-        assert!(!launch.command.args.iter().any(|a| a.starts_with("ollama/")), "bare prefix should not appear");
+        assert!(
+            !launch.command.args.contains(&"--model".into()),
+            "bare --model should be dropped"
+        );
+        assert!(
+            !launch.command.args.iter().any(|a| a.starts_with("ollama/")),
+            "bare prefix should not appear"
+        );
     }
 
     #[test]
@@ -2806,7 +3787,10 @@ mod tests {
             },
             "/repo".into(),
         );
-        assert!(launch.command.args.contains(&"ollama/qwen2.5-coder:latest".into()));
+        assert!(launch
+            .command
+            .args
+            .contains(&"ollama/qwen2.5-coder:latest".into()));
     }
 
     #[test]

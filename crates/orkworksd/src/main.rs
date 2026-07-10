@@ -11,36 +11,39 @@ use std::sync::{Arc, Mutex, RwLock as StdRwLock};
 use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-mod metadata;
-mod watcher;
+mod application;
+mod debug_state_injection;
+mod domain;
 mod git;
 mod harness;
 mod harness_registry;
-mod peon;
-mod providers;
-mod domain;
-mod application;
 mod http;
 mod infrastructure;
+mod metadata;
 mod migration;
+mod peon;
+mod providers;
 mod runtime;
 mod session_types;
 mod session_view;
+mod watcher;
 mod workspace_runtime;
 
-use crate::infrastructure::session_module::SessionModule;
 use crate::harness_registry::{builtin_adapters, load_harnesses, HarnessConfig};
 use crate::http::harness_handlers::{
     create_harness, delete_harness, list_harnesses, update_harness,
 };
 use crate::http::hook_handlers::{get_attention_hook_status, install_attention_hook};
-use crate::http::provider_handlers::{get_provider_models, get_providers, set_provider_settings, verify_ollama_settings};
+use crate::http::provider_handlers::{
+    get_provider_models, get_providers, set_provider_settings, verify_ollama_settings,
+};
 use crate::http::retention_handlers::set_retention;
 use crate::http::session_handlers::{
-    create_session, delete_session, forget_session, list_sessions, report_attention,
-    report_harness_session, resume_session, set_active_harnesses, set_active_session,
-    set_workspace,
+    apply_session_state_injection, create_session, delete_session, forget_session,
+    list_session_state_injections, list_sessions, report_attention, report_harness_session,
+    resume_session, set_active_harnesses, set_active_session, set_workspace,
 };
+use crate::infrastructure::session_module::SessionModule;
 use crate::runtime::peon_runtime::peon_loop;
 use crate::runtime::retention::retention_cleanup_task;
 use crate::runtime::terminal_http::{get_terminal_output, session_terminal_handler};
@@ -64,6 +67,7 @@ struct SessionHandle {
     // Snapshot origin used for one-shot post-resume / post-input fresh-output checks.
     resume_scan_origin: Option<(u64, u64)>,
     pending_capacity_visible_once: bool,
+    debug_injection: Option<metadata::DebugInjectionMetadata>,
 }
 
 struct WorkspaceState {
@@ -162,18 +166,38 @@ async fn main() {
         .route("/providers", get(get_providers))
         .route("/providers/:id/models", get(get_provider_models))
         .route("/settings/providers", post(set_provider_settings))
-        .route("/settings/providers/ollama/verify", post(verify_ollama_settings))
+        .route(
+            "/settings/providers/ollama/verify",
+            post(verify_ollama_settings),
+        )
         .route("/workspace", post(set_workspace))
         .route("/workspace/active-session", post(set_active_session))
         .route("/workspace/active-harnesses", put(set_active_harnesses))
-        .route("/workspace/attention-hook/status", get(get_attention_hook_status))
-        .route("/workspace/attention-hook/install", post(install_attention_hook))
+        .route(
+            "/workspace/attention-hook/status",
+            get(get_attention_hook_status),
+        )
+        .route(
+            "/workspace/attention-hook/install",
+            post(install_attention_hook),
+        )
         .route("/sessions", post(create_session))
         .route("/sessions", get(list_sessions))
         .route("/sessions/:id", delete(delete_session))
         .route("/sessions/:id/forget", delete(forget_session))
         .route("/sessions/:id/resume", post(resume_session))
-        .route("/sessions/:id/harness-session", post(report_harness_session))
+        .route(
+            "/sessions/debug-injections",
+            get(list_session_state_injections),
+        )
+        .route(
+            "/sessions/:id/debug-injection",
+            post(apply_session_state_injection),
+        )
+        .route(
+            "/sessions/:id/harness-session",
+            post(report_harness_session),
+        )
         .route("/sessions/:id/attention", post(report_attention))
         .route("/settings/retention", post(set_retention))
         .route("/harnesses", get(list_harnesses).post(create_harness))
@@ -392,6 +416,7 @@ pub(crate) mod test_support {
             harness_session_id_captured_at: None,
             resumed_from: None,
             last_user_input: None,
+            debug_injection: None,
         }
     }
 }
@@ -415,14 +440,23 @@ mod tests {
             .route("/workspace", post(set_workspace))
             .route("/workspace/active-session", post(set_active_session))
             .route("/workspace/active-harnesses", put(set_active_harnesses))
-            .route("/workspace/attention-hook/status", get(get_attention_hook_status))
-            .route("/workspace/attention-hook/install", post(install_attention_hook))
+            .route(
+                "/workspace/attention-hook/status",
+                get(get_attention_hook_status),
+            )
+            .route(
+                "/workspace/attention-hook/install",
+                post(install_attention_hook),
+            )
             .route("/sessions", post(create_session))
             .route("/sessions", get(list_sessions))
             .route("/sessions/:id", delete(delete_session))
             .route("/sessions/:id/forget", delete(forget_session))
             .route("/sessions/:id/resume", post(resume_session))
-            .route("/sessions/:id/harness-session", post(report_harness_session))
+            .route(
+                "/sessions/:id/harness-session",
+                post(report_harness_session),
+            )
             .route("/sessions/:id/attention", post(report_attention))
             .route("/settings/retention", post(set_retention))
             .route("/harnesses", get(list_harnesses).post(create_harness))
@@ -434,7 +468,9 @@ mod tests {
     }
 
     async fn test_server_base_url(state: Arc<AppState>) -> (String, tokio::task::JoinHandle<()>) {
-        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .unwrap();
         let addr = listener.local_addr().unwrap();
         let app = test_router(state);
         let server = tokio::spawn(async move {
@@ -473,7 +509,10 @@ mod tests {
                 reqwest::Method::GET,
                 format!("{}/sessions/test-id/harness-session", base_url),
             ),
-            (reqwest::Method::POST, format!("{}/sessions/test-id", base_url)),
+            (
+                reqwest::Method::POST,
+                format!("{}/sessions/test-id", base_url),
+            ),
         ];
 
         for (method, url) in cases {
@@ -513,18 +552,19 @@ mod tests {
         let id = "test-1".to_string();
         let info = test_session_info(id.clone(), "Test", "/tmp", "creating", "now");
 
-        state
-            .sessions
-            .lock()
-            .unwrap()
-            .insert(id, SessionHandle {
+        state.sessions.lock().unwrap().insert(
+            id,
+            SessionHandle {
                 info: info.clone(),
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
                 scan_buf: String::new(),
                 command: harness_registry::default_shell_command("/tmp".into()),
                 initial_prompt: None,
-                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                ),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
@@ -532,7 +572,9 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
-            });
+                debug_injection: None,
+            },
+        );
 
         let sessions = state.sessions.lock().unwrap();
         assert_eq!(sessions.len(), 1);

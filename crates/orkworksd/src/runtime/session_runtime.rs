@@ -672,6 +672,7 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
+                debug_injection: None,
             },
         );
 

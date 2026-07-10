@@ -1216,6 +1216,43 @@ html, body, #root {
 .git-state[data-state="clean"] { color: var(--state-ok); }
 .git-changed { font-size: var(--text-xs); color: var(--text-muted); }
 
+.detail-debug-injection {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+}
+
+.detail-debug-injection-row {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.detail-debug-select {
+  flex: 1 1 220px;
+  min-width: 0;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
+  color: var(--text-strong);
+  padding: 0.6rem 0.75rem;
+  font: inherit;
+}
+
+.detail-debug-apply {
+  flex: 0 0 auto;
+}
+
+.detail-debug-note {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
 /* Surface 4 — provenance footer: quiet, dot-separated. */
 .detail-provenance {
   padding: 10px var(--space-5) 14px;

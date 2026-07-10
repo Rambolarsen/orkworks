@@ -28,6 +28,18 @@ pub struct ObservedStatusSnapshotMetadata {
     pub observed_at: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DebugInjectionMetadata {
+    pub attention: String,
+    #[serde(
+        rename = "usageLimitResetHint",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub usage_limit_reset_hint: Option<String>,
+    #[serde(rename = "appliedAt")]
+    pub applied_at: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ResumeOption {
     pub strategy: ResumeStrategy,
@@ -75,13 +87,22 @@ pub struct SessionMetadata {
     pub connectivity: String,
     #[serde(rename = "terminalOutcome", skip_serializing_if = "Option::is_none")]
     pub terminal_outcome: Option<String>,
-    #[serde(rename = "pendingTerminalStatus", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "pendingTerminalStatus",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub pending_terminal_status: Option<String>,
     #[serde(rename = "observedStatus")]
     pub observed_status: Option<String>,
-    #[serde(rename = "endingObservedStatusSnapshot", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "endingObservedStatusSnapshot",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub ending_observed_status_snapshot: Option<ObservedStatusSnapshotMetadata>,
-    #[serde(rename = "finalObservedStatusSnapshot", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "finalObservedStatusSnapshot",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub final_observed_status_snapshot: Option<ObservedStatusSnapshotMetadata>,
     pub summary: Option<String>,
     #[serde(rename = "nextAction")]
@@ -102,9 +123,17 @@ pub struct SessionMetadata {
     pub capacity_hints: Option<Vec<String>>,
     #[serde(rename = "peonLastInference")]
     pub peon_last_inference: Option<String>,
-    #[serde(rename = "modelProviderId", alias = "providerId", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "modelProviderId",
+        alias = "providerId",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub provider_id: Option<String>,
-    #[serde(rename = "modelProviderLabel", alias = "providerLabel", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "modelProviderLabel",
+        alias = "providerLabel",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub provider_label: Option<String>,
     #[serde(rename = "providerModel", skip_serializing_if = "Option::is_none")]
     pub provider_model: Option<String>,
@@ -130,16 +159,27 @@ pub struct SessionMetadata {
     pub resume: Option<ResumeMemory>,
     #[serde(rename = "resumeOptions", default)]
     pub resume_options: Vec<ResumeOption>,
-    #[serde(rename = "harnessSessionIdSource", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "harnessSessionIdSource",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub harness_session_id_source: Option<String>,
-    #[serde(rename = "harnessSessionIdConfidence", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "harnessSessionIdConfidence",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub harness_session_id_confidence: Option<f64>,
-    #[serde(rename = "harnessSessionIdCapturedAt", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "harnessSessionIdCapturedAt",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub harness_session_id_captured_at: Option<String>,
     #[serde(rename = "resumedFrom", skip_serializing_if = "Option::is_none")]
     pub resumed_from: Option<String>,
     #[serde(rename = "lastUserInput", skip_serializing_if = "Option::is_none")]
     pub last_user_input: Option<String>,
+    #[serde(rename = "debugInjection", skip_serializing_if = "Option::is_none")]
+    pub debug_injection: Option<DebugInjectionMetadata>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -155,11 +195,18 @@ pub struct Event {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct WorkspaceMemory {
-    #[serde(rename = "lastActiveSessionId", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "lastActiveSessionId",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub last_active_session_id: Option<String>,
     #[serde(rename = "lastActiveAt", skip_serializing_if = "Option::is_none")]
     pub last_active_at: Option<String>,
-    #[serde(rename = "activeHarnessIds", default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        rename = "activeHarnessIds",
+        default,
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub active_harness_ids: Vec<String>,
 }
 
@@ -210,7 +257,10 @@ fn normalize_session_metadata(mut meta: SessionMetadata) -> SessionMetadata {
         );
     }
 
-    if matches!(meta.lifecycle_phase.as_str(), "creating" | "ending" | "ended") {
+    if matches!(
+        meta.lifecycle_phase.as_str(),
+        "creating" | "ending" | "ended"
+    ) {
         meta.observed_status = None;
     }
 
@@ -250,16 +300,18 @@ fn default_lifecycle_phase_for_status(status: &str) -> String {
 fn snapshot_from_legacy_observed_status(
     meta: &SessionMetadata,
 ) -> Option<ObservedStatusSnapshotMetadata> {
-    meta.observed_status.as_ref().map(|status| ObservedStatusSnapshotMetadata {
-        value: Some(status.clone()),
-        source: if meta.metadata_source.is_empty() {
-            "recovery".into()
-        } else {
-            meta.metadata_source.clone()
-        },
-        confidence: Some(meta.metadata_confidence),
-        observed_at: Some(meta.last_activity.clone()),
-    })
+    meta.observed_status
+        .as_ref()
+        .map(|status| ObservedStatusSnapshotMetadata {
+            value: Some(status.clone()),
+            source: if meta.metadata_source.is_empty() {
+                "recovery".into()
+            } else {
+                meta.metadata_source.clone()
+            },
+            confidence: Some(meta.metadata_confidence),
+            observed_at: Some(meta.last_activity.clone()),
+        })
 }
 
 pub(crate) fn canonical_null_snapshot(
@@ -323,7 +375,10 @@ pub fn derive_resume_options(
         Some("Harness does not support exact resume")
     } else if !resume_available {
         Some("No compatible remembered session exists")
-    } else if resume.and_then(|memory| memory.harness_session_id.as_ref()).is_none() {
+    } else if resume
+        .and_then(|memory| memory.harness_session_id.as_ref())
+        .is_none()
+    {
         Some("No harness session id was captured")
     } else {
         None
@@ -423,6 +478,7 @@ pub(crate) fn assert_session_metadata_serializes_connectivity_terminal_outcome_a
         harness_session_id_captured_at: None,
         resumed_from: None,
         last_user_input: None,
+        debug_injection: None,
     };
 
     let raw = serde_json::to_value(&meta).unwrap();
@@ -516,6 +572,94 @@ fn normalize_recovery_prefers_existing_final_snapshot() {
             .and_then(|x| x.value.as_deref()),
         Some("done")
     );
+}
+
+#[cfg(test)]
+#[test]
+fn debug_injection_metadata_roundtrips() {
+    let raw = r#"{
+      "id":"s1",
+      "label":"Test",
+      "workspace":"/tmp",
+      "task":"",
+      "harnessId":"codex",
+      "modelId":"",
+      "cwd":"/tmp",
+      "status":"running",
+      "workPhase":"unknown",
+      "lifecyclePhase":"active",
+      "connectivity":"online",
+      "createdAt":"now",
+      "lastActivity":"now",
+      "metadataSource":"debug",
+      "metadataConfidence":0.0,
+      "debugInjection":{"attention":"capped","usageLimitResetHint":"resets in 1h (debug)","appliedAt":"now"}
+    }"#;
+    let meta: SessionMetadata = serde_json::from_str(raw).unwrap();
+    assert_eq!(
+        meta.debug_injection.as_ref().map(|d| d.attention.as_str()),
+        Some("capped")
+    );
+}
+
+#[cfg(test)]
+#[test]
+fn normalize_session_metadata_preserves_debug_injection_overlay() {
+    let meta = normalize_session_metadata(SessionMetadata {
+        id: "s1".into(),
+        label: "Test".into(),
+        workspace: "/tmp".into(),
+        task: "".into(),
+        harness: "codex".into(),
+        model: "".into(),
+        cwd: "/tmp".into(),
+        status: "running".into(),
+        work_phase: "unknown".into(),
+        lifecycle_phase: "active".into(),
+        connectivity: "online".into(),
+        terminal_outcome: None,
+        pending_terminal_status: None,
+        observed_status: None,
+        ending_observed_status_snapshot: None,
+        final_observed_status_snapshot: None,
+        summary: None,
+        next_action: None,
+        needs_user_input: None,
+        detected_question: None,
+        suggested_options: None,
+        blocker_description: None,
+        failed_command: None,
+        failed_test: None,
+        capacity_hints: None,
+        peon_last_inference: None,
+        provider_id: None,
+        provider_label: None,
+        provider_model: None,
+        provider_state: None,
+        created_at: "now".into(),
+        last_activity: "now".into(),
+        metadata_source: "debug".into(),
+        metadata_confidence: 0.0,
+        repo_root: None,
+        branch: None,
+        dirty: None,
+        changed_files: None,
+        is_worktree: None,
+        resume: None,
+        resume_options: vec![],
+        harness_session_id_source: None,
+        harness_session_id_confidence: None,
+        harness_session_id_captured_at: None,
+        resumed_from: None,
+        last_user_input: None,
+        debug_injection: Some(DebugInjectionMetadata {
+            attention: "capped".into(),
+            usage_limit_reset_hint: Some("resets in 1h (debug)".into()),
+            applied_at: "now".into(),
+        }),
+    });
+
+    assert!(meta.debug_injection.is_some());
 }
 
 #[cfg(test)]
@@ -630,13 +774,19 @@ fn write_atomic(path: &std::path::Path, contents: &str) -> std::io::Result<()> {
 }
 
 fn tmp_write_path(path: &std::path::Path) -> PathBuf {
-    let mut name = path.file_name().map(|n| n.to_os_string()).unwrap_or_default();
+    let mut name = path
+        .file_name()
+        .map(|n| n.to_os_string())
+        .unwrap_or_default();
     name.push(".tmp");
     path.with_file_name(name)
 }
 
 fn corrupt_session_path(path: &std::path::Path) -> PathBuf {
-    let mut name = path.file_name().map(|n| n.to_os_string()).unwrap_or_default();
+    let mut name = path
+        .file_name()
+        .map(|n| n.to_os_string())
+        .unwrap_or_default();
     name.push(".corrupt");
     path.with_file_name(name)
 }
@@ -919,13 +1069,16 @@ impl MetadataStore {
         meta.harness_session_id_captured_at = Some(timestamp.to_string());
         self.write_session(&meta);
 
-        self.append_event(id, &Event {
-            event_type: "session.harness_session_captured".into(),
-            timestamp: timestamp.to_string(),
-            status: meta.status.clone(),
-            observed_status: None,
-            confidence: Some(report.confidence),
-        });
+        self.append_event(
+            id,
+            &Event {
+                event_type: "session.harness_session_captured".into(),
+                timestamp: timestamp.to_string(),
+                status: meta.status.clone(),
+                observed_status: None,
+                confidence: Some(report.confidence),
+            },
+        );
 
         HarnessSessionMergeResult::Accepted
     }
@@ -965,13 +1118,16 @@ impl MetadataStore {
             return AttentionMergeResult::PersistFailed;
         }
 
-        self.append_event(id, &Event {
-            event_type: "session.attention_reported".into(),
-            timestamp: timestamp.to_string(),
-            status: meta.status.clone(),
-            observed_status: Some(status.to_string()),
-            confidence: Some(1.0),
-        });
+        self.append_event(
+            id,
+            &Event {
+                event_type: "session.attention_reported".into(),
+                timestamp: timestamp.to_string(),
+                status: meta.status.clone(),
+                observed_status: Some(status.to_string()),
+                confidence: Some(1.0),
+            },
+        );
 
         AttentionMergeResult::Accepted
     }
@@ -991,11 +1147,13 @@ impl MetadataStore {
             None => return Ok(()),
         };
         let peon_harness_session_report =
-            inf.harness_session_id.as_ref().map(|sid| HarnessSessionReport {
-                harness_session_id: sid.clone(),
-                source: "peon".into(),
-                confidence: inf.confidence.min(0.50),
-            });
+            inf.harness_session_id
+                .as_ref()
+                .map(|sid| HarnessSessionReport {
+                    harness_session_id: sid.clone(),
+                    source: "peon".into(),
+                    confidence: inf.confidence.min(0.50),
+                });
 
         meta.observed_status = inf.observed_status.clone().or(meta.observed_status);
         if let Some(ref phase) = inf.phase {
@@ -1008,7 +1166,9 @@ impl MetadataStore {
         meta.next_action = inf.next_action.clone().or(meta.next_action);
         meta.needs_user_input = inf.needs_user_input.or(meta.needs_user_input);
         // Normalize: treat empty-string question as absent (LLM may emit "" instead of null).
-        let incoming_q = inf.detected_question.as_deref()
+        let incoming_q = inf
+            .detected_question
+            .as_deref()
             .filter(|q| !q.is_empty())
             .map(str::to_string);
         // Options belong to their question; clear them when the question changes so
@@ -1051,13 +1211,16 @@ impl MetadataStore {
 
         self.try_write_session(&meta)?;
 
-        self.append_event(id, &Event {
-            event_type: "peon.inference".into(),
-            timestamp: timestamp.to_string(),
-            status: meta.status.clone(),
-            observed_status: inf.observed_status.clone(),
-            confidence: Some(inf.confidence),
-        });
+        self.append_event(
+            id,
+            &Event {
+                event_type: "peon.inference".into(),
+                timestamp: timestamp.to_string(),
+                status: meta.status.clone(),
+                observed_status: inf.observed_status.clone(),
+                confidence: Some(inf.confidence),
+            },
+        );
 
         if let Some(report) = peon_harness_session_report {
             let _ = self.merge_harness_session_report(id, &report, timestamp);
@@ -1108,7 +1271,11 @@ impl MetadataStore {
             Err(_) => return Vec::new(),
         };
         let all: Vec<&str> = data.lines().collect();
-        let start = if all.len() > max_lines { all.len() - max_lines } else { 0 };
+        let start = if all.len() > max_lines {
+            all.len() - max_lines
+        } else {
+            0
+        };
         all[start..].iter().map(|s| s.to_string()).collect()
     }
 
@@ -1194,6 +1361,7 @@ mod tests {
             harness_session_id_captured_at: None,
             resumed_from: None,
             last_user_input: None,
+            debug_injection: None,
         };
         store.write_session(&meta);
         let read = store.read_session("test-1").unwrap();
@@ -1204,20 +1372,26 @@ mod tests {
     fn append_and_read_events() {
         let dir = tempfile::tempdir().unwrap();
         let store = MetadataStore::new(dir.path());
-        store.append_event("test-2", &Event {
-            event_type: "session.created".into(),
-            timestamp: "now".into(),
-            status: "creating".into(),
-            observed_status: None,
-            confidence: None,
-        });
-        store.append_event("test-2", &Event {
-            event_type: "session.status".into(),
-            timestamp: "later".into(),
-            status: "running".into(),
-            observed_status: None,
-            confidence: None,
-        });
+        store.append_event(
+            "test-2",
+            &Event {
+                event_type: "session.created".into(),
+                timestamp: "now".into(),
+                status: "creating".into(),
+                observed_status: None,
+                confidence: None,
+            },
+        );
+        store.append_event(
+            "test-2",
+            &Event {
+                event_type: "session.status".into(),
+                timestamp: "later".into(),
+                status: "running".into(),
+                observed_status: None,
+                confidence: None,
+            },
+        );
         let path = store.events_dir().join("test-2.ndjson");
         let contents = fs::read_to_string(&path).unwrap();
         assert_eq!(contents.lines().count(), 2);
@@ -1227,20 +1401,26 @@ mod tests {
     fn read_events_returns_deserialized_events() {
         let dir = tempfile::tempdir().unwrap();
         let store = MetadataStore::new(dir.path());
-        store.append_event("test-3", &Event {
-            event_type: "session.created".into(),
-            timestamp: "t1".into(),
-            status: "creating".into(),
-            observed_status: None,
-            confidence: None,
-        });
-        store.append_event("test-3", &Event {
-            event_type: "session.status".into(),
-            timestamp: "t2".into(),
-            status: "running".into(),
-            observed_status: None,
-            confidence: None,
-        });
+        store.append_event(
+            "test-3",
+            &Event {
+                event_type: "session.created".into(),
+                timestamp: "t1".into(),
+                status: "creating".into(),
+                observed_status: None,
+                confidence: None,
+            },
+        );
+        store.append_event(
+            "test-3",
+            &Event {
+                event_type: "session.status".into(),
+                timestamp: "t2".into(),
+                status: "running".into(),
+                observed_status: None,
+                confidence: None,
+            },
+        );
         let events = store.read_events("test-3");
         assert_eq!(events.len(), 2);
         assert_eq!(events[0].event_type, "session.created");
@@ -1306,20 +1486,30 @@ mod tests {
             harness_session_id_captured_at: None,
             resumed_from: None,
             last_user_input: None,
+            debug_injection: None,
         });
 
         // First inference: harness detected, no model
         let inf = crate::peon::PeonInference {
             observed_status: Some("working".into()),
-            phase: None, summary: None, next_action: None,
-            needs_user_input: None, detected_question: None, suggested_options: None,
-            blocker_description: None, failed_command: None, failed_test: None,
-            capacity_hints: None, confidence: 0.8,
+            phase: None,
+            summary: None,
+            next_action: None,
+            needs_user_input: None,
+            detected_question: None,
+            suggested_options: None,
+            blocker_description: None,
+            failed_command: None,
+            failed_test: None,
+            capacity_hints: None,
+            confidence: 0.8,
             detected_harness: Some("claude-code".into()),
             detected_model: None,
             harness_session_id: None,
         };
-        store.merge_peon_inference("rename-test", &inf, "t1", None).unwrap();
+        store
+            .merge_peon_inference("rename-test", &inf, "t1", None)
+            .unwrap();
         let meta = store.read_session("rename-test").unwrap();
         // Peon no longer updates the label — harness/model are recorded but label is unchanged
         assert_eq!(meta.label, "Session abc12345");
@@ -1328,15 +1518,24 @@ mod tests {
 
         let inf2 = crate::peon::PeonInference {
             observed_status: Some("working".into()),
-            phase: None, summary: None, next_action: None,
-            needs_user_input: None, detected_question: None, suggested_options: None,
-            blocker_description: None, failed_command: None, failed_test: None,
-            capacity_hints: None, confidence: 0.9,
+            phase: None,
+            summary: None,
+            next_action: None,
+            needs_user_input: None,
+            detected_question: None,
+            suggested_options: None,
+            blocker_description: None,
+            failed_command: None,
+            failed_test: None,
+            capacity_hints: None,
+            confidence: 0.9,
             detected_harness: Some("claude-code".into()),
             detected_model: Some("claude-sonnet-4-5".into()),
             harness_session_id: None,
         };
-        store.merge_peon_inference("rename-test", &inf2, "t2", None).unwrap();
+        store
+            .merge_peon_inference("rename-test", &inf2, "t2", None)
+            .unwrap();
         let meta2 = store.read_session("rename-test").unwrap();
         assert_eq!(meta2.label, "Session abc12345");
         assert_eq!(meta2.harness, "claude-code");
@@ -1394,6 +1593,7 @@ mod tests {
             harness_session_id_captured_at: None,
             resumed_from: None,
             last_user_input: None,
+            debug_injection: None,
         });
 
         let inf = crate::peon::PeonInference {
@@ -1414,7 +1614,9 @@ mod tests {
             harness_session_id: None,
         };
 
-        store.merge_peon_inference("test-peon-observer", &inf, "later", None).unwrap();
+        store
+            .merge_peon_inference("test-peon-observer", &inf, "later", None)
+            .unwrap();
 
         let meta = store.read_session("test-peon-observer").unwrap();
         assert_eq!(meta.status, "running");
@@ -1438,29 +1640,67 @@ mod tests {
             observed_status: Some("waiting_for_input".into()),
             detected_question: Some(question.into()),
             suggested_options: options,
-            phase: None, summary: None, next_action: None, needs_user_input: None,
-            blocker_description: None, failed_command: None, failed_test: None,
-            capacity_hints: None, confidence: 0.8,
-            detected_harness: None, detected_model: None, harness_session_id: None,
+            phase: None,
+            summary: None,
+            next_action: None,
+            needs_user_input: None,
+            blocker_description: None,
+            failed_command: None,
+            failed_test: None,
+            capacity_hints: None,
+            confidence: 0.8,
+            detected_harness: None,
+            detected_model: None,
+            harness_session_id: None,
         };
 
         // Poll 1: question with options
-        store.merge_peon_inference("sess-q-change", &make_inf("Proceed?", Some(vec!["yes".into(), "no".into()])), "t1", None).unwrap();
+        store
+            .merge_peon_inference(
+                "sess-q-change",
+                &make_inf("Proceed?", Some(vec!["yes".into(), "no".into()])),
+                "t1",
+                None,
+            )
+            .unwrap();
         let meta = store.read_session("sess-q-change").unwrap();
-        assert_eq!(meta.suggested_options.as_deref(), Some(["yes".to_string(), "no".to_string()].as_slice()));
+        assert_eq!(
+            meta.suggested_options.as_deref(),
+            Some(["yes".to_string(), "no".to_string()].as_slice())
+        );
 
         // Poll 2: different question, no options — stale options must not persist
-        store.merge_peon_inference("sess-q-change", &make_inf("What filename?", None), "t2", None).unwrap();
+        store
+            .merge_peon_inference(
+                "sess-q-change",
+                &make_inf("What filename?", None),
+                "t2",
+                None,
+            )
+            .unwrap();
         let meta = store.read_session("sess-q-change").unwrap();
         assert_eq!(meta.detected_question.as_deref(), Some("What filename?"));
-        assert!(meta.suggested_options.is_none(), "stale options must be cleared when question changes");
+        assert!(
+            meta.suggested_options.is_none(),
+            "stale options must be cleared when question changes"
+        );
 
         // Poll 3: different question WITH new options — new options must survive
-        store.merge_peon_inference("sess-q-change", &make_inf("New question?", Some(vec!["a".into(), "b".into()])), "t3", None).unwrap();
+        store
+            .merge_peon_inference(
+                "sess-q-change",
+                &make_inf("New question?", Some(vec!["a".into(), "b".into()])),
+                "t3",
+                None,
+            )
+            .unwrap();
         let meta = store.read_session("sess-q-change").unwrap();
         assert_eq!(meta.detected_question.as_deref(), Some("New question?"));
-        assert_eq!(meta.suggested_options.as_deref(), Some(["a".to_string(), "b".to_string()].as_slice()),
-            "new options must be kept when question changes with options provided");
+        assert_eq!(
+            meta.suggested_options.as_deref(),
+            Some(["a".to_string(), "b".to_string()].as_slice()),
+            "new options must be kept when question changes with options provided"
+        );
     }
 
     #[test]
@@ -1472,10 +1712,19 @@ mod tests {
         let inf_real = crate::peon::PeonInference {
             detected_question: Some("Proceed?".into()),
             suggested_options: Some(vec!["yes".into(), "no".into()]),
-            observed_status: None, phase: None, summary: None, next_action: None,
-            needs_user_input: None, blocker_description: None, failed_command: None,
-            failed_test: None, capacity_hints: None, confidence: 0.8,
-            detected_harness: None, detected_model: None, harness_session_id: None,
+            observed_status: None,
+            phase: None,
+            summary: None,
+            next_action: None,
+            needs_user_input: None,
+            blocker_description: None,
+            failed_command: None,
+            failed_test: None,
+            capacity_hints: None,
+            confidence: 0.8,
+            detected_harness: None,
+            detected_model: None,
+            harness_session_id: None,
         };
         let inf_empty = crate::peon::PeonInference {
             detected_question: Some("".into()),
@@ -1483,14 +1732,24 @@ mod tests {
             ..inf_real.clone()
         };
 
-        store.merge_peon_inference("sess-q-empty", &inf_real, "t1", None).unwrap();
-        store.merge_peon_inference("sess-q-empty", &inf_empty, "t2", None).unwrap();
+        store
+            .merge_peon_inference("sess-q-empty", &inf_real, "t1", None)
+            .unwrap();
+        store
+            .merge_peon_inference("sess-q-empty", &inf_empty, "t2", None)
+            .unwrap();
 
         let meta = store.read_session("sess-q-empty").unwrap();
-        assert_eq!(meta.detected_question.as_deref(), Some("Proceed?"),
-            "empty-string question must not overwrite a real question");
-        assert_eq!(meta.suggested_options.as_deref(), Some(["yes".to_string(), "no".to_string()].as_slice()),
-            "options must not be cleared by an empty-string question");
+        assert_eq!(
+            meta.detected_question.as_deref(),
+            Some("Proceed?"),
+            "empty-string question must not overwrite a real question"
+        );
+        assert_eq!(
+            meta.suggested_options.as_deref(),
+            Some(["yes".to_string(), "no".to_string()].as_slice()),
+            "options must not be cleared by an empty-string question"
+        );
     }
 
     #[test]
@@ -1503,18 +1762,38 @@ mod tests {
             observed_status: Some("waiting_for_input".into()),
             detected_question: Some(question.into()),
             suggested_options: options,
-            phase: None, summary: None, next_action: None, needs_user_input: None,
-            blocker_description: None, failed_command: None, failed_test: None,
-            capacity_hints: None, confidence: 0.8,
-            detected_harness: None, detected_model: None, harness_session_id: None,
+            phase: None,
+            summary: None,
+            next_action: None,
+            needs_user_input: None,
+            blocker_description: None,
+            failed_command: None,
+            failed_test: None,
+            capacity_hints: None,
+            confidence: 0.8,
+            detected_harness: None,
+            detected_model: None,
+            harness_session_id: None,
         };
 
-        store.merge_peon_inference("sess-q-repeat", &make_inf("Proceed?", Some(vec!["yes".into(), "no".into()])), "t1", None).unwrap();
+        store
+            .merge_peon_inference(
+                "sess-q-repeat",
+                &make_inf("Proceed?", Some(vec!["yes".into(), "no".into()])),
+                "t1",
+                None,
+            )
+            .unwrap();
         // Same question, no options re-emitted — should retain existing options
-        store.merge_peon_inference("sess-q-repeat", &make_inf("Proceed?", None), "t2", None).unwrap();
+        store
+            .merge_peon_inference("sess-q-repeat", &make_inf("Proceed?", None), "t2", None)
+            .unwrap();
         let meta = store.read_session("sess-q-repeat").unwrap();
-        assert_eq!(meta.suggested_options.as_deref(), Some(["yes".to_string(), "no".to_string()].as_slice()),
-            "options for the same question must be retained when re-poll omits them");
+        assert_eq!(
+            meta.suggested_options.as_deref(),
+            Some(["yes".to_string(), "no".to_string()].as_slice()),
+            "options for the same question must be retained when re-poll omits them"
+        );
     }
 
     fn test_metadata(id: &str) -> SessionMetadata {
@@ -1565,6 +1844,7 @@ mod tests {
             harness_session_id_captured_at: None,
             resumed_from: None,
             last_user_input: None,
+            debug_injection: None,
         }
     }
 
@@ -1581,7 +1861,10 @@ mod tests {
 
         let memory = store.read_workspace_memory().unwrap();
         assert_eq!(memory.last_active_session_id.as_deref(), Some("session-1"));
-        assert_eq!(memory.last_active_at.as_deref(), Some("2026-06-17T12:00:00Z"));
+        assert_eq!(
+            memory.last_active_at.as_deref(),
+            Some("2026-06-17T12:00:00Z")
+        );
     }
 
     #[test]
@@ -1602,7 +1885,10 @@ mod tests {
 
         assert_eq!(all.len(), 1);
         assert_eq!(
-            all[0].resume.as_ref().and_then(|r| r.harness_session_id.as_deref()),
+            all[0]
+                .resume
+                .as_ref()
+                .and_then(|r| r.harness_session_id.as_deref()),
             Some("sess-abc"),
         );
     }
@@ -1630,9 +1916,15 @@ mod tests {
         assert_eq!(resume.preferred_strategy, ResumeStrategy::Exact);
         assert_eq!(resume.harness_session_id.as_deref(), Some("native-123"));
         assert_eq!(resume.last_seen_at.as_deref(), Some("2026-06-26T12:00:00Z"));
-        assert_eq!(updated.harness_session_id_source.as_deref(), Some("opencode_env"));
+        assert_eq!(
+            updated.harness_session_id_source.as_deref(),
+            Some("opencode_env")
+        );
         assert_eq!(updated.harness_session_id_confidence, Some(0.98));
-        assert_eq!(updated.harness_session_id_captured_at.as_deref(), Some("2026-06-26T12:00:00Z"));
+        assert_eq!(
+            updated.harness_session_id_captured_at.as_deref(),
+            Some("2026-06-26T12:00:00Z")
+        );
     }
 
     #[test]
@@ -1665,10 +1957,16 @@ mod tests {
         assert_eq!(result, HarnessSessionMergeResult::IgnoredLowerConfidence);
         let updated = store.read_session("confidence-test").unwrap();
         assert_eq!(
-            updated.resume.as_ref().and_then(|r| r.harness_session_id.as_deref()),
+            updated
+                .resume
+                .as_ref()
+                .and_then(|r| r.harness_session_id.as_deref()),
             Some("native-high"),
         );
-        assert_eq!(updated.harness_session_id_source.as_deref(), Some("opencode_env"));
+        assert_eq!(
+            updated.harness_session_id_source.as_deref(),
+            Some("opencode_env")
+        );
         assert_eq!(updated.harness_session_id_confidence, Some(0.98));
     }
 
@@ -1701,8 +1999,14 @@ mod tests {
 
         assert_eq!(result, HarnessSessionMergeResult::Accepted);
         let updated = store.read_session("equal-confidence-test").unwrap();
-        assert_eq!(updated.harness_session_id_source.as_deref(), Some("claude_hook"));
-        assert_eq!(updated.harness_session_id_captured_at.as_deref(), Some("2026-06-26T12:00:00Z"));
+        assert_eq!(
+            updated.harness_session_id_source.as_deref(),
+            Some("claude_hook")
+        );
+        assert_eq!(
+            updated.harness_session_id_captured_at.as_deref(),
+            Some("2026-06-26T12:00:00Z")
+        );
     }
 
     #[test]
@@ -1722,7 +2026,10 @@ mod tests {
 
         assert_eq!(result, AttentionMergeResult::Accepted);
         let updated = store.read_session("attention-accept-test").unwrap();
-        assert_eq!(updated.observed_status.as_deref(), Some("waiting_for_input"));
+        assert_eq!(
+            updated.observed_status.as_deref(),
+            Some("waiting_for_input")
+        );
         assert_eq!(updated.metadata_source, "agent");
         assert_eq!(updated.metadata_confidence, 1.0);
     }
@@ -1742,7 +2049,10 @@ mod tests {
         );
 
         let updated = store.read_session("attention-message-test").unwrap();
-        assert_eq!(updated.summary.as_deref(), Some("Needs approval to proceed"));
+        assert_eq!(
+            updated.summary.as_deref(),
+            Some("Needs approval to proceed")
+        );
     }
 
     #[test]
@@ -1791,15 +2101,24 @@ mod tests {
 
         let inf = crate::peon::PeonInference {
             observed_status: Some("working".into()),
-            phase: None, summary: None, next_action: None,
-            needs_user_input: None, detected_question: None, suggested_options: None,
-            blocker_description: None, failed_command: None, failed_test: None,
-            capacity_hints: None, confidence: 0.9,
+            phase: None,
+            summary: None,
+            next_action: None,
+            needs_user_input: None,
+            detected_question: None,
+            suggested_options: None,
+            blocker_description: None,
+            failed_command: None,
+            failed_test: None,
+            capacity_hints: None,
+            confidence: 0.9,
             detected_harness: Some("claude-code".into()),
             detected_model: Some("claude-sonnet-4-5".into()),
             harness_session_id: Some("sess-abc123".into()),
         };
-        store.merge_peon_inference("session-id-test", &inf, "2026-06-20T12:00:00Z", None).unwrap();
+        store
+            .merge_peon_inference("session-id-test", &inf, "2026-06-20T12:00:00Z", None)
+            .unwrap();
 
         let updated = store.read_session("session-id-test").unwrap();
         let resume = updated.resume.unwrap();
@@ -1844,14 +2163,22 @@ mod tests {
             detected_model: None,
             harness_session_id: Some("native-peon".into()),
         };
-        store.merge_peon_inference("peon-confidence-test", &inf, "2026-06-26T12:00:00Z", None).unwrap();
+        store
+            .merge_peon_inference("peon-confidence-test", &inf, "2026-06-26T12:00:00Z", None)
+            .unwrap();
 
         let updated = store.read_session("peon-confidence-test").unwrap();
         assert_eq!(
-            updated.resume.as_ref().and_then(|r| r.harness_session_id.as_deref()),
+            updated
+                .resume
+                .as_ref()
+                .and_then(|r| r.harness_session_id.as_deref()),
             Some("native-high"),
         );
-        assert_eq!(updated.harness_session_id_source.as_deref(), Some("opencode_env"));
+        assert_eq!(
+            updated.harness_session_id_source.as_deref(),
+            Some("opencode_env")
+        );
     }
 
     #[test]
@@ -1863,15 +2190,24 @@ mod tests {
 
         let inf = crate::peon::PeonInference {
             observed_status: Some("working".into()),
-            phase: None, summary: None, next_action: None,
-            needs_user_input: None, detected_question: None, suggested_options: None,
-            blocker_description: None, failed_command: None, failed_test: None,
-            capacity_hints: None, confidence: 0.9,
+            phase: None,
+            summary: None,
+            next_action: None,
+            needs_user_input: None,
+            detected_question: None,
+            suggested_options: None,
+            blocker_description: None,
+            failed_command: None,
+            failed_test: None,
+            capacity_hints: None,
+            confidence: 0.9,
             detected_harness: None,
             detected_model: None,
             harness_session_id: Some("".into()),
         };
-        store.merge_peon_inference("empty-sid-test", &inf, "2026-06-20T12:00:00Z", None).unwrap();
+        store
+            .merge_peon_inference("empty-sid-test", &inf, "2026-06-20T12:00:00Z", None)
+            .unwrap();
 
         let updated = store.read_session("empty-sid-test").unwrap();
         assert!(updated.resume.is_none());
@@ -1888,15 +2224,24 @@ mod tests {
             store.write_session(&meta);
             let inf = crate::peon::PeonInference {
                 observed_status: Some("working".into()),
-                phase: None, summary: None, next_action: None,
-                needs_user_input: None, detected_question: None, suggested_options: None,
-                blocker_description: None, failed_command: None, failed_test: None,
-                capacity_hints: None, confidence: 0.9,
+                phase: None,
+                summary: None,
+                next_action: None,
+                needs_user_input: None,
+                detected_question: None,
+                suggested_options: None,
+                blocker_description: None,
+                failed_command: None,
+                failed_test: None,
+                capacity_hints: None,
+                confidence: 0.9,
                 detected_harness: None,
                 detected_model: None,
                 harness_session_id: Some("ab".into()),
             };
-            store.merge_peon_inference("short-sid", &inf, "2026-06-20T12:00:00Z", None).unwrap();
+            store
+                .merge_peon_inference("short-sid", &inf, "2026-06-20T12:00:00Z", None)
+                .unwrap();
             assert!(store.read_session("short-sid").unwrap().resume.is_none());
         }
 
@@ -1906,16 +2251,29 @@ mod tests {
             store.write_session(&meta);
             let inf = crate::peon::PeonInference {
                 observed_status: Some("working".into()),
-                phase: None, summary: None, next_action: None,
-                needs_user_input: None, detected_question: None, suggested_options: None,
-                blocker_description: None, failed_command: None, failed_test: None,
-                capacity_hints: None, confidence: 0.9,
+                phase: None,
+                summary: None,
+                next_action: None,
+                needs_user_input: None,
+                detected_question: None,
+                suggested_options: None,
+                blocker_description: None,
+                failed_command: None,
+                failed_test: None,
+                capacity_hints: None,
+                confidence: 0.9,
                 detected_harness: None,
                 detected_model: None,
                 harness_session_id: Some("not an id".into()),
             };
-            store.merge_peon_inference("whitespace-sid", &inf, "2026-06-20T12:00:00Z", None).unwrap();
-            assert!(store.read_session("whitespace-sid").unwrap().resume.is_none());
+            store
+                .merge_peon_inference("whitespace-sid", &inf, "2026-06-20T12:00:00Z", None)
+                .unwrap();
+            assert!(store
+                .read_session("whitespace-sid")
+                .unwrap()
+                .resume
+                .is_none());
         }
     }
 
@@ -1981,13 +2339,16 @@ mod tests {
     fn delete_events_removes_ndjson_and_terminal() {
         let dir = tempfile::tempdir().unwrap();
         let store = MetadataStore::new(dir.path());
-        store.append_event("del-test", &Event {
-            event_type: "session.created".into(),
-            timestamp: "t1".into(),
-            status: "creating".into(),
-            observed_status: None,
-            confidence: None,
-        });
+        store.append_event(
+            "del-test",
+            &Event {
+                event_type: "session.created".into(),
+                timestamp: "t1".into(),
+                status: "creating".into(),
+                observed_status: None,
+                confidence: None,
+            },
+        );
         store.append_terminal_output_lines("del-test", &["line 1".into(), "line 2".into()]);
 
         let ndjson_path = store.events_dir().join("del-test.ndjson");
@@ -2039,7 +2400,9 @@ mod tests {
             provider_state: "healthy".into(),
         };
 
-        store.merge_peon_inference("provider-context", &inf, "later", Some(&provider)).unwrap();
+        store
+            .merge_peon_inference("provider-context", &inf, "later", Some(&provider))
+            .unwrap();
 
         let meta = store.read_session("provider-context").unwrap();
         assert_eq!(meta.provider_id.as_deref(), Some("claude-code"));
@@ -2074,7 +2437,8 @@ mod tests {
         std::fs::write(
             store.sessions_dir().join("canonical-fields.json"),
             serde_json::to_string_pretty(&raw).unwrap(),
-        ).unwrap();
+        )
+        .unwrap();
 
         let meta = store.read_session("canonical-fields").unwrap();
         assert_eq!(meta.harness, "opencode");
@@ -2107,7 +2471,8 @@ mod tests {
         std::fs::write(
             store.sessions_dir().join("legacy-ended.json"),
             serde_json::to_string_pretty(&raw).unwrap(),
-        ).unwrap();
+        )
+        .unwrap();
 
         let meta = store.read_session("legacy-ended").unwrap();
         assert_eq!(meta.connectivity, "offline");
@@ -2130,7 +2495,10 @@ mod tests {
             "corrupt session file must be quarantined, not left in place"
         );
         assert!(
-            store.sessions_dir().join("corrupt-read.json.corrupt").exists(),
+            store
+                .sessions_dir()
+                .join("corrupt-read.json.corrupt")
+                .exists(),
             "corrupt session file must be renamed to .corrupt so the loss is observable"
         );
     }
@@ -2164,7 +2532,10 @@ mod tests {
             .filter_map(|e| e.ok())
             .filter(|e| e.path().extension().and_then(|x| x.to_str()) != Some("json"))
             .collect();
-        assert!(leftovers.is_empty(), "atomic write must not leave temp files: {leftovers:?}");
+        assert!(
+            leftovers.is_empty(),
+            "atomic write must not leave temp files: {leftovers:?}"
+        );
         assert_eq!(store.read_session("tmp-clean").unwrap().id, "tmp-clean");
     }
 
@@ -2204,6 +2575,8 @@ mod tests {
 
         let inf: crate::peon::PeonInference =
             serde_json::from_str(r#"{"status":"working","confidence":0.9}"#).unwrap();
-        assert!(store.merge_peon_inference("peon-fail", &inf, "now", None).is_err());
+        assert!(store
+            .merge_peon_inference("peon-fail", &inf, "now", None)
+            .is_err());
     }
 }

@@ -35,7 +35,9 @@ pub(crate) fn session_recommendation(
         return Some("Running in a separate worktree. Good isolation.".into());
     }
     if session_count_in_cwd >= 2 && ctx.dirty {
-        return Some("Multiple sessions in the same dirty workspace. Consider separate worktrees.".into());
+        return Some(
+            "Multiple sessions in the same dirty workspace. Consider separate worktrees.".into(),
+        );
     }
     if !ctx.is_worktree && ctx.dirty && ctx.branch.as_deref() != Some("main") {
         return Some("Working outside main in a dirty workspace. A worktree may be safer.".into());
@@ -66,7 +68,8 @@ pub(crate) fn merge_live_session_info(
     let is_live = info.status != "killed" && info.status != "ended" && info.status != "error";
     let (memory_state, resume_strategy) = derive_memory_state(
         is_live,
-        meta.and_then(|m| m.resume.as_ref()).or(info.resume.as_ref()),
+        meta.and_then(|m| m.resume.as_ref())
+            .or(info.resume.as_ref()),
         capabilities,
     );
     let resume = meta.and_then(|m| m.resume.clone()).or(info.resume);
@@ -77,7 +80,9 @@ pub(crate) fn merge_live_session_info(
         harness_id: meta
             .and_then(|m| (!m.harness.is_empty()).then(|| m.harness.clone()))
             .or(info.harness_id),
-        model_provider_id: meta.and_then(|m| m.provider_id.clone()).or(info.model_provider_id),
+        model_provider_id: meta
+            .and_then(|m| m.provider_id.clone())
+            .or(info.model_provider_id),
         model_id: meta
             .and_then(|m| (!m.model.is_empty()).then(|| m.model.clone()))
             .or(info.model_id),
@@ -87,7 +92,9 @@ pub(crate) fn merge_live_session_info(
         model: meta
             .and_then(|m| (!m.model.is_empty()).then(|| m.model.clone()))
             .or(info.model),
-        work_phase: meta.map(|m| m.work_phase.clone()).unwrap_or(info.work_phase),
+        work_phase: meta
+            .map(|m| m.work_phase.clone())
+            .unwrap_or(info.work_phase),
         lifecycle_phase: meta
             .map(|m| m.lifecycle_phase.clone())
             .unwrap_or(info.lifecycle_phase),
@@ -107,10 +114,16 @@ pub(crate) fn merge_live_session_info(
                     .and_then(|snapshot| snapshot.value.clone())
             })
             .or(info.final_observed_status),
-        observed_status: meta.and_then(|m| m.observed_status.clone()).or(info.observed_status),
+        observed_status: meta
+            .and_then(|m| m.observed_status.clone())
+            .or(info.observed_status),
         summary: meta.and_then(|m| m.summary.clone()).or(info.summary),
-        next_action: meta.and_then(|m| m.next_action.clone()).or(info.next_action),
-        needs_user_input: meta.and_then(|m| m.needs_user_input).or(info.needs_user_input),
+        next_action: meta
+            .and_then(|m| m.next_action.clone())
+            .or(info.next_action),
+        needs_user_input: meta
+            .and_then(|m| m.needs_user_input)
+            .or(info.needs_user_input),
         detected_question: meta
             .and_then(|m| m.detected_question.clone())
             .or(info.detected_question),
@@ -120,14 +133,24 @@ pub(crate) fn merge_live_session_info(
         blocker_description: meta
             .and_then(|m| m.blocker_description.clone())
             .or(info.blocker_description),
-        failed_command: meta.and_then(|m| m.failed_command.clone()).or(info.failed_command),
-        failed_test: meta.and_then(|m| m.failed_test.clone()).or(info.failed_test),
-        capacity_hints: meta.and_then(|m| m.capacity_hints.clone()).or(info.capacity_hints),
+        failed_command: meta
+            .and_then(|m| m.failed_command.clone())
+            .or(info.failed_command),
+        failed_test: meta
+            .and_then(|m| m.failed_test.clone())
+            .or(info.failed_test),
+        capacity_hints: meta
+            .and_then(|m| m.capacity_hints.clone())
+            .or(info.capacity_hints),
         at_usage_limit: None,
         capacity_check_pending: info.capacity_check_pending,
         usage_limit_reset_hint: None,
-        metadata_source: meta.map(|m| m.metadata_source.clone()).or(info.metadata_source),
-        metadata_confidence: meta.map(|m| m.metadata_confidence).or(info.metadata_confidence),
+        metadata_source: meta
+            .map(|m| m.metadata_source.clone())
+            .or(info.metadata_source),
+        metadata_confidence: meta
+            .map(|m| m.metadata_confidence)
+            .or(info.metadata_confidence),
         peon_last_inference: meta
             .and_then(|m| m.peon_last_inference.clone())
             .or(info.peon_last_inference)
@@ -149,10 +172,18 @@ pub(crate) fn merge_live_session_info(
             capabilities.resume_latest_in_cwd,
             capabilities.resume_latest_in_repo,
         ),
-        resumed_from: meta.and_then(|m| m.resumed_from.clone()).or(info.resumed_from),
-        provider: meta.and_then(|m| m.provider_label.clone()).or(info.provider),
-        provider_model: meta.and_then(|m| m.provider_model.clone()).or(info.provider_model),
-        provider_state: meta.and_then(|m| m.provider_state.clone()).or(info.provider_state),
+        resumed_from: meta
+            .and_then(|m| m.resumed_from.clone())
+            .or(info.resumed_from),
+        provider: meta
+            .and_then(|m| m.provider_label.clone())
+            .or(info.provider),
+        provider_model: meta
+            .and_then(|m| m.provider_model.clone())
+            .or(info.provider_model),
+        provider_state: meta
+            .and_then(|m| m.provider_state.clone())
+            .or(info.provider_state),
     }
 }
 
@@ -276,7 +307,10 @@ mod tests {
 
         assert_eq!(merged.connectivity.as_deref(), Some("offline"));
         assert_eq!(merged.terminal_outcome.as_deref(), Some("ended"));
-        assert_eq!(merged.last_activity_at.as_deref(), Some("2026-06-28T09:05:00Z"));
+        assert_eq!(
+            merged.last_activity_at.as_deref(),
+            Some("2026-06-28T09:05:00Z")
+        );
         assert_eq!(merged.resume_options.len(), 3);
         assert!(!merged.resume_options[0].available);
         assert_eq!(
@@ -297,8 +331,14 @@ mod tests {
     #[test]
     fn terminal_outcome_for_status_marks_ended_sessions_offline_with_terminal_outcome() {
         assert_eq!(terminal_outcome_for_status("running"), None);
-        assert_eq!(terminal_outcome_for_status("ended").as_deref(), Some("ended"));
-        assert_eq!(terminal_outcome_for_status("killed").as_deref(), Some("killed"));
+        assert_eq!(
+            terminal_outcome_for_status("ended").as_deref(),
+            Some("ended")
+        );
+        assert_eq!(
+            terminal_outcome_for_status("killed").as_deref(),
+            Some("killed")
+        );
     }
 
     #[test]
@@ -374,6 +414,7 @@ mod tests {
             harness_session_id_captured_at: None,
             resumed_from: None,
             last_user_input: None,
+            debug_injection: None,
         };
         let caps = harness::HarnessCapabilities {
             launch: true,
@@ -390,16 +431,25 @@ mod tests {
         let merged = merge_live_session_info(info, Some(&meta), None, &caps);
 
         assert_eq!(merged.resume_options.len(), 3);
-        assert_eq!(merged.resume_options[0].strategy, harness::ResumeStrategy::Exact);
+        assert_eq!(
+            merged.resume_options[0].strategy,
+            harness::ResumeStrategy::Exact
+        );
         assert!(!merged.resume_options[0].available);
         assert_eq!(
             merged.resume_options[0].reason.as_deref(),
             Some("No harness session id was captured"),
         );
-        assert_eq!(merged.resume_options[1].strategy, harness::ResumeStrategy::LatestCwd);
+        assert_eq!(
+            merged.resume_options[1].strategy,
+            harness::ResumeStrategy::LatestCwd
+        );
         assert!(merged.resume_options[1].available);
         assert!(merged.resume_options[1].preferred);
-        assert_eq!(merged.resume_options[2].strategy, harness::ResumeStrategy::LatestRepo);
+        assert_eq!(
+            merged.resume_options[2].strategy,
+            harness::ResumeStrategy::LatestRepo
+        );
         assert!(!merged.resume_options[2].available);
     }
 

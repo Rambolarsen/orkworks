@@ -243,6 +243,31 @@ app.whenReady().then(() => {
     return { ok: true, settings: rendererSettings(currentSettings) };
   });
 
+  ipcMain.handle("list-session-state-injections", async () => {
+    if (!(currentSettings ?? readSettings(app.getPath("userData"))).debug.showSessionIds) {
+      throw new Error("debug metadata must be enabled before using state injection");
+    }
+    const port = await portPromise;
+    const resp = await fetch(`http://127.0.0.1:${port}/sessions/debug-injections`);
+    if (!resp.ok) throw new Error(`list state injections failed: ${resp.status}`);
+    return resp.json();
+  });
+
+  ipcMain.handle("apply-session-state-injection", async (_event, payload: unknown) => {
+    if (!(currentSettings ?? readSettings(app.getPath("userData"))).debug.showSessionIds) {
+      throw new Error("debug metadata must be enabled before using state injection");
+    }
+    const { sessionId, injectionId } = payload as { sessionId: string; injectionId: string };
+    const port = await portPromise;
+    const resp = await fetch(`http://127.0.0.1:${port}/sessions/${sessionId}/debug-injection`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ injectionId }),
+    });
+    if (!resp.ok) throw new Error(`apply state injection failed: ${resp.status}`);
+    return resp.json();
+  });
+
   ipcMain.handle("save-provider-settings", async (_event, providers: ProviderSettings) => {
     const baseSettings = currentSettings ?? readSettings(app.getPath("userData"));
     const nextSettings: AppSettings = {

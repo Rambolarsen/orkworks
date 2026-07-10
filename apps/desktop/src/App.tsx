@@ -26,6 +26,10 @@ import {
 import { disposeTerminal, getTerminal } from "./terminalStore";
 import type { AppSettings } from "./appSettingsTypes";
 import type { HarnessConfig, CreateSessionOptions } from "./harnessTypes";
+import {
+  type SessionStateInjectionOption,
+  replaceSessionAfterInjection,
+} from "./sessionStateInjection";
 
 function App() {
   const [backendStatus, setBackendStatus] = useState<string>("connecting…");
@@ -41,6 +45,7 @@ function App() {
   const [harnesses, setHarnesses] = useState<HarnessConfig[]>([]);
   const [activeHarnessIds, setActiveHarnessIds] = useState<string[]>([]);
   const [newSessionDialogOpen, setNewSessionDialogOpen] = useState(false);
+  const [stateInjectionOptions, setStateInjectionOptions] = useState<SessionStateInjectionOption[]>([]);
   const dockviewApiRef = useRef<DockviewApi | null>(null);
   const sessionsHiddenLayoutRef = useRef<string | null>(null);
 
@@ -107,6 +112,33 @@ function App() {
     }
     loadHarnesses();
   }, [backendStatus]);
+
+  useEffect(() => {
+    if (backendStatus !== "connected") return;
+    if (!settings?.debug.showSessionIds) {
+      setStateInjectionOptions([]);
+      return;
+    }
+
+    let cancelled = false;
+    async function loadStateInjectionOptions() {
+      try {
+        const options = await window.orkworks.listSessionStateInjections();
+        if (!cancelled) {
+          setStateInjectionOptions(options);
+        }
+      } catch {
+        if (!cancelled) {
+          pushToast("error", "Couldn't load state injection options.");
+        }
+      }
+    }
+
+    loadStateInjectionOptions();
+    return () => {
+      cancelled = true;
+    };
+  }, [backendStatus, settings?.debug.showSessionIds]);
 
   const filteredHarnesses = activeHarnessIds.length === 0
     ? harnesses.filter((h) => h.id === "generic-shell")
@@ -253,6 +285,16 @@ function App() {
       setResumeTick(t => t + 1);
     } catch {
       pushToast("error", "Couldn't resume session.");
+    }
+  }, []);
+
+  const handleApplyStateInjection = useCallback(async (id: string, injectionId: string) => {
+    try {
+      const injected = await window.orkworks.applySessionStateInjection(id, injectionId);
+      setSessions((prev) => sortSessions(replaceSessionAfterInjection(prev, injected)));
+      pushToast("info", `Applied state injection: ${injectionId}`);
+    } catch {
+      pushToast("error", "Couldn't apply state injection.");
     }
   }, []);
 
@@ -438,8 +480,10 @@ function App() {
         onKillSession={handleKillSession}
         onForgetSession={handleForgetSession}
         onResumeSession={handleResumeSession}
+        onApplyStateInjection={handleApplyStateInjection}
         onFocusTerminal={handleFocusTerminal}
         onOpenWorkspace={handleOpenWorkspace}
+        stateInjectionOptions={stateInjectionOptions}
         dockviewApiRef={dockviewApiRef}
       />
       {newSessionDialogOpen && (

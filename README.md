@@ -27,7 +27,7 @@ orkworks/
 - New agent sessions can be launched with a selected coding tool, optional model override, and optional initial prompt; the dialog remembers the last coding tool/model choice, and harness definitions are loaded from the sidecar's built-ins plus `~/.orkworks/harnesses.json`
 - The app remembers the last workspace and repo-local active session for relaunch restore
 - The Electron main process owns app-level settings in `userData`, including canonical default hotkeys and persisted hotkeys that drive native menu accelerators
-- Session details show read-only `Coding tool`, `Model provider`, `Model`, and `Provider state` for the selected session. The backend fallback system (Peon skips disabled/capped model providers) remains in place behind the scenes.
+- Session details show read-only `Coding tool`, `Model provider`, `Model`, and `Provider state` for the selected session. When `Show debug metadata` is enabled, the Details panel also exposes a curated debug-only state injection control for watching runtime convergence without editing arbitrary metadata. The backend fallback system (Peon skips disabled/capped model providers) remains in place behind the scenes.
 - Runtime lifecycle is explicit via `lifecyclePhase`; Peon writes live observer metadata such as `observedStatus` only while a session is active, and ended sessions use a frozen final observed snapshot (see [ADR 0021](docs/adr/0021-session-lifecycle-phases.md))
 - PTY lifetime is owned by the Rust sidecar session runtime rather than by a renderer WebSocket; active work survives terminal detach while `orkworksd` stays alive (see [ADR 0022](docs/adr/0022-session-runtime-owned-pty-lifetime.md))
 - Taskmaster consumes Peon reports and workspace context to propose the next session or user action
@@ -44,7 +44,7 @@ All metadata lives under `~/.orkworks/` (see [ADR 0018](docs/adr/0018-global-met
 - `~/.orkworks/workspaces/<hash>/workspace.json` — workspace memory, including the last active session
 - `~/.orkworks/harnesses.json` — global harness definitions
 - `~/.orkworks/hook-scripts/` — stable copies of harness reporter scripts, so installed hooks survive app updates and packaging path changes
-- Priority: user > agent > peon > backend_inference > process > unknown (see [ADR 0005](docs/adr/0005-metadata-source-priority.md))
+- Priority: user > agent > peon > backend_inference > process > unknown > debug (see [ADR 0005](docs/adr/0005-metadata-source-priority.md))
 - Session records include explicit `workPhase`, `lifecyclePhase`, pending terminal outcome, and final observed-state snapshots; legacy `phase` is normalized on read
 - Peon reads terminal output, writes inferred metadata, never types into terminals
 - Harnesses can write deterministic attention signals at `agent` priority via `POST /sessions/:id/attention`; installation is explicit and user-confirmed only ([ADR 0019](docs/adr/0019-attention-signal-endpoint-opt-in-hook-install.md))
