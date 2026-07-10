@@ -41,6 +41,11 @@ async fn list_sessions_debug_capped_overlay_does_not_latch_or_propagate_capacity
     assert_eq!(find_session(&second, "sibling")["atUsageLimit"], false);
     assert_eq!(state.sessions.lock().unwrap()["debug-capped"].at_usage_limit_latched, false);
     assert_eq!(opencode_provider_state(&state), "healthy");
+    write_metadata_source(&state, "debug-capped", "process");
+    let clearing_poll = list_session_json(&state).await;
+    // After a non-debug runtime update clears the overlay, that same poll must
+    // no longer present debug capacity state.
+    assert_eq!(find_session(&clearing_poll, "debug-capped")["atUsageLimit"], false);
 }
 ```
 
@@ -58,11 +63,12 @@ for info in &mut infos {
     // Existing capping propagation and session-handle latch updates stay here.
 }
 
-// Then alter only the response copies with a temporary debug overlay.
+// Then alter only the response copies with post-clear debug state. Do not use
+// the pre-clear snapshot captured at the beginning of list_sessions.
 for info in &mut infos {
     apply_debug_overlay_projection(
         info,
-        live_debug_by_session.get(&info.id),
+        post_clear_debug_by_session.get(&info.id),
         metadata_map.get(&info.id),
     );
 }
@@ -74,6 +80,8 @@ for info in &mut infos {
 let metadata_to_write = {
     let mut sessions = state.sessions.lock().unwrap();
     // Clear superseded overlays and clone each changed metadata record.
+    // Build post_clear_debug_by_session after clearing so response projection
+    // cannot use a stale debug clone.
     changed_metadata
 };
 
