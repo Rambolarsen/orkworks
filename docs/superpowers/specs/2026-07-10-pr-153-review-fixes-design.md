@@ -20,8 +20,11 @@ session state injection feature's public API or adding new injection scenarios.
 
 ## Verification
 
-- Add Rust regression coverage for overlay ordering and lock-safe metadata
-  clearing behavior where practical within existing handler tests.
+- Add Rust regression coverage that applies `running-capped`, polls
+  `list_sessions` twice, and proves the debug value neither latches runtime
+  capacity nor propagates capped/reset-hint state to a sibling session or
+  provider. Cover lock-safe metadata clearing behavior within existing handler
+  tests where practical.
 - Add Electron main-process coverage for rejecting malformed IPC payloads and
   for encoded session request paths.
 - Run focused Rust and desktop tests, type-check the desktop project, and run
