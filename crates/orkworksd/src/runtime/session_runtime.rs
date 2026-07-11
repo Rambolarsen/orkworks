@@ -189,7 +189,7 @@ fn drain_persist_records(buffer: &mut Vec<u8>) -> Vec<String> {
         records.push(String::from_utf8_lossy(&line[..end]).into_owned());
     }
 
-    while buffer.len() >= MAX_PARTIAL_PERSIST_BYTES {
+    while buffer.len() > MAX_PARTIAL_PERSIST_BYTES {
         let flush_end = partial_persist_flush_end(buffer);
         records.push(String::from_utf8_lossy(&buffer[..flush_end]).into_owned());
         buffer.drain(..flush_end);
@@ -993,9 +993,9 @@ mod tests {
 
         assert_eq!(
             drain_persist_records(&mut buffer),
-            vec!["first".to_string(), "x".repeat(MAX_PARTIAL_PERSIST_BYTES)],
+            vec!["first".to_string()],
         );
-        assert!(buffer.is_empty());
+        assert_eq!(buffer, vec![b'x'; MAX_PARTIAL_PERSIST_BYTES]);
     }
 
     #[test]
@@ -1035,12 +1035,18 @@ mod tests {
 
         assert_eq!(
             drain_persist_records(&mut buffer),
-            vec![format!("�{}", "x".repeat(MAX_PARTIAL_PERSIST_BYTES - 3))],
+            Vec::<String>::new(),
         );
-        assert_eq!(buffer, vec![0xE2, 0x82]);
+        let mut expected = vec![0xFF];
+        expected.extend(vec![b'x'; MAX_PARTIAL_PERSIST_BYTES - 3]);
+        expected.extend_from_slice(&[0xE2, 0x82]);
+        assert_eq!(buffer, expected);
 
         buffer.push(0xAC);
-        assert!(drain_persist_records(&mut buffer).is_empty());
+        assert_eq!(
+            drain_persist_records(&mut buffer),
+            vec![format!("�{}", "x".repeat(MAX_PARTIAL_PERSIST_BYTES - 3))],
+        );
         assert_eq!(String::from_utf8(buffer).unwrap(), "€");
     }
 }
