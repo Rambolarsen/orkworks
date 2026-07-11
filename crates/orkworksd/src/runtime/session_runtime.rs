@@ -154,6 +154,28 @@ fn make_persist_channel() -> (mpsc::Sender<Vec<String>>, mpsc::Receiver<Vec<Stri
     mpsc::channel(PERSIST_QUEUE_CAPACITY)
 }
 
+fn partial_persist_flush_end(buffer: &[u8]) -> usize {
+    let mut first_continuation = MAX_PARTIAL_PERSIST_BYTES;
+    while first_continuation > MAX_PARTIAL_PERSIST_BYTES.saturating_sub(3)
+        && buffer[first_continuation - 1] & 0b1100_0000 == 0b1000_0000
+    {
+        first_continuation -= 1;
+    }
+
+    let lead = first_continuation - 1;
+    let expected_len = match buffer[lead] {
+        0xC2..=0xDF => 2,
+        0xE0..=0xEF => 3,
+        0xF0..=0xF4 => 4,
+        _ => 1,
+    };
+    if expected_len > MAX_PARTIAL_PERSIST_BYTES - lead {
+        lead
+    } else {
+        MAX_PARTIAL_PERSIST_BYTES
+    }
+}
+
 fn drain_persist_records(buffer: &mut Vec<u8>) -> Vec<String> {
     let mut records = Vec::new();
 
@@ -168,12 +190,7 @@ fn drain_persist_records(buffer: &mut Vec<u8>) -> Vec<String> {
     }
 
     while buffer.len() >= MAX_PARTIAL_PERSIST_BYTES {
-        let prefix = &buffer[..MAX_PARTIAL_PERSIST_BYTES];
-        let flush_end = match std::str::from_utf8(prefix) {
-            Ok(_) => MAX_PARTIAL_PERSIST_BYTES,
-            Err(error) if error.error_len().is_some() => MAX_PARTIAL_PERSIST_BYTES,
-            Err(error) => error.valid_up_to(),
-        };
+        let flush_end = partial_persist_flush_end(buffer);
         records.push(String::from_utf8_lossy(&buffer[..flush_end]).into_owned());
         buffer.drain(..flush_end);
     }
@@ -1002,6 +1019,23 @@ mod tests {
         assert_eq!(
             drain_persist_records(&mut buffer),
             vec!["x".repeat(MAX_PARTIAL_PERSIST_BYTES - 1)],
+        );
+        assert_eq!(buffer, vec![0xE2, 0x82]);
+
+        buffer.push(0xAC);
+        assert!(drain_persist_records(&mut buffer).is_empty());
+        assert_eq!(String::from_utf8(buffer).unwrap(), "€");
+    }
+
+    #[test]
+    fn persist_records_keep_a_split_utf8_character_after_invalid_bytes() {
+        let mut buffer = vec![0xFF];
+        buffer.extend(vec![b'x'; MAX_PARTIAL_PERSIST_BYTES - 3]);
+        buffer.extend_from_slice(&[0xE2, 0x82]);
+
+        assert_eq!(
+            drain_persist_records(&mut buffer),
+            vec![format!("�{}", "x".repeat(MAX_PARTIAL_PERSIST_BYTES - 3))],
         );
         assert_eq!(buffer, vec![0xE2, 0x82]);
 
