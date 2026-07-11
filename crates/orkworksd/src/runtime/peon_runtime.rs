@@ -84,13 +84,17 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
             let id = session_id.clone();
 
             tokio::task::spawn_blocking(move || {
-                let provider_result = state_clone.providers.run_inference(providers::PeonScope::Session, &output_snapshot);
+                let provider_result = state_clone
+                    .providers
+                    .run_inference(providers::PeonScope::Session, &output_snapshot);
                 let inference = provider_result.inference;
                 let now_iso = iso_now();
 
                 // Check terminal status before moving inference below
                 let reached_terminal = matches!(
-                    inference.as_ref().and_then(|inf| inf.observed_status.as_deref()),
+                    inference
+                        .as_ref()
+                        .and_then(|inf| inf.observed_status.as_deref()),
                     Some("done" | "idle" | "stale")
                 );
 
@@ -114,7 +118,12 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                                 })
                                 .unwrap_or(true);
                             if should_write {
-                                match ws.metadata.merge_peon_inference(&id, &inf, &now_iso, provider_result.observation.as_ref()) {
+                                match ws.metadata.merge_peon_inference(
+                                    &id,
+                                    &inf,
+                                    &now_iso,
+                                    provider_result.observation.as_ref(),
+                                ) {
                                     Ok(()) => {
                                         inference_persisted = true;
                                         inf.summary.as_ref().map(|s| s.chars().take(100).collect())
@@ -169,8 +178,8 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
         // for idle_timeout_secs as idle, without waiting for the LLM.
         {
             let idle_timeout = state.peon.config.idle_timeout_secs;
-            let idle_deadline = tokio::time::Instant::now()
-                - std::time::Duration::from_secs(idle_timeout);
+            let idle_deadline =
+                tokio::time::Instant::now() - std::time::Duration::from_secs(idle_timeout);
             let last_output = state.peon.last_output.read().unwrap();
 
             let (silent_ids, missing_last_output_ids): (Vec<String>, Vec<String>) = {
@@ -240,11 +249,11 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::*;
     use crate::harness;
-    use std::sync::{Arc, Mutex, RwLock};
+    use crate::test_support::*;
     use std::collections::{HashMap, HashSet};
     use std::sync::atomic::AtomicU16;
+    use std::sync::{Arc, Mutex, RwLock};
 
     #[tokio::test]
     async fn test_peon_inference_writes_metadata() {
@@ -259,7 +268,8 @@ mod tests {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&harness_path, std::fs::Permissions::from_mode(0o755)).unwrap();
+            std::fs::set_permissions(&harness_path, std::fs::Permissions::from_mode(0o755))
+                .unwrap();
         }
 
         let state = Arc::new(crate::AppState {
@@ -322,9 +332,16 @@ mod tests {
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
                 scan_buf: String::new(),
-                command: harness::CommandSpec { program: "/bin/sh".into(), args: vec!["-i".into(), "-l".into()], cwd: "/tmp".into() },
+                command: harness::CommandSpec {
+                    program: "/bin/sh".into(),
+                    args: vec!["-i".into(), "-l".into()],
+                    cwd: "/tmp".into(),
+                },
                 initial_prompt: None,
-                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                ),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
@@ -332,9 +349,12 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
+                debug_injection: None,
             };
             handle.output_buffer.push("running cargo test...".into());
-            handle.output_buffer.push("test result: ok. 5 passed; 0 failed;".into());
+            handle
+                .output_buffer
+                .push("test result: ok. 5 passed; 0 failed;".into());
             sessions.insert(session_id.clone(), handle);
         }
 
@@ -389,6 +409,7 @@ mod tests {
                     harness_session_id_captured_at: None,
                     resumed_from: None,
                     last_user_input: None,
+                    debug_injection: None,
                 });
             }
         }
@@ -494,9 +515,16 @@ mod tests {
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
                 scan_buf: String::new(),
-                command: harness::CommandSpec { program: "/bin/sh".into(), args: vec!["-i".into(), "-l".into()], cwd: "/tmp".into() },
+                command: harness::CommandSpec {
+                    program: "/bin/sh".into(),
+                    args: vec!["-i".into(), "-l".into()],
+                    cwd: "/tmp".into(),
+                },
                 initial_prompt: None,
-                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                ),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
@@ -504,9 +532,14 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
+                debug_injection: None,
             };
             handle.output_buffer.push("quiet output".into());
-            state.sessions.lock().unwrap().insert(session_id.clone(), handle);
+            state
+                .sessions
+                .lock()
+                .unwrap()
+                .insert(session_id.clone(), handle);
         }
 
         state.peon.last_output.write().unwrap().insert(
@@ -600,9 +633,14 @@ mod tests {
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
                 scan_buf: String::new(),
-                command: crate::harness_registry::default_shell_command(dir.path().display().to_string()),
+                command: crate::harness_registry::default_shell_command(
+                    dir.path().display().to_string(),
+                ),
                 initial_prompt: None,
-                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                ),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
@@ -610,9 +648,14 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
+                debug_injection: None,
             };
             handle.output_buffer.push("unchanged output".into());
-            state.sessions.lock().unwrap().insert(session_id.clone(), handle);
+            state
+                .sessions
+                .lock()
+                .unwrap()
+                .insert(session_id.clone(), handle);
         }
 
         state.peon.last_output.write().unwrap().insert(
@@ -680,9 +723,14 @@ mod tests {
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
                 scan_buf: String::new(),
-                command: crate::harness_registry::default_shell_command(dir.path().display().to_string()),
+                command: crate::harness_registry::default_shell_command(
+                    dir.path().display().to_string(),
+                ),
                 initial_prompt: None,
-                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                ),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
@@ -690,9 +738,14 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
+                debug_injection: None,
             };
             handle.output_buffer.push("quiet output".into());
-            state.sessions.lock().unwrap().insert(session_id.clone(), handle);
+            state
+                .sessions
+                .lock()
+                .unwrap()
+                .insert(session_id.clone(), handle);
         }
 
         state.peon.last_output.write().unwrap().insert(
@@ -705,7 +758,12 @@ mod tests {
         task.abort();
 
         assert!(
-            state.peon.last_inference.read().unwrap().contains_key(&session_id),
+            state
+                .peon
+                .last_inference
+                .read()
+                .unwrap()
+                .contains_key(&session_id),
             "failed Peon attempts should still be recorded in last_inference"
         );
     }
@@ -769,9 +827,14 @@ mod tests {
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
                 scan_buf: String::new(),
-                command: crate::harness_registry::default_shell_command(dir.path().display().to_string()),
+                command: crate::harness_registry::default_shell_command(
+                    dir.path().display().to_string(),
+                ),
                 initial_prompt: None,
-                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                ),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
@@ -779,9 +842,14 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
+                debug_injection: None,
             };
             handle.output_buffer.push("some past output".into());
-            state.sessions.lock().unwrap().insert(session_id.clone(), handle);
+            state
+                .sessions
+                .lock()
+                .unwrap()
+                .insert(session_id.clone(), handle);
         }
 
         // Set last_output to 5 seconds ago (well past the 1s idle timeout)
@@ -841,6 +909,7 @@ mod tests {
                     harness_session_id_captured_at: None,
                     resumed_from: None,
                     last_user_input: None,
+                    debug_injection: None,
                 });
             }
         }
@@ -925,9 +994,14 @@ mod tests {
                     kill_tx,
                     output_buffer: peon::RingBuffer::new(200),
                     scan_buf: String::new(),
-                    command: crate::harness_registry::default_shell_command(dir.path().display().to_string()),
+                    command: crate::harness_registry::default_shell_command(
+                        dir.path().display().to_string(),
+                    ),
                     initial_prompt: None,
-                    runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
+                    runtime: crate::runtime::session_runtime::SessionRuntime::detached(
+                        crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                        crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                    ),
                     terminal_attached: false,
                     at_usage_limit_latched: false,
                     capacity_check_pending: false,
@@ -935,6 +1009,7 @@ mod tests {
                     scan_bytes_seen: 0,
                     resume_scan_origin: None,
                     pending_capacity_visible_once: false,
+                    debug_injection: None,
                 },
             );
         }
@@ -989,6 +1064,7 @@ mod tests {
                     harness_session_id_captured_at: None,
                     resumed_from: None,
                     last_user_input: None,
+                    debug_injection: None,
                 });
             }
         }
@@ -997,7 +1073,12 @@ mod tests {
             session_id.clone(),
             tokio::time::Instant::now() - std::time::Duration::from_secs(5),
         );
-        state.peon.last_inference.write().unwrap().insert(session_id.clone(), "before".into());
+        state
+            .peon
+            .last_inference
+            .write()
+            .unwrap()
+            .insert(session_id.clone(), "before".into());
 
         let task = tokio::spawn(peon_loop(state.clone()));
         tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
@@ -1017,7 +1098,12 @@ mod tests {
 
         let sessions = state.sessions.lock().unwrap();
         assert_eq!(
-            sessions.get(&session_id).unwrap().info.observed_status.as_deref(),
+            sessions
+                .get(&session_id)
+                .unwrap()
+                .info
+                .observed_status
+                .as_deref(),
             Some("idle")
         );
     }
@@ -1082,9 +1168,14 @@ mod tests {
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
                 scan_buf: String::new(),
-                command: crate::harness_registry::default_shell_command(dir.path().display().to_string()),
+                command: crate::harness_registry::default_shell_command(
+                    dir.path().display().to_string(),
+                ),
                 initial_prompt: None,
-                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                ),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
@@ -1092,6 +1183,7 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
+                debug_injection: None,
             },
         );
 
@@ -1145,6 +1237,7 @@ mod tests {
                     harness_session_id_captured_at: None,
                     resumed_from: None,
                     last_user_input: None,
+                    debug_injection: None,
                 });
             }
         }
@@ -1167,7 +1260,10 @@ mod tests {
         }
 
         let sessions = state.sessions.lock().unwrap();
-        assert_eq!(sessions.get(&session_id).unwrap().info.observed_status, None);
+        assert_eq!(
+            sessions.get(&session_id).unwrap().info.observed_status,
+            None
+        );
     }
 
     #[tokio::test]
@@ -1230,9 +1326,14 @@ mod tests {
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
                 scan_buf: String::new(),
-                command: crate::harness_registry::default_shell_command(dir.path().display().to_string()),
+                command: crate::harness_registry::default_shell_command(
+                    dir.path().display().to_string(),
+                ),
                 initial_prompt: None,
-                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                ),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
@@ -1240,6 +1341,7 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
+                debug_injection: None,
             },
         );
 
@@ -1293,6 +1395,7 @@ mod tests {
                     harness_session_id_captured_at: None,
                     resumed_from: None,
                     last_user_input: None,
+                    debug_injection: None,
                 });
             }
         }
@@ -1313,7 +1416,10 @@ mod tests {
         }
 
         let sessions = state.sessions.lock().unwrap();
-        assert_eq!(sessions.get(&session_id).unwrap().info.observed_status, None);
+        assert_eq!(
+            sessions.get(&session_id).unwrap().info.observed_status,
+            None
+        );
     }
 
     #[tokio::test]
@@ -1376,9 +1482,14 @@ mod tests {
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
                 scan_buf: String::new(),
-                command: crate::harness_registry::default_shell_command(dir.path().display().to_string()),
+                command: crate::harness_registry::default_shell_command(
+                    dir.path().display().to_string(),
+                ),
                 initial_prompt: None,
-                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                ),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
@@ -1386,6 +1497,7 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
+                debug_injection: None,
             },
         );
 
@@ -1439,6 +1551,7 @@ mod tests {
                     harness_session_id_captured_at: None,
                     resumed_from: None,
                     last_user_input: None,
+                    debug_injection: None,
                 });
             }
         }
@@ -1460,7 +1573,12 @@ mod tests {
 
         let sessions = state.sessions.lock().unwrap();
         assert_eq!(
-            sessions.get(&session_id).unwrap().info.observed_status.as_deref(),
+            sessions
+                .get(&session_id)
+                .unwrap()
+                .info
+                .observed_status
+                .as_deref(),
             Some("idle"),
         );
     }
@@ -1525,9 +1643,14 @@ mod tests {
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
                 scan_buf: String::new(),
-                command: crate::harness_registry::default_shell_command(dir.path().display().to_string()),
+                command: crate::harness_registry::default_shell_command(
+                    dir.path().display().to_string(),
+                ),
                 initial_prompt: None,
-                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                ),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
@@ -1535,8 +1658,13 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
+                debug_injection: None,
             };
-            state.sessions.lock().unwrap().insert(session_id.clone(), handle);
+            state
+                .sessions
+                .lock()
+                .unwrap()
+                .insert(session_id.clone(), handle);
         }
 
         {
@@ -1589,6 +1717,7 @@ mod tests {
                     harness_session_id_captured_at: None,
                     resumed_from: None,
                     last_user_input: None,
+                    debug_injection: None,
                 });
             }
         }
@@ -1655,8 +1784,9 @@ mod tests {
                         override_state: None,
                     }],
                 },
-                vec![providers::FakeProvider::new("opencode")
-                    .stdout(r#"{"status":"working","summary":"should-not-run","confidence":0.85}"#)],
+                vec![providers::FakeProvider::new("opencode").stdout(
+                    r#"{"status":"working","summary":"should-not-run","confidence":0.85}"#,
+                )],
             ),
             bound_port: AtomicU16::new(0),
         });
@@ -1679,9 +1809,14 @@ mod tests {
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
                 scan_buf: String::new(),
-                command: crate::harness_registry::default_shell_command(dir.path().display().to_string()),
+                command: crate::harness_registry::default_shell_command(
+                    dir.path().display().to_string(),
+                ),
                 initial_prompt: None,
-                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                ),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
@@ -1689,10 +1824,15 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
+                debug_injection: None,
             };
             handle.info.lifecycle_phase = "ending".into();
             handle.output_buffer.push("finishing up".into());
-            state.sessions.lock().unwrap().insert(session_id.clone(), handle);
+            state
+                .sessions
+                .lock()
+                .unwrap()
+                .insert(session_id.clone(), handle);
         }
 
         {
@@ -1745,6 +1885,7 @@ mod tests {
                     harness_session_id_captured_at: None,
                     resumed_from: None,
                     last_user_input: None,
+                    debug_injection: None,
                 });
             }
         }
@@ -1855,9 +1996,14 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
+                debug_injection: None,
             };
             handle.output_buffer.push("some terminal output".into());
-            state.sessions.lock().unwrap().insert(session_id.clone(), handle);
+            state
+                .sessions
+                .lock()
+                .unwrap()
+                .insert(session_id.clone(), handle);
         }
 
         // Plant last_output 5s in the past — past the 1s interval, so session is
@@ -1873,7 +2019,10 @@ mod tests {
         task.abort();
 
         let lo = state.peon.last_output.read().unwrap();
-        let updated_at = lo.get(&session_id).copied().expect("last_output entry removed");
+        let updated_at = lo
+            .get(&session_id)
+            .copied()
+            .expect("last_output entry removed");
         assert!(
             updated_at >= before_test,
             "last_output should be refreshed even when persist is skipped and inference was terminal; \
@@ -1964,6 +2113,7 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
+                debug_injection: None,
             };
             handle.output_buffer.push("some terminal output".into());
             state.sessions.lock().unwrap().insert(session_id.clone(), handle);

@@ -402,6 +402,23 @@ test("SettingsModal exposes a debug metadata toggle", () => {
   assert.match(source, /saveDebugSettings/);
 });
 
+test("preload exposes session state injection helpers", () => {
+  const source = readFileSync(new URL("../electron/preload.ts", import.meta.url), "utf8");
+
+  assert.match(source, /listSessionStateInjections:\s*\(\)/);
+  assert.match(source, /ipcRenderer\.invoke\("list-session-state-injections"\)/);
+  assert.match(source, /applySessionStateInjection:\s*\(sessionId:\s*string,\s*injectionId:\s*string\)/);
+  assert.match(source, /ipcRenderer\.invoke\("apply-session-state-injection", \{ sessionId, injectionId \}\)/);
+});
+
+test("SessionDetailPanel exposes state injection controls behind debug metadata", () => {
+  const source = readFileSync(new URL("../src/components/SessionDetailPanel.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /State injection/);
+  assert.match(source, /Apply injection/);
+  assert.match(source, /Temporarily writes a debug state/);
+});
+
 test("TerminalPanel no longer renders internal session tabs or duplicate kill controls", () => {
   const source = readFileSync(new URL("../src/components/TerminalPanel.tsx", import.meta.url), "utf8");
 
