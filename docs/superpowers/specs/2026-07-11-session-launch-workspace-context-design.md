@@ -10,14 +10,18 @@ repository from the active workspace.
 
 ## Decision
 
-Resolve the new session's working directory from the active workspace path
-when a workspace is selected. If no workspace is selected, retain the existing
-best-effort current-directory fallback, then `/` if that lookup fails.
+Before its first `await`, session creation snapshots the active workspace path
+and metadata store when a workspace is selected. The snapshot supplies the new
+session's working directory. If no workspace is selected, session creation
+retains the existing best-effort current-directory fallback, then `/` if that
+lookup fails.
 
 The resolved directory remains the single input to both harness launch
-resolution and Git detection. This keeps the live session information and its
-persisted metadata aligned without changing the HTTP request, IPC contract, or
-metadata schema.
+resolution and one Git detection. The same workspace and Git-context snapshots
+must be used to write metadata after the PTY startup await. This prevents a
+workspace switch during creation from launching a session for one repository
+and persisting it in another. The workspace mutex is released before every
+await; no lock is held across asynchronous work.
 
 ## Alternatives considered
 
@@ -31,10 +35,12 @@ metadata schema.
 ## Testing
 
 Add an async handler test that creates a temporary Git repository, installs it
-as the active workspace in test state, creates a session, and asserts that the
-response reports the repository as its `cwd` and Git root, with its current
-branch. The test must fail against the current behavior because the sidecar's
-own directory is used instead.
+as the active workspace in test state, creates a session, and asserts that both
+the response and persisted session metadata report the repository as their
+`cwd` and Git root, with its current branch. The test must stop the session and
+await runtime cleanup before its temporary repository is dropped. It must fail
+against the current behavior because the sidecar's own directory is used for
+the response and the workspace is reacquired for persistence.
 
 ## Scope
 
