@@ -999,6 +999,21 @@ mod tests {
     }
 
     #[test]
+    fn persist_records_keep_an_exact_cap_partial_until_its_newline_arrives() {
+        let mut buffer = vec![b'x'; MAX_PARTIAL_PERSIST_BYTES];
+
+        assert!(drain_persist_records(&mut buffer).is_empty());
+        assert_eq!(buffer, vec![b'x'; MAX_PARTIAL_PERSIST_BYTES]);
+
+        buffer.push(b'\n');
+        assert_eq!(
+            drain_persist_records(&mut buffer),
+            vec!["x".repeat(MAX_PARTIAL_PERSIST_BYTES)],
+        );
+        assert!(buffer.is_empty());
+    }
+
+    #[test]
     fn persist_records_keep_crlf_split_across_chunks_intact() {
         let mut buffer = b"first\r".to_vec();
 
