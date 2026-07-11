@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Create each new sidecar session against one immutable active-workspace snapshot so its launch, response, and persisted Git context always agree.
+**Goal:** Create each new sidecar session against one immutable active-workspace snapshot so its creation-time launch, response, and persisted Git context agree.
 
 **Architecture:** At the beginning of `create_session`, copy the selected workspace path and a cloneable metadata-store handle while holding `state.workspace`, then release the mutex. Derive the launch CWD and one `GitContext` from that snapshot; after PTY startup, persist through that same metadata handle rather than reacquiring `state.workspace`. The no-workspace path retains the existing process-CWD fallback and omits persistence.
 
@@ -35,9 +35,9 @@
 
 - [ ] **Step 1: Write the failing async regression test**
 
-Add `create_session_uses_active_workspace_for_response_and_persisted_metadata` to the session-handler test module. Create a temporary Git repository with branch `main`, create `state` through `test_app_state_with_workspace(dir.path())`, call `create_session`, parse the JSON `SessionInfo`, and read the metadata through `state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(&id)`.
+Add `create_session_uses_active_workspace_for_response_and_persisted_metadata` to the session-handler test module. Create a temporary Git repository with `git init -b main`, configure its test identity, write and commit a file so `HEAD` is born on `main`, then create `state` through `test_app_state_with_workspace(dir.path())`. Call `create_session`, parse the JSON `SessionInfo`, and read metadata through `state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(&id)`.
 
-Assert the response and metadata both have the canonical temporary-repository CWD and root, and `branch == Some("main")`. End the live runtime with `delete_session(State(state.clone()), Path(id.clone())).await`, then wait until `state.sessions.lock().unwrap().get(&id)` reports an ending or ended lifecycle before dropping the temporary directory.
+Assert the response and metadata both have the canonical temporary-repository CWD and root, and `branch == Some("main")`. End the live runtime with `delete_session(State(state.clone()), Path(id.clone())).await`, then use `tokio::time::timeout` around a short polling loop that waits specifically for `state.sessions.lock().unwrap().get(&id).unwrap().info.lifecycle_phase == "ended"` before dropping the temporary directory. This bounds test teardown while allowing PTY exit and finalization to finish.
 
 ```rust
 assert_eq!(std::fs::canonicalize(&session.cwd).unwrap(), std::fs::canonicalize(dir.path()).unwrap());
