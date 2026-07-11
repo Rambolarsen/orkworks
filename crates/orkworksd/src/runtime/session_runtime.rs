@@ -15,6 +15,7 @@ pub(crate) const DEFAULT_TERMINAL_COLS: u16 = 80;
 const DEFAULT_REPLAY_CAPACITY: usize = 256;
 const DRIVER_EVENT_BUFFER_CAPACITY: usize = 64;
 const PERSIST_QUEUE_CAPACITY: usize = 64;
+const MAX_PARTIAL_PERSIST_BYTES: usize = 64 * 1024;
 const INITIAL_RESIZE_GRACE: std::time::Duration = std::time::Duration::from_millis(150);
 
 #[derive(Clone, Debug, PartialEq)]
@@ -151,6 +152,33 @@ fn make_driver_event_channel() -> (mpsc::Sender<DriverEvent>, mpsc::Receiver<Dri
 
 fn make_persist_channel() -> (mpsc::Sender<Vec<String>>, mpsc::Receiver<Vec<String>>) {
     mpsc::channel(PERSIST_QUEUE_CAPACITY)
+}
+
+fn drain_persist_records(buffer: &mut Vec<u8>) -> Vec<String> {
+    let mut records = Vec::new();
+
+    while let Some(nl) = buffer.iter().position(|&byte| byte == b'\n') {
+        let line: Vec<u8> = buffer.drain(..=nl).collect();
+        let end = if line.ends_with(b"\r\n") {
+            line.len() - 2
+        } else {
+            line.len() - 1
+        };
+        records.push(String::from_utf8_lossy(&line[..end]).into_owned());
+    }
+
+    while buffer.len() >= MAX_PARTIAL_PERSIST_BYTES {
+        let prefix = &buffer[..MAX_PARTIAL_PERSIST_BYTES];
+        let flush_end = match std::str::from_utf8(prefix) {
+            Ok(_) => MAX_PARTIAL_PERSIST_BYTES,
+            Err(error) if error.error_len().is_some() => MAX_PARTIAL_PERSIST_BYTES,
+            Err(error) => error.valid_up_to(),
+        };
+        records.push(String::from_utf8_lossy(&buffer[..flush_end]).into_owned());
+        buffer.drain(..flush_end);
+    }
+
+    records
 }
 
 pub(crate) fn claim_attachment(state: &Arc<AppState>, id: &str) -> Option<AttachmentClaim> {
@@ -434,16 +462,7 @@ pub(crate) async fn start_session_runtime(
                     match event {
                         DriverEvent::Output(data) => {
                             persist_buffer.extend_from_slice(&data);
-                            let mut raw_persist_lines: Vec<String> = Vec::new();
-                            while let Some(nl) = persist_buffer.iter().position(|&b| b == b'\n') {
-                                let line: Vec<u8> = persist_buffer.drain(..=nl).collect();
-                                let end = if line.ends_with(b"\r\n") {
-                                    line.len() - 2
-                                } else {
-                                    line.len() - 1
-                                };
-                                raw_persist_lines.push(String::from_utf8_lossy(&line[..end]).into_owned());
-                            }
+                            let raw_persist_lines = drain_persist_records(&mut persist_buffer);
 
                             let mut codex_thread_id: Option<String> = None;
                             {
@@ -923,5 +942,71 @@ mod tests {
         );
 
         assert!(matches!(rx.try_recv(), Ok(lines) if lines == vec!["line".to_string()]));
+    }
+
+    #[test]
+    fn persist_records_keep_newline_delimited_output_unchanged() {
+        let mut buffer = b"first\nsecond\r\npartial".to_vec();
+
+        assert_eq!(
+            drain_persist_records(&mut buffer),
+            vec!["first".to_string(), "second".to_string()],
+        );
+        assert_eq!(buffer, b"partial");
+    }
+
+    #[test]
+    fn persist_records_flush_a_newline_free_suffix_at_each_byte_cap() {
+        let mut buffer = vec![b'x'; MAX_PARTIAL_PERSIST_BYTES * 2 + 5];
+
+        assert_eq!(
+            drain_persist_records(&mut buffer),
+            vec![
+                "x".repeat(MAX_PARTIAL_PERSIST_BYTES),
+                "x".repeat(MAX_PARTIAL_PERSIST_BYTES),
+            ],
+        );
+        assert_eq!(buffer, vec![b'x'; 5]);
+    }
+
+    #[test]
+    fn persist_records_keep_complete_lines_before_flushing_a_capped_suffix() {
+        let mut buffer = b"first\n".to_vec();
+        buffer.extend(vec![b'x'; MAX_PARTIAL_PERSIST_BYTES]);
+
+        assert_eq!(
+            drain_persist_records(&mut buffer),
+            vec!["first".to_string(), "x".repeat(MAX_PARTIAL_PERSIST_BYTES)],
+        );
+        assert!(buffer.is_empty());
+    }
+
+    #[test]
+    fn persist_records_keep_crlf_split_across_chunks_intact() {
+        let mut buffer = b"first\r".to_vec();
+
+        assert!(drain_persist_records(&mut buffer).is_empty());
+        buffer.extend_from_slice(b"\nsecond\n");
+        assert_eq!(
+            drain_persist_records(&mut buffer),
+            vec!["first".to_string(), "second".to_string()],
+        );
+        assert!(buffer.is_empty());
+    }
+
+    #[test]
+    fn persist_records_keep_a_split_utf8_character_for_the_next_chunk() {
+        let mut buffer = vec![b'x'; MAX_PARTIAL_PERSIST_BYTES - 1];
+        buffer.extend_from_slice(&[0xE2, 0x82]);
+
+        assert_eq!(
+            drain_persist_records(&mut buffer),
+            vec!["x".repeat(MAX_PARTIAL_PERSIST_BYTES - 1)],
+        );
+        assert_eq!(buffer, vec![0xE2, 0x82]);
+
+        buffer.push(0xAC);
+        assert!(drain_persist_records(&mut buffer).is_empty());
+        assert_eq!(String::from_utf8(buffer).unwrap(), "€");
     }
 }
