@@ -19,6 +19,10 @@ fn default_lifecycle_phase() -> String {
     String::new()
 }
 
+fn default_lifecycle() -> String {
+    "alive".into()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ObservedStatusSnapshotMetadata {
     pub value: Option<String>,
@@ -71,6 +75,10 @@ pub struct SessionMetadata {
     pub work_phase: String,
     #[serde(rename = "lifecyclePhase", default = "default_lifecycle_phase")]
     pub lifecycle_phase: String,
+    #[serde(default = "default_lifecycle")]
+    pub lifecycle: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attention: Option<String>,
     #[serde(default = "default_connectivity")]
     pub connectivity: String,
     #[serde(rename = "terminalOutcome", skip_serializing_if = "Option::is_none")]
@@ -170,6 +178,24 @@ fn normalize_session_metadata(mut meta: SessionMetadata) -> SessionMetadata {
         meta.lifecycle_phase = default_lifecycle_phase_for_status(&meta.status);
     }
 
+    if meta.lifecycle == "alive" {
+        meta.lifecycle = match meta.lifecycle_phase.as_str() {
+            "creating" => "creating",
+            "ending" => "stopping",
+            "ended" => "dead",
+            _ => "alive",
+        }
+        .into();
+    }
+    if meta.attention.is_none() && meta.lifecycle == "alive" {
+        meta.attention = match meta.observed_status.as_deref() {
+            Some("stale" | "done") => Some("idle".into()),
+            Some("waiting_for_input") => Some("needs_you".into()),
+            Some("working" | "idle" | "blocked" | "failed" | "capped") => meta.observed_status.clone(),
+            _ => None,
+        };
+    }
+
     if meta.lifecycle_phase == "ending" && meta.status != "running" {
         meta.status = "running".into();
     }
@@ -212,6 +238,10 @@ fn normalize_session_metadata(mut meta: SessionMetadata) -> SessionMetadata {
 
     if matches!(meta.lifecycle_phase.as_str(), "creating" | "ending" | "ended") {
         meta.observed_status = None;
+    }
+
+    if meta.lifecycle != "alive" {
+        meta.attention = None;
     }
 
     if matches!(meta.status.as_str(), "ended" | "killed" | "error") {
@@ -387,6 +417,8 @@ pub(crate) fn assert_session_metadata_serializes_connectivity_terminal_outcome_a
         status: "ended".into(),
         work_phase: "unknown".into(),
         lifecycle_phase: "ended".into(),
+        lifecycle: "dead".into(),
+        attention: None,
         connectivity: "offline".into(),
         terminal_outcome: Some("ended".into()),
         pending_terminal_status: None,
@@ -465,6 +497,16 @@ fn session_metadata_reads_legacy_phase_and_projects_final_observed_status() {
             .and_then(|x| x.value.as_deref()),
         Some("blocked")
     );
+}
+
+#[cfg(test)]
+#[test]
+fn normalizes_legacy_runtime_and_observer_values_to_canonical_state() {
+    let raw = r#"{"id":"canonical","label":"T","workspace":"/tmp","task":"","harnessId":"","modelId":"","cwd":"/tmp","status":"running","lifecyclePhase":"active","observedStatus":"stale","createdAt":"now","lastActivity":"now","metadataSource":"process","metadataConfidence":1.0}"#;
+    let meta = normalize_session_metadata(serde_json::from_str(raw).unwrap());
+
+    assert_eq!(meta.lifecycle, "alive");
+    assert_eq!(meta.attention.as_deref(), Some("idle"));
 }
 
 #[cfg(test)]
@@ -1158,6 +1200,8 @@ mod tests {
             status: "running".into(),
             work_phase: "implementation".into(),
             lifecycle_phase: "active".into(),
+            lifecycle: "alive".into(),
+            attention: None,
             connectivity: "online".into(),
             terminal_outcome: None,
             pending_terminal_status: None,
@@ -1268,9 +1312,11 @@ mod tests {
             model: "".into(),
             cwd: "/tmp".into(),
             status: "running".into(),
-            work_phase: "unknown".into(),
-            lifecycle_phase: "active".into(),
-            connectivity: "online".into(),
+        work_phase: "unknown".into(),
+        lifecycle_phase: "active".into(),
+        lifecycle: "alive".into(),
+        attention: None,
+        connectivity: "online".into(),
             terminal_outcome: None,
             pending_terminal_status: None,
             observed_status: None,
@@ -1358,6 +1404,8 @@ mod tests {
             status: "running".into(),
             work_phase: "unknown".into(),
             lifecycle_phase: "active".into(),
+            lifecycle: "alive".into(),
+            attention: None,
             connectivity: "online".into(),
             terminal_outcome: None,
             pending_terminal_status: None,
@@ -1529,6 +1577,8 @@ mod tests {
             status: "running".into(),
             work_phase: "unknown".into(),
             lifecycle_phase: "active".into(),
+            lifecycle: "alive".into(),
+            attention: None,
             connectivity: "online".into(),
             terminal_outcome: None,
             pending_terminal_status: None,

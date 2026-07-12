@@ -143,10 +143,13 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                 // 1. Persisted + terminal: don't update last_output; lifecycle change removes session.
                 // 2. Permanent hold (user source) + terminal: remove from pool entirely; new PTY
                 //    output via terminal_runtime re-adds when the session becomes active again.
-                // 3. Everything else (failed write, transient hold, non-terminal): keep in pool.
+                // 3. A persisted non-terminal inference waits for new terminal output. A
+                //    failed write or transient hold remains eligible for retry.
                 if reached_terminal && inference_persisted {
                     // outcome 1: leave last_output unchanged
                 } else if reached_terminal && permanent_hold {
+                    state_clone.peon.last_output.write().unwrap().remove(&id);
+                } else if inference_persisted {
                     state_clone.peon.last_output.write().unwrap().remove(&id);
                 } else {
                     state_clone.peon.last_output.write().unwrap()
@@ -172,7 +175,7 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                 for (id, handle) in sessions.iter() {
                     if handle.info.status != "running"
                         || handle.info.lifecycle_phase != "active"
-                        || handle.info.observed_status.is_some()
+                        || !matches!(handle.info.observed_status.as_deref(), None | Some("working"))
                     {
                         continue;
                     }
@@ -204,7 +207,7 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                     if let Some(ref ws) = *ws_guard {
                         for id in &silent_ids {
                             if let Some(mut meta) = ws.metadata.read_session(id) {
-                                if meta.observed_status.is_none() {
+                                if matches!(meta.observed_status.as_deref(), None | Some("working")) {
                                     meta.observed_status = Some("idle".into());
                                     meta.metadata_source = "process".into();
                                     ws.metadata.write_session(&meta);
@@ -338,8 +341,10 @@ mod tests {
                     cwd: dir.path().display().to_string(),
                     status: "running".into(),
                     work_phase: "unknown".into(),
-                    lifecycle_phase: "active".into(),
-                    connectivity: "online".into(),
+                lifecycle_phase: "active".into(),
+                lifecycle: "alive".into(),
+                attention: None,
+                connectivity: "online".into(),
                     terminal_outcome: None,
                     pending_terminal_status: None,
                     observed_status: None,
@@ -786,8 +791,10 @@ mod tests {
                     cwd: dir.path().display().to_string(),
                     status: "running".into(),
                     work_phase: "unknown".into(),
-                    lifecycle_phase: "active".into(),
-                    connectivity: "online".into(),
+                lifecycle_phase: "active".into(),
+                lifecycle: "alive".into(),
+                attention: None,
+                connectivity: "online".into(),
                     terminal_outcome: None,
                     pending_terminal_status: None,
                     observed_status: None,
@@ -933,8 +940,10 @@ mod tests {
                     cwd: dir.path().display().to_string(),
                     status: "running".into(),
                     work_phase: "unknown".into(),
-                    lifecycle_phase: "active".into(),
-                    connectivity: "online".into(),
+                lifecycle_phase: "active".into(),
+                lifecycle: "alive".into(),
+                attention: None,
+                connectivity: "online".into(),
                     terminal_outcome: None,
                     pending_terminal_status: None,
                     observed_status: Some("working".into()),
@@ -1089,6 +1098,8 @@ mod tests {
                     status: "creating".into(),
                     work_phase: "unknown".into(),
                     lifecycle_phase: "creating".into(),
+                    lifecycle: "creating".into(),
+                    attention: None,
                     connectivity: "online".into(),
                     terminal_outcome: None,
                     pending_terminal_status: None,
@@ -1235,8 +1246,10 @@ mod tests {
                     cwd: dir.path().display().to_string(),
                     status: "running".into(),
                     work_phase: "unknown".into(),
-                    lifecycle_phase: "active".into(),
-                    connectivity: "online".into(),
+                lifecycle_phase: "active".into(),
+                lifecycle: "alive".into(),
+                attention: None,
+                connectivity: "online".into(),
                     terminal_outcome: None,
                     pending_terminal_status: None,
                     observed_status: None,
@@ -1380,8 +1393,10 @@ mod tests {
                     cwd: dir.path().display().to_string(),
                     status: "running".into(),
                     work_phase: "unknown".into(),
-                    lifecycle_phase: "active".into(),
-                    connectivity: "online".into(),
+                lifecycle_phase: "active".into(),
+                lifecycle: "alive".into(),
+                attention: None,
+                connectivity: "online".into(),
                     terminal_outcome: None,
                     pending_terminal_status: None,
                     observed_status: None,
@@ -1529,8 +1544,10 @@ mod tests {
                     cwd: dir.path().display().to_string(),
                     status: "running".into(),
                     work_phase: "unknown".into(),
-                    lifecycle_phase: "active".into(),
-                    connectivity: "online".into(),
+                lifecycle_phase: "active".into(),
+                lifecycle: "alive".into(),
+                attention: None,
+                connectivity: "online".into(),
                     terminal_outcome: None,
                     pending_terminal_status: None,
                     observed_status: Some("blocked".into()),
@@ -1685,6 +1702,8 @@ mod tests {
                     status: "running".into(),
                     work_phase: "unknown".into(),
                     lifecycle_phase: "ending".into(),
+                    lifecycle: "stopping".into(),
+                    attention: None,
                     connectivity: "online".into(),
                     terminal_outcome: None,
                     pending_terminal_status: Some("ended".into()),

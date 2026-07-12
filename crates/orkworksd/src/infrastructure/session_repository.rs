@@ -180,6 +180,13 @@ fn session_to_metadata(session: &Session, existing: Option<&SessionMetadata>) ->
             LifecyclePhase::Ending => "ending".into(),
             LifecyclePhase::Ended => "ended".into(),
         },
+        lifecycle: match session.lifecycle_phase {
+            LifecyclePhase::Creating => "creating".into(),
+            LifecyclePhase::Active => "alive".into(),
+            LifecyclePhase::Ending => "stopping".into(),
+            LifecyclePhase::Ended => "dead".into(),
+        },
+        attention: None,
         connectivity: if matches!(
             session.status,
             SessionStatus::Killed | SessionStatus::Ended | SessionStatus::Error
@@ -301,6 +308,8 @@ mod tests {
             status: "ended".into(),
             work_phase: "review".into(),
             lifecycle_phase: "ended".into(),
+            lifecycle: "dead".into(),
+            attention: None,
             connectivity: "offline".into(),
             terminal_outcome: Some("ended".into()),
             pending_terminal_status: None,

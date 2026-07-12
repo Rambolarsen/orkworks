@@ -348,6 +348,8 @@ pub(crate) mod test_support {
             status: status.into(),
             work_phase: "unknown".into(),
             lifecycle_phase: "ended".into(),
+            lifecycle: "dead".into(),
+            attention: None,
             connectivity: "offline".into(),
             terminal_outcome: Some("ended".into()),
             pending_terminal_status: None,
