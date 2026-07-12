@@ -93,15 +93,13 @@ pub(crate) async fn retention_cleanup_once(
     }
 
     if !all_deleted.is_empty() {
+        let mut scheduler = state.peon.scheduler.write().unwrap();
         let mut sessions = state.sessions.lock().unwrap();
-        let mut peon_output = state.peon.last_output.write().unwrap();
-        let mut peon_processed_output = state.peon.last_processed_output.write().unwrap();
         let mut peon_inference = state.peon.last_inference.write().unwrap();
         for id in &all_deleted {
             sessions.remove(id);
-            peon_output.remove(id);
-            peon_processed_output.remove(id);
             peon_inference.remove(id);
+            scheduler.clear_tracking(id);
         }
     }
 }

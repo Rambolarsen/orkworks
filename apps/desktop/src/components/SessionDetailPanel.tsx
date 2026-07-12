@@ -189,6 +189,9 @@ function SessionDetailPanel({
               <DetailField className="detail-fact" label="Lifecycle">
                 {lifecyclePhaseLabel(active.lifecyclePhase)}
               </DetailField>
+              <DetailField className="detail-fact" label="Peon scheduler">
+                {active.peonSchedulerState ?? "Not scheduled"}
+              </DetailField>
               <DetailField className="detail-fact" label="OrkWorks session ID">
                 {active.id}
               </DetailField>

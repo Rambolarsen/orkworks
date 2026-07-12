@@ -535,6 +535,7 @@ pub(crate) async fn resume_session(
         conflict_warning: None,
         recommendation: None,
         peon_last_inference: None,
+        peon_scheduler_state: None,
         memory_state: MemoryState::Live,
         resume_strategy: strategy.clone(),
         resume: meta.resume.clone(),
@@ -878,6 +879,7 @@ pub(crate) async fn create_session(
         conflict_warning: None,
         recommendation: None,
         peon_last_inference: None,
+        peon_scheduler_state: None,
         memory_state: MemoryState::Live,
         resume_strategy: harness::ResumeStrategy::None,
         resume: Some(harness::ResumeMemory {
@@ -1074,172 +1076,106 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
         .map(|(info, _, _, _, _, _, _, _, _, _)| info.id.clone())
         .collect();
 
-    let peon_times = state.peon.last_inference.read().unwrap();
+    let peon_times = state.peon.last_inference.read().unwrap().clone();
+    let peon_states: HashMap<String, peon::PeonSchedulerState> = {
+        let scheduler = state.peon.scheduler.read().unwrap();
+        live_sessions.iter().map(|(info, _, _, _, _, _, _, _, _)| {
+            (info.id.clone(), scheduler.state_for(&info.id))
+        }).collect()
+    };
     let mut pending_transitions: Vec<(String, bool, bool)> = Vec::new();
     let mut capped_recheck_resets: HashSet<String> = HashSet::new();
     let mut capped_clear_baselines: HashMap<String, (u64, u64)> = HashMap::new();
-    let mut infos: Vec<SessionInfo> = live_sessions
-        .into_iter()
-        .map(
-            |(
-                info,
-                snapshot,
-                scan_buf,
-                prev_latch,
-                pending,
-                output_lines_seen,
-                scan_bytes_seen,
-                origin,
-                pending_visible_once,
-                _live_debug,
-            )| {
-                let id = info.id.clone();
-                let meta = metadata_map.get(&id);
-                let session_harness_id =
-                    meta.and_then(|m| (!m.harness.is_empty()).then(|| m.harness.as_str()));
-                let adapter_harness_id = resolve_adapter_harness_id(&harnesses, session_harness_id);
-                let caps = capabilities_for_harness(&state.adapters, adapter_harness_id.as_deref());
-                let mut merged = merge_live_session_info(info, meta, peon_times.get(&id), &caps);
-                let fresh_output_since_origin = origin
-                    .map(|(line_count, scan_len)| {
-                        output_lines_seen > line_count || scan_bytes_seen > scan_len
-                    })
-                    .unwrap_or(false);
-                let has_fresh_resume_output =
-                    pending && !pending_visible_once && fresh_output_since_origin;
-                let limit_adapter = adapter_harness_id
-                    .as_deref()
-                    .and_then(|hid| state.adapters.get(hid));
-                let stale_cap_recheck = prev_latch && !pending && origin.is_some();
-                let baseline_scoped_detection = !prev_latch && !pending && origin.is_some();
-                merged.at_usage_limit = limit_adapter.map(|adapter| {
-                    let detected_full =
-                        peon::detect_usage_limit(&adapter.limit_patterns, &snapshot)
-                            || peon::detect_usage_limit_raw(&adapter.limit_patterns, &scan_buf);
-                    if stale_cap_recheck && fresh_output_since_origin {
-                        let (line_count, scan_len) = origin.unwrap();
-                        let line_window_start =
-                            output_lines_seen.saturating_sub(snapshot.len() as u64);
-                        let scan_window_start =
-                            scan_bytes_seen.saturating_sub(scan_buf.len() as u64);
-                        let fresh_line_start =
-                            line_count.saturating_sub(line_window_start) as usize;
-                        let fresh_scan_start = scan_len.saturating_sub(scan_window_start) as usize;
-                        let fresh_lines = snapshot
-                            .get(fresh_line_start.min(snapshot.len())..)
-                            .unwrap_or(&[]);
-                        let fresh_scan = scan_buf
-                            .get(fresh_scan_start.min(scan_buf.len())..)
-                            .unwrap_or("");
-                        let detected_scoped =
-                            peon::detect_usage_limit(&adapter.limit_patterns, fresh_lines)
-                                || peon::detect_usage_limit_raw(
-                                    &adapter.limit_patterns,
-                                    fresh_scan,
-                                );
-                        capped_recheck_resets.insert(id.clone());
-                        if !detected_scoped {
-                            capped_clear_baselines
-                                .insert(id.clone(), (output_lines_seen, scan_bytes_seen));
-                        }
-                        detected_scoped
-                    } else if baseline_scoped_detection {
-                        let (line_count, scan_len) = origin.unwrap();
-                        let line_window_start =
-                            output_lines_seen.saturating_sub(snapshot.len() as u64);
-                        let scan_window_start =
-                            scan_bytes_seen.saturating_sub(scan_buf.len() as u64);
-                        let fresh_line_start =
-                            line_count.saturating_sub(line_window_start) as usize;
-                        let fresh_scan_start = scan_len.saturating_sub(scan_window_start) as usize;
-                        let fresh_lines = snapshot
-                            .get(fresh_line_start.min(snapshot.len())..)
-                            .unwrap_or(&[]);
-                        let fresh_scan = scan_buf
-                            .get(fresh_scan_start.min(scan_buf.len())..)
-                            .unwrap_or("");
-                        let detected_scoped =
-                            peon::detect_usage_limit(&adapter.limit_patterns, fresh_lines)
-                                || peon::detect_usage_limit_raw(
-                                    &adapter.limit_patterns,
-                                    fresh_scan,
-                                );
-                        if detected_scoped {
-                            capped_recheck_resets.insert(id.clone());
-                        }
-                        detected_scoped
-                    } else {
-                        prev_latch || detected_full
-                    }
-                });
-                merged.usage_limit_reset_hint = limit_adapter.and_then(|adapter| {
-                    if stale_cap_recheck && fresh_output_since_origin {
-                        let (line_count, scan_len) = origin.unwrap();
-                        let line_window_start =
-                            output_lines_seen.saturating_sub(snapshot.len() as u64);
-                        let scan_window_start =
-                            scan_bytes_seen.saturating_sub(scan_buf.len() as u64);
-                        let fresh_line_start =
-                            line_count.saturating_sub(line_window_start) as usize;
-                        let fresh_scan_start = scan_len.saturating_sub(scan_window_start) as usize;
-                        let fresh_lines = snapshot
-                            .get(fresh_line_start.min(snapshot.len())..)
-                            .unwrap_or(&[]);
-                        let fresh_scan = scan_buf
-                            .get(fresh_scan_start.min(scan_buf.len())..)
-                            .unwrap_or("");
-                        peon::detect_usage_limit_hint(&adapter.limit_patterns, fresh_lines).or_else(
-                            || {
-                                peon::detect_usage_limit_hint_raw(
-                                    &adapter.limit_patterns,
-                                    fresh_scan,
-                                )
-                            },
-                        )
-                    } else if baseline_scoped_detection {
-                        let (line_count, scan_len) = origin.unwrap();
-                        let line_window_start =
-                            output_lines_seen.saturating_sub(snapshot.len() as u64);
-                        let scan_window_start =
-                            scan_bytes_seen.saturating_sub(scan_buf.len() as u64);
-                        let fresh_line_start =
-                            line_count.saturating_sub(line_window_start) as usize;
-                        let fresh_scan_start = scan_len.saturating_sub(scan_window_start) as usize;
-                        let fresh_lines = snapshot
-                            .get(fresh_line_start.min(snapshot.len())..)
-                            .unwrap_or(&[]);
-                        let fresh_scan = scan_buf
-                            .get(fresh_scan_start.min(scan_buf.len())..)
-                            .unwrap_or("");
-                        peon::detect_usage_limit_hint(&adapter.limit_patterns, fresh_lines).or_else(
-                            || {
-                                peon::detect_usage_limit_hint_raw(
-                                    &adapter.limit_patterns,
-                                    fresh_scan,
-                                )
-                            },
-                        )
-                    } else {
-                        peon::detect_usage_limit_hint(&adapter.limit_patterns, &snapshot).or_else(
-                            || {
-                                peon::detect_usage_limit_hint_raw(
-                                    &adapter.limit_patterns,
-                                    &scan_buf,
-                                )
-                            },
-                        )
-                    }
-                });
-                merged.capacity_check_pending = if pending && !pending_visible_once {
-                    Some(true)
-                } else {
-                    None
-                };
-                pending_transitions.push((id, has_fresh_resume_output, pending_visible_once));
-                merged
-            },
-        )
-        .collect();
+    let mut infos: Vec<SessionInfo> = live_sessions.into_iter().map(|(info, snapshot, scan_buf, prev_latch, pending, output_lines_seen, scan_bytes_seen, origin, pending_visible_once)| {
+        let id = info.id.clone();
+        let meta = metadata_map.get(&id);
+        let session_harness_id = meta.and_then(|m| (!m.harness.is_empty()).then(|| m.harness.as_str()));
+        let adapter_harness_id = resolve_adapter_harness_id(&harnesses, session_harness_id);
+        let caps = capabilities_for_harness(&state.adapters, adapter_harness_id.as_deref());
+        let mut merged = merge_live_session_info(info, meta, peon_times.get(&id), &caps);
+        merged.peon_scheduler_state = Some(*peon_states.get(&id).unwrap_or(&peon::PeonSchedulerState::WaitingForOutput));
+        let fresh_output_since_origin = origin.map(|(line_count, scan_len)| {
+            output_lines_seen > line_count || scan_bytes_seen > scan_len
+        }).unwrap_or(false);
+        let has_fresh_resume_output = pending && !pending_visible_once && fresh_output_since_origin;
+        let limit_adapter = adapter_harness_id
+            .as_deref()
+            .and_then(|hid| state.adapters.get(hid));
+        let stale_cap_recheck = prev_latch && !pending && origin.is_some();
+        let baseline_scoped_detection = !prev_latch && !pending && origin.is_some();
+        merged.at_usage_limit = limit_adapter.map(|adapter| {
+            let detected_full =
+                peon::detect_usage_limit(&adapter.limit_patterns, &snapshot)
+                    || peon::detect_usage_limit_raw(&adapter.limit_patterns, &scan_buf);
+            if stale_cap_recheck && fresh_output_since_origin {
+                let (line_count, scan_len) = origin.unwrap();
+                let line_window_start = output_lines_seen.saturating_sub(snapshot.len() as u64);
+                let scan_window_start = scan_bytes_seen.saturating_sub(scan_buf.len() as u64);
+                let fresh_line_start = line_count.saturating_sub(line_window_start) as usize;
+                let fresh_scan_start = scan_len.saturating_sub(scan_window_start) as usize;
+                let fresh_lines = snapshot.get(fresh_line_start.min(snapshot.len())..).unwrap_or(&[]);
+                let fresh_scan = scan_buf.get(fresh_scan_start.min(scan_buf.len())..).unwrap_or("");
+                let detected_scoped =
+                    peon::detect_usage_limit(&adapter.limit_patterns, fresh_lines)
+                        || peon::detect_usage_limit_raw(&adapter.limit_patterns, fresh_scan);
+                capped_recheck_resets.insert(id.clone());
+                if !detected_scoped {
+                    capped_clear_baselines.insert(id.clone(), (output_lines_seen, scan_bytes_seen));
+                }
+                detected_scoped
+            } else if baseline_scoped_detection {
+                let (line_count, scan_len) = origin.unwrap();
+                let line_window_start = output_lines_seen.saturating_sub(snapshot.len() as u64);
+                let scan_window_start = scan_bytes_seen.saturating_sub(scan_buf.len() as u64);
+                let fresh_line_start = line_count.saturating_sub(line_window_start) as usize;
+                let fresh_scan_start = scan_len.saturating_sub(scan_window_start) as usize;
+                let fresh_lines = snapshot.get(fresh_line_start.min(snapshot.len())..).unwrap_or(&[]);
+                let fresh_scan = scan_buf.get(fresh_scan_start.min(scan_buf.len())..).unwrap_or("");
+                let detected_scoped =
+                    peon::detect_usage_limit(&adapter.limit_patterns, fresh_lines)
+                        || peon::detect_usage_limit_raw(&adapter.limit_patterns, fresh_scan);
+                if detected_scoped {
+                    capped_recheck_resets.insert(id.clone());
+                }
+                detected_scoped
+            } else {
+                prev_latch || detected_full
+            }
+        });
+        merged.usage_limit_reset_hint = limit_adapter.and_then(|adapter| {
+            if stale_cap_recheck && fresh_output_since_origin {
+                let (line_count, scan_len) = origin.unwrap();
+                let line_window_start = output_lines_seen.saturating_sub(snapshot.len() as u64);
+                let scan_window_start = scan_bytes_seen.saturating_sub(scan_buf.len() as u64);
+                let fresh_line_start = line_count.saturating_sub(line_window_start) as usize;
+                let fresh_scan_start = scan_len.saturating_sub(scan_window_start) as usize;
+                let fresh_lines = snapshot.get(fresh_line_start.min(snapshot.len())..).unwrap_or(&[]);
+                let fresh_scan = scan_buf.get(fresh_scan_start.min(scan_buf.len())..).unwrap_or("");
+                peon::detect_usage_limit_hint(&adapter.limit_patterns, fresh_lines)
+                    .or_else(|| peon::detect_usage_limit_hint_raw(&adapter.limit_patterns, fresh_scan))
+            } else if baseline_scoped_detection {
+                let (line_count, scan_len) = origin.unwrap();
+                let line_window_start = output_lines_seen.saturating_sub(snapshot.len() as u64);
+                let scan_window_start = scan_bytes_seen.saturating_sub(scan_buf.len() as u64);
+                let fresh_line_start = line_count.saturating_sub(line_window_start) as usize;
+                let fresh_scan_start = scan_len.saturating_sub(scan_window_start) as usize;
+                let fresh_lines = snapshot.get(fresh_line_start.min(snapshot.len())..).unwrap_or(&[]);
+                let fresh_scan = scan_buf.get(fresh_scan_start.min(scan_buf.len())..).unwrap_or("");
+                peon::detect_usage_limit_hint(&adapter.limit_patterns, fresh_lines)
+                    .or_else(|| peon::detect_usage_limit_hint_raw(&adapter.limit_patterns, fresh_scan))
+            } else {
+                peon::detect_usage_limit_hint(&adapter.limit_patterns, &snapshot)
+                    .or_else(|| peon::detect_usage_limit_hint_raw(&adapter.limit_patterns, &scan_buf))
+            }
+        });
+        merged.capacity_check_pending = if pending && !pending_visible_once {
+            Some(true)
+        } else {
+            None
+        };
+        pending_transitions.push((id, has_fresh_resume_output, pending_visible_once));
+        merged
+    }).collect();
 
     // Append remembered (non-live) sessions from metadata
     for meta in &all_metadata_sessions {
@@ -1287,6 +1223,7 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
             metadata_source: Some(meta.metadata_source.clone()),
             metadata_confidence: Some(meta.metadata_confidence),
             peon_last_inference: meta.peon_last_inference.clone(),
+            peon_scheduler_state: None,
             repo_root: meta.repo_root.clone(),
             branch: meta.branch.clone(),
             dirty: meta.dirty,
@@ -1485,9 +1422,8 @@ pub(crate) async fn delete_session(
         }
         None => return axum::http::StatusCode::NOT_FOUND,
     }
-    state.peon.last_output.write().unwrap().remove(&id);
-    state.peon.last_processed_output.write().unwrap().remove(&id);
     state.peon.last_inference.write().unwrap().remove(&id);
+    state.peon.scheduler.write().unwrap().clear_tracking(&id);
     axum::http::StatusCode::OK
 }
 
@@ -1532,9 +1468,8 @@ pub(crate) async fn forget_session(
     drop(ws_guard);
 
     state.sessions.lock().unwrap().remove(&id);
-    state.peon.last_output.write().unwrap().remove(&id);
-    state.peon.last_processed_output.write().unwrap().remove(&id);
     state.peon.last_inference.write().unwrap().remove(&id);
+    state.peon.scheduler.write().unwrap().clear_tracking(&id);
 
     axum::http::StatusCode::OK.into_response()
 }
@@ -2596,12 +2531,8 @@ mod tests {
                 watcher: watcher::MetadataWatcher::start(&orkworks.join("sessions")),
             })),
             peon: crate::PeonState {
-                last_output: std::sync::RwLock::new(std::collections::HashMap::new()),
-                last_processed_output: std::sync::RwLock::new(std::collections::HashMap::new()),
+                scheduler: std::sync::RwLock::new(crate::peon::PeonScheduler::default()),
                 last_inference: std::sync::RwLock::new(std::collections::HashMap::new()),
-                in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
-                label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
-                label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
                 config: peon::PeonConfig::from_env(),
             },
             adapters: crate::harness_registry::builtin_adapters(),
@@ -2856,12 +2787,8 @@ mod tests {
             sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
             workspace: std::sync::Mutex::new(None),
             peon: crate::PeonState {
-                last_output: std::sync::RwLock::new(std::collections::HashMap::new()),
-                last_processed_output: std::sync::RwLock::new(std::collections::HashMap::new()),
+                scheduler: std::sync::RwLock::new(crate::peon::PeonScheduler::default()),
                 last_inference: std::sync::RwLock::new(std::collections::HashMap::new()),
-                in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
-                label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
-                label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
                 config: peon::PeonConfig::from_env(),
             },
             adapters: crate::harness_registry::builtin_adapters(),
@@ -2946,12 +2873,8 @@ mod tests {
             sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
             workspace: std::sync::Mutex::new(None),
             peon: crate::PeonState {
-                last_output: std::sync::RwLock::new(std::collections::HashMap::new()),
-                last_processed_output: std::sync::RwLock::new(std::collections::HashMap::new()),
+                scheduler: std::sync::RwLock::new(crate::peon::PeonScheduler::default()),
                 last_inference: std::sync::RwLock::new(std::collections::HashMap::new()),
-                in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
-                label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
-                label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
                 config: peon::PeonConfig::from_env(),
             },
             adapters: crate::harness_registry::builtin_adapters(),
@@ -3038,12 +2961,8 @@ mod tests {
             sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
             workspace: std::sync::Mutex::new(None),
             peon: crate::PeonState {
-                last_output: std::sync::RwLock::new(std::collections::HashMap::new()),
-                last_processed_output: std::sync::RwLock::new(std::collections::HashMap::new()),
+                scheduler: std::sync::RwLock::new(crate::peon::PeonScheduler::default()),
                 last_inference: std::sync::RwLock::new(std::collections::HashMap::new()),
-                in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
-                label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
-                label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
                 config: peon::PeonConfig::from_env(),
             },
             adapters: crate::harness_registry::builtin_adapters(),
@@ -3112,12 +3031,8 @@ mod tests {
             sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
             workspace: std::sync::Mutex::new(None),
             peon: crate::PeonState {
-                last_output: std::sync::RwLock::new(std::collections::HashMap::new()),
-                last_processed_output: std::sync::RwLock::new(std::collections::HashMap::new()),
+                scheduler: std::sync::RwLock::new(crate::peon::PeonScheduler::default()),
                 last_inference: std::sync::RwLock::new(std::collections::HashMap::new()),
-                in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
-                label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
-                label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
                 config: peon::PeonConfig::from_env(),
             },
             adapters: crate::harness_registry::builtin_adapters(),
@@ -3607,12 +3522,8 @@ mod tests {
                 watcher: watcher::MetadataWatcher::start(&orkworks.join("sessions")),
             })),
             peon: crate::PeonState {
-                last_output: std::sync::RwLock::new(std::collections::HashMap::new()),
-                last_processed_output: std::sync::RwLock::new(std::collections::HashMap::new()),
+                scheduler: std::sync::RwLock::new(crate::peon::PeonScheduler::default()),
                 last_inference: std::sync::RwLock::new(std::collections::HashMap::new()),
-                in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
-                label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
-                label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
                 config: peon::PeonConfig::from_env(),
             },
             adapters: crate::harness_registry::builtin_adapters(),

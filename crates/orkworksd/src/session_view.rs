@@ -155,6 +155,7 @@ pub(crate) fn merge_live_session_info(
             .and_then(|m| m.peon_last_inference.clone())
             .or(info.peon_last_inference)
             .or_else(|| peon_last_inference.cloned()),
+        peon_scheduler_state: info.peon_scheduler_state,
         repo_root: meta.and_then(|m| m.repo_root.clone()).or(info.repo_root),
         branch: meta.and_then(|m| m.branch.clone()).or(info.branch),
         dirty: meta.and_then(|m| m.dirty).or(info.dirty),
@@ -259,6 +260,7 @@ mod tests {
             conflict_warning: None,
             recommendation: None,
             peon_last_inference: None,
+            peon_scheduler_state: None,
             provider: None,
             provider_model: None,
             provider_state: None,
