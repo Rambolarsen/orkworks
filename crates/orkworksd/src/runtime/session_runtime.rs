@@ -468,6 +468,9 @@ pub(crate) async fn start_session_runtime(
                                     if peon::is_terminal_observed_status(handle.info.observed_status.as_deref()) {
                                         handle.info.observed_status = None;
                                     }
+                                    if handle.info.lifecycle == "alive" && !raw_persist_lines.is_empty() {
+                                        handle.info.attention = Some("working".into());
+                                    }
                                     if handle.info.harness_id.as_deref() == Some("codex") {
                                         codex_thread_id = raw_persist_lines.iter()
                                             .find_map(|line| codex_thread_id_from_jsonl_line(line));

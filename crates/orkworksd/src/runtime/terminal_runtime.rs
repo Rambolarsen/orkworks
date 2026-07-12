@@ -202,6 +202,8 @@ pub(crate) fn set_session_status(state: &Arc<AppState>, id: &str, status: &str) 
             if is_terminal {
                 handle.info.status = "running".to_string();
                 handle.info.lifecycle_phase = "ending".to_string();
+                handle.info.lifecycle = "stopping".to_string();
+                handle.info.attention = None;
                 handle.info.connectivity = Some(connectivity_for_status("running").to_string());
                 handle.info.terminal_outcome = None;
             } else {
@@ -211,6 +213,7 @@ pub(crate) fn set_session_status(state: &Arc<AppState>, id: &str, status: &str) 
                 } else {
                     "active".to_string()
                 };
+                handle.info.lifecycle = if status == "creating" { "creating" } else { "alive" }.to_string();
                 handle.info.connectivity = Some(connectivity_for_status(status).to_string());
                 handle.info.terminal_outcome = terminal_outcome_for_status(status);
             }
@@ -251,6 +254,8 @@ pub(crate) fn set_session_status(state: &Arc<AppState>, id: &str, status: &str) 
             if is_terminal {
                 meta.status = "running".to_string();
                 meta.lifecycle_phase = "ending".to_string();
+                meta.lifecycle = "stopping".to_string();
+                meta.attention = None;
                 meta.connectivity = connectivity_for_status("running").to_string();
                 meta.terminal_outcome = None;
                 meta.pending_terminal_status = Some(status.to_string());
@@ -267,6 +272,7 @@ pub(crate) fn set_session_status(state: &Arc<AppState>, id: &str, status: &str) 
                 } else {
                     "active".to_string()
                 };
+                meta.lifecycle = if status == "creating" { "creating" } else { "alive" }.to_string();
                 meta.connectivity = connectivity_for_status(status).to_string();
                 meta.terminal_outcome = terminal_outcome_for_status(status);
             }
@@ -345,6 +351,8 @@ pub(crate) fn complete_session_ending(
                     .unwrap_or_else(|| fallback_terminal_status.into());
                 meta.status = pending.clone();
                 meta.lifecycle_phase = "ended".into();
+                meta.lifecycle = "dead".into();
+                meta.attention = None;
                 meta.connectivity = connectivity_for_status(&pending).to_string();
                 meta.terminal_outcome = terminal_outcome_for_status(&pending);
                 meta.pending_terminal_status = None;
@@ -373,6 +381,8 @@ pub(crate) fn complete_session_ending(
         }
         handle.info.status = pending.clone();
         handle.info.lifecycle_phase = "ended".into();
+        handle.info.lifecycle = "dead".into();
+        handle.info.attention = None;
         handle.info.connectivity = Some(connectivity_for_status(&pending).to_string());
         handle.info.terminal_outcome = terminal_outcome_for_status(&pending);
         handle.info.observed_status = None;

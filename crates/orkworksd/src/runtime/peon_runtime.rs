@@ -209,6 +209,7 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                             if let Some(mut meta) = ws.metadata.read_session(id) {
                                 if matches!(meta.observed_status.as_deref(), None | Some("working")) {
                                     meta.observed_status = Some("idle".into());
+                                    meta.attention = Some("idle".into());
                                     meta.metadata_source = "process".into();
                                     ws.metadata.write_session(&meta);
                                 }
@@ -220,6 +221,7 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                 for id in &silent_ids {
                     if let Some(handle) = sessions.get_mut(id) {
                         handle.info.observed_status = Some("idle".into());
+                        handle.info.attention = Some("idle".into());
                     }
                 }
             }

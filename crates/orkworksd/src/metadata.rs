@@ -268,6 +268,15 @@ fn normalize_work_phase(raw: &str) -> String {
     }
 }
 
+fn canonical_attention(raw: Option<&str>) -> Option<String> {
+    match raw {
+        Some("waiting_for_input") => Some("needs_you".into()),
+        Some("stale" | "done") => Some("idle".into()),
+        Some("working" | "idle" | "blocked" | "failed" | "capped") => raw.map(str::to_string),
+        _ => None,
+    }
+}
+
 fn default_lifecycle_phase_for_status(status: &str) -> String {
     match status {
         "creating" => "creating".into(),
@@ -329,6 +338,8 @@ pub(crate) fn reconcile_orphaned_session(mut meta: SessionMetadata, now: &str) -
         );
     }
     meta.lifecycle_phase = "ended".into();
+    meta.lifecycle = "dead".into();
+    meta.attention = None;
     meta.terminal_outcome = Some(final_status.clone());
     meta.status = final_status;
     meta.connectivity = "offline".into();
@@ -997,6 +1008,9 @@ impl MetadataStore {
         }
 
         meta.observed_status = Some(status.to_string());
+        if meta.lifecycle == "alive" {
+            meta.attention = canonical_attention(Some(status));
+        }
         if let Some(msg) = message {
             meta.summary = Some(msg.to_string());
         }
@@ -1040,6 +1054,9 @@ impl MetadataStore {
             });
 
         meta.observed_status = inf.observed_status.clone().or(meta.observed_status);
+        if meta.lifecycle == "alive" {
+            meta.attention = canonical_attention(meta.observed_status.as_deref());
+        }
         if let Some(ref phase) = inf.phase {
             meta.work_phase = normalize_work_phase(phase);
         }

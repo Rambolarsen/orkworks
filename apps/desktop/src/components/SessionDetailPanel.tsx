@@ -72,7 +72,7 @@ function SessionDetailPanel({ sessions, activeSessionId, onResumeSession, showDe
       </span>,
     );
   }
-  if (active.finalObservedStatus) {
+  if (showDebugMetadata && active.finalObservedStatus) {
     provenanceItems.push(
       <span key="final-attention" className="peon-value">
         Final attention: {attentionLabel(active.finalObservedStatus)}

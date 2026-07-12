@@ -254,30 +254,26 @@ test("CenterPanel keeps inactive terminals alive while switching sessions", () =
   assert.doesNotMatch(source, /previousId !== sessionId[\s\S]*disposeTerminal\(previousId\)/);
 });
 
-test("session list marks remembered sessions separately from live sessions", () => {
+test("session list marks dead sessions separately from alive sessions", () => {
   const source = readFileSync(
     new URL("../src/components/SessionListPanel.tsx", import.meta.url),
     "utf8",
   );
 
-  // Remembered is the negation of "live" — inverting this condition flips the class onto the wrong sessions.
-  assert.match(source, /const\s+remembered\s*=\s*s\.memoryState\s*!==\s*"live"/);
-  // The remembered variable (not its inverse) drives the class — inverting the ternary would break this.
+  assert.match(source, /const\s+remembered\s*=\s*s\.lifecycle\s*===\s*"dead"/);
   assert.match(source, /remembered\s*\?\s*"session-row--remembered"/);
 });
 
-test("session list only offers kill for live sessions", () => {
+test("session list only offers kill for alive sessions", () => {
   const source = readFileSync(
     new URL("../src/components/SessionListPanel.tsx", import.meta.url),
     "utf8",
   );
 
-  // Kill button is gated to the live branch.
-  assert.match(source, /s\.memoryState === "live" && \(\s*<button[\s\S]*session-row-kill/);
-  // Kill class must be absent from the non-live (remembered) branch.
-  const nonLiveBlock =
-    source.match(/\{s\.memoryState !== "live" && \([\s\S]*?\)\s*\}/)?.[0] ?? "";
-  assert.doesNotMatch(nonLiveBlock, /session-row-kill/);
+  assert.match(source, /const\s+canKill\s*=\s*s\.lifecycle\s*===\s*"alive"/);
+  assert.match(source, /\{canKill && \(\s*<button[\s\S]*session-row-kill/);
+  const deadBlock = source.match(/\{remembered && \([\s\S]*?\)\s*\}/)?.[0] ?? "";
+  assert.doesNotMatch(deadBlock, /session-row-kill/);
 });
 
 test("session list keeps tool/time metadata separate from unread and destructive controls", () => {
