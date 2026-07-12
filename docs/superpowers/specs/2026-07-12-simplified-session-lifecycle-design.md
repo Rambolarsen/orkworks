@@ -34,6 +34,8 @@ working | idle | needs_you | blocked | failed | capped
 - `idle`: the process is alive but quiet.
 - `needs_you`, `blocked`, `failed`, and `capped`: actionable alterations of idle. They replace the idle presentation until new terminal output returns the session to `working`.
 
+Capacity polling is supporting data, not an additional attention state. `checking_capacity` is not exposed as attention. A confirmed capacity limit sets `capped`; new terminal output clears that capped attention, while the last reported capacity value remains diagnostic metadata. A later, fresh confirmed limit may set `capped` again.
+
 `running` is removed: it duplicates `alive`. `done` is removed: session completion is represented by `dead` and its terminal outcome, while an unfinished quiet session is `idle`. `stale` normalizes to `idle`.
 
 ### Independent data
@@ -57,7 +59,9 @@ alive -- process exit / Kill -> stopping
 stopping -- final snapshot ---> dead
 ```
 
-The transition from `alive` to `stopping` is idempotent. It captures the last accepted observer state and schedules at most one final scan. Once a session enters `stopping`, live attention is cleared and no later inference may restore it. `dead` is terminal for that runtime; resuming creates a new alive runtime using the applicable resume memory.
+The transition from `alive` to `stopping` is idempotent. It durably records the pending terminal outcome and captures the last accepted observer snapshot before scheduling at most one bounded final scan. Scan success replaces the captured snapshot; scan failure or timeout finalizes with the captured snapshot. Once a session enters `stopping`, live attention is cleared and no later inference may restore it.
+
+Startup recovery finalizes an orphaned `stopping` session by consuming its persisted pending terminal outcome and captured snapshot. A launch failure transitions directly from `creating` to `dead`, records the `error` outcome, and persists the canonical null final-observer snapshot. Therefore every `dead` session has a final snapshot even when no live observation occurred. `dead` is terminal for that runtime; resuming creates a new alive runtime using the applicable resume memory.
 
 ## Frontend presentation
 
@@ -72,7 +76,7 @@ The list continues to put alive sessions before dead sessions. Within alive sess
 
 ## API and migration
 
-The API exposes independent `lifecycle` and `attention` fields. It stops exposing `status`, `lifecyclePhase`, and their frontend fallback logic as presentation inputs.
+The API exposes independent `lifecycle` and `attention` fields. During a compatibility window it retains legacy `status`, `lifecyclePhase`, `observedStatus`, and `connectivity` fields for older desktop builds, but new frontend code uses only the new fields. A later protocol-removal change may delete the legacy fields after desktop/sidecar compatibility is no longer required.
 
 During migration, persisted legacy values normalize as follows:
 
@@ -86,8 +90,11 @@ During migration, persisted legacy values normalize as follows:
 | `idle` or `stale` observed status | `idle` attention |
 | `done` observed status | `idle` when alive; otherwise retained only in historical metadata |
 | `waiting_for_input` observed status | `needs_you` attention |
+| `blocked` or `failed` observed status | same-named attention |
+| a confirmed capacity limit / `atUsageLimit` | `capped` attention |
+| `checking_capacity` / `capacityCheckPending` | no attention value; retain only as capacity diagnostic metadata |
 
-New writes use only the new state vocabulary. Existing terminal outcome, resume, and final-snapshot data remain compatible through the migration.
+For any lifecycle other than `alive`, attention is omitted or cleared. New writes use only the new state vocabulary. Existing terminal outcome, resume, capacity, and final-snapshot data remain compatible through the migration.
 
 ## Verification
 
@@ -95,7 +102,8 @@ Tests must cover:
 
 - lifecycle transitions, including launch failure and idempotent stopping;
 - clearing live attention on stopping and preventing it from resurfacing;
-- terminal output returning every alive attention state to working;
-- normalization of `stale`, `done`, and legacy lifecycle/status values;
+- terminal output returning every alive attention state, including `capped`, to working while retaining capacity history as diagnostic data;
+- normalization of `stale`, `done`, `blocked`, `failed`, capacity, and legacy lifecycle/status values;
+- final-scan success, timeout/fallback, canonical-null launch-failure snapshots, and startup recovery of an orphaned stopping session;
 - frontend rendering and sorting for each lifecycle and attention state;
 - resume actions and muted presentation for dead sessions.
