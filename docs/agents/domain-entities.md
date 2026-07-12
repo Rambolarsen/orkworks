@@ -37,11 +37,11 @@ Current fields:
 
 - `id: SessionId`
 - `workspace_path: WorkspacePath`
-- `status: SessionStatus`
+- `status: SessionStatus` — legacy compatibility and terminal-outcome detail
 - `memory_state: MemoryState`
 - `attention_state: AttentionState`
 - `work_phase: WorkPhase`
-- `lifecycle_phase: LifecyclePhase`
+- `lifecycle_phase: LifecyclePhase` — replaced by canonical lifecycle in ADR 0023
 - `pending_terminal_status: Option<TerminalOutcome>`
 - `ending_observed_status_snapshot: Option<ObservedStatusSnapshot>`
 - `final_observed_status_snapshot: Option<ObservedStatusSnapshot>`
@@ -74,7 +74,7 @@ Behavior currently implemented on the entity:
 - `begin_ending(pending_terminal_status, ending_observed_status_snapshot)`
 - `complete_ending(final_observed_status_snapshot)`
 
-The lifecycle behavior is still orchestrated by runtime/application code, but the aggregate now owns the `creating -> active -> ending -> ended` transition rules and the structured final-observed-state snapshots.
+The lifecycle behavior is still orchestrated by runtime/application code. ADR 0023 replaces the public lifecycle vocabulary with `creating -> alive -> stopping -> dead` while retaining the structured final-observed-state snapshots and finalization guarantees.
 
 ## Value objects
 
@@ -115,15 +115,14 @@ This is distinct from lifecycle status. A killed or ended session can still be r
 
 ### `AttentionState`
 
-Observed attention state:
+Observed attention state while a session is alive:
 
-- `WaitingForInput`
+- `NeedsYou`
 - `Blocked`
 - `Failed`
-- `Done`
-- `Stale`
 - `Working`
 - `Idle`
+- `Capped`
 
 This is the domain form of the attention model used for sorting and UI emphasis. `needs_attention()` is defined here.
 
@@ -143,14 +142,14 @@ The old `Phase` name is fully retired; `WorkPhase` is the canonical domain term.
 
 ### `LifecyclePhase`
 
-Explicit runtime lifecycle phase:
+Legacy runtime lifecycle phase, superseded by ADR 0023's canonical lifecycle:
 
 - `Creating`
 - `Active`
 - `Ending`
 - `Ended`
 
-This is distinct from `SessionStatus`. It models where the session is in the lifecycle state machine even when the process-facing `status` remains `Running` during `Ending`.
+The canonical lifecycle is `Creating`, `Alive`, `Stopping`, and `Dead`. Attention is absent outside `Alive`; terminal outcome and frozen snapshots are historical detail.
 
 ### `TerminalOutcome`
 
