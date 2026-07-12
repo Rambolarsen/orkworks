@@ -1749,7 +1749,7 @@ mod tests {
         assert_eq!(injected.at_usage_limit, Some(true));
 
         let response = list_sessions(State(state.clone())).await.into_response();
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        let body = axum::body::to_bytes(response.into_body(), 64 * 1024)
             .await
             .unwrap();
         let sessions: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
