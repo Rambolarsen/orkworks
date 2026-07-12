@@ -37,11 +37,11 @@ Current fields:
 
 - `id: SessionId`
 - `workspace_path: WorkspacePath`
-- `status: SessionStatus` — legacy compatibility and terminal-outcome detail
+- `status: SessionStatus`
 - `memory_state: MemoryState`
 - `attention_state: AttentionState`
 - `work_phase: WorkPhase`
-- `lifecycle_phase: LifecyclePhase` — replaced by canonical lifecycle in ADR 0023
+- `lifecycle_phase: LifecyclePhase`
 - `pending_terminal_status: Option<TerminalOutcome>`
 - `ending_observed_status_snapshot: Option<ObservedStatusSnapshot>`
 - `final_observed_status_snapshot: Option<ObservedStatusSnapshot>`
@@ -74,7 +74,7 @@ Behavior currently implemented on the entity:
 - `begin_ending(pending_terminal_status, ending_observed_status_snapshot)`
 - `complete_ending(final_observed_status_snapshot)`
 
-The lifecycle behavior is still orchestrated by runtime/application code. ADR 0023 replaces the public lifecycle vocabulary with `creating -> alive -> stopping -> dead` while retaining the structured final-observed-state snapshots and finalization guarantees.
+The lifecycle behavior is still orchestrated by runtime/application code, and the aggregate owns the `creating -> active -> ending -> ended` transition rules plus structured final-observed-state snapshots. ADR 0023 records the target replacement vocabulary (`creating -> alive -> stopping -> dead`) for the upcoming migration.
 
 ## Value objects
 
@@ -115,14 +115,15 @@ This is distinct from lifecycle status. A killed or ended session can still be r
 
 ### `AttentionState`
 
-Observed attention state while a session is alive:
+Observed attention state:
 
-- `NeedsYou`
+- `WaitingForInput`
 - `Blocked`
 - `Failed`
+- `Done`
+- `Stale`
 - `Working`
 - `Idle`
-- `Capped`
 
 This is the domain form of the attention model used for sorting and UI emphasis. `needs_attention()` is defined here.
 
@@ -142,14 +143,14 @@ The old `Phase` name is fully retired; `WorkPhase` is the canonical domain term.
 
 ### `LifecyclePhase`
 
-Legacy runtime lifecycle phase, superseded by ADR 0023's canonical lifecycle:
+Explicit runtime lifecycle phase:
 
 - `Creating`
 - `Active`
 - `Ending`
 - `Ended`
 
-The canonical lifecycle is `Creating`, `Alive`, `Stopping`, and `Dead`. Attention is absent outside `Alive`; terminal outcome and frozen snapshots are historical detail.
+This is distinct from `SessionStatus`. It models where the session is in the lifecycle state machine even when the process-facing `status` remains `Running` during `Ending`. ADR 0023 defines a replacement canonical lifecycle for planned implementation work.
 
 ### `TerminalOutcome`
 

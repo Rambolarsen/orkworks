@@ -28,7 +28,9 @@ complicated than the user needs to interpret.
 
 - The renderer consumes lifecycle and attention independently and never uses
   process status as an attention fallback.
-- Compatibility fields remain temporarily derivable for older desktop builds,
-  while new writes and all new renderer behavior use the canonical model.
+- Compatibility fields (`status`, `lifecyclePhase`, `observedStatus`, and
+  `connectivity`) remain temporarily derivable for older desktop builds. New
+  writes and renderer behavior use the canonical model once the migration
+  lands; a later protocol-removal decision removes those compatibility fields.
 - ADR 0021 is superseded for its public vocabulary; its race-prevention and
   recovery invariants remain required.
