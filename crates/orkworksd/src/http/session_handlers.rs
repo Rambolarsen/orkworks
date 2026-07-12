@@ -1079,14 +1079,14 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
     let peon_times = state.peon.last_inference.read().unwrap().clone();
     let peon_states: HashMap<String, peon::PeonSchedulerState> = {
         let scheduler = state.peon.scheduler.read().unwrap();
-        live_sessions.iter().map(|(info, _, _, _, _, _, _, _, _)| {
+        live_sessions.iter().map(|(info, _, _, _, _, _, _, _, _, _)| {
             (info.id.clone(), scheduler.state_for(&info.id))
         }).collect()
     };
     let mut pending_transitions: Vec<(String, bool, bool)> = Vec::new();
     let mut capped_recheck_resets: HashSet<String> = HashSet::new();
     let mut capped_clear_baselines: HashMap<String, (u64, u64)> = HashMap::new();
-    let mut infos: Vec<SessionInfo> = live_sessions.into_iter().map(|(info, snapshot, scan_buf, prev_latch, pending, output_lines_seen, scan_bytes_seen, origin, pending_visible_once)| {
+    let mut infos: Vec<SessionInfo> = live_sessions.into_iter().map(|(info, snapshot, scan_buf, prev_latch, pending, output_lines_seen, scan_bytes_seen, origin, pending_visible_once, _debug_injection)| {
         let id = info.id.clone();
         let meta = metadata_map.get(&id);
         let session_harness_id = meta.and_then(|m| (!m.harness.is_empty()).then(|| m.harness.as_str()));

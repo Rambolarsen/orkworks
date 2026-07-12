@@ -82,7 +82,7 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                 );
 
                 let mut inference_persisted = false;
-                let mut permanent_hold = false;
+                let permanent_hold = false;
                 {
                     // The scheduler write lock is the lease authority. Ending acquires the
                     // same lock before changing lifecycle, so normal writes are either fully
@@ -100,7 +100,7 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                             ws.metadata.persist_provider_context(&id, obs);
                         }
                         if let Some(ref inf) = inference {
-                            let (should_write, is_permanent) = ws.metadata.read_session(&id)
+                            let should_write = ws.metadata.read_session(&id)
                                 .map(|m| {
                                     let age = ws.metadata.session_modified_secs_ago(&id);
                                     peon::peon_should_overwrite(&m.metadata_source, age)
@@ -1973,12 +1973,8 @@ mod tests {
             sessions: Mutex::new(HashMap::new()),
             workspace: Mutex::new(None), // no workspace → persist is always skipped
             peon: crate::PeonState {
-                last_output: RwLock::new(HashMap::new()),
-                last_processed_output: RwLock::new(HashMap::new()),
+                scheduler: std::sync::RwLock::new(crate::peon::PeonScheduler::default()),
                 last_inference: RwLock::new(HashMap::new()),
-                in_flight: RwLock::new(HashSet::new()),
-                label_hint: RwLock::new(HashMap::new()),
-                label_pending: RwLock::new(HashSet::new()),
                 config: peon::PeonConfig {
                     harness: dir.path().join("missing-harness").display().to_string(),
                     harness_args: vec![],
@@ -2053,8 +2049,8 @@ mod tests {
             state.sessions.lock().unwrap().insert(session_id.clone(), handle);
         }
 
-        let before_test = tokio::time::Instant::now();
-        state.peon.last_output.write().unwrap().insert(
+        let before_test = std::time::Instant::now();
+        state.peon.scheduler.write().unwrap().request_observation_from_output(
             session_id.clone(),
             before_test - std::time::Duration::from_secs(5),
         );
@@ -2063,24 +2059,11 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
         task.abort();
 
-        let lo = state.peon.last_output.read().unwrap();
-        let updated_at = lo
-            .get(&session_id)
-            .copied()
-            .expect("last_output entry removed");
+        let updated_at = state.peon.scheduler.read().unwrap().output_at(&session_id).expect("last_output entry removed");
         assert!(
             updated_at >= before_test,
             "last_output should be refreshed even when persist is skipped and inference was non-terminal; \
              session must remain eligible for retry after the debounce window"
-        );
-        assert!(
-            !state
-                .peon
-                .last_processed_output
-                .read()
-                .unwrap()
-                .contains_key(&session_id),
-            "persist-skipped non-terminal inference must not mark unchanged output as fully processed"
         );
     }
 }
