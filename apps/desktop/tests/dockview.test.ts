@@ -184,21 +184,21 @@ test("SessionDetailPanel's action zone renders at most one move, via the shared 
   assert.doesNotMatch(source, /session-resume-button/);
 });
 
-test("session list sorts by attention priority with lifecycle fallback", () => {
+test("session list sorts canonical alive attention before dead sessions", () => {
   const sessions: SessionInfo[] = [
-    { id: "1", label: "s1", status: "running", cwd: "/tmp", created_at: "now", memoryState: "live", resumeStrategy: "none" },
-    { id: "2", label: "s2", status: "running", observedStatus: "waiting_for_input", cwd: "/tmp", created_at: "now", memoryState: "live", resumeStrategy: "none" },
-    { id: "3", label: "s3", status: "ended", cwd: "/tmp", created_at: "now", memoryState: "remembered", resumeStrategy: "none" },
-    { id: "4", label: "s4", status: "running", observedStatus: "failed", cwd: "/tmp", created_at: "now", memoryState: "live", resumeStrategy: "none" },
-    { id: "5", label: "s5", status: "running", observedStatus: "blocked", cwd: "/tmp", created_at: "now", memoryState: "live", resumeStrategy: "none" },
-    { id: "6", label: "s6", status: "running", observedStatus: "done", cwd: "/tmp", created_at: "now", memoryState: "live", resumeStrategy: "none" },
+    { id: "1", label: "s1", status: "running", lifecycle: "alive", attention: "idle", cwd: "/tmp", created_at: "now", memoryState: "live", resumeStrategy: "none" },
+    { id: "2", label: "s2", status: "running", lifecycle: "alive", attention: "needs_you", cwd: "/tmp", created_at: "now", memoryState: "live", resumeStrategy: "none" },
+    { id: "3", label: "s3", status: "ended", lifecycle: "dead", cwd: "/tmp", created_at: "now", memoryState: "remembered", resumeStrategy: "none" },
+    { id: "4", label: "s4", status: "running", lifecycle: "alive", attention: "failed", cwd: "/tmp", created_at: "now", memoryState: "live", resumeStrategy: "none" },
+    { id: "5", label: "s5", status: "running", lifecycle: "alive", attention: "blocked", cwd: "/tmp", created_at: "now", memoryState: "live", resumeStrategy: "none" },
+    { id: "6", label: "s6", status: "running", lifecycle: "alive", attention: "working", cwd: "/tmp", created_at: "now", memoryState: "live", resumeStrategy: "none" },
   ];
   const sorted = sortSessions(sessions);
-  assert.equal(sorted[0].id, "2"); // waiting_for_input
+  assert.equal(sorted[0].id, "2"); // needs_you
   assert.equal(sorted[1].id, "5"); // blocked
   assert.equal(sorted[2].id, "4"); // failed
-  assert.equal(sorted[3].id, "6"); // done
-  assert.equal(sorted[4].id, "1"); // running
+  assert.equal(sorted[3].id, "6"); // working
+  assert.equal(sorted[4].id, "1"); // idle
   assert.equal(sorted[5].id, "3"); // ended
 });
 
@@ -208,28 +208,28 @@ test("needsAttention lifecycle statuses do not trigger from raw lifecycle", () =
   assert.equal(needsAttention("creating"), false);
 });
 
-test("sessionAttentionStatus falls back to lifecycle status when no observed", () => {
+test("sessionAttentionStatus defaults an alive session to idle", () => {
   const session: SessionInfo = {
-    id: "1", label: "test", status: "running", cwd: "/tmp", created_at: "now",
+    id: "1", label: "test", status: "running", lifecycle: "alive", cwd: "/tmp", created_at: "now",
     memoryState: "live", resumeStrategy: "none",
   };
-  assert.equal(sessionAttentionStatus(session), "running");
+  assert.equal(sessionAttentionStatus(session), "idle");
 });
 
-test("sessionAttentionStatus ignores observed status outside active lifecycle", () => {
+test("sessionAttentionStatus is neutral outside alive lifecycle", () => {
   const session: SessionInfo = {
     id: "1",
     label: "ending",
     status: "running",
-    lifecyclePhase: "ending",
-    observedStatus: "waiting_for_input",
+    lifecycle: "stopping",
+    attention: "needs_you",
     cwd: "/tmp",
     created_at: "now",
     memoryState: "live",
     resumeStrategy: "none",
   };
 
-  assert.equal(sessionAttentionStatus(session), "running");
+  assert.equal(sessionAttentionStatus(session), "neutral");
 });
 
 test("session detail exposes resumable session action", () => {

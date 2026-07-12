@@ -288,6 +288,8 @@ pub(crate) mod test_support {
             model: None,
             work_phase: "unknown".into(),
             lifecycle_phase: "active".into(),
+            lifecycle: "alive".into(),
+            attention: None,
             status,
             connectivity,
             terminal_outcome,

@@ -20,6 +20,9 @@ pub(crate) struct SessionInfo {
     pub(crate) work_phase: String,
     #[serde(rename = "lifecyclePhase")]
     pub(crate) lifecycle_phase: String,
+    pub(crate) lifecycle: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) attention: Option<String>,
     pub(crate) status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) connectivity: Option<String>,
@@ -122,6 +125,8 @@ mod tests {
             model: None,
             work_phase: "unknown".into(),
             lifecycle_phase: "active".into(),
+            lifecycle: "alive".into(),
+            attention: None,
             status: status.into(),
             connectivity: None,
             terminal_outcome: None,

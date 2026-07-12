@@ -6,6 +6,8 @@ export type SessionConnectivity = "online" | "offline";
 export type TerminalOutcome = "ended" | "killed" | "error";
 export type WorkPhase = "ideation" | "implementation" | "review" | "debugging" | "unknown";
 export type LifecyclePhase = "creating" | "active" | "ending" | "ended";
+export type SessionLifecycle = "creating" | "alive" | "stopping" | "dead";
+export type SessionAttention = "working" | "idle" | "needs_you" | "blocked" | "failed" | "capped";
 
 /** Lifecycle phase with the migration fallback for payloads that predate `lifecyclePhase`. */
 export function effectiveLifecyclePhase(
@@ -46,6 +48,8 @@ export interface SessionInfo {
   model?: string;
   workPhase?: WorkPhase;
   lifecyclePhase?: LifecyclePhase;
+  lifecycle?: SessionLifecycle;
+  attention?: SessionAttention;
   status: string;
   connectivity?: SessionConnectivity;
   terminalOutcome?: TerminalOutcome;

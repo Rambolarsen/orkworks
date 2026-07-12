@@ -91,6 +91,8 @@ pub(crate) fn merge_live_session_info(
         lifecycle_phase: meta
             .map(|m| m.lifecycle_phase.clone())
             .unwrap_or(info.lifecycle_phase),
+        lifecycle: meta.map(|m| m.lifecycle.clone()).unwrap_or(info.lifecycle),
+        attention: meta.and_then(|m| m.attention.clone()).or(info.attention),
         status: info.status.clone(),
         connectivity: Some(connectivity_for_status(&info.status).to_string()),
         terminal_outcome: terminal_outcome_for_status(&info.status),
@@ -198,6 +200,8 @@ mod tests {
             model: None,
             work_phase: "unknown".into(),
             lifecycle_phase: "active".into(),
+            lifecycle: "alive".into(),
+            attention: None,
             status: status.clone(),
             connectivity: Some(connectivity_for_status(&status).to_string()),
             terminal_outcome: terminal_outcome_for_status(&status),
