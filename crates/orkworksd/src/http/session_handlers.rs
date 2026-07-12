@@ -817,9 +817,17 @@ pub(crate) async fn create_session(
     Json(req): Json<CreateSessionRequest>,
 ) -> impl IntoResponse {
     let id = uuid::Uuid::new_v4().to_string();
-    let cwd = std::env::current_dir()
-        .map(|p| p.display().to_string())
-        .unwrap_or_else(|_| "/".into());
+    let workspace_snapshot = {
+        let ws_guard = state.workspace.lock().unwrap();
+        ws_guard
+            .as_ref()
+            .map(|ws| (ws.path.clone(), ws.metadata.clone()))
+    };
+    let cwd = workspace_snapshot
+        .as_ref()
+        .map(|(path, _)| path.display().to_string())
+        .or_else(|| std::env::current_dir().ok().map(|path| path.display().to_string()))
+        .unwrap_or_else(|| "/".into());
 
     let resolved_launch = {
         let harnesses = state.harnesses.read().await;
@@ -940,13 +948,11 @@ pub(crate) async fn create_session(
     }
 
     let now = iso_now();
-    let ws_guard = state.workspace.lock().unwrap();
-    if let Some(ref ws) = *ws_guard {
-        let meta_git_ctx = git::detect(&ws.path);
-        ws.metadata.write_session(&metadata::SessionMetadata {
+    if let Some((workspace_path, metadata_store)) = workspace_snapshot {
+        metadata_store.write_session(&metadata::SessionMetadata {
             id: id.clone(),
             label: info.label.clone(),
-            workspace: ws.path.display().to_string(),
+            workspace: workspace_path.display().to_string(),
             task: String::new(),
             harness: resolved_launch
                 .session_harness_id
@@ -981,11 +987,11 @@ pub(crate) async fn create_session(
             last_activity: now.clone(),
             metadata_source: "process".into(),
             metadata_confidence: 1.0,
-            repo_root: meta_git_ctx.repo_root.clone(),
-            branch: meta_git_ctx.branch.clone(),
-            dirty: Some(meta_git_ctx.dirty),
-            changed_files: Some(meta_git_ctx.changed_files),
-            is_worktree: Some(meta_git_ctx.is_worktree),
+            repo_root: git_ctx.repo_root.clone(),
+            branch: git_ctx.branch.clone(),
+            dirty: Some(git_ctx.dirty),
+            changed_files: Some(git_ctx.changed_files),
+            is_worktree: Some(git_ctx.is_worktree),
             last_user_input: None,
             debug_injection: None,
             resume: info.resume.clone(),
@@ -995,7 +1001,7 @@ pub(crate) async fn create_session(
             harness_session_id_captured_at: None,
             resumed_from: info.resumed_from.clone(),
         });
-        ws.metadata.append_event(
+        metadata_store.append_event(
             &id,
             &metadata::Event {
                 event_type: "session.created".into(),
@@ -1006,8 +1012,6 @@ pub(crate) async fn create_session(
             },
         );
     }
-    drop(ws_guard);
-
     Json(info).into_response()
 }
 
@@ -3833,5 +3837,125 @@ mod tests {
         assert_eq!(launch.model.as_deref(), Some("gpt-5"));
         assert_eq!(launch.provider_id, None);
         assert_eq!(launch.provider_label, None);
+    }
+
+    #[tokio::test]
+    async fn create_session_uses_active_workspace_for_response_and_persisted_metadata() {
+        let dir = tempfile::tempdir().unwrap();
+        for args in [
+            vec!["init", "-b", "main"],
+            vec!["config", "user.email", "tests@example.com"],
+            vec!["config", "user.name", "Test User"],
+        ] {
+            let status = std::process::Command::new("git")
+                .arg("-C")
+                .arg(dir.path())
+                .args(args)
+                .status()
+                .unwrap();
+            assert!(status.success());
+        }
+        std::fs::write(dir.path().join("README.md"), "workspace\n").unwrap();
+        let status = std::process::Command::new("git")
+            .arg("-C")
+            .arg(dir.path())
+            .args(["add", "README.md"])
+            .status()
+            .unwrap();
+        assert!(status.success());
+        let status = std::process::Command::new("git")
+            .arg("-C")
+            .arg(dir.path())
+            .args(["commit", "-m", "init"])
+            .status()
+            .unwrap();
+        assert!(status.success());
+
+        let other_dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let metadata_a = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .clone();
+        let harnesses = state.harnesses.write().await;
+        let create_state = state.clone();
+        let mut create = tokio::spawn(async move {
+            create_session(
+                State(create_state),
+                Json(CreateSessionRequest {
+                    harness_id: None,
+                    model: None,
+                    initial_prompt: None,
+                }),
+            )
+            .await
+            .into_response()
+        });
+        tokio::task::yield_now().await;
+        assert!(tokio::time::timeout(std::time::Duration::from_millis(50), &mut create)
+            .await
+            .is_err());
+        {
+            let mut workspace = state.workspace.lock().unwrap();
+            *workspace = Some(crate::WorkspaceState {
+                path: other_dir.path().to_path_buf(),
+                metadata: metadata::MetadataStore::new(&other_dir.path().join(".orkworks-test")),
+                watcher: crate::watcher::MetadataWatcher::start(
+                    &other_dir.path().join(".orkworks-test/sessions"),
+                ),
+            });
+        }
+        drop(harnesses);
+        let response = create.await.unwrap();
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let session: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let id = session["id"].as_str().unwrap().to_string();
+        let expected_path = std::fs::canonicalize(dir.path()).unwrap();
+
+        assert_eq!(
+            std::fs::canonicalize(session["cwd"].as_str().unwrap()).unwrap(),
+            expected_path
+        );
+        assert_eq!(
+            std::fs::canonicalize(session["repoRoot"].as_str().unwrap()).unwrap(),
+            expected_path
+        );
+        assert_eq!(session["branch"].as_str(), Some("main"));
+
+        let metadata = metadata_a.read_session(&id).unwrap();
+        assert_eq!(metadata.cwd, session["cwd"].as_str().unwrap());
+        assert_eq!(metadata.repo_root.as_deref(), session["repoRoot"].as_str());
+        assert_eq!(metadata.branch.as_deref(), Some("main"));
+
+        assert_eq!(
+            delete_session(State(state.clone()), Path(id.clone()))
+                .await
+                .into_response()
+                .status(),
+            axum::http::StatusCode::OK
+        );
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                if state
+                    .sessions
+                    .lock()
+                    .unwrap()
+                    .get(&id)
+                    .is_some_and(|handle| handle.info.lifecycle_phase == "ended")
+                {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("session runtime should finish before test teardown");
     }
 }

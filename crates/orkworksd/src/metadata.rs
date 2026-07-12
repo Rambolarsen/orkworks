@@ -804,6 +804,7 @@ pub fn valid_harness_session_report(report: &HarnessSessionReport) -> bool {
         && (0.0..=1.0).contains(&report.confidence)
 }
 
+#[derive(Clone)]
 pub struct MetadataStore {
     root: PathBuf,
 }
