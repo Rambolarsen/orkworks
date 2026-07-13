@@ -4,7 +4,7 @@ import DockviewApp from "./components/DockviewApp";
 import NewSessionDialog from "./components/NewSessionDialog";
 import SettingsModal from "./components/SettingsModal";
 import ToastRack from "./components/ToastRack";
-import { sortSessions } from "./sessionSort";
+import { mergeSessionsById } from "./sessionSort";
 import { EMPTY_UNREAD_STATE, clearUnread, trackUnread, type UnreadState } from "./sessionUnread";
 import { PANEL_DEFAULTS, buildDefaultLayout } from "./components/DockviewApp";
 import { VOCAB } from "./labels";
@@ -81,7 +81,7 @@ function App() {
       const baseUrl = await window.orkworks.getBackendUrl();
       const list = await listSessions(baseUrl);
       pruneTerminals(new Set(list.filter((session) => session.lifecycle === "alive").map((session) => session.id)));
-      setSessions(sortSessions(list));
+      setSessions(mergeSessionsById([], list));
     } catch {
       // Silent: polled every 2s; transient failures are reflected by the
       // backendStatus badge, not by spamming toasts.
@@ -177,7 +177,7 @@ function App() {
     try {
       const baseUrl = await window.orkworks.getBackendUrl();
       const session = await createSession(baseUrl, opts);
-      setSessions((prev) => [...prev, session]);
+      setSessions((prev) => mergeSessionsById(prev, [session]));
       setActiveSessionId(session.id);
 
       const api = dockviewApiRef.current;

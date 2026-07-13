@@ -1,7 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { needsAttention, sessionAttentionStatus, sortSessions } from "../src/sessionSort.ts";
+import {
+  mergeSessionsById,
+  needsAttention,
+  sessionAttentionStatus,
+  sortSessions,
+} from "../src/sessionSort.ts";
 import type { SessionInfo } from "../src/api.ts";
 
 function session(
@@ -40,4 +45,15 @@ test("sortSessions ranks actionable alive sessions before working, idle, and dea
     session("needs-you", "alive", "needs_you"),
   ]);
   assert.deepEqual(ordered.map((item) => item.id), ["needs-you", "failed", "working", "idle", "dead"]);
+});
+
+test("mergeSessionsById keeps one row when a creation response repeats a polled session", () => {
+  const existing = session("existing", "alive");
+  const polledNew = session("new", "alive");
+  const createdNew = { ...polledNew, label: "created-new" };
+
+  const merged = mergeSessionsById([existing, polledNew], [createdNew]);
+
+  assert.deepEqual(merged.map((item) => item.id), ["new", "existing"]);
+  assert.strictEqual(merged.find((item) => item.id === "new"), createdNew);
 });

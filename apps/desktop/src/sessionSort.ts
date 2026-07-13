@@ -34,3 +34,14 @@ export function sortSessions(list: SessionInfo[]): SessionInfo[] {
     return a.label.localeCompare(b.label);
   });
 }
+
+export function mergeSessionsById(
+  existing: readonly SessionInfo[],
+  incoming: readonly SessionInfo[],
+): SessionInfo[] {
+  const sessions = new Map(existing.map((session) => [session.id, session]));
+  for (const session of incoming) {
+    sessions.set(session.id, session);
+  }
+  return sortSessions([...sessions.values()]);
+}
