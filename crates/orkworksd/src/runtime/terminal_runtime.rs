@@ -493,7 +493,6 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
             return;
         }
     };
-    let mut input_buf = String::new();
     let _ = ws.send(Message::Text(
         serde_json::json!({
             "type": "replay-start",
@@ -563,7 +562,12 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
                                 }
 
                                 let mut triggered_label = false;
-                                if let Some(line) = collect_input_line(&mut input_buf, &data) {
+                                let collected_line = {
+                                    let mut bufs = state.peon.input_buf.write().unwrap();
+                                    let buf = bufs.entry(id.clone()).or_insert_with(String::new);
+                                    collect_input_line(buf, &data)
+                                };
+                                if let Some(line) = collected_line {
                                     let is_sensitive = {
                                         let sessions = state.sessions.lock().unwrap();
                                         sessions.get(&id)
@@ -802,6 +806,7 @@ mod tests {
                 in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
                 label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
                 label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
+                input_buf: std::sync::RwLock::new(std::collections::HashMap::new()),
                 config: crate::peon::PeonConfig::from_env(),
             },
             adapters: crate::harness_registry::builtin_adapters(),
@@ -851,6 +856,7 @@ mod tests {
                 in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
                 label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
                 label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
+                input_buf: std::sync::RwLock::new(std::collections::HashMap::new()),
                 config: crate::peon::PeonConfig::from_env(),
             },
             adapters: crate::harness_registry::builtin_adapters(),
@@ -899,6 +905,7 @@ mod tests {
                 in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
                 label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
                 label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
+                input_buf: std::sync::RwLock::new(std::collections::HashMap::new()),
                 config: crate::peon::PeonConfig::from_env(),
             },
             adapters: crate::harness_registry::builtin_adapters(),
@@ -949,6 +956,7 @@ mod tests {
                 in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
                 label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
                 label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
+                input_buf: std::sync::RwLock::new(std::collections::HashMap::new()),
                 config: crate::peon::PeonConfig::from_env(),
             },
             adapters: crate::harness_registry::builtin_adapters(),
@@ -1013,6 +1021,7 @@ mod tests {
                 in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
                 label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
                 label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
+                input_buf: std::sync::RwLock::new(std::collections::HashMap::new()),
                 config: crate::peon::PeonConfig::from_env(),
             },
             adapters: crate::harness_registry::builtin_adapters(),
@@ -1082,6 +1091,7 @@ mod tests {
                 in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
                 label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
                 label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
+                input_buf: std::sync::RwLock::new(std::collections::HashMap::new()),
                 config: crate::peon::PeonConfig {
                     enabled: true,
                     ..crate::peon::PeonConfig::from_env()
@@ -1144,6 +1154,7 @@ mod tests {
                 in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
                 label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
                 label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
+                input_buf: std::sync::RwLock::new(std::collections::HashMap::new()),
                 config: crate::peon::PeonConfig {
                     enabled: true,
                     ..crate::peon::PeonConfig::from_env()
@@ -1205,6 +1216,7 @@ mod tests {
                 in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
                 label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
                 label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
+                input_buf: std::sync::RwLock::new(std::collections::HashMap::new()),
                 config: crate::peon::PeonConfig::from_env(),
             },
             adapters: crate::harness_registry::builtin_adapters(),
@@ -1265,6 +1277,7 @@ mod tests {
                 in_flight: RwLock::new(HashSet::new()),
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
+                input_buf: RwLock::new(HashMap::new()),
                 config: crate::peon::PeonConfig::from_env(),
             },
             adapters: crate::harness_registry::builtin_adapters(),
@@ -1392,6 +1405,7 @@ mod tests {
                 in_flight: RwLock::new(HashSet::new()),
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
+                input_buf: RwLock::new(HashMap::new()),
                 config: crate::peon::PeonConfig::from_env(),
             },
             adapters: crate::harness_registry::builtin_adapters(),
@@ -1540,6 +1554,7 @@ mod tests {
                 in_flight: RwLock::new(HashSet::new()),
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
+                input_buf: RwLock::new(HashMap::new()),
                 config,
             },
             adapters: crate::harness_registry::builtin_adapters(),

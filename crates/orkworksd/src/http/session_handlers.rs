@@ -437,6 +437,12 @@ pub(crate) async fn report_attention(
         return axum::http::StatusCode::BAD_REQUEST.into_response();
     }
 
+    // A hook report is a harness turn boundary: any keystroke still sitting in
+    // the pending input-line buffer (e.g. a single-key "accept" prompt with no
+    // trailing Enter) belongs to a prompt that's now resolved. Drop it so it
+    // doesn't glue onto the next unrelated line typed into the terminal.
+    state.peon.input_buf.write().unwrap().remove(&id);
+
     let now = iso_now();
     let ws_guard = state.workspace.lock().unwrap();
     let Some(ref ws) = *ws_guard else {
@@ -1082,6 +1088,7 @@ pub(crate) async fn delete_session(
     }
     state.peon.last_output.write().unwrap().remove(&id);
     state.peon.last_inference.write().unwrap().remove(&id);
+    state.peon.input_buf.write().unwrap().remove(&id);
     axum::http::StatusCode::OK
 }
 
@@ -1704,6 +1711,51 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn report_attention_clears_pending_input_buffer() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        {
+            let ws = state.workspace.lock().unwrap();
+            ws.as_ref().unwrap().metadata.write_session(&test_session_metadata(
+                "attention-clears-buf",
+                "Known",
+                dir.path().display().to_string(),
+                "running",
+                "now",
+                "now",
+            ));
+        }
+        // A single-key "accept" hotkey press leaves an unterminated keystroke
+        // sitting in the pending input-line buffer from an earlier prompt.
+        state
+            .peon
+            .input_buf
+            .write()
+            .unwrap()
+            .insert("attention-clears-buf".into(), "a".into());
+
+        let response = report_attention(
+            State(state.clone()),
+            Path("attention-clears-buf".into()),
+            Json(AttentionReportRequest {
+                status: "waiting_for_input".into(),
+                message: None,
+            }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        assert!(state
+            .peon
+            .input_buf
+            .read()
+            .unwrap()
+            .get("attention-clears-buf")
+            .is_none());
+    }
+
+    #[tokio::test]
     async fn report_attention_returns_500_when_persist_fails() {
         let dir = tempfile::tempdir().unwrap();
         let state = test_app_state_with_workspace(dir.path());
@@ -1828,6 +1880,7 @@ mod tests {
                 in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
                 label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
                 label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
+                input_buf: std::sync::RwLock::new(std::collections::HashMap::new()),
                 config: peon::PeonConfig::from_env(),
             },
             adapters: crate::harness_registry::builtin_adapters(),
@@ -2048,6 +2101,61 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn delete_session_clears_pending_input_buffer() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let session_id = "delete-clears-input-buf".to_string();
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+
+        state.sessions.lock().unwrap().insert(
+            session_id.clone(),
+            SessionHandle {
+                info: test_session_info(
+                    session_id.clone(),
+                    "Delete Clears Input Buf",
+                    dir.path().display().to_string(),
+                    "running",
+                    "now",
+                ),
+                kill_tx,
+                output_buffer: peon::RingBuffer::new(200),
+                scan_buf: String::new(),
+                command: default_shell_command(dir.path().display().to_string()),
+                initial_prompt: None,
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
+                terminal_attached: false,
+                at_usage_limit_latched: false,
+                capacity_check_pending: false,
+                output_lines_seen: 0,
+                scan_bytes_seen: 0,
+                resume_scan_origin: None,
+                pending_capacity_visible_once: false,
+            },
+        );
+        // A stale, unterminated keystroke left over from an earlier prompt.
+        state
+            .peon
+            .input_buf
+            .write()
+            .unwrap()
+            .insert(session_id.clone(), "a".into());
+
+        let response = delete_session(State(state.clone()), Path(session_id.clone())).await;
+        assert_eq!(
+            response.into_response().status(),
+            axum::http::StatusCode::OK
+        );
+
+        assert!(state
+            .peon
+            .input_buf
+            .read()
+            .unwrap()
+            .get(&session_id)
+            .is_none());
+    }
+
+    #[tokio::test]
     async fn list_sessions_uses_live_session_contract_fields_without_metadata() {
         let state = Arc::new(crate::AppState {
             session_module: crate::infrastructure::session_module::SessionModule::new(),
@@ -2059,6 +2167,7 @@ mod tests {
                 in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
                 label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
                 label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
+                input_buf: std::sync::RwLock::new(std::collections::HashMap::new()),
                 config: peon::PeonConfig::from_env(),
             },
             adapters: crate::harness_registry::builtin_adapters(),
@@ -2130,6 +2239,7 @@ mod tests {
                 in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
                 label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
                 label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
+                input_buf: std::sync::RwLock::new(std::collections::HashMap::new()),
                 config: peon::PeonConfig::from_env(),
             },
             adapters: crate::harness_registry::builtin_adapters(),
@@ -2208,6 +2318,7 @@ mod tests {
                 in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
                 label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
                 label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
+                input_buf: std::sync::RwLock::new(std::collections::HashMap::new()),
                 config: peon::PeonConfig::from_env(),
             },
             adapters: crate::harness_registry::builtin_adapters(),
@@ -2273,6 +2384,7 @@ mod tests {
                 in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
                 label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
                 label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
+                input_buf: std::sync::RwLock::new(std::collections::HashMap::new()),
                 config: peon::PeonConfig::from_env(),
             },
             adapters: crate::harness_registry::builtin_adapters(),
@@ -2680,6 +2792,7 @@ mod tests {
                 in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
                 label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
                 label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
+                input_buf: std::sync::RwLock::new(std::collections::HashMap::new()),
                 config: peon::PeonConfig::from_env(),
             },
             adapters: crate::harness_registry::builtin_adapters(),

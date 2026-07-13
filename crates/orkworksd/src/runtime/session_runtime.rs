@@ -657,6 +657,7 @@ mod tests {
                 in_flight: RwLock::new(HashSet::new()),
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
+                input_buf: RwLock::new(HashMap::new()),
                 config: crate::peon::PeonConfig::from_env(),
             },
             adapters: crate::harness_registry::builtin_adapters(),
