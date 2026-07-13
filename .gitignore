@@ -51,4 +51,9 @@ apm.lock.yaml
 .claude/apm-hooks.json
 .github/hooks/
 .opencode/
-.codex/
+.codex/*
+!.codex/hooks.json
+!.codex/hooks/
+.codex/hooks/*
+!.codex/hooks/doc-check.sh
+!.codex/hooks/doc-check-stop.sh
