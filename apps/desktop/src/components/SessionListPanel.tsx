@@ -121,7 +121,8 @@ function SessionListPanel({
               </li>
               {group.items.map((s) => {
                 const attn = sessionAttentionStatus(s);
-                const tone = attentionTone(attn);
+                const transitional = s.lifecycle === "creating" || s.lifecycle === "stopping";
+                const tone = transitional ? "working" : attentionTone(attn);
                 const remembered = s.lifecycle === "dead";
                 const canKill = s.lifecycle === "alive";
                 // Unread is "changed since you looked" — a remembered session
@@ -154,7 +155,7 @@ function SessionListPanel({
                         {unread && <span className="session-row-unread-dot" />}
                       </span>
                       <div className="session-row-primary">
-                        <StatusIndicator tone={tone} label={attentionLabel(attn)} />
+                        <StatusIndicator tone={tone} label={transitional ? "" : attentionLabel(attn)} />
                         <span className="session-row-label">{s.label}</span>
                       </div>
                     </div>

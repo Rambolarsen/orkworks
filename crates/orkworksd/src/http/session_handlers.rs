@@ -220,12 +220,12 @@ pub(crate) async fn resume_session(
         harness: (!meta.harness.is_empty()).then(|| meta.harness.clone()),
         model: (!meta.model.is_empty()).then(|| meta.model.clone()),
         work_phase: meta.work_phase.clone(),
-        lifecycle_phase: "active".into(),
-        lifecycle: "alive".into(),
+        lifecycle_phase: "creating".into(),
+        lifecycle: "creating".into(),
         attention: None,
-        status: "running".into(),
-        connectivity: Some(connectivity_for_status("running").into()),
-        terminal_outcome: terminal_outcome_for_status("running"),
+        status: "creating".into(),
+        connectivity: Some(connectivity_for_status("creating").into()),
+        terminal_outcome: terminal_outcome_for_status("creating"),
         cwd: command.cwd.clone(),
         created_at: meta.created_at.clone(),
         last_activity_at: Some(now.clone()),
@@ -277,9 +277,9 @@ pub(crate) async fn resume_session(
     );
     let output_tx = runtime.output_tx.clone();
 
-    let previous_handle = {
+    {
         let mut sessions = state.sessions.lock().unwrap();
-        let previous = sessions.remove(&id);
+        sessions.remove(&id);
         sessions.insert(
             id.clone(),
             SessionHandle {
@@ -299,8 +299,30 @@ pub(crate) async fn resume_session(
                 pending_capacity_visible_once: false,
             },
         );
-        previous
-    };
+    }
+
+    {
+        let ws_guard = state.workspace.lock().unwrap();
+        if let Some(ref ws) = *ws_guard {
+            if let Some(mut stored_meta) = ws.metadata.read_session(&id) {
+                stored_meta.status = "creating".to_string();
+                stored_meta.lifecycle_phase = "creating".to_string();
+                stored_meta.lifecycle = "creating".to_string();
+                stored_meta.attention = None;
+                stored_meta.pending_terminal_status = None;
+                stored_meta.ending_observed_status_snapshot = None;
+                stored_meta.final_observed_status_snapshot = None;
+                stored_meta.observed_status = None;
+                stored_meta.connectivity = connectivity_for_status("creating").to_string();
+                stored_meta.terminal_outcome = None;
+                stored_meta.last_activity = now.clone();
+                stored_meta.resume = meta.resume.clone();
+                stored_meta.resume_options = meta.resume_options.clone();
+                stored_meta.resumed_from = meta.resumed_from.clone();
+                ws.metadata.write_session(&stored_meta);
+            }
+        }
+    }
 
     match crate::runtime::session_runtime::start_session_runtime(
         state.clone(),
@@ -322,37 +344,27 @@ pub(crate) async fn resume_session(
         Ok(()) => {}
         Err(error) => {
             tracing::error!(session_id = %id, %error, "failed to start resumed session runtime");
-            let mut sessions = state.sessions.lock().unwrap();
-            sessions.remove(&id);
-            if let Some(previous) = previous_handle {
-                sessions.insert(id.clone(), previous);
+            if crate::runtime::terminal_runtime::set_session_status(&state, &id, "error") {
+                crate::runtime::terminal_runtime::schedule_session_ending_finalization(
+                    state.clone(),
+                    id.clone(),
+                    "error".into(),
+                );
             }
             return axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     }
+    let info = state
+        .sessions
+        .lock()
+        .unwrap()
+        .get(&id)
+        .map(|handle| handle.info.clone())
+        .expect("resumed session remains registered");
 
     {
         let ws_guard = state.workspace.lock().unwrap();
         if let Some(ref ws) = *ws_guard {
-            if let Some(mut stored_meta) = ws.metadata.read_session(&id) {
-                stored_meta.status = "running".to_string();
-                // Restart the lifecycle and drop the previous run's frozen
-                // state; otherwise merge_live_session_info keeps reporting the
-                // stale "ended" phase (and its final observed status) until the
-                // terminal attaches and writes "running".
-                stored_meta.lifecycle_phase = "active".to_string();
-                stored_meta.pending_terminal_status = None;
-                stored_meta.ending_observed_status_snapshot = None;
-                stored_meta.final_observed_status_snapshot = None;
-                stored_meta.observed_status = None;
-                stored_meta.connectivity = connectivity_for_status("running").to_string();
-                stored_meta.terminal_outcome = terminal_outcome_for_status("running");
-                stored_meta.last_activity = now.clone();
-                stored_meta.resume = meta.resume.clone();
-                stored_meta.resume_options = meta.resume_options.clone();
-                stored_meta.resumed_from = meta.resumed_from.clone();
-                ws.metadata.write_session(&stored_meta);
-            }
             ws.metadata.append_event(&id, &metadata::Event {
                 event_type: "session.resumed".into(),
                 timestamp: now,
@@ -542,12 +554,12 @@ pub(crate) async fn create_session(
         harness: resolved_launch.session_harness_id.clone(),
         model: resolved_launch.model.clone(),
         work_phase: "unknown".into(),
-        lifecycle_phase: "active".into(),
-        lifecycle: "alive".into(),
-        attention: Some("working".into()),
-        status: "running".into(),
-        connectivity: Some(connectivity_for_status("running").into()),
-        terminal_outcome: terminal_outcome_for_status("running"),
+        lifecycle_phase: "creating".into(),
+        lifecycle: "creating".into(),
+        attention: None,
+        status: "creating".into(),
+        connectivity: Some(connectivity_for_status("creating").into()),
+        terminal_outcome: terminal_outcome_for_status("creating"),
         cwd,
         created_at: now.clone(),
         last_activity_at: Some(now.clone()),
@@ -618,6 +630,67 @@ pub(crate) async fn create_session(
         },
     );
 
+    // Persist the creating record before the PTY reader exists. The runtime
+    // promotes it to alive immediately after spawn, before it can classify
+    // output, so the first output cannot be lost between memory and metadata.
+    let created_at = iso_now();
+    {
+        let ws_guard = state.workspace.lock().unwrap();
+        if let Some(ref ws) = *ws_guard {
+            let meta_git_ctx = git::detect(&ws.path);
+            ws.metadata.write_session(&metadata::SessionMetadata {
+                id: id.clone(),
+                label: info.label.clone(),
+                workspace: ws.path.display().to_string(),
+                task: String::new(),
+                harness: resolved_launch.session_harness_id.clone().unwrap_or_default(),
+                model: resolved_launch.model.clone().unwrap_or_default(),
+                cwd: info.cwd.clone(),
+                status: "creating".into(),
+                work_phase: "unknown".into(),
+                lifecycle_phase: "creating".into(),
+                lifecycle: "creating".into(),
+                attention: None,
+                connectivity: "online".into(),
+                terminal_outcome: None,
+                pending_terminal_status: None,
+                observed_status: None,
+                ending_observed_status_snapshot: None,
+                final_observed_status_snapshot: None,
+                summary: None,
+                next_action: None,
+                needs_user_input: None,
+                detected_question: None,
+                suggested_options: None,
+                blocker_description: None,
+                failed_command: None,
+                failed_test: None,
+                capacity_hints: None,
+                peon_last_inference: None,
+                provider_id: resolved_launch.provider_id.clone(),
+                provider_label: resolved_launch.provider_label.clone(),
+                provider_model: None,
+                provider_state: None,
+                created_at: created_at.clone(),
+                last_activity: created_at.clone(),
+                metadata_source: "process".into(),
+                metadata_confidence: 1.0,
+                repo_root: meta_git_ctx.repo_root.clone(),
+                branch: meta_git_ctx.branch.clone(),
+                dirty: Some(meta_git_ctx.dirty),
+                changed_files: Some(meta_git_ctx.changed_files),
+                is_worktree: Some(meta_git_ctx.is_worktree),
+                last_user_input: None,
+                resume: info.resume.clone(),
+                resume_options: vec![],
+                harness_session_id_source: None,
+                harness_session_id_confidence: None,
+                harness_session_id_captured_at: None,
+                resumed_from: info.resumed_from.clone(),
+            });
+        }
+    }
+
     match crate::runtime::session_runtime::start_session_runtime(
         state.clone(),
         id.clone(),
@@ -638,65 +711,27 @@ pub(crate) async fn create_session(
         Ok(()) => {}
         Err(error) => {
             tracing::error!(session_id = %id, %error, "failed to start session runtime");
-            state.sessions.lock().unwrap().remove(&id);
+            if crate::runtime::terminal_runtime::set_session_status(&state, &id, "error") {
+                crate::runtime::terminal_runtime::schedule_session_ending_finalization(
+                    state.clone(),
+                    id.clone(),
+                    "error".into(),
+                );
+            }
             return axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     }
+    let info = state
+        .sessions
+        .lock()
+        .unwrap()
+        .get(&id)
+        .map(|handle| handle.info.clone())
+        .expect("newly started session remains registered");
 
     let now = iso_now();
     let ws_guard = state.workspace.lock().unwrap();
     if let Some(ref ws) = *ws_guard {
-        let meta_git_ctx = git::detect(&ws.path);
-        ws.metadata.write_session(&metadata::SessionMetadata {
-            id: id.clone(),
-            label: info.label.clone(),
-            workspace: ws.path.display().to_string(),
-            task: String::new(),
-            harness: resolved_launch.session_harness_id.clone().unwrap_or_default(),
-            model: resolved_launch.model.clone().unwrap_or_default(),
-            cwd: info.cwd.clone(),
-            status: "running".into(),
-            work_phase: "unknown".into(),
-            lifecycle_phase: "active".into(),
-            lifecycle: "alive".into(),
-            attention: None,
-            connectivity: "online".into(),
-            terminal_outcome: None,
-            pending_terminal_status: None,
-            observed_status: None,
-            ending_observed_status_snapshot: None,
-            final_observed_status_snapshot: None,
-            summary: None,
-            next_action: None,
-            needs_user_input: None,
-            detected_question: None,
-            suggested_options: None,
-            blocker_description: None,
-            failed_command: None,
-            failed_test: None,
-            capacity_hints: None,
-            peon_last_inference: None,
-            provider_id: resolved_launch.provider_id.clone(),
-            provider_label: resolved_launch.provider_label.clone(),
-            provider_model: None,
-            provider_state: None,
-            created_at: now.clone(),
-            last_activity: now.clone(),
-            metadata_source: "process".into(),
-            metadata_confidence: 1.0,
-            repo_root: meta_git_ctx.repo_root.clone(),
-            branch: meta_git_ctx.branch.clone(),
-            dirty: Some(meta_git_ctx.dirty),
-            changed_files: Some(meta_git_ctx.changed_files),
-            is_worktree: Some(meta_git_ctx.is_worktree),
-            last_user_input: None,
-            resume: info.resume.clone(),
-            resume_options: vec![],
-            harness_session_id_source: None,
-            harness_session_id_confidence: None,
-            harness_session_id_captured_at: None,
-            resumed_from: info.resumed_from.clone(),
-        });
         ws.metadata.append_event(&id, &metadata::Event {
             event_type: "session.created".into(),
             timestamp: now,
@@ -806,6 +841,9 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
                 prev_latch || detected_full
             }
         });
+        if merged.lifecycle == "alive" && merged.at_usage_limit == Some(true) {
+            merged.attention = Some("capped".into());
+        }
         merged.usage_limit_reset_hint = limit_adapter.and_then(|adapter| {
             if stale_cap_recheck && fresh_output_since_origin {
                 let (line_count, scan_len) = origin.unwrap();
@@ -982,6 +1020,9 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
             if let Some(ref hid) = info.harness_id {
                 if let Some(&capped) = harness_capped.get(hid) {
                     info.at_usage_limit = Some(capped);
+                    if capped && info.lifecycle == "alive" {
+                        info.attention = Some("capped".into());
+                    }
                 }
                 if info.usage_limit_reset_hint.is_none() {
                     if let Some(hint) = harness_reset_hint.get(hid) {

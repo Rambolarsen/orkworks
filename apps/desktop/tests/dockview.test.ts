@@ -232,6 +232,17 @@ test("sessionAttentionStatus is neutral outside alive lifecycle", () => {
   assert.equal(sessionAttentionStatus(session), "neutral");
 });
 
+test("transitional lifecycle phases render a spinner without lifecycle copy", () => {
+  const list = readFileSync(new URL("../src/components/SessionListPanel.tsx", import.meta.url), "utf8");
+  const detail = readFileSync(new URL("../src/components/SessionDetailPanel.tsx", import.meta.url), "utf8");
+
+  for (const source of [list, detail]) {
+    assert.match(source, /lifecycle\s*===\s*"creating"/);
+    assert.match(source, /lifecycle\s*===\s*"stopping"/);
+    assert.match(source, /transitional\s*\?\s*"working"/);
+  }
+});
+
 test("session detail exposes resumable session action", () => {
   const panelSource = readFileSync(
     new URL("../src/components/SessionDetailPanel.tsx", import.meta.url),

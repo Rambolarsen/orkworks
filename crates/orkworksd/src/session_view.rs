@@ -70,6 +70,14 @@ pub(crate) fn merge_live_session_info(
         capabilities,
     );
     let resume = meta.and_then(|m| m.resume.clone()).or(info.resume);
+    let lifecycle = meta.map(|m| m.lifecycle.clone()).unwrap_or(info.lifecycle);
+    let attention = if lifecycle == "alive" && info.at_usage_limit == Some(true) {
+        Some("capped".into())
+    } else if lifecycle == "alive" {
+        meta.and_then(|m| m.attention.clone()).or(info.attention)
+    } else {
+        None
+    };
 
     SessionInfo {
         id: info.id,
@@ -91,8 +99,8 @@ pub(crate) fn merge_live_session_info(
         lifecycle_phase: meta
             .map(|m| m.lifecycle_phase.clone())
             .unwrap_or(info.lifecycle_phase),
-        lifecycle: meta.map(|m| m.lifecycle.clone()).unwrap_or(info.lifecycle),
-        attention: meta.and_then(|m| m.attention.clone()).or(info.attention),
+        lifecycle,
+        attention,
         status: info.status.clone(),
         connectivity: Some(connectivity_for_status(&info.status).to_string()),
         terminal_outcome: terminal_outcome_for_status(&info.status),
@@ -125,7 +133,7 @@ pub(crate) fn merge_live_session_info(
         failed_command: meta.and_then(|m| m.failed_command.clone()).or(info.failed_command),
         failed_test: meta.and_then(|m| m.failed_test.clone()).or(info.failed_test),
         capacity_hints: meta.and_then(|m| m.capacity_hints.clone()).or(info.capacity_hints),
-        at_usage_limit: None,
+        at_usage_limit: info.at_usage_limit,
         capacity_check_pending: info.capacity_check_pending,
         usage_limit_reset_hint: None,
         metadata_source: meta.map(|m| m.metadata_source.clone()).or(info.metadata_source),
@@ -296,6 +304,36 @@ mod tests {
         assert_eq!(connectivity_for_status("creating"), "online");
         assert_eq!(connectivity_for_status("running"), "online");
         assert_eq!(connectivity_for_status("ended"), "offline");
+    }
+
+    #[test]
+    fn merge_live_session_info_projects_usage_limit_as_capped_attention() {
+        let info = SessionInfo {
+            at_usage_limit: Some(true),
+            ..test_session_info(
+                "capped-live",
+                "Capped Live",
+                "/tmp/project",
+                "running",
+                "2026-06-28T09:00:00Z",
+            )
+        };
+        let caps = harness::HarnessCapabilities {
+            launch: true,
+            resume_exact: false,
+            resume_latest_in_cwd: false,
+            resume_latest_in_repo: false,
+            detect_session_id: false,
+            detect_model: false,
+            detect_context_usage: false,
+            detect_capacity: true,
+            native_voice: false,
+        };
+
+        let merged = merge_live_session_info(info, None, None, &caps);
+
+        assert_eq!(merged.lifecycle, "alive");
+        assert_eq!(merged.attention.as_deref(), Some("capped"));
     }
 
     #[test]

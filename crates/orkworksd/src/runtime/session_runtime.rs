@@ -3,7 +3,7 @@ use crate::runtime::terminal_runtime::{
     session_env_overrides, set_session_status, should_forward_terminal_env, terminal_env_overrides,
 };
 use crate::workspace_runtime::iso_now;
-use crate::{harness, metadata, peon, AppState};
+use crate::{AppState, harness, metadata, peon};
 use portable_pty::{CommandBuilder, PtySize, PtySystem};
 use std::collections::VecDeque;
 use std::io::{Read, Write};
@@ -288,9 +288,26 @@ pub(crate) async fn start_session_runtime(
     }
 
     let mut child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
+    // The PTY has spawned, so the lifecycle is alive before either background
+    // task can observe and classify its first output chunk.
+    set_session_status(&state, &id, "running");
 
-    let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
-    let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
+    let mut reader = match pair.master.try_clone_reader() {
+        Ok(reader) => reader,
+        Err(error) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(error.to_string());
+        }
+    };
+    let writer = match pair.master.take_writer() {
+        Ok(writer) => writer,
+        Err(error) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(error.to_string());
+        }
+    };
     let master = Arc::new(Mutex::new(pair.master));
     let killer = Arc::new(Mutex::new(child.clone_killer()));
 
@@ -434,6 +451,8 @@ pub(crate) async fn start_session_runtime(
                     match event {
                         DriverEvent::Output(data) => {
                             persist_buffer.extend_from_slice(&data);
+                            let stripped = peon::strip_ansi(&String::from_utf8_lossy(&data));
+                            let has_visible_output = !stripped.trim().is_empty();
                             let mut raw_persist_lines: Vec<String> = Vec::new();
                             while let Some(nl) = persist_buffer.iter().position(|&b| b == b'\n') {
                                 let line: Vec<u8> = persist_buffer.drain(..=nl).collect();
@@ -456,7 +475,6 @@ pub(crate) async fn start_session_runtime(
                                         }
                                     }
                                     handle.output_lines_seen += raw_persist_lines.len() as u64;
-                                    let stripped = peon::strip_ansi(&String::from_utf8_lossy(&data));
                                     handle.scan_bytes_seen += stripped.len() as u64;
                                     handle.scan_buf.push_str(&stripped);
                                     const MAX_SCAN: usize = 8192;
@@ -465,10 +483,8 @@ pub(crate) async fn start_session_runtime(
                                         let drop = (drop..drop + 4).find(|&i| handle.scan_buf.is_char_boundary(i)).unwrap_or(drop);
                                         handle.scan_buf.drain(..drop);
                                     }
-                                    if peon::is_terminal_observed_status(handle.info.observed_status.as_deref()) {
-                                        handle.info.observed_status = None;
-                                    }
-                                    if handle.info.lifecycle == "alive" && !raw_persist_lines.is_empty() {
+                                    if handle.info.lifecycle == "alive" && has_visible_output {
+                                        handle.info.observed_status = Some("working".into());
                                         handle.info.attention = Some("working".into());
                                     }
                                     if handle.info.harness_id.as_deref() == Some("codex") {
@@ -502,8 +518,9 @@ pub(crate) async fn start_session_runtime(
                                 let ws_guard = driver_state.workspace.lock().unwrap();
                                 if let Some(ref ws) = *ws_guard {
                                     if let Some(mut meta) = ws.metadata.read_session(&driver_id) {
-                                        if peon::is_terminal_observed_status(meta.observed_status.as_deref()) {
-                                            meta.observed_status = None;
+                                        if meta.lifecycle == "alive" && has_visible_output {
+                                            meta.observed_status = Some("working".into());
+                                            meta.attention = Some("working".into());
                                             meta.metadata_source = "process".into();
                                             ws.metadata.write_session(&meta);
                                         }
