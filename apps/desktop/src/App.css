@@ -604,8 +604,8 @@ html, body, #root {
   margin: 0;
 }
 
-/* One line, triage only: indicator + name left; attention word (interrupt
-   tones), tool mark, time, unread dot, kill right. The indicator is the one
+/* One line, triage only: unread dot, indicator, and name left; attention word
+   (interrupt tones), tool mark, time, kill right. The indicator is the one
    tone signal — no left-border accent. Everything else lives in Detail. */
 .session-row {
   display: flex;
@@ -613,7 +613,7 @@ html, body, #root {
   gap: var(--space-3);
   min-height: 40px;
   box-sizing: border-box;
-  padding: var(--space-3) var(--space-5);
+  padding: var(--space-3) var(--space-5) var(--space-3) var(--space-2);
   border-bottom: 1px solid var(--border-subtle);
   cursor: pointer;
   scroll-margin-top: 26px;
@@ -633,6 +633,22 @@ html, body, #root {
 .session-row--loud   .session-row-label,
 .session-row--unread .session-row-label { font-weight: var(--weight-semibold); }
 
+.session-row-leading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.session-row-unread-slot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 6px;
+  flex-shrink: 0;
+}
+
 .session-row-primary {
   display: flex;
   align-items: center;
@@ -644,13 +660,13 @@ html, body, #root {
 .session-row-secondary {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
+  gap: var(--space-1);
   flex-shrink: 0;
 }
 
 .session-row-meta {
   display: grid;
-  grid-template-columns: 15px 8ch;
+  grid-template-columns: 12px 6ch;
   align-items: center;
   column-gap: var(--space-2);
   flex-shrink: 0;
@@ -660,15 +676,15 @@ html, body, #root {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 15px;
-  height: 15px;
+  width: 12px;
+  height: 12px;
 }
 
 .session-row-actions {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: var(--space-2);
+  gap: 0;
   flex-shrink: 0;
 }
 
@@ -702,14 +718,6 @@ html, body, #root {
   fill: var(--text-faint);
 }
 
-.session-row-unread-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--unread-dot);
-  flex-shrink: 0;
-}
-
 .status-indicator {
   display: inline-flex;
   align-items: center;
@@ -734,6 +742,14 @@ html, body, #root {
 .status-indicator[data-attention="failed"]    { color: var(--attention-failed); }
 .status-indicator[data-attention="idle"]      { color: var(--attention-idle); }
 
+.session-row-unread-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--unread-dot);
+  flex-shrink: 0;
+}
+
 @media (prefers-reduced-motion: no-preference) {
   .status-indicator-spin { animation: status-indicator-spin 1s linear infinite; }
 }
@@ -754,7 +770,7 @@ html, body, #root {
   font-size: var(--text-xl);
   line-height: 1;
   cursor: pointer;
-  padding: 0 var(--space-1);
+  padding: 0 2px;
 }
 
 .session-row-kill:hover { color: var(--state-error); }
@@ -765,7 +781,7 @@ html, body, #root {
   color: var(--text-faint);
   line-height: 1;
   cursor: pointer;
-  padding: 0 var(--space-1);
+  padding: 0 2px;
   display: flex;
   align-items: center;
 }
