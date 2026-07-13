@@ -1,6 +1,6 @@
 # Explicit session lifecycle phases with frozen final observed state
 
-- Status: accepted
+- Status: superseded by [ADR 0023](./0023-simplified-session-lifecycle.md)
 - Deciders: Rambolarsen
 - Date: 2026-07-04
 

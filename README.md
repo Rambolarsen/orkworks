@@ -27,8 +27,8 @@ orkworks/
 - New agent sessions can be launched with a selected coding tool, optional model override, and optional initial prompt; the dialog remembers the last coding tool/model choice, and harness definitions are loaded from the sidecar's built-ins plus `~/.orkworks/harnesses.json`
 - The app remembers the last workspace and repo-local active session for relaunch restore
 - The Electron main process owns app-level settings in `userData`, including canonical default hotkeys and persisted hotkeys that drive native menu accelerators
-- Session details show read-only `Coding tool`, `Model provider`, `Model`, and `Provider state` for the selected session. When `Show debug metadata` is enabled, the Details panel also exposes a curated debug-only state injection control for watching runtime convergence without editing arbitrary metadata. The backend fallback system (Peon skips disabled/capped model providers) remains in place behind the scenes.
-- Runtime lifecycle is explicit via `lifecyclePhase`; Peon writes live observer metadata such as `observedStatus` only while a session is active, and ended sessions use a frozen final observed snapshot (see [ADR 0021](docs/adr/0021-session-lifecycle-phases.md))
+- Session details show read-only `Coding tool`, `Model provider`, `Model`, and `Provider state` for the selected session. The backend fallback system (Peon skips disabled/capped model providers) remains in place behind the scenes.
+- ADR 0023 defines the target runtime lifecycle as `creating → alive → stopping → dead`, with live attention only while a session is alive. The current implementation retains the earlier lifecycle vocabulary until that migration lands (see [ADR 0023](docs/adr/0023-simplified-session-lifecycle.md))
 - PTY lifetime is owned by the Rust sidecar session runtime rather than by a renderer WebSocket; active work survives terminal detach while `orkworksd` stays alive (see [ADR 0022](docs/adr/0022-session-runtime-owned-pty-lifetime.md))
 - Taskmaster consumes Peon reports and workspace context to propose the next session or user action
 - PTY handles only text I/O; voice (native harness) bypasses PTY entirely
@@ -44,8 +44,8 @@ All metadata lives under `~/.orkworks/` (see [ADR 0018](docs/adr/0018-global-met
 - `~/.orkworks/workspaces/<hash>/workspace.json` — workspace memory, including the last active session
 - `~/.orkworks/harnesses.json` — global harness definitions
 - `~/.orkworks/hook-scripts/` — stable copies of harness reporter scripts, so installed hooks survive app updates and packaging path changes
-- Priority: user > agent > peon > backend_inference > process > unknown > debug (see [ADR 0005](docs/adr/0005-metadata-source-priority.md))
-- Session records include explicit `workPhase`, `lifecyclePhase`, pending terminal outcome, and final observed-state snapshots; legacy `phase` is normalized on read
+- Priority: user > agent > peon > backend_inference > process > unknown (see [ADR 0005](docs/adr/0005-metadata-source-priority.md))
+- Current session records expose the canonical `creating → alive → stopping → dead` lifecycle. Only alive sessions have attention: `working`, `idle`, `needs_you`, `blocked`, `failed`, or `capped`.
 - Peon reads terminal output, writes inferred metadata, never types into terminals
 - Harnesses can write deterministic attention signals at `agent` priority via `POST /sessions/:id/attention`; installation is explicit and user-confirmed only ([ADR 0019](docs/adr/0019-attention-signal-endpoint-opt-in-hook-install.md))
 - Taskmaster proposes cross-session transitions; every v1 transition requires explicit user approval
@@ -113,7 +113,7 @@ podman compose run --rm dev cargo test    --manifest-path crates/orkworksd/Cargo
 
 ## Peon configuration
 
-Peon runs in the Rust sidecar as a background task. After a session's terminal goes quiet, Peon asks a model provider to classify the recent output and writes the result to `~/.orkworks/workspaces/<hash>/sessions/<id>.json`. Once Peon or the idle timer marks a session idle, ongoing observation stops. Terminal output remains persisted but does not resume Peon; a completed, non-sensitive user input line resumes observation. While an inference is in flight for a session, a second one is not launched for the same session. Sessions quiet past `PEON_IDLE_TIMEOUT` are marked idle by timer, without an LLM call.
+Peon runs in the Rust sidecar as a background task. After a session's terminal goes quiet, Peon asks a model provider to classify the recent output and writes the result to `~/.orkworks/workspaces/<hash>/sessions/<id>.json`. User input into the terminal also resets this debounce window — typing counts as activity. While an inference is in flight for a session, a second one is not launched for the same session. Sessions quiet past `PEON_IDLE_TIMEOUT` are marked idle by timer, without an LLM call.
 
 Which tool performs the inference is no longer chosen by environment variable: Peon routes through the model-provider fallback system (`providers.rs`), which skips disabled/capped providers in fallback order. The per-provider Peon model is configured in the app's Settings.
 
@@ -131,8 +131,6 @@ The observation loop itself is tuned via environment variables on `orkworksd`:
 ## Agent plugins
 
 Managed via APM in `apm.yml` at the repo root. Running `apm install` from the repo root populates skills and hooks for all configured targets (claude, codex, copilot, opencode).
-
-For Codex specifically, the repo keeps a committed `.codex/hooks/doc-check-stop.sh` wrapper next to `.codex/hooks/doc-check.sh`. The wrapper converts doc-check output into valid Codex Stop-hook JSON, since Codex rejects plain-text Stop-hook stdout.
 
 Development agents should follow `AGENTS.md`, including the requirement to invoke and follow relevant Superpowers skills before implementation, debugging, review, verification, commit, push, or PR work.
 

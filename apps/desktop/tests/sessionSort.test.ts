@@ -1,135 +1,43 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import {
-  needsAttention,
-  sessionAttentionStatus,
-  sortSessions,
-} from "../src/sessionSort.ts";
+import { needsAttention, sessionAttentionStatus, sortSessions } from "../src/sessionSort.ts";
 import type { SessionInfo } from "../src/api.ts";
 
-test("needsAttention returns true for blocked, failed, waiting_for_input", () => {
+function session(
+  id: string,
+  lifecycle: NonNullable<SessionInfo["lifecycle"]>,
+  attention?: SessionInfo["attention"],
+): SessionInfo {
+  return {
+    id, label: id, status: "running", lifecycle, attention,
+    cwd: "/tmp", created_at: "now", memoryState: lifecycle === "alive" ? "live" : "remembered",
+    resumeStrategy: "none",
+  };
+}
+
+test("needsAttention recognizes only actionable alive attention", () => {
+  assert.equal(needsAttention("needs_you"), true);
   assert.equal(needsAttention("blocked"), true);
   assert.equal(needsAttention("failed"), true);
-  assert.equal(needsAttention("waiting_for_input"), true);
+  assert.equal(needsAttention("working"), false);
+  assert.equal(needsAttention("idle"), false);
+  assert.equal(needsAttention("capped"), false);
 });
 
-test("needsAttention returns false for running, creating, ended", () => {
-  assert.equal(needsAttention("running"), false);
-  assert.equal(needsAttention("creating"), false);
-  assert.equal(needsAttention("ended"), false);
+test("alive sessions use attention and dead sessions are neutral", () => {
+  assert.equal(sessionAttentionStatus(session("working", "alive", "working")), "working");
+  assert.equal(sessionAttentionStatus(session("idle", "alive")), "idle");
+  assert.equal(sessionAttentionStatus(session("dead", "dead", "blocked")), "neutral");
 });
 
-test("sortSessions sorts by design attention priority then label", () => {
-  const sessions: SessionInfo[] = [
-    { id: "running", label: "H running", status: "running", cwd: "/tmp", created_at: "now", memoryState: "live", resumeStrategy: "none" },
-    { id: "blocked", label: "B blocked", status: "running", observedStatus: "blocked", cwd: "/tmp", created_at: "now", memoryState: "live", resumeStrategy: "none" },
-    { id: "idle", label: "G idle", status: "running", observedStatus: "idle", cwd: "/tmp", created_at: "now", memoryState: "live", resumeStrategy: "none" },
-    { id: "done", label: "D done", status: "running", observedStatus: "done", cwd: "/tmp", created_at: "now", memoryState: "live", resumeStrategy: "none" },
-    { id: "failed", label: "C failed", status: "running", observedStatus: "failed", cwd: "/tmp", created_at: "now", memoryState: "live", resumeStrategy: "none" },
-    { id: "stale", label: "E stale", status: "running", observedStatus: "stale", cwd: "/tmp", created_at: "now", memoryState: "live", resumeStrategy: "none" },
-    { id: "working", label: "F working", status: "running", observedStatus: "working", cwd: "/tmp", created_at: "now", memoryState: "live", resumeStrategy: "none" },
-    { id: "waiting", label: "A waiting", status: "running", observedStatus: "waiting_for_input", cwd: "/tmp", created_at: "now", memoryState: "live", resumeStrategy: "none" },
-  ];
-
-  assert.deepEqual(sortSessions(sessions).map((s) => s.id), [
-    "waiting",
-    "blocked",
-    "failed",
-    "done",
-    "stale",
-    "working",
-    "idle",
-    "running",
+test("sortSessions ranks actionable alive sessions before working, idle, and dead", () => {
+  const ordered = sortSessions([
+    session("dead", "dead"),
+    session("idle", "alive", "idle"),
+    session("working", "alive", "working"),
+    session("failed", "alive", "failed"),
+    session("needs-you", "alive", "needs_you"),
   ]);
-});
-
-test("sessionAttentionStatus prefers observed status over lifecycle status", () => {
-  const session: SessionInfo = {
-    id: "1",
-    label: "Running session needing input",
-    status: "running",
-    observedStatus: "waiting_for_input",
-    cwd: "/tmp",
-    created_at: "now",
-    memoryState: "live",
-    resumeStrategy: "none",
-  };
-
-  assert.equal(sessionAttentionStatus(session), "waiting_for_input");
-  assert.equal(needsAttention(sessionAttentionStatus(session)), true);
-});
-
-test("sessionAttentionStatus falls back to lifecycle status when no observed", () => {
-  const session: SessionInfo = {
-    id: "1", label: "test", status: "running", cwd: "/tmp", created_at: "now",
-    memoryState: "live", resumeStrategy: "none",
-  };
-  assert.equal(sessionAttentionStatus(session), "running");
-});
-
-test("sessionAttentionStatus only uses live observed status while active", () => {
-  const session: SessionInfo = {
-    id: "1",
-    label: "Ending session",
-    status: "running",
-    lifecyclePhase: "ending",
-    observedStatus: "blocked",
-    cwd: "/tmp",
-    created_at: "now",
-    memoryState: "live",
-    resumeStrategy: "none",
-  };
-
-  assert.equal(sessionAttentionStatus(session), "running");
-});
-
-test("sessionAttentionStatus falls back to terminal lifecycle status for ended sessions", () => {
-  const session: SessionInfo = {
-    id: "1",
-    label: "Ended session",
-    status: "ended",
-    lifecyclePhase: "ended",
-    finalObservedStatus: "blocked",
-    cwd: "/tmp",
-    created_at: "now",
-    memoryState: "remembered",
-    resumeStrategy: "none",
-  };
-
-  assert.equal(sessionAttentionStatus(session), "ended");
-  assert.equal(needsAttention(sessionAttentionStatus(session)), false);
-});
-
-test("sessionAttentionStatus prefers checking_capacity over capped while pending", () => {
-  const session: SessionInfo = {
-    id: "pending",
-    label: "Pending",
-    status: "running",
-    cwd: "/tmp",
-    created_at: "now",
-    memoryState: "live",
-    resumeStrategy: "none",
-    capacityCheckPending: true,
-    atUsageLimit: true,
-  };
-
-  assert.equal(sessionAttentionStatus(session), "checking_capacity");
-});
-
-test("sessionAttentionStatus ignores capacity badges for ended sessions", () => {
-  const session: SessionInfo = {
-    id: "ended-capped",
-    label: "Ended capped session",
-    status: "ended",
-    lifecyclePhase: "ended",
-    cwd: "/tmp",
-    created_at: "now",
-    memoryState: "remembered",
-    resumeStrategy: "none",
-    capacityCheckPending: true,
-    atUsageLimit: true,
-  };
-
-  assert.equal(sessionAttentionStatus(session), "ended");
+  assert.deepEqual(ordered.map((item) => item.id), ["needs-you", "failed", "working", "idle", "dead"]);
 });

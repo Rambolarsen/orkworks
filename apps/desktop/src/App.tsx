@@ -23,13 +23,9 @@ import {
   setActiveWorkspaceSession,
   getProviders,
 } from "./api";
-import { disposeAllTerminals, disposeTerminal, getTerminal, pruneTerminals } from "./terminalStore";
+import { disposeTerminal, getTerminal, pruneTerminals } from "./terminalStore";
 import type { AppSettings } from "./appSettingsTypes";
 import type { HarnessConfig, CreateSessionOptions } from "./harnessTypes";
-import {
-  type SessionStateInjectionOption,
-  replaceSessionAfterInjection,
-} from "./sessionStateInjection";
 
 function App() {
   const [backendStatus, setBackendStatus] = useState<string>("connecting…");
@@ -45,10 +41,8 @@ function App() {
   const [harnesses, setHarnesses] = useState<HarnessConfig[]>([]);
   const [activeHarnessIds, setActiveHarnessIds] = useState<string[]>([]);
   const [newSessionDialogOpen, setNewSessionDialogOpen] = useState(false);
-  const [stateInjectionOptions, setStateInjectionOptions] = useState<SessionStateInjectionOption[]>([]);
   const dockviewApiRef = useRef<DockviewApi | null>(null);
   const sessionsHiddenLayoutRef = useRef<string | null>(null);
-  const refreshGenerationRef = useRef(0);
 
   useEffect(() => {
     if (backendStatus !== "connecting…") return;
@@ -83,15 +77,10 @@ function App() {
   }, [backendStatus]);
 
   const refreshSessions = useCallback(async () => {
-    const generation = refreshGenerationRef.current;
     try {
       const baseUrl = await window.orkworks.getBackendUrl();
       const list = await listSessions(baseUrl);
-      if (generation !== refreshGenerationRef.current) return;
-      const liveSessionIds = new Set(
-        list.filter((s) => s.memoryState === "live").map((s) => s.id),
-      );
-      pruneTerminals(liveSessionIds);
+      pruneTerminals(new Set(list.filter((session) => session.lifecycle === "alive").map((session) => session.id)));
       setSessions(sortSessions(list));
     } catch {
       // Silent: polled every 2s; transient failures are reflected by the
@@ -120,33 +109,6 @@ function App() {
     loadHarnesses();
   }, [backendStatus]);
 
-  useEffect(() => {
-    if (backendStatus !== "connected") return;
-    if (!settings?.debug.showSessionIds) {
-      setStateInjectionOptions([]);
-      return;
-    }
-
-    let cancelled = false;
-    async function loadStateInjectionOptions() {
-      try {
-        const options = await window.orkworks.listSessionStateInjections();
-        if (!cancelled) {
-          setStateInjectionOptions(options);
-        }
-      } catch {
-        if (!cancelled) {
-          pushToast("error", "Couldn't load state injection options.");
-        }
-      }
-    }
-
-    loadStateInjectionOptions();
-    return () => {
-      cancelled = true;
-    };
-  }, [backendStatus, settings?.debug.showSessionIds]);
-
   const filteredHarnesses = activeHarnessIds.length === 0
     ? harnesses.filter((h) => h.id === "generic-shell")
     : harnesses.filter((h) => h.id === "generic-shell" || activeHarnessIds.includes(h.id));
@@ -165,8 +127,6 @@ function App() {
     try {
       const info = await window.orkworks.openWorkspace();
       if (info) {
-        refreshGenerationRef.current += 1;
-        disposeAllTerminals();
         setWorkspaceState(info);
         setActiveHarnessIds(info.activeHarnessIds ?? []);
         setBackendStatus("connecting…");
@@ -297,24 +257,12 @@ function App() {
     }
   }, []);
 
-  const handleApplyStateInjection = useCallback(async (id: string, injectionId: string) => {
-    try {
-      const injected = await window.orkworks.applySessionStateInjection(id, injectionId);
-      setSessions((prev) => sortSessions(replaceSessionAfterInjection(prev, injected)));
-      pushToast("info", `Applied state injection: ${injectionId}`);
-    } catch {
-      pushToast("error", "Couldn't apply state injection.");
-    }
-  }, []);
-
   useEffect(() => {
     if (backendStatus !== "connected" || workspace) return;
     let cancelled = false;
     async function loadInitialWorkspace() {
       const info = await window.orkworks.getInitialWorkspace();
       if (!cancelled && info) {
-        refreshGenerationRef.current += 1;
-        disposeAllTerminals();
         setWorkspaceState(info);
         setActiveHarnessIds(info.activeHarnessIds ?? []);
         await refreshSessions();
@@ -491,10 +439,8 @@ function App() {
         onKillSession={handleKillSession}
         onForgetSession={handleForgetSession}
         onResumeSession={handleResumeSession}
-        onApplyStateInjection={handleApplyStateInjection}
         onFocusTerminal={handleFocusTerminal}
         onOpenWorkspace={handleOpenWorkspace}
-        stateInjectionOptions={stateInjectionOptions}
         dockviewApiRef={dockviewApiRef}
       />
       {newSessionDialogOpen && (

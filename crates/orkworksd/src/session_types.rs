@@ -20,6 +20,9 @@ pub(crate) struct SessionInfo {
     pub(crate) work_phase: String,
     #[serde(rename = "lifecyclePhase")]
     pub(crate) lifecycle_phase: String,
+    pub(crate) lifecycle: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) attention: Option<String>,
     pub(crate) status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) connectivity: Option<String>,
@@ -73,8 +76,6 @@ pub(crate) struct SessionInfo {
     pub(crate) recommendation: Option<String>,
     #[serde(rename = "peonLastInference")]
     pub(crate) peon_last_inference: Option<String>,
-    #[serde(rename = "peonSchedulerState", skip_serializing_if = "Option::is_none")]
-    pub(crate) peon_scheduler_state: Option<crate::peon::PeonSchedulerState>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) provider: Option<String>,
     #[serde(rename = "providerModel", skip_serializing_if = "Option::is_none")]
@@ -124,6 +125,8 @@ mod tests {
             model: None,
             work_phase: "unknown".into(),
             lifecycle_phase: "active".into(),
+            lifecycle: "alive".into(),
+            attention: None,
             status: status.into(),
             connectivity: None,
             terminal_outcome: None,
@@ -154,7 +157,6 @@ mod tests {
             conflict_warning: None,
             recommendation: None,
             peon_last_inference: None,
-            peon_scheduler_state: None,
             provider: None,
             provider_model: None,
             provider_state: None,

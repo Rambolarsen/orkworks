@@ -21,6 +21,7 @@ export const VOCAB = {
 /** Plain-language attention label. Pairs with attentionTone() for visual weight. */
 export function attentionLabel(status: string): string {
   switch (status) {
+    case "needs_you":         return "Needs you";
     case "waiting_for_input": return "Needs you";
     case "checking_capacity": return "Checking capacity";
     case "capped":            return "Capped";
@@ -35,6 +36,7 @@ export function attentionLabel(status: string): string {
     case "ended":             return "Ended";
     case "killed":            return "Killed";
     case "error":             return "Error";
+    case "neutral":           return "";
     default:                  return "Unknown";
   }
 }
@@ -59,6 +61,7 @@ export function isLoudTone(tone: AttentionTone): boolean {
 
 export function attentionTone(status: string): AttentionTone {
   switch (status) {
+    case "needs_you":
     case "waiting_for_input":
       return "needs-you";
     case "failed":

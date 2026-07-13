@@ -2,7 +2,6 @@ import { Fragment, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { GitBranch } from "lucide-react";
 import type { SessionInfo } from "../api";
-import type { SessionStateInjectionOption } from "../sessionStateInjection";
 import { sessionProviderContext } from "../sessionProviderContext";
 import { sessionAttentionStatus } from "../sessionSort";
 import {
@@ -29,34 +28,15 @@ interface SessionDetailPanelProps {
   sessions: SessionInfo[];
   activeSessionId: string | null;
   onResumeSession: (id: string) => void;
-  onApplyStateInjection: (id: string, injectionId: string) => Promise<void>;
-  stateInjectionOptions: SessionStateInjectionOption[];
   showDebugMetadata: boolean;
 }
 
-function SessionDetailPanel({
-  sessions,
-  activeSessionId,
-  onResumeSession,
-  onApplyStateInjection,
-  stateInjectionOptions,
-  showDebugMetadata,
-}: SessionDetailPanelProps) {
+function SessionDetailPanel({ sessions, activeSessionId, onResumeSession, showDebugMetadata }: SessionDetailPanelProps) {
   const [now, setNow] = useState(() => new Date());
-  const [selectedInjectionId, setSelectedInjectionId] = useState("");
-  const [applyingInjection, setApplyingInjection] = useState(false);
   useEffect(() => {
     const interval = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(interval);
   }, []);
-
-  useEffect(() => {
-    if (!showDebugMetadata || stateInjectionOptions.length === 0) {
-      setSelectedInjectionId("");
-      return;
-    }
-    setSelectedInjectionId((current) => current || stateInjectionOptions[0]?.id || "");
-  }, [showDebugMetadata, stateInjectionOptions, activeSessionId]);
 
   const active = sessions.find((s) => s.id === activeSessionId);
 
@@ -65,15 +45,18 @@ function SessionDetailPanel({
   }
 
   const attn = sessionAttentionStatus(active);
-  const tone = attentionTone(attn);
+  const transitional = active.lifecycle === "creating" || active.lifecycle === "stopping";
+  const tone = transitional ? "working" : attentionTone(attn);
   const sourceTag = active.metadataSource;
   const providerContext = sessionProviderContext(active);
   const folder = active.cwd.split("/").pop() || active.cwd;
   const headline = situationHeadline(active);
   const tail = situationTail(active, tone);
-  const actionZone = detailActionZone(active, tone);
+  const actionZone = transitional ? { kind: "none" as const } : detailActionZone(active, tone);
   const badgeText =
-    attn === "capped" && active.usageLimitResetHint
+    transitional
+      ? ""
+      : attn === "capped" && active.usageLimitResetHint
       ? `Capped · ${active.usageLimitResetHint}`
       : attentionLabel(attn);
 
@@ -92,7 +75,7 @@ function SessionDetailPanel({
       </span>,
     );
   }
-  if (active.finalObservedStatus) {
+  if (showDebugMetadata && active.finalObservedStatus) {
     provenanceItems.push(
       <span key="final-attention" className="peon-value">
         Final attention: {attentionLabel(active.finalObservedStatus)}
@@ -107,7 +90,7 @@ function SessionDetailPanel({
       <div className="detail-situation" data-attention={tone}>
         <div className="detail-situation-top">
           <span className="detail-badge" data-attention={tone}>
-            <StatusIndicator tone={tone} label={attentionLabel(attn)} />
+            <StatusIndicator tone={tone} label={transitional ? "" : attentionLabel(attn)} />
             {badgeText}
           </span>
           <span className="detail-situation-time">{relativeTime(active.peonLastInference, now) || relativeTime(active.created_at, now)}</span>
@@ -189,9 +172,6 @@ function SessionDetailPanel({
               <DetailField className="detail-fact" label="Lifecycle">
                 {lifecyclePhaseLabel(active.lifecyclePhase)}
               </DetailField>
-              <DetailField className="detail-fact" label="Peon scheduler">
-                {active.peonSchedulerState ?? "Not scheduled"}
-              </DetailField>
               <DetailField className="detail-fact" label="OrkWorks session ID">
                 {active.id}
               </DetailField>
@@ -215,45 +195,6 @@ function SessionDetailPanel({
             {active.changedFiles !== undefined && active.changedFiles > 0 && (
               <span className="git-changed">+{active.changedFiles} files</span>
             )}
-          </div>
-        )}
-
-        {showDebugMetadata && stateInjectionOptions.length > 0 && (
-          <div className="detail-debug-injection">
-            <div className="session-detail-label">State injection</div>
-            <div className="detail-debug-injection-row">
-              <select
-                className="detail-debug-select"
-                value={selectedInjectionId}
-                onChange={(event) => setSelectedInjectionId(event.target.value)}
-              >
-                <option value="">Choose a test scenario…</option>
-                {stateInjectionOptions.map((option) => (
-                  <option key={option.id} value={option.id}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                className="detail-button detail-button--ghost detail-debug-apply"
-                disabled={!selectedInjectionId || applyingInjection}
-                onClick={async () => {
-                  setApplyingInjection(true);
-                  try {
-                    await onApplyStateInjection(active.id, selectedInjectionId);
-                    setSelectedInjectionId("");
-                  } finally {
-                    setApplyingInjection(false);
-                  }
-                }}
-              >
-                Apply injection
-              </button>
-            </div>
-            <div className="detail-debug-note">
-              Temporarily writes a debug state, then lets normal runtime and metadata logic overwrite it naturally.
-            </div>
           </div>
         )}
       </div>

@@ -184,21 +184,21 @@ test("SessionDetailPanel's action zone renders at most one move, via the shared 
   assert.doesNotMatch(source, /session-resume-button/);
 });
 
-test("session list sorts by attention priority with lifecycle fallback", () => {
+test("session list sorts canonical alive attention before dead sessions", () => {
   const sessions: SessionInfo[] = [
-    { id: "1", label: "s1", status: "running", cwd: "/tmp", created_at: "now", memoryState: "live", resumeStrategy: "none" },
-    { id: "2", label: "s2", status: "running", observedStatus: "waiting_for_input", cwd: "/tmp", created_at: "now", memoryState: "live", resumeStrategy: "none" },
-    { id: "3", label: "s3", status: "ended", cwd: "/tmp", created_at: "now", memoryState: "remembered", resumeStrategy: "none" },
-    { id: "4", label: "s4", status: "running", observedStatus: "failed", cwd: "/tmp", created_at: "now", memoryState: "live", resumeStrategy: "none" },
-    { id: "5", label: "s5", status: "running", observedStatus: "blocked", cwd: "/tmp", created_at: "now", memoryState: "live", resumeStrategy: "none" },
-    { id: "6", label: "s6", status: "running", observedStatus: "done", cwd: "/tmp", created_at: "now", memoryState: "live", resumeStrategy: "none" },
+    { id: "1", label: "s1", status: "running", lifecycle: "alive", attention: "idle", cwd: "/tmp", created_at: "now", memoryState: "live", resumeStrategy: "none" },
+    { id: "2", label: "s2", status: "running", lifecycle: "alive", attention: "needs_you", cwd: "/tmp", created_at: "now", memoryState: "live", resumeStrategy: "none" },
+    { id: "3", label: "s3", status: "ended", lifecycle: "dead", cwd: "/tmp", created_at: "now", memoryState: "remembered", resumeStrategy: "none" },
+    { id: "4", label: "s4", status: "running", lifecycle: "alive", attention: "failed", cwd: "/tmp", created_at: "now", memoryState: "live", resumeStrategy: "none" },
+    { id: "5", label: "s5", status: "running", lifecycle: "alive", attention: "blocked", cwd: "/tmp", created_at: "now", memoryState: "live", resumeStrategy: "none" },
+    { id: "6", label: "s6", status: "running", lifecycle: "alive", attention: "working", cwd: "/tmp", created_at: "now", memoryState: "live", resumeStrategy: "none" },
   ];
   const sorted = sortSessions(sessions);
-  assert.equal(sorted[0].id, "2"); // waiting_for_input
+  assert.equal(sorted[0].id, "2"); // needs_you
   assert.equal(sorted[1].id, "5"); // blocked
   assert.equal(sorted[2].id, "4"); // failed
-  assert.equal(sorted[3].id, "6"); // done
-  assert.equal(sorted[4].id, "1"); // running
+  assert.equal(sorted[3].id, "6"); // working
+  assert.equal(sorted[4].id, "1"); // idle
   assert.equal(sorted[5].id, "3"); // ended
 });
 
@@ -208,28 +208,39 @@ test("needsAttention lifecycle statuses do not trigger from raw lifecycle", () =
   assert.equal(needsAttention("creating"), false);
 });
 
-test("sessionAttentionStatus falls back to lifecycle status when no observed", () => {
+test("sessionAttentionStatus defaults an alive session to idle", () => {
   const session: SessionInfo = {
-    id: "1", label: "test", status: "running", cwd: "/tmp", created_at: "now",
+    id: "1", label: "test", status: "running", lifecycle: "alive", cwd: "/tmp", created_at: "now",
     memoryState: "live", resumeStrategy: "none",
   };
-  assert.equal(sessionAttentionStatus(session), "running");
+  assert.equal(sessionAttentionStatus(session), "idle");
 });
 
-test("sessionAttentionStatus ignores observed status outside active lifecycle", () => {
+test("sessionAttentionStatus is neutral outside alive lifecycle", () => {
   const session: SessionInfo = {
     id: "1",
     label: "ending",
     status: "running",
-    lifecyclePhase: "ending",
-    observedStatus: "waiting_for_input",
+    lifecycle: "stopping",
+    attention: "needs_you",
     cwd: "/tmp",
     created_at: "now",
     memoryState: "live",
     resumeStrategy: "none",
   };
 
-  assert.equal(sessionAttentionStatus(session), "running");
+  assert.equal(sessionAttentionStatus(session), "neutral");
+});
+
+test("transitional lifecycle phases render a spinner without lifecycle copy", () => {
+  const list = readFileSync(new URL("../src/components/SessionListPanel.tsx", import.meta.url), "utf8");
+  const detail = readFileSync(new URL("../src/components/SessionDetailPanel.tsx", import.meta.url), "utf8");
+
+  for (const source of [list, detail]) {
+    assert.match(source, /lifecycle\s*===\s*"creating"/);
+    assert.match(source, /lifecycle\s*===\s*"stopping"/);
+    assert.match(source, /transitional\s*\?\s*"working"/);
+  }
 });
 
 test("session detail exposes resumable session action", () => {
@@ -254,41 +265,26 @@ test("CenterPanel keeps inactive terminals alive while switching sessions", () =
   assert.doesNotMatch(source, /previousId !== sessionId[\s\S]*disposeTerminal\(previousId\)/);
 });
 
-test("TerminalPanel only opens the terminal for live sessions", () => {
-  const source = readFileSync(
-    new URL("../src/components/TerminalPanel.tsx", import.meta.url),
-    "utf8",
-  );
-
-  assert.match(source, /session\.memoryState !== "live"/);
-  assert.match(source, /Select a live session to open its terminal\./);
-  assert.match(source, /return <CenterPanel backendStatus=\{backendStatus\} sessionId=\{session\.id\} \/>/);
-});
-
-test("session list marks remembered sessions separately from live sessions", () => {
+test("session list marks dead sessions separately from alive sessions", () => {
   const source = readFileSync(
     new URL("../src/components/SessionListPanel.tsx", import.meta.url),
     "utf8",
   );
 
-  // Remembered is the negation of "live" — inverting this condition flips the class onto the wrong sessions.
-  assert.match(source, /const\s+remembered\s*=\s*s\.memoryState\s*!==\s*"live"/);
-  // The remembered variable (not its inverse) drives the class — inverting the ternary would break this.
+  assert.match(source, /const\s+remembered\s*=\s*s\.lifecycle\s*===\s*"dead"/);
   assert.match(source, /remembered\s*\?\s*"session-row--remembered"/);
 });
 
-test("session list only offers kill for live sessions", () => {
+test("session list only offers kill for alive sessions", () => {
   const source = readFileSync(
     new URL("../src/components/SessionListPanel.tsx", import.meta.url),
     "utf8",
   );
 
-  // Kill button is gated to the live branch.
-  assert.match(source, /s\.memoryState === "live" && \(\s*<button[\s\S]*session-row-kill/);
-  // Kill class must be absent from the non-live (remembered) branch.
-  const nonLiveBlock =
-    source.match(/\{s\.memoryState !== "live" && \([\s\S]*?\)\s*\}/)?.[0] ?? "";
-  assert.doesNotMatch(nonLiveBlock, /session-row-kill/);
+  assert.match(source, /const\s+canKill\s*=\s*s\.lifecycle\s*===\s*"alive"/);
+  assert.match(source, /\{canKill && \(\s*<button[\s\S]*session-row-kill/);
+  const deadBlock = source.match(/\{remembered && \([\s\S]*?\)\s*\}/)?.[0] ?? "";
+  assert.doesNotMatch(deadBlock, /session-row-kill/);
 });
 
 test("session list keeps tool/time metadata separate from unread and destructive controls", () => {
@@ -363,32 +359,6 @@ test("App restores the last active session from the initial workspace", () => {
   assert.match(source, /setActiveSessionId\(info\.lastActiveSessionId\)/);
 });
 
-test("App handles workspace switches atomically for terminal cleanup", () => {
-  const source = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
-  const handleOpenWorkspace =
-    source.match(/const handleOpenWorkspace = useCallback\(async \(\) => \{([\s\S]*?)\n  \}, \[\]\);/)?.[1] ?? "";
-
-  assert.match(source, /import \{[^}]*disposeAllTerminals[^}]*pruneTerminals[^}]*\} from "\.\/terminalStore"/);
-  assert.match(source, /const refreshGenerationRef = useRef\(0\)/);
-  assert.match(handleOpenWorkspace, /refreshGenerationRef\.current \+= 1;/);
-  assert.match(handleOpenWorkspace, /disposeAllTerminals\(\);/);
-  assert.match(handleOpenWorkspace, /setSessions\(\[\]\);/);
-});
-
-test("App guards session refreshes and prunes terminals from live ids only", () => {
-  const source = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
-  const refreshSessions =
-    source.match(/const refreshSessions = useCallback\(async \(\) => \{([\s\S]*?)\n  \}, \[\]\);/)?.[1] ?? "";
-
-  assert.match(refreshSessions, /const generation = refreshGenerationRef\.current;/);
-  assert.match(refreshSessions, /if \(generation !== refreshGenerationRef\.current\) return;/);
-  assert.match(refreshSessions, /filter\(\(s\) => s\.memoryState === "live"\)/);
-  assert.match(refreshSessions, /map\(\(s\) => s\.id\)/);
-  assert.match(refreshSessions, /new Set\(/);
-  assert.match(refreshSessions, /pruneTerminals\(liveSessionIds\)/);
-  assert.match(refreshSessions, /setSessions\(sortSessions\(list\)\)/);
-});
-
 test("preload exposes settings and hotkey capture APIs", () => {
   const source = readFileSync(new URL("../electron/preload.ts", import.meta.url), "utf8");
 
@@ -428,29 +398,24 @@ test("SettingsModal exposes a debug metadata toggle", () => {
   assert.match(source, /saveDebugSettings/);
 });
 
-test("preload exposes session state injection helpers", () => {
-  const source = readFileSync(new URL("../electron/preload.ts", import.meta.url), "utf8");
-
-  assert.match(source, /listSessionStateInjections:\s*\(\)/);
-  assert.match(source, /ipcRenderer\.invoke\("list-session-state-injections"\)/);
-  assert.match(source, /applySessionStateInjection:\s*\(sessionId:\s*string,\s*injectionId:\s*string\)/);
-  assert.match(source, /ipcRenderer\.invoke\("apply-session-state-injection", \{ sessionId, injectionId \}\)/);
-});
-
-test("SessionDetailPanel exposes state injection controls behind debug metadata", () => {
-  const source = readFileSync(new URL("../src/components/SessionDetailPanel.tsx", import.meta.url), "utf8");
-
-  assert.match(source, /State injection/);
-  assert.match(source, /Apply injection/);
-  assert.match(source, /Temporarily writes a debug state/);
-});
-
 test("TerminalPanel no longer renders internal session tabs or duplicate kill controls", () => {
   const source = readFileSync(new URL("../src/components/TerminalPanel.tsx", import.meta.url), "utf8");
 
   assert.doesNotMatch(source, /liveSessions\.map/);
   assert.doesNotMatch(source, /onKillSession/);
   assert.match(source, /<CenterPanel/);
+});
+
+test("TerminalPanel only attaches live sessions and refresh disposes dead handles", () => {
+  const terminalPanel = readFileSync(
+    new URL("../src/components/TerminalPanel.tsx", import.meta.url),
+    "utf8",
+  );
+  const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+
+  assert.match(terminalPanel, /session\.lifecycle !== "alive"/);
+  assert.match(app, /pruneTerminals\(/);
+  assert.match(app, /session\.lifecycle === "alive"/);
 });
 
 test("App activates shared terminal panel on session create", () => {

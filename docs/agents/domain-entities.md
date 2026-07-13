@@ -74,7 +74,7 @@ Behavior currently implemented on the entity:
 - `begin_ending(pending_terminal_status, ending_observed_status_snapshot)`
 - `complete_ending(final_observed_status_snapshot)`
 
-The lifecycle behavior is still orchestrated by runtime/application code, but the aggregate now owns the `creating -> active -> ending -> ended` transition rules and the structured final-observed-state snapshots.
+The lifecycle behavior is orchestrated by runtime/application code. The public metadata and renderer contract use the canonical `creating -> alive -> stopping -> dead` lifecycle from ADR 0023; the domain aggregate retains its older internal compatibility types while that migration is completed.
 
 ## Value objects
 
@@ -150,7 +150,7 @@ Explicit runtime lifecycle phase:
 - `Ending`
 - `Ended`
 
-This is distinct from `SessionStatus`. It models where the session is in the lifecycle state machine even when the process-facing `status` remains `Running` during `Ending`.
+This is distinct from `SessionStatus`. It models where the session is in the lifecycle state machine even when the process-facing `status` remains `Running` during `Ending`. ADR 0023 defines a replacement canonical lifecycle for planned implementation work.
 
 ### `TerminalOutcome`
 

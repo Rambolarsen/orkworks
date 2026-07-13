@@ -1,8 +1,11 @@
+use std::sync::{Arc, Mutex};
 use crate::domain::session::{
-    entity::Session, events::DomainEvent, repository::SessionRepository, value_objects::*,
+    entity::Session,
+    events::DomainEvent,
+    repository::SessionRepository,
+    value_objects::*,
 };
 use crate::metadata::{MetadataStore, SessionMetadata};
-use std::sync::{Arc, Mutex};
 
 pub struct MetadataSessionRepository {
     store: Arc<Mutex<Option<MetadataStore>>>,
@@ -10,9 +13,7 @@ pub struct MetadataSessionRepository {
 
 impl MetadataSessionRepository {
     pub fn new() -> Self {
-        Self {
-            store: Arc::new(Mutex::new(None)),
-        }
+        Self { store: Arc::new(Mutex::new(None)) }
     }
 
     pub fn set_store(&self, store: MetadataStore) {
@@ -20,8 +21,7 @@ impl MetadataSessionRepository {
     }
 
     fn with_store<F, R>(&self, f: F) -> Result<R, String>
-    where
-        F: FnOnce(&MetadataStore) -> Result<R, String>,
+    where F: FnOnce(&MetadataStore) -> Result<R, String>
     {
         let guard = self.store.lock().unwrap();
         match guard.as_ref() {
@@ -40,38 +40,34 @@ impl SessionRepository for MetadataSessionRepository {
 
             let now = chrono::Utc::now().to_rfc3339();
             for event in &events {
-                store.append_event(
-                    &session.id.0,
-                    &crate::metadata::Event {
-                        event_type: event.event_type().to_string(),
-                        timestamp: now.clone(),
-                        status: session_status_str(&session.status).to_string(),
-                        observed_status: None,
-                        confidence: None,
-                    },
-                );
+                store.append_event(&session.id.0, &crate::metadata::Event {
+                    event_type: event.event_type().to_string(),
+                    timestamp: now.clone(),
+                    status: session_status_str(&session.status).to_string(),
+                    observed_status: None,
+                    confidence: None,
+                });
             }
             Ok(())
         })
     }
 
     fn load(&self, id: &SessionId) -> Result<Option<Session>, String> {
-        self.with_store(|store| Ok(store.read_session(&id.0).map(|m| meta_to_session(&m))))
+        self.with_store(|store| {
+            Ok(store.read_session(&id.0).map(|m| meta_to_session(&m)))
+        })
     }
 
     fn delete(&self, id: &SessionId) -> Result<(), String> {
         self.with_store(|store| {
-            store
-                .delete_session(&id.0)
+            store.delete_session(&id.0)
                 .map_err(|e| format!("delete failed: {e}"))
         })
     }
 
     fn list_by_workspace(&self, _path: &WorkspacePath) -> Result<Vec<Session>, String> {
         self.with_store(|store| {
-            Ok(store
-                .read_all_sessions()
-                .into_iter()
+            Ok(store.read_all_sessions().into_iter()
                 .map(|m| meta_to_session(&m))
                 .collect())
         })
@@ -114,8 +110,9 @@ fn meta_to_session(meta: &SessionMetadata) -> Session {
         "error" => SessionStatus::Error,
         _ => SessionStatus::Ended,
     };
-    let attention =
-        AttentionState::from_str(meta.observed_status.as_deref().unwrap_or(&meta.status));
+    let attention = AttentionState::from_str(
+        meta.observed_status.as_deref().unwrap_or(&meta.status),
+    );
     let work_phase = match meta.work_phase.as_str() {
         "ideation" => WorkPhase::Ideation,
         "implementation" => WorkPhase::Implementation,
@@ -131,9 +128,7 @@ fn meta_to_session(meta: &SessionMetadata) -> Session {
         _ => match status {
             SessionStatus::Creating => LifecyclePhase::Creating,
             SessionStatus::Running => LifecyclePhase::Active,
-            SessionStatus::Killed | SessionStatus::Ended | SessionStatus::Error => {
-                LifecyclePhase::Ended
-            }
+            SessionStatus::Killed | SessionStatus::Ended | SessionStatus::Error => LifecyclePhase::Ended,
         },
     };
 
@@ -185,6 +180,13 @@ fn session_to_metadata(session: &Session, existing: Option<&SessionMetadata>) ->
             LifecyclePhase::Ending => "ending".into(),
             LifecyclePhase::Ended => "ended".into(),
         },
+        lifecycle: match session.lifecycle_phase {
+            LifecyclePhase::Creating => "creating".into(),
+            LifecyclePhase::Active => "alive".into(),
+            LifecyclePhase::Ending => "stopping".into(),
+            LifecyclePhase::Ended => "dead".into(),
+        },
+        attention: None,
         connectivity: if matches!(
             session.status,
             SessionStatus::Killed | SessionStatus::Ended | SessionStatus::Error
@@ -199,13 +201,11 @@ fn session_to_metadata(session: &Session, existing: Option<&SessionMetadata>) ->
             SessionStatus::Error => Some("error".into()),
             _ => None,
         },
-        pending_terminal_status: session.pending_terminal_status.as_ref().map(
-            |status| match status {
-                TerminalOutcome::Ended => "ended".into(),
-                TerminalOutcome::Killed => "killed".into(),
-                TerminalOutcome::Error => "error".into(),
-            },
-        ),
+        pending_terminal_status: session.pending_terminal_status.as_ref().map(|status| match status {
+            TerminalOutcome::Ended => "ended".into(),
+            TerminalOutcome::Killed => "killed".into(),
+            TerminalOutcome::Error => "error".into(),
+        }),
         observed_status: existing.and_then(|meta| meta.observed_status.clone()),
         ending_observed_status_snapshot: None,
         final_observed_status_snapshot: None,
@@ -232,7 +232,9 @@ fn session_to_metadata(session: &Session, existing: Option<&SessionMetadata>) ->
         metadata_source: existing
             .map(|meta| meta.metadata_source.clone())
             .unwrap_or_else(|| "process".into()),
-        metadata_confidence: existing.map(|meta| meta.metadata_confidence).unwrap_or(1.0),
+        metadata_confidence: existing
+            .map(|meta| meta.metadata_confidence)
+            .unwrap_or(1.0),
         repo_root: session.repo_root.clone(),
         branch: session.branch.clone(),
         dirty: session.dirty,
@@ -244,11 +246,9 @@ fn session_to_metadata(session: &Session, existing: Option<&SessionMetadata>) ->
             .unwrap_or_default(),
         harness_session_id_source: existing.and_then(|meta| meta.harness_session_id_source.clone()),
         harness_session_id_confidence: existing.and_then(|meta| meta.harness_session_id_confidence),
-        harness_session_id_captured_at: existing
-            .and_then(|meta| meta.harness_session_id_captured_at.clone()),
+        harness_session_id_captured_at: existing.and_then(|meta| meta.harness_session_id_captured_at.clone()),
         resumed_from: session.resumed_from.clone(),
         last_user_input: existing.and_then(|meta| meta.last_user_input.clone()),
-        debug_injection: existing.and_then(|meta| meta.debug_injection.clone()),
     }
 }
 
@@ -308,6 +308,8 @@ mod tests {
             status: "ended".into(),
             work_phase: "review".into(),
             lifecycle_phase: "ended".into(),
+            lifecycle: "dead".into(),
+            attention: None,
             connectivity: "offline".into(),
             terminal_outcome: Some("ended".into()),
             pending_terminal_status: None,
@@ -355,7 +357,6 @@ mod tests {
             harness_session_id_captured_at: None,
             resumed_from: Some("older".into()),
             last_user_input: None,
-            debug_injection: None,
         });
 
         let loaded = repo.load(&SessionId("roundtrip".into())).unwrap().unwrap();

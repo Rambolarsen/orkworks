@@ -10,7 +10,6 @@ import { DEFAULT_HOTKEYS, DEFAULT_RETENTION, normalizeDebugSettings, normalizePr
 import { pushProviderSettings } from "./providerSettingsSync";
 import type { ProviderSettings } from "./providerTypes";
 import { buildMenuTemplate } from "./menuTemplate";
-import { debugInjectionUrl, parseSessionStateInjectionPayload } from "./sessionStateInjectionIpc";
 
 app.setName("OrkWorks");
 
@@ -242,31 +241,6 @@ app.whenReady().then(() => {
     writeSettings(app.getPath("userData"), nextSettings);
     currentSettings = nextSettings;
     return { ok: true, settings: rendererSettings(currentSettings) };
-  });
-
-  ipcMain.handle("list-session-state-injections", async () => {
-    if (!(currentSettings ?? readSettings(app.getPath("userData"))).debug.showSessionIds) {
-      throw new Error("debug metadata must be enabled before using state injection");
-    }
-    const port = await portPromise;
-    const resp = await fetch(`http://127.0.0.1:${port}/sessions/debug-injections`);
-    if (!resp.ok) throw new Error(`list state injections failed: ${resp.status}`);
-    return resp.json();
-  });
-
-  ipcMain.handle("apply-session-state-injection", async (_event, payload: unknown) => {
-    if (!(currentSettings ?? readSettings(app.getPath("userData"))).debug.showSessionIds) {
-      throw new Error("debug metadata must be enabled before using state injection");
-    }
-    const { sessionId, injectionId } = parseSessionStateInjectionPayload(payload);
-    const port = await portPromise;
-    const resp = await fetch(debugInjectionUrl(port, sessionId), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ injectionId }),
-    });
-    if (!resp.ok) throw new Error(`apply state injection failed: ${resp.status}`);
-    return resp.json();
   });
 
   ipcMain.handle("save-provider-settings", async (_event, providers: ProviderSettings) => {

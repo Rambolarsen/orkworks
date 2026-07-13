@@ -1,43 +1,32 @@
-import { effectiveLifecyclePhase, type SessionInfo } from "./api.ts";
+import type { SessionInfo } from "./api.ts";
 
 const ATTENTION_PRIORITY: Record<string, number> = {
-  waiting_for_input: 0,
+  needs_you: 0,
   blocked: 1,
-  checking_capacity: 2,
   capped: 2,
   failed: 3,
-  done: 4,
-  stale: 4,
   working: 5,
   idle: 6,
-  creating: 7,
-  running: 8,
-  ended: 9,
-  killed: 10,
-  error: 11,
+  neutral: 99,
 };
 
 export function needsAttention(status: string): boolean {
   return (
     status === "blocked" ||
     status === "failed" ||
-    status === "waiting_for_input"
+    status === "needs_you"
   );
 }
 
 export function sessionAttentionStatus(session: SessionInfo): string {
-  if (effectiveLifecyclePhase(session.status, session.lifecyclePhase) !== "active") {
-    return session.status;
-  }
-  if (session.capacityCheckPending) return "checking_capacity";
-  if (session.atUsageLimit) return "capped";
-  return session.observedStatus ?? session.status;
+  if (session.lifecycle !== "alive") return "neutral";
+  return session.attention ?? "idle";
 }
 
 export function sortSessions(list: SessionInfo[]): SessionInfo[] {
   return [...list].sort((a, b) => {
-    const la = a.memoryState === "live" ? 0 : 1;
-    const lb = b.memoryState === "live" ? 0 : 1;
+    const la = a.lifecycle === "alive" ? 0 : 1;
+    const lb = b.lifecycle === "alive" ? 0 : 1;
     if (la !== lb) return la - lb;
     const pa = ATTENTION_PRIORITY[sessionAttentionStatus(a)] ?? 99;
     const pb = ATTENTION_PRIORITY[sessionAttentionStatus(b)] ?? 99;

@@ -3,7 +3,7 @@ use crate::runtime::terminal_runtime::{
     session_env_overrides, set_session_status, should_forward_terminal_env, terminal_env_overrides,
 };
 use crate::workspace_runtime::iso_now;
-use crate::{harness, metadata, peon, AppState};
+use crate::{AppState, harness, metadata, peon};
 use portable_pty::{CommandBuilder, PtySize, PtySystem};
 use std::collections::VecDeque;
 use std::io::{Read, Write};
@@ -15,7 +15,6 @@ pub(crate) const DEFAULT_TERMINAL_COLS: u16 = 80;
 const DEFAULT_REPLAY_CAPACITY: usize = 256;
 const DRIVER_EVENT_BUFFER_CAPACITY: usize = 64;
 const PERSIST_QUEUE_CAPACITY: usize = 64;
-const MAX_PARTIAL_PERSIST_BYTES: usize = 64 * 1024;
 const INITIAL_RESIZE_GRACE: std::time::Duration = std::time::Duration::from_millis(150);
 
 #[derive(Clone, Debug, PartialEq)]
@@ -154,50 +153,6 @@ fn make_persist_channel() -> (mpsc::Sender<Vec<String>>, mpsc::Receiver<Vec<Stri
     mpsc::channel(PERSIST_QUEUE_CAPACITY)
 }
 
-fn partial_persist_flush_end(buffer: &[u8]) -> usize {
-    let mut first_continuation = MAX_PARTIAL_PERSIST_BYTES;
-    while first_continuation > MAX_PARTIAL_PERSIST_BYTES.saturating_sub(3)
-        && buffer[first_continuation - 1] & 0b1100_0000 == 0b1000_0000
-    {
-        first_continuation -= 1;
-    }
-
-    let lead = first_continuation - 1;
-    let expected_len = match buffer[lead] {
-        0xC2..=0xDF => 2,
-        0xE0..=0xEF => 3,
-        0xF0..=0xF4 => 4,
-        _ => 1,
-    };
-    if expected_len > MAX_PARTIAL_PERSIST_BYTES - lead {
-        lead
-    } else {
-        MAX_PARTIAL_PERSIST_BYTES
-    }
-}
-
-fn drain_persist_records(buffer: &mut Vec<u8>) -> Vec<String> {
-    let mut records = Vec::new();
-
-    while let Some(nl) = buffer.iter().position(|&byte| byte == b'\n') {
-        let line: Vec<u8> = buffer.drain(..=nl).collect();
-        let end = if line.ends_with(b"\r\n") {
-            line.len() - 2
-        } else {
-            line.len() - 1
-        };
-        records.push(String::from_utf8_lossy(&line[..end]).into_owned());
-    }
-
-    while buffer.len() > MAX_PARTIAL_PERSIST_BYTES {
-        let flush_end = partial_persist_flush_end(buffer);
-        records.push(String::from_utf8_lossy(&buffer[..flush_end]).into_owned());
-        buffer.drain(..flush_end);
-    }
-
-    records
-}
-
 pub(crate) fn claim_attachment(state: &Arc<AppState>, id: &str) -> Option<AttachmentClaim> {
     let mut sessions = state.sessions.lock().unwrap();
     let handle = sessions.get_mut(id)?;
@@ -333,9 +288,26 @@ pub(crate) async fn start_session_runtime(
     }
 
     let mut child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
+    // The PTY has spawned, so the lifecycle is alive before either background
+    // task can observe and classify its first output chunk.
+    set_session_status(&state, &id, "running");
 
-    let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
-    let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
+    let mut reader = match pair.master.try_clone_reader() {
+        Ok(reader) => reader,
+        Err(error) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(error.to_string());
+        }
+    };
+    let writer = match pair.master.take_writer() {
+        Ok(writer) => writer,
+        Err(error) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(error.to_string());
+        }
+    };
     let master = Arc::new(Mutex::new(pair.master));
     let killer = Arc::new(Mutex::new(child.clone_killer()));
 
@@ -478,16 +450,19 @@ pub(crate) async fn start_session_runtime(
                 Some(event) = driver_rx.recv(), if pending_persist_batches.len() < DRIVER_EVENT_BUFFER_CAPACITY => {
                     match event {
                         DriverEvent::Output(data) => {
-                            let idle_held = if driver_state.peon.config.enabled {
-                                !driver_state.peon.scheduler.write().unwrap()
-                                    .request_observation_from_output(&driver_id, std::time::Instant::now())
-                            } else {
-                                driver_state.peon.scheduler.read().unwrap()
-                                    .state_for(&driver_id)
-                                    == peon::PeonSchedulerState::IdleWaitingForUserInput
-                            };
                             persist_buffer.extend_from_slice(&data);
-                            let raw_persist_lines = drain_persist_records(&mut persist_buffer);
+                            let stripped = peon::strip_ansi(&String::from_utf8_lossy(&data));
+                            let has_visible_output = !stripped.trim().is_empty();
+                            let mut raw_persist_lines: Vec<String> = Vec::new();
+                            while let Some(nl) = persist_buffer.iter().position(|&b| b == b'\n') {
+                                let line: Vec<u8> = persist_buffer.drain(..=nl).collect();
+                                let end = if line.ends_with(b"\r\n") {
+                                    line.len() - 2
+                                } else {
+                                    line.len() - 1
+                                };
+                                raw_persist_lines.push(String::from_utf8_lossy(&line[..end]).into_owned());
+                            }
 
                             let mut codex_thread_id: Option<String> = None;
                             {
@@ -500,7 +475,6 @@ pub(crate) async fn start_session_runtime(
                                         }
                                     }
                                     handle.output_lines_seen += raw_persist_lines.len() as u64;
-                                    let stripped = peon::strip_ansi(&String::from_utf8_lossy(&data));
                                     handle.scan_bytes_seen += stripped.len() as u64;
                                     handle.scan_buf.push_str(&stripped);
                                     const MAX_SCAN: usize = 8192;
@@ -509,8 +483,9 @@ pub(crate) async fn start_session_runtime(
                                         let drop = (drop..drop + 4).find(|&i| handle.scan_buf.is_char_boundary(i)).unwrap_or(drop);
                                         handle.scan_buf.drain(..drop);
                                     }
-                                    if !idle_held && peon::is_terminal_observed_status(handle.info.observed_status.as_deref()) {
-                                        handle.info.observed_status = None;
+                                    if handle.info.lifecycle == "alive" && has_visible_output {
+                                        handle.info.observed_status = Some("working".into());
+                                        handle.info.attention = Some("working".into());
                                     }
                                     if handle.info.harness_id.as_deref() == Some("codex") {
                                         codex_thread_id = raw_persist_lines.iter()
@@ -533,7 +508,9 @@ pub(crate) async fn start_session_runtime(
                                 }
                             }
 
-                            if driver_state.peon.config.enabled && !idle_held {
+                            if driver_state.peon.config.enabled {
+                                driver_state.peon.last_output.write().unwrap()
+                                    .insert(driver_id.clone(), tokio::time::Instant::now());
                                 driver_state.peon.last_inference.write().unwrap().remove(&driver_id);
                             }
 
@@ -541,8 +518,9 @@ pub(crate) async fn start_session_runtime(
                                 let ws_guard = driver_state.workspace.lock().unwrap();
                                 if let Some(ref ws) = *ws_guard {
                                     if let Some(mut meta) = ws.metadata.read_session(&driver_id) {
-                                        if !idle_held && peon::is_terminal_observed_status(meta.observed_status.as_deref()) {
-                                            meta.observed_status = None;
+                                        if meta.lifecycle == "alive" && has_visible_output {
+                                            meta.observed_status = Some("working".into());
+                                            meta.attention = Some("working".into());
                                             meta.metadata_source = "process".into();
                                             ws.metadata.write_session(&meta);
                                         }
@@ -567,6 +545,7 @@ pub(crate) async fn start_session_runtime(
                                     .push_back(vec![String::from_utf8_lossy(&persist_buffer).into_owned()]);
                             }
 
+                            driver_state.peon.last_output.write().unwrap().remove(&driver_id);
                             driver_state.peon.last_inference.write().unwrap().remove(&driver_id);
 
                             {
@@ -610,6 +589,7 @@ pub(crate) async fn start_session_runtime(
                                 final_persist_batches
                                     .push_back(vec![String::from_utf8_lossy(&persist_buffer).into_owned()]);
                             }
+                            driver_state.peon.last_output.write().unwrap().remove(&driver_id);
                             driver_state.peon.last_inference.write().unwrap().remove(&driver_id);
                             {
                                 let mut sessions = driver_state.sessions.lock().unwrap();
@@ -672,8 +652,11 @@ mod tests {
             sessions: Mutex::new(HashMap::new()),
             workspace: Mutex::new(None),
             peon: crate::PeonState {
-                scheduler: std::sync::RwLock::new(crate::peon::PeonScheduler::default()),
+                last_output: RwLock::new(HashMap::new()),
                 last_inference: RwLock::new(HashMap::new()),
+                in_flight: RwLock::new(HashSet::new()),
+                label_hint: RwLock::new(HashMap::new()),
+                label_pending: RwLock::new(HashSet::new()),
                 config: crate::peon::PeonConfig::from_env(),
             },
             adapters: crate::harness_registry::builtin_adapters(),
@@ -705,7 +688,6 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
-                debug_injection: None,
             },
         );
 
@@ -956,109 +938,5 @@ mod tests {
         );
 
         assert!(matches!(rx.try_recv(), Ok(lines) if lines == vec!["line".to_string()]));
-    }
-
-    #[test]
-    fn persist_records_keep_newline_delimited_output_unchanged() {
-        let mut buffer = b"first\nsecond\r\npartial".to_vec();
-
-        assert_eq!(
-            drain_persist_records(&mut buffer),
-            vec!["first".to_string(), "second".to_string()],
-        );
-        assert_eq!(buffer, b"partial");
-    }
-
-    #[test]
-    fn persist_records_flush_a_newline_free_suffix_at_each_byte_cap() {
-        let mut buffer = vec![b'x'; MAX_PARTIAL_PERSIST_BYTES * 2 + 5];
-
-        assert_eq!(
-            drain_persist_records(&mut buffer),
-            vec![
-                "x".repeat(MAX_PARTIAL_PERSIST_BYTES),
-                "x".repeat(MAX_PARTIAL_PERSIST_BYTES),
-            ],
-        );
-        assert_eq!(buffer, vec![b'x'; 5]);
-    }
-
-    #[test]
-    fn persist_records_keep_complete_lines_before_flushing_a_capped_suffix() {
-        let mut buffer = b"first\n".to_vec();
-        buffer.extend(vec![b'x'; MAX_PARTIAL_PERSIST_BYTES]);
-
-        assert_eq!(
-            drain_persist_records(&mut buffer),
-            vec!["first".to_string()],
-        );
-        assert_eq!(buffer, vec![b'x'; MAX_PARTIAL_PERSIST_BYTES]);
-    }
-
-    #[test]
-    fn persist_records_keep_an_exact_cap_partial_until_its_newline_arrives() {
-        let mut buffer = vec![b'x'; MAX_PARTIAL_PERSIST_BYTES];
-
-        assert!(drain_persist_records(&mut buffer).is_empty());
-        assert_eq!(buffer, vec![b'x'; MAX_PARTIAL_PERSIST_BYTES]);
-
-        buffer.push(b'\n');
-        assert_eq!(
-            drain_persist_records(&mut buffer),
-            vec!["x".repeat(MAX_PARTIAL_PERSIST_BYTES)],
-        );
-        assert!(buffer.is_empty());
-    }
-
-    #[test]
-    fn persist_records_keep_crlf_split_across_chunks_intact() {
-        let mut buffer = b"first\r".to_vec();
-
-        assert!(drain_persist_records(&mut buffer).is_empty());
-        buffer.extend_from_slice(b"\nsecond\n");
-        assert_eq!(
-            drain_persist_records(&mut buffer),
-            vec!["first".to_string(), "second".to_string()],
-        );
-        assert!(buffer.is_empty());
-    }
-
-    #[test]
-    fn persist_records_keep_a_split_utf8_character_for_the_next_chunk() {
-        let mut buffer = vec![b'x'; MAX_PARTIAL_PERSIST_BYTES - 1];
-        buffer.extend_from_slice(&[0xE2, 0x82]);
-
-        assert_eq!(
-            drain_persist_records(&mut buffer),
-            vec!["x".repeat(MAX_PARTIAL_PERSIST_BYTES - 1)],
-        );
-        assert_eq!(buffer, vec![0xE2, 0x82]);
-
-        buffer.push(0xAC);
-        assert!(drain_persist_records(&mut buffer).is_empty());
-        assert_eq!(String::from_utf8(buffer).unwrap(), "€");
-    }
-
-    #[test]
-    fn persist_records_keep_a_split_utf8_character_after_invalid_bytes() {
-        let mut buffer = vec![0xFF];
-        buffer.extend(vec![b'x'; MAX_PARTIAL_PERSIST_BYTES - 3]);
-        buffer.extend_from_slice(&[0xE2, 0x82]);
-
-        assert_eq!(
-            drain_persist_records(&mut buffer),
-            Vec::<String>::new(),
-        );
-        let mut expected = vec![0xFF];
-        expected.extend(vec![b'x'; MAX_PARTIAL_PERSIST_BYTES - 3]);
-        expected.extend_from_slice(&[0xE2, 0x82]);
-        assert_eq!(buffer, expected);
-
-        buffer.push(0xAC);
-        assert_eq!(
-            drain_persist_records(&mut buffer),
-            vec![format!("�{}", "x".repeat(MAX_PARTIAL_PERSIST_BYTES - 3))],
-        );
-        assert_eq!(String::from_utf8(buffer).unwrap(), "€");
     }
 }

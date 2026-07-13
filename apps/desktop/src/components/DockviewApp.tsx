@@ -10,7 +10,6 @@ import {
 import type { SessionInfo, WorkspaceInfo } from "../api";
 import type { HarnessConfig } from "../harnessTypes";
 import type { DebugSettings } from "../appSettingsTypes";
-import type { SessionStateInjectionOption } from "../sessionStateInjection";
 import SessionListPanel from "./SessionListPanel";
 import SessionDetailPanel from "./SessionDetailPanel";
 import TerminalPanel from "./TerminalPanel";
@@ -31,10 +30,8 @@ interface DockviewAppData {
   onKillSession: (id: string) => void;
   onForgetSession: (id: string) => void;
   onResumeSession: (id: string) => void;
-  onApplyStateInjection: (id: string, injectionId: string) => Promise<void>;
   onFocusTerminal: () => void;
   onOpenWorkspace: () => void;
-  stateInjectionOptions: SessionStateInjectionOption[];
   dockviewApiRef: React.MutableRefObject<DockviewApi | null>;
 }
 
@@ -88,8 +85,6 @@ function DetailPanel() {
       sessions={ctx.sessions}
       activeSessionId={ctx.activeSessionId}
       onResumeSession={ctx.onResumeSession}
-      onApplyStateInjection={ctx.onApplyStateInjection}
-      stateInjectionOptions={ctx.stateInjectionOptions}
       showDebugMetadata={ctx.debugSettings.showSessionIds}
     />
   );
@@ -162,9 +157,9 @@ function layoutNeedsMigration(json: Record<string, unknown>): boolean {
 }
 
 function DockviewApp(props: DockviewAppData) {
-  const { backendStatus, workspace, debugSettings, sessions, activeSessionId, unreadIds, harnesses, resumeTick, onSelectSession, onCreateSession, onKillSession, onForgetSession, onResumeSession, onApplyStateInjection, onFocusTerminal, onOpenWorkspace, stateInjectionOptions, dockviewApiRef } = props;
+  const { backendStatus, workspace, debugSettings, sessions, activeSessionId, unreadIds, harnesses, resumeTick, onSelectSession, onCreateSession, onKillSession, onForgetSession, onResumeSession, onFocusTerminal, onOpenWorkspace, dockviewApiRef } = props;
 
-  const ctxValue: DockviewAppData = { backendStatus, workspace, debugSettings, sessions, activeSessionId, unreadIds, harnesses, resumeTick, onSelectSession, onCreateSession, onKillSession, onForgetSession, onResumeSession, onApplyStateInjection, onFocusTerminal, onOpenWorkspace, stateInjectionOptions, dockviewApiRef };
+  const ctxValue: DockviewAppData = { backendStatus, workspace, debugSettings, sessions, activeSessionId, unreadIds, harnesses, resumeTick, onSelectSession, onCreateSession, onKillSession, onForgetSession, onResumeSession, onFocusTerminal, onOpenWorkspace, dockviewApiRef };
 
   const initializedRef = useRef(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);

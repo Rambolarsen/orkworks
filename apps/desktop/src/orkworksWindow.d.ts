@@ -2,8 +2,6 @@ import type { WorkspaceInfo } from "./api";
 import type { AppSettings, DebugSettings, HotkeySettings, RetentionSettings, SaveHotkeysResult } from "./appSettingsTypes";
 import type { ProviderSettings, ProviderModelsResponse, ProviderLabelsResponse, OllamaVerificationResponse } from "./providerTypes";
 import type { AttentionHookStatusResponse } from "./harnessTypes";
-import type { SessionInfo } from "./api";
-import type { SessionStateInjectionOption } from "./sessionStateInjection";
 
 declare global {
   interface Window {
@@ -19,8 +17,6 @@ declare global {
       saveRetention: (retention: RetentionSettings) => Promise<{ ok: boolean }>;
       saveDebugSettings: (debug: DebugSettings) => Promise<{ ok: true; settings: AppSettings }>;
       saveProviderSettings: (providers: ProviderSettings) => Promise<{ ok: true; settings: AppSettings }>;
-      listSessionStateInjections: () => Promise<SessionStateInjectionOption[]>;
-      applySessionStateInjection: (sessionId: string, injectionId: string) => Promise<SessionInfo>;
       verifyOllama: (baseUrl: string) => Promise<OllamaVerificationResponse>;
       getProviderModels: (providerId: string) => Promise<ProviderModelsResponse>;
       getProviderLabels: () => Promise<ProviderLabelsResponse>;

@@ -20,15 +20,3 @@ test("socket close without typed terminal end does not mark ended", () => {
   )?.[1] ?? "";
   assert.doesNotMatch(onclose, /handle\.ended = true/);
 });
-
-test("terminalStore exposes pruneTerminals as structural cache pruning", () => {
-  assert.match(source, /export function pruneTerminals\(keepLiveSessionIds: ReadonlySet<string>\): void \{/);
-  assert.match(source, /for \(const id of \[\.\.\.terminals\.keys\(\)\]\) \{/);
-  assert.match(source, /if \(!keepLiveSessionIds\.has\(id\)\) disposeTerminal\(id\);/);
-});
-
-test("disposeTerminal, pruneTerminals, and disposeAllTerminals stay idempotent", () => {
-  assert.match(source, /const handle = terminals\.get\(id\);\s*if \(!handle\) return;/);
-  assert.match(source, /export function disposeAllTerminals\(\): void \{/);
-  assert.match(source, /for \(const id of \[\.\.\.terminals\.keys\(\)\]\) disposeTerminal\(id\);/);
-});

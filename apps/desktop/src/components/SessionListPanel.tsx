@@ -121,8 +121,10 @@ function SessionListPanel({
               </li>
               {group.items.map((s) => {
                 const attn = sessionAttentionStatus(s);
-                const tone = attentionTone(attn);
-                const remembered = s.memoryState !== "live";
+                const transitional = s.lifecycle === "creating" || s.lifecycle === "stopping";
+                const tone = transitional ? "working" : attentionTone(attn);
+                const remembered = s.lifecycle === "dead";
+                const canKill = s.lifecycle === "alive";
                 // Unread is "changed since you looked" — a remembered session
                 // can't change under you, so the signal is suppressed there.
                 const unread = unreadIds.has(s.id) && !remembered;
@@ -153,7 +155,7 @@ function SessionListPanel({
                         {unread && <span className="session-row-unread-dot" />}
                       </span>
                       <div className="session-row-primary">
-                        <StatusIndicator tone={tone} label={attentionLabel(attn)} />
+                        <StatusIndicator tone={tone} label={transitional ? "" : attentionLabel(attn)} />
                         <span className="session-row-label">{s.label}</span>
                       </div>
                     </div>
@@ -170,7 +172,7 @@ function SessionListPanel({
                         <span className="session-row-time">{lastActivity(s, now)}</span>
                       </div>
                       <div className="session-row-actions">
-                        {s.memoryState === "live" && (
+                        {canKill && (
                           <button
                             className="session-row-kill"
                             type="button"
@@ -183,7 +185,7 @@ function SessionListPanel({
                             &times;
                           </button>
                         )}
-                        {s.memoryState !== "live" && (
+                        {remembered && (
                           <button
                             className="session-row-forget"
                             type="button"

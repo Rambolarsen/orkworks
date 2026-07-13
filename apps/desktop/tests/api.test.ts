@@ -115,24 +115,6 @@ test("SessionInfo type accepts capacityCheckPending", () => {
   assert.equal(session.capacityCheckPending, true);
 });
 
-test("SessionInfo type accepts Peon scheduler state", () => {
-  const source = readFileSync(new URL("../src/api.ts", import.meta.url), "utf8");
-  assert.match(source, /peonSchedulerState\?:\s*PeonSchedulerState/);
-
-  const session: SessionInfo = {
-    id: "session-1",
-    label: "Session",
-    status: "running",
-    cwd: "/workspace",
-    created_at: "2026-07-11T00:00:00Z",
-    memoryState: "live",
-    resumeStrategy: "none",
-    peonSchedulerState: "idle_waiting_for_user_input",
-  };
-
-  assert.equal(session.peonSchedulerState, "idle_waiting_for_user_input");
-});
-
 test("SessionInfo type accepts work, lifecycle, and final observed status fields", () => {
   const session: SessionInfo = {
     id: "phase-test",
