@@ -16,6 +16,17 @@ const DEFAULT_REPLAY_CAPACITY: usize = 256;
 const DRIVER_EVENT_BUFFER_CAPACITY: usize = 64;
 const PERSIST_QUEUE_CAPACITY: usize = 64;
 const INITIAL_RESIZE_GRACE: std::time::Duration = std::time::Duration::from_millis(150);
+const STARTUP_ATTENTION_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
+
+fn should_infer_working(
+    lifecycle: &str,
+    has_visible_output: bool,
+    startup_grace_ends_at: tokio::time::Instant,
+) -> bool {
+    lifecycle == "alive"
+        && has_visible_output
+        && tokio::time::Instant::now() >= startup_grace_ends_at
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum RuntimeEvent {
@@ -261,6 +272,7 @@ pub(crate) async fn start_session_runtime(
     mut kill_rx: tokio::sync::watch::Receiver<bool>,
     initial_size: PtySize,
 ) -> Result<(), String> {
+    let startup_grace_ends_at = tokio::time::Instant::now() + STARTUP_ATTENTION_GRACE;
     let (initial_size, pending_commands) =
         capture_startup_runtime_state(&mut control_rx, initial_size).await;
     let pty_sys = make_pty_system();
@@ -483,7 +495,11 @@ pub(crate) async fn start_session_runtime(
                                         let drop = (drop..drop + 4).find(|&i| handle.scan_buf.is_char_boundary(i)).unwrap_or(drop);
                                         handle.scan_buf.drain(..drop);
                                     }
-                                    if handle.info.lifecycle == "alive" && has_visible_output {
+                                    if should_infer_working(
+                                        &handle.info.lifecycle,
+                                        has_visible_output,
+                                        startup_grace_ends_at,
+                                    ) {
                                         handle.info.observed_status = Some("working".into());
                                         handle.info.attention = Some("working".into());
                                     }
@@ -518,7 +534,11 @@ pub(crate) async fn start_session_runtime(
                                 let ws_guard = driver_state.workspace.lock().unwrap();
                                 if let Some(ref ws) = *ws_guard {
                                     if let Some(mut meta) = ws.metadata.read_session(&driver_id) {
-                                        if meta.lifecycle == "alive" && has_visible_output {
+                                        if should_infer_working(
+                                            &meta.lifecycle,
+                                            has_visible_output,
+                                            startup_grace_ends_at,
+                                        ) {
                                             meta.observed_status = Some("working".into());
                                             meta.attention = Some("working".into());
                                             meta.metadata_source = "process".into();
@@ -749,6 +769,24 @@ mod tests {
         assert!(first < second);
         assert!(second < third);
         assert_eq!(replay.next_cursor(), third + 1);
+    }
+
+    #[test]
+    fn startup_grace_keeps_visible_output_idle() {
+        assert!(!should_infer_working(
+            "alive",
+            true,
+            tokio::time::Instant::now() + STARTUP_ATTENTION_GRACE,
+        ));
+    }
+
+    #[test]
+    fn visible_output_after_startup_grace_is_working() {
+        assert!(should_infer_working(
+            "alive",
+            true,
+            tokio::time::Instant::now() - std::time::Duration::from_millis(1),
+        ));
     }
 
     #[tokio::test]
