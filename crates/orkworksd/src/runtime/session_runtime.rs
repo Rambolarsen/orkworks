@@ -272,7 +272,6 @@ pub(crate) async fn start_session_runtime(
     mut kill_rx: tokio::sync::watch::Receiver<bool>,
     initial_size: PtySize,
 ) -> Result<(), String> {
-    let startup_grace_ends_at = tokio::time::Instant::now() + STARTUP_ATTENTION_GRACE;
     let (initial_size, pending_commands) =
         capture_startup_runtime_state(&mut control_rx, initial_size).await;
     let pty_sys = make_pty_system();
@@ -300,6 +299,7 @@ pub(crate) async fn start_session_runtime(
     }
 
     let mut child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
+    let startup_grace_ends_at = tokio::time::Instant::now() + STARTUP_ATTENTION_GRACE;
     // The PTY has spawned, so the lifecycle is alive before either background
     // task can observe and classify its first output chunk.
     set_session_status(&state, &id, "running");
@@ -787,6 +787,95 @@ mod tests {
             true,
             tokio::time::Instant::now() - std::time::Duration::from_millis(1),
         ));
+    }
+
+    #[tokio::test]
+    async fn output_within_startup_grace_is_replayed_without_marking_attention_working() {
+        let dir = tempfile::tempdir().unwrap();
+        let session_id = "runtime-startup-grace";
+        let state = test_state_with_runtime_session(session_id);
+
+        let (runtime, control_rx) =
+            SessionRuntime::live(DEFAULT_TERMINAL_ROWS, DEFAULT_TERMINAL_COLS);
+        let output_tx = runtime.output_tx.clone();
+        let mut events = output_tx.subscribe();
+
+        // start_session_runtime waits INITIAL_RESIZE_GRACE before it spawns the
+        // child. This emits 1.9 seconds after spawn: within the full two-second
+        // grace, but after the old deadline that started before the resize wait.
+        let command = harness::CommandSpec {
+            program: "/bin/sh".into(),
+            args: vec![
+                "-lc".into(),
+                "sleep 1.9; printf 'startup-grace-output\\n'; sleep 1".into(),
+            ],
+            cwd: dir.path().display().to_string(),
+        };
+
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut(session_id).unwrap();
+            handle.command = command.clone();
+            handle.runtime = runtime;
+        }
+
+        let (kill_tx, kill_rx) = tokio::sync::watch::channel(false);
+        start_session_runtime(
+            state.clone(),
+            session_id.to_string(),
+            command,
+            None,
+            control_rx,
+            output_tx,
+            kill_rx,
+            PtySize {
+                rows: DEFAULT_TERMINAL_ROWS,
+                cols: DEFAULT_TERMINAL_COLS,
+                pixel_width: 0,
+                pixel_height: 0,
+            },
+        )
+        .await
+        .unwrap();
+
+        tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                match events.recv().await {
+                    Ok(RuntimeEvent::Output { chunk, .. })
+                        if String::from_utf8_lossy(&chunk).contains("startup-grace-output") =>
+                    {
+                        break;
+                    }
+                    Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(error) => panic!("unexpected runtime event error: {error}"),
+                }
+            }
+        })
+        .await
+        .expect("process should emit startup output within the grace window");
+
+        let handle = state.sessions.lock().unwrap();
+        let session = handle.get(session_id).unwrap();
+        assert!(
+            session
+                .runtime
+                .replay
+                .snapshot()
+                .iter()
+                .any(|(_, chunk)| String::from_utf8_lossy(chunk).contains("startup-grace-output"))
+        );
+        assert!(
+            session
+                .output_buffer
+                .snapshot()
+                .iter()
+                .any(|line| line.contains("startup-grace-output"))
+        );
+        assert_ne!(session.info.attention.as_deref(), Some("working"));
+        assert_ne!(session.info.observed_status.as_deref(), Some("working"));
+        drop(handle);
+
+        kill_tx.send(true).unwrap();
     }
 
     #[tokio::test]
