@@ -74,7 +74,7 @@ Behavior currently implemented on the entity:
 - `begin_ending(pending_terminal_status, ending_observed_status_snapshot)`
 - `complete_ending(final_observed_status_snapshot)`
 
-The lifecycle behavior is still orchestrated by runtime/application code, and the aggregate owns the `creating -> active -> ending -> ended` transition rules plus structured final-observed-state snapshots. ADR 0023 records the target replacement vocabulary (`creating -> alive -> stopping -> dead`) for the upcoming migration.
+The lifecycle behavior is orchestrated by runtime/application code. The public metadata and renderer contract use the canonical `creating -> alive -> stopping -> dead` lifecycle from ADR 0023; the domain aggregate retains its older internal compatibility types while that migration is completed.
 
 ## Value objects
 

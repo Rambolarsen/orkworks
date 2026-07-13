@@ -23,7 +23,7 @@ import {
   setActiveWorkspaceSession,
   getProviders,
 } from "./api";
-import { disposeTerminal, getTerminal } from "./terminalStore";
+import { disposeTerminal, getTerminal, pruneTerminals } from "./terminalStore";
 import type { AppSettings } from "./appSettingsTypes";
 import type { HarnessConfig, CreateSessionOptions } from "./harnessTypes";
 
@@ -80,6 +80,7 @@ function App() {
     try {
       const baseUrl = await window.orkworks.getBackendUrl();
       const list = await listSessions(baseUrl);
+      pruneTerminals(new Set(list.filter((session) => session.lifecycle === "alive").map((session) => session.id)));
       setSessions(sortSessions(list));
     } catch {
       // Silent: polled every 2s; transient failures are reflected by the

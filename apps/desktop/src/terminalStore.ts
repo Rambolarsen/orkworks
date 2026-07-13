@@ -210,6 +210,12 @@ export function disposeTerminal(id: string): void {
   terminals.delete(id);
 }
 
+export function pruneTerminals(keepLiveSessionIds: ReadonlySet<string>): void {
+  for (const id of [...terminals.keys()]) {
+    if (!keepLiveSessionIds.has(id)) disposeTerminal(id);
+  }
+}
+
 export function disposeAllTerminals(): void {
   for (const id of [...terminals.keys()]) disposeTerminal(id);
 }

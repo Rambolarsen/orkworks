@@ -406,6 +406,18 @@ test("TerminalPanel no longer renders internal session tabs or duplicate kill co
   assert.match(source, /<CenterPanel/);
 });
 
+test("TerminalPanel only attaches live sessions and refresh disposes dead handles", () => {
+  const terminalPanel = readFileSync(
+    new URL("../src/components/TerminalPanel.tsx", import.meta.url),
+    "utf8",
+  );
+  const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+
+  assert.match(terminalPanel, /session\.lifecycle !== "alive"/);
+  assert.match(app, /pruneTerminals\(/);
+  assert.match(app, /session\.lifecycle === "alive"/);
+});
+
 test("App activates shared terminal panel on session create", () => {
   const source = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
 

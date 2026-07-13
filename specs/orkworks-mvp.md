@@ -181,9 +181,8 @@ Valid metadata sources:
 - `backend_inference`
 - `process`
 - `unknown`
-- `debug` (temporary local state-injection testing only; always lower priority than normal runtime sources)
 
-Peon must not overwrite higher-priority metadata unless the higher-priority metadata is stale or explicitly cleared. `debug` exists only for the debug-only session state injection flow in the Details panel and may be overwritten immediately by any later non-debug write.
+Peon must not overwrite higher-priority metadata unless the higher-priority metadata is stale or explicitly cleared.
 
 ### Deterministic harness-supplied signals
 

@@ -8,8 +8,8 @@ interface TerminalPanelProps {
 }
 
 function TerminalPanel({ backendStatus, session }: TerminalPanelProps) {
-  if (!session) {
-    return <EmptyState message="Select a session to open its terminal." />;
+  if (!session || session.lifecycle !== "alive") {
+    return <EmptyState message="Select a live session to open its terminal." />;
   }
   return <CenterPanel backendStatus={backendStatus} sessionId={session.id} />;
 }

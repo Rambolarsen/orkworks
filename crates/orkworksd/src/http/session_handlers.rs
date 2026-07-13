@@ -532,9 +532,14 @@ pub(crate) async fn create_session(
     Json(req): Json<CreateSessionRequest>,
 ) -> impl IntoResponse {
     let id = uuid::Uuid::new_v4().to_string();
-    let cwd = std::env::current_dir()
-        .map(|p| p.display().to_string())
-        .unwrap_or_else(|_| "/".into());
+    let cwd = state
+        .workspace
+        .lock()
+        .unwrap()
+        .as_ref()
+        .map(|workspace| workspace.path.display().to_string())
+        .or_else(|| std::env::current_dir().ok().map(|path| path.display().to_string()))
+        .unwrap_or_else(|| "/".into());
 
     let resolved_launch = {
         let harnesses = state.harnesses.read().await;
