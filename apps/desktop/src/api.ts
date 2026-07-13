@@ -6,6 +6,7 @@ export type SessionConnectivity = "online" | "offline";
 export type TerminalOutcome = "ended" | "killed" | "error";
 export type WorkPhase = "ideation" | "implementation" | "review" | "debugging" | "unknown";
 export type LifecyclePhase = "creating" | "active" | "ending" | "ended";
+export type PeonSchedulerState = "waiting_for_output" | "debouncing" | "inferring" | "idle_waiting_for_user_input" | "final_scan";
 
 /** Lifecycle phase with the migration fallback for payloads that predate `lifecyclePhase`. */
 export function effectiveLifecyclePhase(
@@ -67,6 +68,7 @@ export interface SessionInfo {
   capacityCheckPending?: boolean;
   usageLimitResetHint?: string;
   peonLastInference?: string;
+  peonSchedulerState?: PeonSchedulerState;
   metadataSource?: string;
   metadataConfidence?: number;
   repoRoot?: string;

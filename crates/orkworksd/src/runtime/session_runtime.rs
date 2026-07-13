@@ -478,6 +478,14 @@ pub(crate) async fn start_session_runtime(
                 Some(event) = driver_rx.recv(), if pending_persist_batches.len() < DRIVER_EVENT_BUFFER_CAPACITY => {
                     match event {
                         DriverEvent::Output(data) => {
+                            let idle_held = if driver_state.peon.config.enabled {
+                                !driver_state.peon.scheduler.write().unwrap()
+                                    .request_observation_from_output(&driver_id, std::time::Instant::now())
+                            } else {
+                                driver_state.peon.scheduler.read().unwrap()
+                                    .state_for(&driver_id)
+                                    == peon::PeonSchedulerState::IdleWaitingForUserInput
+                            };
                             persist_buffer.extend_from_slice(&data);
                             let raw_persist_lines = drain_persist_records(&mut persist_buffer);
 
@@ -501,7 +509,7 @@ pub(crate) async fn start_session_runtime(
                                         let drop = (drop..drop + 4).find(|&i| handle.scan_buf.is_char_boundary(i)).unwrap_or(drop);
                                         handle.scan_buf.drain(..drop);
                                     }
-                                    if peon::is_terminal_observed_status(handle.info.observed_status.as_deref()) {
+                                    if !idle_held && peon::is_terminal_observed_status(handle.info.observed_status.as_deref()) {
                                         handle.info.observed_status = None;
                                     }
                                     if handle.info.harness_id.as_deref() == Some("codex") {
@@ -525,10 +533,7 @@ pub(crate) async fn start_session_runtime(
                                 }
                             }
 
-                            if driver_state.peon.config.enabled {
-                                driver_state.peon.last_output.write().unwrap()
-                                    .insert(driver_id.clone(), tokio::time::Instant::now());
-                                driver_state.peon.last_processed_output.write().unwrap().remove(&driver_id);
+                            if driver_state.peon.config.enabled && !idle_held {
                                 driver_state.peon.last_inference.write().unwrap().remove(&driver_id);
                             }
 
@@ -536,7 +541,7 @@ pub(crate) async fn start_session_runtime(
                                 let ws_guard = driver_state.workspace.lock().unwrap();
                                 if let Some(ref ws) = *ws_guard {
                                     if let Some(mut meta) = ws.metadata.read_session(&driver_id) {
-                                        if peon::is_terminal_observed_status(meta.observed_status.as_deref()) {
+                                        if !idle_held && peon::is_terminal_observed_status(meta.observed_status.as_deref()) {
                                             meta.observed_status = None;
                                             meta.metadata_source = "process".into();
                                             ws.metadata.write_session(&meta);
@@ -562,8 +567,6 @@ pub(crate) async fn start_session_runtime(
                                     .push_back(vec![String::from_utf8_lossy(&persist_buffer).into_owned()]);
                             }
 
-                            driver_state.peon.last_output.write().unwrap().remove(&driver_id);
-                            driver_state.peon.last_processed_output.write().unwrap().remove(&driver_id);
                             driver_state.peon.last_inference.write().unwrap().remove(&driver_id);
 
                             {
@@ -607,8 +610,6 @@ pub(crate) async fn start_session_runtime(
                                 final_persist_batches
                                     .push_back(vec![String::from_utf8_lossy(&persist_buffer).into_owned()]);
                             }
-                            driver_state.peon.last_output.write().unwrap().remove(&driver_id);
-                            driver_state.peon.last_processed_output.write().unwrap().remove(&driver_id);
                             driver_state.peon.last_inference.write().unwrap().remove(&driver_id);
                             {
                                 let mut sessions = driver_state.sessions.lock().unwrap();
@@ -671,12 +672,8 @@ mod tests {
             sessions: Mutex::new(HashMap::new()),
             workspace: Mutex::new(None),
             peon: crate::PeonState {
-                last_output: RwLock::new(HashMap::new()),
-                last_processed_output: RwLock::new(HashMap::new()),
+                scheduler: std::sync::RwLock::new(crate::peon::PeonScheduler::default()),
                 last_inference: RwLock::new(HashMap::new()),
-                in_flight: RwLock::new(HashSet::new()),
-                label_hint: RwLock::new(HashMap::new()),
-                label_pending: RwLock::new(HashSet::new()),
                 config: crate::peon::PeonConfig::from_env(),
             },
             adapters: crate::harness_registry::builtin_adapters(),

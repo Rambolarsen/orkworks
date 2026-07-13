@@ -78,12 +78,8 @@ struct WorkspaceState {
 }
 
 struct PeonState {
-    last_output: StdRwLock<HashMap<String, tokio::time::Instant>>,
-    last_processed_output: StdRwLock<HashMap<String, tokio::time::Instant>>,
+    scheduler: StdRwLock<peon::PeonScheduler>,
     last_inference: StdRwLock<HashMap<String, String>>,
-    in_flight: StdRwLock<HashSet<String>>,
-    label_hint: StdRwLock<HashMap<String, String>>,
-    label_pending: StdRwLock<HashSet<String>>,
     config: peon::PeonConfig,
 }
 
@@ -125,12 +121,8 @@ async fn main() {
         sessions: Mutex::new(HashMap::new()),
         workspace: Mutex::new(None),
         peon: PeonState {
-            last_output: StdRwLock::new(HashMap::new()),
-            last_processed_output: StdRwLock::new(HashMap::new()),
+            scheduler: StdRwLock::new(peon::PeonScheduler::default()),
             last_inference: StdRwLock::new(HashMap::new()),
-            in_flight: StdRwLock::new(HashSet::new()),
-            label_hint: StdRwLock::new(HashMap::new()),
-            label_pending: StdRwLock::new(HashSet::new()),
             config: peon::PeonConfig::from_env(),
         },
         providers,
@@ -277,12 +269,8 @@ pub(crate) mod test_support {
                 watcher: watcher::MetadataWatcher::start(&metadata_root.join("sessions")),
             })),
             peon: PeonState {
-                last_output: StdRwLock::new(HashMap::new()),
-                last_processed_output: StdRwLock::new(HashMap::new()),
+                scheduler: StdRwLock::new(peon::PeonScheduler::default()),
                 last_inference: StdRwLock::new(HashMap::new()),
-                in_flight: StdRwLock::new(HashSet::new()),
-                label_hint: StdRwLock::new(HashMap::new()),
-                label_pending: StdRwLock::new(HashSet::new()),
                 config: peon::PeonConfig::from_env(),
             },
             adapters: builtin_adapters(),
@@ -345,6 +333,7 @@ pub(crate) mod test_support {
             conflict_warning: None,
             recommendation: None,
             peon_last_inference: None,
+            peon_scheduler_state: None,
             provider: None,
             provider_model: None,
             provider_state: None,
@@ -531,12 +520,8 @@ mod tests {
             sessions: Mutex::new(HashMap::new()),
             workspace: Mutex::new(None),
             peon: PeonState {
-                last_output: StdRwLock::new(HashMap::new()),
-                last_processed_output: StdRwLock::new(HashMap::new()),
+                scheduler: StdRwLock::new(peon::PeonScheduler::default()),
                 last_inference: StdRwLock::new(HashMap::new()),
-                in_flight: StdRwLock::new(HashSet::new()),
-                label_hint: StdRwLock::new(HashMap::new()),
-                label_pending: StdRwLock::new(HashSet::new()),
                 config: peon::PeonConfig::from_env(),
             },
             adapters: builtin_adapters(),

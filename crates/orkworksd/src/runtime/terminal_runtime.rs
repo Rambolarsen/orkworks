@@ -214,6 +214,10 @@ pub(crate) fn try_claim_terminal_attachment(
 /// the transition was applied — callers schedule finalization only on `true`.
 pub(crate) fn set_session_status(state: &Arc<AppState>, id: &str, status: &str) -> bool {
     let is_terminal = matches!(status, "killed" | "ended" | "error");
+    // Terminal transitions take the scheduler lock before lifecycle state. A normal
+    // inference holds this same lock while persisting, which makes the boundary
+    // linearizable: it writes before ending starts, or its lease is invalidated.
+    let mut ending_scheduler = is_terminal.then(|| state.peon.scheduler.write().unwrap());
     let (handle_decision, session_resume, entered_running, entered_terminal) = {
         let mut sessions = state.sessions.lock().unwrap();
         if let Some(handle) = sessions.get_mut(id) {
@@ -252,16 +256,10 @@ pub(crate) fn set_session_status(state: &Arc<AppState>, id: &str, status: &str) 
         }
     };
     if entered_terminal {
-        state.peon.last_output.write().unwrap().remove(id);
-        state.peon.last_processed_output.write().unwrap().remove(id);
+        ending_scheduler.as_mut().unwrap().invalidate_for_ending(id);
     } else if entered_running && state.peon.config.enabled {
-        state
-            .peon
-            .last_output
-            .write()
-            .unwrap()
-            .entry(id.to_string())
-            .or_insert_with(tokio::time::Instant::now);
+        state.peon.scheduler.write().unwrap()
+            .ensure_output_origin(id, std::time::Instant::now());
     }
     let now = iso_now();
     let mut applied = handle_decision.unwrap_or(false);
@@ -436,6 +434,8 @@ pub(crate) async fn finalize_session_ending(
     let scan_result = if output_snapshot.is_empty() {
         None
     } else {
+        state.peon.scheduler.write().unwrap()
+            .set_state(&id, peon::PeonSchedulerState::FinalScan);
         let timeout_secs = state.peon.config.final_scan_timeout_secs;
         let state_clone = state.clone();
         let output_clone = output_snapshot.clone();
@@ -495,6 +495,8 @@ pub(crate) async fn finalize_session_ending(
     };
 
     complete_session_ending(&state, &id, final_snapshot, &fallback_terminal_status);
+    // FinalScan is only a live diagnostic while the one permitted exit scan runs.
+    state.peon.scheduler.write().unwrap().clear_tracking(&id);
 }
 
 pub(crate) fn schedule_session_ending_finalization(
@@ -611,7 +613,7 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
                                     mark_usage_limit_recheck_on_input(&state, &id);
                                 }
 
-                                let mut triggered_label = false;
+                                let mut qualifying_input = false;
                                 if let Some(line) = collect_input_line(&mut input_buf, &data) {
                                     let is_sensitive = {
                                         let sessions = state.sessions.lock().unwrap();
@@ -621,6 +623,7 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
                                     };
                                     let label_worthy = !is_sensitive && peon::is_descriptive_input(&line);
                                     if !is_sensitive {
+                                        qualifying_input = true;
                                         let ws_guard = state.workspace.lock().unwrap();
                                         if let Some(ref ws) = *ws_guard {
                                             if let Some(mut meta) = ws.metadata.read_session(&id) {
@@ -652,21 +655,19 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
                                             }
                                         }
                                     }
-                                    if state.peon.config.enabled && line.len() > peon::HINT_MIN_LEN && label_worthy {
-                                        state.peon.label_hint.write().unwrap().insert(id.clone(), line);
-                                        state.peon.label_pending.write().unwrap().insert(id.clone());
-                                        triggered_label = true;
+                                    let active = state.sessions.lock().unwrap().get(&id)
+                                        .is_some_and(|handle| handle.info.lifecycle_phase == "active");
+                                    if state.peon.config.enabled && qualifying_input && active {
+                                        let hint = label_worthy.then_some(line.clone());
+                                        state.peon.scheduler.write().unwrap().resume_after_qualifying_input(
+                                            &id,
+                                            hint,
+                                            std::time::Instant::now(),
+                                        );
                                     }
                                 }
 
                                 if state.peon.config.enabled && !data.is_empty() {
-                                    let ts = if triggered_label {
-                                        tokio::time::Instant::now() - std::time::Duration::from_secs(3600)
-                                    } else {
-                                        tokio::time::Instant::now()
-                                    };
-                                    state.peon.last_output.write().unwrap().insert(id.clone(), ts);
-                                    state.peon.last_processed_output.write().unwrap().remove(&id);
                                     state.peon.last_inference.write().unwrap().remove(&id);
                                 }
 
@@ -854,12 +855,8 @@ mod tests {
             sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
             workspace: std::sync::Mutex::new(None),
             peon: crate::PeonState {
-                last_output: std::sync::RwLock::new(std::collections::HashMap::new()),
-                last_processed_output: std::sync::RwLock::new(std::collections::HashMap::new()),
+                scheduler: std::sync::RwLock::new(crate::peon::PeonScheduler::default()),
                 last_inference: std::sync::RwLock::new(std::collections::HashMap::new()),
-                in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
-                label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
-                label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
                 config: crate::peon::PeonConfig::from_env(),
             },
             adapters: crate::harness_registry::builtin_adapters(),
@@ -912,12 +909,8 @@ mod tests {
             sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
             workspace: std::sync::Mutex::new(None),
             peon: crate::PeonState {
-                last_output: std::sync::RwLock::new(std::collections::HashMap::new()),
-                last_processed_output: std::sync::RwLock::new(std::collections::HashMap::new()),
+                scheduler: std::sync::RwLock::new(crate::peon::PeonScheduler::default()),
                 last_inference: std::sync::RwLock::new(std::collections::HashMap::new()),
-                in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
-                label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
-                label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
                 config: crate::peon::PeonConfig::from_env(),
             },
             adapters: crate::harness_registry::builtin_adapters(),
@@ -969,12 +962,8 @@ mod tests {
             sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
             workspace: std::sync::Mutex::new(None),
             peon: crate::PeonState {
-                last_output: std::sync::RwLock::new(std::collections::HashMap::new()),
-                last_processed_output: std::sync::RwLock::new(std::collections::HashMap::new()),
+                scheduler: std::sync::RwLock::new(crate::peon::PeonScheduler::default()),
                 last_inference: std::sync::RwLock::new(std::collections::HashMap::new()),
-                in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
-                label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
-                label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
                 config: crate::peon::PeonConfig::from_env(),
             },
             adapters: crate::harness_registry::builtin_adapters(),
@@ -1044,12 +1033,8 @@ mod tests {
             sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
             workspace: std::sync::Mutex::new(None),
             peon: crate::PeonState {
-                last_output: std::sync::RwLock::new(std::collections::HashMap::new()),
-                last_processed_output: std::sync::RwLock::new(std::collections::HashMap::new()),
+                scheduler: std::sync::RwLock::new(crate::peon::PeonScheduler::default()),
                 last_inference: std::sync::RwLock::new(std::collections::HashMap::new()),
-                in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
-                label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
-                label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
                 config: crate::peon::PeonConfig::from_env(),
             },
             adapters: crate::harness_registry::builtin_adapters(),
@@ -1142,12 +1127,8 @@ mod tests {
             sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
             workspace: std::sync::Mutex::new(None),
             peon: crate::PeonState {
-                last_output: std::sync::RwLock::new(std::collections::HashMap::new()),
-                last_processed_output: std::sync::RwLock::new(std::collections::HashMap::new()),
+                scheduler: std::sync::RwLock::new(crate::peon::PeonScheduler::default()),
                 last_inference: std::sync::RwLock::new(std::collections::HashMap::new()),
-                in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
-                label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
-                label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
                 config: crate::peon::PeonConfig::from_env(),
             },
             adapters: crate::harness_registry::builtin_adapters(),
@@ -1220,12 +1201,8 @@ mod tests {
             sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
             workspace: std::sync::Mutex::new(None),
             peon: crate::PeonState {
-                last_output: std::sync::RwLock::new(std::collections::HashMap::new()),
-                last_processed_output: std::sync::RwLock::new(std::collections::HashMap::new()),
+                scheduler: std::sync::RwLock::new(crate::peon::PeonScheduler::default()),
                 last_inference: std::sync::RwLock::new(std::collections::HashMap::new()),
-                in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
-                label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
-                label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
                 config: crate::peon::PeonConfig {
                     enabled: true,
                     ..crate::peon::PeonConfig::from_env()
@@ -1270,12 +1247,12 @@ mod tests {
             },
         );
 
-        assert!(state.peon.last_output.read().unwrap().get(&id).is_none());
+        assert!(state.peon.scheduler.read().unwrap().output_at(&id).is_none());
 
         set_session_status(&state, &id, "running");
 
         assert!(
-            state.peon.last_output.read().unwrap().get(&id).is_some(),
+            state.peon.scheduler.read().unwrap().output_at(&id).is_some(),
             "entering running should seed peon idle timing"
         );
     }
@@ -1287,12 +1264,8 @@ mod tests {
             sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
             workspace: std::sync::Mutex::new(None),
             peon: crate::PeonState {
-                last_output: std::sync::RwLock::new(std::collections::HashMap::new()),
-                last_processed_output: std::sync::RwLock::new(std::collections::HashMap::new()),
+                scheduler: std::sync::RwLock::new(crate::peon::PeonScheduler::default()),
                 last_inference: std::sync::RwLock::new(std::collections::HashMap::new()),
-                in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
-                label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
-                label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
                 config: crate::peon::PeonConfig {
                     enabled: true,
                     ..crate::peon::PeonConfig::from_env()
@@ -1337,17 +1310,12 @@ mod tests {
             },
         );
 
-        let seeded_at = tokio::time::Instant::now() - std::time::Duration::from_secs(3);
-        state
-            .peon
-            .last_output
-            .write()
-            .unwrap()
-            .insert(id.clone(), seeded_at);
+        let seeded_at = std::time::Instant::now() - std::time::Duration::from_secs(3);
+        state.peon.scheduler.write().unwrap().request_observation_from_output(id.clone(), seeded_at);
 
         set_session_status(&state, &id, "running");
 
-        let actual = *state.peon.last_output.read().unwrap().get(&id).unwrap();
+        let actual = state.peon.scheduler.read().unwrap().output_at(&id).unwrap();
         assert_eq!(actual, seeded_at);
     }
 
@@ -1358,12 +1326,8 @@ mod tests {
             sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
             workspace: std::sync::Mutex::new(None),
             peon: crate::PeonState {
-                last_output: std::sync::RwLock::new(std::collections::HashMap::new()),
-                last_processed_output: std::sync::RwLock::new(std::collections::HashMap::new()),
+                scheduler: std::sync::RwLock::new(crate::peon::PeonScheduler::default()),
                 last_inference: std::sync::RwLock::new(std::collections::HashMap::new()),
-                in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
-                label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
-                label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
                 config: crate::peon::PeonConfig::from_env(),
             },
             adapters: crate::harness_registry::builtin_adapters(),
@@ -1434,12 +1398,8 @@ mod tests {
                 watcher: crate::watcher::MetadataWatcher::start(&orkworks.join("sessions")),
             })),
             peon: crate::PeonState {
-                last_output: RwLock::new(HashMap::new()),
-                last_processed_output: RwLock::new(HashMap::new()),
+                scheduler: std::sync::RwLock::new(crate::peon::PeonScheduler::default()),
                 last_inference: RwLock::new(HashMap::new()),
-                in_flight: RwLock::new(HashSet::new()),
-                label_hint: RwLock::new(HashMap::new()),
-                label_pending: RwLock::new(HashSet::new()),
                 config: crate::peon::PeonConfig::from_env(),
             },
             adapters: crate::harness_registry::builtin_adapters(),
@@ -1571,12 +1531,8 @@ mod tests {
                 watcher: crate::watcher::MetadataWatcher::start(&orkworks.join("sessions")),
             })),
             peon: crate::PeonState {
-                last_output: RwLock::new(HashMap::new()),
-                last_processed_output: RwLock::new(HashMap::new()),
+                scheduler: std::sync::RwLock::new(crate::peon::PeonScheduler::default()),
                 last_inference: RwLock::new(HashMap::new()),
-                in_flight: RwLock::new(HashSet::new()),
-                label_hint: RwLock::new(HashMap::new()),
-                label_pending: RwLock::new(HashSet::new()),
                 config: crate::peon::PeonConfig::from_env(),
             },
             adapters: crate::harness_registry::builtin_adapters(),
@@ -1739,12 +1695,8 @@ mod tests {
                 watcher: crate::watcher::MetadataWatcher::start(&orkworks.join("sessions")),
             })),
             peon: crate::PeonState {
-                last_output: RwLock::new(HashMap::new()),
-                last_processed_output: RwLock::new(HashMap::new()),
+                scheduler: std::sync::RwLock::new(crate::peon::PeonScheduler::default()),
                 last_inference: RwLock::new(HashMap::new()),
-                in_flight: RwLock::new(HashSet::new()),
-                label_hint: RwLock::new(HashMap::new()),
-                label_pending: RwLock::new(HashSet::new()),
                 config,
             },
             adapters: crate::harness_registry::builtin_adapters(),
