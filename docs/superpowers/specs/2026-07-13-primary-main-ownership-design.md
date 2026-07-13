@@ -9,14 +9,21 @@ worktrees isolate agent-owned work, rather than host the trunk branch.
 
 ## Decision
 
-The primary checkout exclusively owns the local `main` branch. Linked
-worktrees may check out only explicitly agent-owned feature or fix branches;
-they must never check out `main`.
+The local `main` branch may be checked out only in the primary checkout.
+Linked worktrees may check out only explicitly agent-owned feature or fix
+branches; they must never check out `main` or remain detached. The primary
+checkout may still temporarily check out an agent-owned branch under the
+existing workflow.
 
 If the primary checkout is detached, agents must not use a linked worktree as
 a substitute for `main`, nor check out `origin/main` as a workaround. They
-must first restore `main` to the primary checkout. If doing so would disrupt a
-non-clean worktree or an active owner, they must stop and obtain direction.
+must inspect `git worktree list --porcelain` and restore `main` to the primary
+checkout only after no other worktree holds it. If another worktree holds
+`main`, agents must ask its owner to restore the owner branch or remove that
+worktree; if it is clean and the agent is explicitly authorized, they may do
+so themselves. They must not detach it or use force operations. If recovery
+would disrupt a non-clean worktree or an active owner, they must stop and
+obtain direction.
 
 ## Documentation Changes
 
@@ -27,7 +34,10 @@ non-clean worktree or an active owner, they must stop and obtain direction.
 
 ## Verification
 
-- Confirm the primary checkout is on `main` and aligned with `origin/main`.
-- Confirm the former linked checkout is detached and clean.
+- Confirm that any checkout of local `main` is the primary checkout.
+- Confirm every linked worktree is clean and attached to its explicitly
+  agent-owned feature or fix branch; none is on `main` or detached.
+- Treat synchronization with `origin/main` as a task-specific, non-destructive
+  check rather than an ownership prerequisite.
 - Review the documentation diff for consistent wording and run the repository
   doc currency check.
