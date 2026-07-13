@@ -99,6 +99,9 @@ impl PeonScheduler {
         if self.state_for(id) == PeonSchedulerState::IdleWaitingForUserInput {
             return false;
         }
+        if self.state_for(id) == PeonSchedulerState::Inferring {
+            *self.epochs.entry(id.to_owned()).or_insert(0) += 1;
+        }
         self.last_output.insert(id.to_owned(), now);
         self.states.insert(id.to_owned(), PeonSchedulerState::Debouncing);
         true
@@ -110,6 +113,9 @@ impl PeonScheduler {
         hint: Option<String>,
         now: Instant,
     ) -> bool {
+        if self.state_for(id) == PeonSchedulerState::Inferring {
+            *self.epochs.entry(id.to_owned()).or_insert(0) += 1;
+        }
         if let Some(hint) = hint {
             self.label_hints.insert(id.to_owned(), hint);
             self.pending_labels.insert(id.to_owned());
@@ -142,6 +148,12 @@ impl PeonScheduler {
             self.states.insert(lease.id.clone(), PeonSchedulerState::WaitingForOutput);
         } else {
             self.last_output.remove(&lease.id);
+            self.states.insert(lease.id.clone(), PeonSchedulerState::WaitingForOutput);
+        }
+    }
+
+    pub(crate) fn abandon_empty_inference(&mut self, lease: &PeonInferenceLease) {
+        if self.lease_is_current(lease) {
             self.states.insert(lease.id.clone(), PeonSchedulerState::WaitingForOutput);
         }
     }

@@ -36,14 +36,14 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                 match sessions.get(&session_id) {
                     Some(handle) => handle.output_buffer.snapshot(),
                     None => {
-                        state.peon.scheduler.write().unwrap().complete_normal_inference(&lease, false, None);
+                        state.peon.scheduler.write().unwrap().abandon_empty_inference(&lease);
                         continue;
                     }
                 }
             };
 
             if output_snapshot.is_empty() && hint.is_none() {
-                state.peon.scheduler.write().unwrap().complete_normal_inference(&lease, false, None);
+                state.peon.scheduler.write().unwrap().abandon_empty_inference(&lease);
                 continue;
             }
 
@@ -132,6 +132,7 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                     } else {
                         None
                     };
+                    drop(ws_guard);
                     if let Some(label) = label_update {
                         if let Some(handle) = state_clone.sessions.lock().unwrap().get_mut(&id) {
                             handle.info.label = label;
@@ -190,12 +191,23 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
             }
 
             if !silent_ids.is_empty() {
+                let idle_candidates: Vec<String> = {
+                    let ws_guard = state.workspace.lock().unwrap();
+                    match &*ws_guard {
+                        Some(ws) => silent_ids.into_iter().filter(|id| {
+                            ws.metadata.read_session(id).is_none_or(|meta| {
+                                matches!(meta.observed_status.as_deref(), None | Some("working"))
+                            })
+                        }).collect(),
+                        None => silent_ids,
+                    }
+                };
                 let idle_deadline = std::time::Instant::now()
                     - std::time::Duration::from_secs(idle_timeout);
                 let held_ids: Vec<String> = {
                     let mut scheduler = state.peon.scheduler.write().unwrap();
                     let mut held = Vec::new();
-                    for id in silent_ids {
+                    for id in idle_candidates {
                         if scheduler.state_for(&id) != peon::PeonSchedulerState::IdleWaitingForUserInput
                             && scheduler.output_at(&id).is_some_and(|at| at <= idle_deadline)
                         {
