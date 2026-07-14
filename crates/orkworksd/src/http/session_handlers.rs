@@ -440,8 +440,17 @@ pub(crate) async fn report_attention(
     // A hook report is a harness turn boundary: any keystroke still sitting in
     // the pending input-line buffer (e.g. a single-key "accept" prompt with no
     // trailing Enter) belongs to a prompt that's now resolved. Drop it so it
-    // doesn't glue onto the next unrelated line typed into the terminal.
-    state.peon.input_buf.write().unwrap().remove(&id);
+    // doesn't glue onto the next unrelated line typed into the terminal. Only
+    // drop it if it's not already descriptive, since the hook POST is
+    // asynchronous and can land after the user has started typing a real,
+    // unterminated response to a fresh prompt — that in-progress line must
+    // survive to be joined with the rest once Enter is pressed.
+    {
+        let mut bufs = state.peon.input_buf.write().unwrap();
+        if bufs.get(&id).is_some_and(|buf| !peon::is_descriptive_input(buf)) {
+            bufs.remove(&id);
+        }
+    }
 
     let now = iso_now();
     let ws_guard = state.workspace.lock().unwrap();
@@ -1753,6 +1762,54 @@ mod tests {
             .unwrap()
             .get("attention-clears-buf")
             .is_none());
+    }
+
+    #[tokio::test]
+    async fn report_attention_preserves_in_progress_descriptive_input() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        {
+            let ws = state.workspace.lock().unwrap();
+            ws.as_ref().unwrap().metadata.write_session(&test_session_metadata(
+                "attention-preserves-buf",
+                "Known",
+                dir.path().display().to_string(),
+                "running",
+                "now",
+                "now",
+            ));
+        }
+        // The user already started typing a real, unterminated response before
+        // this (possibly delayed) hook POST landed; it must not be discarded.
+        state
+            .peon
+            .input_buf
+            .write()
+            .unwrap()
+            .insert("attention-preserves-buf".into(), "please also".into());
+
+        let response = report_attention(
+            State(state.clone()),
+            Path("attention-preserves-buf".into()),
+            Json(AttentionReportRequest {
+                status: "waiting_for_input".into(),
+                message: None,
+            }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        assert_eq!(
+            state
+                .peon
+                .input_buf
+                .read()
+                .unwrap()
+                .get("attention-preserves-buf")
+                .cloned(),
+            Some("please also".to_string())
+        );
     }
 
     #[tokio::test]

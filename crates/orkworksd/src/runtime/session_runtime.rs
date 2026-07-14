@@ -547,6 +547,7 @@ pub(crate) async fn start_session_runtime(
 
                             driver_state.peon.last_output.write().unwrap().remove(&driver_id);
                             driver_state.peon.last_inference.write().unwrap().remove(&driver_id);
+                            driver_state.peon.input_buf.write().unwrap().remove(&driver_id);
 
                             {
                                 let mut sessions = driver_state.sessions.lock().unwrap();
@@ -591,6 +592,7 @@ pub(crate) async fn start_session_runtime(
                             }
                             driver_state.peon.last_output.write().unwrap().remove(&driver_id);
                             driver_state.peon.last_inference.write().unwrap().remove(&driver_id);
+                            driver_state.peon.input_buf.write().unwrap().remove(&driver_id);
                             {
                                 let mut sessions = driver_state.sessions.lock().unwrap();
                                 if let Some(handle) = sessions.get_mut(&driver_id) {
@@ -816,6 +818,80 @@ mod tests {
 
         let size = std::fs::read_to_string(&output_path).unwrap();
         assert_eq!(size.trim(), "40 120");
+    }
+
+    #[tokio::test]
+    async fn session_exit_clears_pending_input_buffer() {
+        let dir = tempfile::tempdir().unwrap();
+        let session_id = "runtime-exit-clears-input-buf";
+        let state = test_state_with_runtime_session(session_id);
+
+        // A stale, unterminated keystroke left over from before the process exited.
+        state
+            .peon
+            .input_buf
+            .write()
+            .unwrap()
+            .insert(session_id.to_string(), "a".into());
+
+        let (runtime, control_rx) =
+            SessionRuntime::live(DEFAULT_TERMINAL_ROWS, DEFAULT_TERMINAL_COLS);
+        let output_tx = runtime.output_tx.clone();
+        let mut events = output_tx.subscribe();
+
+        let command = harness::CommandSpec {
+            program: "/bin/sh".into(),
+            args: vec!["-lc".into(), "exit 0".into()],
+            cwd: dir.path().display().to_string(),
+        };
+
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut(session_id).unwrap();
+            handle.command = command.clone();
+            handle.runtime = runtime;
+        }
+
+        let (_kill_tx, kill_rx) = tokio::sync::watch::channel(false);
+        let _runtime_task = tokio::spawn(start_session_runtime(
+            state.clone(),
+            session_id.to_string(),
+            command,
+            None,
+            control_rx,
+            output_tx,
+            kill_rx,
+            PtySize {
+                rows: DEFAULT_TERMINAL_ROWS,
+                cols: DEFAULT_TERMINAL_COLS,
+                pixel_width: 0,
+                pixel_height: 0,
+            },
+        ));
+
+        // The event-processing loop (where the input_buf cleanup happens) runs
+        // in a task detached from start_session_runtime's own returned future,
+        // so wait for the Ended event rather than the outer future resolving.
+        tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                match events.recv().await {
+                    Ok(RuntimeEvent::Ended { .. }) => break,
+                    Ok(_) => {}
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(err) => panic!("unexpected runtime event error: {err}"),
+                }
+            }
+        })
+        .await
+        .expect("ended event should be emitted for a command that exits immediately");
+
+        assert!(state
+            .peon
+            .input_buf
+            .read()
+            .unwrap()
+            .get(session_id)
+            .is_none());
     }
 
     #[tokio::test]
