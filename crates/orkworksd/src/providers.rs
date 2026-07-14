@@ -1459,6 +1459,7 @@ mod tests {
             default_model: String::new(),
             model_prefix: String::new(),
             capabilities: HarnessVoiceCapabilities::default(),
+            attention: crate::harness_registry::HarnessAttentionCapabilities::default(),
             is_builtin: false,
             peon: Some(HarnessPeonConfig {
                 command_override: Some("custom-ai-peon".into()),

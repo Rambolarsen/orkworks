@@ -433,9 +433,33 @@ pub(crate) async fn report_attention(
     Path(id): Path<String>,
     Json(req): Json<AttentionReportRequest>,
 ) -> impl IntoResponse {
-    if !peon::is_valid_observed_status(&req.status) {
+    let active_alias = matches!(req.status.as_str(), "thinking" | "reasoning");
+    if !active_alias && !peon::is_valid_observed_status(&req.status) {
         return axum::http::StatusCode::BAD_REQUEST.into_response();
     }
+    let session_harness = {
+        let ws_guard = state.workspace.lock().unwrap();
+        let Some(ref ws) = *ws_guard else {
+            return axum::http::StatusCode::CONFLICT.into_response();
+        };
+        let Some(meta) = ws.metadata.read_session(&id) else {
+            return axum::http::StatusCode::NOT_FOUND.into_response();
+        };
+        meta.harness
+    };
+    let supports_active_work = state
+        .harnesses
+        .read()
+        .await
+        .iter()
+        .find(|h| h.id == session_harness)
+        .is_some_and(|h| h.attention.active_work_hook);
+    let Some(status) = crate::harness_registry::normalize_hook_attention_status(
+        &req.status,
+        supports_active_work,
+    ) else {
+        return axum::http::StatusCode::BAD_REQUEST.into_response();
+    };
 
     // A hook report is a harness turn boundary: any keystroke still sitting in
     // the pending input-line buffer (e.g. a single-key "accept" prompt with no
@@ -458,7 +482,7 @@ pub(crate) async fn report_attention(
         return axum::http::StatusCode::CONFLICT.into_response();
     };
 
-    match ws.metadata.merge_agent_attention_signal(&id, &req.status, req.message.as_deref(), &now) {
+    match ws.metadata.merge_agent_attention_signal(&id, &status, req.message.as_deref(), &now) {
         metadata::AttentionMergeResult::Accepted | metadata::AttentionMergeResult::Ignored => {
             axum::http::StatusCode::OK.into_response()
         }
@@ -1717,6 +1741,80 @@ mod tests {
         let updated = ws.as_ref().unwrap().metadata.read_session("attention-known").unwrap();
         assert_eq!(updated.observed_status.as_deref(), Some("waiting_for_input"));
         assert_eq!(updated.metadata_source, "agent");
+    }
+
+    #[tokio::test]
+    async fn capable_hook_normalizes_thinking_to_working() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        {
+            let mut harnesses = state.harnesses.write().await;
+            *harnesses = crate::harness_registry::builtin_harness_configs();
+            harnesses
+                .iter_mut()
+                .find(|h| h.id == "claude-code")
+                .unwrap()
+                .attention
+                .active_work_hook = true;
+        }
+        {
+            let ws = state.workspace.lock().unwrap();
+            let mut meta = test_session_metadata(
+                "attention-thinking",
+                "Known",
+                dir.path().display().to_string(),
+                "running",
+                "now",
+                "now",
+            );
+            meta.harness = "claude-code".into();
+            meta.lifecycle_phase = "active".into();
+            meta.lifecycle = "alive".into();
+            ws.as_ref().unwrap().metadata.write_session(&meta);
+        }
+
+        let response = report_attention(
+            State(state.clone()),
+            Path("attention-thinking".into()),
+            Json(AttentionReportRequest { status: "thinking".into(), message: None }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let ws = state.workspace.lock().unwrap();
+        let updated = ws.as_ref().unwrap().metadata.read_session("attention-thinking").unwrap();
+        assert_eq!(updated.observed_status.as_deref(), Some("working"));
+    }
+
+    #[tokio::test]
+    async fn unsupported_hook_rejects_thinking_without_changing_attention() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        {
+            let ws = state.workspace.lock().unwrap();
+            ws.as_ref().unwrap().metadata.write_session(&test_session_metadata(
+                "attention-unsupported-thinking",
+                "Known",
+                dir.path().display().to_string(),
+                "running",
+                "now",
+                "now",
+            ));
+        }
+
+        let response = report_attention(
+            State(state.clone()),
+            Path("attention-unsupported-thinking".into()),
+            Json(AttentionReportRequest { status: "thinking".into(), message: None }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
+        let ws = state.workspace.lock().unwrap();
+        let updated = ws.as_ref().unwrap().metadata.read_session("attention-unsupported-thinking").unwrap();
+        assert_eq!(updated.observed_status, None);
     }
 
     #[tokio::test]

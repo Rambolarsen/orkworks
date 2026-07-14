@@ -16,6 +16,25 @@ pub(crate) struct HarnessVoiceCapabilities {
     pub(crate) orkworks_voice_commands: bool,
 }
 
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub(crate) struct HarnessAttentionCapabilities {
+    #[serde(rename = "activeWorkHook", default)]
+    pub(crate) active_work_hook: bool,
+}
+
+pub(crate) fn normalize_hook_attention_status(
+    status: &str,
+    supports_active_work: bool,
+) -> Option<String> {
+    match status {
+        "working" | "thinking" | "reasoning" if supports_active_work => Some("working".into()),
+        "waiting_for_input" | "blocked" | "failed" | "done" | "stale" | "idle" => {
+            Some(status.into())
+        }
+        _ => None,
+    }
+}
+
 /// Peon inference config for a harness instance. When present the harness
 /// participates in model probing and provider capacity checks.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -57,6 +76,8 @@ pub(crate) struct HarnessConfig {
     pub(crate) model_prefix: String,
     #[serde(default)]
     pub(crate) capabilities: HarnessVoiceCapabilities,
+    #[serde(default)]
+    pub(crate) attention: HarnessAttentionCapabilities,
     #[serde(rename = "isBuiltin", default)]
     pub(crate) is_builtin: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -91,6 +112,7 @@ pub(crate) fn builtin_harness_configs() -> Vec<HarnessConfig> {
             default_model: String::new(),
             model_prefix: String::new(),
             capabilities: HarnessVoiceCapabilities::default(),
+            attention: HarnessAttentionCapabilities::default(),
             is_builtin: true,
             peon: Some(HarnessPeonConfig {
                 command_override: None,
@@ -119,6 +141,7 @@ pub(crate) fn builtin_harness_configs() -> Vec<HarnessConfig> {
             default_model: String::new(),
             model_prefix: "ollama/".into(),
             capabilities: HarnessVoiceCapabilities::default(),
+            attention: HarnessAttentionCapabilities::default(),
             is_builtin: true,
             peon: Some(HarnessPeonConfig {
                 command_override: None,
@@ -141,6 +164,7 @@ pub(crate) fn builtin_harness_configs() -> Vec<HarnessConfig> {
             default_model: String::new(),
             model_prefix: String::new(),
             capabilities: HarnessVoiceCapabilities::default(),
+            attention: HarnessAttentionCapabilities::default(),
             is_builtin: true,
             peon: Some(HarnessPeonConfig {
                 command_override: None,
@@ -168,6 +192,7 @@ pub(crate) fn builtin_harness_configs() -> Vec<HarnessConfig> {
             default_model: String::new(),
             model_prefix: String::new(),
             capabilities: HarnessVoiceCapabilities::default(),
+            attention: HarnessAttentionCapabilities::default(),
             is_builtin: true,
             peon: Some(HarnessPeonConfig {
                 command_override: None,
@@ -194,6 +219,7 @@ pub(crate) fn builtin_harness_configs() -> Vec<HarnessConfig> {
             default_model: "claude-sonnet-4-20250514".into(),
             model_prefix: "ollama_chat/".into(),
             capabilities: HarnessVoiceCapabilities::default(),
+            attention: HarnessAttentionCapabilities::default(),
             is_builtin: true,
             peon: Some(HarnessPeonConfig {
                 command_override: None,
@@ -222,6 +248,7 @@ pub(crate) fn builtin_harness_configs() -> Vec<HarnessConfig> {
             default_model: String::new(),
             model_prefix: String::new(),
             capabilities: HarnessVoiceCapabilities::default(),
+            attention: HarnessAttentionCapabilities::default(),
             is_builtin: true,
             peon: Some(HarnessPeonConfig {
                 command_override: None,
@@ -249,6 +276,7 @@ pub(crate) fn builtin_harness_configs() -> Vec<HarnessConfig> {
             default_model: String::new(),
             model_prefix: String::new(),
             capabilities: HarnessVoiceCapabilities::default(),
+            attention: HarnessAttentionCapabilities::default(),
             is_builtin: true,
             peon: None,
         },
@@ -510,6 +538,34 @@ mod tests {
     use crate::test_support::with_fake_home;
 
     #[test]
+    fn attention_capability_defaults_to_no_active_work_hook() {
+        let parsed: HarnessConfig = serde_json::from_str(r#"{
+            "id": "custom", "name": "Custom", "harness": "custom",
+            "command": "custom"
+        }"#)
+        .unwrap();
+
+        assert!(!parsed.attention.active_work_hook);
+    }
+
+    #[test]
+    fn active_hook_aliases_normalize_only_for_capable_harnesses() {
+        assert_eq!(
+            normalize_hook_attention_status("thinking", true),
+            Some("working".into())
+        );
+        assert_eq!(
+            normalize_hook_attention_status("reasoning", true),
+            Some("working".into())
+        );
+        assert_eq!(normalize_hook_attention_status("thinking", false), None);
+        assert_eq!(
+            normalize_hook_attention_status("waiting_for_input", false),
+            Some("waiting_for_input".into())
+        );
+    }
+
+    #[test]
     fn load_harnesses_merges_disk_overrides_with_builtins() {
         let dir = tempfile::tempdir().unwrap();
 
@@ -556,6 +612,7 @@ mod tests {
                 default_model: String::new(),
                 model_prefix: String::new(),
                 capabilities: HarnessVoiceCapabilities::default(),
+                attention: HarnessAttentionCapabilities::default(),
                 is_builtin: false,
                 peon: None,
             };
