@@ -256,8 +256,8 @@ test("StatusIndicator gives working precedence and renders unread results access
   assert.match(source, /className="status-indicator status-indicator-unread"/);
   assert.match(source, /aria-label=\{`Unread:\s*\$\{label\}`\}/);
   assert.match(css, /\.status-indicator\s*\{[\s\S]*width:\s*14px;[\s\S]*height:\s*14px;/);
-  assert.match(css, /\.status-indicator-dot::before\s*\{[\s\S]*width:\s*8px;[\s\S]*height:\s*8px;/);
-  assert.match(css, /\.status-indicator-unread::before\s*\{[\s\S]*width:\s*7px;[\s\S]*height:\s*7px;/);
+  assert.match(css, /\.status-indicator-dot::before\s*\{[\s\S]*display:\s*block;[\s\S]*width:\s*8px;[\s\S]*height:\s*8px;/);
+  assert.match(css, /\.status-indicator-unread::before\s*\{[\s\S]*display:\s*block;[\s\S]*width:\s*7px;[\s\S]*height:\s*7px;/);
   for (const tone of ["needs-you", "blocked", "failed", "idle"]) {
     assert.match(css, new RegExp(`\\.status-indicator\\[data-attention="${tone}"\\]`));
   }

@@ -720,6 +720,7 @@ html, body, #root {
 
 .status-indicator-dot::before {
   content: "";
+  display: block;
   width: 8px;
   height: 8px;
   border-radius: 50%;
@@ -728,6 +729,7 @@ html, body, #root {
 
 .status-indicator-unread::before {
   content: "";
+  display: block;
   width: 7px;
   height: 7px;
   border-radius: 50%;
