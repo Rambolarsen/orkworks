@@ -15,6 +15,7 @@ pub(crate) const DEFAULT_TERMINAL_COLS: u16 = 80;
 const DEFAULT_REPLAY_CAPACITY: usize = 256;
 const DRIVER_EVENT_BUFFER_CAPACITY: usize = 64;
 const PERSIST_QUEUE_CAPACITY: usize = 64;
+const CONTROL_CHANNEL_CAPACITY: usize = 64;
 const INITIAL_RESIZE_GRACE: std::time::Duration = std::time::Duration::from_millis(150);
 const STARTUP_ATTENTION_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
 
@@ -103,7 +104,7 @@ impl ReplayBuffer {
 
 #[derive(Debug)]
 pub(crate) struct SessionRuntime {
-    pub(crate) control_tx: mpsc::UnboundedSender<RuntimeCommand>,
+    pub(crate) control_tx: mpsc::Sender<RuntimeCommand>,
     pub(crate) output_tx: broadcast::Sender<RuntimeEvent>,
     pub(crate) replay: ReplayBuffer,
     pub(crate) attachment_generation: u64,
@@ -113,8 +114,8 @@ pub(crate) struct SessionRuntime {
 }
 
 impl SessionRuntime {
-    pub(crate) fn live(rows: u16, cols: u16) -> (Self, mpsc::UnboundedReceiver<RuntimeCommand>) {
-        let (control_tx, control_rx) = mpsc::unbounded_channel();
+    pub(crate) fn live(rows: u16, cols: u16) -> (Self, mpsc::Receiver<RuntimeCommand>) {
+        let (control_tx, control_rx) = mpsc::channel(CONTROL_CHANNEL_CAPACITY);
         let (output_tx, _) = broadcast::channel(256);
         (
             Self {
@@ -131,7 +132,7 @@ impl SessionRuntime {
     }
 
     pub(crate) fn detached(rows: u16, cols: u16) -> Self {
-        let (control_tx, _control_rx) = mpsc::unbounded_channel();
+        let (control_tx, _control_rx) = mpsc::channel(CONTROL_CHANNEL_CAPACITY);
         let (output_tx, _) = broadcast::channel(256);
         Self {
             control_tx,
@@ -211,7 +212,7 @@ pub(crate) fn release_attachment(state: &Arc<AppState>, id: &str, generation: u6
     }
 }
 
-pub(crate) fn send_runtime_command(
+pub(crate) async fn send_runtime_command(
     state: &Arc<AppState>,
     id: &str,
     command: RuntimeCommand,
@@ -223,10 +224,10 @@ pub(crate) fn send_runtime_command(
             .map(|handle| handle.runtime.control_tx.clone())
     }
     .ok_or(())?;
-    tx.send(command).map_err(|_| ())
+    tx.send(command).await.map_err(|_| ())
 }
 
-pub(crate) fn update_runtime_size(
+pub(crate) async fn update_runtime_size(
     state: &Arc<AppState>,
     id: &str,
     rows: u16,
@@ -240,11 +241,12 @@ pub(crate) fn update_runtime_size(
         handle.runtime.control_tx.clone()
     };
     tx.send(RuntimeCommand::Resize { rows, cols })
+        .await
         .map_err(|_| ())
 }
 
 async fn capture_startup_runtime_state(
-    control_rx: &mut mpsc::UnboundedReceiver<RuntimeCommand>,
+    control_rx: &mut mpsc::Receiver<RuntimeCommand>,
     mut initial_size: PtySize,
 ) -> (PtySize, Vec<RuntimeCommand>) {
     let mut pending_commands = Vec::new();
@@ -275,7 +277,7 @@ pub(crate) async fn start_session_runtime(
     id: String,
     command: harness::CommandSpec,
     initial_prompt: Option<String>,
-    mut control_rx: mpsc::UnboundedReceiver<RuntimeCommand>,
+    mut control_rx: mpsc::Receiver<RuntimeCommand>,
     output_tx: broadcast::Sender<RuntimeEvent>,
     mut kill_rx: tokio::sync::watch::Receiver<bool>,
     initial_size: PtySize,
@@ -814,6 +816,50 @@ mod tests {
         ));
     }
 
+    #[tokio::test]
+    async fn send_runtime_command_blocks_until_capacity_available_then_succeeds() {
+        let session_id = "runtime-capacity-test";
+        let state = test_state_with_runtime_session(session_id);
+        let (runtime, mut control_rx) =
+            SessionRuntime::live(DEFAULT_TERMINAL_ROWS, DEFAULT_TERMINAL_COLS);
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            sessions.get_mut(session_id).unwrap().runtime = runtime;
+        }
+
+        // Fill the bounded channel to capacity without draining it.
+        for _ in 0..CONTROL_CHANNEL_CAPACITY {
+            send_runtime_command(&state, session_id, RuntimeCommand::Input("x".into()))
+                .await
+                .unwrap();
+        }
+
+        // The channel is now full; one more send should not resolve until something drains it.
+        let state_clone = state.clone();
+        let blocked_send = tokio::spawn(async move {
+            send_runtime_command(
+                &state_clone,
+                session_id,
+                RuntimeCommand::Input("overflow".into()),
+            )
+            .await
+        });
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(
+            !blocked_send.is_finished(),
+            "send on a full bounded channel should not resolve immediately"
+        );
+
+        // Draining one slot should let the pending send complete.
+        let _ = control_rx.recv().await;
+        let result = tokio::time::timeout(Duration::from_secs(1), blocked_send)
+            .await
+            .expect("blocked send should complete once a slot frees up")
+            .unwrap();
+        assert!(result.is_ok());
+    }
+
     #[test]
     fn observer_only_output_cannot_resume_finished_states() {
         let past_grace = tokio::time::Instant::now() - std::time::Duration::from_millis(1);
@@ -965,6 +1011,7 @@ mod tests {
                 rows: 40,
                 cols: 120,
             })
+            .await
             .unwrap();
 
         runtime_task.await.unwrap().unwrap();

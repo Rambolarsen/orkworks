@@ -628,12 +628,12 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
                                     &state,
                                     &id,
                                     crate::runtime::session_runtime::RuntimeCommand::Input(data),
-                                ).is_err() {
+                                ).await.is_err() {
                                     break;
                                 }
                             }
                             TerminalAction::Resize { rows, cols } => {
-                                if crate::runtime::session_runtime::update_runtime_size(&state, &id, rows, cols).is_err() {
+                                if crate::runtime::session_runtime::update_runtime_size(&state, &id, rows, cols).await.is_err() {
                                     break;
                                 }
                             }
@@ -642,7 +642,7 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
                                     &state,
                                     &id,
                                     crate::runtime::session_runtime::RuntimeCommand::Kill,
-                                ).is_err() {
+                                ).await.is_err() {
                                     break;
                                 }
                             }
