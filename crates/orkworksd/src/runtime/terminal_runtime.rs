@@ -2,6 +2,8 @@ use crate::session_view::{connectivity_for_status, terminal_outcome_for_status};
 use crate::workspace_runtime::iso_now;
 use crate::{harness, metadata, peon, providers, AppState};
 use axum::extract::ws::{Message, WebSocket};
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -515,9 +517,21 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
 
     let generation = attachment.generation;
     let mut events = attachment.events;
+    let mut pending_command: Option<Pin<Box<dyn Future<Output = Result<(), ()>> + Send>>> = None;
 
     loop {
         tokio::select! {
+            result = async {
+                pending_command
+                    .as_mut()
+                    .expect("pending command branch requires a command")
+                    .await
+            }, if pending_command.is_some() => {
+                if result.is_err() {
+                    break;
+                }
+                pending_command = None;
+            }
             event = events.recv() => {
                 match event {
                     Ok(crate::runtime::session_runtime::RuntimeEvent::Output { chunk, .. }) => {
@@ -551,6 +565,9 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
             msg = ws.recv() => {
                 match msg {
                     Some(Ok(Message::Text(text))) => {
+                        if pending_command.is_some() {
+                            continue;
+                        }
                         let val: serde_json::Value = match serde_json::from_str(&text) {
                             Ok(v) => v,
                             Err(_) => continue,
@@ -624,27 +641,35 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
                                     state.peon.last_inference.write().unwrap().remove(&id);
                                 }
 
-                                if crate::runtime::session_runtime::send_runtime_command(
-                                    &state,
-                                    &id,
-                                    crate::runtime::session_runtime::RuntimeCommand::Input(data),
-                                ).await.is_err() {
-                                    break;
-                                }
+                                let state = state.clone();
+                                let id = id.clone();
+                                pending_command = Some(Box::pin(async move {
+                                    crate::runtime::session_runtime::send_runtime_command(
+                                        &state,
+                                        &id,
+                                        crate::runtime::session_runtime::RuntimeCommand::Input(data),
+                                    ).await
+                                }));
                             }
                             TerminalAction::Resize { rows, cols } => {
-                                if crate::runtime::session_runtime::update_runtime_size(&state, &id, rows, cols).await.is_err() {
-                                    break;
-                                }
+                                let state = state.clone();
+                                let id = id.clone();
+                                pending_command = Some(Box::pin(async move {
+                                    crate::runtime::session_runtime::update_runtime_size(
+                                        &state, &id, rows, cols,
+                                    ).await
+                                }));
                             }
                             TerminalAction::Kill => {
-                                if crate::runtime::session_runtime::send_runtime_command(
-                                    &state,
-                                    &id,
-                                    crate::runtime::session_runtime::RuntimeCommand::Kill,
-                                ).await.is_err() {
-                                    break;
-                                }
+                                let state = state.clone();
+                                let id = id.clone();
+                                pending_command = Some(Box::pin(async move {
+                                    crate::runtime::session_runtime::send_runtime_command(
+                                        &state,
+                                        &id,
+                                        crate::runtime::session_runtime::RuntimeCommand::Kill,
+                                    ).await
+                                }));
                             }
                             TerminalAction::Noop => {}
                         }

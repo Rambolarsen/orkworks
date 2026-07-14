@@ -4,6 +4,7 @@ import {
   parseTerminalControlMessage,
   shouldReplayTerminalOutputOnClose,
   appendPendingInput,
+  canSendTerminalInput,
 } from "../src/terminalProtocol.ts";
 
 test("parseTerminalControlMessage parses typed ended frames", () => {
@@ -65,4 +66,9 @@ test("appendPendingInput keeps reporting dropped on repeated overflow without gr
   const first = appendPendingInput("abcdefghij", "k", 10);
   const second = appendPendingInput(first.next, "lmno", 10);
   assert.deepEqual(second, { next: "abcdefghij", dropped: true });
+});
+
+test("canSendTerminalInput keeps the browser WebSocket buffer within the cap", () => {
+  assert.equal(canSendTerminalInput(4, 6, 10), true);
+  assert.equal(canSendTerminalInput(4, 7, 10), false);
 });

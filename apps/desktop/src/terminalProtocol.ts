@@ -51,6 +51,14 @@ export function appendPendingInput(
   return { next: current + incoming, dropped: false };
 }
 
+export function canSendTerminalInput(
+  bufferedAmount: number,
+  payloadLength: number,
+  maxBufferedAmount: number,
+): boolean {
+  return bufferedAmount + payloadLength <= maxBufferedAmount;
+}
+
 export function shouldReplayTerminalOutputOnClose({
   disposed,
   receivedData,

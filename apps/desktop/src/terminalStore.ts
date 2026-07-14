@@ -8,6 +8,7 @@ import {
   parseTerminalControlMessage,
   shouldReplayTerminalOutputOnClose,
   appendPendingInput,
+  canSendTerminalInput,
 } from "./terminalProtocol";
 
 const MAX_PENDING_INPUT_LENGTH = 64 * 1024;
@@ -186,7 +187,21 @@ export function ensureTerminal(id: string, baseUrl: string): TerminalHandle {
 
   term.onData((data) => {
     if (ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: "input", data }));
+      const payload = JSON.stringify({ type: "input", data });
+      if (canSendTerminalInput(
+        ws.bufferedAmount,
+        new TextEncoder().encode(payload).byteLength,
+        MAX_PENDING_INPUT_LENGTH,
+      )) {
+        ws.send(payload);
+        return;
+      }
+      if (!handle.pendingInputOverflowed) {
+        handle.pendingInputOverflowed = true;
+        term.writeln(
+          "\r\n[input buffer full — further keystrokes are being dropped until it drains]",
+        );
+      }
       return;
     }
     const { next, dropped } = appendPendingInput(

@@ -16,6 +16,7 @@ const DEFAULT_REPLAY_CAPACITY: usize = 256;
 const DRIVER_EVENT_BUFFER_CAPACITY: usize = 64;
 const PERSIST_QUEUE_CAPACITY: usize = 64;
 const CONTROL_CHANNEL_CAPACITY: usize = 64;
+const STARTUP_PENDING_INPUT_BYTES: usize = 64 * 1024;
 const INITIAL_RESIZE_GRACE: std::time::Duration = std::time::Duration::from_millis(150);
 const STARTUP_ATTENTION_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
 
@@ -250,6 +251,7 @@ async fn capture_startup_runtime_state(
     mut initial_size: PtySize,
 ) -> (PtySize, Vec<RuntimeCommand>) {
     let mut pending_commands = Vec::new();
+    let mut pending_input_bytes: usize = 0;
     let deadline = tokio::time::Instant::now() + INITIAL_RESIZE_GRACE;
 
     loop {
@@ -264,7 +266,21 @@ async fn capture_startup_runtime_state(
                 initial_size.cols = cols;
                 break;
             }
-            Ok(Some(command)) => pending_commands.push(command),
+            Ok(Some(command)) => {
+                if pending_commands.len() >= CONTROL_CHANNEL_CAPACITY {
+                    continue;
+                }
+                if let RuntimeCommand::Input(data) = &command {
+                    let Some(next_input_bytes) = pending_input_bytes.checked_add(data.len()) else {
+                        continue;
+                    };
+                    if next_input_bytes > STARTUP_PENDING_INPUT_BYTES {
+                        continue;
+                    }
+                    pending_input_bytes = next_input_bytes;
+                }
+                pending_commands.push(command);
+            }
             Ok(None) | Err(_) => break,
         }
     }
@@ -845,10 +861,12 @@ mod tests {
             .await
         });
 
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        let mut blocked_send = blocked_send;
         assert!(
-            !blocked_send.is_finished(),
-            "send on a full bounded channel should not resolve immediately"
+            tokio::time::timeout(Duration::from_millis(10), &mut blocked_send)
+                .await
+                .is_err(),
+            "send on a full bounded channel should not resolve while the channel is full"
         );
 
         // Draining one slot should let the pending send complete.
@@ -858,6 +876,29 @@ mod tests {
             .expect("blocked send should complete once a slot frees up")
             .unwrap();
         assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn startup_buffer_caps_input_bytes() {
+        let (tx, mut rx) = mpsc::channel(3);
+        let chunk = "x".repeat(STARTUP_PENDING_INPUT_BYTES / 2);
+        for _ in 0..3 {
+            tx.send(RuntimeCommand::Input(chunk.clone())).await.unwrap();
+        }
+        drop(tx);
+
+        let (_, pending) = capture_startup_runtime_state(
+            &mut rx,
+            PtySize {
+                rows: DEFAULT_TERMINAL_ROWS,
+                cols: DEFAULT_TERMINAL_COLS,
+                pixel_width: 0,
+                pixel_height: 0,
+            },
+        )
+        .await;
+
+        assert_eq!(pending.len(), 2);
     }
 
     #[test]
