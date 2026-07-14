@@ -23,24 +23,38 @@ work. Active model signals include the harness's equivalents of `working`,
 `thinking`, and other model-processing states. These are normalized to the
 existing OrkWorks `working` attention state.
 
-When this capability is present, active hook reports are the only way that
-session may enter `working`. Terminal output remains available for persistence,
-Peon inference, and metadata, but cannot independently promote the state.
+When an active-work-capable hook is registered for the session's harness,
+active hook reports are the only way that session may enter `working`.
+Terminal output remains available for persistence, Peon inference, and
+metadata, but cannot independently promote the state. A registered capable
+hook that is unavailable or emits malformed data fails closed: it does not
+enable the terminal fallback.
 
 Existing hook reports for non-working states retain their current meaning and
 priority.
 
 ### Fallback for unsupported harnesses
 
-When the harness has no registered active-work hook capability, submitted
-input arms a short-lived fallback transition. Merely editing a prompt does not
-arm it. A subsequent output event may promote the session to `working` only
-when it contains visible content that is not the echoed submitted input or a
-terminal redraw.
+When the harness has no registered active-work-capable hook, a non-empty input
+line terminated by `\r` or `\n` arms a 10-second fallback window using
+`tokio::time::Instant`. Merely editing a prompt does not arm it. A later output
+event may promote the session to `working` only when it contains a visible
+character that remains after stripping ANSI control sequences and consuming
+the submitted-line echo.
 
-The fallback state is consumed after the first qualifying output and expires
-without changing attention if no qualifying output arrives. This prevents an
-old submission from making unrelated later output appear to be model work.
+The fallback tracks the submitted line's printable characters as an echo
+prefix across output chunks. It consumes matching characters, including a
+single leading carriage return or newline. ANSI-only output, empty output, and
+output that consists entirely of this echo prefix do not promote the state. If
+the first visible output differs from the remaining echo prefix, or if visible
+characters follow a fully consumed echo prefix, that output qualifies. This
+deliberately excludes only control-only redraws and the exact submitted echo;
+the PTY protocol cannot reliably identify every visually similar redraw.
+
+The fallback state is consumed after the first qualifying output and expires at
+10 seconds without changing attention if no qualifying output arrives. This
+prevents an old submission from making unrelated later output appear to be
+model work.
 
 ### Input and output treatment
 
@@ -57,16 +71,18 @@ hook report or an armed fallback with output that is not local terminal echo.
 ```text
 terminal keystrokes ────────────────> label / last-user-input only
 submitted input, no active hook ────> arm fallback
-terminal echo / redraw ─────────────> do not promote
+terminal echo / control-only redraw ─> do not promote
 qualifying post-submit output ───────> working (fallback harnesses only)
 active hook event (working/thinking) ─> working (capable harnesses)
 ```
 
 ## Error Handling
 
-An unavailable, malformed, or unsupported hook is treated as lacking the
-active-work capability, so the session uses the fallback path. No new
-background process, network request, or persistent migration is required.
+An unsupported or unregistered hook uses the fallback path. A registered hook
+that advertises active-work capability but is unavailable or malformed is
+treated as unavailable, leaving the session's current attention unchanged; it
+does not fall back to PTY heuristics. No new background process, network
+request, or persistent migration is required.
 
 ## Tests
 
@@ -75,7 +91,11 @@ background process, network request, or persistent migration is required.
   normalized `working`.
 - A capable hook prevents terminal output alone from promoting `working`.
 - A harness without active-work hook capability promotes only after a complete
-  submission and qualifying post-submit output.
+  submission and qualifying post-submit output within 10 seconds.
+- ANSI-only redraws, full submitted-input echoes, and split input echoes leave
+  an idle session idle.
+- A registered capable hook that is unavailable or malformed does not enable
+  the fallback path.
 - Non-working hook reports retain their existing behavior.
 
 ## Alternatives considered
