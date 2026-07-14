@@ -55,9 +55,9 @@ Single binary. Top-level modules:
 - `runtime/` — background-task and PTY submodules:
   - `peon_runtime.rs` — `peon_loop` (continuous Peon observation loop); idle sessions enter an in-memory hold and resume observation only after qualifying user input
   - `retention.rs` — `retention_cleanup_task`, `retention_cleanup_once`
-  - `session_runtime.rs` — session-runtime-owned PTY/process startup, bounded PTY/persistence backpressure queues, output draining, replay state, attachment ownership, child wait/finalization
+  - `session_runtime.rs` — session-runtime-owned PTY/process startup, bounded PTY/persistence/control backpressure queues (including startup input buffering), output draining, replay state, attachment ownership, child wait/finalization
   - `terminal_http.rs` — `get_terminal_output`, `session_terminal_handler` (WebSocket upgrade / attach entrypoint)
-  - `terminal_runtime.rs` — env helpers (`terminal_env_overrides`, `session_env_overrides`, `should_forward_terminal_env`), `TerminalAction` dispatch, `set_session_status`, websocket attach/detach transport
+  - `terminal_runtime.rs` — env helpers (`terminal_env_overrides`, `session_env_overrides`, `should_forward_terminal_env`), `TerminalAction` dispatch, `set_session_status`, and websocket attach/detach transport that continues observing client closure while a command is backpressured
 - `git.rs` — git2-based context detection (repo root, branch, dirty check including untracked files while excluding ignored files)
 - `harness.rs` — harness adapter types, command templates, resume strategy selection, capability flags
 - `harness_registry.rs` — built-in harness configs and adapters, `resolve_adapter_harness_id`, `default_shell_command`, disk persistence helpers. `HarnessConfig` carries an optional `HarnessPeonConfig` sub-struct that embeds all peon inference parameters (headless args, model arg template, static model list, list-models command) for that instance. Adding a new harness with peon support requires one `HarnessConfig` entry; `providers.rs` derives `ProviderDefinition`s from it at startup.

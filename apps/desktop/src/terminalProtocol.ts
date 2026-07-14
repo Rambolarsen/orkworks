@@ -40,6 +40,25 @@ export function parseTerminalControlMessage(
   }
 }
 
+export function appendPendingInput(
+  current: string,
+  incoming: string,
+  maxLength: number,
+): { next: string; dropped: boolean } {
+  if (current.length + incoming.length > maxLength) {
+    return { next: current, dropped: true };
+  }
+  return { next: current + incoming, dropped: false };
+}
+
+export function canSendTerminalInput(
+  bufferedAmount: number,
+  payloadLength: number,
+  maxBufferedAmount: number,
+): boolean {
+  return bufferedAmount + payloadLength <= maxBufferedAmount;
+}
+
 export function shouldReplayTerminalOutputOnClose({
   disposed,
   receivedData,
