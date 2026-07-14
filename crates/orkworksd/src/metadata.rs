@@ -1056,11 +1056,20 @@ impl MetadataStore {
         // Observer-only inference cannot resume a finished/non-working session to
         // `working` on its own — that requires qualifying user input, which clears
         // `observed_status` via the terminal-input path first. See issue #170.
-        let resumes_finished_state = inf.observed_status.as_deref() == Some("working")
-            && crate::peon::is_terminal_observed_status(meta.observed_status.as_deref());
-        if !resumes_finished_state {
-            meta.observed_status = inf.observed_status.clone().or(meta.observed_status);
+        // The whole inference is discarded in that case (not just observed_status):
+        // applying its summary/next_action/etc while keeping the old status would
+        // leave an inconsistent record (e.g. a "blocked" badge with a "still
+        // working" summary), and flipping metadata_source to "peon" would falsely
+        // mark the untouched status field as freshly peon-confirmed.
+        if inf.observed_status.as_deref() == Some("working")
+            && crate::peon::is_terminal_observed_status(meta.observed_status.as_deref())
+        {
+            if let Some(report) = peon_harness_session_report {
+                let _ = self.merge_harness_session_report(id, &report, timestamp);
+            }
+            return Ok(());
         }
+        meta.observed_status = inf.observed_status.clone().or(meta.observed_status);
         if meta.lifecycle == "alive" {
             meta.attention = canonical_attention(meta.observed_status.as_deref());
         }
@@ -1528,8 +1537,19 @@ mod tests {
                 Some(finished_status),
                 "observer-only inference should not resume {finished_status} to working"
             );
-            // Non-status fields still update.
-            assert_eq!(updated.summary.as_deref(), Some("still chattering"));
+            assert_eq!(updated.attention.as_deref(), canonical_attention(Some(finished_status)).as_deref());
+            // The whole inference is discarded, not just the status: a "still
+            // chattering" summary must not be paired with a stale finished-state
+            // badge, and metadata_source must not flip to "peon" for a field that
+            // was never actually updated.
+            assert_eq!(updated.summary, None);
+            assert_eq!(updated.metadata_source, "process");
+
+            let events = store.read_events(&id);
+            assert!(
+                events.iter().all(|e| e.event_type != "peon.inference"),
+                "discarded inference should not be logged as a peon.inference event for {finished_status}"
+            );
         }
     }
 
