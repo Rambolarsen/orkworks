@@ -18,7 +18,14 @@ const PERSIST_QUEUE_CAPACITY: usize = 64;
 const INITIAL_RESIZE_GRACE: std::time::Duration = std::time::Duration::from_millis(150);
 const STARTUP_ATTENTION_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
 
+/// `current_observed_status` gates observer-only resumption: once a session has
+/// reached a finished/non-working state (idle, waiting_for_input, blocked,
+/// failed, stale, done), mere PTY output can't flip it back to `working` on its
+/// own — that requires qualifying user input, which clears `observed_status`
+/// via the terminal-input path in this module before the next `Output` event
+/// arrives. See issue #170.
 fn should_infer_working(
+    current_observed_status: Option<&str>,
     lifecycle: &str,
     has_visible_output: bool,
     startup_grace_ends_at: tokio::time::Instant,
@@ -26,6 +33,7 @@ fn should_infer_working(
     lifecycle == "alive"
         && has_visible_output
         && tokio::time::Instant::now() >= startup_grace_ends_at
+        && !peon::is_terminal_observed_status(current_observed_status)
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -496,6 +504,7 @@ pub(crate) async fn start_session_runtime(
                                         handle.scan_buf.drain(..drop);
                                     }
                                     if should_infer_working(
+                                        handle.info.observed_status.as_deref(),
                                         &handle.info.lifecycle,
                                         has_visible_output,
                                         startup_grace_ends_at,
@@ -535,6 +544,7 @@ pub(crate) async fn start_session_runtime(
                                 if let Some(ref ws) = *ws_guard {
                                     if let Some(mut meta) = ws.metadata.read_session(&driver_id) {
                                         if should_infer_working(
+                                            meta.observed_status.as_deref(),
                                             &meta.lifecycle,
                                             has_visible_output,
                                             startup_grace_ends_at,
@@ -777,6 +787,7 @@ mod tests {
     #[test]
     fn startup_grace_keeps_visible_output_idle() {
         assert!(!should_infer_working(
+            None,
             "alive",
             true,
             tokio::time::Instant::now() + STARTUP_ATTENTION_GRACE,
@@ -786,10 +797,32 @@ mod tests {
     #[test]
     fn visible_output_after_startup_grace_is_working() {
         assert!(should_infer_working(
+            None,
             "alive",
             true,
             tokio::time::Instant::now() - std::time::Duration::from_millis(1),
         ));
+    }
+
+    #[test]
+    fn already_working_output_stays_working() {
+        assert!(should_infer_working(
+            Some("working"),
+            "alive",
+            true,
+            tokio::time::Instant::now() - std::time::Duration::from_millis(1),
+        ));
+    }
+
+    #[test]
+    fn observer_only_output_cannot_resume_finished_states() {
+        let past_grace = tokio::time::Instant::now() - std::time::Duration::from_millis(1);
+        for status in ["idle", "waiting_for_input", "blocked", "failed", "stale", "done"] {
+            assert!(
+                !should_infer_working(Some(status), "alive", true, past_grace),
+                "observer-only output should not resume {status} to working"
+            );
+        }
     }
 
     #[tokio::test]
