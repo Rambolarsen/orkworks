@@ -7,7 +7,10 @@ import { getTerminalOutput } from "./api";
 import {
   parseTerminalControlMessage,
   shouldReplayTerminalOutputOnClose,
+  appendPendingInput,
 } from "./terminalProtocol";
+
+const MAX_PENDING_INPUT_LENGTH = 64 * 1024;
 
 export interface TerminalHandle {
   id: string;
@@ -18,6 +21,7 @@ export interface TerminalHandle {
   ended: boolean;
   disposed: boolean;
   pendingInput: string;
+  pendingInputOverflowed: boolean;
   resizeObserver: ResizeObserver;
 }
 
@@ -102,6 +106,7 @@ export function ensureTerminal(id: string, baseUrl: string): TerminalHandle {
     ended: false,
     disposed: false,
     pendingInput: "",
+    pendingInputOverflowed: false,
     resizeObserver,
   };
   terminals.set(id, handle);
@@ -119,6 +124,7 @@ export function ensureTerminal(id: string, baseUrl: string): TerminalHandle {
       ws.send(JSON.stringify({ type: "input", data: handle.pendingInput }));
       handle.pendingInput = "";
     }
+    handle.pendingInputOverflowed = false;
   };
 
   ws.onmessage = (e) => {
@@ -181,8 +187,19 @@ export function ensureTerminal(id: string, baseUrl: string): TerminalHandle {
   term.onData((data) => {
     if (ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: "input", data }));
-    } else {
-      handle.pendingInput += data;
+      return;
+    }
+    const { next, dropped } = appendPendingInput(
+      handle.pendingInput,
+      data,
+      MAX_PENDING_INPUT_LENGTH,
+    );
+    handle.pendingInput = next;
+    if (dropped && !handle.pendingInputOverflowed) {
+      handle.pendingInputOverflowed = true;
+      term.writeln(
+        "\r\n[input buffer full while disconnected — further keystrokes are being dropped until reconnect]",
+      );
     }
   });
 
