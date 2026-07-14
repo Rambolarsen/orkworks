@@ -79,6 +79,13 @@ struct PeonState {
     in_flight: StdRwLock<HashSet<String>>,
     label_hint: StdRwLock<HashMap<String, String>>,
     label_pending: StdRwLock<HashSet<String>>,
+    // Pending (not yet newline-terminated) terminal input line per session, used
+    // to detect a descriptive label. Cleared on an attention-hook report, since
+    // that signals a harness turn boundary — without it, isolated hotkey
+    // keystrokes (e.g. single-key "accept" prompts) from unrelated turns would
+    // otherwise glue together into one garbled label the next time a real line
+    // is submitted.
+    input_buf: StdRwLock<HashMap<String, String>>,
     config: peon::PeonConfig,
 }
 
@@ -125,6 +132,7 @@ async fn main() {
             in_flight: StdRwLock::new(HashSet::new()),
             label_hint: StdRwLock::new(HashMap::new()),
             label_pending: StdRwLock::new(HashSet::new()),
+            input_buf: StdRwLock::new(HashMap::new()),
             config: peon::PeonConfig::from_env(),
         },
         providers,
@@ -256,6 +264,7 @@ pub(crate) mod test_support {
                 in_flight: StdRwLock::new(HashSet::new()),
                 label_hint: StdRwLock::new(HashMap::new()),
                 label_pending: StdRwLock::new(HashSet::new()),
+                input_buf: StdRwLock::new(HashMap::new()),
                 config: peon::PeonConfig::from_env(),
             },
             adapters: builtin_adapters(),
@@ -498,6 +507,7 @@ mod tests {
                 in_flight: StdRwLock::new(HashSet::new()),
                 label_hint: StdRwLock::new(HashMap::new()),
                 label_pending: StdRwLock::new(HashSet::new()),
+                input_buf: StdRwLock::new(HashMap::new()),
                 config: peon::PeonConfig::from_env(),
             },
             adapters: builtin_adapters(),
