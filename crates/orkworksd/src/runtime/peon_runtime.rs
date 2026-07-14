@@ -324,6 +324,7 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
+                active_work_hook: false,
             };
             handle.output_buffer.push("running cargo test...".into());
             handle.output_buffer.push("test result: ok. 5 passed; 0 failed;".into());
@@ -498,6 +499,7 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
+                active_work_hook: false,
             };
             handle.output_buffer.push("quiet output".into());
             state.sessions.lock().unwrap().insert(session_id.clone(), handle);
@@ -604,6 +606,7 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
+                active_work_hook: false,
             };
             handle.output_buffer.push("unchanged output".into());
             state.sessions.lock().unwrap().insert(session_id.clone(), handle);
@@ -684,6 +687,7 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
+                active_work_hook: false,
             };
             handle.output_buffer.push("quiet output".into());
             state.sessions.lock().unwrap().insert(session_id.clone(), handle);
@@ -773,6 +777,7 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
+                active_work_hook: false,
             };
             handle.output_buffer.push("some past output".into());
             state.sessions.lock().unwrap().insert(session_id.clone(), handle);
@@ -931,6 +936,7 @@ mod tests {
                     scan_bytes_seen: 0,
                     resume_scan_origin: None,
                     pending_capacity_visible_once: false,
+                active_work_hook: false,
                 },
             );
         }
@@ -1090,6 +1096,7 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
+                active_work_hook: false,
             },
         );
 
@@ -1240,6 +1247,7 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
+                active_work_hook: false,
             },
         );
 
@@ -1388,6 +1396,7 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
+                active_work_hook: false,
             },
         );
 
@@ -1539,6 +1548,7 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
+                active_work_hook: false,
             };
             state.sessions.lock().unwrap().insert(session_id.clone(), handle);
         }
@@ -1695,6 +1705,7 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
+                active_work_hook: false,
             };
             handle.info.lifecycle_phase = "ending".into();
             handle.output_buffer.push("finishing up".into());
@@ -1863,6 +1874,7 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
+                active_work_hook: false,
             };
             handle.output_buffer.push("some terminal output".into());
             state.sessions.lock().unwrap().insert(session_id.clone(), handle);

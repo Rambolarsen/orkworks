@@ -48,6 +48,7 @@ use crate::session_types::SessionInfo;
 
 struct SessionHandle {
     info: SessionInfo,
+    active_work_hook: bool,
     kill_tx: tokio::sync::watch::Sender<bool>,
     output_buffer: peon::RingBuffer,
     // Rolling raw PTY text (ANSI-stripped) for TUI apps that use cursor positioning instead of newlines.
@@ -542,6 +543,7 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
+                active_work_hook: false,
             });
 
         let sessions = state.sessions.lock().unwrap();
