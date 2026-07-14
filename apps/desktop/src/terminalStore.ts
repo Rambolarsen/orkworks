@@ -160,6 +160,11 @@ export function ensureTerminal(id: string, baseUrl: string): TerminalHandle {
         term.options.cursorBlink = false;
         term.writeln(`\r\n[terminal unavailable: ${message.reason}]`);
         break;
+      case "input-dropped":
+        term.writeln(
+          "\r\n[input buffer full on the server — further keystrokes are being dropped until it drains]",
+        );
+        break;
       default:
         break;
     }

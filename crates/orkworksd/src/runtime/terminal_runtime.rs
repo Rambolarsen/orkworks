@@ -52,11 +52,22 @@ pub(crate) enum TerminalAction {
 /// Buffers terminal actions that arrive while a previous command is still being sent to
 /// the PTY runtime, so the websocket read loop can keep polling for Close without silently
 /// dropping keystrokes typed during that (normally sub-millisecond) window.
+///
+/// Input and Resize entries preserve arrival order (the PTY writer applies RuntimeCommands in
+/// strict send order, and a full-screen app can misbehave if it sees keys/output at the wrong
+/// size), while consecutive same-type pushes still coalesce into one entry. Kill always drains
+/// last so nothing typed or resized before it is discarded in favor of ending the session.
+#[derive(Debug, PartialEq)]
+enum QueuedItem {
+    Input(String),
+    Resize { rows: u16, cols: u16 },
+}
+
 #[derive(Debug, Default, PartialEq)]
 pub(crate) struct PendingActionQueue {
+    items: std::collections::VecDeque<QueuedItem>,
+    input_bytes: usize,
     kill: bool,
-    input: String,
-    resize: Option<(u16, u16)>,
 }
 
 impl PendingActionQueue {
@@ -64,14 +75,24 @@ impl PendingActionQueue {
     pub(crate) fn push(&mut self, action: TerminalAction) -> bool {
         match action {
             TerminalAction::Input(data) => {
-                if self.input.len() + data.len() > QUEUED_INPUT_CAP_BYTES {
+                if self.input_bytes + data.len() > QUEUED_INPUT_CAP_BYTES {
                     return true;
                 }
-                self.input.push_str(&data);
+                self.input_bytes += data.len();
+                if let Some(QueuedItem::Input(existing)) = self.items.back_mut() {
+                    existing.push_str(&data);
+                } else {
+                    self.items.push_back(QueuedItem::Input(data));
+                }
                 false
             }
             TerminalAction::Resize { rows, cols } => {
-                self.resize = Some((rows, cols));
+                if let Some(QueuedItem::Resize { rows: r, cols: c }) = self.items.back_mut() {
+                    *r = rows;
+                    *c = cols;
+                } else {
+                    self.items.push_back(QueuedItem::Resize { rows, cols });
+                }
                 false
             }
             TerminalAction::Kill => {
@@ -82,17 +103,21 @@ impl PendingActionQueue {
         }
     }
 
-    /// Buffered input drains first so typed data reaches the PTY even if a kill was queued
-    /// right behind it; kill outranks a stale resize since the session is ending anyway.
     pub(crate) fn take_next(&mut self) -> Option<TerminalAction> {
-        if !self.input.is_empty() {
-            return Some(TerminalAction::Input(std::mem::take(&mut self.input)));
+        if let Some(item) = self.items.pop_front() {
+            return Some(match item {
+                QueuedItem::Input(data) => {
+                    self.input_bytes -= data.len();
+                    TerminalAction::Input(data)
+                }
+                QueuedItem::Resize { rows, cols } => TerminalAction::Resize { rows, cols },
+            });
         }
         if self.kill {
             self.kill = false;
             return Some(TerminalAction::Kill);
         }
-        self.resize.take().map(|(rows, cols)| TerminalAction::Resize { rows, cols })
+        None
     }
 }
 
@@ -217,7 +242,7 @@ fn record_peon_input_side_effects(state: &Arc<AppState>, id: &str, data: &str) {
     let mut triggered_label = false;
     let collected_line = {
         let mut bufs = state.peon.input_buf.write().unwrap();
-        let buf = bufs.entry(id.to_string()).or_insert_with(String::new);
+        let buf = bufs.entry(id.to_string()).or_default();
         collect_input_line(buf, data)
     };
     if let Some(line) = collected_line {
@@ -680,8 +705,15 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
                 if result.is_err() {
                     break;
                 }
-                pending_command = queue
-                    .take_next()
+                let next_action = queue.take_next();
+                // Record Peon side effects only now, as the queued action is actually handed
+                // to the PTY runtime — not when it was merely accepted into the queue. If the
+                // websocket closes before a queued item drains, it's simply never dispatched
+                // and no side effects for it are recorded either.
+                if let Some(TerminalAction::Input(ref data)) = next_action {
+                    record_peon_input_side_effects(&state, &id, data);
+                }
+                pending_command = next_action
                     .and_then(|action| spawn_command_future(state.clone(), id.clone(), action));
             }
             event = events.recv() => {
@@ -723,36 +755,27 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
                         };
                         let action = dispatch_terminal_message(&val);
 
-                        // Grab the input text for Peon bookkeeping before `action` is moved
-                        // below, but only run that bookkeeping once we know the input was
-                        // actually accepted for delivery (not dropped for exceeding the
-                        // queue cap) — otherwise session metadata would claim input the PTY
-                        // never received.
-                        let input_for_peon = match &action {
-                            TerminalAction::Input(data) => Some(data.clone()),
-                            _ => None,
-                        };
-
-                        let accepted = if pending_command.is_some() {
+                        if pending_command.is_some() {
                             // A command is already in flight (normally resolves in well under
                             // a millisecond); queue this one instead of dropping it so
                             // keystrokes typed during that window aren't silently lost. See
                             // #159 review finding on terminal_runtime.rs re: parking Close
-                            // detection, which is why we don't just `.await` inline here.
-                            let dropped = queue.push(action);
-                            if dropped {
+                            // detection, which is why we don't just `.await` inline here. Peon
+                            // side effects for queued input are recorded later, when the
+                            // queued action is actually dispatched to the PTY (see the
+                            // pending_command resolution branch above) — not here, so
+                            // metadata doesn't claim input the PTY never received.
+                            if queue.push(action) {
                                 tracing::warn!(session_id = %id, "dropped terminal input: queue cap exceeded");
+                                let _ = ws.send(Message::Text(
+                                    serde_json::json!({ "type": "input-dropped" }).to_string().into()
+                                )).await;
                             }
-                            !dropped
                         } else {
-                            pending_command = spawn_command_future(state.clone(), id.clone(), action);
-                            true
-                        };
-
-                        if accepted {
-                            if let Some(data) = input_for_peon {
-                                record_peon_input_side_effects(&state, &id, &data);
+                            if let TerminalAction::Input(ref data) = action {
+                                record_peon_input_side_effects(&state, &id, data);
                             }
+                            pending_command = spawn_command_future(state.clone(), id.clone(), action);
                         }
                     }
                     Some(Ok(Message::Close(_))) | None => break,
@@ -919,14 +942,41 @@ mod tests {
     }
 
     #[test]
-    fn pending_action_queue_drains_input_before_kill_so_typed_data_is_not_lost() {
+    fn pending_action_queue_drains_input_and_resize_before_kill_so_nothing_typed_is_lost() {
         let mut queue = PendingActionQueue::default();
         queue.push(TerminalAction::Input("x".into()));
         queue.push(TerminalAction::Resize { rows: 10, cols: 20 });
         queue.push(TerminalAction::Kill);
         assert_eq!(queue.take_next(), Some(TerminalAction::Input("x".into())));
-        assert_eq!(queue.take_next(), Some(TerminalAction::Kill));
         assert_eq!(queue.take_next(), Some(TerminalAction::Resize { rows: 10, cols: 20 }));
+        assert_eq!(queue.take_next(), Some(TerminalAction::Kill));
+        assert_eq!(queue.take_next(), None);
+    }
+
+    #[test]
+    fn pending_action_queue_preserves_arrival_order_across_input_and_resize() {
+        // A resize queued before input must still be applied before that input, since the
+        // PTY writer applies RuntimeCommands in strict send order and a full-screen app can
+        // misbehave if it receives keys/output at the wrong size.
+        let mut queue = PendingActionQueue::default();
+        queue.push(TerminalAction::Resize { rows: 10, cols: 20 });
+        queue.push(TerminalAction::Input("x".into()));
+        assert_eq!(queue.take_next(), Some(TerminalAction::Resize { rows: 10, cols: 20 }));
+        assert_eq!(queue.take_next(), Some(TerminalAction::Input("x".into())));
+        assert_eq!(queue.take_next(), None);
+    }
+
+    #[test]
+    fn pending_action_queue_coalesces_only_consecutive_same_type_entries() {
+        // Input -> Resize -> Input must stay in that order (three items), not merge the two
+        // Input pushes together across the intervening Resize.
+        let mut queue = PendingActionQueue::default();
+        queue.push(TerminalAction::Input("a".into()));
+        queue.push(TerminalAction::Resize { rows: 10, cols: 20 });
+        queue.push(TerminalAction::Input("b".into()));
+        assert_eq!(queue.take_next(), Some(TerminalAction::Input("a".into())));
+        assert_eq!(queue.take_next(), Some(TerminalAction::Resize { rows: 10, cols: 20 }));
+        assert_eq!(queue.take_next(), Some(TerminalAction::Input("b".into())));
         assert_eq!(queue.take_next(), None);
     }
 
