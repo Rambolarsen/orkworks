@@ -604,9 +604,9 @@ html, body, #root {
   margin: 0;
 }
 
-/* One line, triage only: unread dot, indicator, and name left; attention word
+/* One line, triage only: status signal and name left; attention word
    (interrupt tones), tool mark, time, kill right. The indicator is the one
-   tone signal — no left-border accent. Everything else lives in Detail. */
+   signal slot — no separate unread gutter or left-border accent. */
 .session-row {
   display: flex;
   align-items: center;
@@ -630,23 +630,13 @@ html, body, #root {
 
 /* Which tones are "loud" lives in labels.ts (isLoudTone) — the component
    stamps session-row--loud so this file never re-lists the tone set. */
-.session-row--loud   .session-row-label,
-.session-row--unread .session-row-label { font-weight: var(--weight-semibold); }
+.session-row--loud .session-row-label { font-weight: var(--weight-semibold); }
 
 .session-row-leading {
   display: flex;
   align-items: center;
-  gap: 6px;
   min-width: 0;
   flex: 1;
-}
-
-.session-row-unread-slot {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 6px;
-  flex-shrink: 0;
 }
 
 .session-row-primary {
@@ -728,9 +718,18 @@ html, body, #root {
   color: var(--attention-neutral);
 }
 
-.status-indicator-dot {
+.status-indicator-dot::before {
+  content: "";
   width: 8px;
   height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.status-indicator-unread::before {
+  content: "";
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: currentColor;
 }
@@ -741,14 +740,6 @@ html, body, #root {
 .status-indicator[data-attention="working"]   { color: var(--attention-working); }
 .status-indicator[data-attention="failed"]    { color: var(--attention-failed); }
 .status-indicator[data-attention="idle"]      { color: var(--attention-idle); }
-
-.session-row-unread-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--unread-dot);
-  flex-shrink: 0;
-}
 
 @media (prefers-reduced-motion: no-preference) {
   .status-indicator-spin { animation: status-indicator-spin 1s linear infinite; }

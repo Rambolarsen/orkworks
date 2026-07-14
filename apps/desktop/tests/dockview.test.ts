@@ -243,6 +243,36 @@ test("transitional lifecycle phases render a spinner without lifecycle copy", ()
   }
 });
 
+test("StatusIndicator gives working precedence and renders unread results accessibly", () => {
+  const source = readFileSync(
+    new URL("../src/components/StatusIndicator.tsx", import.meta.url),
+    "utf8",
+  );
+  const css = readFileSync(new URL("../src/App.css", import.meta.url), "utf8");
+
+  assert.match(source, /variant\?:\s*"status"\s*\|\s*"unread"/);
+  assert.match(source, /variant\s*=\s*"status"/);
+  assert.match(source, /variant\s*===\s*"unread"\s*&&\s*tone\s*!==\s*"working"/);
+  assert.match(source, /className="status-indicator status-indicator-unread"/);
+  assert.match(source, /aria-label=\{`Unread:\s*\$\{label\}`\}/);
+  assert.match(css, /\.status-indicator\s*\{[\s\S]*width:\s*14px;[\s\S]*height:\s*14px;/);
+  assert.match(css, /\.status-indicator-dot::before\s*\{[\s\S]*width:\s*8px;[\s\S]*height:\s*8px;/);
+  assert.match(css, /\.status-indicator-unread::before\s*\{[\s\S]*width:\s*7px;[\s\S]*height:\s*7px;/);
+  for (const tone of ["needs-you", "blocked", "failed", "idle"]) {
+    assert.match(css, new RegExp(`\\.status-indicator\\[data-attention="${tone}"\\]`));
+  }
+});
+
+test("SessionDetailPanel keeps the normal status variant", () => {
+  const source = readFileSync(
+    new URL("../src/components/SessionDetailPanel.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(source, /<StatusIndicator tone=\{tone\} label=\{transitional \? "" : attentionLabel\(attn\)\} \/>/);
+  assert.doesNotMatch(source, /<StatusIndicator[^>]*variant=/);
+});
+
 test("session detail exposes resumable session action", () => {
   const panelSource = readFileSync(
     new URL("../src/components/SessionDetailPanel.tsx", import.meta.url),
@@ -287,7 +317,7 @@ test("session list only offers kill for alive sessions", () => {
   assert.doesNotMatch(deadBlock, /session-row-kill/);
 });
 
-test("session list keeps tool/time metadata separate from unread and destructive controls", () => {
+test("session list uses one status slot and keeps tool/time metadata separate from destructive controls", () => {
   const panel = readFileSync(
     new URL("../src/components/SessionListPanel.tsx", import.meta.url),
     "utf8",
@@ -295,9 +325,9 @@ test("session list keeps tool/time metadata separate from unread and destructive
   const css = readFileSync(new URL("../src/App.css", import.meta.url), "utf8");
 
   assert.match(panel, /className="session-row-meta"[\s\S]*HarnessIcon[\s\S]*session-row-time/);
-  assert.match(panel, /className="session-row-leading"[\s\S]*session-row-unread-slot[\s\S]*session-row-primary/);
-  assert.match(panel, /session-row-unread-slot[\s\S]*session-row-unread-dot/);
-  assert.doesNotMatch(panel, /className="session-row-actions"[\s\S]*session-row-unread-dot/);
+  assert.match(panel, /className="session-row-primary"[\s\S]*<StatusIndicator[^>]*variant=\{unread \? "unread" : "status"\}/);
+  assert.doesNotMatch(panel, /session-row-unread-slot/);
+  assert.doesNotMatch(panel, /session-row-unread-dot/);
   assert.match(css, /\.session-row-meta\s*\{/);
   assert.match(css, /\.session-row-actions\s*\{/);
 });
@@ -306,14 +336,20 @@ test("session list keeps the right-side metadata footprint compact", () => {
   const css = readFileSync(new URL("../src/App.css", import.meta.url), "utf8");
 
   assert.match(css, /\.session-row\s*\{[\s\S]*padding:\s*var\(--space-3\) var\(--space-5\) var\(--space-3\) var\(--space-2\);/);
-  assert.match(css, /\.session-row-leading\s*\{[\s\S]*gap:\s*6px;/);
-  assert.match(css, /\.session-row-unread-slot\s*\{[\s\S]*width:\s*6px;/);
   assert.match(css, /\.session-row-secondary\s*\{[\s\S]*gap:\s*var\(--space-1\);/);
   assert.match(css, /\.session-row-meta\s*\{[\s\S]*grid-template-columns:\s*12px 6ch;/);
   assert.match(css, /\.session-row-meta\s*\{[\s\S]*column-gap:\s*var\(--space-2\);/);
   assert.match(css, /\.session-row-actions\s*\{[\s\S]*gap:\s*0;/);
   assert.match(css, /\.session-row-kill\s*\{[\s\S]*padding:\s*0 2px;/);
   assert.match(css, /\.session-row-forget\s*\{[\s\S]*padding:\s*0 2px;/);
+});
+
+test("unread rows keep their tint without making the label bold", () => {
+  const css = readFileSync(new URL("../src/App.css", import.meta.url), "utf8");
+
+  assert.match(css, /\.session-row--unread,\s*\n\.session-row--unread:hover\s*\{\s*background:\s*var\(--surface-2\);\s*\}/);
+  assert.doesNotMatch(css, /\.session-row--unread\s+\.session-row-label/);
+  assert.match(css, /\.session-row--loud\s+\.session-row-label\s*\{\s*font-weight:\s*var\(--weight-semibold\);\s*\}/);
 });
 
 test("session list destructive controls still stop row selection propagation", () => {

@@ -82,9 +82,6 @@
   --attention-idle: #4b5563;
   --attention-neutral: var(--line-strong);
 
-  /* Unread — "something changed since you looked", orthogonal to attention tone */
-  --unread-dot: #8ec7ff;   /* lighter than --azure so it never reads as another needs-you cue */
-
   /* Metadata source */
   --source-agent: var(--ork-lime);
   --source-peon: var(--state-info);
@@ -222,8 +219,6 @@
 
   --attention-idle: #9aa1ad;
   --attention-needs-you: #1f6feb;     /* deeper azure for contrast on white */
-
-  --unread-dot: #4d94ff;   /* lighter than the deep needs-you azure, still readable on white */
 
   --accent: #6f9908;
   --accent-strong: #5f8a00;

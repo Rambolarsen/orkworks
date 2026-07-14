@@ -24,15 +24,37 @@ test("first snapshot marks nothing unread", () => {
   assert.equal(state.unreadIds.size, 0);
 });
 
-test("attention change on an inactive session marks it unread", () => {
-  const first = trackUnread(EMPTY_UNREAD_STATE, [session("a")], null);
-  const next = trackUnread(first, [session("a", { attention: "needs_you" })], null);
-  assert.ok(next.unreadIds.has("a"));
-});
+for (const result of ["idle", "needs_you", "blocked", "failed", "capped"] as const) {
+  test(`working to ${result} on an inactive live session marks it unread`, () => {
+    const first = trackUnread(EMPTY_UNREAD_STATE, [session("a")], null);
+    const next = trackUnread(first, [session("a", { attention: result })], null);
+    assert.ok(next.unreadIds.has("a"));
+  });
+}
 
 test("attention change on the active session never marks it unread", () => {
   const first = trackUnread(EMPTY_UNREAD_STATE, [session("a")], "a");
   const next = trackUnread(first, [session("a", { attention: "needs_you" })], "a");
+  assert.equal(next.unreadIds.has("a"), false);
+});
+
+test("non-working to non-working changes do not mark an inactive session unread", () => {
+  const first = trackUnread(
+    EMPTY_UNREAD_STATE,
+    [session("a", { attention: "idle" })],
+    null,
+  );
+  const next = trackUnread(first, [session("a", { attention: "needs_you" })], null);
+  assert.equal(next.unreadIds.has("a"), false);
+});
+
+test("working to dead does not mark a remembered session unread", () => {
+  const first = trackUnread(EMPTY_UNREAD_STATE, [session("a")], null);
+  const next = trackUnread(
+    first,
+    [session("a", { status: "ended", lifecycle: "dead", attention: undefined, memoryState: "remembered" })],
+    null,
+  );
   assert.equal(next.unreadIds.has("a"), false);
 });
 
@@ -58,6 +80,13 @@ test("selecting a session clears it even while its status keeps changing", () =>
   assert.ok(changed.unreadIds.has("a"));
   const selected = trackUnread(clearUnread(changed, "a"), [session("a", { attention: "needs_you" })], "a");
   assert.equal(selected.unreadIds.has("a"), false);
+});
+
+test("an unread latch survives an unexpected return to working while inactive", () => {
+  const first = trackUnread(EMPTY_UNREAD_STATE, [session("a")], null);
+  const result = trackUnread(first, [session("a", { attention: "idle" })], null);
+  const workingAgain = trackUnread(result, [session("a")], null);
+  assert.ok(workingAgain.unreadIds.has("a"));
 });
 
 test("a session appearing mid-run starts read, not unread", () => {
