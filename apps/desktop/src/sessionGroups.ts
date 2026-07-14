@@ -9,15 +9,18 @@ export const GROUP_LABELS: Record<GroupKey, string> = {
 };
 
 export function groupForSession(s: SessionInfo, now: Date): GroupKey {
-  const created = new Date(s.created_at);
-  if (Number.isNaN(created.getTime())) return "earlier";
+  const lastActivity = s.lastActivityAt ? new Date(s.lastActivityAt) : undefined;
+  const groupingTime = lastActivity && !Number.isNaN(lastActivity.getTime())
+    ? lastActivity
+    : new Date(s.created_at);
+  if (Number.isNaN(groupingTime.getTime())) return "earlier";
   const sameDay =
-    created.getFullYear() === now.getFullYear() &&
-    created.getMonth() === now.getMonth() &&
-    created.getDate() === now.getDate();
+    groupingTime.getFullYear() === now.getFullYear() &&
+    groupingTime.getMonth() === now.getMonth() &&
+    groupingTime.getDate() === now.getDate();
   if (sameDay) return "today";
   const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
-  if (now.getTime() - created.getTime() < sevenDaysMs) return "week";
+  if (now.getTime() - groupingTime.getTime() < sevenDaysMs) return "week";
   return "earlier";
 }
 
