@@ -1,3 +1,4 @@
+use crate::runtime::session_runtime::STARTUP_PENDING_INPUT_BYTES as QUEUED_INPUT_CAP_BYTES;
 use crate::session_view::{connectivity_for_status, terminal_outcome_for_status};
 use crate::workspace_runtime::iso_now;
 use crate::{harness, metadata, peon, providers, AppState};
@@ -48,6 +49,78 @@ pub(crate) enum TerminalAction {
     Noop,
 }
 
+/// Buffers terminal actions that arrive while a previous command is still being sent to
+/// the PTY runtime, so the websocket read loop can keep polling for Close without silently
+/// dropping keystrokes typed during that (normally sub-millisecond) window.
+///
+/// Input and Resize entries preserve arrival order (the PTY writer applies RuntimeCommands in
+/// strict send order, and a full-screen app can misbehave if it sees keys/output at the wrong
+/// size), while consecutive same-type pushes still coalesce into one entry. Kill always drains
+/// last so nothing typed or resized before it is discarded in favor of ending the session.
+#[derive(Debug, PartialEq)]
+enum QueuedItem {
+    Input(String),
+    Resize { rows: u16, cols: u16 },
+}
+
+#[derive(Debug, Default, PartialEq)]
+pub(crate) struct PendingActionQueue {
+    items: std::collections::VecDeque<QueuedItem>,
+    input_bytes: usize,
+    kill: bool,
+}
+
+impl PendingActionQueue {
+    /// Returns `true` if this action's input was dropped for exceeding the queue's cap.
+    pub(crate) fn push(&mut self, action: TerminalAction) -> bool {
+        match action {
+            TerminalAction::Input(data) => {
+                if self.input_bytes + data.len() > QUEUED_INPUT_CAP_BYTES {
+                    return true;
+                }
+                self.input_bytes += data.len();
+                if let Some(QueuedItem::Input(existing)) = self.items.back_mut() {
+                    existing.push_str(&data);
+                } else {
+                    self.items.push_back(QueuedItem::Input(data));
+                }
+                false
+            }
+            TerminalAction::Resize { rows, cols } => {
+                if let Some(QueuedItem::Resize { rows: r, cols: c }) = self.items.back_mut() {
+                    *r = rows;
+                    *c = cols;
+                } else {
+                    self.items.push_back(QueuedItem::Resize { rows, cols });
+                }
+                false
+            }
+            TerminalAction::Kill => {
+                self.kill = true;
+                false
+            }
+            TerminalAction::Noop => false,
+        }
+    }
+
+    pub(crate) fn take_next(&mut self) -> Option<TerminalAction> {
+        if let Some(item) = self.items.pop_front() {
+            return Some(match item {
+                QueuedItem::Input(data) => {
+                    self.input_bytes -= data.len();
+                    TerminalAction::Input(data)
+                }
+                QueuedItem::Resize { rows, cols } => TerminalAction::Resize { rows, cols },
+            });
+        }
+        if self.kill {
+            self.kill = false;
+            return Some(TerminalAction::Kill);
+        }
+        None
+    }
+}
+
 pub(crate) fn dispatch_terminal_message(msg: &serde_json::Value) -> TerminalAction {
     match msg["type"].as_str() {
         Some("input") => {
@@ -61,6 +134,35 @@ pub(crate) fn dispatch_terminal_message(msg: &serde_json::Value) -> TerminalActi
         }
         Some("kill") => TerminalAction::Kill,
         _ => TerminalAction::Noop,
+    }
+}
+
+type PendingCommandFuture = Pin<Box<dyn Future<Output = Result<(), ()>> + Send>>;
+
+fn spawn_command_future(
+    state: Arc<AppState>,
+    id: String,
+    action: TerminalAction,
+) -> Option<PendingCommandFuture> {
+    match action {
+        TerminalAction::Input(data) => Some(Box::pin(async move {
+            crate::runtime::session_runtime::send_runtime_command(
+                &state,
+                &id,
+                crate::runtime::session_runtime::RuntimeCommand::Input(data),
+            ).await
+        })),
+        TerminalAction::Resize { rows, cols } => Some(Box::pin(async move {
+            crate::runtime::session_runtime::update_runtime_size(&state, &id, rows, cols).await
+        })),
+        TerminalAction::Kill => Some(Box::pin(async move {
+            crate::runtime::session_runtime::send_runtime_command(
+                &state,
+                &id,
+                crate::runtime::session_runtime::RuntimeCommand::Kill,
+            ).await
+        })),
+        TerminalAction::Noop => None,
     }
 }
 
@@ -127,6 +229,78 @@ fn mark_usage_limit_recheck_on_input(state: &Arc<AppState>, id: &str) {
         return;
     }
     handle.resume_scan_origin = Some((handle.output_lines_seen, handle.scan_bytes_seen));
+}
+
+/// Peon bookkeeping (usage-limit recheck, line-buffered label inference, activity timestamps)
+/// for a chunk of terminal input that has been accepted for delivery to the PTY. Call only
+/// once delivery is actually accepted — never for input dropped by `PendingActionQueue`.
+fn record_peon_input_side_effects(state: &Arc<AppState>, id: &str, data: &str) {
+    if !data.is_empty() {
+        mark_usage_limit_recheck_on_input(state, id);
+    }
+
+    let mut triggered_label = false;
+    let collected_line = {
+        let mut bufs = state.peon.input_buf.write().unwrap();
+        let buf = bufs.entry(id.to_string()).or_default();
+        collect_input_line(buf, data)
+    };
+    if let Some(line) = collected_line {
+        let is_sensitive = {
+            let sessions = state.sessions.lock().unwrap();
+            sessions.get(id)
+                .map(|h| peon::looks_like_password_prompt(&h.output_buffer.last_n(5)))
+                .unwrap_or(false)
+        };
+        let label_worthy = !is_sensitive && peon::is_descriptive_input(&line);
+        if !is_sensitive {
+            let ws_guard = state.workspace.lock().unwrap();
+            if let Some(ref ws) = *ws_guard {
+                if let Some(mut meta) = ws.metadata.read_session(id) {
+                    if label_worthy {
+                        meta.label = line.clone();
+                    }
+                    meta.last_user_input = Some(line.clone());
+                    if peon::is_terminal_observed_status(meta.observed_status.as_deref()) {
+                        meta.observed_status = None;
+                        // "user" blocks Peon from immediately re-writing idle/done;
+                        // it relinquishes on the next Peon inference write.
+                        meta.metadata_source = "user".into();
+                    }
+                    ws.metadata.write_session(&meta);
+                }
+            }
+        }
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            if let Some(handle) = sessions.get_mut(id) {
+                if label_worthy {
+                    handle.info.label = line.clone();
+                }
+                if !is_sensitive && peon::is_terminal_observed_status(
+                    handle.info.observed_status.as_deref(),
+                ) {
+                    handle.info.observed_status = None;
+                    handle.info.metadata_source = Some("user".into());
+                }
+            }
+        }
+        if state.peon.config.enabled && line.len() > peon::HINT_MIN_LEN && label_worthy {
+            state.peon.label_hint.write().unwrap().insert(id.to_string(), line);
+            state.peon.label_pending.write().unwrap().insert(id.to_string());
+            triggered_label = true;
+        }
+    }
+
+    if state.peon.config.enabled && !data.is_empty() {
+        let ts = if triggered_label {
+            tokio::time::Instant::now() - std::time::Duration::from_secs(3600)
+        } else {
+            tokio::time::Instant::now()
+        };
+        state.peon.last_output.write().unwrap().insert(id.to_string(), ts);
+        state.peon.last_inference.write().unwrap().remove(id);
+    }
 }
 
 pub(crate) fn should_forward_terminal_env(key: &str) -> bool {
@@ -517,7 +691,8 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
 
     let generation = attachment.generation;
     let mut events = attachment.events;
-    let mut pending_command: Option<Pin<Box<dyn Future<Output = Result<(), ()>> + Send>>> = None;
+    let mut pending_command: Option<PendingCommandFuture> = None;
+    let mut queue = PendingActionQueue::default();
 
     loop {
         tokio::select! {
@@ -530,7 +705,16 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
                 if result.is_err() {
                     break;
                 }
-                pending_command = None;
+                let next_action = queue.take_next();
+                // Record Peon side effects only now, as the queued action is actually handed
+                // to the PTY runtime — not when it was merely accepted into the queue. If the
+                // websocket closes before a queued item drains, it's simply never dispatched
+                // and no side effects for it are recorded either.
+                if let Some(TerminalAction::Input(ref data)) = next_action {
+                    record_peon_input_side_effects(&state, &id, data);
+                }
+                pending_command = next_action
+                    .and_then(|action| spawn_command_future(state.clone(), id.clone(), action));
             }
             event = events.recv() => {
                 match event {
@@ -565,113 +749,33 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
             msg = ws.recv() => {
                 match msg {
                     Some(Ok(Message::Text(text))) => {
-                        if pending_command.is_some() {
-                            continue;
-                        }
                         let val: serde_json::Value = match serde_json::from_str(&text) {
                             Ok(v) => v,
                             Err(_) => continue,
                         };
-                        match dispatch_terminal_message(&val) {
-                            TerminalAction::Input(data) => {
-                                if !data.is_empty() {
-                                    mark_usage_limit_recheck_on_input(&state, &id);
-                                }
+                        let action = dispatch_terminal_message(&val);
 
-                                let mut triggered_label = false;
-                                let collected_line = {
-                                    let mut bufs = state.peon.input_buf.write().unwrap();
-                                    let buf = bufs.entry(id.clone()).or_insert_with(String::new);
-                                    collect_input_line(buf, &data)
-                                };
-                                if let Some(line) = collected_line {
-                                    let is_sensitive = {
-                                        let sessions = state.sessions.lock().unwrap();
-                                        sessions.get(&id)
-                                            .map(|h| peon::looks_like_password_prompt(&h.output_buffer.last_n(5)))
-                                            .unwrap_or(false)
-                                    };
-                                    let label_worthy = !is_sensitive && peon::is_descriptive_input(&line);
-                                    if !is_sensitive {
-                                        let ws_guard = state.workspace.lock().unwrap();
-                                        if let Some(ref ws) = *ws_guard {
-                                            if let Some(mut meta) = ws.metadata.read_session(&id) {
-                                                if label_worthy {
-                                                    meta.label = line.clone();
-                                                }
-                                                meta.last_user_input = Some(line.clone());
-                                                if peon::is_terminal_observed_status(meta.observed_status.as_deref()) {
-                                                    meta.observed_status = None;
-                                                    // "user" blocks Peon from immediately re-writing idle/done;
-                                                    // it relinquishes on the next Peon inference write.
-                                                    meta.metadata_source = "user".into();
-                                                }
-                                                ws.metadata.write_session(&meta);
-                                            }
-                                        }
-                                    }
-                                    {
-                                        let mut sessions = state.sessions.lock().unwrap();
-                                        if let Some(handle) = sessions.get_mut(&id) {
-                                            if label_worthy {
-                                                handle.info.label = line.clone();
-                                            }
-                                            if !is_sensitive && peon::is_terminal_observed_status(
-                                                handle.info.observed_status.as_deref(),
-                                            ) {
-                                                handle.info.observed_status = None;
-                                                handle.info.metadata_source = Some("user".into());
-                                            }
-                                        }
-                                    }
-                                    if state.peon.config.enabled && line.len() > peon::HINT_MIN_LEN && label_worthy {
-                                        state.peon.label_hint.write().unwrap().insert(id.clone(), line);
-                                        state.peon.label_pending.write().unwrap().insert(id.clone());
-                                        triggered_label = true;
-                                    }
-                                }
-
-                                if state.peon.config.enabled && !data.is_empty() {
-                                    let ts = if triggered_label {
-                                        tokio::time::Instant::now() - std::time::Duration::from_secs(3600)
-                                    } else {
-                                        tokio::time::Instant::now()
-                                    };
-                                    state.peon.last_output.write().unwrap().insert(id.clone(), ts);
-                                    state.peon.last_inference.write().unwrap().remove(&id);
-                                }
-
-                                let state = state.clone();
-                                let id = id.clone();
-                                pending_command = Some(Box::pin(async move {
-                                    crate::runtime::session_runtime::send_runtime_command(
-                                        &state,
-                                        &id,
-                                        crate::runtime::session_runtime::RuntimeCommand::Input(data),
-                                    ).await
-                                }));
+                        if pending_command.is_some() {
+                            // A command is already in flight (normally resolves in well under
+                            // a millisecond); queue this one instead of dropping it so
+                            // keystrokes typed during that window aren't silently lost. See
+                            // #159 review finding on terminal_runtime.rs re: parking Close
+                            // detection, which is why we don't just `.await` inline here. Peon
+                            // side effects for queued input are recorded later, when the
+                            // queued action is actually dispatched to the PTY (see the
+                            // pending_command resolution branch above) — not here, so
+                            // metadata doesn't claim input the PTY never received.
+                            if queue.push(action) {
+                                tracing::warn!(session_id = %id, "dropped terminal input: queue cap exceeded");
+                                let _ = ws.send(Message::Text(
+                                    serde_json::json!({ "type": "input-dropped" }).to_string().into()
+                                )).await;
                             }
-                            TerminalAction::Resize { rows, cols } => {
-                                let state = state.clone();
-                                let id = id.clone();
-                                pending_command = Some(Box::pin(async move {
-                                    crate::runtime::session_runtime::update_runtime_size(
-                                        &state, &id, rows, cols,
-                                    ).await
-                                }));
+                        } else {
+                            if let TerminalAction::Input(ref data) = action {
+                                record_peon_input_side_effects(&state, &id, data);
                             }
-                            TerminalAction::Kill => {
-                                let state = state.clone();
-                                let id = id.clone();
-                                pending_command = Some(Box::pin(async move {
-                                    crate::runtime::session_runtime::send_runtime_command(
-                                        &state,
-                                        &id,
-                                        crate::runtime::session_runtime::RuntimeCommand::Kill,
-                                    ).await
-                                }));
-                            }
-                            TerminalAction::Noop => {}
+                            pending_command = spawn_command_future(state.clone(), id.clone(), action);
                         }
                     }
                     Some(Ok(Message::Close(_))) | None => break,
@@ -817,6 +921,78 @@ mod tests {
         let msg = serde_json::json!({"type": "unknown"});
         let action = dispatch_terminal_message(&msg);
         assert_eq!(action, TerminalAction::Noop);
+    }
+
+    #[test]
+    fn pending_action_queue_coalesces_consecutive_input() {
+        let mut queue = PendingActionQueue::default();
+        assert!(!queue.push(TerminalAction::Input("h".into())));
+        assert!(!queue.push(TerminalAction::Input("i".into())));
+        assert_eq!(queue.take_next(), Some(TerminalAction::Input("hi".into())));
+        assert_eq!(queue.take_next(), None);
+    }
+
+    #[test]
+    fn pending_action_queue_replaces_resize_with_latest() {
+        let mut queue = PendingActionQueue::default();
+        queue.push(TerminalAction::Resize { rows: 10, cols: 20 });
+        queue.push(TerminalAction::Resize { rows: 30, cols: 40 });
+        assert_eq!(queue.take_next(), Some(TerminalAction::Resize { rows: 30, cols: 40 }));
+        assert_eq!(queue.take_next(), None);
+    }
+
+    #[test]
+    fn pending_action_queue_drains_input_and_resize_before_kill_so_nothing_typed_is_lost() {
+        let mut queue = PendingActionQueue::default();
+        queue.push(TerminalAction::Input("x".into()));
+        queue.push(TerminalAction::Resize { rows: 10, cols: 20 });
+        queue.push(TerminalAction::Kill);
+        assert_eq!(queue.take_next(), Some(TerminalAction::Input("x".into())));
+        assert_eq!(queue.take_next(), Some(TerminalAction::Resize { rows: 10, cols: 20 }));
+        assert_eq!(queue.take_next(), Some(TerminalAction::Kill));
+        assert_eq!(queue.take_next(), None);
+    }
+
+    #[test]
+    fn pending_action_queue_preserves_arrival_order_across_input_and_resize() {
+        // A resize queued before input must still be applied before that input, since the
+        // PTY writer applies RuntimeCommands in strict send order and a full-screen app can
+        // misbehave if it receives keys/output at the wrong size.
+        let mut queue = PendingActionQueue::default();
+        queue.push(TerminalAction::Resize { rows: 10, cols: 20 });
+        queue.push(TerminalAction::Input("x".into()));
+        assert_eq!(queue.take_next(), Some(TerminalAction::Resize { rows: 10, cols: 20 }));
+        assert_eq!(queue.take_next(), Some(TerminalAction::Input("x".into())));
+        assert_eq!(queue.take_next(), None);
+    }
+
+    #[test]
+    fn pending_action_queue_coalesces_only_consecutive_same_type_entries() {
+        // Input -> Resize -> Input must stay in that order (three items), not merge the two
+        // Input pushes together across the intervening Resize.
+        let mut queue = PendingActionQueue::default();
+        queue.push(TerminalAction::Input("a".into()));
+        queue.push(TerminalAction::Resize { rows: 10, cols: 20 });
+        queue.push(TerminalAction::Input("b".into()));
+        assert_eq!(queue.take_next(), Some(TerminalAction::Input("a".into())));
+        assert_eq!(queue.take_next(), Some(TerminalAction::Resize { rows: 10, cols: 20 }));
+        assert_eq!(queue.take_next(), Some(TerminalAction::Input("b".into())));
+        assert_eq!(queue.take_next(), None);
+    }
+
+    #[test]
+    fn pending_action_queue_take_next_returns_none_when_empty() {
+        let mut queue = PendingActionQueue::default();
+        assert_eq!(queue.take_next(), None);
+    }
+
+    #[test]
+    fn pending_action_queue_drops_input_past_cap_without_growing() {
+        let mut queue = PendingActionQueue::default();
+        let chunk = "x".repeat(QUEUED_INPUT_CAP_BYTES);
+        assert!(!queue.push(TerminalAction::Input(chunk.clone())));
+        assert!(queue.push(TerminalAction::Input("overflow".into())));
+        assert_eq!(queue.take_next(), Some(TerminalAction::Input(chunk)));
     }
 
     #[test]

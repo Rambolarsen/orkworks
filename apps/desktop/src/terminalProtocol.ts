@@ -3,7 +3,8 @@ export type TerminalControlMessage =
   | { type: "replay-end"; cursor: number }
   | { type: "ended"; status: string }
   | { type: "error"; code: string; message: string }
-  | { type: "terminal-unavailable"; reason: string };
+  | { type: "terminal-unavailable"; reason: string }
+  | { type: "input-dropped" };
 
 export function parseTerminalControlMessage(
   raw: string,
@@ -32,6 +33,8 @@ export function parseTerminalControlMessage(
           return { type: "terminal-unavailable", reason: value.reason };
         }
         return null;
+      case "input-dropped":
+        return { type: "input-dropped" };
       default:
         return null;
     }

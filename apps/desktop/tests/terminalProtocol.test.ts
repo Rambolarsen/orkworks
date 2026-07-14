@@ -26,6 +26,13 @@ test("parseTerminalControlMessage ignores malformed payloads", () => {
   assert.equal(parseTerminalControlMessage('{"type":"ended"}'), null);
 });
 
+test("parseTerminalControlMessage parses typed input-dropped frames", () => {
+  assert.deepEqual(
+    parseTerminalControlMessage('{"type":"input-dropped"}'),
+    { type: "input-dropped" },
+  );
+});
+
 test("shouldReplayTerminalOutputOnClose skips intentional detach", () => {
   assert.equal(
     shouldReplayTerminalOutputOnClose({ disposed: true, receivedData: false }),
