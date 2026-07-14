@@ -4,8 +4,8 @@ import { sessionAttentionStatus } from "./sessionSort.ts";
 /**
  * Unread — "something changed since you last looked" — is orthogonal to
  * attention tone: tone says *what* a session needs, unread says *have you
- * seen it*. A session becomes unread when its attention status changes while
- * it is not the selected session; selecting it clears the flag.
+ * seen it*. A live session becomes unread when it finishes a working turn
+ * while it is not selected; selecting it clears the flag.
  *
  * The signature is the normalized attention status, not raw activity — an
  * actively working session emits output every poll, and flagging that would
@@ -23,6 +23,8 @@ export const EMPTY_UNREAD_STATE: UnreadState = {
   unreadIds: new Set(),
 };
 
+const WORKING_RESULTS = new Set(["idle", "needs_you", "blocked", "failed", "capped"]);
+
 export function trackUnread(
   prev: UnreadState,
   sessions: readonly SessionInfo[],
@@ -35,8 +37,10 @@ export function trackUnread(
     signatures.set(s.id, sig);
     if (s.id === activeSessionId) continue; // being looked at right now
     const prevSig = prev.signatures.get(s.id);
-    const changed = prevSig !== undefined && prevSig !== sig;
-    if (changed || prev.unreadIds.has(s.id)) unreadIds.add(s.id);
+    const becameResult = prevSig === "working" && WORKING_RESULTS.has(sig);
+    if (s.lifecycle === "alive" && (becameResult || prev.unreadIds.has(s.id))) {
+      unreadIds.add(s.id);
+    }
   }
   // Sessions are re-fetched every couple of seconds; returning the same
   // object when nothing changed lets React setState bail out instead of

@@ -151,11 +151,12 @@ function SessionListPanel({
                     onClick={() => handleSelect(s.id)}
                   >
                     <div className="session-row-leading">
-                      <span className="session-row-unread-slot" aria-hidden="true">
-                        {unread && <span className="session-row-unread-dot" />}
-                      </span>
                       <div className="session-row-primary">
-                        <StatusIndicator tone={tone} label={transitional ? "" : attentionLabel(attn)} />
+                        <StatusIndicator
+                          tone={tone}
+                          label={transitional ? "" : attentionLabel(attn)}
+                          variant={unread ? "unread" : "status"}
+                        />
                         <span className="session-row-label">{s.label}</span>
                       </div>
                     </div>
