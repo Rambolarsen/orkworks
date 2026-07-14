@@ -1053,7 +1053,14 @@ impl MetadataStore {
                 confidence: inf.confidence.min(0.50),
             });
 
-        meta.observed_status = inf.observed_status.clone().or(meta.observed_status);
+        // Observer-only inference cannot resume a finished/non-working session to
+        // `working` on its own — that requires qualifying user input, which clears
+        // `observed_status` via the terminal-input path first. See issue #170.
+        let resumes_finished_state = inf.observed_status.as_deref() == Some("working")
+            && crate::peon::is_terminal_observed_status(meta.observed_status.as_deref());
+        if !resumes_finished_state {
+            meta.observed_status = inf.observed_status.clone().or(meta.observed_status);
+        }
         if meta.lifecycle == "alive" {
             meta.attention = canonical_attention(meta.observed_status.as_deref());
         }
@@ -1491,6 +1498,63 @@ mod tests {
         assert_eq!(raw["summary"], "Needs a decision");
         assert_eq!(raw["needsUserInput"], true);
         assert_eq!(raw["peonLastInference"], "later");
+    }
+
+    #[test]
+    fn peon_inference_cannot_resume_finished_state_to_working() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+
+        for finished_status in ["idle", "waiting_for_input", "blocked", "failed", "stale", "done"] {
+            let id = format!("finished-{finished_status}");
+            let mut meta = test_metadata(&id);
+            meta.observed_status = Some(finished_status.into());
+            meta.attention = canonical_attention(Some(finished_status));
+            store.write_session(&meta);
+
+            let inf = crate::peon::PeonInference {
+                observed_status: Some("working".into()),
+                phase: None, summary: Some("still chattering".into()), next_action: None,
+                needs_user_input: None, detected_question: None, suggested_options: None,
+                blocker_description: None, failed_command: None, failed_test: None,
+                capacity_hints: None, confidence: 0.9,
+                detected_harness: None, detected_model: None, harness_session_id: None,
+            };
+            store.merge_peon_inference(&id, &inf, "later", None).unwrap();
+
+            let updated = store.read_session(&id).unwrap();
+            assert_eq!(
+                updated.observed_status.as_deref(),
+                Some(finished_status),
+                "observer-only inference should not resume {finished_status} to working"
+            );
+            // Non-status fields still update.
+            assert_eq!(updated.summary.as_deref(), Some("still chattering"));
+        }
+    }
+
+    #[test]
+    fn peon_inference_resumes_to_working_once_user_input_cleared_status() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        // Mirrors the terminal-input path: qualifying user input clears
+        // observed_status to None before the next Peon inference write.
+        let mut meta = test_metadata("cleared-by-user");
+        meta.observed_status = None;
+        store.write_session(&meta);
+
+        let inf = crate::peon::PeonInference {
+            observed_status: Some("working".into()),
+            phase: None, summary: None, next_action: None,
+            needs_user_input: None, detected_question: None, suggested_options: None,
+            blocker_description: None, failed_command: None, failed_test: None,
+            capacity_hints: None, confidence: 0.9,
+            detected_harness: None, detected_model: None, harness_session_id: None,
+        };
+        store.merge_peon_inference("cleared-by-user", &inf, "later", None).unwrap();
+
+        let updated = store.read_session("cleared-by-user").unwrap();
+        assert_eq!(updated.observed_status.as_deref(), Some("working"));
     }
 
     #[test]
