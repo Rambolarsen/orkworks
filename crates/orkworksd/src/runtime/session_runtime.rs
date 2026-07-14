@@ -16,7 +16,7 @@ const DEFAULT_REPLAY_CAPACITY: usize = 256;
 const DRIVER_EVENT_BUFFER_CAPACITY: usize = 64;
 const PERSIST_QUEUE_CAPACITY: usize = 64;
 const CONTROL_CHANNEL_CAPACITY: usize = 64;
-const STARTUP_PENDING_INPUT_BYTES: usize = 64 * 1024;
+pub(crate) const STARTUP_PENDING_INPUT_BYTES: usize = 64 * 1024;
 const INITIAL_RESIZE_GRACE: std::time::Duration = std::time::Duration::from_millis(150);
 const STARTUP_ATTENTION_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
 
