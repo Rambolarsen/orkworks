@@ -9,7 +9,10 @@ export const GROUP_LABELS: Record<GroupKey, string> = {
 };
 
 export function groupForSession(s: SessionInfo, now: Date): GroupKey {
-  const created = new Date(s.created_at);
+  const lastActivity = s.lastActivityAt ? new Date(s.lastActivityAt) : undefined;
+  const created = lastActivity && !Number.isNaN(lastActivity.getTime())
+    ? lastActivity
+    : new Date(s.created_at);
   if (Number.isNaN(created.getTime())) return "earlier";
   const sameDay =
     created.getFullYear() === now.getFullYear() &&

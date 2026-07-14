@@ -24,6 +24,16 @@ test("groupForSession buckets a session created earlier today as 'today'", () =>
   assert.equal(groupForSession(session("a", new Date(2026, 5, 28, 1, 0).toISOString()), now), "today");
 });
 
+test("groupForSession uses today's last activity for a session created yesterday", () => {
+  const now = new Date(2026, 5, 28, 18, 0);
+  const resumed = {
+    ...session("a", new Date(2026, 5, 27, 20, 0).toISOString()),
+    lastActivityAt: new Date(2026, 5, 28, 9, 0).toISOString(),
+  };
+
+  assert.equal(groupForSession(resumed, now), "today");
+});
+
 test("groupForSession buckets a session from 3 days ago as 'week'", () => {
   const now = new Date("2026-06-28T18:00:00Z");
   assert.equal(groupForSession(session("a", "2026-06-25T18:00:00Z"), now), "week");
