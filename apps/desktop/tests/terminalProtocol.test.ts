@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   parseTerminalControlMessage,
   shouldReplayTerminalOutputOnClose,
+  appendPendingInput,
 } from "../src/terminalProtocol.ts";
 
 test("parseTerminalControlMessage parses typed ended frames", () => {
@@ -37,4 +38,31 @@ test("shouldReplayTerminalOutputOnClose skips intentional detach", () => {
     shouldReplayTerminalOutputOnClose({ disposed: false, receivedData: true }),
     false,
   );
+});
+
+test("appendPendingInput appends while under the cap", () => {
+  assert.deepEqual(appendPendingInput("abc", "def", 10), {
+    next: "abcdef",
+    dropped: false,
+  });
+});
+
+test("appendPendingInput accepts a chunk that exactly fills the cap", () => {
+  assert.deepEqual(appendPendingInput("abcde", "fghij", 10), {
+    next: "abcdefghij",
+    dropped: false,
+  });
+});
+
+test("appendPendingInput drops the incoming chunk once it would exceed the cap", () => {
+  assert.deepEqual(appendPendingInput("abcdefghij", "k", 10), {
+    next: "abcdefghij",
+    dropped: true,
+  });
+});
+
+test("appendPendingInput keeps reporting dropped on repeated overflow without growing", () => {
+  const first = appendPendingInput("abcdefghij", "k", 10);
+  const second = appendPendingInput(first.next, "lmno", 10);
+  assert.deepEqual(second, { next: "abcdefghij", dropped: true });
 });
