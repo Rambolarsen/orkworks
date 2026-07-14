@@ -48,6 +48,54 @@ pub(crate) enum TerminalAction {
     Noop,
 }
 
+const QUEUED_INPUT_CAP_BYTES: usize = 64 * 1024;
+
+/// Buffers terminal actions that arrive while a previous command is still being sent to
+/// the PTY runtime, so the websocket read loop can keep polling for Close without silently
+/// dropping keystrokes typed during that (normally sub-millisecond) window.
+#[derive(Debug, Default, PartialEq)]
+pub(crate) struct PendingActionQueue {
+    kill: bool,
+    input: String,
+    resize: Option<(u16, u16)>,
+}
+
+impl PendingActionQueue {
+    /// Returns `true` if this action's input was dropped for exceeding the queue's cap.
+    pub(crate) fn push(&mut self, action: TerminalAction) -> bool {
+        match action {
+            TerminalAction::Input(data) => {
+                if self.input.len() + data.len() > QUEUED_INPUT_CAP_BYTES {
+                    return true;
+                }
+                self.input.push_str(&data);
+                false
+            }
+            TerminalAction::Resize { rows, cols } => {
+                self.resize = Some((rows, cols));
+                false
+            }
+            TerminalAction::Kill => {
+                self.kill = true;
+                false
+            }
+            TerminalAction::Noop => false,
+        }
+    }
+
+    /// Kill takes priority (it ends the session), then buffered input, then the latest resize.
+    pub(crate) fn take_next(&mut self) -> Option<TerminalAction> {
+        if self.kill {
+            self.kill = false;
+            return Some(TerminalAction::Kill);
+        }
+        if !self.input.is_empty() {
+            return Some(TerminalAction::Input(std::mem::take(&mut self.input)));
+        }
+        self.resize.take().map(|(rows, cols)| TerminalAction::Resize { rows, cols })
+    }
+}
+
 pub(crate) fn dispatch_terminal_message(msg: &serde_json::Value) -> TerminalAction {
     match msg["type"].as_str() {
         Some("input") => {
@@ -61,6 +109,35 @@ pub(crate) fn dispatch_terminal_message(msg: &serde_json::Value) -> TerminalActi
         }
         Some("kill") => TerminalAction::Kill,
         _ => TerminalAction::Noop,
+    }
+}
+
+type PendingCommandFuture = Pin<Box<dyn Future<Output = Result<(), ()>> + Send>>;
+
+fn spawn_command_future(
+    state: Arc<AppState>,
+    id: String,
+    action: TerminalAction,
+) -> Option<PendingCommandFuture> {
+    match action {
+        TerminalAction::Input(data) => Some(Box::pin(async move {
+            crate::runtime::session_runtime::send_runtime_command(
+                &state,
+                &id,
+                crate::runtime::session_runtime::RuntimeCommand::Input(data),
+            ).await
+        })),
+        TerminalAction::Resize { rows, cols } => Some(Box::pin(async move {
+            crate::runtime::session_runtime::update_runtime_size(&state, &id, rows, cols).await
+        })),
+        TerminalAction::Kill => Some(Box::pin(async move {
+            crate::runtime::session_runtime::send_runtime_command(
+                &state,
+                &id,
+                crate::runtime::session_runtime::RuntimeCommand::Kill,
+            ).await
+        })),
+        TerminalAction::Noop => None,
     }
 }
 
@@ -517,7 +594,8 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
 
     let generation = attachment.generation;
     let mut events = attachment.events;
-    let mut pending_command: Option<Pin<Box<dyn Future<Output = Result<(), ()>> + Send>>> = None;
+    let mut pending_command: Option<PendingCommandFuture> = None;
+    let mut queue = PendingActionQueue::default();
 
     loop {
         tokio::select! {
@@ -530,7 +608,9 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
                 if result.is_err() {
                     break;
                 }
-                pending_command = None;
+                pending_command = queue
+                    .take_next()
+                    .and_then(|action| spawn_command_future(state.clone(), id.clone(), action));
             }
             event = events.recv() => {
                 match event {
@@ -565,113 +645,92 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
             msg = ws.recv() => {
                 match msg {
                     Some(Ok(Message::Text(text))) => {
-                        if pending_command.is_some() {
-                            continue;
-                        }
                         let val: serde_json::Value = match serde_json::from_str(&text) {
                             Ok(v) => v,
                             Err(_) => continue,
                         };
-                        match dispatch_terminal_message(&val) {
-                            TerminalAction::Input(data) => {
-                                if !data.is_empty() {
-                                    mark_usage_limit_recheck_on_input(&state, &id);
-                                }
+                        let action = dispatch_terminal_message(&val);
 
-                                let mut triggered_label = false;
-                                let collected_line = {
-                                    let mut bufs = state.peon.input_buf.write().unwrap();
-                                    let buf = bufs.entry(id.clone()).or_insert_with(String::new);
-                                    collect_input_line(buf, &data)
+                        if let TerminalAction::Input(ref data) = action {
+                            if !data.is_empty() {
+                                mark_usage_limit_recheck_on_input(&state, &id);
+                            }
+
+                            let mut triggered_label = false;
+                            let collected_line = {
+                                let mut bufs = state.peon.input_buf.write().unwrap();
+                                let buf = bufs.entry(id.clone()).or_insert_with(String::new);
+                                collect_input_line(buf, data)
+                            };
+                            if let Some(line) = collected_line {
+                                let is_sensitive = {
+                                    let sessions = state.sessions.lock().unwrap();
+                                    sessions.get(&id)
+                                        .map(|h| peon::looks_like_password_prompt(&h.output_buffer.last_n(5)))
+                                        .unwrap_or(false)
                                 };
-                                if let Some(line) = collected_line {
-                                    let is_sensitive = {
-                                        let sessions = state.sessions.lock().unwrap();
-                                        sessions.get(&id)
-                                            .map(|h| peon::looks_like_password_prompt(&h.output_buffer.last_n(5)))
-                                            .unwrap_or(false)
-                                    };
-                                    let label_worthy = !is_sensitive && peon::is_descriptive_input(&line);
-                                    if !is_sensitive {
-                                        let ws_guard = state.workspace.lock().unwrap();
-                                        if let Some(ref ws) = *ws_guard {
-                                            if let Some(mut meta) = ws.metadata.read_session(&id) {
-                                                if label_worthy {
-                                                    meta.label = line.clone();
-                                                }
-                                                meta.last_user_input = Some(line.clone());
-                                                if peon::is_terminal_observed_status(meta.observed_status.as_deref()) {
-                                                    meta.observed_status = None;
-                                                    // "user" blocks Peon from immediately re-writing idle/done;
-                                                    // it relinquishes on the next Peon inference write.
-                                                    meta.metadata_source = "user".into();
-                                                }
-                                                ws.metadata.write_session(&meta);
-                                            }
-                                        }
-                                    }
-                                    {
-                                        let mut sessions = state.sessions.lock().unwrap();
-                                        if let Some(handle) = sessions.get_mut(&id) {
+                                let label_worthy = !is_sensitive && peon::is_descriptive_input(&line);
+                                if !is_sensitive {
+                                    let ws_guard = state.workspace.lock().unwrap();
+                                    if let Some(ref ws) = *ws_guard {
+                                        if let Some(mut meta) = ws.metadata.read_session(&id) {
                                             if label_worthy {
-                                                handle.info.label = line.clone();
+                                                meta.label = line.clone();
                                             }
-                                            if !is_sensitive && peon::is_terminal_observed_status(
-                                                handle.info.observed_status.as_deref(),
-                                            ) {
-                                                handle.info.observed_status = None;
-                                                handle.info.metadata_source = Some("user".into());
+                                            meta.last_user_input = Some(line.clone());
+                                            if peon::is_terminal_observed_status(meta.observed_status.as_deref()) {
+                                                meta.observed_status = None;
+                                                // "user" blocks Peon from immediately re-writing idle/done;
+                                                // it relinquishes on the next Peon inference write.
+                                                meta.metadata_source = "user".into();
                                             }
+                                            ws.metadata.write_session(&meta);
                                         }
                                     }
-                                    if state.peon.config.enabled && line.len() > peon::HINT_MIN_LEN && label_worthy {
-                                        state.peon.label_hint.write().unwrap().insert(id.clone(), line);
-                                        state.peon.label_pending.write().unwrap().insert(id.clone());
-                                        triggered_label = true;
+                                }
+                                {
+                                    let mut sessions = state.sessions.lock().unwrap();
+                                    if let Some(handle) = sessions.get_mut(&id) {
+                                        if label_worthy {
+                                            handle.info.label = line.clone();
+                                        }
+                                        if !is_sensitive && peon::is_terminal_observed_status(
+                                            handle.info.observed_status.as_deref(),
+                                        ) {
+                                            handle.info.observed_status = None;
+                                            handle.info.metadata_source = Some("user".into());
+                                        }
                                     }
                                 }
-
-                                if state.peon.config.enabled && !data.is_empty() {
-                                    let ts = if triggered_label {
-                                        tokio::time::Instant::now() - std::time::Duration::from_secs(3600)
-                                    } else {
-                                        tokio::time::Instant::now()
-                                    };
-                                    state.peon.last_output.write().unwrap().insert(id.clone(), ts);
-                                    state.peon.last_inference.write().unwrap().remove(&id);
+                                if state.peon.config.enabled && line.len() > peon::HINT_MIN_LEN && label_worthy {
+                                    state.peon.label_hint.write().unwrap().insert(id.clone(), line);
+                                    state.peon.label_pending.write().unwrap().insert(id.clone());
+                                    triggered_label = true;
                                 }
+                            }
 
-                                let state = state.clone();
-                                let id = id.clone();
-                                pending_command = Some(Box::pin(async move {
-                                    crate::runtime::session_runtime::send_runtime_command(
-                                        &state,
-                                        &id,
-                                        crate::runtime::session_runtime::RuntimeCommand::Input(data),
-                                    ).await
-                                }));
+                            if state.peon.config.enabled && !data.is_empty() {
+                                let ts = if triggered_label {
+                                    tokio::time::Instant::now() - std::time::Duration::from_secs(3600)
+                                } else {
+                                    tokio::time::Instant::now()
+                                };
+                                state.peon.last_output.write().unwrap().insert(id.clone(), ts);
+                                state.peon.last_inference.write().unwrap().remove(&id);
                             }
-                            TerminalAction::Resize { rows, cols } => {
-                                let state = state.clone();
-                                let id = id.clone();
-                                pending_command = Some(Box::pin(async move {
-                                    crate::runtime::session_runtime::update_runtime_size(
-                                        &state, &id, rows, cols,
-                                    ).await
-                                }));
+                        }
+
+                        if pending_command.is_some() {
+                            // A command is already in flight (normally resolves in well under a
+                            // millisecond); queue this one instead of dropping it so keystrokes
+                            // typed during that window aren't silently lost. See #159 review
+                            // finding on terminal_runtime.rs re: parking Close detection, which
+                            // is why we don't just `.await` inline here.
+                            if queue.push(action) {
+                                tracing::warn!(session_id = %id, "dropped terminal input: queue cap exceeded");
                             }
-                            TerminalAction::Kill => {
-                                let state = state.clone();
-                                let id = id.clone();
-                                pending_command = Some(Box::pin(async move {
-                                    crate::runtime::session_runtime::send_runtime_command(
-                                        &state,
-                                        &id,
-                                        crate::runtime::session_runtime::RuntimeCommand::Kill,
-                                    ).await
-                                }));
-                            }
-                            TerminalAction::Noop => {}
+                        } else {
+                            pending_command = spawn_command_future(state.clone(), id.clone(), action);
                         }
                     }
                     Some(Ok(Message::Close(_))) | None => break,
@@ -817,6 +876,48 @@ mod tests {
         let msg = serde_json::json!({"type": "unknown"});
         let action = dispatch_terminal_message(&msg);
         assert_eq!(action, TerminalAction::Noop);
+    }
+
+    #[test]
+    fn pending_action_queue_coalesces_consecutive_input() {
+        let mut queue = PendingActionQueue::default();
+        assert!(!queue.push(TerminalAction::Input("h".into())));
+        assert!(!queue.push(TerminalAction::Input("i".into())));
+        assert_eq!(queue.take_next(), Some(TerminalAction::Input("hi".into())));
+        assert_eq!(queue.take_next(), None);
+    }
+
+    #[test]
+    fn pending_action_queue_replaces_resize_with_latest() {
+        let mut queue = PendingActionQueue::default();
+        queue.push(TerminalAction::Resize { rows: 10, cols: 20 });
+        queue.push(TerminalAction::Resize { rows: 30, cols: 40 });
+        assert_eq!(queue.take_next(), Some(TerminalAction::Resize { rows: 30, cols: 40 }));
+        assert_eq!(queue.take_next(), None);
+    }
+
+    #[test]
+    fn pending_action_queue_prioritizes_kill_over_input_and_resize() {
+        let mut queue = PendingActionQueue::default();
+        queue.push(TerminalAction::Input("x".into()));
+        queue.push(TerminalAction::Resize { rows: 10, cols: 20 });
+        queue.push(TerminalAction::Kill);
+        assert_eq!(queue.take_next(), Some(TerminalAction::Kill));
+    }
+
+    #[test]
+    fn pending_action_queue_take_next_returns_none_when_empty() {
+        let mut queue = PendingActionQueue::default();
+        assert_eq!(queue.take_next(), None);
+    }
+
+    #[test]
+    fn pending_action_queue_drops_input_past_cap_without_growing() {
+        let mut queue = PendingActionQueue::default();
+        let chunk = "x".repeat(QUEUED_INPUT_CAP_BYTES);
+        assert!(!queue.push(TerminalAction::Input(chunk.clone())));
+        assert!(queue.push(TerminalAction::Input("overflow".into())));
+        assert_eq!(queue.take_next(), Some(TerminalAction::Input(chunk)));
     }
 
     #[test]
