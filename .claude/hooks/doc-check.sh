@@ -34,13 +34,22 @@ if echo "$CHANGED" | grep -qE '^docs/adr/|^specs/'; then
     needs+=("README.md  (architecture, milestones, or ADRs changed)")
 fi
 
-[ ${#needs[@]} -eq 0 ] && exit 0
+# ADR status drift — body Status: line vs. docs/adr/README.md index cell
+adr_consistency=""
+if echo "$CHANGED" | grep -qE '^docs/adr/'; then
+  adr_consistency=$("$(dirname "${BASH_SOURCE[0]}")/check-adr-consistency.sh" 2>&1) || true
+fi
+
+[ ${#needs[@]} -eq 0 ] && [ -z "$adr_consistency" ] && exit 0
 
 if [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then
   printf '{"decision":"block","reason":"[doc-check] Consider updating before closing:\\n'
   for f in "${needs[@]}"; do
     printf '  - %s\\n' "$f"
   done
+  if [ -n "$adr_consistency" ]; then
+    printf '%s\\n' "$adr_consistency"
+  fi
   printf '"}\n'
   exit 0
 fi
@@ -49,4 +58,7 @@ printf '\n[doc-check] Consider updating before closing:\n'
 for f in "${needs[@]}"; do
   printf '  • %s\n' "$f"
 done
+if [ -n "$adr_consistency" ]; then
+  printf '\n%s\n' "$adr_consistency"
+fi
 printf '\n'

@@ -1,6 +1,6 @@
 # Adopt OKF-style frontmatter and a bundle manifest over specs/ADRs/skills
 
-- Status: proposed
+- Status: rejected
 - Deciders: user
 - Date: 2026-07-15
 
@@ -40,3 +40,7 @@ This is additive metadata only. Existing rendering (VitePress docs site, GitHub 
 - OKF v0.1 has no established tooling ecosystem yet; this is a bet on a month-old spec, not adoption of a mature standard. If OKF doesn't gain traction, the frontmatter becomes unused metadata that still has to be maintained.
 
 **Not required by this ADR:** no directory restructuring, no change to how `CLAUDE.md`/`AGENTS.md`/`opencode.json` are loaded by harnesses, no new runtime code in `apps/desktop/` or `crates/orkworksd/`.
+
+## Outcome
+
+Rejected on review. `skills/*/SKILL.md` files already carry YAML frontmatter (`name`/`description`) under the Agent Skills standard that harnesses actively parse; layering OKF keys into the same frontmatter block risks collisions with that existing, externally-specified format, and this ADR did not account for it. The proposed `doc-check.sh` drift check is advisory only (a Stop-hook nudge, not an enforced gate), so the frontmatter `status` field, the in-body `Status:` line, and the `docs/adr/README.md` index row would become three unenforced copies of the same fact rather than a single source of truth. The one concrete problem motivating this ADR — ADR-supersession drift across the `docs/adr/README.md` index (see the 0004→0018, 0015→0017, 0021→0023 chains) — does not require adopting an external, one-month-old, vendor-published spec with no consumers in this repo's toolchain; it is fully addressed by a small standalone consistency check (see `.claude/hooks/check-adr-consistency.sh`, added alongside this ADR). Revisit OKF adoption if/when it gains tooling and a concrete consumer inside this repo's harness set.
