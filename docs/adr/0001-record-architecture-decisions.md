@@ -1,3 +1,9 @@
+---
+type: decision
+status: accepted
+title: "Record architecture decisions"
+---
+
 # Record architecture decisions
 
 - Status: accepted

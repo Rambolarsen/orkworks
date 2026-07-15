@@ -1,3 +1,10 @@
+---
+type: decision
+status: superseded
+title: "Session details provider context"
+superseded_by: "0017"
+---
+
 # Session details provider context
 
 - Status: superseded by 0017 (Settings surface)

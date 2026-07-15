@@ -1,3 +1,9 @@
+---
+type: decision
+status: superseded
+title: "Provider context is session-scoped, not app-wide"
+---
+
 # Provider context is session-scoped, not app-wide
 
 - Status: superseded

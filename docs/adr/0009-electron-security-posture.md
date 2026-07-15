@@ -1,3 +1,9 @@
+---
+type: decision
+status: accepted
+title: "Electron security posture"
+---
+
 # Electron security posture
 
 - Status: accepted

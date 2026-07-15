@@ -1,3 +1,9 @@
+---
+type: decision
+status: accepted
+title: "Product boundary: observe and recommend before controlling"
+---
+
 # Product boundary: observe and recommend before controlling
 
 - Status: accepted

@@ -1,3 +1,9 @@
+---
+type: decision
+status: accepted
+title: "Attention signal via unauthenticated localhost endpoint, opt-in hook install only"
+---
+
 # Attention signal via unauthenticated localhost endpoint, opt-in hook install only
 
 - Status: accepted

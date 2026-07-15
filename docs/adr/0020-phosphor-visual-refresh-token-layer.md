@@ -1,3 +1,9 @@
+---
+type: decision
+status: accepted
+title: "Phosphor visual refresh: cool-graphite + lime token layer"
+---
+
 # Phosphor visual refresh: cool-graphite + lime token layer
 
 - Status: accepted

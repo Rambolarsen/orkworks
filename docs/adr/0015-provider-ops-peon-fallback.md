@@ -1,3 +1,10 @@
+---
+type: decision
+status: superseded
+title: "Provider ops panel and app-wide Peon fallback"
+superseded_by: "0016"
+---
+
 # Provider ops panel and app-wide Peon fallback
 
 - Status: superseded by 0016

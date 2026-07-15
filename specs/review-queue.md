@@ -1,3 +1,9 @@
+---
+type: spec
+status: authoritative
+title: "Review Queue — Spec"
+---
+
 # Review Queue — Spec
 
 Status: proposed

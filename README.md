@@ -18,7 +18,8 @@ orkworks/
 │  ├─ adr/                # Architecture Decision Records
 │  └─ agents/             # Agent-facing docs (architecture, domain entities, APM)
 ├─ skills/                # Repo-level agent skills
-└─ specs/                 # Authoritative product specs
+├─ specs/                 # Authoritative product specs
+└─ okf.yaml               # OKF-style knowledge manifest for agents (ADR 0025)
 ```
 
 - Electron launches Rust sidecar; UI talks to it over localhost HTTP/WebSocket

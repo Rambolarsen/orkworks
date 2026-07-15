@@ -1,3 +1,9 @@
+---
+type: spec
+status: authoritative
+title: "Taskmaster — Cross-Session Coordination Spec"
+---
+
 # Taskmaster — Cross-Session Coordination Spec
 
 Status: accepted

@@ -1,3 +1,9 @@
+---
+type: decision
+status: accepted
+title: "Simplified session lifecycle and alive-only attention"
+---
+
 # Simplified session lifecycle and alive-only attention
 
 - Status: accepted

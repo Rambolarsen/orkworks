@@ -1,3 +1,9 @@
+---
+type: spec
+status: authoritative
+title: "Native Harness Voice Support"
+---
+
 # Native Harness Voice Support
 
 ## Purpose

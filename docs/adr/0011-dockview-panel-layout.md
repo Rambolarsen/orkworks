@@ -1,3 +1,9 @@
+---
+type: decision
+status: accepted
+title: "Replace `react-resizable-panels` with `dockview` for draggable panel layout"
+---
+
 # Replace `react-resizable-panels` with `dockview` for draggable panel layout
 
 - Status: accepted

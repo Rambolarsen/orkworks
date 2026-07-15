@@ -1,3 +1,9 @@
+---
+type: decision
+status: accepted
+title: "Electron + React + TypeScript desktop shell"
+---
+
 # Electron + React + TypeScript desktop shell
 
 - Status: accepted

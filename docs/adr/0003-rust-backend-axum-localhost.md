@@ -1,3 +1,9 @@
+---
+type: decision
+status: accepted
+title: "Rust backend sidecar with Axum over localhost HTTP/WebSocket"
+---
+
 # Rust backend sidecar with Axum over localhost HTTP/WebSocket
 
 - Status: accepted

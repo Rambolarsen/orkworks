@@ -1,3 +1,9 @@
+---
+type: decision
+status: accepted
+title: "PTY management via `portable-pty`, terminal rendering via `xterm.js`"
+---
+
 # PTY management via `portable-pty`, terminal rendering via `xterm.js`
 
 - Status: accepted

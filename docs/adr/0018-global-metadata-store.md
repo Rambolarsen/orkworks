@@ -1,3 +1,9 @@
+---
+type: decision
+status: accepted
+title: "Move metadata store from workspace directory to global config directory"
+---
+
 # Move metadata store from workspace directory to global config directory
 
 - Status: accepted

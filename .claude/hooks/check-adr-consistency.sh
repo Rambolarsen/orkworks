@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Cross-checks each ADR's in-body `- Status:` line against its status cell
-# in docs/adr/README.md. Flags drift (e.g. body says "superseded" but the
-# index still says "accepted", or vice versa) without any new metadata.
+# in docs/adr/README.md and its OKF frontmatter `status:` field (ADR 0025).
+# Flags drift (e.g. body says "superseded" but the index or frontmatter
+# still says "accepted").
 
 set -euo pipefail
 
@@ -29,6 +30,14 @@ for f in "$ADR_DIR"/[0-9]*.md; do
 
   if [ "$body_word" != "$index_word" ]; then
     mismatches+=("$num: body says '$body_status' but index says '$index_status'")
+  fi
+
+  # OKF frontmatter (ADR 0025): status field must match the in-body line.
+  fm_status=$(awk '/^---$/{n++; next} n==1 && /^status:/{sub(/^status:[[:space:]]*/,""); print; exit} n>=2{exit}' "$f" | tr '[:upper:]' '[:lower:]')
+  if [ -z "$fm_status" ]; then
+    mismatches+=("$num: missing OKF frontmatter status field (see ADR 0025)")
+  elif [ "$fm_status" != "$body_word" ]; then
+    mismatches+=("$num: frontmatter status '$fm_status' but body says '$body_word'")
   fi
 
   # If the body's "Superseded by:" line names another ADR number, the index

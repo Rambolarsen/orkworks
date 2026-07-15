@@ -1,3 +1,9 @@
+---
+type: decision
+status: accepted
+title: "Single-active-context primitive: session = context, switching = context-switch"
+---
+
 # Single-active-context primitive: session = context, switching = context-switch
 
 - Status: accepted

@@ -1,3 +1,9 @@
+---
+type: decision
+status: accepted
+title: "Metadata source priority"
+---
+
 # Metadata source priority
 
 - Status: accepted

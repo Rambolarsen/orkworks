@@ -1,3 +1,9 @@
+---
+type: spec
+status: authoritative
+title: "Release Pipeline — Alpha Distribution"
+---
+
 # Release Pipeline — Alpha Distribution
 
 Electron + Rust sidecar cross-platform release pipeline for internal/alpha testing.

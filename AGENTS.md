@@ -185,6 +185,15 @@ Architecture decisions are captured as ADRs in `docs/adr/`. Each significant arc
 
 ADRs are complementary to specs: specs define what we're building; ADRs record why we chose to build it that way.
 
+## OKF knowledge bundle
+
+The repo's knowledge surfaces are indexed for agents via the [Open Knowledge Format](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md) manifest at `okf.yaml` (repo root) — see [ADR 0025](docs/adr/0025-okf-adoption-revised-scope.md). Rules:
+
+- `specs/*.md` and `docs/adr/[0-9]*.md` carry inline OKF frontmatter (`type`, `status`, `title`; ADRs also `superseded_by` when a successor ADR exists). New specs and ADRs must include it — the ADR template already does.
+- `skills/*/SKILL.md` frontmatter belongs to the Agent Skills standard; never add OKF keys to it. Skills are typed and described in `okf.yaml` instead — update the manifest's `items` list when adding or removing a skill.
+- ADR frontmatter `status` must match the in-body `Status:` line and the `docs/adr/README.md` index row. `.claude/hooks/check-adr-consistency.sh` cross-checks all three; `doc-check.sh` runs it whenever `docs/adr/` changes.
+- Keep `okf.yaml` current when knowledge directories are added, moved, or restructured.
+
 ## Key naming
 
 | Term | Meaning |

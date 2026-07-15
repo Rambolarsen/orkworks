@@ -1,3 +1,10 @@
+---
+type: decision
+status: superseded
+title: "Explicit session lifecycle phases with frozen final observed state"
+superseded_by: "0023"
+---
+
 # Explicit session lifecycle phases with frozen final observed state
 
 - Status: superseded by [ADR 0023](./0023-simplified-session-lifecycle.md)

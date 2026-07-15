@@ -1,3 +1,9 @@
+---
+type: decision
+status: accepted
+title: "Git context detection first, not workflow control"
+---
+
 # Git context detection first, not workflow control
 
 - Status: accepted

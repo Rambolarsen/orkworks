@@ -1,3 +1,9 @@
+---
+type: decision
+status: accepted
+title: "Main-process-owned app settings and menu accelerators"
+---
+
 # Main-process-owned app settings and menu accelerators
 
 - Status: accepted

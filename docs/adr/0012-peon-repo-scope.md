@@ -1,3 +1,9 @@
+---
+type: decision
+status: accepted
+title: "Peon scope expands to per-repo"
+---
+
 # Peon scope expands to per-repo
 
 - Status: accepted

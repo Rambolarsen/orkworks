@@ -1,0 +1,72 @@
+# OrkWorks knowledge manifest (OKF-style; repo-specific — OKF v0.1 itself
+# defines no manifest file). Single discovery entry point for agents: what
+# knowledge this repo carries, what type it is, and where it lives.
+# OKF spec: https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md
+# Scope decisions: docs/adr/0025-okf-adoption-revised-scope.md
+#
+# specs/ and docs/adr/ files carry inline OKF frontmatter (type, status, title).
+# skills/*/SKILL.md files do NOT — the Agent Skills standard owns their
+# frontmatter — so they are typed and described here instead.
+
+type: bundle
+title: OrkWorks knowledge bundle
+description: >
+  Specs, architecture decisions, workflow skills, and agent guides for
+  OrkWorks — local-first mission control for AI coding sessions.
+
+surfaces:
+  - path: AGENTS.md
+    type: workflow-guardrail
+    description: >
+      Primary agent guide: conventions, workflows, branch/PR rules, issue
+      board policy, naming, and architecture overview. CLAUDE.md includes it.
+
+  - path: specs/
+    type: spec
+    frontmatter: inline
+    description: >
+      Authoritative product scope. Specs define what is being built; read
+      before any implementation work.
+
+  - path: docs/adr/
+    type: decision
+    frontmatter: inline
+    description: >
+      Architecture Decision Records — why things are built the way they are.
+      Index and status conventions in docs/adr/README.md. Per-file frontmatter
+      status is cross-checked against the body and index by
+      .claude/hooks/check-adr-consistency.sh.
+
+  - path: docs/agents/
+    type: reference
+    description: >
+      Deep-dive agent references: architecture breakdown, domain entities,
+      APM plugin layout.
+
+  - path: skills/
+    type: skill
+    frontmatter: agent-skills   # owned by the Agent Skills standard, not OKF
+    description: >
+      Committed repo skills (Agent Skills standard). Each is a directory with
+      a SKILL.md.
+    items:
+      - name: starting-work
+        description: Picks the branching strategy (main vs branch vs worktree) and primes per-checkout setup when starting any work.
+      - name: adding-harness
+        description: Checklist for adding or changing a harness adapter — launch, resume, session ID, hooks, voice, capacity, tests, docs.
+      - name: cutting-release
+        description: Guides version bump, tag creation, CI monitoring, and release verification.
+      - name: writing-skills
+        description: Creating, editing, and verifying skills before deployment.
+      - name: clean-ddd-hexagonal
+        description: Clean Architecture + DDD + Hexagonal patterns for backend services.
+      - name: surfacing-blind-spots
+        description: "Audit skill: turns investigated uncertainties and blind spots into scoped issues; defines the shared guardrail filter and issue format for all audit skills."
+      - name: auditing-test-honesty
+        description: "Audit skill: finds tests that do not pin the behavior their names claim."
+      - name: walking-failure-paths
+        description: "Audit skill: probes behavior under external failure (process, file, port, provider)."
+      - name: grooming-the-board
+        description: "Audit skill: reconciles issue board, codebase, and spec drift."
+      - name: auditing-signal-vs-noise
+        description: "Audit skill: checks UI truthfulness against the metadata that feeds it."

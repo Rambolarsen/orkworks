@@ -1,3 +1,10 @@
+---
+type: decision
+status: superseded
+title: "`.orkworks/` metadata protocol directory structure"
+superseded_by: "0018"
+---
+
 # `.orkworks/` metadata protocol directory structure
 
 - Status: superseded by [0018](./0018-global-metadata-store.md)

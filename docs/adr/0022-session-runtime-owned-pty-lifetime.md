@@ -1,3 +1,9 @@
+---
+type: decision
+status: accepted
+title: "Session-runtime-owned PTY lifetime"
+---
+
 # Session-runtime-owned PTY lifetime
 
 - Status: accepted

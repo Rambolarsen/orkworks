@@ -31,4 +31,5 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 | [0021](./0021-session-lifecycle-phases.md) | Explicit session lifecycle phases with frozen final observed state | superseded by [0023](./0023-simplified-session-lifecycle.md) |
 | [0022](./0022-session-runtime-owned-pty-lifetime.md) | Session-runtime-owned PTY lifetime | accepted |
 | [0023](./0023-simplified-session-lifecycle.md) | Simplified session lifecycle and alive-only attention | accepted |
-| [0024](./0024-okf-frontmatter-knowledge-bundle.md) | Adopt OKF-style frontmatter and a bundle manifest over specs/ADRs/skills | rejected |
+| [0024](./0024-okf-frontmatter-knowledge-bundle.md) | Adopt OKF-style frontmatter and a bundle manifest over specs/ADRs/skills | rejected, revised by [0025](./0025-okf-adoption-revised-scope.md) |
+| [0025](./0025-okf-adoption-revised-scope.md) | Adopt OKF with revised scope: manifest + frontmatter on specs/ADRs, skills manifest-only | accepted |

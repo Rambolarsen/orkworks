@@ -1,3 +1,9 @@
+---
+type: decision
+status: accepted
+title: "Peon: observer-only inference in MVP"
+---
+
 # Peon: observer-only inference in MVP
 
 - Status: accepted
