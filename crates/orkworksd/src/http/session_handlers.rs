@@ -1785,7 +1785,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn capable_hook_normalizes_thinking_to_working() {
+    async fn created_capable_session_normalizes_thinking_to_working() {
         let dir = tempfile::tempdir().unwrap();
         let state = test_app_state_with_workspace(dir.path());
         {
@@ -1793,37 +1793,38 @@ mod tests {
             *harnesses = crate::harness_registry::builtin_harness_configs();
             harnesses
                 .iter_mut()
-                .find(|h| h.id == "claude-code")
+                .find(|h| h.id == "generic-shell")
                 .unwrap()
                 .attention
                 .active_work_hook = true;
         }
-        {
-            let ws = state.workspace.lock().unwrap();
-            let mut meta = test_session_metadata(
-                "attention-thinking",
-                "Known",
-                dir.path().display().to_string(),
-                "running",
-                "now",
-                "now",
-            );
-            meta.harness = "claude-code".into();
-            meta.lifecycle_phase = "active".into();
-            meta.lifecycle = "alive".into();
-            ws.as_ref().unwrap().metadata.write_session(&meta);
-        }
-        let mut handle = attention_test_handle("attention-thinking", dir.path());
-        handle.active_work_hook = true;
-        state
-            .sessions
-            .lock()
+
+        let response = create_session(
+            State(state.clone()),
+            Json(CreateSessionRequest {
+                harness_id: Some("generic-shell".into()),
+                model: None,
+                initial_prompt: None,
+            }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let created_id = serde_json::from_slice::<serde_json::Value>(&bytes)
+            .unwrap()["id"]
+            .as_str()
             .unwrap()
-            .insert("attention-thinking".into(), handle);
+            .to_owned();
+        assert!(
+            state.sessions.lock().unwrap()[&created_id].active_work_hook,
+            "the created handle should retain the capable harness's hook support"
+        );
 
         let response = report_attention(
             State(state.clone()),
-            Path("attention-thinking".into()),
+            Path(created_id.clone()),
             Json(AttentionReportRequest { status: "thinking".into(), message: None }),
         )
         .await
@@ -1831,13 +1832,19 @@ mod tests {
 
         assert_eq!(response.status(), axum::http::StatusCode::OK);
         let ws = state.workspace.lock().unwrap();
-        let updated = ws.as_ref().unwrap().metadata.read_session("attention-thinking").unwrap();
+        let updated = ws.as_ref().unwrap().metadata.read_session(&created_id).unwrap();
         assert_eq!(updated.observed_status.as_deref(), Some("working"));
         drop(ws);
         let sessions = state.sessions.lock().unwrap();
         assert_eq!(
-            sessions["attention-thinking"].info.observed_status.as_deref(),
+            sessions[&created_id].info.observed_status.as_deref(),
             Some("working")
+        );
+        drop(sessions);
+
+        assert_eq!(
+            delete_session(State(state), Path(created_id)).await.into_response().status(),
+            axum::http::StatusCode::OK
         );
     }
 
