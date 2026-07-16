@@ -37,34 +37,54 @@ pub(crate) fn arm_pending_work_signal(
     }
 }
 
+/// A chunk only "counts" as visible output if it has at least one character
+/// that isn't whitespace and isn't a control code (e.g. a bare BEL or other
+/// C0 byte left over after ANSI stripping must not qualify as model output).
+fn has_visible_character(s: &str) -> bool {
+    s.chars().any(|c| !c.is_whitespace() && !c.is_control())
+}
+
+/// Consumes `output` against the armed signal in `slot`. The signal is cleared
+/// entirely once it expires or once it qualifies as genuine (non-echo) visible
+/// output; a non-qualifying chunk before either of those only trims the
+/// remaining echo, so a spent or expired signal is never rechecked forever,
+/// while a signal still inside its window stays armed for later output.
 pub(crate) fn consume_pending_work_signal(
-    signal: &mut PendingWorkSignal,
+    slot: &mut Option<PendingWorkSignal>,
     output: &str,
     now: tokio::time::Instant,
 ) -> bool {
+    let Some(signal) = slot.as_mut() else {
+        return false;
+    };
     if now >= signal.expires_at {
+        *slot = None;
         return false;
     }
 
     let output = peon::strip_ansi(output);
-    if output.trim().is_empty() {
+    if !has_visible_character(&output) {
         return false;
     }
     let output = output
         .strip_prefix('\r')
         .or_else(|| output.strip_prefix('\n'))
         .unwrap_or(&output);
-    if signal.remaining_echo.starts_with(&output) {
+    if signal.remaining_echo.starts_with(output) {
         signal.remaining_echo.drain(..output.len());
         return false;
     }
 
     let visible_output = output
         .strip_prefix(&signal.remaining_echo)
-        .unwrap_or(&output)
+        .unwrap_or(output)
         .trim();
     signal.remaining_echo.clear();
-    !visible_output.is_empty()
+    let qualifies = has_visible_character(visible_output);
+    if qualifies {
+        *slot = None;
+    }
+    qualifies
 }
 /// Only a qualifying, recently submitted hookless user command can resume a
 /// session to `working`; PTY output alone never changes the observed work state.
@@ -563,17 +583,11 @@ pub(crate) async fn start_session_runtime(
                                         let drop = (drop..drop + 4).find(|&i| handle.scan_buf.is_char_boundary(i)).unwrap_or(drop);
                                         handle.scan_buf.drain(..drop);
                                     }
-                                    let has_qualifying_work_signal = handle
-                                        .pending_work_signal
-                                        .as_mut()
-                                        .is_some_and(|signal| consume_pending_work_signal(
-                                            signal,
-                                            &stripped,
-                                            tokio::time::Instant::now(),
-                                        ));
-                                    if has_qualifying_work_signal {
-                                        handle.pending_work_signal = None;
-                                    }
+                                    let has_qualifying_work_signal = consume_pending_work_signal(
+                                        &mut handle.pending_work_signal,
+                                        &stripped,
+                                        tokio::time::Instant::now(),
+                                    );
                                     if should_infer_working(
                                         &handle.info.lifecycle,
                                         has_qualifying_work_signal,
@@ -966,7 +980,7 @@ mod tests {
     #[test]
     fn split_echo_does_not_qualify_until_new_visible_output_arrives() {
         let now = tokio::time::Instant::now();
-        let mut signal = arm_pending_work_signal("fix status", now);
+        let mut signal = Some(arm_pending_work_signal("fix status", now));
         assert!(!consume_pending_work_signal(&mut signal, "fix ", now));
         assert!(!consume_pending_work_signal(&mut signal, "status\r\n", now));
         assert!(consume_pending_work_signal(&mut signal, "Thinking…", now));
@@ -976,7 +990,7 @@ mod tests {
     fn one_leading_line_ending_is_ignored_when_matching_echo() {
         let now = tokio::time::Instant::now();
         for leading in ['\r', '\n'] {
-            let mut signal = arm_pending_work_signal("fix", now);
+            let mut signal = Some(arm_pending_work_signal("fix", now));
 
             assert!(!consume_pending_work_signal(
                 &mut signal,
@@ -990,22 +1004,34 @@ mod tests {
     #[test]
     fn ansi_only_output_and_expired_submission_do_not_qualify() {
         let now = tokio::time::Instant::now();
-        let mut signal = arm_pending_work_signal("fix", now);
+        let mut signal = Some(arm_pending_work_signal("fix", now));
         assert!(!consume_pending_work_signal(&mut signal, "\x1b[2K\r", now));
         assert!(!consume_pending_work_signal(
             &mut signal,
             "model output",
             now + std::time::Duration::from_secs(10),
         ));
+        assert!(signal.is_none(), "expired signal must be cleared, not rechecked forever");
     }
 
     #[test]
     fn ansi_only_output_preserves_pending_echo_for_following_output() {
         let now = tokio::time::Instant::now();
-        let mut signal = arm_pending_work_signal("fix", now);
+        let mut signal = Some(arm_pending_work_signal("fix", now));
 
         assert!(!consume_pending_work_signal(&mut signal, "\x1b[2K\r", now));
         assert!(!consume_pending_work_signal(&mut signal, "fix\r\n", now));
+        assert!(consume_pending_work_signal(&mut signal, "Thinking…", now));
+    }
+
+    #[test]
+    fn control_only_output_does_not_qualify_as_visible() {
+        let now = tokio::time::Instant::now();
+        let mut signal = Some(arm_pending_work_signal("fix", now));
+        assert!(!consume_pending_work_signal(&mut signal, "fix\r\n", now));
+        // A bare BEL (or other C0 control byte) surviving ANSI-stripping must
+        // not be mistaken for genuine model output.
+        assert!(!consume_pending_work_signal(&mut signal, "\x07", now));
         assert!(consume_pending_work_signal(&mut signal, "Thinking…", now));
     }
 
@@ -1030,6 +1056,31 @@ mod tests {
         crate::runtime::terminal_runtime::record_terminal_input(&state, session_id, "another command\r")
             .expect("capable terminal input should be accepted");
         assert!(state.sessions.lock().unwrap()[session_id].pending_work_signal.is_none());
+    }
+
+    #[test]
+    fn long_submission_arms_fallback_with_untruncated_echo() {
+        let session_id = "terminal-input-long-line";
+        let state = test_state_with_runtime_session(session_id);
+        let long_command = "x".repeat(150);
+
+        crate::runtime::terminal_runtime::record_terminal_input(
+            &state,
+            session_id,
+            &format!("{long_command}\r"),
+        )
+        .expect("completed terminal input should be accepted");
+
+        let sessions = state.sessions.lock().unwrap();
+        let signal = sessions[session_id]
+            .pending_work_signal
+            .as_ref()
+            .expect("long submission should still arm the fallback");
+        assert_eq!(
+            signal.remaining_echo.len(),
+            long_command.len(),
+            "echo gating must retain the full submitted line, not the 100-char label truncation"
+        );
     }
 
     #[test]

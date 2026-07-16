@@ -663,6 +663,17 @@ pub(crate) async fn create_session(
 
     let command = resolved_launch.command.clone();
     let initial_prompt = req.initial_prompt.clone();
+    // A hookless harness never gets a `report_attention` call, so the initial
+    // prompt (written straight to the PTY in `start_session_runtime`) must arm
+    // the same fallback a typed-and-submitted command would, or the session's
+    // first turn never promotes past creating/idle while Peon is disabled.
+    let pending_work_signal = initial_prompt
+        .as_deref()
+        .filter(|prompt| !prompt.is_empty() && !resolved_launch.active_work_hook)
+        .map(|prompt| crate::runtime::session_runtime::arm_pending_work_signal(
+            prompt,
+            tokio::time::Instant::now(),
+        ));
     let (runtime, control_rx) = crate::runtime::session_runtime::SessionRuntime::live(
         crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
         crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
@@ -678,7 +689,7 @@ pub(crate) async fn create_session(
             scan_buf: String::new(),
             command: command.clone(),
             initial_prompt: initial_prompt.clone(),
-            pending_work_signal: None,
+            pending_work_signal,
             runtime,
             terminal_attached: false,
             at_usage_limit_latched: false,

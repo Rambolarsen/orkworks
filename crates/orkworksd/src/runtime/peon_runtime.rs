@@ -96,7 +96,22 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
 
                 let mut inference_persisted = false;
                 let mut permanent_hold = false;
-                if let Some(inf) = inference {
+                if let Some(mut inf) = inference {
+                    let active_work_hook = state_clone
+                        .sessions
+                        .lock()
+                        .unwrap()
+                        .get(&id)
+                        .map(|h| h.active_work_hook)
+                        .unwrap_or(false);
+                    // Active-hook sessions are hook-authoritative for the working
+                    // transition specifically: Peon may still persist summary/label/
+                    // etc, but must not be the one to flip observed_status to working
+                    // out from under the fail-closed hook contract (mirrors the
+                    // synchronous PTY-output fallback's own active_work_hook gate).
+                    if active_work_hook && inf.observed_status.as_deref() == Some("working") {
+                        inf.observed_status = None;
+                    }
                     // Collect label update while holding workspace lock, then drop before taking sessions.
                     let label_update: Option<String> = {
                         let ws_guard = state_clone.workspace.lock().unwrap();
@@ -173,8 +188,13 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                 let mut missing_last_output_ids = Vec::new();
 
                 for (id, handle) in sessions.iter() {
+                    // Active-hook sessions are hook-authoritative: the hook may
+                    // legitimately go silent on the PTY for long stretches while
+                    // still working, and only the hook (or process end) may
+                    // clear that state — this timer must not race it to idle.
                     if handle.info.status != "running"
                         || handle.info.lifecycle_phase != "active"
+                        || handle.active_work_hook
                         || !matches!(handle.info.observed_status.as_deref(), None | Some("working"))
                     {
                         continue;

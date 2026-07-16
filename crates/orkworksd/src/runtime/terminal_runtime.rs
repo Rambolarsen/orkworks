@@ -175,8 +175,12 @@ pub(crate) fn collect_input_line(buf: &mut String, data: &str) -> Option<String>
     while let Some(ch) = chars.next() {
         match ch {
             '\r' | '\n' => {
-                let raw: String = buf.chars().take(100).collect();
-                let line = raw.trim().to_string();
+                // Full, untruncated line: callers that only need a short label
+                // truncate at their own call site. Truncating here would starve
+                // echo-gating (`arm_pending_work_signal`) of the tail of any
+                // submission over 100 chars, letting its own PTY echo slip
+                // through as if it were qualifying model output.
+                let line = buf.trim().to_string();
                 buf.clear();
                 if !line.is_empty() && result.is_none() {
                     result = Some(line);
@@ -257,6 +261,8 @@ pub(crate) fn record_terminal_input(
         collect_input_line(buf, data)
     };
     let line = collected_line?;
+    // Labels are display-bounded; echo-gating below uses the full `line`.
+    let label_line: String = line.chars().take(100).collect();
     let is_sensitive = {
         let sessions = state.sessions.lock().unwrap();
         sessions
@@ -264,16 +270,16 @@ pub(crate) fn record_terminal_input(
             .map(|h| peon::looks_like_password_prompt(&h.output_buffer.last_n(5)))
             .unwrap_or(false)
     };
-    let label_worthy = !is_sensitive && peon::is_descriptive_input(&line);
+    let label_worthy = !is_sensitive && peon::is_descriptive_input(&label_line);
 
     if !is_sensitive {
         let ws_guard = state.workspace.lock().unwrap();
         if let Some(ref ws) = *ws_guard {
             if let Some(mut meta) = ws.metadata.read_session(id) {
                 if label_worthy {
-                    meta.label = line.clone();
+                    meta.label = label_line.clone();
                 }
-                meta.last_user_input = Some(line.clone());
+                meta.last_user_input = Some(label_line.clone());
                 ws.metadata.write_session(&meta);
             }
         }
@@ -282,7 +288,7 @@ pub(crate) fn record_terminal_input(
     let mut sessions = state.sessions.lock().unwrap();
     if let Some(handle) = sessions.get_mut(id) {
         if label_worthy {
-            handle.info.label = line.clone();
+            handle.info.label = label_line.clone();
         }
         if !line.is_empty() && !handle.active_work_hook {
             handle.pending_work_signal = Some(arm_pending_work_signal(
