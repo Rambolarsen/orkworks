@@ -4,7 +4,7 @@ use crate::runtime::session_runtime::{
 };
 use crate::session_view::{connectivity_for_status, terminal_outcome_for_status};
 use crate::workspace_runtime::iso_now;
-use crate::{harness, metadata, peon, providers, AppState};
+use crate::{metadata, peon, providers, AppState};
 use axum::extract::ws::{Message, WebSocket};
 use std::future::Future;
 use std::pin::Pin;
@@ -783,7 +783,7 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
 mod tests {
     use super::*;
     use crate::test_support::*;
-    use crate::{metadata, providers};
+    use crate::{harness, metadata, providers};
     use std::collections::{HashMap, HashSet};
     use std::sync::{Arc, Mutex, RwLock};
     use std::sync::atomic::AtomicU16;

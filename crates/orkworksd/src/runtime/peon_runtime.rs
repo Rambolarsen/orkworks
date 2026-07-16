@@ -1,5 +1,5 @@
 use crate::workspace_runtime::iso_now;
-use crate::{metadata, peon, providers, AppState};
+use crate::{peon, providers, AppState};
 use std::sync::Arc;
 
 pub(crate) async fn peon_loop(state: Arc<AppState>) {
@@ -232,6 +232,7 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::metadata;
     use crate::test_support::*;
     use crate::harness;
     use std::sync::{Arc, Mutex, RwLock};

@@ -1,4 +1,4 @@
-use crate::{metadata, AppState};
+use crate::AppState;
 use std::sync::Arc;
 
 pub(crate) async fn retention_cleanup_task(state: Arc<AppState>) {
@@ -109,6 +109,7 @@ pub(crate) async fn retention_cleanup_once(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::metadata;
     use crate::test_support::*;
 
     #[tokio::test]

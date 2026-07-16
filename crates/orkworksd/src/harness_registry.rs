@@ -1,6 +1,4 @@
 use crate::harness;
-use crate::session_view::derive_memory_state;
-use crate::session_types::MemoryState;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -535,6 +533,8 @@ pub(crate) fn resolve_adapter_harness_id(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::session_types::MemoryState;
+    use crate::session_view::derive_memory_state;
     use crate::test_support::with_fake_home;
 
     #[test]
