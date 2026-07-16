@@ -19,23 +19,56 @@ const CONTROL_CHANNEL_CAPACITY: usize = 64;
 pub(crate) const STARTUP_PENDING_INPUT_BYTES: usize = 64 * 1024;
 const INITIAL_RESIZE_GRACE: std::time::Duration = std::time::Duration::from_millis(150);
 const STARTUP_ATTENTION_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
+const WORK_SIGNAL_WINDOW: std::time::Duration = std::time::Duration::from_secs(10);
 
-/// `current_observed_status` gates observer-only resumption: once a session has
-/// reached a finished/non-working state (idle, waiting_for_input, blocked,
-/// failed, stale, done), mere PTY output can't flip it back to `working` on its
-/// own — that requires qualifying user input, which clears `observed_status`
-/// via the terminal-input path in this module before the next `Output` event
-/// arrives. See issue #170.
+#[derive(Debug)]
+pub(crate) struct PendingWorkSignal {
+    remaining_echo: String,
+    expires_at: tokio::time::Instant,
+}
+
+pub(crate) fn arm_pending_work_signal(
+    submitted_line: &str,
+    now: tokio::time::Instant,
+) -> PendingWorkSignal {
+    PendingWorkSignal {
+        remaining_echo: submitted_line.to_string(),
+        expires_at: now + WORK_SIGNAL_WINDOW,
+    }
+}
+
+pub(crate) fn consume_pending_work_signal(
+    signal: &mut PendingWorkSignal,
+    output: &str,
+    now: tokio::time::Instant,
+) -> bool {
+    if now >= signal.expires_at {
+        return false;
+    }
+
+    let output = peon::strip_ansi(output);
+    if signal.remaining_echo.starts_with(&output) {
+        signal.remaining_echo.drain(..output.len());
+        return false;
+    }
+
+    let visible_output = output
+        .strip_prefix(&signal.remaining_echo)
+        .unwrap_or(&output)
+        .trim();
+    signal.remaining_echo.clear();
+    !visible_output.is_empty()
+}
+/// Only a qualifying, recently submitted user command can resume a session to
+/// `working`; PTY output alone never changes the observed work state.
 fn should_infer_working(
-    current_observed_status: Option<&str>,
     lifecycle: &str,
-    has_visible_output: bool,
+    has_qualifying_work_signal: bool,
     startup_grace_ends_at: tokio::time::Instant,
 ) -> bool {
     lifecycle == "alive"
-        && has_visible_output
+        && has_qualifying_work_signal
         && tokio::time::Instant::now() >= startup_grace_ends_at
-        && !peon::is_terminal_observed_status(current_observed_status)
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -112,6 +145,7 @@ pub(crate) struct SessionRuntime {
     pub(crate) attached_generation: Option<u64>,
     pub(crate) last_rows: u16,
     pub(crate) last_cols: u16,
+    pub(crate) pending_work_signal: Option<PendingWorkSignal>,
 }
 
 impl SessionRuntime {
@@ -127,6 +161,7 @@ impl SessionRuntime {
                 attached_generation: None,
                 last_rows: rows,
                 last_cols: cols,
+                pending_work_signal: None,
             },
             control_rx,
         )
@@ -143,6 +178,7 @@ impl SessionRuntime {
             attached_generation: None,
             last_rows: rows,
             last_cols: cols,
+            pending_work_signal: None,
         }
     }
 
@@ -490,7 +526,6 @@ pub(crate) async fn start_session_runtime(
                         DriverEvent::Output(data) => {
                             persist_buffer.extend_from_slice(&data);
                             let stripped = peon::strip_ansi(&String::from_utf8_lossy(&data));
-                            let has_visible_output = !stripped.trim().is_empty();
                             let mut raw_persist_lines: Vec<String> = Vec::new();
                             while let Some(nl) = persist_buffer.iter().position(|&b| b == b'\n') {
                                 let line: Vec<u8> = persist_buffer.drain(..=nl).collect();
@@ -503,6 +538,7 @@ pub(crate) async fn start_session_runtime(
                             }
 
                             let mut codex_thread_id: Option<String> = None;
+                            let mut promoted_working = false;
                             {
                                 let mut sessions = driver_state.sessions.lock().unwrap();
                                 if let Some(handle) = sessions.get_mut(&driver_id) {
@@ -521,14 +557,24 @@ pub(crate) async fn start_session_runtime(
                                         let drop = (drop..drop + 4).find(|&i| handle.scan_buf.is_char_boundary(i)).unwrap_or(drop);
                                         handle.scan_buf.drain(..drop);
                                     }
+                                    let has_qualifying_work_signal = handle
+                                        .runtime
+                                        .pending_work_signal
+                                        .as_mut()
+                                        .is_some_and(|signal| consume_pending_work_signal(
+                                            signal,
+                                            &stripped,
+                                            tokio::time::Instant::now(),
+                                        ));
                                     if should_infer_working(
-                                        handle.info.observed_status.as_deref(),
                                         &handle.info.lifecycle,
-                                        has_visible_output,
+                                        has_qualifying_work_signal,
                                         startup_grace_ends_at,
                                     ) {
                                         handle.info.observed_status = Some("working".into());
                                         handle.info.attention = Some("working".into());
+                                        handle.runtime.pending_work_signal = None;
+                                        promoted_working = true;
                                     }
                                     if handle.info.harness_id.as_deref() == Some("codex") {
                                         codex_thread_id = raw_persist_lines.iter()
@@ -561,12 +607,7 @@ pub(crate) async fn start_session_runtime(
                                 let ws_guard = driver_state.workspace.lock().unwrap();
                                 if let Some(ref ws) = *ws_guard {
                                     if let Some(mut meta) = ws.metadata.read_session(&driver_id) {
-                                        if should_infer_working(
-                                            meta.observed_status.as_deref(),
-                                            &meta.lifecycle,
-                                            has_visible_output,
-                                            startup_grace_ends_at,
-                                        ) {
+                                        if promoted_working {
                                             meta.observed_status = Some("working".into());
                                             meta.attention = Some("working".into());
                                             meta.metadata_source = "process".into();
@@ -806,17 +847,15 @@ mod tests {
     #[test]
     fn startup_grace_keeps_visible_output_idle() {
         assert!(!should_infer_working(
-            None,
             "alive",
-            true,
+            false,
             tokio::time::Instant::now() + STARTUP_ATTENTION_GRACE,
         ));
     }
 
     #[test]
-    fn visible_output_after_startup_grace_is_working() {
+    fn qualifying_signal_after_startup_grace_is_working() {
         assert!(should_infer_working(
-            None,
             "alive",
             true,
             tokio::time::Instant::now() - std::time::Duration::from_millis(1),
@@ -824,9 +863,8 @@ mod tests {
     }
 
     #[test]
-    fn already_working_output_stays_working() {
+    fn qualifying_signal_can_resume_working() {
         assert!(should_infer_working(
-            Some("working"),
             "alive",
             true,
             tokio::time::Instant::now() - std::time::Duration::from_millis(1),
@@ -907,10 +945,31 @@ mod tests {
         let past_grace = tokio::time::Instant::now() - std::time::Duration::from_millis(1);
         for status in ["idle", "waiting_for_input", "blocked", "failed", "stale", "done"] {
             assert!(
-                !should_infer_working(Some(status), "alive", true, past_grace),
+                !should_infer_working("alive", false, past_grace),
                 "observer-only output should not resume {status} to working"
             );
         }
+    }
+
+    #[test]
+    fn split_echo_does_not_qualify_until_new_visible_output_arrives() {
+        let now = tokio::time::Instant::now();
+        let mut signal = arm_pending_work_signal("fix status", now);
+        assert!(!consume_pending_work_signal(&mut signal, "fix ", now));
+        assert!(!consume_pending_work_signal(&mut signal, "status\r\n", now));
+        assert!(consume_pending_work_signal(&mut signal, "Thinking…", now));
+    }
+
+    #[test]
+    fn ansi_only_output_and_expired_submission_do_not_qualify() {
+        let now = tokio::time::Instant::now();
+        let mut signal = arm_pending_work_signal("fix", now);
+        assert!(!consume_pending_work_signal(&mut signal, "\x1b[2K\r", now));
+        assert!(!consume_pending_work_signal(
+            &mut signal,
+            "model output",
+            now + std::time::Duration::from_secs(10),
+        ));
     }
 
     #[tokio::test]
