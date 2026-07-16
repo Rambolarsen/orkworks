@@ -295,6 +295,11 @@ pub(crate) fn record_terminal_input(
     Some(())
 }
 
+/// Applies terminal input-side bookkeeping without scheduling a Peon scan.
+pub(crate) fn process_terminal_input(state: &Arc<AppState>, id: &str, data: &str) {
+    let _ = record_terminal_input(state, id, data);
+}
+
 pub(crate) fn should_forward_terminal_env(key: &str) -> bool {
     key != "NODE_OPTIONS"
         && key != "VSCODE_INSPECTOR_OPTIONS"

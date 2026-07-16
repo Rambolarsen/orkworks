@@ -1092,6 +1092,58 @@ mod tests {
         assert_eq!(meta.attention.as_deref(), Some("waiting_for_input"));
     }
 
+    #[test]
+    fn terminal_input_without_observed_status_records_label_without_scheduling_peon_work() {
+        let dir = tempfile::tempdir().unwrap();
+        let session_id = "terminal-input-without-observed-status";
+        let state = test_state_with_runtime_session(session_id);
+        let metadata_root = dir.path().join(".orkworks-test");
+        *state.workspace.lock().unwrap() = Some(crate::WorkspaceState {
+            path: dir.path().to_path_buf(),
+            metadata: crate::metadata::MetadataStore::new(&metadata_root),
+            watcher: crate::watcher::MetadataWatcher::start(&metadata_root.join("sessions")),
+        });
+        {
+            let ws = state.workspace.lock().unwrap();
+            let mut meta = crate::test_support::test_session_metadata(
+                session_id,
+                "Runtime Test",
+                dir.path().display().to_string(),
+                "running",
+                "now",
+                "now",
+            );
+            meta.lifecycle_phase = "active".into();
+            meta.lifecycle = "alive".into();
+            meta.connectivity = "online".into();
+            meta.terminal_outcome = None;
+            ws.as_ref().unwrap().metadata.write_session(&meta);
+        }
+
+        let line = "describe the next implementation step";
+        crate::runtime::terminal_runtime::process_terminal_input(
+            &state,
+            session_id,
+            &format!("{line}\r"),
+        );
+
+        let sessions = state.sessions.lock().unwrap();
+        let handle = &sessions[session_id];
+        assert_eq!(handle.info.label, line);
+        assert_ne!(handle.info.attention.as_deref(), Some("working"));
+        assert_ne!(handle.info.observed_status.as_deref(), Some("working"));
+        drop(sessions);
+        assert!(state.peon.label_hint.read().unwrap().get(session_id).is_none());
+        assert!(!state.peon.label_pending.read().unwrap().contains(session_id));
+
+        let ws = state.workspace.lock().unwrap();
+        let meta = ws.as_ref().unwrap().metadata.read_session(session_id).unwrap();
+        assert_eq!(meta.label, line);
+        assert_eq!(meta.last_user_input.as_deref(), Some(line));
+        assert_ne!(meta.attention.as_deref(), Some("working"));
+        assert_ne!(meta.observed_status.as_deref(), Some("working"));
+    }
+
     #[tokio::test]
     async fn output_within_startup_grace_is_replayed_without_marking_attention_working() {
         let dir = tempfile::tempdir().unwrap();
