@@ -47,6 +47,9 @@ pub(crate) fn consume_pending_work_signal(
     }
 
     let output = peon::strip_ansi(output);
+    if output.trim().is_empty() {
+        return false;
+    }
     if signal.remaining_echo.starts_with(&output) {
         signal.remaining_echo.drain(..output.len());
         return false;
@@ -145,7 +148,6 @@ pub(crate) struct SessionRuntime {
     pub(crate) attached_generation: Option<u64>,
     pub(crate) last_rows: u16,
     pub(crate) last_cols: u16,
-    pub(crate) pending_work_signal: Option<PendingWorkSignal>,
 }
 
 impl SessionRuntime {
@@ -161,7 +163,6 @@ impl SessionRuntime {
                 attached_generation: None,
                 last_rows: rows,
                 last_cols: cols,
-                pending_work_signal: None,
             },
             control_rx,
         )
@@ -178,7 +179,6 @@ impl SessionRuntime {
             attached_generation: None,
             last_rows: rows,
             last_cols: cols,
-            pending_work_signal: None,
         }
     }
 
@@ -558,7 +558,6 @@ pub(crate) async fn start_session_runtime(
                                         handle.scan_buf.drain(..drop);
                                     }
                                     let has_qualifying_work_signal = handle
-                                        .runtime
                                         .pending_work_signal
                                         .as_mut()
                                         .is_some_and(|signal| consume_pending_work_signal(
@@ -573,7 +572,7 @@ pub(crate) async fn start_session_runtime(
                                     ) {
                                         handle.info.observed_status = Some("working".into());
                                         handle.info.attention = Some("working".into());
-                                        handle.runtime.pending_work_signal = None;
+                                        handle.pending_work_signal = None;
                                         promoted_working = true;
                                     }
                                     if handle.info.harness_id.as_deref() == Some("codex") {
@@ -772,6 +771,7 @@ mod tests {
                     cwd: "/tmp".into(),
                 },
                 initial_prompt: None,
+                pending_work_signal: None,
                 runtime: SessionRuntime::detached_test(),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
@@ -972,6 +972,39 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn ansi_only_output_preserves_pending_echo_for_following_output() {
+        let now = tokio::time::Instant::now();
+        let mut signal = arm_pending_work_signal("fix", now);
+
+        assert!(!consume_pending_work_signal(&mut signal, "\x1b[2K\r", now));
+        assert!(!consume_pending_work_signal(&mut signal, "fix\r\n", now));
+        assert!(consume_pending_work_signal(&mut signal, "Thinking…", now));
+    }
+
+    #[test]
+    fn terminal_input_arms_only_completed_hookless_submission() {
+        let session_id = "terminal-input-work-signal";
+        let state = test_state_with_runtime_session(session_id);
+
+        assert!(crate::runtime::terminal_runtime::record_terminal_input(&state, session_id, "fix").is_none());
+        assert!(state.sessions.lock().unwrap()[session_id].pending_work_signal.is_none());
+
+        crate::runtime::terminal_runtime::record_terminal_input(&state, session_id, " status\r")
+            .expect("completed terminal input should be accepted");
+        assert!(state.sessions.lock().unwrap()[session_id].pending_work_signal.is_some());
+
+        let mut sessions = state.sessions.lock().unwrap();
+        let handle = sessions.get_mut(session_id).unwrap();
+        handle.active_work_hook = true;
+        handle.pending_work_signal = None;
+        drop(sessions);
+
+        crate::runtime::terminal_runtime::record_terminal_input(&state, session_id, "another command\r")
+            .expect("capable terminal input should be accepted");
+        assert!(state.sessions.lock().unwrap()[session_id].pending_work_signal.is_none());
+    }
+
     #[tokio::test]
     async fn output_within_startup_grace_is_replayed_without_marking_attention_working() {
         let dir = tempfile::tempdir().unwrap();
@@ -1059,6 +1092,219 @@ mod tests {
         drop(handle);
 
         kill_tx.send(true).unwrap();
+    }
+
+    #[tokio::test]
+    async fn partial_then_qualifying_hookless_terminal_input_and_output_promote_memory_and_metadata() {
+        let dir = tempfile::tempdir().unwrap();
+        let session_id = "runtime-hookless-working";
+        let state = test_state_with_runtime_session(session_id);
+        let metadata_root = dir.path().join(".orkworks-test");
+        *state.workspace.lock().unwrap() = Some(crate::WorkspaceState {
+            path: dir.path().to_path_buf(),
+            metadata: crate::metadata::MetadataStore::new(&metadata_root),
+            watcher: crate::watcher::MetadataWatcher::start(&metadata_root.join("sessions")),
+        });
+        {
+            let ws = state.workspace.lock().unwrap();
+            let mut meta = crate::test_support::test_session_metadata(
+                session_id,
+                "Runtime Test",
+                dir.path().display().to_string(),
+                "running",
+                "now",
+                "now",
+            );
+            meta.lifecycle_phase = "active".into();
+            meta.lifecycle = "alive".into();
+            meta.connectivity = "online".into();
+            meta.terminal_outcome = None;
+            ws.as_ref().unwrap().metadata.write_session(&meta);
+        }
+
+        let (runtime, control_rx) =
+            SessionRuntime::live(DEFAULT_TERMINAL_ROWS, DEFAULT_TERMINAL_COLS);
+        let output_tx = runtime.output_tx.clone();
+        let mut events = output_tx.subscribe();
+        let command = harness::CommandSpec {
+            program: "/bin/sh".into(),
+            args: vec![
+                "-lc".into(),
+                "sleep 2.2; printf 'unsolicited-output\\n'; read -r command; printf 'qualifying-output\\n'; sleep 1".into(),
+            ],
+            cwd: dir.path().display().to_string(),
+        };
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut(session_id).unwrap();
+            handle.command = command.clone();
+            handle.runtime = runtime;
+        }
+
+        let (_kill_tx, kill_rx) = tokio::sync::watch::channel(false);
+        start_session_runtime(
+            state.clone(),
+            session_id.to_string(),
+            command,
+            None,
+            control_rx,
+            output_tx,
+            kill_rx,
+            PtySize {
+                rows: DEFAULT_TERMINAL_ROWS,
+                cols: DEFAULT_TERMINAL_COLS,
+                pixel_width: 0,
+                pixel_height: 0,
+            },
+        )
+        .await
+        .unwrap();
+
+        assert!(crate::runtime::terminal_runtime::record_terminal_input(
+            &state,
+            session_id,
+            "work",
+        )
+        .is_none());
+        send_runtime_command(&state, session_id, RuntimeCommand::Input("work".into()))
+            .await
+            .unwrap();
+
+        tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                match events.recv().await {
+                    Ok(RuntimeEvent::Output { chunk, .. })
+                        if String::from_utf8_lossy(&chunk).contains("unsolicited-output") =>
+                    {
+                        break;
+                    }
+                    Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(error) => panic!("unexpected runtime event error: {error}"),
+                }
+            }
+        })
+        .await
+        .expect("process should produce unsolicited output after startup grace");
+        assert_ne!(
+            state.sessions.lock().unwrap()[session_id].info.observed_status.as_deref(),
+            Some("working"),
+            "partial terminal input must not arm unsolicited output"
+        );
+
+        assert!(crate::runtime::terminal_runtime::record_terminal_input(
+            &state,
+            session_id,
+            " now\r",
+        )
+        .is_some());
+        send_runtime_command(&state, session_id, RuntimeCommand::Input(" now\r".into()))
+            .await
+            .unwrap();
+
+        tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                match events.recv().await {
+                    Ok(RuntimeEvent::Output { chunk, .. })
+                        if String::from_utf8_lossy(&chunk).contains("qualifying-output") =>
+                    {
+                        break;
+                    }
+                    Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(error) => panic!("unexpected runtime event error: {error}"),
+                }
+            }
+        })
+        .await
+        .expect("submitted terminal command should produce qualifying output");
+
+        let sessions = state.sessions.lock().unwrap();
+        let handle = sessions.get(session_id).unwrap();
+        assert_eq!(handle.info.observed_status.as_deref(), Some("working"));
+        assert_eq!(handle.info.attention.as_deref(), Some("working"));
+        drop(sessions);
+
+        let ws = state.workspace.lock().unwrap();
+        let meta = ws.as_ref().unwrap().metadata.read_session(session_id).unwrap();
+        assert_eq!(meta.observed_status.as_deref(), Some("working"));
+        assert_eq!(meta.attention.as_deref(), Some("working"));
+        assert_eq!(meta.metadata_source, "process");
+    }
+
+    #[tokio::test]
+    async fn capable_terminal_input_and_output_fail_closed_without_hook_signal() {
+        let dir = tempfile::tempdir().unwrap();
+        let session_id = "runtime-capable-work-signal";
+        let state = test_state_with_runtime_session(session_id);
+        let (runtime, control_rx) =
+            SessionRuntime::live(DEFAULT_TERMINAL_ROWS, DEFAULT_TERMINAL_COLS);
+        let output_tx = runtime.output_tx.clone();
+        let mut events = output_tx.subscribe();
+        let command = harness::CommandSpec {
+            program: "/bin/sh".into(),
+            args: vec![
+                "-lc".into(),
+                "read -r command; printf 'capable-output\\n'; sleep 1".into(),
+            ],
+            cwd: dir.path().display().to_string(),
+        };
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut(session_id).unwrap();
+            handle.active_work_hook = true;
+            handle.command = command.clone();
+            handle.runtime = runtime;
+        }
+
+        let (_kill_tx, kill_rx) = tokio::sync::watch::channel(false);
+        start_session_runtime(
+            state.clone(),
+            session_id.to_string(),
+            command,
+            None,
+            control_rx,
+            output_tx,
+            kill_rx,
+            PtySize {
+                rows: DEFAULT_TERMINAL_ROWS,
+                cols: DEFAULT_TERMINAL_COLS,
+                pixel_width: 0,
+                pixel_height: 0,
+            },
+        )
+        .await
+        .unwrap();
+
+        tokio::time::sleep(STARTUP_ATTENTION_GRACE + Duration::from_millis(50)).await;
+        assert!(crate::runtime::terminal_runtime::record_terminal_input(
+            &state,
+            session_id,
+            "work now\r",
+        )
+        .is_some());
+        send_runtime_command(&state, session_id, RuntimeCommand::Input("work now\r".into()))
+            .await
+            .unwrap();
+
+        tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                match events.recv().await {
+                    Ok(RuntimeEvent::Output { chunk, .. })
+                        if String::from_utf8_lossy(&chunk).contains("capable-output") =>
+                    {
+                        break;
+                    }
+                    Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(error) => panic!("unexpected runtime event error: {error}"),
+                }
+            }
+        })
+        .await
+        .expect("capable terminal command should produce output");
+
+        let handle = state.sessions.lock().unwrap();
+        assert!(handle[session_id].pending_work_signal.is_none());
+        assert_ne!(handle[session_id].info.observed_status.as_deref(), Some("working"));
+        assert_ne!(handle[session_id].info.attention.as_deref(), Some("working"));
     }
 
     #[tokio::test]

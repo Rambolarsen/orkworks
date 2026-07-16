@@ -1,4 +1,7 @@
-use crate::runtime::session_runtime::STARTUP_PENDING_INPUT_BYTES as QUEUED_INPUT_CAP_BYTES;
+use crate::runtime::session_runtime::{
+    arm_pending_work_signal,
+    STARTUP_PENDING_INPUT_BYTES as QUEUED_INPUT_CAP_BYTES,
+};
 use crate::session_view::{connectivity_for_status, terminal_outcome_for_status};
 use crate::workspace_runtime::iso_now;
 use crate::{harness, metadata, peon, providers, AppState};
@@ -231,21 +234,29 @@ fn mark_usage_limit_recheck_on_input(state: &Arc<AppState>, id: &str) {
     handle.resume_scan_origin = Some((handle.output_lines_seen, handle.scan_bytes_seen));
 }
 
-/// Peon bookkeeping (usage-limit recheck, line-buffered label inference, activity timestamps)
-/// for a chunk of terminal input that has been accepted for delivery to the PTY. Call only
-/// once delivery is actually accepted — never for input dropped by `PendingActionQueue`.
+/// Records accepted terminal input for usage-limit rechecks, labels, and pending work signals.
+/// Call only once delivery is actually accepted — never for input dropped by
+/// `PendingActionQueue`.
 fn record_peon_input_side_effects(state: &Arc<AppState>, id: &str, data: &str) {
+    let _ = record_terminal_input(state, id, data);
+}
+
+/// Applies accepted terminal input-side bookkeeping without scheduling a Peon scan.
+pub(crate) fn record_terminal_input(
+    state: &Arc<AppState>,
+    id: &str,
+    data: &str,
+) -> Option<()> {
     if !data.is_empty() {
         mark_usage_limit_recheck_on_input(state, id);
     }
 
-    let mut triggered_label = false;
     let collected_line = {
         let mut bufs = state.peon.input_buf.write().unwrap();
         let buf = bufs.entry(id.to_string()).or_default();
         collect_input_line(buf, data)
     };
-    if let Some(line) = collected_line {
+    let line = collected_line?;
         let is_sensitive = {
             let sessions = state.sessions.lock().unwrap();
             sessions.get(id)
@@ -261,12 +272,6 @@ fn record_peon_input_side_effects(state: &Arc<AppState>, id: &str, data: &str) {
                         meta.label = line.clone();
                     }
                     meta.last_user_input = Some(line.clone());
-                    if peon::is_terminal_observed_status(meta.observed_status.as_deref()) {
-                        meta.observed_status = None;
-                        // "user" blocks Peon from immediately re-writing idle/done;
-                        // it relinquishes on the next Peon inference write.
-                        meta.metadata_source = "user".into();
-                    }
                     ws.metadata.write_session(&meta);
                 }
             }
@@ -277,30 +282,15 @@ fn record_peon_input_side_effects(state: &Arc<AppState>, id: &str, data: &str) {
                 if label_worthy {
                     handle.info.label = line.clone();
                 }
-                if !is_sensitive && peon::is_terminal_observed_status(
-                    handle.info.observed_status.as_deref(),
-                ) {
-                    handle.info.observed_status = None;
-                    handle.info.metadata_source = Some("user".into());
+                if !line.is_empty() && !handle.active_work_hook {
+                    handle.pending_work_signal = Some(arm_pending_work_signal(
+                        &line,
+                        tokio::time::Instant::now(),
+                    ));
                 }
             }
         }
-        if state.peon.config.enabled && line.len() > peon::HINT_MIN_LEN && label_worthy {
-            state.peon.label_hint.write().unwrap().insert(id.to_string(), line);
-            state.peon.label_pending.write().unwrap().insert(id.to_string());
-            triggered_label = true;
-        }
-    }
-
-    if state.peon.config.enabled && !data.is_empty() {
-        let ts = if triggered_label {
-            tokio::time::Instant::now() - std::time::Duration::from_secs(3600)
-        } else {
-            tokio::time::Instant::now()
-        };
-        state.peon.last_output.write().unwrap().insert(id.to_string(), ts);
-        state.peon.last_inference.write().unwrap().remove(id);
-    }
+    Some(())
 }
 
 pub(crate) fn should_forward_terminal_env(key: &str) -> bool {
@@ -1028,6 +1018,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: harness::CommandSpec { program: "/bin/sh".into(), args: vec!["-i".into(), "-l".into()], cwd: "/tmp".into() },
                 initial_prompt: None,
+                pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
@@ -1081,6 +1072,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: harness::CommandSpec { program: "/bin/sh".into(), args: vec!["-i".into(), "-l".into()], cwd: "/tmp".into() },
                 initial_prompt: None,
+                pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
@@ -1129,6 +1121,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: harness::CommandSpec { program: "/bin/sh".into(), args: vec!["-i".into(), "-l".into()], cwd: "/tmp".into() },
                 initial_prompt: None,
+                pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
@@ -1183,6 +1176,7 @@ mod tests {
                 scan_buf: "abc".into(),
                 command: harness::CommandSpec { program: "/bin/sh".into(), args: vec!["-i".into(), "-l".into()], cwd: "/tmp".into() },
                 initial_prompt: None,
+                pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: true,
@@ -1247,6 +1241,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: harness::CommandSpec { program: "/bin/sh".into(), args: vec!["-i".into(), "-l".into()], cwd: "/tmp".into() },
                 initial_prompt: None,
+                pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
@@ -1327,6 +1322,7 @@ mod tests {
                     cwd: "/tmp".into(),
                 },
                 initial_prompt: None,
+                pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
@@ -1391,6 +1387,7 @@ mod tests {
                     cwd: "/tmp".into(),
                 },
                 initial_prompt: None,
+                pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
@@ -1447,6 +1444,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: harness::CommandSpec { program: "/bin/sh".into(), args: vec!["-i".into(), "-l".into()], cwd: "/tmp".into() },
                 initial_prompt: None,
+                pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
@@ -1509,6 +1507,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: crate::harness_registry::default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
+                pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
@@ -1638,6 +1637,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: crate::harness_registry::default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
+                pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
@@ -1805,6 +1805,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: crate::harness_registry::default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
+                pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
