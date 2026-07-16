@@ -1054,8 +1054,8 @@ impl MetadataStore {
             });
 
         // Observer-only inference cannot resume a finished/non-working session to
-        // `working` on its own — that requires qualifying user input, which clears
-        // `observed_status` via the terminal-input path first. See issue #170.
+        // `working` on its own. Terminal input intentionally preserves the observed
+        // status, so an explicit hook remains authoritative until it reports again.
         // The whole inference is discarded in that case (not just observed_status):
         // applying its summary/next_action/etc while keeping the old status would
         // leave an inconsistent record (e.g. a "blocked" badge with a "still
@@ -1554,13 +1554,12 @@ mod tests {
     }
 
     #[test]
-    fn peon_inference_resumes_to_working_once_user_input_cleared_status() {
+    fn peon_inference_does_not_resume_preserved_terminal_attention() {
         let dir = tempfile::tempdir().unwrap();
         let store = MetadataStore::new(dir.path());
-        // Mirrors the terminal-input path: qualifying user input clears
-        // observed_status to None before the next Peon inference write.
-        let mut meta = test_metadata("cleared-by-user");
-        meta.observed_status = None;
+        let mut meta = test_metadata("preserved-terminal-attention");
+        meta.observed_status = Some("waiting_for_input".into());
+        meta.attention = Some("needs_you".into());
         store.write_session(&meta);
 
         let inf = crate::peon::PeonInference {
@@ -1571,10 +1570,11 @@ mod tests {
             capacity_hints: None, confidence: 0.9,
             detected_harness: None, detected_model: None, harness_session_id: None,
         };
-        store.merge_peon_inference("cleared-by-user", &inf, "later", None).unwrap();
+        store.merge_peon_inference("preserved-terminal-attention", &inf, "later", None).unwrap();
 
-        let updated = store.read_session("cleared-by-user").unwrap();
-        assert_eq!(updated.observed_status.as_deref(), Some("working"));
+        let updated = store.read_session("preserved-terminal-attention").unwrap();
+        assert_eq!(updated.observed_status.as_deref(), Some("waiting_for_input"));
+        assert_eq!(updated.attention.as_deref(), Some("needs_you"));
     }
 
     #[test]

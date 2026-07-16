@@ -257,39 +257,41 @@ pub(crate) fn record_terminal_input(
         collect_input_line(buf, data)
     };
     let line = collected_line?;
-        let is_sensitive = {
-            let sessions = state.sessions.lock().unwrap();
-            sessions.get(id)
-                .map(|h| peon::looks_like_password_prompt(&h.output_buffer.last_n(5)))
-                .unwrap_or(false)
-        };
-        let label_worthy = !is_sensitive && peon::is_descriptive_input(&line);
-        if !is_sensitive {
-            let ws_guard = state.workspace.lock().unwrap();
-            if let Some(ref ws) = *ws_guard {
-                if let Some(mut meta) = ws.metadata.read_session(id) {
-                    if label_worthy {
-                        meta.label = line.clone();
-                    }
-                    meta.last_user_input = Some(line.clone());
-                    ws.metadata.write_session(&meta);
-                }
-            }
-        }
-        {
-            let mut sessions = state.sessions.lock().unwrap();
-            if let Some(handle) = sessions.get_mut(id) {
+    let is_sensitive = {
+        let sessions = state.sessions.lock().unwrap();
+        sessions
+            .get(id)
+            .map(|h| peon::looks_like_password_prompt(&h.output_buffer.last_n(5)))
+            .unwrap_or(false)
+    };
+    let label_worthy = !is_sensitive && peon::is_descriptive_input(&line);
+
+    if !is_sensitive {
+        let ws_guard = state.workspace.lock().unwrap();
+        if let Some(ref ws) = *ws_guard {
+            if let Some(mut meta) = ws.metadata.read_session(id) {
                 if label_worthy {
-                    handle.info.label = line.clone();
+                    meta.label = line.clone();
                 }
-                if !line.is_empty() && !handle.active_work_hook {
-                    handle.pending_work_signal = Some(arm_pending_work_signal(
-                        &line,
-                        tokio::time::Instant::now(),
-                    ));
-                }
+                meta.last_user_input = Some(line.clone());
+                ws.metadata.write_session(&meta);
             }
         }
+    }
+
+    let mut sessions = state.sessions.lock().unwrap();
+    if let Some(handle) = sessions.get_mut(id) {
+        if label_worthy {
+            handle.info.label = line.clone();
+        }
+        if !line.is_empty() && !handle.active_work_hook {
+            handle.pending_work_signal = Some(arm_pending_work_signal(
+                &line,
+                tokio::time::Instant::now(),
+            ));
+        }
+    }
+
     Some(())
 }
 
