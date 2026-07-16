@@ -167,7 +167,7 @@ pub(crate) async fn resume_session(
 ) -> impl IntoResponse {
     let now = iso_now();
     let harnesses = state.harnesses.read().await.clone();
-    let (meta, command, strategy, capabilities) = {
+    let (meta, command, strategy, capabilities, active_work_hook) = {
         let ws_guard = state.workspace.lock().unwrap();
         let Some(ref ws) = *ws_guard else {
             return axum::http::StatusCode::CONFLICT.into_response();
@@ -179,6 +179,9 @@ pub(crate) async fn resume_session(
             return axum::http::StatusCode::BAD_REQUEST.into_response();
         };
         let session_harness_id = (!meta.harness.is_empty()).then(|| meta.harness.as_str());
+        let active_work_hook = session_harness_id
+            .and_then(|id| harnesses.iter().find(|h| h.id == id))
+            .is_some_and(|h| h.attention.active_work_hook);
         let adapter_harness_id = resolve_adapter_harness_id(&harnesses, session_harness_id);
         let capabilities = capabilities_for_harness(&state.adapters, adapter_harness_id.as_deref());
         let strategy = harness::select_resume_strategy(resume, &capabilities);
@@ -196,7 +199,7 @@ pub(crate) async fn resume_session(
         let Some(command) = adapter.build_resume_command(&request) else {
             return axum::http::StatusCode::BAD_REQUEST.into_response();
         };
-        (meta, command, strategy, capabilities)
+        (meta, command, strategy, capabilities, active_work_hook)
     };
 
     {
@@ -284,11 +287,13 @@ pub(crate) async fn resume_session(
             id.clone(),
             SessionHandle {
                 info: info.clone(),
+                active_work_hook,
                 kill_tx: kill_tx.clone(),
                 output_buffer: peon::RingBuffer::new(state.peon.config.max_lines),
                 scan_buf: String::new(),
                 command: command.clone(),
                 initial_prompt: None,
+                pending_work_signal: None,
                 runtime,
                 terminal_attached: false,
                 at_usage_limit_latched: false,
@@ -433,9 +438,22 @@ pub(crate) async fn report_attention(
     Path(id): Path<String>,
     Json(req): Json<AttentionReportRequest>,
 ) -> impl IntoResponse {
-    if !peon::is_valid_observed_status(&req.status) {
+    let active_alias = matches!(req.status.as_str(), "thinking" | "reasoning");
+    if !active_alias && !peon::is_valid_observed_status(&req.status) {
         return axum::http::StatusCode::BAD_REQUEST.into_response();
     }
+    let supports_active_work = state
+        .sessions
+        .lock()
+        .unwrap()
+        .get(&id)
+        .is_some_and(|handle| handle.active_work_hook);
+    let Some(status) = crate::harness_registry::normalize_hook_attention_status(
+        &req.status,
+        supports_active_work,
+    ) else {
+        return axum::http::StatusCode::BAD_REQUEST.into_response();
+    };
 
     // A hook report is a harness turn boundary: any keystroke still sitting in
     // the pending input-line buffer (e.g. a single-key "accept" prompt with no
@@ -453,15 +471,32 @@ pub(crate) async fn report_attention(
     }
 
     let now = iso_now();
-    let ws_guard = state.workspace.lock().unwrap();
-    let Some(ref ws) = *ws_guard else {
-        return axum::http::StatusCode::CONFLICT.into_response();
+    let result = {
+        let ws_guard = state.workspace.lock().unwrap();
+        let Some(ref ws) = *ws_guard else {
+            return axum::http::StatusCode::CONFLICT.into_response();
+        };
+        ws.metadata.merge_agent_attention_signal(&id, &status, req.message.as_deref(), &now)
     };
 
-    match ws.metadata.merge_agent_attention_signal(&id, &req.status, req.message.as_deref(), &now) {
-        metadata::AttentionMergeResult::Accepted | metadata::AttentionMergeResult::Ignored => {
+    match result {
+        metadata::AttentionMergeResult::Accepted => {
+            if let Some(handle) = state.sessions.lock().unwrap().get_mut(&id) {
+                handle.info.observed_status = Some(status.clone());
+                if handle.info.lifecycle == "alive" {
+                    handle.info.attention = match status.as_str() {
+                        "waiting_for_input" => Some("needs_you".into()),
+                        "stale" | "done" => Some("idle".into()),
+                        "working" | "idle" | "blocked" | "failed" => Some(status.clone()),
+                        _ => None,
+                    };
+                }
+                handle.info.metadata_source = Some("agent".into());
+                handle.info.metadata_confidence = Some(1.0);
+            }
             axum::http::StatusCode::OK.into_response()
         }
+        metadata::AttentionMergeResult::Ignored => axum::http::StatusCode::OK.into_response(),
         metadata::AttentionMergeResult::NotFound => axum::http::StatusCode::NOT_FOUND.into_response(),
         // The signal was lost, not delivered — a 200 here would tell the
         // harness hook its notification landed when it didn't.
@@ -484,6 +519,7 @@ pub(crate) struct CreateSessionRequest {
 pub(crate) struct ResolvedSessionLaunch {
     pub(crate) session_harness_id: Option<String>,
     pub(crate) adapter_harness_id: Option<String>,
+    pub(crate) active_work_hook: bool,
     pub(crate) model: Option<String>,
     pub(crate) command: harness::CommandSpec,
     pub(crate) provider_id: Option<String>,
@@ -520,6 +556,7 @@ pub(crate) fn resolve_session_launch(
             return ResolvedSessionLaunch {
                 session_harness_id: Some(config.id.clone()),
                 adapter_harness_id: Some(config.harness.clone()),
+                active_work_hook: config.attention.active_work_hook,
                 model,
                 command: harness::CommandSpec {
                     program: config.command.clone(),
@@ -535,6 +572,7 @@ pub(crate) fn resolve_session_launch(
     ResolvedSessionLaunch {
         session_harness_id: None,
         adapter_harness_id: None,
+        active_work_hook: false,
         model: req.model.clone(),
         command: default_shell_command(cwd),
         provider_id: None,
@@ -625,6 +663,17 @@ pub(crate) async fn create_session(
 
     let command = resolved_launch.command.clone();
     let initial_prompt = req.initial_prompt.clone();
+    // A hookless harness never gets a `report_attention` call, so the initial
+    // prompt (written straight to the PTY in `start_session_runtime`) must arm
+    // the same fallback a typed-and-submitted command would, or the session's
+    // first turn never promotes past creating/idle while Peon is disabled.
+    let pending_work_signal = initial_prompt
+        .as_deref()
+        .filter(|prompt| !prompt.is_empty() && !resolved_launch.active_work_hook)
+        .map(|prompt| crate::runtime::session_runtime::arm_pending_work_signal(
+            prompt,
+            tokio::time::Instant::now(),
+        ));
     let (runtime, control_rx) = crate::runtime::session_runtime::SessionRuntime::live(
         crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
         crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
@@ -634,11 +683,13 @@ pub(crate) async fn create_session(
         id.clone(),
         SessionHandle {
             info: info.clone(),
+            active_work_hook: resolved_launch.active_work_hook,
             kill_tx: kill_tx.clone(),
             output_buffer: peon::RingBuffer::new(state.peon.config.max_lines),
             scan_buf: String::new(),
             command: command.clone(),
             initial_prompt: initial_prompt.clone(),
+            pending_work_signal,
             runtime,
             terminal_attached: false,
             at_usage_limit_latched: false,
@@ -1149,6 +1200,31 @@ mod tests {
     use crate::test_support::*;
     use crate::runtime::terminal_runtime::set_session_status;
 
+    fn attention_test_handle(id: &str, cwd: &std::path::Path) -> SessionHandle {
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        SessionHandle {
+            info: test_session_info(id, "Known", cwd.display().to_string(), "running", "now"),
+            active_work_hook: false,
+            kill_tx,
+            output_buffer: peon::RingBuffer::new(200),
+            scan_buf: String::new(),
+            command: default_shell_command(cwd.display().to_string()),
+            initial_prompt: None,
+            pending_work_signal: None,
+            runtime: crate::runtime::session_runtime::SessionRuntime::detached(
+                crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+            ),
+            terminal_attached: false,
+            at_usage_limit_latched: false,
+            capacity_check_pending: false,
+            output_lines_seen: 0,
+            scan_bytes_seen: 0,
+            resume_scan_origin: None,
+            pending_capacity_visible_once: false,
+        }
+    }
+
     #[tokio::test]
     async fn harness_session_report_rejects_invalid_native_id() {
         let dir = tempfile::tempdir().unwrap();
@@ -1303,6 +1379,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
+                pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
@@ -1311,6 +1388,7 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
+                active_work_hook: false,
             },
         );
 
@@ -1425,6 +1503,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
+                pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: true,
                 at_usage_limit_latched: false,
@@ -1433,6 +1512,7 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
+                active_work_hook: false,
             },
         );
 
@@ -1532,6 +1612,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
+                pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(
                     crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
                     crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
@@ -1543,6 +1624,7 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
+                active_work_hook: false,
             },
         );
 
@@ -1717,6 +1799,151 @@ mod tests {
         let updated = ws.as_ref().unwrap().metadata.read_session("attention-known").unwrap();
         assert_eq!(updated.observed_status.as_deref(), Some("waiting_for_input"));
         assert_eq!(updated.metadata_source, "agent");
+    }
+
+    #[tokio::test]
+    async fn created_capable_session_normalizes_thinking_to_working() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        {
+            let mut harnesses = state.harnesses.write().await;
+            *harnesses = crate::harness_registry::builtin_harness_configs();
+            harnesses
+                .iter_mut()
+                .find(|h| h.id == "generic-shell")
+                .unwrap()
+                .attention
+                .active_work_hook = true;
+        }
+
+        let response = create_session(
+            State(state.clone()),
+            Json(CreateSessionRequest {
+                harness_id: Some("generic-shell".into()),
+                model: None,
+                initial_prompt: None,
+            }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let created_id = serde_json::from_slice::<serde_json::Value>(&bytes)
+            .unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert!(
+            state.sessions.lock().unwrap()[&created_id].active_work_hook,
+            "the created handle should retain the capable harness's hook support"
+        );
+
+        let response = report_attention(
+            State(state.clone()),
+            Path(created_id.clone()),
+            Json(AttentionReportRequest { status: "thinking".into(), message: None }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let ws = state.workspace.lock().unwrap();
+        let updated = ws.as_ref().unwrap().metadata.read_session(&created_id).unwrap();
+        assert_eq!(updated.observed_status.as_deref(), Some("working"));
+        drop(ws);
+        let sessions = state.sessions.lock().unwrap();
+        assert_eq!(
+            sessions[&created_id].info.observed_status.as_deref(),
+            Some("working")
+        );
+        drop(sessions);
+
+        assert_eq!(
+            delete_session(State(state), Path(created_id)).await.into_response().status(),
+            axum::http::StatusCode::OK
+        );
+    }
+
+    #[tokio::test]
+    async fn unsupported_hook_rejects_thinking_without_changing_attention() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        {
+            let ws = state.workspace.lock().unwrap();
+            ws.as_ref().unwrap().metadata.write_session(&test_session_metadata(
+                "attention-unsupported-thinking",
+                "Known",
+                dir.path().display().to_string(),
+                "running",
+                "now",
+                "now",
+            ));
+        }
+
+        let response = report_attention(
+            State(state.clone()),
+            Path("attention-unsupported-thinking".into()),
+            Json(AttentionReportRequest { status: "thinking".into(), message: None }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
+        let ws = state.workspace.lock().unwrap();
+        let updated = ws.as_ref().unwrap().metadata.read_session("attention-unsupported-thinking").unwrap();
+        assert_eq!(updated.observed_status, None);
+    }
+
+    #[tokio::test]
+    async fn session_without_active_work_hook_rejects_thinking_after_registry_changes() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        {
+            let mut harnesses = state.harnesses.write().await;
+            *harnesses = crate::harness_registry::builtin_harness_configs();
+            harnesses
+                .iter_mut()
+                .find(|h| h.id == "claude-code")
+                .unwrap()
+                .attention
+                .active_work_hook = true;
+        }
+        {
+            let ws = state.workspace.lock().unwrap();
+            let mut meta = test_session_metadata(
+                "attention-session-scoped",
+                "Known",
+                dir.path().display().to_string(),
+                "running",
+                "now",
+                "now",
+            );
+            meta.harness = "claude-code".into();
+            ws.as_ref().unwrap().metadata.write_session(&meta);
+        }
+        state.sessions.lock().unwrap().insert(
+            "attention-session-scoped".into(),
+            attention_test_handle("attention-session-scoped", dir.path()),
+        );
+
+        let response = report_attention(
+            State(state.clone()),
+            Path("attention-session-scoped".into()),
+            Json(AttentionReportRequest { status: "thinking".into(), message: None }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
+        let ws = state.workspace.lock().unwrap();
+        let updated = ws
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session("attention-session-scoped")
+            .unwrap();
+        assert_eq!(updated.observed_status, None);
     }
 
     #[tokio::test]
@@ -1901,6 +2128,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
+                pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
@@ -1909,6 +2137,7 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
+                active_work_hook: false,
             },
         );
 
@@ -1968,6 +2197,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
+                pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
@@ -1976,6 +2206,7 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
+                active_work_hook: false,
             },
         );
 
@@ -2072,6 +2303,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
+                pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
@@ -2080,6 +2312,7 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
+                active_work_hook: false,
             },
         );
 
@@ -2179,6 +2412,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
+                pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
@@ -2187,6 +2421,7 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
+                active_work_hook: false,
             },
         );
         // A stale, unterminated keystroke left over from an earlier prompt.
@@ -2256,6 +2491,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command("/tmp/project".into()),
                 initial_prompt: None,
+                pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
@@ -2264,6 +2500,7 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
+                active_work_hook: false,
             },
         );
 
@@ -2327,6 +2564,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
+                pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
@@ -2335,6 +2573,7 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: Some((0, 0)),
                 pending_capacity_visible_once: false,
+                active_work_hook: false,
             },
         );
 
@@ -2410,6 +2649,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
+                pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
@@ -2418,6 +2658,7 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: Some((0, 0)),
                 pending_capacity_visible_once: false,
+                active_work_hook: false,
             },
         );
 
@@ -2474,6 +2715,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
+                pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
@@ -2482,6 +2724,7 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: Some((0, 0)),
                 pending_capacity_visible_once: false,
+                active_work_hook: false,
             },
         );
 
@@ -2577,6 +2820,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
+                pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
@@ -2585,6 +2829,7 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
+                active_work_hook: false,
             },
         );
 
@@ -2658,6 +2903,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
+                pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: true,
@@ -2666,6 +2912,7 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: Some((1, 0)),
                 pending_capacity_visible_once: false,
+                active_work_hook: false,
             },
         );
 
@@ -2739,6 +2986,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
+                pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: true,
@@ -2747,6 +2995,7 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: Some((1, 0)),
                 pending_capacity_visible_once: false,
+                active_work_hook: false,
             },
         );
 
@@ -2809,6 +3058,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
+                pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: true,
@@ -2817,6 +3067,7 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: Some((1, 0)),
                 pending_capacity_visible_once: false,
+                active_work_hook: false,
             },
         );
 

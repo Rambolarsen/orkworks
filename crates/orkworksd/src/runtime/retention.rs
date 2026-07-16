@@ -1,4 +1,4 @@
-use crate::{metadata, AppState};
+use crate::AppState;
 use std::sync::Arc;
 
 pub(crate) async fn retention_cleanup_task(state: Arc<AppState>) {
@@ -109,6 +109,7 @@ pub(crate) async fn retention_cleanup_once(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::metadata;
     use crate::test_support::*;
 
     #[tokio::test]
@@ -146,6 +147,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: crate::harness_registry::default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
+                pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
@@ -154,6 +156,7 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
+                active_work_hook: false,
             },
         );
 

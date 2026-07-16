@@ -19,23 +19,85 @@ const CONTROL_CHANNEL_CAPACITY: usize = 64;
 pub(crate) const STARTUP_PENDING_INPUT_BYTES: usize = 64 * 1024;
 const INITIAL_RESIZE_GRACE: std::time::Duration = std::time::Duration::from_millis(150);
 const STARTUP_ATTENTION_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
+const WORK_SIGNAL_WINDOW: std::time::Duration = std::time::Duration::from_secs(10);
 
-/// `current_observed_status` gates observer-only resumption: once a session has
-/// reached a finished/non-working state (idle, waiting_for_input, blocked,
-/// failed, stale, done), mere PTY output can't flip it back to `working` on its
-/// own — that requires qualifying user input, which clears `observed_status`
-/// via the terminal-input path in this module before the next `Output` event
-/// arrives. See issue #170.
+#[derive(Debug)]
+pub(crate) struct PendingWorkSignal {
+    remaining_echo: String,
+    expires_at: tokio::time::Instant,
+}
+
+pub(crate) fn arm_pending_work_signal(
+    submitted_line: &str,
+    now: tokio::time::Instant,
+) -> PendingWorkSignal {
+    PendingWorkSignal {
+        remaining_echo: submitted_line.to_string(),
+        expires_at: now + WORK_SIGNAL_WINDOW,
+    }
+}
+
+/// A chunk only "counts" as visible output if it has at least one character
+/// that isn't whitespace and isn't a control code (e.g. a bare BEL or other
+/// C0 byte left over after ANSI stripping must not qualify as model output).
+fn has_visible_character(s: &str) -> bool {
+    s.chars().any(|c| !c.is_whitespace() && !c.is_control())
+}
+
+/// Consumes `output` against the armed signal in `slot`. The signal is cleared
+/// entirely once it expires or once it qualifies as genuine (non-echo) visible
+/// output; a non-qualifying chunk before either of those only trims the
+/// remaining echo, so a spent or expired signal is never rechecked forever,
+/// while a signal still inside its window stays armed for later output.
+pub(crate) fn consume_pending_work_signal(
+    slot: &mut Option<PendingWorkSignal>,
+    output: &str,
+    now: tokio::time::Instant,
+) -> bool {
+    let Some(signal) = slot.as_mut() else {
+        return false;
+    };
+    if now >= signal.expires_at {
+        *slot = None;
+        return false;
+    }
+
+    let output = peon::strip_ansi(output);
+    if !has_visible_character(&output) {
+        return false;
+    }
+    let output = output
+        .strip_prefix('\r')
+        .or_else(|| output.strip_prefix('\n'))
+        .unwrap_or(&output);
+    if signal.remaining_echo.starts_with(output) {
+        signal.remaining_echo.drain(..output.len());
+        return false;
+    }
+
+    let visible_output = output
+        .strip_prefix(&signal.remaining_echo)
+        .unwrap_or(output)
+        .trim();
+    signal.remaining_echo.clear();
+    let qualifies = has_visible_character(visible_output);
+    if qualifies {
+        *slot = None;
+    }
+    qualifies
+}
+/// Only a qualifying, recently submitted hookless user command can resume a
+/// session to `working`; PTY output alone never changes the observed work state.
 fn should_infer_working(
-    current_observed_status: Option<&str>,
     lifecycle: &str,
-    has_visible_output: bool,
+    has_qualifying_work_signal: bool,
+    active_work_hook: bool,
     startup_grace_ends_at: tokio::time::Instant,
 ) -> bool {
     lifecycle == "alive"
-        && has_visible_output
+        && has_qualifying_work_signal
+        && !active_work_hook
         && tokio::time::Instant::now() >= startup_grace_ends_at
-        && !peon::is_terminal_observed_status(current_observed_status)
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -490,7 +552,6 @@ pub(crate) async fn start_session_runtime(
                         DriverEvent::Output(data) => {
                             persist_buffer.extend_from_slice(&data);
                             let stripped = peon::strip_ansi(&String::from_utf8_lossy(&data));
-                            let has_visible_output = !stripped.trim().is_empty();
                             let mut raw_persist_lines: Vec<String> = Vec::new();
                             while let Some(nl) = persist_buffer.iter().position(|&b| b == b'\n') {
                                 let line: Vec<u8> = persist_buffer.drain(..=nl).collect();
@@ -503,6 +564,7 @@ pub(crate) async fn start_session_runtime(
                             }
 
                             let mut codex_thread_id: Option<String> = None;
+                            let mut promoted_working = false;
                             {
                                 let mut sessions = driver_state.sessions.lock().unwrap();
                                 if let Some(handle) = sessions.get_mut(&driver_id) {
@@ -521,14 +583,20 @@ pub(crate) async fn start_session_runtime(
                                         let drop = (drop..drop + 4).find(|&i| handle.scan_buf.is_char_boundary(i)).unwrap_or(drop);
                                         handle.scan_buf.drain(..drop);
                                     }
+                                    let has_qualifying_work_signal = consume_pending_work_signal(
+                                        &mut handle.pending_work_signal,
+                                        &stripped,
+                                        tokio::time::Instant::now(),
+                                    );
                                     if should_infer_working(
-                                        handle.info.observed_status.as_deref(),
                                         &handle.info.lifecycle,
-                                        has_visible_output,
+                                        has_qualifying_work_signal,
+                                        handle.active_work_hook,
                                         startup_grace_ends_at,
                                     ) {
                                         handle.info.observed_status = Some("working".into());
                                         handle.info.attention = Some("working".into());
+                                        promoted_working = true;
                                     }
                                     if handle.info.harness_id.as_deref() == Some("codex") {
                                         codex_thread_id = raw_persist_lines.iter()
@@ -561,12 +629,7 @@ pub(crate) async fn start_session_runtime(
                                 let ws_guard = driver_state.workspace.lock().unwrap();
                                 if let Some(ref ws) = *ws_guard {
                                     if let Some(mut meta) = ws.metadata.read_session(&driver_id) {
-                                        if should_infer_working(
-                                            meta.observed_status.as_deref(),
-                                            &meta.lifecycle,
-                                            has_visible_output,
-                                            startup_grace_ends_at,
-                                        ) {
+                                        if promoted_working {
                                             meta.observed_status = Some("working".into());
                                             meta.attention = Some("working".into());
                                             meta.metadata_source = "process".into();
@@ -731,6 +794,7 @@ mod tests {
                     cwd: "/tmp".into(),
                 },
                 initial_prompt: None,
+                pending_work_signal: None,
                 runtime: SessionRuntime::detached_test(),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
@@ -739,6 +803,7 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
+                active_work_hook: false,
             },
         );
 
@@ -805,29 +870,29 @@ mod tests {
     #[test]
     fn startup_grace_keeps_visible_output_idle() {
         assert!(!should_infer_working(
-            None,
             "alive",
-            true,
+            false,
+            false,
             tokio::time::Instant::now() + STARTUP_ATTENTION_GRACE,
         ));
     }
 
     #[test]
-    fn visible_output_after_startup_grace_is_working() {
+    fn qualifying_signal_after_startup_grace_is_working() {
         assert!(should_infer_working(
-            None,
             "alive",
             true,
+            false,
             tokio::time::Instant::now() - std::time::Duration::from_millis(1),
         ));
     }
 
     #[test]
-    fn already_working_output_stays_working() {
+    fn qualifying_signal_can_resume_working() {
         assert!(should_infer_working(
-            Some("working"),
             "alive",
             true,
+            false,
             tokio::time::Instant::now() - std::time::Duration::from_millis(1),
         ));
     }
@@ -906,10 +971,228 @@ mod tests {
         let past_grace = tokio::time::Instant::now() - std::time::Duration::from_millis(1);
         for status in ["idle", "waiting_for_input", "blocked", "failed", "stale", "done"] {
             assert!(
-                !should_infer_working(Some(status), "alive", true, past_grace),
+                !should_infer_working("alive", false, false, past_grace),
                 "observer-only output should not resume {status} to working"
             );
         }
+    }
+
+    #[test]
+    fn split_echo_does_not_qualify_until_new_visible_output_arrives() {
+        let now = tokio::time::Instant::now();
+        let mut signal = Some(arm_pending_work_signal("fix status", now));
+        assert!(!consume_pending_work_signal(&mut signal, "fix ", now));
+        assert!(!consume_pending_work_signal(&mut signal, "status\r\n", now));
+        assert!(consume_pending_work_signal(&mut signal, "Thinking…", now));
+    }
+
+    #[test]
+    fn one_leading_line_ending_is_ignored_when_matching_echo() {
+        let now = tokio::time::Instant::now();
+        for leading in ['\r', '\n'] {
+            let mut signal = Some(arm_pending_work_signal("fix", now));
+
+            assert!(!consume_pending_work_signal(
+                &mut signal,
+                &format!("{leading}fix"),
+                now,
+            ));
+            assert!(consume_pending_work_signal(&mut signal, "Thinking…", now));
+        }
+    }
+
+    #[test]
+    fn ansi_only_output_and_expired_submission_do_not_qualify() {
+        let now = tokio::time::Instant::now();
+        let mut signal = Some(arm_pending_work_signal("fix", now));
+        assert!(!consume_pending_work_signal(&mut signal, "\x1b[2K\r", now));
+        assert!(!consume_pending_work_signal(
+            &mut signal,
+            "model output",
+            now + std::time::Duration::from_secs(10),
+        ));
+        assert!(signal.is_none(), "expired signal must be cleared, not rechecked forever");
+    }
+
+    #[test]
+    fn ansi_only_output_preserves_pending_echo_for_following_output() {
+        let now = tokio::time::Instant::now();
+        let mut signal = Some(arm_pending_work_signal("fix", now));
+
+        assert!(!consume_pending_work_signal(&mut signal, "\x1b[2K\r", now));
+        assert!(!consume_pending_work_signal(&mut signal, "fix\r\n", now));
+        assert!(consume_pending_work_signal(&mut signal, "Thinking…", now));
+    }
+
+    #[test]
+    fn control_only_output_does_not_qualify_as_visible() {
+        let now = tokio::time::Instant::now();
+        let mut signal = Some(arm_pending_work_signal("fix", now));
+        assert!(!consume_pending_work_signal(&mut signal, "fix\r\n", now));
+        // A bare BEL (or other C0 control byte) surviving ANSI-stripping must
+        // not be mistaken for genuine model output.
+        assert!(!consume_pending_work_signal(&mut signal, "\x07", now));
+        assert!(consume_pending_work_signal(&mut signal, "Thinking…", now));
+    }
+
+    #[test]
+    fn terminal_input_arms_only_completed_hookless_submission() {
+        let session_id = "terminal-input-work-signal";
+        let state = test_state_with_runtime_session(session_id);
+
+        assert!(crate::runtime::terminal_runtime::record_terminal_input(&state, session_id, "fix").is_none());
+        assert!(state.sessions.lock().unwrap()[session_id].pending_work_signal.is_none());
+
+        crate::runtime::terminal_runtime::record_terminal_input(&state, session_id, " status\r")
+            .expect("completed terminal input should be accepted");
+        assert!(state.sessions.lock().unwrap()[session_id].pending_work_signal.is_some());
+
+        let mut sessions = state.sessions.lock().unwrap();
+        let handle = sessions.get_mut(session_id).unwrap();
+        handle.active_work_hook = true;
+        handle.pending_work_signal = None;
+        drop(sessions);
+
+        crate::runtime::terminal_runtime::record_terminal_input(&state, session_id, "another command\r")
+            .expect("capable terminal input should be accepted");
+        assert!(state.sessions.lock().unwrap()[session_id].pending_work_signal.is_none());
+    }
+
+    #[test]
+    fn long_submission_arms_fallback_with_untruncated_echo() {
+        let session_id = "terminal-input-long-line";
+        let state = test_state_with_runtime_session(session_id);
+        let long_command = "x".repeat(150);
+
+        crate::runtime::terminal_runtime::record_terminal_input(
+            &state,
+            session_id,
+            &format!("{long_command}\r"),
+        )
+        .expect("completed terminal input should be accepted");
+
+        let sessions = state.sessions.lock().unwrap();
+        let signal = sessions[session_id]
+            .pending_work_signal
+            .as_ref()
+            .expect("long submission should still arm the fallback");
+        assert_eq!(
+            signal.remaining_echo.len(),
+            long_command.len(),
+            "echo gating must retain the full submitted line, not the 100-char label truncation"
+        );
+    }
+
+    #[test]
+    fn capable_hook_sessions_never_infer_working_from_pty_output() {
+        let past_grace = tokio::time::Instant::now() - std::time::Duration::from_millis(1);
+
+        assert!(!should_infer_working("alive", true, true, past_grace));
+    }
+
+    #[test]
+    fn terminal_input_preserves_observed_attention_in_memory_and_metadata() {
+        let dir = tempfile::tempdir().unwrap();
+        let session_id = "terminal-input-preserves-attention";
+        let state = test_state_with_runtime_session(session_id);
+        let metadata_root = dir.path().join(".orkworks-test");
+        *state.workspace.lock().unwrap() = Some(crate::WorkspaceState {
+            path: dir.path().to_path_buf(),
+            metadata: crate::metadata::MetadataStore::new(&metadata_root),
+            watcher: crate::watcher::MetadataWatcher::start(&metadata_root.join("sessions")),
+        });
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut(session_id).unwrap();
+            handle.info.observed_status = Some("waiting_for_input".into());
+            handle.info.attention = Some("waiting_for_input".into());
+            handle.info.metadata_source = Some("peon".into());
+        }
+        {
+            let ws = state.workspace.lock().unwrap();
+            let mut meta = crate::test_support::test_session_metadata(
+                session_id,
+                "Runtime Test",
+                dir.path().display().to_string(),
+                "running",
+                "now",
+                "now",
+            );
+            meta.observed_status = Some("waiting_for_input".into());
+            meta.attention = Some("waiting_for_input".into());
+            meta.metadata_source = "peon".into();
+            meta.lifecycle_phase = "active".into();
+            meta.lifecycle = "alive".into();
+            meta.connectivity = "online".into();
+            meta.terminal_outcome = None;
+            ws.as_ref().unwrap().metadata.write_session(&meta);
+        }
+
+        crate::runtime::terminal_runtime::record_terminal_input(&state, session_id, "continue\r")
+            .expect("completed terminal input should be accepted");
+
+        {
+            let sessions = state.sessions.lock().unwrap();
+            let handle = &sessions[session_id];
+            assert_eq!(handle.info.observed_status.as_deref(), Some("waiting_for_input"));
+            assert_eq!(handle.info.attention.as_deref(), Some("waiting_for_input"));
+        }
+        let ws = state.workspace.lock().unwrap();
+        let meta = ws.as_ref().unwrap().metadata.read_session(session_id).unwrap();
+        assert_eq!(meta.observed_status.as_deref(), Some("waiting_for_input"));
+        assert_eq!(meta.attention.as_deref(), Some("waiting_for_input"));
+    }
+
+    #[test]
+    fn terminal_input_without_observed_status_records_label_without_scheduling_peon_work() {
+        let dir = tempfile::tempdir().unwrap();
+        let session_id = "terminal-input-without-observed-status";
+        let state = test_state_with_runtime_session(session_id);
+        let metadata_root = dir.path().join(".orkworks-test");
+        *state.workspace.lock().unwrap() = Some(crate::WorkspaceState {
+            path: dir.path().to_path_buf(),
+            metadata: crate::metadata::MetadataStore::new(&metadata_root),
+            watcher: crate::watcher::MetadataWatcher::start(&metadata_root.join("sessions")),
+        });
+        {
+            let ws = state.workspace.lock().unwrap();
+            let mut meta = crate::test_support::test_session_metadata(
+                session_id,
+                "Runtime Test",
+                dir.path().display().to_string(),
+                "running",
+                "now",
+                "now",
+            );
+            meta.lifecycle_phase = "active".into();
+            meta.lifecycle = "alive".into();
+            meta.connectivity = "online".into();
+            meta.terminal_outcome = None;
+            ws.as_ref().unwrap().metadata.write_session(&meta);
+        }
+
+        let line = "describe the next implementation step";
+        crate::runtime::terminal_runtime::process_terminal_input(
+            &state,
+            session_id,
+            &format!("{line}\r"),
+        );
+
+        let sessions = state.sessions.lock().unwrap();
+        let handle = &sessions[session_id];
+        assert_eq!(handle.info.label, line);
+        assert_ne!(handle.info.attention.as_deref(), Some("working"));
+        assert_ne!(handle.info.observed_status.as_deref(), Some("working"));
+        drop(sessions);
+        assert!(state.peon.label_hint.read().unwrap().get(session_id).is_none());
+        assert!(!state.peon.label_pending.read().unwrap().contains(session_id));
+
+        let ws = state.workspace.lock().unwrap();
+        let meta = ws.as_ref().unwrap().metadata.read_session(session_id).unwrap();
+        assert_eq!(meta.label, line);
+        assert_eq!(meta.last_user_input.as_deref(), Some(line));
+        assert_ne!(meta.attention.as_deref(), Some("working"));
+        assert_ne!(meta.observed_status.as_deref(), Some("working"));
     }
 
     #[tokio::test]
@@ -940,6 +1223,10 @@ mod tests {
             let handle = sessions.get_mut(session_id).unwrap();
             handle.command = command.clone();
             handle.runtime = runtime;
+            handle.pending_work_signal = Some(arm_pending_work_signal(
+                "submitted command",
+                tokio::time::Instant::now(),
+            ));
         }
 
         let (kill_tx, kill_rx) = tokio::sync::watch::channel(false);
@@ -996,9 +1283,223 @@ mod tests {
         );
         assert_ne!(session.info.attention.as_deref(), Some("working"));
         assert_ne!(session.info.observed_status.as_deref(), Some("working"));
+        assert!(session.pending_work_signal.is_none());
         drop(handle);
 
         kill_tx.send(true).unwrap();
+    }
+
+    #[tokio::test]
+    async fn partial_then_qualifying_hookless_terminal_input_and_output_promote_memory_and_metadata() {
+        let dir = tempfile::tempdir().unwrap();
+        let session_id = "runtime-hookless-working";
+        let state = test_state_with_runtime_session(session_id);
+        let metadata_root = dir.path().join(".orkworks-test");
+        *state.workspace.lock().unwrap() = Some(crate::WorkspaceState {
+            path: dir.path().to_path_buf(),
+            metadata: crate::metadata::MetadataStore::new(&metadata_root),
+            watcher: crate::watcher::MetadataWatcher::start(&metadata_root.join("sessions")),
+        });
+        {
+            let ws = state.workspace.lock().unwrap();
+            let mut meta = crate::test_support::test_session_metadata(
+                session_id,
+                "Runtime Test",
+                dir.path().display().to_string(),
+                "running",
+                "now",
+                "now",
+            );
+            meta.lifecycle_phase = "active".into();
+            meta.lifecycle = "alive".into();
+            meta.connectivity = "online".into();
+            meta.terminal_outcome = None;
+            ws.as_ref().unwrap().metadata.write_session(&meta);
+        }
+
+        let (runtime, control_rx) =
+            SessionRuntime::live(DEFAULT_TERMINAL_ROWS, DEFAULT_TERMINAL_COLS);
+        let output_tx = runtime.output_tx.clone();
+        let mut events = output_tx.subscribe();
+        let command = harness::CommandSpec {
+            program: "/bin/sh".into(),
+            args: vec![
+                "-lc".into(),
+                "sleep 2.2; printf 'unsolicited-output\\n'; read -r command; printf 'qualifying-output\\n'; sleep 1".into(),
+            ],
+            cwd: dir.path().display().to_string(),
+        };
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut(session_id).unwrap();
+            handle.command = command.clone();
+            handle.runtime = runtime;
+        }
+
+        let (_kill_tx, kill_rx) = tokio::sync::watch::channel(false);
+        start_session_runtime(
+            state.clone(),
+            session_id.to_string(),
+            command,
+            None,
+            control_rx,
+            output_tx,
+            kill_rx,
+            PtySize {
+                rows: DEFAULT_TERMINAL_ROWS,
+                cols: DEFAULT_TERMINAL_COLS,
+                pixel_width: 0,
+                pixel_height: 0,
+            },
+        )
+        .await
+        .unwrap();
+
+        assert!(crate::runtime::terminal_runtime::record_terminal_input(
+            &state,
+            session_id,
+            "work",
+        )
+        .is_none());
+        send_runtime_command(&state, session_id, RuntimeCommand::Input("work".into()))
+            .await
+            .unwrap();
+
+        tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                match events.recv().await {
+                    Ok(RuntimeEvent::Output { chunk, .. })
+                        if String::from_utf8_lossy(&chunk).contains("unsolicited-output") =>
+                    {
+                        break;
+                    }
+                    Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(error) => panic!("unexpected runtime event error: {error}"),
+                }
+            }
+        })
+        .await
+        .expect("process should produce unsolicited output after startup grace");
+        assert_ne!(
+            state.sessions.lock().unwrap()[session_id].info.observed_status.as_deref(),
+            Some("working"),
+            "partial terminal input must not arm unsolicited output"
+        );
+
+        assert!(crate::runtime::terminal_runtime::record_terminal_input(
+            &state,
+            session_id,
+            " now\r",
+        )
+        .is_some());
+        send_runtime_command(&state, session_id, RuntimeCommand::Input(" now\r".into()))
+            .await
+            .unwrap();
+
+        tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                match events.recv().await {
+                    Ok(RuntimeEvent::Output { chunk, .. })
+                        if String::from_utf8_lossy(&chunk).contains("qualifying-output") =>
+                    {
+                        break;
+                    }
+                    Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(error) => panic!("unexpected runtime event error: {error}"),
+                }
+            }
+        })
+        .await
+        .expect("submitted terminal command should produce qualifying output");
+
+        let sessions = state.sessions.lock().unwrap();
+        let handle = sessions.get(session_id).unwrap();
+        assert_eq!(handle.info.observed_status.as_deref(), Some("working"));
+        assert_eq!(handle.info.attention.as_deref(), Some("working"));
+        drop(sessions);
+
+        let ws = state.workspace.lock().unwrap();
+        let meta = ws.as_ref().unwrap().metadata.read_session(session_id).unwrap();
+        assert_eq!(meta.observed_status.as_deref(), Some("working"));
+        assert_eq!(meta.attention.as_deref(), Some("working"));
+        assert_eq!(meta.metadata_source, "process");
+    }
+
+    #[tokio::test]
+    async fn capable_terminal_input_and_output_fail_closed_without_hook_signal() {
+        let dir = tempfile::tempdir().unwrap();
+        let session_id = "runtime-capable-work-signal";
+        let state = test_state_with_runtime_session(session_id);
+        let (runtime, control_rx) =
+            SessionRuntime::live(DEFAULT_TERMINAL_ROWS, DEFAULT_TERMINAL_COLS);
+        let output_tx = runtime.output_tx.clone();
+        let mut events = output_tx.subscribe();
+        let command = harness::CommandSpec {
+            program: "/bin/sh".into(),
+            args: vec![
+                "-lc".into(),
+                "read -r command; printf 'capable-output\\n'; sleep 1".into(),
+            ],
+            cwd: dir.path().display().to_string(),
+        };
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut(session_id).unwrap();
+            handle.active_work_hook = true;
+            handle.command = command.clone();
+            handle.runtime = runtime;
+        }
+
+        let (_kill_tx, kill_rx) = tokio::sync::watch::channel(false);
+        start_session_runtime(
+            state.clone(),
+            session_id.to_string(),
+            command,
+            None,
+            control_rx,
+            output_tx,
+            kill_rx,
+            PtySize {
+                rows: DEFAULT_TERMINAL_ROWS,
+                cols: DEFAULT_TERMINAL_COLS,
+                pixel_width: 0,
+                pixel_height: 0,
+            },
+        )
+        .await
+        .unwrap();
+
+        tokio::time::sleep(STARTUP_ATTENTION_GRACE + Duration::from_millis(50)).await;
+        assert!(crate::runtime::terminal_runtime::record_terminal_input(
+            &state,
+            session_id,
+            "work now\r",
+        )
+        .is_some());
+        send_runtime_command(&state, session_id, RuntimeCommand::Input("work now\r".into()))
+            .await
+            .unwrap();
+
+        tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                match events.recv().await {
+                    Ok(RuntimeEvent::Output { chunk, .. })
+                        if String::from_utf8_lossy(&chunk).contains("capable-output") =>
+                    {
+                        break;
+                    }
+                    Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(error) => panic!("unexpected runtime event error: {error}"),
+                }
+            }
+        })
+        .await
+        .expect("capable terminal command should produce output");
+
+        let handle = state.sessions.lock().unwrap();
+        assert!(handle[session_id].pending_work_signal.is_none());
+        assert_ne!(handle[session_id].info.observed_status.as_deref(), Some("working"));
+        assert_ne!(handle[session_id].info.attention.as_deref(), Some("working"));
     }
 
     #[tokio::test]

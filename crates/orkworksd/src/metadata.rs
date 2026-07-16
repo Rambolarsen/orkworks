@@ -984,12 +984,11 @@ impl MetadataStore {
     }
 
     /// Writes a deterministic, harness-supplied attention signal (e.g. from a Claude Code
-    /// `Notification` hook), gated by `should_overwrite`'s priority/staleness rule: it
-    /// cannot clobber fresh `user` metadata, and cannot immediately clobber another fresh
-    /// `agent` write either, but always outranks peon/backend_inference/process/unknown.
-    /// Peon's own write path uses the shorter `peon_should_overwrite` window instead, so
-    /// Peon can correct a stale `agent` status well before this 5-minute self-refresh
-    /// window would let a second hook event do the same.
+    /// `Notification` hook). Priority-gated: it cannot clobber fresh `user` metadata, but
+    /// always outranks peon/backend_inference/process/unknown. A prior `agent` write never
+    /// blocks a new one — consecutive hook reports are turn boundaries from the same
+    /// authoritative source and must apply immediately (e.g. `working` -> `waiting_for_input`
+    /// as soon as the model finishes), not gated behind a staleness window.
     pub fn merge_agent_attention_signal(
         &self,
         id: &str,
@@ -1002,8 +1001,7 @@ impl MetadataStore {
             None => return AttentionMergeResult::NotFound,
         };
 
-        let age = self.session_modified_secs_ago(id);
-        if !crate::peon::should_overwrite(&meta.metadata_source, age) {
+        if meta.metadata_source == "user" {
             return AttentionMergeResult::Ignored;
         }
 
@@ -1054,8 +1052,8 @@ impl MetadataStore {
             });
 
         // Observer-only inference cannot resume a finished/non-working session to
-        // `working` on its own — that requires qualifying user input, which clears
-        // `observed_status` via the terminal-input path first. See issue #170.
+        // `working` on its own. Terminal input intentionally preserves the observed
+        // status, so an explicit hook remains authoritative until it reports again.
         // The whole inference is discarded in that case (not just observed_status):
         // applying its summary/next_action/etc while keeping the old status would
         // leave an inconsistent record (e.g. a "blocked" badge with a "still
@@ -1554,13 +1552,12 @@ mod tests {
     }
 
     #[test]
-    fn peon_inference_resumes_to_working_once_user_input_cleared_status() {
+    fn peon_inference_does_not_resume_preserved_terminal_attention() {
         let dir = tempfile::tempdir().unwrap();
         let store = MetadataStore::new(dir.path());
-        // Mirrors the terminal-input path: qualifying user input clears
-        // observed_status to None before the next Peon inference write.
-        let mut meta = test_metadata("cleared-by-user");
-        meta.observed_status = None;
+        let mut meta = test_metadata("preserved-terminal-attention");
+        meta.observed_status = Some("waiting_for_input".into());
+        meta.attention = Some("needs_you".into());
         store.write_session(&meta);
 
         let inf = crate::peon::PeonInference {
@@ -1571,10 +1568,11 @@ mod tests {
             capacity_hints: None, confidence: 0.9,
             detected_harness: None, detected_model: None, harness_session_id: None,
         };
-        store.merge_peon_inference("cleared-by-user", &inf, "later", None).unwrap();
+        store.merge_peon_inference("preserved-terminal-attention", &inf, "later", None).unwrap();
 
-        let updated = store.read_session("cleared-by-user").unwrap();
-        assert_eq!(updated.observed_status.as_deref(), Some("working"));
+        let updated = store.read_session("preserved-terminal-attention").unwrap();
+        assert_eq!(updated.observed_status.as_deref(), Some("waiting_for_input"));
+        assert_eq!(updated.attention.as_deref(), Some("needs_you"));
     }
 
     #[test]
@@ -1916,6 +1914,30 @@ mod tests {
         let updated = store.read_session("attention-user-test").unwrap();
         assert_eq!(updated.observed_status.as_deref(), Some("working"));
         assert_eq!(updated.metadata_source, "user");
+    }
+
+    #[test]
+    fn agent_attention_signal_immediately_overwrites_fresh_agent_signal() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let mut meta = test_metadata("attention-agent-refresh-test");
+        meta.metadata_source = "agent".into();
+        meta.observed_status = Some("working".into());
+        store.write_session(&meta);
+
+        // A second hook report landing seconds later (well inside the old
+        // 5-minute staleness window) must still apply: it is a fresh turn
+        // boundary from the same authoritative hook, not a stale duplicate.
+        let result = store.merge_agent_attention_signal(
+            "attention-agent-refresh-test",
+            "waiting_for_input",
+            None,
+            "2026-06-26T12:00:00Z",
+        );
+
+        assert_eq!(result, AttentionMergeResult::Accepted);
+        let updated = store.read_session("attention-agent-refresh-test").unwrap();
+        assert_eq!(updated.observed_status.as_deref(), Some("waiting_for_input"));
     }
 
     #[test]

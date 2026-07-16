@@ -1,7 +1,10 @@
-use crate::runtime::session_runtime::STARTUP_PENDING_INPUT_BYTES as QUEUED_INPUT_CAP_BYTES;
+use crate::runtime::session_runtime::{
+    arm_pending_work_signal,
+    STARTUP_PENDING_INPUT_BYTES as QUEUED_INPUT_CAP_BYTES,
+};
 use crate::session_view::{connectivity_for_status, terminal_outcome_for_status};
 use crate::workspace_runtime::iso_now;
-use crate::{harness, metadata, peon, providers, AppState};
+use crate::{metadata, peon, providers, AppState};
 use axum::extract::ws::{Message, WebSocket};
 use std::future::Future;
 use std::pin::Pin;
@@ -172,8 +175,12 @@ pub(crate) fn collect_input_line(buf: &mut String, data: &str) -> Option<String>
     while let Some(ch) = chars.next() {
         match ch {
             '\r' | '\n' => {
-                let raw: String = buf.chars().take(100).collect();
-                let line = raw.trim().to_string();
+                // Full, untruncated line: callers that only need a short label
+                // truncate at their own call site. Truncating here would starve
+                // echo-gating (`arm_pending_work_signal`) of the tail of any
+                // submission over 100 chars, letting its own PTY echo slip
+                // through as if it were qualifying model output.
+                let line = buf.trim().to_string();
                 buf.clear();
                 if !line.is_empty() && result.is_none() {
                     result = Some(line);
@@ -231,76 +238,72 @@ fn mark_usage_limit_recheck_on_input(state: &Arc<AppState>, id: &str) {
     handle.resume_scan_origin = Some((handle.output_lines_seen, handle.scan_bytes_seen));
 }
 
-/// Peon bookkeeping (usage-limit recheck, line-buffered label inference, activity timestamps)
-/// for a chunk of terminal input that has been accepted for delivery to the PTY. Call only
-/// once delivery is actually accepted — never for input dropped by `PendingActionQueue`.
+/// Records accepted terminal input for usage-limit rechecks, labels, and pending work signals.
+/// Call only once delivery is actually accepted — never for input dropped by
+/// `PendingActionQueue`.
 fn record_peon_input_side_effects(state: &Arc<AppState>, id: &str, data: &str) {
+    let _ = record_terminal_input(state, id, data);
+}
+
+/// Applies accepted terminal input-side bookkeeping without scheduling a Peon scan.
+pub(crate) fn record_terminal_input(
+    state: &Arc<AppState>,
+    id: &str,
+    data: &str,
+) -> Option<()> {
     if !data.is_empty() {
         mark_usage_limit_recheck_on_input(state, id);
     }
 
-    let mut triggered_label = false;
     let collected_line = {
         let mut bufs = state.peon.input_buf.write().unwrap();
         let buf = bufs.entry(id.to_string()).or_default();
         collect_input_line(buf, data)
     };
-    if let Some(line) = collected_line {
-        let is_sensitive = {
-            let sessions = state.sessions.lock().unwrap();
-            sessions.get(id)
-                .map(|h| peon::looks_like_password_prompt(&h.output_buffer.last_n(5)))
-                .unwrap_or(false)
-        };
-        let label_worthy = !is_sensitive && peon::is_descriptive_input(&line);
-        if !is_sensitive {
-            let ws_guard = state.workspace.lock().unwrap();
-            if let Some(ref ws) = *ws_guard {
-                if let Some(mut meta) = ws.metadata.read_session(id) {
-                    if label_worthy {
-                        meta.label = line.clone();
-                    }
-                    meta.last_user_input = Some(line.clone());
-                    if peon::is_terminal_observed_status(meta.observed_status.as_deref()) {
-                        meta.observed_status = None;
-                        // "user" blocks Peon from immediately re-writing idle/done;
-                        // it relinquishes on the next Peon inference write.
-                        meta.metadata_source = "user".into();
-                    }
-                    ws.metadata.write_session(&meta);
-                }
-            }
-        }
-        {
-            let mut sessions = state.sessions.lock().unwrap();
-            if let Some(handle) = sessions.get_mut(id) {
+    let line = collected_line?;
+    // Labels are display-bounded; echo-gating below uses the full `line`.
+    let label_line: String = line.chars().take(100).collect();
+    let is_sensitive = {
+        let sessions = state.sessions.lock().unwrap();
+        sessions
+            .get(id)
+            .map(|h| peon::looks_like_password_prompt(&h.output_buffer.last_n(5)))
+            .unwrap_or(false)
+    };
+    let label_worthy = !is_sensitive && peon::is_descriptive_input(&label_line);
+
+    if !is_sensitive {
+        let ws_guard = state.workspace.lock().unwrap();
+        if let Some(ref ws) = *ws_guard {
+            if let Some(mut meta) = ws.metadata.read_session(id) {
                 if label_worthy {
-                    handle.info.label = line.clone();
+                    meta.label = label_line.clone();
                 }
-                if !is_sensitive && peon::is_terminal_observed_status(
-                    handle.info.observed_status.as_deref(),
-                ) {
-                    handle.info.observed_status = None;
-                    handle.info.metadata_source = Some("user".into());
-                }
+                meta.last_user_input = Some(label_line.clone());
+                ws.metadata.write_session(&meta);
             }
-        }
-        if state.peon.config.enabled && line.len() > peon::HINT_MIN_LEN && label_worthy {
-            state.peon.label_hint.write().unwrap().insert(id.to_string(), line);
-            state.peon.label_pending.write().unwrap().insert(id.to_string());
-            triggered_label = true;
         }
     }
 
-    if state.peon.config.enabled && !data.is_empty() {
-        let ts = if triggered_label {
-            tokio::time::Instant::now() - std::time::Duration::from_secs(3600)
-        } else {
-            tokio::time::Instant::now()
-        };
-        state.peon.last_output.write().unwrap().insert(id.to_string(), ts);
-        state.peon.last_inference.write().unwrap().remove(id);
+    let mut sessions = state.sessions.lock().unwrap();
+    if let Some(handle) = sessions.get_mut(id) {
+        if label_worthy {
+            handle.info.label = label_line.clone();
+        }
+        if !line.is_empty() && !handle.active_work_hook {
+            handle.pending_work_signal = Some(arm_pending_work_signal(
+                &line,
+                tokio::time::Instant::now(),
+            ));
+        }
     }
+
+    Some(())
+}
+
+/// Applies terminal input-side bookkeeping without scheduling a Peon scan.
+pub(crate) fn process_terminal_input(state: &Arc<AppState>, id: &str, data: &str) {
+    let _ = record_terminal_input(state, id, data);
 }
 
 pub(crate) fn should_forward_terminal_env(key: &str) -> bool {
@@ -793,7 +796,7 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
 mod tests {
     use super::*;
     use crate::test_support::*;
-    use crate::{metadata, providers};
+    use crate::{harness, metadata, providers};
     use std::collections::{HashMap, HashSet};
     use std::sync::{Arc, Mutex, RwLock};
     use std::sync::atomic::AtomicU16;
@@ -1028,6 +1031,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: harness::CommandSpec { program: "/bin/sh".into(), args: vec!["-i".into(), "-l".into()], cwd: "/tmp".into() },
                 initial_prompt: None,
+                pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
@@ -1036,6 +1040,7 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
+                active_work_hook: false,
             },
         );
 
@@ -1080,6 +1085,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: harness::CommandSpec { program: "/bin/sh".into(), args: vec!["-i".into(), "-l".into()], cwd: "/tmp".into() },
                 initial_prompt: None,
+                pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
@@ -1088,6 +1094,7 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
+                active_work_hook: false,
             },
         );
 
@@ -1127,6 +1134,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: harness::CommandSpec { program: "/bin/sh".into(), args: vec!["-i".into(), "-l".into()], cwd: "/tmp".into() },
                 initial_prompt: None,
+                pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
@@ -1135,6 +1143,7 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
+                active_work_hook: false,
             },
         );
 
@@ -1180,6 +1189,7 @@ mod tests {
                 scan_buf: "abc".into(),
                 command: harness::CommandSpec { program: "/bin/sh".into(), args: vec!["-i".into(), "-l".into()], cwd: "/tmp".into() },
                 initial_prompt: None,
+                pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: true,
@@ -1188,6 +1198,7 @@ mod tests {
                 scan_bytes_seen: 3,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
+                active_work_hook: false,
             },
         );
         state.sessions.lock().unwrap().get_mut(&id).unwrap().info.harness_id = Some("codex-wrapper".into());
@@ -1243,6 +1254,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: harness::CommandSpec { program: "/bin/sh".into(), args: vec!["-i".into(), "-l".into()], cwd: "/tmp".into() },
                 initial_prompt: None,
+                pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
@@ -1251,6 +1263,7 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
+                active_work_hook: false,
             },
         );
 
@@ -1322,6 +1335,7 @@ mod tests {
                     cwd: "/tmp".into(),
                 },
                 initial_prompt: None,
+                pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
@@ -1330,6 +1344,7 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
+                active_work_hook: false,
             },
         );
 
@@ -1385,6 +1400,7 @@ mod tests {
                     cwd: "/tmp".into(),
                 },
                 initial_prompt: None,
+                pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
@@ -1393,6 +1409,7 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
+                active_work_hook: false,
             },
         );
 
@@ -1440,6 +1457,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: harness::CommandSpec { program: "/bin/sh".into(), args: vec!["-i".into(), "-l".into()], cwd: "/tmp".into() },
                 initial_prompt: None,
+                pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
@@ -1448,6 +1466,7 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
+                active_work_hook: false,
             },
         );
 
@@ -1501,6 +1520,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: crate::harness_registry::default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
+                pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
@@ -1509,6 +1529,7 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
+                active_work_hook: false,
             },
         );
 
@@ -1629,6 +1650,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: crate::harness_registry::default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
+                pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
@@ -1637,6 +1659,7 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
+                active_work_hook: false,
             },
         );
 
@@ -1795,6 +1818,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: crate::harness_registry::default_shell_command(dir.path().display().to_string()),
                 initial_prompt: None,
+                pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
@@ -1803,6 +1827,7 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
+                active_work_hook: false,
             },
         );
         state.sessions.lock().unwrap().get_mut(&session_id).unwrap().output_buffer.push("final line".into());

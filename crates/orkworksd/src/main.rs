@@ -48,12 +48,14 @@ use crate::session_types::SessionInfo;
 
 struct SessionHandle {
     info: SessionInfo,
+    active_work_hook: bool,
     kill_tx: tokio::sync::watch::Sender<bool>,
     output_buffer: peon::RingBuffer,
     // Rolling raw PTY text (ANSI-stripped) for TUI apps that use cursor positioning instead of newlines.
     scan_buf: String,
     command: harness::CommandSpec,
     initial_prompt: Option<String>,
+    pending_work_signal: Option<runtime::session_runtime::PendingWorkSignal>,
     runtime: runtime::session_runtime::SessionRuntime,
     terminal_attached: bool,
     // Sticky: once usage limit is detected it stays true until the session is killed/resumed.
@@ -534,6 +536,7 @@ mod tests {
                 scan_buf: String::new(),
                 command: harness_registry::default_shell_command("/tmp".into()),
                 initial_prompt: None,
+                pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
@@ -542,6 +545,7 @@ mod tests {
                 scan_bytes_seen: 0,
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
+                active_work_hook: false,
             });
 
         let sessions = state.sessions.lock().unwrap();
