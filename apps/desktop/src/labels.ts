@@ -1,5 +1,14 @@
 import type { MemoryState, ResumeOption, ResumeStrategy, SessionInfo } from "./api";
 
+const SECOND_MS = 1000;
+const MINUTE_MS = 60 * SECOND_MS;
+const HOUR_MS = 60 * MINUTE_MS;
+const DAY_MS = 24 * HOUR_MS;
+
+function delayUntil(targetMs: number, nowMs: number): number {
+  return Math.max(1, targetMs - nowMs);
+}
+
 /** Canonical vocabulary. One word per concept. */
 export const VOCAB = {
   workspace: "Workspace",
@@ -152,6 +161,33 @@ export function relativeTime(iso: string | undefined, now: Date = new Date()): s
   if (diffSec < 3600)  return `${Math.round(diffSec / 60)}m ago`;
   if (diffSec < 86400) return `${Math.round(diffSec / 3600)}h ago`;
   return `${Math.round(diffSec / 86400)}d ago`;
+}
+
+/** Next moment relativeTime()'s output for this timestamp can change, matching its bucket edges. */
+export function nextRelativeTimeRefreshMs(
+  iso: string | undefined,
+  now: Date = new Date(),
+): number | null {
+  if (!iso) return null;
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return null;
+
+  const nowMs = now.getTime();
+  const elapsed = Math.max(0, nowMs - t);
+
+  if (elapsed < 9.5 * SECOND_MS) return delayUntil(t + 9.5 * SECOND_MS, nowMs);
+  if (elapsed < 59.5 * SECOND_MS) return delayUntil(t + 59.5 * SECOND_MS, nowMs);
+
+  if (elapsed < HOUR_MS) {
+    const minutes = Math.round(elapsed / MINUTE_MS);
+    return delayUntil(t + (minutes + 0.5) * MINUTE_MS, nowMs);
+  }
+  if (elapsed < DAY_MS) {
+    const hours = Math.round(elapsed / HOUR_MS);
+    return delayUntil(t + (hours + 0.5) * HOUR_MS, nowMs);
+  }
+  const days = Math.round(elapsed / DAY_MS);
+  return delayUntil(t + (days + 0.5) * DAY_MS, nowMs);
 }
 
 /** Distilled "what's going on" sentence for the Detail panel's situation hero. */

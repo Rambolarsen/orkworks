@@ -1,7 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { groupForSession, groupSessions } from "../src/sessionGroups.ts";
+import {
+  groupForSession,
+  groupSessions,
+  nextSessionGroupRefreshMs,
+} from "../src/sessionGroups.ts";
 import type { SessionInfo } from "../src/api.ts";
 
 function session(id: string, created_at: string): SessionInfo {
@@ -71,4 +75,25 @@ test("groupSessions omits empty buckets and orders today, week, earlier", () => 
   assert.deepEqual(groups.map((g) => g.label), ["Today", "Earlier"]);
   assert.deepEqual(groups[0].items.map((s) => s.id), ["today-1"]);
   assert.deepEqual(groups[1].items.map((s) => s.id), ["old-1"]);
+});
+
+test("nextSessionGroupRefreshMs waits until midnight for today sessions", () => {
+  const now = new Date(2026, 5, 28, 18, 0);
+  const sessions = [session("today-1", new Date(2026, 5, 28, 1, 0).toISOString())];
+
+  assert.equal(nextSessionGroupRefreshMs(sessions, now), 6 * 60 * 60 * 1000);
+});
+
+test("nextSessionGroupRefreshMs waits until the seven-day cutoff for week sessions", () => {
+  const now = new Date("2026-06-28T18:00:00Z");
+  const sessions = [session("week-1", "2026-06-21T19:00:00Z")];
+
+  assert.equal(nextSessionGroupRefreshMs(sessions, now), 60 * 60 * 1000);
+});
+
+test("nextSessionGroupRefreshMs ignores earlier or invalid sessions", () => {
+  const now = new Date("2026-06-28T18:00:00Z");
+
+  assert.equal(nextSessionGroupRefreshMs([session("old", "2026-06-01T00:00:00Z")], now), null);
+  assert.equal(nextSessionGroupRefreshMs([session("bad", "not-a-date")], now), null);
 });

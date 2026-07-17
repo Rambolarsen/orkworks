@@ -4,8 +4,15 @@ import type { SessionInfo, WorkspaceInfo } from "../api";
 import type { HarnessConfig } from "../harnessTypes";
 import { sessionAttentionStatus } from "../sessionSort";
 import { harnessDisplayName, sessionCodingTool } from "../sessionProviderContext";
-import { groupSessions } from "../sessionGroups";
-import { VOCAB, attentionLabel, attentionTone, isLoudTone, relativeTime } from "../labels";
+import { groupSessions, nextSessionGroupRefreshMs } from "../sessionGroups";
+import {
+  VOCAB,
+  attentionLabel,
+  attentionTone,
+  isLoudTone,
+  nextRelativeTimeRefreshMs,
+  relativeTime,
+} from "../labels";
 import EmptyState from "./EmptyState";
 import StatusIndicator from "./StatusIndicator";
 import HarnessIcon from "./HarnessIcon";
@@ -25,6 +32,16 @@ interface SessionListPanelProps {
 
 function lastActivity(s: SessionInfo, now: Date): string {
   return relativeTime(s.peonLastInference, now) || relativeTime(s.created_at, now);
+}
+
+function lastActivityTimestamp(s: SessionInfo): string | undefined {
+  return s.peonLastInference || s.created_at;
+}
+
+function minDelay(current: number | null, candidate: number | null): number | null {
+  if (candidate === null) return current;
+  if (current === null) return candidate;
+  return Math.min(current, candidate);
 }
 
 function SessionListPanel({
@@ -50,9 +67,15 @@ function SessionListPanel({
 
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
-    const interval = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(interval);
-  }, []);
+    // Re-render only when a visible relative-time label or group boundary can change.
+    let nextRefresh = nextSessionGroupRefreshMs(sessions, now);
+    for (const session of sessions) {
+      nextRefresh = minDelay(nextRefresh, nextRelativeTimeRefreshMs(lastActivityTimestamp(session), now));
+    }
+    if (nextRefresh === null) return;
+    const timeout = window.setTimeout(() => setNow(new Date()), nextRefresh);
+    return () => window.clearTimeout(timeout);
+  }, [sessions, now]);
 
   const grouped = useMemo(() => groupSessions(sessions, now), [sessions, now]);
 
