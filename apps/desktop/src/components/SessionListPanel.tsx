@@ -10,6 +10,7 @@ import {
   attentionLabel,
   attentionTone,
   isLoudTone,
+  minDelay,
   nextRelativeTimeRefreshMs,
   relativeTime,
 } from "../labels";
@@ -36,12 +37,6 @@ function lastActivity(s: SessionInfo, now: Date): string {
 
 function lastActivityTimestamp(s: SessionInfo): string | undefined {
   return s.peonLastInference || s.created_at;
-}
-
-function minDelay(current: number | null, candidate: number | null): number | null {
-  if (candidate === null) return current;
-  if (current === null) return candidate;
-  return Math.min(current, candidate);
 }
 
 function SessionListPanel({

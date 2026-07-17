@@ -10,6 +10,7 @@ import {
   detailActionZone,
   lifecyclePhaseLabel,
   memoryStateLabel,
+  minDelay,
   nextRelativeTimeRefreshMs,
   relativeTime,
   situationHeadline,
@@ -30,12 +31,6 @@ interface SessionDetailPanelProps {
   activeSessionId: string | null;
   onResumeSession: (id: string) => void;
   showDebugMetadata: boolean;
-}
-
-function minDelay(current: number | null, candidate: number | null): number | null {
-  if (candidate === null) return current;
-  if (current === null) return candidate;
-  return Math.min(current, candidate);
 }
 
 function SessionDetailPanel({ sessions, activeSessionId, onResumeSession, showDebugMetadata }: SessionDetailPanelProps) {

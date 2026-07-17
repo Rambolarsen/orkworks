@@ -3,10 +3,18 @@ import type { MemoryState, ResumeOption, ResumeStrategy, SessionInfo } from "./a
 const SECOND_MS = 1000;
 const MINUTE_MS = 60 * SECOND_MS;
 const HOUR_MS = 60 * MINUTE_MS;
-const DAY_MS = 24 * HOUR_MS;
+export const DAY_MS = 24 * HOUR_MS;
 
-function delayUntil(targetMs: number, nowMs: number): number {
+/** Clamp a scheduled wake-up to always be in the future (min 1ms). Shared by both refresh schedulers. */
+export function delayUntil(targetMs: number, nowMs: number): number {
   return Math.max(1, targetMs - nowMs);
+}
+
+/** Smaller of two nullable scheduled delays, treating null as "no constraint". Shared by both refresh schedulers. */
+export function minDelay(current: number | null, candidate: number | null): number | null {
+  if (candidate === null) return current;
+  if (current === null) return candidate;
+  return Math.min(current, candidate);
 }
 
 /** Canonical vocabulary. One word per concept. */

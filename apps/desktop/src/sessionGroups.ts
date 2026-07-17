@@ -1,10 +1,5 @@
 import type { SessionInfo } from "./api";
-
-const DAY_MS = 24 * 60 * 60 * 1000;
-
-function delayUntil(targetMs: number, nowMs: number): number {
-  return Math.max(1, targetMs - nowMs);
-}
+import { DAY_MS, delayUntil } from "./labels.ts";
 
 export type GroupKey = "today" | "week" | "earlier";
 
@@ -14,11 +9,15 @@ export const GROUP_LABELS: Record<GroupKey, string> = {
   earlier: "Earlier",
 };
 
-export function groupForSession(s: SessionInfo, now: Date): GroupKey {
+function groupingTimeFor(s: SessionInfo): Date {
   const lastActivity = s.lastActivityAt ? new Date(s.lastActivityAt) : undefined;
-  const groupingTime = lastActivity && !Number.isNaN(lastActivity.getTime())
+  return lastActivity && !Number.isNaN(lastActivity.getTime())
     ? lastActivity
     : new Date(s.created_at);
+}
+
+export function groupForSession(s: SessionInfo, now: Date): GroupKey {
+  const groupingTime = groupingTimeFor(s);
   if (Number.isNaN(groupingTime.getTime())) return "earlier";
   const sameDay =
     groupingTime.getFullYear() === now.getFullYear() &&
@@ -60,8 +59,8 @@ export function nextSessionGroupRefreshMs(
 
   let nextDelay: number | null = null;
   for (const session of sessions) {
-    const created = new Date(session.created_at);
-    if (Number.isNaN(created.getTime())) continue;
+    const groupingTime = groupingTimeFor(session);
+    if (Number.isNaN(groupingTime.getTime())) continue;
 
     let candidate: number | null = null;
     switch (groupForSession(session, now)) {
@@ -69,7 +68,7 @@ export function nextSessionGroupRefreshMs(
         candidate = delayUntil(nextMidnight.getTime(), nowMs);
         break;
       case "week":
-        candidate = delayUntil(created.getTime() + 7 * DAY_MS, nowMs);
+        candidate = delayUntil(groupingTime.getTime() + 7 * DAY_MS, nowMs);
         break;
       case "earlier":
         break;

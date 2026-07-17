@@ -91,6 +91,21 @@ test("nextSessionGroupRefreshMs waits until the seven-day cutoff for week sessio
   assert.equal(nextSessionGroupRefreshMs(sessions, now), 60 * 60 * 1000);
 });
 
+test("nextSessionGroupRefreshMs uses lastActivityAt, not created_at, for a resumed week session", () => {
+  const now = new Date("2026-06-28T18:00:00Z");
+  const resumed = {
+    ...session("a", "2026-06-01T00:00:00Z"),
+    lastActivityAt: "2026-06-25T18:00:00Z",
+  };
+
+  // groupForSession buckets this "week" off lastActivityAt (3 days ago), not the
+  // 27-day-old created_at. The refresh target must track the same field the
+  // bucket used, or it computes a stale (already-past) target that clamps to
+  // 1ms and busy-loops the caller's effect.
+  assert.equal(groupForSession(resumed, now), "week");
+  assert.equal(nextSessionGroupRefreshMs([resumed], now), 4 * 24 * 60 * 60 * 1000);
+});
+
 test("nextSessionGroupRefreshMs ignores earlier or invalid sessions", () => {
   const now = new Date("2026-06-28T18:00:00Z");
 
