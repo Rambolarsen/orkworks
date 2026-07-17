@@ -172,6 +172,8 @@ When starting any task that will produce code changes, invoke the `starting-work
 
 **Clean up your worktrees when done.** Remove the worktree and prune it as soon as the branch merges (or the task is abandoned). Leaving stale worktrees behind wastes disk space and confuses subsequent `git worktree list` output. The `starting-work` skill includes the exact cleanup commands.
 
+Because parallel agents each see only their own worktree, none of them individually notices the fleet-wide sprawl this creates — see the [worktree currency check](#worktree-currency-check) below, which runs at the end of every session and reports on all worktrees, not just the current one.
+
 ## Decision tracking
 
 Architecture decisions are captured as ADRs in `docs/adr/`. Each significant architectural, stack, protocol, or boundary decision gets a numbered markdown file with context, decision, and consequences.
@@ -271,6 +273,16 @@ bash .claude/hooks/doc-check.sh
 ```
 
 This checks git diff against known triggers and lists any doc files that likely need updating. Address all flagged files before closing. Claude Code runs this automatically via a Stop hook; all other agents must run it manually as part of `verification-before-completion`.
+
+## Worktree currency check
+
+Before ending any session, also run:
+
+```bash
+bash .claude/hooks/worktree-check.sh
+```
+
+This lists every worktree/branch in the repo (not just the one this session used) and flags branches that are already merged (worktree can be removed), or stale >7 days with no open PR (needs a rebase-and-progress or close decision per the stranded-branches rule above). It exists because with multiple agents working in parallel worktrees, no single session sees the whole fleet — this surfaces it every time any session ends. Only act on branches you own; for others, note the flag for the human or the branch's owner rather than touching their worktree. Claude Code runs this automatically via a Stop hook; all other agents must run it manually as part of `verification-before-completion`.
 
 ## Maintaining AGENTS.md and README.md
 
