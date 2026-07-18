@@ -255,11 +255,37 @@ pub(crate) fn record_terminal_input(
         mark_usage_limit_recheck_on_input(state, id);
     }
 
-    let collected_line = {
+    let (collected_line, in_progress_buf) = {
         let mut bufs = state.peon.input_buf.write().unwrap();
         let buf = bufs.entry(id.to_string()).or_default();
-        collect_input_line(buf, data)
+        let len_before_input = buf.len();
+        let line = collect_input_line(buf, data);
+        let parsed_printable_input = buf.len() > len_before_input;
+        let in_progress_buf = parsed_printable_input.then(|| buf.clone());
+        (line, in_progress_buf)
     };
+
+    // Single-key arming: a printable keystroke received while the session is in
+    // needs_you (set by an agent hook report) arms the work fallback using the
+    // in-progress input-line buffer as the echo prefix. This recovers the
+    // needs_you -> working transition for Claude Code's single-key prompts
+    // (y/n and choice lists), which never produce an Enter-terminated
+    // line. See docs/superpowers/specs/2026-07-17-single-key-work-signal-design.md.
+    if let Some(in_progress_buf) = in_progress_buf {
+        let mut sessions = state.sessions.lock().unwrap();
+        if let Some(handle) = sessions.get_mut(id) {
+            if !handle.active_work_hook
+                && handle.info.attention.as_deref() == Some("needs_you")
+                && handle.info.metadata_source.as_deref() == Some("agent")
+            {
+                handle.pending_work_signal = Some(arm_pending_work_signal(
+                    &in_progress_buf,
+                    tokio::time::Instant::now(),
+                ));
+            }
+        }
+    }
+
     let line = collected_line?;
     // Labels are display-bounded; echo-gating below uses the full `line`.
     let label_line: String = line.chars().take(100).collect();
