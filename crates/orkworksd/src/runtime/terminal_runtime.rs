@@ -258,20 +258,20 @@ pub(crate) fn record_terminal_input(
     let (collected_line, in_progress_buf) = {
         let mut bufs = state.peon.input_buf.write().unwrap();
         let buf = bufs.entry(id.to_string()).or_default();
+        let len_before_input = buf.len();
         let line = collect_input_line(buf, data);
-        (line, buf.clone())
+        let parsed_printable_input = buf.len() > len_before_input;
+        let in_progress_buf = parsed_printable_input.then(|| buf.clone());
+        (line, in_progress_buf)
     };
 
     // Single-key arming: a printable keystroke received while the session is in
     // needs_you (set by an agent hook report) arms the work fallback using the
     // in-progress input-line buffer as the echo prefix. This recovers the
     // needs_you -> working transition for Claude Code's single-key prompts
-    // (y/n, choice lists, Esc-cancel), which never produce an Enter-terminated
+    // (y/n and choice lists), which never produce an Enter-terminated
     // line. See docs/superpowers/specs/2026-07-17-single-key-work-signal-design.md.
-    let has_printable = data
-        .chars()
-        .any(|c| !c.is_whitespace() && !c.is_control());
-    if has_printable && !in_progress_buf.is_empty() {
+    if let Some(in_progress_buf) = in_progress_buf {
         let mut sessions = state.sessions.lock().unwrap();
         if let Some(handle) = sessions.get_mut(id) {
             if !handle.active_work_hook

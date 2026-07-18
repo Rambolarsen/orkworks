@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Restore the `needs_you → working` attention transition for Claude Code sessions where the user answers the prompt with a single keystroke (e.g. `y`, `1`, Esc-then-choice) rather than an Enter-terminated line.
+**Goal:** Restore the `needs_you → working` attention transition for Claude Code sessions where the user answers the prompt with a single printable keystroke (e.g. `y`, `1`, or another choice key) rather than an Enter-terminated line.
 
 **Architecture:** Add a single-key arming path inside `record_terminal_input` that arms `pending_work_signal` with the in-progress input-line buffer as the echo prefix whenever a printable keystroke arrives while the session is in `needs_you` set by an agent hook report. The existing Enter-terminated arming path and `should_infer_working` promotion logic are unchanged. The narrow-scope `metadata_source == "agent"` gate sidesteps shell-mode echo false positives.
 
@@ -192,7 +192,7 @@ let (collected_line, in_progress_buf) = {
 // needs_you (set by an agent hook report) arms the work fallback using the
 // in-progress input-line buffer as the echo prefix. This recovers the
 // needs_you -> working transition for Claude Code's single-key prompts
-// (y/n, choice lists, Esc-cancel), which never produce an Enter-terminated
+// (y/n and choice lists), which never produce an Enter-terminated
 // line. See docs/superpowers/specs/2026-07-17-single-key-work-signal-design.md.
 let has_printable = data
     .chars()
@@ -636,7 +636,7 @@ git commit -m "fix(sidecar): arm work signal on single-key acceptance at hook-so
 
 Restore the needs_you -> working attention transition for Claude Code
 sessions where the user answers with a single keystroke (y/n, choice lists,
-Esc-cancel). Today, record_terminal_input early-returns when collect_input_line
+choice keys). Today, record_terminal_input early-returns when collect_input_line
 returns None (no Enter), so pending_work_signal is never armed and the
 session sticks on needs_you indefinitely.
 
@@ -687,7 +687,7 @@ gh pr create \
   --title "fix(sidecar): arm work signal on single-key acceptance at hook-sourced needs_you (#179)" \
   --body "## Summary
 
-Restore the \`needs_you → working\` attention transition for Claude Code sessions where the user answers the prompt with a single keystroke (e.g. \`y\`/\`n\`, choice lists, Esc-cancel). #177 (gate Working state on harness activity) tightened the fallback to require an Enter-terminated line; Claude Code's prompts don't take Enter, so the session stuck on \`needs_you\` indefinitely after such an answer.
+Restore the \`needs_you → working\` attention transition for Claude Code sessions where the user answers the prompt with a single printable keystroke (e.g. \`y\`/\`n\` or a choice key). #177 (gate Working state on harness activity) tightened the fallback to require an Enter-terminated line; Claude Code's prompts don't take Enter, so the session stuck on \`needs_you\` indefinitely after such an answer.
 
 The fix arms \`pending_work_signal\` on any printable keystroke received while \`attention = needs_you\` and \`metadata_source = agent\` (i.e. the Claude Code hook path). The narrow \`metadata_source = agent\` gate excludes Peon-detected \`needs_you\` (sidesteps the shell-mode echo false-positive) and capable-hook sessions (those stay hook-driven per the parent spec). The existing Enter-terminated arming path is unchanged.
 

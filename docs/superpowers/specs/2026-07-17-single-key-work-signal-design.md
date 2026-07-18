@@ -4,7 +4,7 @@
 
 Restore the `needs_you → working` attention transition for Claude Code sessions
 where the user answers the prompt with a **single keystroke** (e.g. `y`/`n`,
-`1`/`2`/`3`, `Esc`-then-choice) rather than an Enter-terminated line. Today the
+`1`/`2`/`3`, or other choice keys) rather than an Enter-terminated line. Today the
 session sticks on `needs_you` indefinitely after such an answer, because the
 only path that clears it back to `working` requires a submitted input line
 terminated by `\r` or `\n`, and Claude Code's prompts don't take Enter.
@@ -147,8 +147,9 @@ The arming fires only when all of the following hold:
 After the user's keystroke arms the signal but before any output promotes, the
 gate's conditions still hold: `attention` is still `needs_you`,
 `metadata_source` is still `agent` (keystrokes don't change either). So the
-next keystroke re-arms cleanly. Once output promotes, `attention` becomes
-`working` and `metadata_source` becomes `process`, and the gate stops firing.
+next keystroke re-arms cleanly. Once output promotes, in-memory `attention`
+becomes `working` and the persisted session metadata source becomes `process`,
+so the gate stops firing.
 
 ### Echo-gating
 
@@ -206,7 +207,8 @@ subsequent printable keystrokes ───> re-arm with grown prefix
 Enter (terminated submission) ────> existing path re-arms with final line
 ANSI redraw between keystrokes ────> stripped to empty, signal stays armed
 model's first visible output ──────> consume_pending_work_signal → working
-                                       attention=working, metadata_source=process
+                                       in-memory attention=working;
+                                       persisted metadata_source=process
 ```
 
 ## Edge cases

@@ -1093,6 +1093,38 @@ mod tests {
     }
 
     #[test]
+    fn ansi_arrow_key_does_not_arm_work_signal_after_single_key_input() {
+        let session_id = "single-key-arrow-key";
+        let state = test_state_with_runtime_session(session_id);
+
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut(session_id).unwrap();
+            handle.info.attention = Some("needs_you".into());
+            handle.info.metadata_source = Some("agent".into());
+        }
+
+        // A prior accepted response leaves an in-progress echo prefix. Model a
+        // later arrow-key edit after its original work signal expired.
+        crate::runtime::terminal_runtime::record_terminal_input(&state, session_id, "y");
+        state.sessions.lock().unwrap()
+            .get_mut(session_id)
+            .unwrap()
+            .pending_work_signal = None;
+
+        // collect_input_line parses ESC [ A as a control sequence. It must not
+        // re-arm the fallback merely because the raw frame contains '[' and 'A'.
+        crate::runtime::terminal_runtime::record_terminal_input(&state, session_id, "\x1b[A");
+
+        assert!(
+            state.sessions.lock().unwrap()[session_id]
+                .pending_work_signal
+                .is_none(),
+            "ANSI arrow-key input must not arm the work signal"
+        );
+    }
+
+    #[test]
     fn multi_char_then_enter_arms_signal_via_existing_path_not_single_key() {
         let session_id = "multi-char-enter";
         let state = test_state_with_runtime_session(session_id);
