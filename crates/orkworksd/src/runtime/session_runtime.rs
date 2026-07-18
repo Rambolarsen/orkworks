@@ -1055,6 +1055,365 @@ mod tests {
     }
 
     #[test]
+    fn single_key_acceptance_at_hook_sourced_needs_you_arms_work_signal() {
+        let session_id = "single-key-acceptance";
+        let state = test_state_with_runtime_session(session_id);
+
+        // Simulate a Claude Code hook report having set needs_you with agent source.
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut(session_id).unwrap();
+            handle.info.attention = Some("needs_you".into());
+            handle.info.metadata_source = Some("agent".into());
+        }
+
+        // Single printable keystroke, no Enter.
+        assert!(
+            crate::runtime::terminal_runtime::record_terminal_input(&state, session_id, "y")
+                .is_none(),
+            "single keystroke without Enter does not produce a completed line"
+        );
+
+        // The new arming block must have armed pending_work_signal despite the
+        // early return (which is what today's bug looks like: the early return
+        // skips the Enter-only arming site at the bottom of record_terminal_input).
+        let sessions = state.sessions.lock().unwrap();
+        let signal = sessions[session_id]
+            .pending_work_signal
+            .as_ref()
+            .expect("single printable keystroke at hook-sourced needs_you must arm the work signal");
+        assert_eq!(
+            signal.remaining_echo, "y",
+            "echo prefix must be the in-progress input-line buffer snapshot"
+        );
+    }
+
+    #[test]
+    fn ansi_arrow_key_does_not_arm_work_signal_after_single_key_input() {
+        let session_id = "single-key-arrow-key";
+        let state = test_state_with_runtime_session(session_id);
+
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut(session_id).unwrap();
+            handle.info.attention = Some("needs_you".into());
+            handle.info.metadata_source = Some("agent".into());
+        }
+
+        // A prior accepted response leaves an in-progress echo prefix. Model a
+        // later arrow-key edit after its original work signal expired.
+        crate::runtime::terminal_runtime::record_terminal_input(&state, session_id, "y");
+        state.sessions.lock().unwrap()
+            .get_mut(session_id)
+            .unwrap()
+            .pending_work_signal = None;
+
+        // collect_input_line parses ESC [ A as a control sequence. It must not
+        // re-arm the fallback merely because the raw frame contains '[' and 'A'.
+        crate::runtime::terminal_runtime::record_terminal_input(&state, session_id, "\x1b[A");
+
+        assert!(
+            state.sessions.lock().unwrap()[session_id]
+                .pending_work_signal
+                .is_none(),
+            "ANSI arrow-key input must not arm the work signal"
+        );
+    }
+
+    #[test]
+    fn multi_char_then_enter_arms_signal_via_existing_path_not_single_key() {
+        let session_id = "multi-char-enter";
+        let state = test_state_with_runtime_session(session_id);
+
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut(session_id).unwrap();
+            handle.info.attention = Some("needs_you".into());
+            handle.info.metadata_source = Some("agent".into());
+        }
+
+        // First keystroke without Enter — single-key block arms with prefix "fix".
+        assert!(crate::runtime::terminal_runtime::record_terminal_input(
+            &state,
+            session_id,
+            "fix"
+        )
+        .is_none());
+        {
+            let sessions = state.sessions.lock().unwrap();
+            let signal = sessions[session_id]
+                .pending_work_signal
+                .as_ref()
+                .expect("first printable keystroke should arm via single-key block");
+            assert_eq!(signal.remaining_echo, "fix");
+        }
+
+        // Enter submits the line — the existing Enter-terminated arming path
+        // fires and re-arms with the full committed line. collect_input_line
+        // clears the in-progress buffer first, so the single-key block's
+        // !in_progress_buf.is_empty() check is false — no double-arm, no stale
+        // shorter prefix. The Enter-path's arm wins with the correct full line.
+        crate::runtime::terminal_runtime::record_terminal_input(&state, session_id, "\r")
+            .expect("Enter submits the line and record_terminal_input returns Some(())");
+        {
+            let sessions = state.sessions.lock().unwrap();
+            let signal = sessions[session_id]
+                .pending_work_signal
+                .as_ref()
+                .expect("Enter-terminated submission should arm the work signal");
+            assert_eq!(
+                signal.remaining_echo, "fix",
+                "Enter-path must re-arm with the committed line, not the stale single-key prefix"
+            );
+        }
+    }
+
+    #[test]
+    fn single_key_does_not_re_arm_when_attention_is_working() {
+        let session_id = "single-key-no-noise-on-working";
+        let state = test_state_with_runtime_session(session_id);
+
+        // Session is already working (process-sourced — e.g. the model IS generating).
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut(session_id).unwrap();
+            handle.info.attention = Some("working".into());
+            handle.info.metadata_source = Some("process".into());
+        }
+
+        // A printable keystroke arrives mid-working. It must NOT arm a work
+        // signal — the session is already working and re-arming would
+        // introduce noise.
+        assert!(
+            crate::runtime::terminal_runtime::record_terminal_input(&state, session_id, "y")
+                .is_none()
+        );
+
+        let sessions = state.sessions.lock().unwrap();
+        assert!(
+            sessions[session_id].pending_work_signal.is_none(),
+            "keystroke during working must not re-arm the work signal"
+        );
+    }
+
+    #[test]
+    fn single_key_does_not_arm_when_needs_you_is_peon_sourced() {
+        let session_id = "single-key-not-for-peon-needs-you";
+        let state = test_state_with_runtime_session(session_id);
+
+        // Peon scraped the terminal and inferred needs_you; the metadata source
+        // is "peon", not "agent" — the narrow-scope gate must exclude it so
+        // shell-mode sessions where the terminal echoes each keystroke don't
+        // false-positive.
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut(session_id).unwrap();
+            handle.info.attention = Some("needs_you".into());
+            handle.info.metadata_source = Some("peon".into());
+        }
+
+        assert!(
+            crate::runtime::terminal_runtime::record_terminal_input(&state, session_id, "y")
+                .is_none()
+        );
+
+        let sessions = state.sessions.lock().unwrap();
+        assert!(
+            sessions[session_id].pending_work_signal.is_none(),
+            "Peon-sourced needs_you must not arm via the single-key path"
+        );
+    }
+
+    #[test]
+    fn single_key_does_not_arm_when_active_work_hook_is_true() {
+        let session_id = "single-key-not-for-capable-hook";
+        let state = test_state_with_runtime_session(session_id);
+
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut(session_id).unwrap();
+            handle.active_work_hook = true;
+            handle.info.attention = Some("needs_you".into());
+            handle.info.metadata_source = Some("agent".into());
+        }
+
+        assert!(
+            crate::runtime::terminal_runtime::record_terminal_input(&state, session_id, "y")
+                .is_none()
+        );
+
+        let sessions = state.sessions.lock().unwrap();
+        assert!(
+            sessions[session_id].pending_work_signal.is_none(),
+            "capable-hook sessions must not arm via the single-key path (hook-driven only)"
+        );
+    }
+
+    #[tokio::test]
+    async fn single_key_at_hook_sourced_needs_you_promotes_to_working_on_visible_output() {
+        let dir = tempfile::tempdir().unwrap();
+        let session_id = "single-key-e2e-promote";
+        let state = test_state_with_runtime_session(session_id);
+        let metadata_root = dir.path().join(".orkworks-test");
+        *state.workspace.lock().unwrap() = Some(crate::WorkspaceState {
+            path: dir.path().to_path_buf(),
+            metadata: crate::metadata::MetadataStore::new(&metadata_root),
+            watcher: crate::watcher::MetadataWatcher::start(&metadata_root.join("sessions")),
+        });
+
+        // Simulate a hook report: needs_you, metadata_source=agent. Persist the
+        // same state to disk so the runtime's output handler — which only
+        // writes back via the metadata store when workspace is wired — finds a
+        // base session record to merge into.
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut(session_id).unwrap();
+            handle.info.attention = Some("needs_you".into());
+            handle.info.metadata_source = Some("agent".into());
+            handle.info.lifecycle = "alive".into();
+        }
+        {
+            let ws = state.workspace.lock().unwrap();
+            let mut meta = crate::test_support::test_session_metadata(
+                session_id,
+                "Runtime Test",
+                dir.path().display().to_string(),
+                "running",
+                "now",
+                "now",
+            );
+            meta.lifecycle_phase = "active".into();
+            meta.lifecycle = "alive".into();
+            meta.connectivity = "online".into();
+            meta.terminal_outcome = None;
+            meta.attention = Some("needs_you".into());
+            meta.metadata_source = "agent".into();
+            ws.as_ref().unwrap().metadata.write_session(&meta);
+        }
+
+        // Single printable keystroke arms the work signal via the new block.
+        assert!(crate::runtime::terminal_runtime::record_terminal_input(
+            &state,
+            session_id,
+            "y"
+        )
+        .is_none());
+
+        {
+            let sessions = state.sessions.lock().unwrap();
+            assert!(
+                sessions[session_id].pending_work_signal.is_some(),
+                "single-key arming must have fired before PTY output"
+            );
+        }
+
+        // Spin up a real PTY that sleeps briefly (past the 2s startup grace)
+        // then emits visible output. The output flows through
+        // start_session_runtime's DriverEvent::Output handler, which calls
+        // consume_pending_work_signal and promotes attention to working +
+        // metadata_source to process.
+        let (runtime, control_rx) =
+            SessionRuntime::live(DEFAULT_TERMINAL_ROWS, DEFAULT_TERMINAL_COLS);
+        let output_tx = runtime.output_tx.clone();
+        let mut events = output_tx.subscribe();
+
+        let command = harness::CommandSpec {
+            program: "/bin/sh".into(),
+            args: vec![
+                "-lc".into(),
+                "sleep 2.2; printf 'model-output-after-single-key\\n'; sleep 1".into(),
+            ],
+            cwd: dir.path().display().to_string(),
+        };
+
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut(session_id).unwrap();
+            handle.runtime = runtime;
+        }
+
+        let (kill_tx, kill_rx) = tokio::sync::watch::channel(false);
+        start_session_runtime(
+            state.clone(),
+            session_id.to_string(),
+            command,
+            None,
+            control_rx,
+            output_tx,
+            kill_rx,
+            PtySize {
+                rows: DEFAULT_TERMINAL_ROWS,
+                cols: DEFAULT_TERMINAL_COLS,
+                pixel_width: 0,
+                pixel_height: 0,
+            },
+        )
+        .await
+        .unwrap();
+
+        // Wait for the model-output marker to arrive. 3s window covers the 2.2s
+        // sleep + printf + runtime latency.
+        tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                match events.recv().await {
+                    Ok(RuntimeEvent::Output { chunk, .. })
+                        if String::from_utf8_lossy(&chunk)
+                            .contains("model-output-after-single-key") =>
+                    {
+                        break;
+                    }
+                    Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(error) => panic!("unexpected runtime event error: {error}"),
+                }
+            }
+        })
+        .await
+        .expect("model output should arrive within the 3s window");
+
+        // Yield once so the runtime's output handler finishes its multi-lock
+        // sequence (sessions lock for the in-memory promoted_working write, then
+        // the workspace lock for the persisted metadata write-back).
+        tokio::task::yield_now().await;
+
+        let sessions = state.sessions.lock().unwrap();
+        let handle = sessions.get(session_id).unwrap();
+        assert_eq!(
+            handle.info.attention.as_deref(),
+            Some("working"),
+            "single-key acceptance + visible output must promote to working"
+        );
+        assert!(
+            handle.pending_work_signal.is_none(),
+            "consumed qualifying work signal must be cleared"
+        );
+        drop(sessions);
+
+        // The output handler writes metadata_source=process to the persisted
+        // metadata only (not the in-memory handle.info.metadata_source, which
+        // it leaves untouched — see session_runtime.rs:635). This mirrors the
+        // pattern in partial_then_qualifying_hookless_terminal_input_and_output_promote_memory_and_metadata.
+        let ws = state.workspace.lock().unwrap();
+        let meta = ws
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(session_id)
+            .expect("session metadata should be persisted after promotion");
+        assert_eq!(
+            meta.attention.as_deref(),
+            Some("working"),
+            "persisted attention must reflect promotion"
+        );
+        assert_eq!(
+            meta.metadata_source, "process",
+            "promotion sets metadata_source=process on the persisted record, ending the agent-source gate"
+        );
+        drop(ws);
+
+        kill_tx.send(true).unwrap();
+    }
+
+    #[test]
     fn long_submission_arms_fallback_with_untruncated_echo() {
         let session_id = "terminal-input-long-line";
         let state = test_state_with_runtime_session(session_id);
