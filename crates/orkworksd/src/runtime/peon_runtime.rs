@@ -254,7 +254,6 @@ mod tests {
     use super::*;
     use crate::metadata;
     use crate::test_support::*;
-    use crate::harness;
     use std::sync::{Arc, Mutex, RwLock};
     use std::collections::{HashMap, HashSet};
     use std::sync::atomic::AtomicU16;
@@ -276,7 +275,6 @@ mod tests {
         }
 
         let state = Arc::new(crate::AppState {
-            session_module: crate::infrastructure::session_module::SessionModule::new(),
             sessions: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
@@ -335,8 +333,6 @@ mod tests {
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
                 scan_buf: String::new(),
-                command: harness::CommandSpec { program: "/bin/sh".into(), args: vec!["-i".into(), "-l".into()], cwd: "/tmp".into() },
-                initial_prompt: None,
                 pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
@@ -452,7 +448,6 @@ mod tests {
         let call_counter = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
 
         let state = Arc::new(crate::AppState {
-            session_module: crate::infrastructure::session_module::SessionModule::new(),
             sessions: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
@@ -511,8 +506,6 @@ mod tests {
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
                 scan_buf: String::new(),
-                command: harness::CommandSpec { program: "/bin/sh".into(), args: vec!["-i".into(), "-l".into()], cwd: "/tmp".into() },
-                initial_prompt: None,
                 pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
@@ -551,7 +544,6 @@ mod tests {
         let call_counter = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
 
         let state = Arc::new(crate::AppState {
-            session_module: crate::infrastructure::session_module::SessionModule::new(),
             sessions: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
@@ -619,8 +611,6 @@ mod tests {
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
                 scan_buf: String::new(),
-                command: crate::harness_registry::default_shell_command(dir.path().display().to_string()),
-                initial_prompt: None,
                 pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
@@ -654,7 +644,6 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
 
         let state = Arc::new(crate::AppState {
-            session_module: crate::infrastructure::session_module::SessionModule::new(),
             sessions: Mutex::new(HashMap::new()),
             workspace: Mutex::new(None),
             peon: crate::PeonState {
@@ -701,8 +690,6 @@ mod tests {
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
                 scan_buf: String::new(),
-                command: crate::harness_registry::default_shell_command(dir.path().display().to_string()),
-                initial_prompt: None,
                 pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
@@ -741,7 +728,6 @@ mod tests {
         std::fs::create_dir_all(orkworks.join("events")).unwrap();
 
         let state = Arc::new(crate::AppState {
-            session_module: crate::infrastructure::session_module::SessionModule::new(),
             sessions: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
@@ -792,8 +778,6 @@ mod tests {
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
                 scan_buf: String::new(),
-                command: crate::harness_registry::default_shell_command(dir.path().display().to_string()),
-                initial_prompt: None,
                 pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
@@ -898,7 +882,6 @@ mod tests {
         std::fs::create_dir_all(orkworks.join("events")).unwrap();
 
         let state = Arc::new(crate::AppState {
-            session_module: crate::infrastructure::session_module::SessionModule::new(),
             sessions: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
@@ -952,8 +935,6 @@ mod tests {
                     kill_tx,
                     output_buffer: peon::RingBuffer::new(200),
                     scan_buf: String::new(),
-                    command: crate::harness_registry::default_shell_command(dir.path().display().to_string()),
-                    initial_prompt: None,
                     pending_work_signal: None,
                     runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                     terminal_attached: false,
@@ -1061,7 +1042,6 @@ mod tests {
         std::fs::create_dir_all(orkworks.join("events")).unwrap();
 
         let state = Arc::new(crate::AppState {
-            session_module: crate::infrastructure::session_module::SessionModule::new(),
             sessions: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
@@ -1113,8 +1093,6 @@ mod tests {
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
                 scan_buf: String::new(),
-                command: crate::harness_registry::default_shell_command(dir.path().display().to_string()),
-                initial_prompt: None,
                 pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
@@ -1213,7 +1191,6 @@ mod tests {
         std::fs::create_dir_all(orkworks.join("events")).unwrap();
 
         let state = Arc::new(crate::AppState {
-            session_module: crate::infrastructure::session_module::SessionModule::new(),
             sessions: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
@@ -1265,8 +1242,6 @@ mod tests {
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
                 scan_buf: String::new(),
-                command: crate::harness_registry::default_shell_command(dir.path().display().to_string()),
-                initial_prompt: None,
                 pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
@@ -1363,7 +1338,6 @@ mod tests {
         std::fs::create_dir_all(orkworks.join("events")).unwrap();
 
         let state = Arc::new(crate::AppState {
-            session_module: crate::infrastructure::session_module::SessionModule::new(),
             sessions: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
@@ -1415,8 +1389,6 @@ mod tests {
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
                 scan_buf: String::new(),
-                command: crate::harness_registry::default_shell_command(dir.path().display().to_string()),
-                initial_prompt: None,
                 pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
@@ -1516,7 +1488,6 @@ mod tests {
         std::fs::create_dir_all(orkworks.join("events")).unwrap();
 
         let state = Arc::new(crate::AppState {
-            session_module: crate::infrastructure::session_module::SessionModule::new(),
             sessions: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
@@ -1568,8 +1539,6 @@ mod tests {
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
                 scan_buf: String::new(),
-                command: crate::harness_registry::default_shell_command(dir.path().display().to_string()),
-                initial_prompt: None,
                 pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
@@ -1669,7 +1638,6 @@ mod tests {
         std::fs::create_dir_all(orkworks.join("events")).unwrap();
 
         let state = Arc::new(crate::AppState {
-            session_module: crate::infrastructure::session_module::SessionModule::new(),
             sessions: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
@@ -1726,8 +1694,6 @@ mod tests {
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
                 scan_buf: String::new(),
-                command: crate::harness_registry::default_shell_command(dir.path().display().to_string()),
-                initial_prompt: None,
                 pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
@@ -1827,7 +1793,6 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
 
         let state = Arc::new(crate::AppState {
-            session_module: crate::infrastructure::session_module::SessionModule::new(),
             sessions: Mutex::new(HashMap::new()),
             workspace: Mutex::new(None), // no workspace → persist is always skipped
             peon: crate::PeonState {
@@ -1891,10 +1856,6 @@ mod tests {
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
                 scan_buf: String::new(),
-                command: crate::harness_registry::default_shell_command(
-                    dir.path().display().to_string(),
-                ),
-                initial_prompt: None,
                 pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(
                     crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,

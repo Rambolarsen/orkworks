@@ -1,19 +1,17 @@
 use std::collections::VecDeque;
-use std::io::Write;
-use std::process::{Command, Stdio};
-use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use tracing::warn;
 
 #[derive(Clone, Debug)]
 pub struct PeonConfig {
     pub harness: String,
+    #[allow(dead_code)]
     pub harness_args: Vec<String>,
     #[allow(dead_code)]
     pub model: Option<String>,
     pub interval_secs: u64,
     pub max_lines: usize,
+    #[allow(dead_code)]
     pub timeout_secs: u64,
     pub idle_timeout_secs: u64,
     pub final_scan_timeout_secs: u64,
@@ -250,10 +248,6 @@ pub fn looks_like_password_prompt(recent_lines: &[String]) -> bool {
 }
 
 /// Returns true if a completed user input line is descriptive enough to become
-/// Minimum line length for a completed user input to qualify as a Peon label hint.
-/// Lines shorter than this are too terse to reliably describe a task.
-pub const HINT_MIN_LEN: usize = 10;
-
 /// the session label. Command-prefixed input (harness slash commands, shell
 /// escapes, vim ex commands, shell comments / Claude Code memory shortcuts),
 /// input under 4 chars, and letter-less input (menu numbers, ports) say
@@ -532,80 +526,6 @@ pub fn build_prompt(output: &[String]) -> String {
     format!("{SYSTEM_PROMPT}\n\nTerminal output:\n```\n{truncated}\n```")
 }
 
-pub fn run_inference(config: &PeonConfig, output: &[String]) -> Option<PeonInference> {
-    let prompt = build_prompt(output);
-
-    let mut cmd = Command::new(&config.harness);
-
-    for arg in &config.harness_args {
-        cmd.arg(arg);
-    }
-
-    cmd.stdin(Stdio::piped());
-    cmd.stdout(Stdio::piped());
-    cmd.stderr(Stdio::piped());
-
-    let mut child = match cmd.spawn() {
-        Ok(c) => c,
-        Err(e) => {
-            warn!(harness = %config.harness, error = %e, "peon: failed to spawn harness");
-            return None;
-        }
-    };
-
-    match child.stdin.take() {
-        Some(mut stdin) => {
-            if let Err(e) = stdin.write_all(prompt.as_bytes()) {
-                warn!(error = %e, "peon: failed to write prompt to harness stdin");
-                return None;
-            }
-        }
-        None => {
-            warn!("Peon: harness stdin was unavailable");
-            return None;
-        }
-    }
-
-    let timeout = Duration::from_secs(config.timeout_secs);
-    let pid = child.id();
-    let (tx, rx) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        let _ = tx.send(child.wait_with_output());
-    });
-
-    let output = match rx.recv_timeout(timeout) {
-        Ok(Ok(output)) => output,
-        _ => {
-            let _ = Command::new("kill").arg(pid.to_string()).output();
-            warn!(harness = %config.harness, "peon: harness timed out or failed");
-            return None;
-        }
-    };
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        warn!(harness = %config.harness, status = %output.status, stderr = %stderr, "peon: harness exited with error");
-        return None;
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let json_str = extract_json(&stdout)?;
-
-    let inference: PeonInference = match serde_json::from_str(&json_str) {
-        Ok(inf) => inf,
-        Err(e) => {
-            warn!(error = %e, raw = %stdout, "peon: failed to parse JSON from harness output");
-            return None;
-        }
-    };
-
-    if let Err(e) = validate_inference(&inference) {
-        warn!(error = %e, "peon: inference validation failed");
-        return None;
-    }
-
-    Some(inference)
-}
 
 #[cfg(test)]
 mod tests {
@@ -887,51 +807,6 @@ mod tests {
     }
 
     #[test]
-    fn test_run_inference_success() {
-        let harness = std::env::current_dir()
-            .unwrap()
-            .join("tests/mock-peon-harness.sh");
-        let config = PeonConfig {
-            harness: harness.display().to_string(),
-            harness_args: vec!["--print".into(), "-p".into()],
-            model: None,
-            interval_secs: 5,
-            max_lines: 200,
-            timeout_secs: 30,
-            idle_timeout_secs: 15,
-            final_scan_timeout_secs: 2,
-            enabled: true,
-        };
-        let output = vec![
-            "running cargo test...".to_string(),
-            "test result: ok. 5 passed; 0 failed;".to_string(),
-        ];
-        let result = run_inference(&config, &output);
-        assert!(result.is_some());
-        let inf = result.unwrap();
-        assert_eq!(inf.observed_status, Some("working".into()));
-        assert!((inf.confidence - 0.85).abs() < 0.001);
-    }
-
-    #[test]
-    fn test_run_inference_harness_not_found() {
-        let config = PeonConfig {
-            harness: "/nonexistent/harness".into(),
-            harness_args: vec!["--print".into(), "-p".into()],
-            model: None,
-            interval_secs: 5,
-            max_lines: 200,
-            timeout_secs: 30,
-            idle_timeout_secs: 15,
-            final_scan_timeout_secs: 2,
-            enabled: true,
-        };
-        let output = vec!["some output".to_string()];
-        let result = run_inference(&config, &output);
-        assert!(result.is_none());
-    }
-
-    #[test]
     fn test_peon_config_uses_json_argv_env() {
         let _guard = ENV_LOCK.lock().unwrap();
 
@@ -942,47 +817,6 @@ mod tests {
         assert_eq!(config.harness_args, vec!["--print", "--model", "haiku"]);
 
         std::env::remove_var("PEON_HARNESS_ARGS_JSON");
-    }
-
-    #[test]
-    fn test_run_inference_sends_prompt_on_stdin_not_argv() {
-        let dir = tempfile::tempdir().unwrap();
-        let harness = dir.path().join("stdin-harness.sh");
-        std::fs::write(
-            &harness,
-            r#"#!/bin/bash
-if [ "$#" -ne 1 ] || [ "$1" != "--print" ]; then
-  echo "unexpected args: $*" >&2
-  exit 2
-fi
-input="$(cat)"
-if ! printf '%s' "$input" | grep -q "Terminal output:"; then
-  echo "missing stdin prompt" >&2
-  exit 3
-fi
-echo '{"status":"working","confidence":0.9}'
-"#,
-        )
-        .unwrap();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&harness, std::fs::Permissions::from_mode(0o755)).unwrap();
-        }
-
-        let config = PeonConfig {
-            harness: harness.display().to_string(),
-            harness_args: vec!["--print".into()],
-            model: None,
-            interval_secs: 5,
-            max_lines: 200,
-            timeout_secs: 30,
-            idle_timeout_secs: 15,
-            final_scan_timeout_secs: 2,
-            enabled: true,
-        };
-        let result = run_inference(&config, &["hello from terminal".to_string()]);
-        assert!(result.is_some());
     }
 
     #[test]

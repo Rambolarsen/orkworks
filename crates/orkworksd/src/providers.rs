@@ -57,7 +57,6 @@ pub enum ProviderEffectiveState {
 #[serde(rename_all = "snake_case")]
 pub enum PeonScope {
     Session,
-    Repo,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -337,16 +336,16 @@ pub struct ProviderObservation {
 }
 
 pub struct AttemptRecord {
-    pub provider_id: String,
+    #[allow(dead_code)]
     pub outcome: AttemptOutcome,
-    pub step: usize,
 }
 
 pub struct ProviderRunResult {
     pub inference: Option<peon::PeonInference>,
-    pub winning_provider_id: Option<String>,
     pub observation: Option<ProviderObservation>,
+    #[allow(dead_code)]
     pub attempts: Vec<AttemptRecord>,
+    #[allow(dead_code)]
     pub runtime: HashMap<String, ProviderRuntimeEntry>,
 }
 
@@ -589,6 +588,7 @@ pub struct ProviderManager {
 }
 
 impl ProviderManager {
+    #[cfg(test)]
     pub fn new() -> Self {
         let harnesses = harness_registry::builtin_harness_configs();
         Self::new_with_harnesses(&harnesses)
@@ -898,18 +898,14 @@ impl ProviderManager {
 
             if !entry.enabled {
                 attempts.push(AttemptRecord {
-                    provider_id: entry.id.clone(),
                     outcome: AttemptOutcome::SkippedDisabled,
-                    step,
                 });
                 continue;
             }
 
             if entry.effective_state() == ProviderEffectiveState::Capped {
                 attempts.push(AttemptRecord {
-                    provider_id: entry.id.clone(),
                     outcome: AttemptOutcome::SkippedCapped,
-                    step,
                 });
                 continue;
             }
@@ -919,9 +915,7 @@ impl ProviderManager {
                 None => {
                     tracing::warn!(provider = %entry.id, "peon: no registry entry for provider");
                     attempts.push(AttemptRecord {
-                        provider_id: entry.id.clone(),
                         outcome: AttemptOutcome::Failed,
-                        step,
                     });
                     continue;
                 }
@@ -943,9 +937,7 @@ impl ProviderManager {
                 if let Some(inference) = peon::parse_inference(&result.stdout) {
                     let rt_entry = ProviderRuntimeEntry { fallback_step: Some(step), ..Default::default() };
                     attempts.push(AttemptRecord {
-                        provider_id: entry.id.clone(),
                         outcome: AttemptOutcome::Succeeded,
-                        step,
                     });
                     runtime.insert(entry.id.clone(), rt_entry);
                     *self.runtime.write().unwrap() = runtime.clone();
@@ -965,7 +957,6 @@ impl ProviderManager {
                     };
                     return ProviderRunResult {
                         inference: Some(inference),
-                        winning_provider_id: Some(entry.id.clone()),
                         observation: Some(observation),
                         attempts,
                         runtime,
@@ -986,15 +977,13 @@ impl ProviderManager {
             };
 
             attempts.push(AttemptRecord {
-                provider_id: entry.id.clone(),
                 outcome: AttemptOutcome::Failed,
-                step,
             });
             runtime.insert(entry.id.clone(), rt_entry);
         }
 
         *self.runtime.write().unwrap() = runtime.clone();
-        ProviderRunResult { inference: None, winning_provider_id: None, observation: None, attempts, runtime }
+        ProviderRunResult { inference: None, observation: None, attempts, runtime }
     }
 
     fn list_models_http(&self, provider_id: &str) -> Result<Vec<String>, String> {

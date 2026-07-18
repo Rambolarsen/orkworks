@@ -18,17 +18,13 @@ mod harness;
 mod harness_registry;
 mod peon;
 mod providers;
-mod domain;
-mod application;
 mod http;
-mod infrastructure;
 mod migration;
 mod runtime;
 mod session_types;
 mod session_view;
 mod workspace_runtime;
 
-use crate::infrastructure::session_module::SessionModule;
 use crate::harness_registry::{builtin_adapters, load_harnesses, HarnessConfig};
 use crate::http::harness_handlers::{
     create_harness, delete_harness, list_harnesses, update_harness,
@@ -53,8 +49,6 @@ struct SessionHandle {
     output_buffer: peon::RingBuffer,
     // Rolling raw PTY text (ANSI-stripped) for TUI apps that use cursor positioning instead of newlines.
     scan_buf: String,
-    command: harness::CommandSpec,
-    initial_prompt: Option<String>,
     pending_work_signal: Option<runtime::session_runtime::PendingWorkSignal>,
     runtime: runtime::session_runtime::SessionRuntime,
     terminal_attached: bool,
@@ -100,7 +94,6 @@ struct RetentionConfig {
 }
 
 struct AppState {
-    session_module: SessionModule,
     sessions: Mutex<HashMap<String, SessionHandle>>,
     workspace: Mutex<Option<WorkspaceState>>,
     peon: PeonState,
@@ -125,7 +118,6 @@ async fn main() {
     let providers = providers::ProviderManager::new_with_harnesses(&harnesses);
 
     let state = Arc::new(AppState {
-        session_module: SessionModule::new(),
         sessions: Mutex::new(HashMap::new()),
         workspace: Mutex::new(None),
         peon: PeonState {
@@ -253,7 +245,6 @@ pub(crate) mod test_support {
     pub(crate) fn test_app_state_with_workspace(path: &std::path::Path) -> Arc<AppState> {
         let metadata_root = path.join(".orkworks-test");
         Arc::new(AppState {
-            session_module: SessionModule::new(),
             sessions: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(WorkspaceState {
                 path: path.to_path_buf(),
@@ -500,7 +491,6 @@ mod tests {
     #[test]
     fn session_registry_create_and_list() {
         let state = Arc::new(AppState {
-            session_module: SessionModule::new(),
             sessions: Mutex::new(HashMap::new()),
             workspace: Mutex::new(None),
             peon: PeonState {
@@ -534,8 +524,6 @@ mod tests {
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
                 scan_buf: String::new(),
-                command: harness_registry::default_shell_command("/tmp".into()),
-                initial_prompt: None,
                 pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,

@@ -1,303 +1,94 @@
-# Domain Entities
+# Session State Model
 
-This document describes the current Rust domain model under `crates/orkworksd/src/domain/`.
+This document describes the current Rust session state model in `crates/orkworksd/src/`.
 
-It is intentionally narrower than the full product specs. The goal here is to document the domain entities and supporting types that exist in code today, how they relate to the metadata store and API layer, and where the current terminology boundary sits.
+There is no separate `domain/`/`application/` DDD layer in this crate — an earlier scaffold along those lines existed but was never wired into production and has been removed. Session state is modeled directly as data: `SessionMetadata` (the on-disk/API source of truth) plus the in-memory `SessionHandle`/`SessionInfo` types used by the HTTP and runtime layers.
 
 ## Scope
 
-Today the domain layer is centered on **agent sessions**.
+Today the state model is centered on **agent sessions**.
 
 The code uses:
 
-- `Session` as the aggregate root in the Rust domain layer
+- `SessionMetadata` (`metadata.rs`) as the persisted record for one session
+- `SessionInfo` (`main.rs`) as the in-memory/API DTO built from metadata plus live runtime state
 - `Harness` for the internal coding-tool integration abstraction
 - `provider_id` for the inference-service identity when it is known
 
-The user-facing UI may call the selected CLI application a **Coding tool**, but the domain model still stores that internal concept as harness-related data.
+The user-facing UI may call the selected CLI application a **Coding tool**, but the internal data still stores that concept as harness-related fields.
 
-This document reflects the current implementation. It does not introduce launch profiles.
+## SessionMetadata
 
-## Session aggregate
+File: `crates/orkworksd/src/metadata.rs`
 
-File: `crates/orkworksd/src/domain/session/entity.rs`
+`SessionMetadata` is the persisted record read from and written to `~/.orkworks/workspaces/<hash>/sessions/<id>.json`. It is a flat, serde-mapped struct — not an aggregate with behavior. Notable fields:
 
-`Session` is the primary domain entity and aggregate root.
+- `id`, `label`, `workspace`, `task`, `cwd`
+- `harness: String` (serialized `harnessId`, aliased from legacy `harness`)
+- `model: String` (serialized `modelId`, aliased from legacy `model`)
+- `status: String` — process/terminal state (see vocabulary below)
+- `work_phase: String` (serialized `workPhase`) — `ideation` | `implementation` | `review` | `debugging` | `unknown`, normalized on read via `normalize_work_phase`
+- `lifecycle_phase: String`, `lifecycle: String` — see vocabulary below
+- `attention: Option<String>`, `connectivity: String`
+- `terminal_outcome: Option<String>`, `pending_terminal_status: Option<String>`
+- `observed_status: Option<String>` plus `ending_observed_status_snapshot` / `final_observed_status_snapshot` (`ObservedStatusSnapshotMetadata { value, source, confidence, observed_at }`)
+- `summary`, `next_action`, `needs_user_input`, `detected_question`, `suggested_options`, `blocker_description`, `failed_command`, `failed_test`, `capacity_hints`, `peon_last_inference` — Peon-inferred fields
+- `provider_id`, `provider_label`, `provider_model`, `provider_state`
+- `created_at`, `last_activity`, `metadata_source`, `metadata_confidence`
+- `repo_root`, `branch`, `dirty`, `changed_files`, `is_worktree` — Git context
+- `resume`, `resume_options`, `resumed_from`, `harness_session_id_source/confidence/captured_at`
+- `last_user_input`
 
-Responsibilities:
+`normalize_session_metadata` runs on every read to backfill defaults and reconcile `lifecycle`/`lifecycle_phase` drift between old and new records.
 
-- identify one running or remembered agent session
-- capture lifecycle state
-- capture attention and memory state
-- hold the selected harness/model/provider references when known
-- hold workspace and Git context
-- hold resume metadata for harness-supported continuation
+## Status vocabulary
 
-Current fields:
+Unlike a typed domain enum, `status`/`lifecycle`/`lifecycle_phase`/`attention`/`connectivity` are plain strings, and the vocabulary has grown organically across the HTTP and runtime layers rather than being centrally enumerated. Known values in current use:
 
-- `id: SessionId`
-- `workspace_path: WorkspacePath`
-- `status: SessionStatus`
-- `memory_state: MemoryState`
-- `attention_state: AttentionState`
-- `work_phase: WorkPhase`
-- `lifecycle_phase: LifecyclePhase`
-- `pending_terminal_status: Option<TerminalOutcome>`
-- `ending_observed_status_snapshot: Option<ObservedStatusSnapshot>`
-- `final_observed_status_snapshot: Option<ObservedStatusSnapshot>`
-- `created_at: String`
-- `killed_at: Option<String>`
-- `last_active_at: Option<String>`
-- `harness_name: Option<String>`
-- `provider_id: Option<String>`
-- `task_description: Option<String>`
-- `label: String` — populated at creation, then from descriptive user terminal input (gated by `peon::is_descriptive_input`: command-prefixed `/` `!` `:` `#`, sub-4-char, and letter-less input is skipped) or from the Peon summary via inference merge
-- `cwd: String`
-- `model: Option<String>`
-- `repo_root: Option<String>`
-- `branch: Option<String>`
-- `dirty: Option<bool>`
-- `changed_files: Option<usize>`
-- `is_worktree: Option<bool>`
-- `resume: Option<crate::harness::ResumeMemory>`
-- `resumed_from: Option<String>`
-- `resume_strategy: crate::harness::ResumeStrategy`
+- `status`: `creating`, `running`, `killed`, `ended`, `error`
+- `lifecycle`: `creating`, `alive`, `stopping`, `dead` (ADR 0023 canonical form); `ending` also appears as an intermediate value in places
+- `lifecycle_phase`: `creating`, `active`, `ending`, `ended` (`default_lifecycle_phase_for_status` derives this from `status` when absent)
+- `attention` (raw observed values, before `canonical_attention` collapses them): `working`, `idle`, `blocked`, `failed`, `capped`, `waiting_for_input`, `stale`, `done`; canonicalized to `needs_you` / `idle` / passthrough for the UI-facing attention model
+- `connectivity`: `online` (default) and other values set via `connectivity_for_status`
+- `terminal_outcome`: `ended`, `killed`, `error`
 
-Behavior currently implemented on the entity:
+Because these are untyped strings threaded through many call sites rather than a single enum, adding a new status value does not get compiler-checked exhaustiveness — grep for the field name across `http/` and `runtime/` before assuming a closed set.
 
-- `is_live()`
-- `is_killed()`
-- `can_be_killed()`
-- `kill(now)`
-- `mark_running()`
-- `mark_active()`
-- `begin_ending(pending_terminal_status, ending_observed_status_snapshot)`
-- `complete_ending(final_observed_status_snapshot)`
-
-The lifecycle behavior is orchestrated by runtime/application code. The public metadata and renderer contract use the canonical `creating -> alive -> stopping -> dead` lifecycle from ADR 0023; the domain aggregate retains its older internal compatibility types while that migration is completed.
-
-## Value objects
-
-File: `crates/orkworksd/src/domain/session/value_objects.rs`
-
-The session domain currently uses these value objects and enums:
-
-### `SessionId`
-
-Stable identity for a session aggregate.
-
-### `WorkspacePath`
-
-Wrapper around the owning workspace path.
-
-### `SessionStatus`
-
-Lifecycle status:
-
-- `Creating`
-- `Running`
-- `Killed`
-- `Ended`
-- `Error`
-
-This captures the process state or terminal outcome. During `LifecyclePhase::Ending`, the session intentionally remains `SessionStatus::Running` until completion chooses the final terminal outcome.
-
-### `MemoryState`
-
-Persistence/restore classification:
-
-- `Live`
-- `Remembered`
-- `Resumable`
-- `Unsupported`
-
-This is distinct from lifecycle status. A killed or ended session can still be remembered or resumable.
-
-### `AttentionState`
-
-Observed attention state:
-
-- `WaitingForInput`
-- `Blocked`
-- `Failed`
-- `Done`
-- `Stale`
-- `Working`
-- `Idle`
-
-This is the domain form of the attention model used for sorting and UI emphasis. `needs_attention()` is defined here.
-
-### `WorkPhase`
-
-High-level work phase:
-
-- `Ideation`
-- `Implementation`
-- `Review`
-- `Debugging`
-- `Unknown`
-
-This remains intentionally coarse.
-
-The old `Phase` name is fully retired; `WorkPhase` is the canonical domain term. Legacy metadata files that still contain a `phase` field are normalized to `workPhase` on read.
-
-### `LifecyclePhase`
-
-Explicit runtime lifecycle phase:
-
-- `Creating`
-- `Active`
-- `Ending`
-- `Ended`
-
-This is distinct from `SessionStatus`. It models where the session is in the lifecycle state machine even when the process-facing `status` remains `Running` during `Ending`. ADR 0023 defines a replacement canonical lifecycle for planned implementation work.
-
-### `TerminalOutcome`
-
-Pending/final terminal outcome:
-
-- `Ended`
-- `Killed`
-- `Error`
-
-This is used while a session is in `LifecyclePhase::Ending` so the aggregate can defer choosing the terminal `SessionStatus` until finalization completes.
-
-### `ObservedStatusSnapshot`
-
-Structured frozen observer state:
-
-- `value: Option<AttentionState>`
-- `source: String`
-- `confidence: Option<f64>`
-- `observed_at: Option<String>`
-
-This is used for both:
-
-- `ending_observed_status_snapshot` captured when the session begins ending
-- `final_observed_status_snapshot` persisted when ending completes
-
-## Domain events
-
-File: `crates/orkworksd/src/domain/session/events.rs`
-
-The domain emits a small set of session events:
-
-- `SessionCreated`
-- `SessionKilled`
-- `SessionResumed`
-- `SessionAttentionChanged`
-- `SessionForgotten`
-
-These events preserve the existing external naming convention through `event_type()`:
-
-- `session.created`
-- `session.killed`
-- `session.resumed`
-- `session.attention_changed`
-- `session.forgotten`
-
-This is important because infrastructure currently writes session/event data into the metadata store using those string conventions.
-
-## Domain service
-
-File: `crates/orkworksd/src/domain/session/services.rs`
-
-`SessionLifecycle` is the current domain service.
-
-Responsibilities:
-
-- create a new `Session` aggregate plus `SessionCreated` event
-- kill a session and emit `SessionKilled`
-- resume a session and emit `SessionResumed`
-
-Notable design choices:
-
-- creation accepts optional Git context and normalizes it into the aggregate
-- creation accepts optional harness/provider/model references
-- resume support is still tied to `crate::harness::ResumeMemory` and `ResumeStrategy`
-- creation initializes `work_phase = WorkPhase::Unknown`
-- creation initializes `lifecycle_phase = LifecyclePhase::Creating`
-
-The service is where aggregate construction rules currently live.
-
-## Repository port
-
-File: `crates/orkworksd/src/domain/session/repository.rs`
-
-`SessionRepository` is the domain persistence port.
-
-Methods:
-
-- `save(session, events)`
-- `load(id)`
-- `delete(id)`
-- `list_by_workspace(path)`
-- `append_terminal_output(id, lines)`
-
-This port makes two boundaries explicit:
-
-1. session persistence and event persistence move together
-2. terminal scrollback is treated as repository-owned session data even though it is not part of the aggregate itself
-
-## Mapping to infrastructure
-
-The domain model is not the same thing as the API DTOs or raw metadata files.
-
-Current mapping path:
-
-```text
-Session aggregate
-  -> infrastructure/session_repository.rs
-  -> metadata::SessionMetadata
-  -> main.rs SessionInfo JSON DTO
-  -> apps/desktop/src/api.ts SessionInfo
-  -> renderer components
-```
-
-Important consequence:
-
-- the domain can stay `Harness`-oriented internally
-- the UI can still present `Coding tool`
-- compatibility aliases can exist at metadata/API boundaries without forcing a full domain rewrite
-
-## Terminology boundary in the domain
+## Terminology boundary
 
 Current intended interpretation:
 
-- `harness_name`: internal coding-tool integration identity
+- `harness`: internal coding-tool integration identity
 - `provider_id`: inference-service identity when known
 - `model`: selected model when known
-- `Session`: one running or remembered agent session
+- a session is one running or remembered agent session, identified by `id`
 
 This means:
 
 - a harness is not a model provider
 - a model provider is optional
 - a model is optional
-- the session aggregate may legitimately know only the harness and not the provider/model
+- a session may legitimately know only the harness and not the provider/model
 
-Where provider/model identity cannot be determined, the domain should preserve `None` rather than invent values.
+Where provider/model identity cannot be determined, code should preserve `None`/empty rather than invent values.
 
-## Current limitations
+## Mapping to the API/UI layer
 
-This domain layer is still session-centric and intentionally small.
+```text
+SessionMetadata (on disk)
+  -> SessionHandle / SessionInfo (main.rs, in-memory)
+  -> HTTP JSON DTO (http/session_handlers.rs)
+  -> apps/desktop/src/api.ts SessionInfo
+  -> renderer components
+```
 
-Not yet modeled as first-class domain entities:
+## Prior DDD scaffold (removed)
 
-- launch profiles
-- coding-tool definitions as aggregates
-- model providers as aggregates
-- recommendation entities
-- capacity entities
-
-Those concepts may exist elsewhere in the codebase as infrastructure/config/runtime types, but they are not yet represented as domain aggregates in `crates/orkworksd/src/domain/`.
+An earlier `domain/session/` + `application/session/` + `infrastructure/session_*` layer existed as a typed alternative to the above (a `Session` aggregate with a 5-variant `SessionStatus` enum, `MemoryState`, `AttentionState`, `WorkPhase`, `LifecyclePhase`, domain events, a `SessionRepository` port, and command handlers). It was never wired into any production code path — `SessionModule` was constructed only to populate an unread `AppState` field, and its PTY adapters were unimplemented stubs. It has been deleted. Two gaps would need to be closed before a typed state machine like this could work: it modeled only the 5-variant `SessionStatus` enum where production status vocabulary is the larger untyped set documented above, and it had no representation of PTY runtime state (`kill_tx`, output buffers, `SessionRuntime`) at all. See [issue #181](https://github.com/Rambolarsen/orkworks/issues/181) for the idea captured for future work.
 
 ## Related files
 
-- `crates/orkworksd/src/domain/session/entity.rs`
-- `crates/orkworksd/src/domain/session/value_objects.rs`
-- `crates/orkworksd/src/domain/session/events.rs`
-- `crates/orkworksd/src/domain/session/services.rs`
-- `crates/orkworksd/src/domain/session/repository.rs`
-- `crates/orkworksd/src/infrastructure/session_repository.rs`
+- `crates/orkworksd/src/metadata.rs`
+- `crates/orkworksd/src/main.rs` (`SessionHandle`, `SessionInfo`, `AppState`)
+- `crates/orkworksd/src/http/session_handlers.rs`
 - `docs/agents/architecture.md`
