@@ -10,6 +10,8 @@ import {
   detailActionZone,
   lifecyclePhaseLabel,
   memoryStateLabel,
+  minDelay,
+  nextRelativeTimeRefreshMs,
   relativeTime,
   situationHeadline,
   situationTail,
@@ -33,12 +35,16 @@ interface SessionDetailPanelProps {
 
 function SessionDetailPanel({ sessions, activeSessionId, onResumeSession, showDebugMetadata }: SessionDetailPanelProps) {
   const [now, setNow] = useState(() => new Date());
-  useEffect(() => {
-    const interval = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(interval);
-  }, []);
-
   const active = sessions.find((s) => s.id === activeSessionId);
+
+  useEffect(() => {
+    if (!active) return;
+    let nextRefresh = nextRelativeTimeRefreshMs(active.peonLastInference, now);
+    nextRefresh = minDelay(nextRefresh, nextRelativeTimeRefreshMs(active.created_at, now));
+    if (nextRefresh === null) return;
+    const timeout = window.setTimeout(() => setNow(new Date()), nextRefresh);
+    return () => window.clearTimeout(timeout);
+  }, [active, now]);
 
   if (!active) {
     return <EmptyState message="Select an agent session to see details." />;

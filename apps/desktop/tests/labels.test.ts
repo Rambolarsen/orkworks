@@ -8,6 +8,7 @@ import {
   detailActionZone,
   lifecyclePhaseLabel,
   memoryStateLabel,
+  nextRelativeTimeRefreshMs,
   relativeTime,
   resumeActionLabel,
   resumeChoices,
@@ -123,6 +124,37 @@ test("relativeTime buckets recent timestamps into human-readable spans", () => {
   assert.equal(relativeTime("2026-06-17T12:00:00Z", now), "2d ago");
   assert.equal(relativeTime(undefined, now), "");
   assert.equal(relativeTime("not-a-date", now), "");
+});
+
+test("nextRelativeTimeRefreshMs wakes only when relativeTime()'s bucket edge is reached", () => {
+  const now = new Date("2026-06-19T12:00:00Z");
+
+  // 4s elapsed ("just now"): wakes at the 9.5s edge into "<1m ago"
+  assert.equal(nextRelativeTimeRefreshMs("2026-06-19T11:59:56Z", now), 5_500);
+  // 30s elapsed ("<1m ago"): wakes at the 59.5s edge into "Xm ago"
+  assert.equal(nextRelativeTimeRefreshMs("2026-06-19T11:59:30Z", now), 29_500);
+  // 5m elapsed ("5m ago"): wakes when rounding would tip to "6m ago"
+  assert.equal(nextRelativeTimeRefreshMs("2026-06-19T11:55:00Z", now), 29_500);
+  // 2h elapsed ("2h ago"): wakes when rounding would tip to "3h ago"
+  assert.equal(nextRelativeTimeRefreshMs("2026-06-19T10:00:00Z", now), 1_799_500);
+  // 2d elapsed ("2d ago"): wakes when rounding would tip to "3d ago"
+  assert.equal(nextRelativeTimeRefreshMs("2026-06-17T12:00:00Z", now), 43_199_500);
+});
+
+test("nextRelativeTimeRefreshMs refreshes at rounded-second display boundaries", () => {
+  const now = new Date("2026-06-19T12:00:00Z");
+
+  assert.equal(nextRelativeTimeRefreshMs("2026-06-19T11:54:30.501Z", now), 1);
+  assert.equal(nextRelativeTimeRefreshMs("2026-06-19T09:30:00.501Z", now), 1);
+  assert.equal(nextRelativeTimeRefreshMs("2026-06-17T00:00:00.501Z", now), 1);
+  assert.equal(nextRelativeTimeRefreshMs("2026-06-19T11:00:00.501Z", now), 1);
+  assert.equal(nextRelativeTimeRefreshMs("2026-06-18T12:00:00.501Z", now), 1);
+});
+
+test("nextRelativeTimeRefreshMs ignores missing or invalid timestamps", () => {
+  const now = new Date("2026-06-19T12:00:00Z");
+  assert.equal(nextRelativeTimeRefreshMs(undefined, now), null);
+  assert.equal(nextRelativeTimeRefreshMs("not-a-date", now), null);
 });
 
 test("situationHeadline falls back through question, blocker, summary, next action", () => {
