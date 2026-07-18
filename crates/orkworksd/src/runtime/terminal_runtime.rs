@@ -255,10 +255,11 @@ pub(crate) fn record_terminal_input(
         mark_usage_limit_recheck_on_input(state, id);
     }
 
-    let collected_line = {
+    let (collected_line, _in_progress_buf) = {
         let mut bufs = state.peon.input_buf.write().unwrap();
         let buf = bufs.entry(id.to_string()).or_default();
-        collect_input_line(buf, data)
+        let line = collect_input_line(buf, data);
+        (line, buf.clone())
     };
     let line = collected_line?;
     // Labels are display-bounded; echo-gating below uses the full `line`.
