@@ -2666,7 +2666,7 @@ mod tests {
             },
         );
 
-        list_sessions(State(state.clone())).await.into_response();
+        let _ = list_sessions(State(state.clone())).await.into_response();
 
         let response = state.providers.get_providers_response();
         let opencode = response.providers.iter().find(|provider| provider.id == "opencode").unwrap();

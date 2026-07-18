@@ -335,6 +335,11 @@ pub struct ProviderObservation {
     pub provider_state: String,
 }
 
+// ponytail: provider_id/step/outcome and the fields below are populated on
+// every fallback attempt but have no production reader today — kept for
+// debugging/telemetry attribution per PR #182 review, exercised only by this
+// module's tests. Upgrade path: wire to a debug endpoint or structured log,
+// or delete alongside the tests asserting on them if that never happens.
 pub struct AttemptRecord {
     #[allow(dead_code)]
     pub provider_id: String,

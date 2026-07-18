@@ -11,7 +11,7 @@ Today the state model is centered on **agent sessions**.
 The code uses:
 
 - `SessionMetadata` (`metadata.rs`) as the persisted record for one session
-- `SessionInfo` (`main.rs`) as the in-memory/API DTO built from metadata plus live runtime state
+- `SessionInfo` (`session_types.rs`) as the in-memory/API DTO built from metadata plus live runtime state
 - `Harness` for the internal coding-tool integration abstraction
 - `provider_id` for the inference-service identity when it is known
 
@@ -46,7 +46,7 @@ File: `crates/orkworksd/src/metadata.rs`
 Unlike a typed domain enum, `status`/`lifecycle`/`lifecycle_phase`/`attention`/`connectivity` are plain strings, and the vocabulary has grown organically across the HTTP and runtime layers rather than being centrally enumerated. Known values in current use:
 
 - `status`: `creating`, `running`, `killed`, `ended`, `error`
-- `lifecycle`: `creating`, `alive`, `stopping`, `dead` (ADR 0023 canonical form); `ending` also appears as an intermediate value in places
+- `lifecycle`: `creating`, `alive`, `stopping`, `dead` (ADR 0023 canonical form) — `ending` is not a `lifecycle` value; it only appears in `lifecycle_phase` (`normalize_session_metadata` maps `lifecycle_phase = "ending"` to `lifecycle = "stopping"`)
 - `lifecycle_phase`: `creating`, `active`, `ending`, `ended` (`default_lifecycle_phase_for_status` derives this from `status` when absent)
 - `attention` (raw observed values, before `canonical_attention` collapses them): `working`, `idle`, `blocked`, `failed`, `capped`, `waiting_for_input`, `stale`, `done`; canonicalized to `needs_you` / `idle` / passthrough for the UI-facing attention model
 - `connectivity`: `online` (default) and other values set via `connectivity_for_status`
@@ -76,7 +76,7 @@ Where provider/model identity cannot be determined, code should preserve `None`/
 
 ```text
 SessionMetadata (on disk)
-  -> SessionHandle / SessionInfo (main.rs, in-memory)
+  -> SessionHandle (main.rs) / SessionInfo (session_types.rs, in-memory)
   -> HTTP JSON DTO (http/session_handlers.rs)
   -> apps/desktop/src/api.ts SessionInfo
   -> renderer components
@@ -84,11 +84,13 @@ SessionMetadata (on disk)
 
 ## Prior DDD scaffold (removed)
 
-An earlier `domain/session/` + `application/session/` + `infrastructure/session_*` layer existed as a typed alternative to the above (a `Session` aggregate with a 5-variant `SessionStatus` enum, `MemoryState`, `AttentionState`, `WorkPhase`, `LifecyclePhase`, domain events, a `SessionRepository` port, and command handlers). It was never wired into any production code path — `SessionModule` was constructed only to populate an unread `AppState` field, and its PTY adapters were unimplemented stubs. It has been deleted. Two gaps would need to be closed before a typed state machine like this could work: it modeled only the 5-variant `SessionStatus` enum where production status vocabulary is the larger untyped set documented above, and it had no representation of PTY runtime state (`kill_tx`, output buffers, `SessionRuntime`) at all. See [issue #181](https://github.com/Rambolarsen/orkworks/issues/181) for the idea captured for future work.
+An earlier `domain/session/` + `application/session/` + `infrastructure/session_*` layer existed as a typed alternative to the above but was never wired into production and has been deleted. See [ADR 0021](../adr/0021-session-lifecycle-phases.md) for the rationale and [issue #181](https://github.com/Rambolarsen/orkworks/issues/181) for the future typed-state-machine idea it informs — this doc is the reference for what the session state model actually is today, not for the removal itself.
 
 ## Related files
 
 - `crates/orkworksd/src/metadata.rs`
-- `crates/orkworksd/src/main.rs` (`SessionHandle`, `SessionInfo`, `AppState`)
+- `crates/orkworksd/src/session_types.rs` (`SessionInfo`)
+- `crates/orkworksd/src/main.rs` (`SessionHandle`, `AppState`)
 - `crates/orkworksd/src/http/session_handlers.rs`
 - `docs/agents/architecture.md`
+- `docs/adr/0021-session-lifecycle-phases.md`
