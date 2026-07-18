@@ -208,16 +208,19 @@ Electron + React/TypeScript frontend (`apps/desktop/`) communicates with a Rust 
 - ADR 0017: Provider context is session-scoped (read-only in Details), not app-wide.
 - ADR 0022: PTY lifetime is session-runtime-owned in the sidecar; renderer terminal attachment is detachable and does not own process lifetime.
 
-**Rust module DDD layering** (`crates/orkworksd/src/`):
-- `domain/session/` — value objects, entity (aggregate root), domain events, repository trait, lifecycle service
-- `application/session/` — command DTOs, driven port interfaces (PtySpawner, PtyKiller, GitDetector), use case handlers
-- `infrastructure/` — repository adapter, PTY/git adapters, SessionModule composition root
-- `http/` — thin HTTP handler submodules (session, harness, provider, retention, attention hook) delegating to SessionModule and AppState
-- `runtime/` — background tasks: terminal/PTY runtime, Peon observation loop, retention cleanup
+**Rust module layout** (`crates/orkworksd/src/`):
+- `metadata.rs` — `SessionMetadata` and the on-disk metadata store (source of truth for session state)
+- `session_types.rs`, `session_view.rs` — session-facing types and view/projection helpers
+- `harness.rs`, `harness_registry.rs` — harness adapter abstraction and built-in harness definitions
+- `providers.rs` — model provider registry, fallback, and capacity state
+- `peon.rs` — terminal-output observation and label/status inference
+- `git.rs`, `watcher.rs`, `migration.rs`, `workspace_runtime.rs` — Git context detection, metadata file watching, on-disk migrations, workspace bootstrap
+- `http/` — thin HTTP handler submodules (session, harness, provider, retention, attention hook) delegating to `AppState`
+- `runtime/` — background tasks: terminal/PTY runtime (`SessionRuntime`, PTY lifecycle), Peon observation loop, retention cleanup
 - `main.rs` — Axum router, `AppState`/`SessionHandle` struct definitions, startup
 
 See [`docs/agents/architecture.md`](docs/agents/architecture.md) for the full inter-component breakdown (port discovery, preload bridge, API data flow, Rust modules, panel layout).
-See [`docs/agents/domain-entities.md`](docs/agents/domain-entities.md) for the current Rust domain model: session aggregate, value objects, domain events, repository port, lifecycle service, and terminology boundaries.
+See [`docs/agents/domain-entities.md`](docs/agents/domain-entities.md) for the current session state model: `SessionMetadata` fields, session status vocabulary, and terminology boundaries.
 
 ## Metadata protocol
 
@@ -288,4 +291,4 @@ This lists every worktree/branch in the repo (not just the one this session used
 
 Keep both files current as the project evolves. Update AGENTS.md and README.md whenever any of the following occur: a new runtime dependency is added or removed, a directory in the planned architecture changes, a new agent target is added to `apm.yml`, a convention or workflow listed in this file changes, or a new ADR is created. Treat stale docs as a bug — if you notice something out of date while working, fix it.
 
-Also keep `docs/agents/domain-entities.md` current whenever domain fields, domain events, repository ports, lifecycle behavior, or terminology boundaries change in `crates/orkworksd/src/domain/` or in closely related metadata/API mapping code.
+Also keep `docs/agents/domain-entities.md` current whenever `SessionMetadata` fields, status/lifecycle vocabulary, or terminology boundaries change in `crates/orkworksd/src/metadata.rs` or in closely related session/API mapping code.

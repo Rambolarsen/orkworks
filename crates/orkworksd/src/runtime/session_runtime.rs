@@ -194,6 +194,7 @@ impl SessionRuntime {
         )
     }
 
+    #[cfg(test)]
     pub(crate) fn detached(rows: u16, cols: u16) -> Self {
         let (control_tx, _control_rx) = mpsc::channel(CONTROL_CHANNEL_CAPACITY);
         let (output_tx, _) = broadcast::channel(256);
@@ -213,10 +214,12 @@ impl SessionRuntime {
         Self::detached(DEFAULT_TERMINAL_ROWS, DEFAULT_TERMINAL_COLS)
     }
 
+    #[cfg(test)]
     pub(crate) fn attached_generation(&self) -> Option<u64> {
         self.attached_generation
     }
 
+    #[cfg(test)]
     pub(crate) fn last_size(&self) -> (u16, u16) {
         (self.last_rows, self.last_cols)
     }
@@ -761,7 +764,6 @@ mod tests {
 
     fn test_state_with_runtime_session(id: &str) -> Arc<crate::AppState> {
         let state = Arc::new(crate::AppState {
-            session_module: crate::infrastructure::session_module::SessionModule::new(),
             sessions: Mutex::new(HashMap::new()),
             workspace: Mutex::new(None),
             peon: crate::PeonState {
@@ -788,12 +790,6 @@ mod tests {
                 kill_tx,
                 output_buffer: crate::peon::RingBuffer::new(200),
                 scan_buf: String::new(),
-                command: harness::CommandSpec {
-                    program: "/bin/sh".into(),
-                    args: vec!["-i".into(), "-l".into()],
-                    cwd: "/tmp".into(),
-                },
-                initial_prompt: None,
                 pending_work_signal: None,
                 runtime: SessionRuntime::detached_test(),
                 terminal_attached: false,
@@ -1333,7 +1329,6 @@ mod tests {
         {
             let mut sessions = state.sessions.lock().unwrap();
             let handle = sessions.get_mut(session_id).unwrap();
-            handle.command = command.clone();
             handle.runtime = runtime;
         }
 
@@ -1532,7 +1527,7 @@ mod tests {
         }
 
         let line = "describe the next implementation step";
-        crate::runtime::terminal_runtime::process_terminal_input(
+        let _ = crate::runtime::terminal_runtime::record_terminal_input(
             &state,
             session_id,
             &format!("{line}\r"),
@@ -1581,7 +1576,6 @@ mod tests {
         {
             let mut sessions = state.sessions.lock().unwrap();
             let handle = sessions.get_mut(session_id).unwrap();
-            handle.command = command.clone();
             handle.runtime = runtime;
             handle.pending_work_signal = Some(arm_pending_work_signal(
                 "submitted command",
@@ -1692,7 +1686,6 @@ mod tests {
         {
             let mut sessions = state.sessions.lock().unwrap();
             let handle = sessions.get_mut(session_id).unwrap();
-            handle.command = command.clone();
             handle.runtime = runtime;
         }
 
@@ -1806,7 +1799,6 @@ mod tests {
             let mut sessions = state.sessions.lock().unwrap();
             let handle = sessions.get_mut(session_id).unwrap();
             handle.active_work_hook = true;
-            handle.command = command.clone();
             handle.runtime = runtime;
         }
 
@@ -1886,7 +1878,6 @@ mod tests {
         {
             let mut sessions = state.sessions.lock().unwrap();
             let handle = sessions.get_mut(session_id).unwrap();
-            handle.command = command.clone();
             handle.runtime = runtime;
         }
 
@@ -1957,7 +1948,6 @@ mod tests {
         {
             let mut sessions = state.sessions.lock().unwrap();
             let handle = sessions.get_mut(session_id).unwrap();
-            handle.command = command.clone();
             handle.runtime = runtime;
         }
 
@@ -2026,7 +2016,6 @@ mod tests {
         {
             let mut sessions = state.sessions.lock().unwrap();
             let handle = sessions.get_mut(session_id).unwrap();
-            handle.command = command.clone();
             handle.runtime = runtime;
         }
 

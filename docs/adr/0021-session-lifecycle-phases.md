@@ -47,10 +47,12 @@ Issue #26 tracks the fix; the detailed design is in
   DELETE handler, PTY errors) can race, so `set_session_status` applies the
   `ending` transition at most once and finalization is scheduled only by the
   path that won.
-- The domain `Session` aggregate exposes the transition rules
-  (`mark_active`/`begin_ending`/`complete_ending`), but the runtime currently
-  still drives transitions through metadata directly. Wiring the runtime
-  through the aggregate is the intended follow-up; until then the entity
-  methods and the runtime rules must be kept in agreement.
+- The domain `Session` aggregate exposed the transition rules
+  (`mark_active`/`begin_ending`/`complete_ending`), but the runtime always
+  drove transitions through metadata directly and the aggregate was never
+  wired in. It was removed as unwired dead code; see
+  [issue #181](https://github.com/Rambolarsen/orkworks/issues/181) for a
+  future typed-state-machine attempt informed by why this one didn't work.
+  The runtime rules described elsewhere in this ADR are unaffected.
 - Older metadata files keep working via read-time normalization; new writes
   always use the new field names.

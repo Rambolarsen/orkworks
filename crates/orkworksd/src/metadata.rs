@@ -1185,15 +1185,6 @@ impl MetadataStore {
         all[start..].iter().map(|s| s.to_string()).collect()
     }
 
-    pub fn delete_terminal_output(&self, id: &str) {
-        let path = self.terminal_output_path(id);
-        if let Err(e) = fs::remove_file(&path) {
-            if e.kind() != std::io::ErrorKind::NotFound {
-                warn!("failed to delete terminal output for {id}: {e}");
-            }
-        }
-    }
-
     pub fn trim_terminal_output(&self, id: &str, max_lines: usize) {
         let path = self.terminal_output_path(id);
         let data = match fs::read_to_string(&path) {
@@ -2115,11 +2106,6 @@ mod tests {
         assert_eq!(after_trim.len(), 50);
         assert_eq!(after_trim[0], "line 150");
         assert_eq!(after_trim[49], "line 199");
-
-        // Delete and verify
-        store.delete_terminal_output("test-session");
-        let after_delete = store.read_terminal_output("test-session", 100);
-        assert!(after_delete.is_empty());
     }
 
     #[test]

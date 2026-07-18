@@ -291,8 +291,6 @@ pub(crate) async fn resume_session(
                 kill_tx: kill_tx.clone(),
                 output_buffer: peon::RingBuffer::new(state.peon.config.max_lines),
                 scan_buf: String::new(),
-                command: command.clone(),
-                initial_prompt: None,
                 pending_work_signal: None,
                 runtime,
                 terminal_attached: false,
@@ -518,6 +516,7 @@ pub(crate) struct CreateSessionRequest {
 
 pub(crate) struct ResolvedSessionLaunch {
     pub(crate) session_harness_id: Option<String>,
+    #[allow(dead_code)]
     pub(crate) adapter_harness_id: Option<String>,
     pub(crate) active_work_hook: bool,
     pub(crate) model: Option<String>,
@@ -687,8 +686,6 @@ pub(crate) async fn create_session(
             kill_tx: kill_tx.clone(),
             output_buffer: peon::RingBuffer::new(state.peon.config.max_lines),
             scan_buf: String::new(),
-            command: command.clone(),
-            initial_prompt: initial_prompt.clone(),
             pending_work_signal,
             runtime,
             terminal_attached: false,
@@ -1208,8 +1205,6 @@ mod tests {
             kill_tx,
             output_buffer: peon::RingBuffer::new(200),
             scan_buf: String::new(),
-            command: default_shell_command(cwd.display().to_string()),
-            initial_prompt: None,
             pending_work_signal: None,
             runtime: crate::runtime::session_runtime::SessionRuntime::detached(
                 crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
@@ -1377,8 +1372,6 @@ mod tests {
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
                 scan_buf: String::new(),
-                command: default_shell_command(dir.path().display().to_string()),
-                initial_prompt: None,
                 pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
@@ -1501,8 +1494,6 @@ mod tests {
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
                 scan_buf: String::new(),
-                command: default_shell_command(dir.path().display().to_string()),
-                initial_prompt: None,
                 pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: true,
@@ -1610,8 +1601,6 @@ mod tests {
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
                 scan_buf: String::new(),
-                command: default_shell_command(dir.path().display().to_string()),
-                initial_prompt: None,
                 pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(
                     crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
@@ -2107,6 +2096,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn forget_session_deletes_terminal_output() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let session_id = "forget-terminal-output".to_string();
+        {
+            let ws = state.workspace.lock().unwrap();
+            let store = &ws.as_ref().unwrap().metadata;
+            store.write_session(&test_session_metadata(
+                session_id.clone(),
+                "Forget Terminal Output",
+                dir.path().display().to_string(),
+                "ended",
+                "2024-01-01T00:00:00Z",
+                "2024-01-01T00:00:00Z",
+            ));
+            store.append_terminal_output_lines(&session_id, &["hello".to_string()]);
+            assert_eq!(store.read_terminal_output(&session_id, 10), vec!["hello".to_string()]);
+        }
+
+        let response = forget_session(State(state.clone()), Path(session_id.clone()))
+            .await
+            .into_response();
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+
+        let ws = state.workspace.lock().unwrap();
+        let store = &ws.as_ref().unwrap().metadata;
+        assert!(
+            store.read_terminal_output(&session_id, 10).is_empty(),
+            "forgetting a session must delete its terminal output file, not just its metadata"
+        );
+    }
+
+    #[tokio::test]
     async fn forget_session_rejects_live_session_with_conflict() {
         let dir = tempfile::tempdir().unwrap();
         let state = test_app_state_with_workspace(dir.path());
@@ -2126,8 +2148,6 @@ mod tests {
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
                 scan_buf: String::new(),
-                command: default_shell_command(dir.path().display().to_string()),
-                initial_prompt: None,
                 pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
@@ -2153,7 +2173,6 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let orkworks = dir.path().join(".orkworks");
         let state = Arc::new(crate::AppState {
-            session_module: crate::infrastructure::session_module::SessionModule::new(),
             sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
             workspace: std::sync::Mutex::new(Some(WorkspaceState {
                 path: dir.path().to_path_buf(),
@@ -2195,8 +2214,6 @@ mod tests {
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
                 scan_buf: String::new(),
-                command: default_shell_command(dir.path().display().to_string()),
-                initial_prompt: None,
                 pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
@@ -2301,8 +2318,6 @@ mod tests {
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
                 scan_buf: String::new(),
-                command: default_shell_command(dir.path().display().to_string()),
-                initial_prompt: None,
                 pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
@@ -2410,8 +2425,6 @@ mod tests {
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
                 scan_buf: String::new(),
-                command: default_shell_command(dir.path().display().to_string()),
-                initial_prompt: None,
                 pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
@@ -2450,7 +2463,6 @@ mod tests {
     #[tokio::test]
     async fn list_sessions_uses_live_session_contract_fields_without_metadata() {
         let state = Arc::new(crate::AppState {
-            session_module: crate::infrastructure::session_module::SessionModule::new(),
             sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
             workspace: std::sync::Mutex::new(None),
             peon: crate::PeonState {
@@ -2489,8 +2501,6 @@ mod tests {
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
                 scan_buf: String::new(),
-                command: default_shell_command("/tmp/project".into()),
-                initial_prompt: None,
                 pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
@@ -2524,7 +2534,6 @@ mod tests {
     async fn list_sessions_keeps_pending_without_fresh_resume_output() {
         let dir = tempfile::tempdir().unwrap();
         let state = Arc::new(crate::AppState {
-            session_module: crate::infrastructure::session_module::SessionModule::new(),
             sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
             workspace: std::sync::Mutex::new(None),
             peon: crate::PeonState {
@@ -2562,8 +2571,6 @@ mod tests {
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
                 scan_buf: String::new(),
-                command: default_shell_command(dir.path().display().to_string()),
-                initial_prompt: None,
                 pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
@@ -2605,7 +2612,6 @@ mod tests {
             }],
         };
         let state = Arc::new(crate::AppState {
-            session_module: crate::infrastructure::session_module::SessionModule::new(),
             sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
             workspace: std::sync::Mutex::new(None),
             peon: crate::PeonState {
@@ -2647,8 +2653,6 @@ mod tests {
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
                 scan_buf: String::new(),
-                command: default_shell_command(dir.path().display().to_string()),
-                initial_prompt: None,
                 pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
@@ -2673,7 +2677,6 @@ mod tests {
     async fn list_sessions_requires_one_visible_fresh_output_cycle_before_clearing_pending() {
         let dir = tempfile::tempdir().unwrap();
         let state = Arc::new(crate::AppState {
-            session_module: crate::infrastructure::session_module::SessionModule::new(),
             sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
             workspace: std::sync::Mutex::new(None),
             peon: crate::PeonState {
@@ -2713,8 +2716,6 @@ mod tests {
                 kill_tx,
                 output_buffer,
                 scan_buf: String::new(),
-                command: default_shell_command(dir.path().display().to_string()),
-                initial_prompt: None,
                 pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
@@ -2818,8 +2819,6 @@ mod tests {
                 kill_tx,
                 output_buffer,
                 scan_buf: String::new(),
-                command: default_shell_command(dir.path().display().to_string()),
-                initial_prompt: None,
                 pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
@@ -2901,8 +2900,6 @@ mod tests {
                 kill_tx,
                 output_buffer,
                 scan_buf: String::new(),
-                command: default_shell_command(dir.path().display().to_string()),
-                initial_prompt: None,
                 pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
@@ -2984,8 +2981,6 @@ mod tests {
                 kill_tx,
                 output_buffer,
                 scan_buf: String::new(),
-                command: default_shell_command(dir.path().display().to_string()),
-                initial_prompt: None,
                 pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
@@ -3056,8 +3051,6 @@ mod tests {
                 kill_tx,
                 output_buffer,
                 scan_buf: String::new(),
-                command: default_shell_command(dir.path().display().to_string()),
-                initial_prompt: None,
                 pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
                 terminal_attached: false,
@@ -3087,7 +3080,6 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let orkworks = dir.path().join(".orkworks");
         let state = Arc::new(crate::AppState {
-            session_module: crate::infrastructure::session_module::SessionModule::new(),
             sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
             workspace: std::sync::Mutex::new(Some(WorkspaceState {
                 path: dir.path().to_path_buf(),

@@ -1,4 +1,4 @@
-use crate::{AppState, RetentionConfig};
+use crate::AppState;
 use axum::extract::State;
 use axum::response::IntoResponse;
 use serde::{Deserialize, Serialize};
