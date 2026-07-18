@@ -181,21 +181,22 @@ export function nextRelativeTimeRefreshMs(
   if (Number.isNaN(t)) return null;
 
   const nowMs = now.getTime();
-  const elapsed = Math.max(0, nowMs - t);
+  const elapsedSeconds = Math.max(0, Math.round((nowMs - t) / SECOND_MS));
 
-  if (elapsed < 9.5 * SECOND_MS) return delayUntil(t + 9.5 * SECOND_MS, nowMs);
-  if (elapsed < 59.5 * SECOND_MS) return delayUntil(t + 59.5 * SECOND_MS, nowMs);
+  let nextDisplaySecond: number;
+  if (elapsedSeconds < 10) {
+    nextDisplaySecond = 10;
+  } else if (elapsedSeconds < 60) {
+    nextDisplaySecond = 60;
+  } else if (elapsedSeconds < 3600) {
+    nextDisplaySecond = Math.min(Math.round(elapsedSeconds / 60) * 60 + 30, 3600);
+  } else if (elapsedSeconds < 86400) {
+    nextDisplaySecond = Math.min(Math.round(elapsedSeconds / 3600) * 3600 + 1800, 86400);
+  } else {
+    nextDisplaySecond = Math.round(elapsedSeconds / 86400) * 86400 + 43200;
+  }
 
-  if (elapsed < HOUR_MS) {
-    const minutes = Math.round(elapsed / MINUTE_MS);
-    return delayUntil(t + (minutes + 0.5) * MINUTE_MS, nowMs);
-  }
-  if (elapsed < DAY_MS) {
-    const hours = Math.round(elapsed / HOUR_MS);
-    return delayUntil(t + (hours + 0.5) * HOUR_MS, nowMs);
-  }
-  const days = Math.round(elapsed / DAY_MS);
-  return delayUntil(t + (days + 0.5) * DAY_MS, nowMs);
+  return delayUntil(t + (nextDisplaySecond - 0.5) * SECOND_MS, nowMs);
 }
 
 /** Distilled "what's going on" sentence for the Detail panel's situation hero. */
