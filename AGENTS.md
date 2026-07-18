@@ -291,4 +291,4 @@ This lists every worktree/branch in the repo (not just the one this session used
 
 Keep both files current as the project evolves. Update AGENTS.md and README.md whenever any of the following occur: a new runtime dependency is added or removed, a directory in the planned architecture changes, a new agent target is added to `apm.yml`, a convention or workflow listed in this file changes, or a new ADR is created. Treat stale docs as a bug — if you notice something out of date while working, fix it.
 
-Also keep `docs/agents/domain-entities.md` current whenever domain fields, domain events, repository ports, lifecycle behavior, or terminology boundaries change in `crates/orkworksd/src/domain/` or in closely related metadata/API mapping code.
+Also keep `docs/agents/domain-entities.md` current whenever `SessionMetadata` fields, status/lifecycle vocabulary, or terminology boundaries change in `crates/orkworksd/src/metadata.rs` or in closely related session/API mapping code.
