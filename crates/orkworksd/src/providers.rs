@@ -337,6 +337,10 @@ pub struct ProviderObservation {
 
 pub struct AttemptRecord {
     #[allow(dead_code)]
+    pub provider_id: String,
+    #[allow(dead_code)]
+    pub step: usize,
+    #[allow(dead_code)]
     pub outcome: AttemptOutcome,
 }
 
@@ -898,6 +902,8 @@ impl ProviderManager {
 
             if !entry.enabled {
                 attempts.push(AttemptRecord {
+                    provider_id: entry.id.clone(),
+                    step,
                     outcome: AttemptOutcome::SkippedDisabled,
                 });
                 continue;
@@ -905,6 +911,8 @@ impl ProviderManager {
 
             if entry.effective_state() == ProviderEffectiveState::Capped {
                 attempts.push(AttemptRecord {
+                    provider_id: entry.id.clone(),
+                    step,
                     outcome: AttemptOutcome::SkippedCapped,
                 });
                 continue;
@@ -915,6 +923,8 @@ impl ProviderManager {
                 None => {
                     tracing::warn!(provider = %entry.id, "peon: no registry entry for provider");
                     attempts.push(AttemptRecord {
+                        provider_id: entry.id.clone(),
+                        step,
                         outcome: AttemptOutcome::Failed,
                     });
                     continue;
@@ -937,6 +947,8 @@ impl ProviderManager {
                 if let Some(inference) = peon::parse_inference(&result.stdout) {
                     let rt_entry = ProviderRuntimeEntry { fallback_step: Some(step), ..Default::default() };
                     attempts.push(AttemptRecord {
+                        provider_id: entry.id.clone(),
+                        step,
                         outcome: AttemptOutcome::Succeeded,
                     });
                     runtime.insert(entry.id.clone(), rt_entry);
@@ -977,6 +989,8 @@ impl ProviderManager {
             };
 
             attempts.push(AttemptRecord {
+                provider_id: entry.id.clone(),
+                step,
                 outcome: AttemptOutcome::Failed,
             });
             runtime.insert(entry.id.clone(), rt_entry);
