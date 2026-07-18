@@ -42,6 +42,24 @@ event may promote the session to `working` only when it contains a visible
 character that remains after stripping ANSI control sequences and consuming
 the submitted-line echo.
 
+A **single printable keystroke** received while the session is in `needs_you`
+set by an agent hook report also arms the fallback window, using the
+in-progress input-line buffer as the echo prefix and re-arming on each
+subsequent printable keystroke. This variant exists because Claude Code's
+prompts are predominantly single-keystroke (yes/no, choice lists, Esc-to-cancel)
+and never produce an Enter-terminated line; without it, the session sticks on
+`needs_you` indefinitely after such an answer. The single-key path is gated
+on `metadata_source == "agent"` so that Peon-detected `needs_you` on shell-mode
+sessions (where the terminal echoes each keystroke) is unaffected — only
+hook-sourced `needs_you` arms on a single key. See
+`docs/superpowers/specs/2026-07-17-single-key-work-signal-design.md` for the
+full design, gates, and edge cases.
+
+Note: the Claude Code attention hook falls under this fallback path. Its hook
+is **not** active-work-capable — it only POSTs `waiting_for_input`, never
+`working`/`thinking`. Future readers should not reach for the capable-hook
+path (above) when reasoning about Claude Code.
+
 The fallback tracks the submitted line's printable characters as an echo
 prefix across output chunks. It consumes matching characters, including a
 single leading carriage return or newline. ANSI-only output, empty output, and
