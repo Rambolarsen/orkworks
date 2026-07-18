@@ -1,5 +1,22 @@
 import type { MemoryState, ResumeOption, ResumeStrategy, SessionInfo } from "./api";
 
+const SECOND_MS = 1000;
+const MINUTE_MS = 60 * SECOND_MS;
+const HOUR_MS = 60 * MINUTE_MS;
+export const DAY_MS = 24 * HOUR_MS;
+
+/** Clamp a scheduled wake-up to always be in the future (min 1ms). Shared by both refresh schedulers. */
+export function delayUntil(targetMs: number, nowMs: number): number {
+  return Math.max(1, targetMs - nowMs);
+}
+
+/** Smaller of two nullable scheduled delays, treating null as "no constraint". Shared by both refresh schedulers. */
+export function minDelay(current: number | null, candidate: number | null): number | null {
+  if (candidate === null) return current;
+  if (current === null) return candidate;
+  return Math.min(current, candidate);
+}
+
 /** Canonical vocabulary. One word per concept. */
 export const VOCAB = {
   workspace: "Workspace",
@@ -152,6 +169,34 @@ export function relativeTime(iso: string | undefined, now: Date = new Date()): s
   if (diffSec < 3600)  return `${Math.round(diffSec / 60)}m ago`;
   if (diffSec < 86400) return `${Math.round(diffSec / 3600)}h ago`;
   return `${Math.round(diffSec / 86400)}d ago`;
+}
+
+/** Next moment relativeTime()'s output for this timestamp can change, matching its bucket edges. */
+export function nextRelativeTimeRefreshMs(
+  iso: string | undefined,
+  now: Date = new Date(),
+): number | null {
+  if (!iso) return null;
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return null;
+
+  const nowMs = now.getTime();
+  const elapsedSeconds = Math.max(0, Math.round((nowMs - t) / SECOND_MS));
+
+  let nextDisplaySecond: number;
+  if (elapsedSeconds < 10) {
+    nextDisplaySecond = 10;
+  } else if (elapsedSeconds < 60) {
+    nextDisplaySecond = 60;
+  } else if (elapsedSeconds < 3600) {
+    nextDisplaySecond = Math.min(Math.round(elapsedSeconds / 60) * 60 + 30, 3600);
+  } else if (elapsedSeconds < 86400) {
+    nextDisplaySecond = Math.min(Math.round(elapsedSeconds / 3600) * 3600 + 1800, 86400);
+  } else {
+    nextDisplaySecond = Math.round(elapsedSeconds / 86400) * 86400 + 43200;
+  }
+
+  return delayUntil(t + (nextDisplaySecond - 0.5) * SECOND_MS, nowMs);
 }
 
 /** Distilled "what's going on" sentence for the Detail panel's situation hero. */
