@@ -46,7 +46,7 @@ A **single printable keystroke** received while the session is in `needs_you`
 set by an agent hook report also arms the fallback window, using the
 in-progress input-line buffer as the echo prefix and re-arming on each
 subsequent printable keystroke. This variant exists because Claude Code's
-prompts are predominantly single-keystroke (yes/no and choice lists)
+prompts are predominantly single-keystroke (yes/no, choice lists, Esc-to-cancel)
 and never produce an Enter-terminated line; without it, the session sticks on
 `needs_you` indefinitely after such an answer. The single-key path is gated
 on `metadata_source == "agent"` so that Peon-detected `needs_you` on shell-mode
