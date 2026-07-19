@@ -9,7 +9,7 @@ test("dev server uses the desktop Vite config and root", () => {
   const options = createViteServerOptions(root);
 
   assert.equal(options.root, root);
-  assert.equal(options.configFile, path.join(root, "vite.config.ts"));
+  assert.equal(options.configFile, path.resolve(root, "vite.config.ts"));
   assert.equal(options.server.port, 5173);
   assert.equal(options.server.strictPort, true);
 });
