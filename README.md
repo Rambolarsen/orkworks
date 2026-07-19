@@ -45,7 +45,7 @@ All metadata lives under `~/.orkworks/` (see [ADR 0018](docs/adr/0018-global-met
 - `~/.orkworks/workspaces/<hash>/workspace.json` — workspace memory, including the last active session
 - `~/.orkworks/harnesses.json` — global harness definitions
 - `~/.orkworks/hook-scripts/` — stable copies of harness reporter scripts, so installed hooks survive app updates and packaging path changes
-- Priority: user > agent > peon > backend_inference > process > unknown (see [ADR 0005](docs/adr/0005-metadata-source-priority.md))
+- Priority: user > agent > peon > backend_inference > process > unknown > debug (see [ADR 0005](docs/adr/0005-metadata-source-priority.md))
 - Current session records expose the canonical `creating → alive → stopping → dead` lifecycle. Only alive sessions have attention: `working`, `idle`, `needs_you`, `blocked`, `failed`, or `capped`.
 - Peon reads terminal output, writes inferred metadata, never types into terminals
 - Harnesses can write deterministic attention signals at `agent` priority via `POST /sessions/:id/attention`; installation is explicit and user-confirmed only ([ADR 0019](docs/adr/0019-attention-signal-endpoint-opt-in-hook-install.md))

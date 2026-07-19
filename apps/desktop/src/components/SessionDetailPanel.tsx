@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { GitBranch } from "lucide-react";
-import type { SessionInfo } from "../api";
+import type { SessionAttention, SessionInfo } from "../api";
 import { sessionProviderContext } from "../sessionProviderContext";
 import { sessionAttentionStatus } from "../sessionSort";
 import {
@@ -26,15 +26,19 @@ import SourceBadge from "./SourceBadge";
 import StatusIndicator from "./StatusIndicator";
 import ResumeChooser from "./ResumeChooser";
 
+const DEBUG_ATTENTION_OPTIONS: SessionAttention[] = ["working", "idle", "needs_you", "blocked", "failed", "capped"];
+
 interface SessionDetailPanelProps {
   sessions: SessionInfo[];
   activeSessionId: string | null;
   onResumeSession: (id: string) => void;
+  onApplyDebugAttention: (id: string, attention: SessionAttention, message?: string) => void;
   showDebugMetadata: boolean;
 }
 
-function SessionDetailPanel({ sessions, activeSessionId, onResumeSession, showDebugMetadata }: SessionDetailPanelProps) {
+function SessionDetailPanel({ sessions, activeSessionId, onResumeSession, onApplyDebugAttention, showDebugMetadata }: SessionDetailPanelProps) {
   const [now, setNow] = useState(() => new Date());
+  const [debugAttention, setDebugAttention] = useState<SessionAttention>("working");
   const active = sessions.find((s) => s.id === activeSessionId);
 
   useEffect(() => {
@@ -184,6 +188,28 @@ function SessionDetailPanel({ sessions, activeSessionId, onResumeSession, showDe
               <DetailField className="detail-fact" label="Harness session ID">
                 {active.resume?.harnessSessionId ?? "Not captured"}
               </DetailField>
+              {active.lifecycle === "alive" && (
+                <DetailField className="detail-fact" label="Debug attention injection">
+                  <div className="debug-injection">
+                    <select
+                      className="debug-injection-select"
+                      value={debugAttention}
+                      onChange={(e) => setDebugAttention(e.target.value as SessionAttention)}
+                    >
+                      {DEBUG_ATTENTION_OPTIONS.map((value) => (
+                        <option key={value} value={value}>{attentionLabel(value)}</option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      className="debug-injection-apply"
+                      onClick={() => onApplyDebugAttention(active.id, debugAttention)}
+                    >
+                      Inject
+                    </button>
+                  </div>
+                </DetailField>
+              )}
             </>
           )}
         </div>

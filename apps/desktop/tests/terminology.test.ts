@@ -35,6 +35,25 @@ test("SessionDetailPanel distinguishes coding tool from model provider", () => {
   assert.match(text, /session-detail-value-sub/);
 });
 
+test("SessionDetailPanel gates the debug attention injection control behind showDebugMetadata", () => {
+  const text = source("../src/components/SessionDetailPanel.tsx");
+  assert.match(text, /onApplyDebugAttention/);
+  assert.match(text, /debug-injection/);
+  const debugBlockStart = text.indexOf("showDebugMetadata && (");
+  const injectionControlIndex = text.indexOf("debug-injection");
+  assert.notEqual(debugBlockStart, -1);
+  assert.ok(
+    injectionControlIndex > debugBlockStart,
+    "the injection control must live inside the showDebugMetadata-gated block",
+  );
+});
+
+test("api.ts defines applyDebugAttention against the debug-injection endpoint", () => {
+  const text = source("../src/api.ts");
+  assert.match(text, /export async function applyDebugAttention/);
+  assert.match(text, /\/sessions\/\$\{id\}\/debug-injection/);
+});
+
 test("Settings provider copy refers to model providers", () => {
   const modal = source("../src/components/SettingsModal.tsx");
   const section = source("../src/components/ProviderSettingsSection.tsx");
