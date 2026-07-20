@@ -39,6 +39,7 @@ interface SessionDetailPanelProps {
 function SessionDetailPanel({ sessions, activeSessionId, onResumeSession, onApplyDebugAttention, showDebugMetadata }: SessionDetailPanelProps) {
   const [now, setNow] = useState(() => new Date());
   const [debugAttention, setDebugAttention] = useState<SessionAttention>("working");
+  const [debugMessage, setDebugMessage] = useState("");
   const active = sessions.find((s) => s.id === activeSessionId);
 
   useEffect(() => {
@@ -200,10 +201,19 @@ function SessionDetailPanel({ sessions, activeSessionId, onResumeSession, onAppl
                         <option key={value} value={value}>{attentionLabel(value)}</option>
                       ))}
                     </select>
+                    {debugAttention === "capped" && (
+                      <input
+                        type="text"
+                        className="debug-injection-message"
+                        placeholder="Reset hint (optional)"
+                        value={debugMessage}
+                        onChange={(e) => setDebugMessage(e.target.value)}
+                      />
+                    )}
                     <button
                       type="button"
                       className="debug-injection-apply"
-                      onClick={() => onApplyDebugAttention(active.id, debugAttention)}
+                      onClick={() => onApplyDebugAttention(active.id, debugAttention, debugMessage.trim() || undefined)}
                     >
                       Inject
                     </button>

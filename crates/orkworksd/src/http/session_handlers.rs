@@ -571,7 +571,7 @@ pub(crate) async fn apply_debug_attention(
                 }
                 handle.info.metadata_source = Some("debug".into());
                 handle.info.metadata_confidence = Some(0.0);
-                if is_capped {
+                if is_capped && req.message.is_some() {
                     handle.info.usage_limit_reset_hint = req.message.clone();
                 }
             }
@@ -1966,6 +1966,44 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn apply_debug_attention_cannot_clobber_live_agent_signal() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        {
+            let ws = state.workspace.lock().unwrap();
+            let mut meta = test_session_metadata(
+                "debug-vs-agent",
+                "Alive",
+                dir.path().display().to_string(),
+                "running",
+                "now",
+                "now",
+            );
+            meta.lifecycle = "alive".into();
+            meta.lifecycle_phase = "active".into();
+            meta.metadata_source = "agent".into();
+            meta.observed_status = Some("working".into());
+            ws.as_ref().unwrap().metadata.write_session(&meta);
+        }
+
+        let response = apply_debug_attention(
+            State(state.clone()),
+            Path("debug-vs-agent".into()),
+            Json(DebugAttentionRequest { attention: "capped".into(), message: None }),
+        )
+        .await
+        .into_response();
+
+        // Ignored (not rejected) mirrors report_attention's own handling of an
+        // unwritable target: the request is well-formed, it just didn't land.
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let ws = state.workspace.lock().unwrap();
+        let updated = ws.as_ref().unwrap().metadata.read_session("debug-vs-agent").unwrap();
+        assert_eq!(updated.observed_status.as_deref(), Some("working"), "a live agent signal must survive a debug injection");
+        assert_eq!(updated.metadata_source, "agent");
+    }
+
+    #[tokio::test]
     async fn apply_debug_attention_maps_needs_you_to_waiting_for_input_observed_status() {
         let dir = tempfile::tempdir().unwrap();
         let state = test_app_state_with_workspace(dir.path());
@@ -2095,6 +2133,63 @@ mod tests {
         assert_eq!(
             sessions[&created_id].info.usage_limit_reset_hint.as_deref(),
             Some("resets in 2h"),
+        );
+        drop(sessions);
+
+        assert_eq!(
+            delete_session(State(state), Path(created_id)).await.into_response().status(),
+            axum::http::StatusCode::OK
+        );
+    }
+
+    #[tokio::test]
+    async fn apply_debug_attention_capped_without_message_does_not_clear_existing_hint() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        {
+            let mut harnesses = state.harnesses.write().await;
+            *harnesses = crate::harness_registry::builtin_harness_configs();
+        }
+
+        let response = create_session(
+            State(state.clone()),
+            Json(CreateSessionRequest {
+                harness_id: Some("generic-shell".into()),
+                model: None,
+                initial_prompt: None,
+            }),
+        )
+        .await
+        .into_response();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let created_id = serde_json::from_slice::<serde_json::Value>(&bytes)
+            .unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+
+        // A real capacity hint is already present, as if genuine harness capacity
+        // detection had set it before the debug picker was ever touched.
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            sessions.get_mut(&created_id).unwrap().info.usage_limit_reset_hint =
+                Some("resets in 45m".into());
+        }
+
+        let response = apply_debug_attention(
+            State(state.clone()),
+            Path(created_id.clone()),
+            Json(DebugAttentionRequest { attention: "capped".into(), message: None }),
+        )
+        .await
+        .into_response();
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+
+        let sessions = state.sessions.lock().unwrap();
+        assert_eq!(
+            sessions[&created_id].info.usage_limit_reset_hint.as_deref(),
+            Some("resets in 45m"),
+            "a message-less capped injection must not wipe an existing real hint",
         );
         drop(sessions);
 

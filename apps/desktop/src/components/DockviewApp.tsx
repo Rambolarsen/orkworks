@@ -159,9 +159,8 @@ function layoutNeedsMigration(json: Record<string, unknown>): boolean {
 }
 
 function DockviewApp(props: DockviewAppData) {
-  const { backendStatus, workspace, debugSettings, sessions, activeSessionId, unreadIds, harnesses, resumeTick, onSelectSession, onCreateSession, onKillSession, onForgetSession, onResumeSession, onApplyDebugAttention, onFocusTerminal, onOpenWorkspace, dockviewApiRef } = props;
-
-  const ctxValue: DockviewAppData = { backendStatus, workspace, debugSettings, sessions, activeSessionId, unreadIds, harnesses, resumeTick, onSelectSession, onCreateSession, onKillSession, onForgetSession, onResumeSession, onApplyDebugAttention, onFocusTerminal, onOpenWorkspace, dockviewApiRef };
+  const { dockviewApiRef } = props;
+  const ctxValue = props;
 
   const initializedRef = useRef(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);

@@ -984,12 +984,15 @@ impl MetadataStore {
     }
 
     /// Writes a deterministic attention signal (e.g. from a Claude Code `Notification`
-    /// hook, or a debug injection). Priority-gated: it cannot clobber fresh `user`
-    /// metadata, but always outranks peon/backend_inference/process/unknown/debug. A
-    /// prior write from the same source never blocks a new one — consecutive reports
-    /// are turn boundaries from the same authoritative source and must apply
-    /// immediately (e.g. `working` -> `waiting_for_input` as soon as the model
-    /// finishes), not gated behind a staleness window.
+    /// hook, or a debug injection). Priority-gated: it cannot clobber `user` metadata,
+    /// and a `debug`-sourced write additionally cannot clobber `agent` metadata (the
+    /// other hook-verified, high-confidence tier) — debug injection is meant for
+    /// exercising convergence on otherwise-quiet sessions, not for overwriting a live
+    /// coding agent's real signal. Every other source pair overwrites unconditionally,
+    /// including a prior write from the same source, since consecutive reports from an
+    /// authoritative source are turn boundaries that must apply immediately (e.g.
+    /// `working` -> `waiting_for_input` as soon as the model finishes), not gated
+    /// behind a staleness window.
     pub fn merge_agent_attention_signal(
         &self,
         id: &str,
@@ -1005,6 +1008,9 @@ impl MetadataStore {
         };
 
         if meta.metadata_source == "user" {
+            return AttentionMergeResult::Ignored;
+        }
+        if source == "debug" && meta.metadata_source == "agent" {
             return AttentionMergeResult::Ignored;
         }
 
@@ -1914,6 +1920,52 @@ mod tests {
         let updated = store.read_session("attention-user-test").unwrap();
         assert_eq!(updated.observed_status.as_deref(), Some("working"));
         assert_eq!(updated.metadata_source, "user");
+    }
+
+    #[test]
+    fn debug_source_cannot_clobber_agent_metadata() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let mut meta = test_metadata("attention-debug-vs-agent-test");
+        meta.metadata_source = "agent".into();
+        meta.observed_status = Some("working".into());
+        store.write_session(&meta);
+
+        let result = store.merge_agent_attention_signal(
+            "attention-debug-vs-agent-test",
+            "blocked",
+            None,
+            "2026-06-26T12:00:00Z",
+            "debug",
+            0.0,
+        );
+
+        assert_eq!(result, AttentionMergeResult::Ignored);
+        let updated = store.read_session("attention-debug-vs-agent-test").unwrap();
+        assert_eq!(updated.observed_status.as_deref(), Some("working"));
+        assert_eq!(updated.metadata_source, "agent");
+    }
+
+    #[test]
+    fn debug_source_can_overwrite_lower_priority_sources() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let mut meta = test_metadata("attention-debug-vs-peon-test");
+        meta.metadata_source = "peon".into();
+        store.write_session(&meta);
+
+        let result = store.merge_agent_attention_signal(
+            "attention-debug-vs-peon-test",
+            "blocked",
+            None,
+            "2026-06-26T12:00:00Z",
+            "debug",
+            0.0,
+        );
+
+        assert_eq!(result, AttentionMergeResult::Accepted);
+        let updated = store.read_session("attention-debug-vs-peon-test").unwrap();
+        assert_eq!(updated.metadata_source, "debug");
     }
 
     #[test]

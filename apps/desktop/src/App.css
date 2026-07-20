@@ -1197,11 +1197,12 @@ html, body, #root {
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  flex-wrap: wrap;
 }
 
-.debug-injection-select {
-  flex: 1;
-  min-width: 0;
+.debug-injection-select,
+.debug-injection-message,
+.debug-injection-apply {
   font-size: var(--text-sm);
   color: var(--text-primary);
   background: var(--surface-active);
@@ -1210,12 +1211,13 @@ html, body, #root {
   padding: 2px var(--space-2);
 }
 
+.debug-injection-select,
+.debug-injection-message {
+  flex: 1;
+  min-width: 0;
+}
+
 .debug-injection-apply {
-  font-size: var(--text-sm);
-  color: var(--text-primary);
-  background: var(--surface-active);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
   padding: 2px var(--space-3);
   cursor: pointer;
 }
