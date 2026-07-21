@@ -171,18 +171,31 @@ fn terminal_input_data(action: &TerminalAction) -> Option<String> {
     }
 }
 
+/// Whether the terminal currently looks like it's mid password-prompt. Must
+/// be captured before an input is dispatched to the PTY, not after delivery
+/// completes — by the time an async send resolves, the child may already
+/// have echoed enough new output to scroll the prompt out of the detection
+/// window, which would misclassify a submitted secret as safe to persist.
+fn snapshot_input_sensitivity(state: &Arc<AppState>, id: &str) -> bool {
+    let sessions = state.sessions.lock().unwrap();
+    sessions
+        .get(id)
+        .map(|h| peon::looks_like_password_prompt(&h.output_buffer.last_n(5)))
+        .unwrap_or(false)
+}
+
 /// The PTY control channel is the delivery authority. Only advance metadata
 /// after its command future succeeds; a closed channel means the user input
 /// was rejected and must leave any prompt state intact.
 fn record_input_after_delivery(
     state: &Arc<AppState>,
     id: &str,
-    input: Option<&str>,
+    pending: Option<&(String, bool)>,
     result: &Result<(), ()>,
 ) {
     if result.is_ok() {
-        if let Some(input) = input {
-            record_peon_input_side_effects(state, id, input);
+        if let Some((input, is_sensitive)) = pending {
+            record_peon_input_side_effects(state, id, input, *is_sensitive);
         }
     }
 }
@@ -257,15 +270,28 @@ fn mark_usage_limit_recheck_on_input(state: &Arc<AppState>, id: &str) {
 /// Records accepted terminal input for usage-limit rechecks, labels, and pending work signals.
 /// Call only once delivery is actually accepted — never for input dropped by
 /// `PendingActionQueue`.
-fn record_peon_input_side_effects(state: &Arc<AppState>, id: &str, data: &str) {
-    let _ = record_terminal_input(state, id, data);
+fn record_peon_input_side_effects(state: &Arc<AppState>, id: &str, data: &str, is_sensitive: bool) {
+    let _ = record_terminal_input_impl(state, id, data, Some(is_sensitive));
 }
 
-/// Applies accepted terminal input-side bookkeeping without scheduling a Peon scan.
+/// Test-only convenience wrapper that live-checks sensitivity against the
+/// current output buffer, bypassing the snapshot-before-dispatch that
+/// production callers must use (see `record_peon_input_side_effects`) since
+/// the buffer can move on during the real async PTY round-trip.
+#[cfg(test)]
 pub(crate) fn record_terminal_input(
     state: &Arc<AppState>,
     id: &str,
     data: &str,
+) -> Option<()> {
+    record_terminal_input_impl(state, id, data, None)
+}
+
+fn record_terminal_input_impl(
+    state: &Arc<AppState>,
+    id: &str,
+    data: &str,
+    sensitivity_override: Option<bool>,
 ) -> Option<()> {
     if !data.is_empty() {
         mark_usage_limit_recheck_on_input(state, id);
@@ -281,13 +307,7 @@ pub(crate) fn record_terminal_input(
     let line = collected_line?;
     // Labels are display-bounded; echo-gating below uses the full `line`.
     let label_line: String = line.chars().take(100).collect();
-    let is_sensitive = {
-        let sessions = state.sessions.lock().unwrap();
-        sessions
-            .get(id)
-            .map(|h| peon::looks_like_password_prompt(&h.output_buffer.last_n(5)))
-            .unwrap_or(false)
-    };
+    let is_sensitive = sensitivity_override.unwrap_or_else(|| snapshot_input_sensitivity(state, id));
     let label_worthy = !is_sensitive && peon::is_descriptive_input(&label_line);
 
     if !is_sensitive {
@@ -711,7 +731,7 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
     let generation = attachment.generation;
     let mut events = attachment.events;
     let mut pending_command: Option<PendingCommandFuture> = None;
-    let mut pending_input: Option<String> = None;
+    let mut pending_input: Option<(String, bool)> = None;
     let mut queue = PendingActionQueue::default();
 
     loop {
@@ -725,12 +745,20 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
                 if result.is_err() {
                     break;
                 }
-                record_input_after_delivery(&state, &id, pending_input.as_deref(), &result);
+                record_input_after_delivery(&state, &id, pending_input.as_ref(), &result);
                 pending_input = None;
                 pending_command = None;
                 let next_action = queue.take_next();
                 if let Some(action) = next_action {
-                    pending_input = terminal_input_data(&action);
+                    // Sensitivity is captured here, right before dispatch —
+                    // not later when the delivery result comes back — so a
+                    // password prompt scrolling out of view during the PTY
+                    // round-trip can't misclassify a submitted secret.
+                    pending_input = terminal_input_data(&action)
+                        .map(|data| {
+                            let is_sensitive = snapshot_input_sensitivity(&state, &id);
+                            (data, is_sensitive)
+                        });
                     pending_command = spawn_command_future(state.clone(), id.clone(), action);
                 }
             }
@@ -790,7 +818,13 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
                                 )).await;
                             }
                         } else {
-                            pending_input = terminal_input_data(&action);
+                            // Sensitivity captured before dispatch — see the
+                            // comment at the queued-dispatch site above.
+                            pending_input = terminal_input_data(&action)
+                                .map(|data| {
+                                    let is_sensitive = snapshot_input_sensitivity(&state, &id);
+                                    (data, is_sensitive)
+                                });
                             pending_command = spawn_command_future(state.clone(), id.clone(), action);
                         }
                     }
@@ -985,12 +1019,58 @@ mod tests {
         let session_id = "rejected-input";
         let (state, _dir) = prompted_session_state(session_id);
 
-        record_input_after_delivery(&state, session_id, Some("y"), &Err(()));
+        record_input_after_delivery(&state, session_id, Some(&("y".to_string(), false)), &Err(()));
 
         let info = state.sessions.lock().unwrap()[session_id].info.clone();
         assert_eq!(info.attention.as_deref(), Some("needs_you"));
         assert_eq!(info.observed_status.as_deref(), Some("waiting_for_input"));
         assert_eq!(info.metadata_source.as_deref(), Some("agent"));
+    }
+
+    #[test]
+    fn sensitivity_snapshot_survives_a_moved_on_output_buffer() {
+        // Regression for the race this snapshot-before-dispatch design fixes:
+        // if a captured pre-dispatch `is_sensitive=true` decision were
+        // ignored in favor of re-checking the *current* buffer, a password
+        // that already scrolled out of the detection window would be
+        // misclassified as safe and persisted in plaintext.
+        let session_id = "password-race";
+        let (state, _dir) = prompted_session_state(session_id);
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut(session_id).unwrap();
+            // The live buffer no longer shows the password prompt — it has
+            // already scrolled past by the time this bookkeeping runs.
+            handle.output_buffer.push("Login successful".to_string());
+            handle.output_buffer.push("$ ".to_string());
+        }
+
+        record_peon_input_side_effects(&state, session_id, "hunter2\r", true);
+
+        let ws = state.workspace.lock().unwrap();
+        let meta = ws.as_ref().unwrap().metadata.read_session(session_id).unwrap();
+        assert_ne!(
+            meta.last_user_input.as_deref(),
+            Some("hunter2"),
+            "a pre-dispatch sensitive decision must not be overridden by a moved-on live buffer"
+        );
+        assert_ne!(meta.label, "hunter2");
+        drop(ws);
+
+        let info = state.sessions.lock().unwrap()[session_id].info.clone();
+        assert_ne!(info.label, "hunter2");
+    }
+
+    #[test]
+    fn non_sensitive_snapshot_still_records_label_and_hint() {
+        let session_id = "non-sensitive-input";
+        let (state, _dir) = prompted_session_state(session_id);
+
+        record_peon_input_side_effects(&state, session_id, "add retry logic\r", false);
+
+        let ws = state.workspace.lock().unwrap();
+        let meta = ws.as_ref().unwrap().metadata.read_session(session_id).unwrap();
+        assert_eq!(meta.last_user_input.as_deref(), Some("add retry logic"));
     }
 
     #[test]
