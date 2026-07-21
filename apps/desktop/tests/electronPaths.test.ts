@@ -5,14 +5,10 @@ import path from "node:path";
 import { getDevRepoRoot, getPackagedSidecarPath } from "../electron/paths.ts";
 
 test("resolves the repo root from the compiled Electron directory", () => {
-  const compiledElectronDir = path.join(
-    "/Users/example/workspace/orkworks",
-    "apps",
-    "desktop",
-    "dist-electron",
-  );
+  const root = path.join("/Users/example/workspace/orkworks");
+  const compiledElectronDir = path.join(root, "apps", "desktop", "dist-electron");
 
-  assert.equal(getDevRepoRoot(compiledElectronDir), "/Users/example/workspace/orkworks");
+  assert.equal(getDevRepoRoot(compiledElectronDir), path.resolve(root));
 });
 
 test("uses the .exe suffix for packaged Windows sidecars", () => {
