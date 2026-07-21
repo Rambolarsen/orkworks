@@ -127,24 +127,20 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                 let ws_guard = state_clone.workspace.lock().unwrap();
                 let active_work_hook = {
                     let sessions = state_clone.sessions.lock().unwrap();
-                    let Some(handle) = sessions.get(&id) else {
-                        state_clone.peon.in_flight.write().unwrap().remove(&id);
-                        return;
-                    };
-                    let Some((generation, min_revision)) = output_boundary else {
-                        state_clone.peon.in_flight.write().unwrap().remove(&id);
-                        return;
-                    };
-                    if !output_inference_is_current(
-                        generation,
-                        min_revision,
-                        handle.runtime.input_generation,
-                        handle.runtime.min_peon_output_revision,
-                    ) {
-                        state_clone.peon.in_flight.write().unwrap().remove(&id);
-                        return;
-                    }
-                    handle.active_work_hook
+                    sessions.get(&id).and_then(|handle| {
+                        let (generation, min_revision) = output_boundary?;
+                        output_inference_is_current(
+                            generation,
+                            min_revision,
+                            handle.runtime.input_generation,
+                            handle.runtime.min_peon_output_revision,
+                        )
+                        .then_some(handle.active_work_hook)
+                    })
+                };
+                let Some(active_work_hook) = active_work_hook else {
+                    state_clone.peon.in_flight.write().unwrap().remove(&id);
+                    return;
                 };
                 let inference = provider_result.inference;
                 let now_iso = iso_now();
