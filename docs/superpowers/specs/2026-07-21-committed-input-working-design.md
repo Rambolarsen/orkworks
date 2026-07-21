@@ -24,16 +24,25 @@ and ordinary shell input.
 The accepted-input bookkeeping path is the single transition point. When it
 receives non-empty committed input for a live session, it immediately:
 
-1. Sets the in-memory observed status and attention to `working`.
-2. Writes the same `working` state to session metadata with source `process`
-   and confidence `1.0`.
-3. Leaves later harness attention reports free to set a new `Needs you` state
-   when another prompt actually requires the user.
+1. Sets the in-memory observed status and attention to `working`, with source
+   `process` and confidence `1.0`.
+2. Clears the in-memory `needsUserInput` flag and prompt-specific fields
+   (`detectedQuestion` and `suggestedOptions`) left by the answered prompt.
+3. Writes those same status, source, confidence, and cleared prompt fields to
+   session metadata.
+4. Leaves only a later harness attention report for a new prompt free to set
+   `Needs you` again.
+
+This is an explicit exception to the normal metadata-source priority order:
+accepted terminal input is direct evidence of the session's current state, so
+it overwrites any prior source, including `user`.
 
 The old pending-output fallback is removed from this transition: later output
 is not evidence required to clear a prompt that the user has already answered.
-Its echo and expiry bookkeeping must not be able to leave or restore a stale
-`Needs you` state.
+Any pending echo/expiry work signal created for the committed input must be
+cleared or left unused; it must not be able to delay, leave, or restore a stale
+`Needs you` state. This does not remove independent output-based lifecycle
+inference.
 
 The transition only applies to live sessions, because only those can accept
 terminal input. A successfully committed input takes precedence over a prior
@@ -51,10 +60,10 @@ continues to report the failure rather than claiming durable state.
 ## Tests
 
 - A committed single-key answer changes hook-sourced `Needs you` to `working`
-  immediately, without PTY output.
-- A newline-terminated answer does the same.
+  immediately, without PTY output, and clears the persisted prompt fields.
+- A committed newline-terminated answer does the same.
 - Ordinary committed input applies the same state regardless of harness
-  activity-hook capability.
+  activity-hook capability or the previous metadata source.
 - Rejected or empty input does not change the attention state.
 - A subsequent harness `waiting_for_input` report can set `Needs you` again.
 
