@@ -482,12 +482,7 @@ pub(crate) async fn report_attention(
             if let Some(handle) = state.sessions.lock().unwrap().get_mut(&id) {
                 handle.info.observed_status = Some(status.clone());
                 if handle.info.lifecycle == "alive" {
-                    handle.info.attention = match status.as_str() {
-                        "waiting_for_input" => Some("needs_you".into()),
-                        "stale" | "done" => Some("idle".into()),
-                        "working" | "idle" | "blocked" | "failed" => Some(status.clone()),
-                        _ => None,
-                    };
+                    handle.info.attention = metadata::canonical_attention(Some(status.as_str()));
                 }
                 handle.info.metadata_source = Some("agent".into());
                 handle.info.metadata_confidence = Some(1.0);

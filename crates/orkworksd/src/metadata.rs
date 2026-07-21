@@ -268,7 +268,7 @@ fn normalize_work_phase(raw: &str) -> String {
     }
 }
 
-fn canonical_attention(raw: Option<&str>) -> Option<String> {
+pub(crate) fn canonical_attention(raw: Option<&str>) -> Option<String> {
     match raw {
         Some("waiting_for_input") => Some("needs_you".into()),
         Some("stale" | "done") => Some("idle".into()),
