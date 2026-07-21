@@ -933,6 +933,36 @@ pub(crate) async fn create_session(
     Json(info).into_response()
 }
 
+fn enrich_sessions_with_git_context<F>(infos: &mut [SessionInfo], mut detect_git: F)
+where
+    F: FnMut(&std::path::Path) -> git::GitContext,
+{
+    let mut cwd_counts: HashMap<String, usize> = HashMap::new();
+    for info in infos.iter() {
+        if info.status == "running" || info.status == "creating" {
+            *cwd_counts.entry(info.cwd.clone()).or_default() += 1;
+        }
+    }
+
+    let mut contexts: HashMap<String, git::GitContext> = HashMap::new();
+    for info in infos {
+        if !contexts.contains_key(&info.cwd) {
+            contexts.insert(
+                info.cwd.clone(),
+                detect_git(std::path::Path::new(&info.cwd)),
+            );
+        }
+        let ctx = &contexts[&info.cwd];
+        let count = cwd_counts.get(&info.cwd).copied().unwrap_or(1);
+        info.recommendation = session_recommendation(ctx, count);
+        info.repo_root = ctx.repo_root.clone();
+        info.branch = ctx.branch.clone();
+        info.dirty = Some(ctx.dirty);
+        info.changed_files = Some(ctx.changed_files);
+        info.is_worktree = Some(ctx.is_worktree);
+    }
+}
+
 pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let harnesses = state.harnesses.read().await.clone();
     let live_sessions: Vec<(SessionInfo, Vec<String>, String, bool, bool, u64, u64, Option<(u64, u64)>, bool)> = {
@@ -1238,22 +1268,7 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
     }
     state.providers.update_session_capping(harness_capped, harness_reset_hint, provider_checking);
 
-    let mut cwd_counts: HashMap<String, usize> = HashMap::new();
-    for info in &infos {
-        if info.status == "running" || info.status == "creating" {
-            *cwd_counts.entry(info.cwd.clone()).or_default() += 1;
-        }
-    }
-    for info in &mut infos {
-        let ctx = git::detect(&PathBuf::from(&info.cwd));
-        let count = cwd_counts.get(&info.cwd).copied().unwrap_or(1);
-        info.recommendation = session_recommendation(&ctx, count);
-        info.repo_root = ctx.repo_root;
-        info.branch = ctx.branch;
-        info.dirty = Some(ctx.dirty);
-        info.changed_files = Some(ctx.changed_files);
-        info.is_worktree = Some(ctx.is_worktree);
-    }
+    enrich_sessions_with_git_context(&mut infos, git::detect);
 
     let conflict_warnings = detect_conflicts(&infos);
     for info in &mut infos {
@@ -1369,6 +1384,39 @@ mod tests {
                 tokio::task::yield_now().await;
             }
         }).await.expect("attention persistence did not reach the barrier");
+    }
+
+    #[test]
+    fn session_git_context_is_resolved_once_per_unique_cwd() {
+        let shared = "/workspace/shared";
+        let separate = "/workspace/separate";
+        let mut infos = vec![
+            test_session_info("one", "One", shared, "running", "now"),
+            test_session_info("two", "Two", shared, "running", "now"),
+            test_session_info("three", "Three", separate, "ended", "now"),
+        ];
+        let mut calls: HashMap<String, usize> = HashMap::new();
+
+        enrich_sessions_with_git_context(&mut infos, |cwd| {
+            *calls.entry(cwd.display().to_string()).or_default() += 1;
+            git::GitContext {
+                repo_root: Some(format!("{}/repo", cwd.display())),
+                branch: Some("test-branch".into()),
+                dirty: true,
+                changed_files: 2,
+                is_worktree: cwd == std::path::Path::new(separate),
+            }
+        });
+
+        assert_eq!(calls.get(shared), Some(&1));
+        assert_eq!(calls.get(separate), Some(&1));
+        assert_eq!(calls.len(), 2);
+        assert_eq!(infos[0].repo_root.as_deref(), Some("/workspace/shared/repo"));
+        assert_eq!(infos[1].branch.as_deref(), Some("test-branch"));
+        assert_eq!(infos[1].dirty, Some(true));
+        assert_eq!(infos[1].changed_files, Some(2));
+        assert_eq!(infos[2].is_worktree, Some(true));
+        assert!(infos[0].recommendation.is_some());
     }
 
     fn attention_test_handle(id: &str, cwd: &std::path::Path) -> SessionHandle {

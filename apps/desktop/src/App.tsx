@@ -26,6 +26,7 @@ import {
   getProviders,
 } from "./api";
 import { disposeTerminal, getTerminal, pruneTerminals } from "./terminalStore";
+import { startSessionPolling } from "./sessionPolling";
 import type { AppSettings } from "./appSettingsTypes";
 import type { HarnessConfig, CreateSessionOptions } from "./harnessTypes";
 
@@ -92,9 +93,7 @@ function App() {
 
   useEffect(() => {
     if (backendStatus !== "connected") return;
-    refreshSessions();
-    const interval = setInterval(refreshSessions, 2000);
-    return () => clearInterval(interval);
+    return startSessionPolling(refreshSessions);
   }, [backendStatus, refreshSessions]);
 
   useEffect(() => {
