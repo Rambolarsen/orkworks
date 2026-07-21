@@ -358,6 +358,7 @@ pub(crate) mod test_support {
             lifecycle_phase: "ended".into(),
             lifecycle: "dead".into(),
             attention: None,
+            plan_path: None,
             connectivity: "offline".into(),
             terminal_outcome: Some("ended".into()),
             pending_terminal_status: None,

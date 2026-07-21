@@ -50,6 +50,8 @@ pub(crate) struct AttentionReportRequest {
     pub(crate) status: String,
     #[serde(default)]
     pub(crate) message: Option<String>,
+    #[serde(rename = "planPath", default)]
+    pub(crate) plan_path: metadata::PlanPathUpdate,
 }
 
 #[derive(Deserialize)]
@@ -482,13 +484,14 @@ pub(crate) async fn report_attention(
     let persist_id = id.clone();
     let persist_status = status.clone();
     let message = req.message.clone();
+    let plan_path = req.plan_path.clone();
     let result = match tokio::task::spawn_blocking(move || {
         let ws_guard = persist_state.workspace.lock().unwrap();
         let Some(ref ws) = *ws_guard else {
             return Err(axum::http::StatusCode::CONFLICT);
         };
-        let result = ws.metadata.merge_agent_attention_signal(
-            &persist_id, &persist_status, message.as_deref(), &now, "agent", 1.0,
+        let result = ws.metadata.merge_agent_attention_signal_with_plan(
+            &persist_id, &persist_status, message.as_deref(), &plan_path, &now, "agent", 1.0,
         );
         if result == metadata::AttentionMergeResult::Accepted {
             // Global lock order for combined metadata/live updates is workspace -> sessions.
@@ -837,6 +840,7 @@ pub(crate) async fn create_session(
                 lifecycle_phase: "creating".into(),
                 lifecycle: "creating".into(),
                 attention: None,
+                plan_path: None,
                 connectivity: "online".into(),
                 terminal_outcome: None,
                 pending_terminal_status: None,
@@ -1499,6 +1503,7 @@ mod tests {
                 lifecycle_phase: "active".into(),
                 lifecycle: "alive".into(),
                 attention: None,
+                plan_path: None,
                 connectivity: "online".into(),
                 terminal_outcome: None,
                 pending_terminal_status: None,
@@ -1620,9 +1625,10 @@ mod tests {
                 status: "running".into(),
                 work_phase: "unknown".into(),
             lifecycle_phase: "active".into(),
-            lifecycle: "alive".into(),
-            attention: None,
-            connectivity: "online".into(),
+                lifecycle: "alive".into(),
+                attention: None,
+                plan_path: None,
+                connectivity: "online".into(),
                 terminal_outcome: None,
                 pending_terminal_status: None,
                 observed_status: None,
@@ -1744,6 +1750,7 @@ mod tests {
             lifecycle_phase: "active".into(),
             lifecycle: "alive".into(),
             attention: None,
+            plan_path: None,
             connectivity: "online".into(),
                 terminal_outcome: None,
                 pending_terminal_status: None,
@@ -1854,6 +1861,7 @@ mod tests {
             lifecycle_phase: "active".into(),
             lifecycle: "alive".into(),
             attention: None,
+            plan_path: None,
             connectivity: "online".into(),
                 terminal_outcome: None,
                 pending_terminal_status: None,
@@ -1910,6 +1918,7 @@ mod tests {
             Json(AttentionReportRequest {
                 status: "not_a_real_status".into(),
                 message: None,
+                plan_path: Default::default(),
             }),
         )
         .await
@@ -1928,6 +1937,7 @@ mod tests {
             Json(AttentionReportRequest {
                 status: "waiting_for_input".into(),
                 message: None,
+                plan_path: Default::default(),
             }),
         )
         .await
@@ -1955,6 +1965,7 @@ mod tests {
             lifecycle_phase: "active".into(),
             lifecycle: "alive".into(),
             attention: None,
+            plan_path: None,
             connectivity: "online".into(),
                 terminal_outcome: None,
                 pending_terminal_status: None,
@@ -2000,6 +2011,7 @@ mod tests {
             Json(AttentionReportRequest {
                 status: "waiting_for_input".into(),
                 message: None,
+                plan_path: Default::default(),
             }),
         )
         .await
@@ -2043,6 +2055,7 @@ mod tests {
                 Json(AttentionReportRequest {
                     status: "blocked".into(),
                     message: Some("Waiting".into()),
+                    plan_path: Default::default(),
                 }),
             ).await.into_response()
         });
@@ -2073,7 +2086,7 @@ mod tests {
 
         let mut first = Box::pin(report_attention(
             State(state.clone()), Path(id.into()), Json(AttentionReportRequest {
-                status: "waiting_for_input".into(), message: Some("A".into()),
+                status: "waiting_for_input".into(), message: Some("A".into()), plan_path: Default::default(),
             }),
         ));
         assert!(poll_once(first.as_mut()).is_pending());
@@ -2081,7 +2094,7 @@ mod tests {
 
         let second = report_attention(
             State(state.clone()), Path(id.into()), Json(AttentionReportRequest {
-                status: "blocked".into(), message: Some("B".into()),
+                status: "blocked".into(), message: Some("B".into()), plan_path: Default::default(),
             }),
         ).await.into_response();
         assert_eq!(second.status(), axum::http::StatusCode::OK);
@@ -2341,7 +2354,7 @@ mod tests {
         let _ = report_attention(
             State(state.clone()),
             Path("debug-reclaim".into()),
-            Json(AttentionReportRequest { status: "blocked".into(), message: None }),
+            Json(AttentionReportRequest { status: "blocked".into(), message: None, plan_path: Default::default() }),
         )
         .await
         .into_response();
@@ -2647,7 +2660,7 @@ mod tests {
         let response = report_attention(
             State(state.clone()),
             Path(created_id.clone()),
-            Json(AttentionReportRequest { status: "thinking".into(), message: None }),
+            Json(AttentionReportRequest { status: "thinking".into(), message: None, plan_path: Default::default() }),
         )
         .await
         .into_response();
@@ -2689,7 +2702,7 @@ mod tests {
         let response = report_attention(
             State(state.clone()),
             Path("attention-unsupported-thinking".into()),
-            Json(AttentionReportRequest { status: "thinking".into(), message: None }),
+            Json(AttentionReportRequest { status: "thinking".into(), message: None, plan_path: Default::default() }),
         )
         .await
         .into_response();
@@ -2735,7 +2748,7 @@ mod tests {
         let response = report_attention(
             State(state.clone()),
             Path("attention-session-scoped".into()),
-            Json(AttentionReportRequest { status: "thinking".into(), message: None }),
+            Json(AttentionReportRequest { status: "thinking".into(), message: None, plan_path: Default::default() }),
         )
         .await
         .into_response();
@@ -2781,6 +2794,7 @@ mod tests {
             Json(AttentionReportRequest {
                 status: "waiting_for_input".into(),
                 message: None,
+                plan_path: Default::default(),
             }),
         )
         .await
@@ -2826,6 +2840,7 @@ mod tests {
             Json(AttentionReportRequest {
                 status: "waiting_for_input".into(),
                 message: None,
+                plan_path: Default::default(),
             }),
         )
         .await
@@ -2873,6 +2888,7 @@ mod tests {
             Json(AttentionReportRequest {
                 status: "waiting_for_input".into(),
                 message: None,
+                plan_path: Default::default(),
             }),
         )
         .await
@@ -3059,6 +3075,7 @@ mod tests {
                 lifecycle_phase: "ended".into(),
                 lifecycle: "dead".into(),
                 attention: None,
+                plan_path: None,
             connectivity: "offline".into(),
                 terminal_outcome: Some("killed".into()),
                 pending_terminal_status: None,
@@ -3162,6 +3179,7 @@ mod tests {
             lifecycle_phase: "active".into(),
             lifecycle: "alive".into(),
             attention: None,
+            plan_path: None,
             connectivity: "online".into(),
                 terminal_outcome: None,
                 pending_terminal_status: None,
@@ -3934,6 +3952,7 @@ mod tests {
                 lifecycle_phase: "ended".into(),
                 lifecycle: "dead".into(),
                 attention: None,
+                plan_path: None,
                 connectivity: "offline".into(),
                 terminal_outcome: Some("ended".into()),
                 pending_terminal_status: None,
@@ -4117,5 +4136,26 @@ mod tests {
         assert_eq!(launch.model.as_deref(), Some("gpt-5"));
         assert_eq!(launch.provider_id, None);
         assert_eq!(launch.provider_label, None);
+    }
+
+    #[test]
+    fn attention_report_plan_path_distinguishes_set_clear_and_omission() {
+        let set: AttentionReportRequest = serde_json::from_str(
+            r#"{"status":"waiting_for_input","planPath":"docs/plan.md"}"#,
+        )
+        .unwrap();
+        assert_eq!(set.plan_path, metadata::PlanPathUpdate::Set("docs/plan.md".into()));
+
+        let clear: AttentionReportRequest = serde_json::from_str(
+            r#"{"status":"waiting_for_input","planPath":null}"#,
+        )
+        .unwrap();
+        assert_eq!(clear.plan_path, metadata::PlanPathUpdate::Clear);
+
+        let unchanged: AttentionReportRequest = serde_json::from_str(
+            r#"{"status":"waiting_for_input"}"#,
+        )
+        .unwrap();
+        assert_eq!(unchanged.plan_path, metadata::PlanPathUpdate::Unchanged);
     }
 }
