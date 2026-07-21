@@ -993,7 +993,7 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
         if merged.lifecycle == "alive" && merged.at_usage_limit == Some(true) {
             merged.attention = Some("capped".into());
         }
-        merged.usage_limit_reset_hint = limit_adapter.and_then(|adapter| {
+        let detected_reset_hint = limit_adapter.and_then(|adapter| {
             if stale_cap_recheck && fresh_output_since_origin {
                 let (line_count, scan_len) = origin.unwrap();
                 let line_window_start = output_lines_seen.saturating_sub(snapshot.len() as u64);
@@ -1019,6 +1019,14 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
                     .or_else(|| peon::detect_usage_limit_hint_raw(&adapter.limit_patterns, &scan_buf))
             }
         });
+        // Non-debug sources are always fully recomputed from the current
+        // terminal window (clears the hint once it's no longer detected). A
+        // debug-injected hint has no real terminal output to detect from, so
+        // it's only overwritten when a real signal actually fires, not
+        // cleared just because this poll found nothing.
+        if merged.metadata_source.as_deref() != Some("debug") || detected_reset_hint.is_some() {
+            merged.usage_limit_reset_hint = detected_reset_hint;
+        }
         merged.capacity_check_pending = if pending && !pending_visible_once {
             Some(true)
         } else {
@@ -2135,6 +2143,68 @@ mod tests {
             Some("resets in 2h"),
         );
         drop(sessions);
+
+        assert_eq!(
+            delete_session(State(state), Path(created_id)).await.into_response().status(),
+            axum::http::StatusCode::OK
+        );
+    }
+
+    #[tokio::test]
+    async fn debug_injected_capped_hint_survives_list_sessions_refresh() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        {
+            let mut harnesses = state.harnesses.write().await;
+            *harnesses = crate::harness_registry::builtin_harness_configs();
+        }
+
+        let response = create_session(
+            State(state.clone()),
+            Json(CreateSessionRequest {
+                harness_id: Some("generic-shell".into()),
+                model: None,
+                initial_prompt: None,
+            }),
+        )
+        .await
+        .into_response();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let created_id = serde_json::from_slice::<serde_json::Value>(&bytes)
+            .unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+
+        let response = apply_debug_attention(
+            State(state.clone()),
+            Path(created_id.clone()),
+            Json(DebugAttentionRequest {
+                attention: "capped".into(),
+                message: Some("resets in 2h".into()),
+            }),
+        )
+        .await
+        .into_response();
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+
+        // The bug this guards against: list_sessions used to unconditionally
+        // recompute usage_limit_reset_hint from live terminal-output
+        // scanning, discarding the debug-injected value on the very next
+        // poll since a generic-shell session has no real usage-limit text
+        // in its terminal output to detect.
+        let response = list_sessions(State(state.clone())).await.into_response();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let sessions: Vec<serde_json::Value> = serde_json::from_slice(&bytes).unwrap();
+        let session = sessions
+            .iter()
+            .find(|s| s.get("id").and_then(|v| v.as_str()) == Some(created_id.as_str()))
+            .expect("created session should be listed");
+        assert_eq!(
+            session.get("usageLimitResetHint").and_then(|v| v.as_str()),
+            Some("resets in 2h"),
+            "debug-injected capped hint must survive a list_sessions refresh"
+        );
 
         assert_eq!(
             delete_session(State(state), Path(created_id)).await.into_response().status(),
