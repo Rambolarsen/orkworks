@@ -1,7 +1,4 @@
-use crate::runtime::session_runtime::{
-    arm_pending_work_signal,
-    STARTUP_PENDING_INPUT_BYTES as QUEUED_INPUT_CAP_BYTES,
-};
+use crate::runtime::session_runtime::STARTUP_PENDING_INPUT_BYTES as QUEUED_INPUT_CAP_BYTES;
 use crate::session_view::{connectivity_for_status, terminal_outcome_for_status};
 use crate::workspace_runtime::iso_now;
 use crate::{metadata, peon, providers, AppState};
@@ -174,10 +171,8 @@ pub(crate) fn collect_input_line(buf: &mut String, data: &str) -> Option<String>
         match ch {
             '\r' | '\n' => {
                 // Full, untruncated line: callers that only need a short label
-                // truncate at their own call site. Truncating here would starve
-                // echo-gating (`arm_pending_work_signal`) of the tail of any
-                // submission over 100 chars, letting its own PTY echo slip
-                // through as if it were qualifying model output.
+                // truncate at their own call site, while metadata retains the
+                // complete accepted input for the terminal record.
                 let line = buf.trim().to_string();
                 buf.clear();
                 if !line.is_empty() && result.is_none() {
@@ -254,14 +249,10 @@ pub(crate) fn record_terminal_input(
         mark_committed_input_working(state, id);
     }
 
-    let (collected_line, in_progress_buf) = {
+    let collected_line = {
         let mut bufs = state.peon.input_buf.write().unwrap();
         let buf = bufs.entry(id.to_string()).or_default();
-        let len_before_input = buf.len();
-        let line = collect_input_line(buf, data);
-        let parsed_printable_input = buf.len() > len_before_input;
-        let in_progress_buf = parsed_printable_input.then(|| buf.clone());
-        (line, in_progress_buf)
+        collect_input_line(buf, data)
     };
 
     let line = collected_line?;
@@ -932,6 +923,41 @@ mod tests {
         assert_eq!(record_terminal_input(&state, session_id, "yes\r"), Some(()));
 
         assert_prompt_is_cleared_as_working(&state, session_id);
+    }
+
+    #[test]
+    fn committed_input_overrides_user_source_and_active_work_hook() {
+        let session_id = "committed-user-source";
+        let (state, _dir) = prompted_session_state(session_id);
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut(session_id).unwrap();
+            handle.info.metadata_source = Some("user".into());
+            handle.active_work_hook = true;
+        }
+        {
+            let ws = state.workspace.lock().unwrap();
+            let mut meta = ws.as_ref().unwrap().metadata.read_session(session_id).unwrap();
+            meta.metadata_source = "user".into();
+            ws.as_ref().unwrap().metadata.write_session(&meta);
+        }
+
+        assert_eq!(record_terminal_input(&state, session_id, "1"), None);
+
+        assert_prompt_is_cleared_as_working(&state, session_id);
+    }
+
+    #[test]
+    fn empty_input_does_not_clear_a_prompt() {
+        let session_id = "empty-input";
+        let (state, _dir) = prompted_session_state(session_id);
+
+        assert_eq!(record_terminal_input(&state, session_id, ""), None);
+
+        let info = state.sessions.lock().unwrap()[session_id].info.clone();
+        assert_eq!(info.attention.as_deref(), Some("needs_you"));
+        assert_eq!(info.observed_status.as_deref(), Some("waiting_for_input"));
+        assert_eq!(info.metadata_source.as_deref(), Some("agent"));
     }
 
     #[test]
