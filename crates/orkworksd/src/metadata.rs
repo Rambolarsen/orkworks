@@ -18,6 +18,7 @@ pub const TERMINAL_OUTPUT_MAX_BYTES: u64 = 1 * 1024 * 1024;
 /// force a full file read+rewrite on nearly every append once it first hits
 /// the ceiling — the headroom absorbs several appends before trim fires again.
 const TERMINAL_OUTPUT_TRIM_TARGET_BYTES: u64 = TERMINAL_OUTPUT_MAX_BYTES * 3 / 4;
+const TERMINAL_OUTPUT_TRIM_TARGET_LINES: usize = TERMINAL_OUTPUT_MAX_LINES * 3 / 4;
 
 fn default_connectivity() -> String {
     "online".into()
@@ -923,40 +924,35 @@ impl MetadataStore {
     }
 
     pub fn append_event(&self, id: &str, event: &Event) {
-        let dir = self.events_dir();
-        if let Err(e) = fs::create_dir_all(&dir) {
-            warn!("failed to create events dir {:?}: {e}", dir);
-            return;
+        if let Err(error) = self.try_append_event(id, event) {
+            warn!("failed to append event for {id}: {error}");
         }
+    }
+
+    fn try_append_event(&self, id: &str, event: &Event) -> std::io::Result<()> {
+        let dir = self.events_dir();
+        fs::create_dir_all(&dir)?;
         let path = dir.join(format!("{}.ndjson", id));
         let cached_stamp = self.summary_checkpoints.lock().unwrap().get(id)
             .map(|entry| entry.stamp.clone());
         let before_append = cached_stamp.as_ref()
             .and_then(|_| Self::event_file_stamp(&path).ok());
-        match serde_json::to_string(event) {
-            Ok(json) => match fs::OpenOptions::new().create(true).append(true).open(&path) {
-                Ok(mut file) => {
-                    if let Err(e) = writeln!(file, "{json}") {
-                        warn!("failed to write event to {id}: {e}");
-                    } else {
-                        #[cfg(test)]
-                        if let Some(hook) = self.after_event_write.lock().unwrap().as_ref() {
-                            hook(&path);
-                        }
-                        self.update_summary_checkpoint_cache_after_append(
-                            id,
-                            event,
-                            cached_stamp,
-                            before_append,
-                            u64::try_from(json.len()).unwrap_or(u64::MAX).saturating_add(1),
-                            &path,
-                        );
-                    }
-                }
-                Err(e) => warn!("failed to open event file for {id}: {e}"),
-            },
-            Err(e) => warn!("failed to serialize event for {id}: {e}"),
+        let json = serde_json::to_string(event).map_err(std::io::Error::other)?;
+        let mut file = fs::OpenOptions::new().create(true).append(true).open(&path)?;
+        writeln!(file, "{json}")?;
+        #[cfg(test)]
+        if let Some(hook) = self.after_event_write.lock().unwrap().as_ref() {
+            hook(&path);
         }
+        self.update_summary_checkpoint_cache_after_append(
+            id,
+            event,
+            cached_stamp,
+            before_append,
+            u64::try_from(json.len()).unwrap_or(u64::MAX).saturating_add(1),
+            &path,
+        );
+        Ok(())
     }
 
     fn event_file_stamp(path: &Path) -> std::io::Result<Option<EventFileStamp>> {
@@ -1190,7 +1186,7 @@ impl MetadataStore {
         let checkpoint = self.summary_checkpoint(id, message);
         let checkpoint_source = checkpoint.as_ref().map(|_| source.to_string());
 
-        self.append_event(id, &Event {
+        let event = Event {
             event_type: "session.attention_reported".into(),
             timestamp: timestamp.to_string(),
             status: meta.status.clone(),
@@ -1198,7 +1194,15 @@ impl MetadataStore {
             confidence: Some(confidence),
             summary: checkpoint,
             source: checkpoint_source,
-        });
+        };
+        if event.summary.is_some() {
+            if let Err(error) = self.try_append_event(id, &event) {
+                warn!("failed to persist attention checkpoint for {id}: {error}");
+                return AttentionMergeResult::PersistFailed;
+            }
+        } else {
+            self.append_event(id, &event);
+        }
 
         AttentionMergeResult::Accepted
     }
@@ -1300,7 +1304,7 @@ impl MetadataStore {
         let checkpoint = self.summary_checkpoint(id, inf.summary.as_deref());
         let checkpoint_source = checkpoint.as_ref().map(|_| "peon".to_string());
 
-        self.append_event(id, &Event {
+        let event = Event {
             event_type: "peon.inference".into(),
             timestamp: timestamp.to_string(),
             status: meta.status.clone(),
@@ -1308,7 +1312,12 @@ impl MetadataStore {
             confidence: Some(inf.confidence),
             summary: checkpoint,
             source: checkpoint_source,
-        });
+        };
+        if event.summary.is_some() {
+            self.try_append_event(id, &event)?;
+        } else {
+            self.append_event(id, &event);
+        }
 
         if let Some(report) = peon_harness_session_report {
             let _ = self.merge_harness_session_report(id, &report, timestamp);
@@ -1350,7 +1359,7 @@ impl MetadataStore {
         if len_hint > TERMINAL_OUTPUT_MAX_BYTES
             || terminal_output_exceeds_line_limit(&path, TERMINAL_OUTPUT_MAX_LINES)
         {
-            let _ = self.trim_terminal_output(id, TERMINAL_OUTPUT_MAX_LINES);
+            let _ = self.trim_terminal_output(id, TERMINAL_OUTPUT_TRIM_TARGET_LINES);
         }
     }
 
@@ -1401,11 +1410,17 @@ fn terminal_output_exceeds_line_limit(path: &Path, max_lines: usize) -> bool {
     let Ok(file) = fs::File::open(path) else {
         return false;
     };
-    BufReader::new(file)
-        .lines()
-        .take(max_lines.saturating_add(1))
-        .count()
-        > max_lines
+    let mut reader = BufReader::new(file);
+    let mut line = Vec::new();
+    for _ in 0..=max_lines {
+        line.clear();
+        match reader.read_until(b'\n', &mut line) {
+            Ok(0) => return false,
+            Ok(_) => {}
+            Err(_) => return false,
+        }
+    }
+    true
 }
 
 #[cfg(test)]
@@ -2752,8 +2767,8 @@ mod tests {
         assert!(fs::metadata(&path).unwrap().len() < TERMINAL_OUTPUT_MAX_BYTES);
         let persisted = fs::read_to_string(path).unwrap();
         let persisted: Vec<&str> = persisted.lines().collect();
-        assert_eq!(persisted.len(), TERMINAL_OUTPUT_MAX_LINES);
-        assert_eq!(persisted.first(), Some(&"line-1"));
+        assert_eq!(persisted.len(), TERMINAL_OUTPUT_MAX_LINES * 3 / 4);
+        assert_eq!(persisted.first(), Some(&"line-251"));
         assert_eq!(persisted.last().copied(), Some("line-1000"));
     }
 
@@ -3053,6 +3068,42 @@ mod tests {
         let meta = store.read_session("att-fail").unwrap();
         assert_eq!(meta.observed_status, None);
         assert!(store.read_events("att-fail").is_empty());
+    }
+
+    #[test]
+    fn attention_checkpoint_append_failure_is_not_acknowledged() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        store.write_session(&test_metadata("att-event-fail"));
+        std::fs::write(store.events_dir(), "not a directory").unwrap();
+
+        let result = store.merge_agent_attention_signal(
+            "att-event-fail",
+            "waiting_for_input",
+            Some("checkpoint not persisted"),
+            "now",
+            "agent",
+            1.0,
+        );
+
+        assert_eq!(result, AttentionMergeResult::PersistFailed);
+    }
+
+    #[test]
+    fn peon_checkpoint_append_failure_is_reported_for_retry() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        store.write_session(&test_metadata("peon-event-fail"));
+        std::fs::write(store.events_dir(), "not a directory").unwrap();
+
+        assert!(store
+            .merge_peon_inference(
+                "peon-event-fail",
+                &peon_inference_with_summary(Some("checkpoint not persisted"), 0.9),
+                "now",
+                None,
+            )
+            .is_err());
     }
 
     #[test]

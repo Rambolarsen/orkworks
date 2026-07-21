@@ -43,7 +43,10 @@ pub(crate) async fn get_terminal_output(
         }
     })
     .await
-    .unwrap_or_default();
+    .unwrap_or_else(|error| {
+        tracing::error!(%error, "terminal-output metadata task failed");
+        Vec::new()
+    });
     Json(TerminalOutputResponse { lines })
 }
 
@@ -82,7 +85,10 @@ pub(crate) async fn get_summary_log(
         }
     })
     .await
-    .unwrap_or_default();
+    .unwrap_or_else(|error| {
+        tracing::error!(%error, "summary-log metadata task failed");
+        Vec::new()
+    });
     Json(SummaryLogResponse { entries })
 }
 
