@@ -33,9 +33,9 @@ use crate::http::hook_handlers::{get_attention_hook_status, install_attention_ho
 use crate::http::provider_handlers::{get_provider_models, get_providers, set_provider_settings, verify_ollama_settings};
 use crate::http::retention_handlers::set_retention;
 use crate::http::session_handlers::{
-    create_session, delete_session, forget_session, list_sessions, report_attention,
-    report_harness_session, resume_session, set_active_harnesses, set_active_session,
-    set_workspace,
+    apply_debug_attention, create_session, delete_session, forget_session, list_sessions,
+    report_attention, report_harness_session, resume_session, set_active_harnesses,
+    set_active_session, set_workspace,
 };
 use crate::runtime::peon_runtime::peon_loop;
 use crate::runtime::retention::retention_cleanup_task;
@@ -175,6 +175,7 @@ async fn main() {
         .route("/sessions/:id/resume", post(resume_session))
         .route("/sessions/:id/harness-session", post(report_harness_session))
         .route("/sessions/:id/attention", post(report_attention))
+        .route("/sessions/:id/debug-injection", post(apply_debug_attention))
         .route("/settings/retention", post(set_retention))
         .route("/harnesses", get(list_harnesses).post(create_harness))
         .route("/harnesses/:id", put(update_harness).delete(delete_harness))
@@ -427,6 +428,7 @@ mod tests {
             .route("/sessions/:id/resume", post(resume_session))
             .route("/sessions/:id/harness-session", post(report_harness_session))
             .route("/sessions/:id/attention", post(report_attention))
+            .route("/sessions/:id/debug-injection", post(apply_debug_attention))
             .route("/settings/retention", post(set_retention))
             .route("/harnesses", get(list_harnesses).post(create_harness))
             .route("/harnesses/:id", put(update_harness).delete(delete_harness))

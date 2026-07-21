@@ -179,6 +179,20 @@ export async function resumeSession(
   return resp.json();
 }
 
+export async function applyDebugAttention(
+  baseUrl: string,
+  id: string,
+  attention: SessionAttention,
+  message?: string,
+): Promise<void> {
+  const resp = await fetch(`${baseUrl}/sessions/${id}/debug-injection`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ attention, message }),
+  });
+  if (!resp.ok) throw new Error(`apply debug attention failed: ${resp.status}`);
+}
+
 export async function getTerminalOutput(
   baseUrl: string,
   id: string,

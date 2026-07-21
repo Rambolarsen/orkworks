@@ -181,6 +181,7 @@ Valid metadata sources:
 - `backend_inference`
 - `process`
 - `unknown`
+- `debug` (debug-only temporary state injection; lower priority than normal runtime sources)
 
 Peon must not overwrite higher-priority metadata unless the higher-priority metadata is stale or explicitly cleared.
 

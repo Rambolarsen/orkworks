@@ -135,7 +135,11 @@ pub(crate) fn merge_live_session_info(
         capacity_hints: meta.and_then(|m| m.capacity_hints.clone()).or(info.capacity_hints),
         at_usage_limit: info.at_usage_limit,
         capacity_check_pending: info.capacity_check_pending,
-        usage_limit_reset_hint: None,
+        // Carried through as a fallback; list_sessions overwrites this with a
+        // fresh terminal-scan detection for non-debug sources (recomputed
+        // from source on every poll), but preserves this carried value for a
+        // debug-injected hint that has no real terminal output to detect.
+        usage_limit_reset_hint: info.usage_limit_reset_hint,
         metadata_source: meta.map(|m| m.metadata_source.clone()).or(info.metadata_source),
         metadata_confidence: meta.map(|m| m.metadata_confidence).or(info.metadata_confidence),
         peon_last_inference: meta

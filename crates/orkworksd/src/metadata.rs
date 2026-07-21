@@ -992,18 +992,24 @@ impl MetadataStore {
         HarnessSessionMergeResult::Accepted
     }
 
-    /// Writes a deterministic, harness-supplied attention signal (e.g. from a Claude Code
-    /// `Notification` hook). Priority-gated: it cannot clobber fresh `user` metadata, but
-    /// always outranks peon/backend_inference/process/unknown. A prior `agent` write never
-    /// blocks a new one — consecutive hook reports are turn boundaries from the same
-    /// authoritative source and must apply immediately (e.g. `working` -> `waiting_for_input`
-    /// as soon as the model finishes), not gated behind a staleness window.
+    /// Writes a deterministic attention signal (e.g. from a Claude Code `Notification`
+    /// hook, or a debug injection). Priority-gated: it cannot clobber `user` metadata,
+    /// and a `debug`-sourced write additionally cannot clobber `agent` metadata (the
+    /// other hook-verified, high-confidence tier) — debug injection is meant for
+    /// exercising convergence on otherwise-quiet sessions, not for overwriting a live
+    /// coding agent's real signal. Every other source pair overwrites unconditionally,
+    /// including a prior write from the same source, since consecutive reports from an
+    /// authoritative source are turn boundaries that must apply immediately (e.g.
+    /// `working` -> `waiting_for_input` as soon as the model finishes), not gated
+    /// behind a staleness window.
     pub fn merge_agent_attention_signal(
         &self,
         id: &str,
         status: &str,
         message: Option<&str>,
         timestamp: &str,
+        source: &str,
+        confidence: f64,
     ) -> AttentionMergeResult {
         let mut meta = match self.read_session(id) {
             Some(m) => m,
@@ -1011,6 +1017,9 @@ impl MetadataStore {
         };
 
         if meta.metadata_source == "user" {
+            return AttentionMergeResult::Ignored;
+        }
+        if source == "debug" && meta.metadata_source == "agent" {
             return AttentionMergeResult::Ignored;
         }
 
@@ -1021,8 +1030,8 @@ impl MetadataStore {
         if let Some(msg) = message {
             meta.summary = Some(msg.to_string());
         }
-        meta.metadata_source = "agent".into();
-        meta.metadata_confidence = 1.0;
+        meta.metadata_source = source.into();
+        meta.metadata_confidence = confidence;
         if let Err(e) = self.try_write_session(&meta) {
             warn!("failed to persist attention signal for {id}: {e}");
             return AttentionMergeResult::PersistFailed;
@@ -1033,7 +1042,7 @@ impl MetadataStore {
             timestamp: timestamp.to_string(),
             status: meta.status.clone(),
             observed_status: Some(status.to_string()),
-            confidence: Some(1.0),
+            confidence: Some(confidence),
         });
 
         AttentionMergeResult::Accepted
@@ -1882,6 +1891,8 @@ mod tests {
             "waiting_for_input",
             None,
             "2026-06-26T12:00:00Z",
+            "agent",
+            1.0,
         );
 
         assert_eq!(result, AttentionMergeResult::Accepted);
@@ -1903,6 +1914,8 @@ mod tests {
             "waiting_for_input",
             Some("Needs approval to proceed"),
             "2026-06-26T12:00:00Z",
+            "agent",
+            1.0,
         );
 
         let updated = store.read_session("attention-message-test").unwrap();
@@ -1923,12 +1936,60 @@ mod tests {
             "waiting_for_input",
             None,
             "2026-06-26T12:00:00Z",
+            "agent",
+            1.0,
         );
 
         assert_eq!(result, AttentionMergeResult::Ignored);
         let updated = store.read_session("attention-user-test").unwrap();
         assert_eq!(updated.observed_status.as_deref(), Some("working"));
         assert_eq!(updated.metadata_source, "user");
+    }
+
+    #[test]
+    fn debug_source_cannot_clobber_agent_metadata() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let mut meta = test_metadata("attention-debug-vs-agent-test");
+        meta.metadata_source = "agent".into();
+        meta.observed_status = Some("working".into());
+        store.write_session(&meta);
+
+        let result = store.merge_agent_attention_signal(
+            "attention-debug-vs-agent-test",
+            "blocked",
+            None,
+            "2026-06-26T12:00:00Z",
+            "debug",
+            0.0,
+        );
+
+        assert_eq!(result, AttentionMergeResult::Ignored);
+        let updated = store.read_session("attention-debug-vs-agent-test").unwrap();
+        assert_eq!(updated.observed_status.as_deref(), Some("working"));
+        assert_eq!(updated.metadata_source, "agent");
+    }
+
+    #[test]
+    fn debug_source_can_overwrite_lower_priority_sources() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let mut meta = test_metadata("attention-debug-vs-peon-test");
+        meta.metadata_source = "peon".into();
+        store.write_session(&meta);
+
+        let result = store.merge_agent_attention_signal(
+            "attention-debug-vs-peon-test",
+            "blocked",
+            None,
+            "2026-06-26T12:00:00Z",
+            "debug",
+            0.0,
+        );
+
+        assert_eq!(result, AttentionMergeResult::Accepted);
+        let updated = store.read_session("attention-debug-vs-peon-test").unwrap();
+        assert_eq!(updated.metadata_source, "debug");
     }
 
     #[test]
@@ -1948,6 +2009,8 @@ mod tests {
             "waiting_for_input",
             None,
             "2026-06-26T12:00:00Z",
+            "agent",
+            1.0,
         );
 
         assert_eq!(result, AttentionMergeResult::Accepted);
@@ -1965,6 +2028,8 @@ mod tests {
             "waiting_for_input",
             None,
             "2026-06-26T12:00:00Z",
+            "agent",
+            1.0,
         );
 
         assert_eq!(result, AttentionMergeResult::NotFound);
@@ -2441,8 +2506,14 @@ mod tests {
         // while the session itself remains readable.
         std::fs::create_dir_all(store.sessions_dir().join("att-fail.json.tmp")).unwrap();
 
-        let result =
-            store.merge_agent_attention_signal("att-fail", "waiting_for_input", None, "now");
+        let result = store.merge_agent_attention_signal(
+            "att-fail",
+            "waiting_for_input",
+            None,
+            "now",
+            "agent",
+            1.0,
+        );
         assert_eq!(result, AttentionMergeResult::PersistFailed);
         // The stored metadata must not claim the signal landed.
         let meta = store.read_session("att-fail").unwrap();

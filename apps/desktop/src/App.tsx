@@ -11,6 +11,7 @@ import { VOCAB } from "./labels";
 import { pushToast } from "./feedback";
 import {
   type SessionInfo,
+  type SessionAttention,
   type WorkspaceInfo,
   type ProviderRuntimeResponse,
   createSession,
@@ -19,6 +20,7 @@ import {
   deleteSession,
   forgetSession,
   resumeSession,
+  applyDebugAttention,
   saveActiveHarnesses,
   setActiveWorkspaceSession,
   getProviders,
@@ -257,6 +259,16 @@ function App() {
     }
   }, []);
 
+  const handleApplyDebugAttention = useCallback(async (id: string, attention: SessionAttention, message?: string) => {
+    try {
+      const baseUrl = await window.orkworks.getBackendUrl();
+      await applyDebugAttention(baseUrl, id, attention, message);
+      await refreshSessions();
+    } catch {
+      pushToast("error", "Couldn't apply debug attention.");
+    }
+  }, [refreshSessions]);
+
   useEffect(() => {
     if (backendStatus !== "connected" || workspace) return;
     let cancelled = false;
@@ -439,6 +451,7 @@ function App() {
         onKillSession={handleKillSession}
         onForgetSession={handleForgetSession}
         onResumeSession={handleResumeSession}
+        onApplyDebugAttention={handleApplyDebugAttention}
         onFocusTerminal={handleFocusTerminal}
         onOpenWorkspace={handleOpenWorkspace}
         dockviewApiRef={dockviewApiRef}

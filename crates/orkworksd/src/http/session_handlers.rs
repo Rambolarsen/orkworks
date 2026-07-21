@@ -52,6 +52,13 @@ pub(crate) struct AttentionReportRequest {
     pub(crate) message: Option<String>,
 }
 
+#[derive(Deserialize)]
+pub(crate) struct DebugAttentionRequest {
+    pub(crate) attention: String,
+    #[serde(default)]
+    pub(crate) message: Option<String>,
+}
+
 #[derive(Serialize)]
 pub(crate) struct WorkspaceResponse {
     pub(crate) path: String,
@@ -474,7 +481,8 @@ pub(crate) async fn report_attention(
         let Some(ref ws) = *ws_guard else {
             return axum::http::StatusCode::CONFLICT.into_response();
         };
-        ws.metadata.merge_agent_attention_signal(&id, &status, req.message.as_deref(), &now)
+        ws.metadata
+            .merge_agent_attention_signal(&id, &status, req.message.as_deref(), &now, "agent", 1.0)
     };
 
     match result {
@@ -493,6 +501,90 @@ pub(crate) async fn report_attention(
         metadata::AttentionMergeResult::NotFound => axum::http::StatusCode::NOT_FOUND.into_response(),
         // The signal was lost, not delivered — a 200 here would tell the
         // harness hook its notification landed when it didn't.
+        metadata::AttentionMergeResult::PersistFailed => {
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+/// Dev-only convenience for exercising UI/runtime convergence without a real
+/// coding-agent session. Writes through the same merge path as `report_attention`
+/// but tagged `source = "debug"`, `confidence = 0.0` — the lowest documented
+/// priority tier, so any real signal (including the next peon inference pass)
+/// reclaims the session immediately. That reclaim is the intended behavior, not
+/// a bug: injecting a value and watching it get overwritten by a real signal is
+/// itself the convergence test this endpoint exists to support.
+pub(crate) async fn apply_debug_attention(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(req): Json<DebugAttentionRequest>,
+) -> impl IntoResponse {
+    if !matches!(
+        req.attention.as_str(),
+        "working" | "idle" | "needs_you" | "blocked" | "failed" | "capped"
+    ) {
+        return axum::http::StatusCode::BAD_REQUEST.into_response();
+    }
+
+    // The debug picker speaks the `attention` vocabulary directly; the merge
+    // path stores `observed_status` and derives `attention` from it via
+    // canonical_attention. Every value round-trips as a passthrough except
+    // needs_you, which canonical_attention only produces from waiting_for_input.
+    let observed_status = if req.attention == "needs_you" { "waiting_for_input" } else { &req.attention };
+    let is_capped = req.attention == "capped";
+    let summary_message = if is_capped { None } else { req.message.as_deref() };
+
+    let now = iso_now();
+    let result = {
+        let ws_guard = state.workspace.lock().unwrap();
+        let Some(ref ws) = *ws_guard else {
+            return axum::http::StatusCode::CONFLICT.into_response();
+        };
+        match ws.metadata.read_session(&id) {
+            None => return axum::http::StatusCode::NOT_FOUND.into_response(),
+            Some(meta) if meta.lifecycle != "alive" => {
+                return axum::http::StatusCode::BAD_REQUEST.into_response();
+            }
+            Some(_) => {}
+        }
+        ws.metadata.merge_agent_attention_signal(
+            &id,
+            observed_status,
+            summary_message,
+            &now,
+            "debug",
+            0.0,
+        )
+    };
+
+    match result {
+        metadata::AttentionMergeResult::Accepted => {
+            if let Some(handle) = state.sessions.lock().unwrap().get_mut(&id) {
+                handle.info.observed_status = Some(observed_status.to_string());
+                if handle.info.lifecycle == "alive" {
+                    handle.info.attention = Some(req.attention.clone());
+                }
+                handle.info.metadata_source = Some("debug".into());
+                handle.info.metadata_confidence = Some(0.0);
+                if is_capped {
+                    if req.message.is_some() {
+                        handle.info.usage_limit_reset_hint = req.message.clone();
+                    }
+                } else {
+                    // A debug injection that moves attention off "capped"
+                    // must not leave a stale reset hint behind — it would
+                    // otherwise survive indefinitely (list_sessions only
+                    // recomputes this field from live output for non-debug
+                    // sources) and leak into other sessions on the same
+                    // harness via the cross-session capacity propagation
+                    // below.
+                    handle.info.usage_limit_reset_hint = None;
+                }
+            }
+            axum::http::StatusCode::OK.into_response()
+        }
+        metadata::AttentionMergeResult::Ignored => axum::http::StatusCode::OK.into_response(),
+        metadata::AttentionMergeResult::NotFound => axum::http::StatusCode::NOT_FOUND.into_response(),
         metadata::AttentionMergeResult::PersistFailed => {
             axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response()
         }
@@ -907,7 +999,7 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
         if merged.lifecycle == "alive" && merged.at_usage_limit == Some(true) {
             merged.attention = Some("capped".into());
         }
-        merged.usage_limit_reset_hint = limit_adapter.and_then(|adapter| {
+        let detected_reset_hint = limit_adapter.and_then(|adapter| {
             if stale_cap_recheck && fresh_output_since_origin {
                 let (line_count, scan_len) = origin.unwrap();
                 let line_window_start = output_lines_seen.saturating_sub(snapshot.len() as u64);
@@ -933,6 +1025,22 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
                     .or_else(|| peon::detect_usage_limit_hint_raw(&adapter.limit_patterns, &scan_buf))
             }
         });
+        // Non-debug sources are always fully recomputed from the current
+        // terminal window (clears the hint once it's no longer detected). A
+        // debug-injected hint has no real terminal output to detect from, so
+        // it's only preserved (not cleared just because this poll found
+        // nothing) while the session is still alive and actually showing
+        // "capped" — apply_debug_attention clears the carried value whenever
+        // debug attention moves off "capped", but this is the single choke
+        // point everything (including cross-session harness propagation
+        // below) flows through, so it also guards against a lingering hint
+        // surviving lifecycle end or any other path that left it set.
+        let preserve_debug_hint = merged.metadata_source.as_deref() == Some("debug")
+            && merged.lifecycle == "alive"
+            && merged.attention.as_deref() == Some("capped");
+        if !preserve_debug_hint || detected_reset_hint.is_some() {
+            merged.usage_limit_reset_hint = detected_reset_hint;
+        }
         merged.capacity_check_pending = if pending && !pending_visible_once {
             Some(true)
         } else {
@@ -1783,6 +1891,475 @@ mod tests {
         let updated = ws.as_ref().unwrap().metadata.read_session("attention-known").unwrap();
         assert_eq!(updated.observed_status.as_deref(), Some("waiting_for_input"));
         assert_eq!(updated.metadata_source, "agent");
+    }
+
+    #[tokio::test]
+    async fn apply_debug_attention_rejects_invalid_attention() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let response = apply_debug_attention(
+            State(state),
+            Path("missing".into()),
+            Json(DebugAttentionRequest { attention: "not_a_real_value".into(), message: None }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn apply_debug_attention_returns_not_found_for_unknown_session() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let response = apply_debug_attention(
+            State(state),
+            Path("missing".into()),
+            Json(DebugAttentionRequest { attention: "working".into(), message: None }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn apply_debug_attention_rejects_when_lifecycle_not_alive() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        {
+            let ws = state.workspace.lock().unwrap();
+            // test_session_metadata defaults to a dead/ended session.
+            ws.as_ref().unwrap().metadata.write_session(&test_session_metadata(
+                "debug-dead",
+                "Dead",
+                dir.path().display().to_string(),
+                "ended",
+                "now",
+                "now",
+            ));
+        }
+
+        let response = apply_debug_attention(
+            State(state),
+            Path("debug-dead".into()),
+            Json(DebugAttentionRequest { attention: "working".into(), message: None }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn apply_debug_attention_writes_debug_source_and_confidence() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        {
+            let ws = state.workspace.lock().unwrap();
+            let mut meta = test_session_metadata(
+                "debug-alive",
+                "Alive",
+                dir.path().display().to_string(),
+                "running",
+                "now",
+                "now",
+            );
+            meta.lifecycle = "alive".into();
+            meta.lifecycle_phase = "active".into();
+            ws.as_ref().unwrap().metadata.write_session(&meta);
+        }
+
+        let response = apply_debug_attention(
+            State(state.clone()),
+            Path("debug-alive".into()),
+            Json(DebugAttentionRequest { attention: "blocked".into(), message: None }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let ws = state.workspace.lock().unwrap();
+        let updated = ws.as_ref().unwrap().metadata.read_session("debug-alive").unwrap();
+        assert_eq!(updated.observed_status.as_deref(), Some("blocked"));
+        assert_eq!(updated.attention.as_deref(), Some("blocked"));
+        assert_eq!(updated.metadata_source, "debug");
+        assert_eq!(updated.metadata_confidence, 0.0);
+    }
+
+    #[tokio::test]
+    async fn apply_debug_attention_cannot_clobber_live_agent_signal() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        {
+            let ws = state.workspace.lock().unwrap();
+            let mut meta = test_session_metadata(
+                "debug-vs-agent",
+                "Alive",
+                dir.path().display().to_string(),
+                "running",
+                "now",
+                "now",
+            );
+            meta.lifecycle = "alive".into();
+            meta.lifecycle_phase = "active".into();
+            meta.metadata_source = "agent".into();
+            meta.observed_status = Some("working".into());
+            ws.as_ref().unwrap().metadata.write_session(&meta);
+        }
+
+        let response = apply_debug_attention(
+            State(state.clone()),
+            Path("debug-vs-agent".into()),
+            Json(DebugAttentionRequest { attention: "capped".into(), message: None }),
+        )
+        .await
+        .into_response();
+
+        // Ignored (not rejected) mirrors report_attention's own handling of an
+        // unwritable target: the request is well-formed, it just didn't land.
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let ws = state.workspace.lock().unwrap();
+        let updated = ws.as_ref().unwrap().metadata.read_session("debug-vs-agent").unwrap();
+        assert_eq!(updated.observed_status.as_deref(), Some("working"), "a live agent signal must survive a debug injection");
+        assert_eq!(updated.metadata_source, "agent");
+    }
+
+    #[tokio::test]
+    async fn apply_debug_attention_maps_needs_you_to_waiting_for_input_observed_status() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        {
+            let ws = state.workspace.lock().unwrap();
+            let mut meta = test_session_metadata(
+                "debug-needs-you",
+                "Alive",
+                dir.path().display().to_string(),
+                "running",
+                "now",
+                "now",
+            );
+            meta.lifecycle = "alive".into();
+            meta.lifecycle_phase = "active".into();
+            ws.as_ref().unwrap().metadata.write_session(&meta);
+        }
+
+        let response = apply_debug_attention(
+            State(state.clone()),
+            Path("debug-needs-you".into()),
+            Json(DebugAttentionRequest { attention: "needs_you".into(), message: None }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let ws = state.workspace.lock().unwrap();
+        let updated = ws.as_ref().unwrap().metadata.read_session("debug-needs-you").unwrap();
+        assert_eq!(updated.observed_status.as_deref(), Some("waiting_for_input"));
+        assert_eq!(updated.attention.as_deref(), Some("needs_you"));
+    }
+
+    #[tokio::test]
+    async fn apply_debug_attention_injected_value_is_reclaimed_by_next_real_signal() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        {
+            let ws = state.workspace.lock().unwrap();
+            let mut meta = test_session_metadata(
+                "debug-reclaim",
+                "Alive",
+                dir.path().display().to_string(),
+                "running",
+                "now",
+                "now",
+            );
+            meta.lifecycle = "alive".into();
+            meta.lifecycle_phase = "active".into();
+            ws.as_ref().unwrap().metadata.write_session(&meta);
+        }
+
+        let _ = apply_debug_attention(
+            State(state.clone()),
+            Path("debug-reclaim".into()),
+            Json(DebugAttentionRequest { attention: "failed".into(), message: None }),
+        )
+        .await
+        .into_response();
+        {
+            let ws = state.workspace.lock().unwrap();
+            let injected = ws.as_ref().unwrap().metadata.read_session("debug-reclaim").unwrap();
+            assert_eq!(injected.metadata_source, "debug");
+        }
+
+        // Any real attention source is unconditionally accepted over "debug",
+        // since debug is the lowest documented priority tier. "blocked" is
+        // accepted regardless of active_work_hook capability, unlike "working".
+        let _ = report_attention(
+            State(state.clone()),
+            Path("debug-reclaim".into()),
+            Json(AttentionReportRequest { status: "blocked".into(), message: None }),
+        )
+        .await
+        .into_response();
+
+        let ws = state.workspace.lock().unwrap();
+        let reclaimed = ws.as_ref().unwrap().metadata.read_session("debug-reclaim").unwrap();
+        assert_eq!(reclaimed.metadata_source, "agent");
+        assert_eq!(reclaimed.observed_status.as_deref(), Some("blocked"));
+    }
+
+    #[tokio::test]
+    async fn apply_debug_attention_capped_message_lands_in_usage_limit_reset_hint_not_summary() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        {
+            let mut harnesses = state.harnesses.write().await;
+            *harnesses = crate::harness_registry::builtin_harness_configs();
+        }
+
+        let response = create_session(
+            State(state.clone()),
+            Json(CreateSessionRequest {
+                harness_id: Some("generic-shell".into()),
+                model: None,
+                initial_prompt: None,
+            }),
+        )
+        .await
+        .into_response();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let created_id = serde_json::from_slice::<serde_json::Value>(&bytes)
+            .unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+
+        let response = apply_debug_attention(
+            State(state.clone()),
+            Path(created_id.clone()),
+            Json(DebugAttentionRequest {
+                attention: "capped".into(),
+                message: Some("resets in 2h".into()),
+            }),
+        )
+        .await
+        .into_response();
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+
+        let ws = state.workspace.lock().unwrap();
+        let updated = ws.as_ref().unwrap().metadata.read_session(&created_id).unwrap();
+        assert_eq!(updated.summary, None, "capped hint must not land in the generic summary field");
+        drop(ws);
+
+        let sessions = state.sessions.lock().unwrap();
+        assert_eq!(
+            sessions[&created_id].info.usage_limit_reset_hint.as_deref(),
+            Some("resets in 2h"),
+        );
+        drop(sessions);
+
+        assert_eq!(
+            delete_session(State(state), Path(created_id)).await.into_response().status(),
+            axum::http::StatusCode::OK
+        );
+    }
+
+    #[tokio::test]
+    async fn debug_injected_capped_hint_survives_list_sessions_refresh() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        {
+            let mut harnesses = state.harnesses.write().await;
+            *harnesses = crate::harness_registry::builtin_harness_configs();
+        }
+
+        let response = create_session(
+            State(state.clone()),
+            Json(CreateSessionRequest {
+                harness_id: Some("generic-shell".into()),
+                model: None,
+                initial_prompt: None,
+            }),
+        )
+        .await
+        .into_response();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let created_id = serde_json::from_slice::<serde_json::Value>(&bytes)
+            .unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+
+        let response = apply_debug_attention(
+            State(state.clone()),
+            Path(created_id.clone()),
+            Json(DebugAttentionRequest {
+                attention: "capped".into(),
+                message: Some("resets in 2h".into()),
+            }),
+        )
+        .await
+        .into_response();
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+
+        // The bug this guards against: list_sessions used to unconditionally
+        // recompute usage_limit_reset_hint from live terminal-output
+        // scanning, discarding the debug-injected value on the very next
+        // poll since a generic-shell session has no real usage-limit text
+        // in its terminal output to detect.
+        let response = list_sessions(State(state.clone())).await.into_response();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let sessions: Vec<serde_json::Value> = serde_json::from_slice(&bytes).unwrap();
+        let session = sessions
+            .iter()
+            .find(|s| s.get("id").and_then(|v| v.as_str()) == Some(created_id.as_str()))
+            .expect("created session should be listed");
+        assert_eq!(
+            session.get("usageLimitResetHint").and_then(|v| v.as_str()),
+            Some("resets in 2h"),
+            "debug-injected capped hint must survive a list_sessions refresh"
+        );
+
+        assert_eq!(
+            delete_session(State(state), Path(created_id)).await.into_response().status(),
+            axum::http::StatusCode::OK
+        );
+    }
+
+    #[tokio::test]
+    async fn debug_injection_off_capped_clears_stale_reset_hint() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        {
+            let mut harnesses = state.harnesses.write().await;
+            *harnesses = crate::harness_registry::builtin_harness_configs();
+        }
+
+        let response = create_session(
+            State(state.clone()),
+            Json(CreateSessionRequest {
+                harness_id: Some("generic-shell".into()),
+                model: None,
+                initial_prompt: None,
+            }),
+        )
+        .await
+        .into_response();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let created_id = serde_json::from_slice::<serde_json::Value>(&bytes)
+            .unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+
+        let response = apply_debug_attention(
+            State(state.clone()),
+            Path(created_id.clone()),
+            Json(DebugAttentionRequest {
+                attention: "capped".into(),
+                message: Some("resets in 2h".into()),
+            }),
+        )
+        .await
+        .into_response();
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+
+        // The bug this guards against: apply_debug_attention only ever SET
+        // usage_limit_reset_hint on a capped injection; it never cleared it
+        // on a later non-capped injection, so the stale hint survived
+        // indefinitely -- and would keep feeding the cross-session harness
+        // reset-hint propagation in list_sessions even after this session
+        // moved off "capped".
+        let response = apply_debug_attention(
+            State(state.clone()),
+            Path(created_id.clone()),
+            Json(DebugAttentionRequest { attention: "working".into(), message: None }),
+        )
+        .await
+        .into_response();
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+
+        let sessions = state.sessions.lock().unwrap();
+        assert_eq!(
+            sessions[&created_id].info.usage_limit_reset_hint, None,
+            "moving debug attention off capped must clear the stale reset hint",
+        );
+        drop(sessions);
+
+        let response = list_sessions(State(state.clone())).await.into_response();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let sessions: Vec<serde_json::Value> = serde_json::from_slice(&bytes).unwrap();
+        let session = sessions
+            .iter()
+            .find(|s| s.get("id").and_then(|v| v.as_str()) == Some(created_id.as_str()))
+            .expect("created session should be listed");
+        assert_eq!(
+            session.get("usageLimitResetHint"),
+            None,
+            "list_sessions must not surface a stale hint once attention is off capped"
+        );
+
+        assert_eq!(
+            delete_session(State(state), Path(created_id)).await.into_response().status(),
+            axum::http::StatusCode::OK
+        );
+    }
+
+    #[tokio::test]
+    async fn apply_debug_attention_capped_without_message_does_not_clear_existing_hint() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        {
+            let mut harnesses = state.harnesses.write().await;
+            *harnesses = crate::harness_registry::builtin_harness_configs();
+        }
+
+        let response = create_session(
+            State(state.clone()),
+            Json(CreateSessionRequest {
+                harness_id: Some("generic-shell".into()),
+                model: None,
+                initial_prompt: None,
+            }),
+        )
+        .await
+        .into_response();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let created_id = serde_json::from_slice::<serde_json::Value>(&bytes)
+            .unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+
+        // A real capacity hint is already present, as if genuine harness capacity
+        // detection had set it before the debug picker was ever touched.
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            sessions.get_mut(&created_id).unwrap().info.usage_limit_reset_hint =
+                Some("resets in 45m".into());
+        }
+
+        let response = apply_debug_attention(
+            State(state.clone()),
+            Path(created_id.clone()),
+            Json(DebugAttentionRequest { attention: "capped".into(), message: None }),
+        )
+        .await
+        .into_response();
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+
+        let sessions = state.sessions.lock().unwrap();
+        assert_eq!(
+            sessions[&created_id].info.usage_limit_reset_hint.as_deref(),
+            Some("resets in 45m"),
+            "a message-less capped injection must not wipe an existing real hint",
+        );
+        drop(sessions);
+
+        assert_eq!(
+            delete_session(State(state), Path(created_id)).await.into_response().status(),
+            axum::http::StatusCode::OK
+        );
     }
 
     #[tokio::test]
