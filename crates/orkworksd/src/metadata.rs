@@ -6,6 +6,15 @@ use std::path::{Path, PathBuf};
 use tracing::warn;
 
 pub const TERMINAL_OUTPUT_MAX_LINES: usize = 10_000;
+/// A single persisted record can be as large as the partial-persist byte cap
+/// (`MAX_PARTIAL_PERSIST_BYTES` in `runtime::session_runtime`), so the
+/// line-count limit alone cannot bound on-disk size. This byte budget is
+/// enforced alongside it during trim/read.
+pub const TERMINAL_OUTPUT_MAX_BYTES: u64 = 16 * 1024 * 1024;
+/// Trim target sits below the trigger ceiling so a chatty session doesn't
+/// force a full file read+rewrite on nearly every append once it first hits
+/// the ceiling — the headroom absorbs several appends before trim fires again.
+const TERMINAL_OUTPUT_TRIM_TARGET_BYTES: u64 = TERMINAL_OUTPUT_MAX_BYTES * 3 / 4;
 
 fn default_connectivity() -> String {
     "online".into()
@@ -1164,12 +1173,13 @@ impl MetadataStore {
                 return;
             }
         }
-        // Inline trim when the file exceeds 1.5x max_lines to prevent unbounded growth
-        // during long-running sessions. Only check approximate size via metadata.
+        // Inline trim once the file exceeds the byte budget, checked directly
+        // rather than estimated from line count: a single record can be as
+        // large as the partial-persist byte cap, so a fixed bytes-per-line
+        // estimate cannot bound worst-case on-disk size.
         let len_hint = file.metadata().map(|m| m.len()).unwrap_or(0);
         drop(file);
-        // Rough estimate: 100 bytes per line, so 1.5x MAX_LINES ≈ 150 * MAX_LINES bytes
-        if len_hint > (TERMINAL_OUTPUT_MAX_LINES as u64 * 150) {
+        if len_hint > TERMINAL_OUTPUT_MAX_BYTES {
             let _ = self.trim_terminal_output(id, TERMINAL_OUTPUT_MAX_LINES);
         }
     }
@@ -1181,7 +1191,7 @@ impl MetadataStore {
             Err(_) => return Vec::new(),
         };
         let all: Vec<&str> = data.lines().collect();
-        let start = if all.len() > max_lines { all.len() - max_lines } else { 0 };
+        let start = terminal_output_retain_start(&all, max_lines, TERMINAL_OUTPUT_MAX_BYTES);
         all[start..].iter().map(|s| s.to_string()).collect()
     }
 
@@ -1192,15 +1202,29 @@ impl MetadataStore {
             Err(_) => return,
         };
         let all: Vec<&str> = data.lines().collect();
-        if all.len() <= max_lines {
+        let start = terminal_output_retain_start(&all, max_lines, TERMINAL_OUTPUT_TRIM_TARGET_BYTES);
+        if start == 0 {
             return;
         }
-        let start = all.len() - max_lines;
         match fs::write(&path, all[start..].join("\n") + "\n") {
             Ok(_) => {}
             Err(e) => warn!("failed to trim terminal output for {id}: {e}"),
         }
     }
+}
+
+/// Index of the first line to keep, applying the line-count limit first and
+/// then dropping further from the front (oldest) until the retained lines
+/// also fit the byte budget. Trims whole lines only, so retained content
+/// stays valid UTF-8 and replayable.
+fn terminal_output_retain_start(all: &[&str], max_lines: usize, max_bytes: u64) -> usize {
+    let mut start = all.len().saturating_sub(max_lines);
+    let mut kept_bytes: u64 = all[start..].iter().map(|line| line.len() as u64 + 1).sum();
+    while kept_bytes > max_bytes && start < all.len() {
+        kept_bytes -= all[start].len() as u64 + 1;
+        start += 1;
+    }
+    start
 }
 
 #[cfg(test)]
@@ -2114,6 +2138,77 @@ mod tests {
         let store = MetadataStore::new(dir.path());
         let lines = store.read_terminal_output("nonexistent", 50);
         assert!(lines.is_empty());
+    }
+
+    #[test]
+    fn terminal_output_retain_start_prefers_byte_budget_over_line_count() {
+        // Large records (as produced by the 64 KiB partial-persist cap) must
+        // trim on byte budget even when well under the line-count limit.
+        let big = "x".repeat(1024);
+        let all: Vec<&str> = vec![big.as_str(); 20];
+
+        let start = terminal_output_retain_start(&all, 10_000, 10 * 1024);
+        assert!(start > 0, "byte budget should trim even though line count is far under max_lines");
+        let kept_bytes: u64 = all[start..].iter().map(|l| l.len() as u64 + 1).sum();
+        assert!(kept_bytes <= 10 * 1024);
+    }
+
+    #[test]
+    fn terminal_output_retain_start_keeps_everything_under_both_budgets() {
+        let all: Vec<&str> = vec!["short"; 5];
+        let start = terminal_output_retain_start(&all, 10_000, TERMINAL_OUTPUT_MAX_BYTES);
+        assert_eq!(start, 0);
+    }
+
+    #[test]
+    fn terminal_output_trim_enforces_byte_budget_for_large_records() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+
+        // 300 records of ~64 KiB each (~19 MiB total) is far under the
+        // 10,000-line cap but exceeds TERMINAL_OUTPUT_MAX_BYTES (16 MiB),
+        // so only the byte budget can bound this on disk.
+        let record_count = 300;
+        let big_record = "x".repeat(64 * 1024);
+        let lines: Vec<String> = (0..record_count).map(|i| format!("{big_record}-{i}")).collect();
+        store.append_terminal_output_lines("big-session", &lines);
+
+        store.trim_terminal_output("big-session", TERMINAL_OUTPUT_MAX_LINES);
+
+        let path = dir.path().join("events").join("big-session.terminal");
+        let on_disk_bytes = fs::metadata(&path).unwrap().len();
+        assert!(
+            on_disk_bytes <= TERMINAL_OUTPUT_MAX_BYTES,
+            "on-disk terminal history ({on_disk_bytes} bytes) must respect the byte budget"
+        );
+
+        let remaining = store.read_terminal_output("big-session", TERMINAL_OUTPUT_MAX_LINES);
+        assert!(
+            remaining.len() < record_count,
+            "byte budget should have dropped some of the {record_count} oversized records"
+        );
+        assert_eq!(remaining.last().unwrap(), &format!("{big_record}-{}", record_count - 1));
+    }
+
+    #[test]
+    fn terminal_output_trim_leaves_headroom_below_byte_ceiling() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+
+        // Many small lines pushing well past the byte ceiling, simulating a
+        // chatty session that keeps emitting output after trim first fires.
+        let line = "y".repeat(200);
+        let line_count = (TERMINAL_OUTPUT_MAX_BYTES as usize / line.len()) + 1000;
+        let lines: Vec<String> = (0..line_count).map(|i| format!("{line}-{i}")).collect();
+        store.append_terminal_output_lines("chatty-session", &lines);
+
+        let path = dir.path().join("events").join("chatty-session.terminal");
+        let on_disk_bytes = fs::metadata(&path).unwrap().len();
+        assert!(
+            on_disk_bytes <= TERMINAL_OUTPUT_TRIM_TARGET_BYTES,
+            "trim should leave headroom below the byte ceiling so the next small \
+             append doesn't immediately retrigger a full rewrite, got {on_disk_bytes} bytes"
+        );
     }
 
     #[test]
