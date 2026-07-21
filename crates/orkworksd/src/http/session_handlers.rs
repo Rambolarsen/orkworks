@@ -381,6 +381,8 @@ pub(crate) async fn resume_session(
                 status: "running".into(),
                 observed_status: None,
                 confidence: None,
+                summary: None,
+                source: None,
             });
         }
     }
@@ -476,27 +478,45 @@ pub(crate) async fn report_attention(
     }
 
     let now = iso_now();
-    let result = {
-        let ws_guard = state.workspace.lock().unwrap();
+    let persist_state = state.clone();
+    let persist_id = id.clone();
+    let persist_status = status.clone();
+    let message = req.message.clone();
+    let result = match tokio::task::spawn_blocking(move || {
+        let ws_guard = persist_state.workspace.lock().unwrap();
         let Some(ref ws) = *ws_guard else {
-            return axum::http::StatusCode::CONFLICT.into_response();
+            return Err(axum::http::StatusCode::CONFLICT);
         };
-        ws.metadata
-            .merge_agent_attention_signal(&id, &status, req.message.as_deref(), &now, "agent", 1.0)
-    };
-
-    match result {
-        metadata::AttentionMergeResult::Accepted => {
-            if let Some(handle) = state.sessions.lock().unwrap().get_mut(&id) {
-                handle.info.observed_status = Some(status.clone());
+        let result = ws.metadata.merge_agent_attention_signal(
+            &persist_id, &persist_status, message.as_deref(), &now, "agent", 1.0,
+        );
+        if result == metadata::AttentionMergeResult::Accepted {
+            // Global lock order for combined metadata/live updates is workspace -> sessions.
+            // Other paths release either lock before acquiring the other.
+            if let Some(handle) = persist_state.sessions.lock().unwrap().get_mut(&persist_id) {
+                handle.info.observed_status = Some(persist_status.clone());
                 if handle.info.lifecycle == "alive" {
-                    handle.info.attention = metadata::canonical_attention(Some(status.as_str()));
+                    handle.info.attention = metadata::canonical_attention(Some(persist_status.as_str()));
+                }
+                if let Some(message) = message.as_ref() {
+                    handle.info.summary = Some(message.clone());
                 }
                 handle.info.metadata_source = Some("agent".into());
                 handle.info.metadata_confidence = Some(1.0);
             }
-            axum::http::StatusCode::OK.into_response()
         }
+        Ok(result)
+    }).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(status)) => return status.into_response(),
+        Err(error) => {
+            tracing::error!(error = %error, "attention metadata task failed");
+            return axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+
+    match result {
+        metadata::AttentionMergeResult::Accepted => axum::http::StatusCode::OK.into_response(),
         metadata::AttentionMergeResult::Ignored => axum::http::StatusCode::OK.into_response(),
         metadata::AttentionMergeResult::NotFound => axum::http::StatusCode::NOT_FOUND.into_response(),
         // The signal was lost, not delivered — a 200 here would tell the
@@ -530,59 +550,70 @@ pub(crate) async fn apply_debug_attention(
     // path stores `observed_status` and derives `attention` from it via
     // canonical_attention. Every value round-trips as a passthrough except
     // needs_you, which canonical_attention only produces from waiting_for_input.
-    let observed_status = if req.attention == "needs_you" { "waiting_for_input" } else { &req.attention };
+    let observed_status = if req.attention == "needs_you" {
+        "waiting_for_input".to_string()
+    } else {
+        req.attention.clone()
+    };
     let is_capped = req.attention == "capped";
-    let summary_message = if is_capped { None } else { req.message.as_deref() };
+    let summary_message = if is_capped { None } else { req.message.clone() };
 
     let now = iso_now();
-    let result = {
-        let ws_guard = state.workspace.lock().unwrap();
+    let persist_state = state.clone();
+    let persist_id = id.clone();
+    let persist_status = observed_status.clone();
+    let persist_attention = req.attention.clone();
+    let persist_message = req.message.clone();
+    let result = match tokio::task::spawn_blocking(move || {
+        let ws_guard = persist_state.workspace.lock().unwrap();
         let Some(ref ws) = *ws_guard else {
-            return axum::http::StatusCode::CONFLICT.into_response();
+            return Err(axum::http::StatusCode::CONFLICT);
         };
-        match ws.metadata.read_session(&id) {
-            None => return axum::http::StatusCode::NOT_FOUND.into_response(),
+        match ws.metadata.read_session(&persist_id) {
+            None => return Err(axum::http::StatusCode::NOT_FOUND),
             Some(meta) if meta.lifecycle != "alive" => {
-                return axum::http::StatusCode::BAD_REQUEST.into_response();
+                return Err(axum::http::StatusCode::BAD_REQUEST);
             }
             Some(_) => {}
         }
-        ws.metadata.merge_agent_attention_signal(
-            &id,
-            observed_status,
-            summary_message,
-            &now,
-            "debug",
-            0.0,
-        )
-    };
-
-    match result {
-        metadata::AttentionMergeResult::Accepted => {
-            if let Some(handle) = state.sessions.lock().unwrap().get_mut(&id) {
-                handle.info.observed_status = Some(observed_status.to_string());
+        let result = ws.metadata.merge_agent_attention_signal(
+            &persist_id, &persist_status, summary_message.as_deref(), &now, "debug", 0.0,
+        );
+        if result == metadata::AttentionMergeResult::Accepted {
+            // Keep persistence and registry convergence in the workspace-serialized order.
+            if let Some(handle) = persist_state.sessions.lock().unwrap().get_mut(&persist_id) {
+                handle.info.observed_status = Some(persist_status.clone());
                 if handle.info.lifecycle == "alive" {
-                    handle.info.attention = Some(req.attention.clone());
+                    handle.info.attention = Some(persist_attention.clone());
+                }
+                if let Some(message) = summary_message.as_ref() {
+                    handle.info.summary = Some(message.clone());
                 }
                 handle.info.metadata_source = Some("debug".into());
                 handle.info.metadata_confidence = Some(0.0);
                 if is_capped {
-                    if req.message.is_some() {
-                        handle.info.usage_limit_reset_hint = req.message.clone();
+                    if persist_message.is_some() {
+                        handle.info.usage_limit_reset_hint = persist_message.clone();
                     }
                 } else {
-                    // A debug injection that moves attention off "capped"
-                    // must not leave a stale reset hint behind — it would
-                    // otherwise survive indefinitely (list_sessions only
-                    // recomputes this field from live output for non-debug
-                    // sources) and leak into other sessions on the same
-                    // harness via the cross-session capacity propagation
-                    // below.
+                    // Moving off capped must not leave a stale reset hint that
+                    // can propagate to other live sessions on the harness.
                     handle.info.usage_limit_reset_hint = None;
                 }
             }
-            axum::http::StatusCode::OK.into_response()
         }
+        Ok(result)
+    }).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(status)) => return status.into_response(),
+        Err(error) => {
+            tracing::error!(error = %error, "debug attention metadata task failed");
+            return axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+
+    match result {
+        metadata::AttentionMergeResult::Accepted => axum::http::StatusCode::OK.into_response(),
         metadata::AttentionMergeResult::Ignored => axum::http::StatusCode::OK.into_response(),
         metadata::AttentionMergeResult::NotFound => axum::http::StatusCode::NOT_FOUND.into_response(),
         metadata::AttentionMergeResult::PersistFailed => {
@@ -893,6 +924,8 @@ pub(crate) async fn create_session(
             status: "running".into(),
             observed_status: None,
             confidence: None,
+            summary: None,
+            source: None,
         });
     }
     drop(ws_guard);
@@ -1299,6 +1332,44 @@ mod tests {
     use super::*;
     use crate::test_support::*;
     use crate::runtime::terminal_runtime::set_session_status;
+    use std::future::Future;
+    use std::pin::Pin;
+    use std::task::{Context, Poll, Wake, Waker};
+
+    struct NoopWake;
+
+    impl Wake for NoopWake {
+        fn wake(self: Arc<Self>) {}
+    }
+
+    fn poll_once<F: Future>(future: Pin<&mut F>) -> Poll<F::Output> {
+        let waker = Waker::from(Arc::new(NoopWake));
+        future.poll(&mut Context::from_waker(&waker))
+    }
+
+    async fn wait_for_persisted_attention(
+        state: &Arc<AppState>,
+        id: &str,
+        observed_status: &str,
+        source: &str,
+        summary: &str,
+    ) {
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                let persisted = {
+                    let ws = state.workspace.lock().unwrap();
+                    ws.as_ref().unwrap().metadata.read_session(id).unwrap()
+                };
+                if persisted.observed_status.as_deref() == Some(observed_status)
+                    && persisted.metadata_source == source
+                    && persisted.summary.as_deref() == Some(summary)
+                {
+                    return;
+                }
+                tokio::task::yield_now().await;
+            }
+        }).await.expect("attention persistence did not reach the barrier");
+    }
 
     fn attention_test_handle(id: &str, cwd: &std::path::Path) -> SessionHandle {
         let (kill_tx, _) = tokio::sync::watch::channel(false);
@@ -1891,6 +1962,131 @@ mod tests {
         let updated = ws.as_ref().unwrap().metadata.read_session("attention-known").unwrap();
         assert_eq!(updated.observed_status.as_deref(), Some("waiting_for_input"));
         assert_eq!(updated.metadata_source, "agent");
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn report_attention_metadata_io_does_not_block_tokio_worker() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        {
+            let ws = state.workspace.lock().unwrap();
+            let mut meta = test_session_metadata(
+                "attention-nonblocking", "Known", dir.path().display().to_string(),
+                "running", "now", "now",
+            );
+            meta.lifecycle = "alive".into();
+            ws.as_ref().unwrap().metadata.write_session(&meta);
+        }
+
+        let (locked_tx, locked_rx) = std::sync::mpsc::sync_channel(1);
+        let locked_state = state.clone();
+        let locker = std::thread::spawn(move || {
+            let _guard = locked_state.workspace.lock().unwrap();
+            locked_tx.send(()).unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(250));
+        });
+        locked_rx.recv().unwrap();
+
+        let request_state = state.clone();
+        let response = tokio::spawn(async move {
+            report_attention(
+                State(request_state),
+                Path("attention-nonblocking".into()),
+                Json(AttentionReportRequest {
+                    status: "blocked".into(),
+                    message: Some("Waiting".into()),
+                }),
+            ).await.into_response()
+        });
+        let started = std::time::Instant::now();
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        assert!(
+            started.elapsed() < std::time::Duration::from_millis(100),
+            "Tokio worker was blocked for {:?}", started.elapsed()
+        );
+
+        assert_eq!(response.await.unwrap().status(), axum::http::StatusCode::OK);
+        locker.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn concurrent_agent_attention_keeps_registry_at_latest_persisted_update() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let id = "agent-order";
+        {
+            let ws = state.workspace.lock().unwrap();
+            let mut meta = test_session_metadata(id, "Known", dir.path().display().to_string(), "running", "now", "now");
+            meta.lifecycle = "alive".into();
+            meta.lifecycle_phase = "active".into();
+            ws.as_ref().unwrap().metadata.write_session(&meta);
+        }
+        state.sessions.lock().unwrap().insert(id.into(), attention_test_handle(id, dir.path()));
+
+        let mut first = Box::pin(report_attention(
+            State(state.clone()), Path(id.into()), Json(AttentionReportRequest {
+                status: "waiting_for_input".into(), message: Some("A".into()),
+            }),
+        ));
+        assert!(poll_once(first.as_mut()).is_pending());
+        wait_for_persisted_attention(&state, id, "waiting_for_input", "agent", "A").await;
+
+        let second = report_attention(
+            State(state.clone()), Path(id.into()), Json(AttentionReportRequest {
+                status: "blocked".into(), message: Some("B".into()),
+            }),
+        ).await.into_response();
+        assert_eq!(second.status(), axum::http::StatusCode::OK);
+        assert_eq!(first.await.into_response().status(), axum::http::StatusCode::OK);
+
+        let persisted = state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(id).unwrap();
+        let live = state.sessions.lock().unwrap()[id].info.clone();
+        assert_eq!(persisted.observed_status.as_deref(), Some("blocked"));
+        assert_eq!(persisted.metadata_source, "agent");
+        assert_eq!(persisted.summary.as_deref(), Some("B"));
+        assert_eq!(live.observed_status.as_deref(), persisted.observed_status.as_deref());
+        assert_eq!(live.metadata_source.as_deref(), Some(persisted.metadata_source.as_str()));
+        assert_eq!(live.summary.as_deref(), persisted.summary.as_deref());
+    }
+
+    #[tokio::test]
+    async fn concurrent_debug_attention_keeps_registry_at_latest_persisted_update() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let id = "debug-order";
+        {
+            let ws = state.workspace.lock().unwrap();
+            let mut meta = test_session_metadata(id, "Known", dir.path().display().to_string(), "running", "now", "now");
+            meta.lifecycle = "alive".into();
+            meta.lifecycle_phase = "active".into();
+            ws.as_ref().unwrap().metadata.write_session(&meta);
+        }
+        state.sessions.lock().unwrap().insert(id.into(), attention_test_handle(id, dir.path()));
+
+        let mut first = Box::pin(apply_debug_attention(
+            State(state.clone()), Path(id.into()), Json(DebugAttentionRequest {
+                attention: "failed".into(), message: Some("A".into()),
+            }),
+        ));
+        assert!(poll_once(first.as_mut()).is_pending());
+        wait_for_persisted_attention(&state, id, "failed", "debug", "A").await;
+
+        let second = apply_debug_attention(
+            State(state.clone()), Path(id.into()), Json(DebugAttentionRequest {
+                attention: "blocked".into(), message: Some("B".into()),
+            }),
+        ).await.into_response();
+        assert_eq!(second.status(), axum::http::StatusCode::OK);
+        assert_eq!(first.await.into_response().status(), axum::http::StatusCode::OK);
+
+        let persisted = state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(id).unwrap();
+        let live = state.sessions.lock().unwrap()[id].info.clone();
+        assert_eq!(persisted.observed_status.as_deref(), Some("blocked"));
+        assert_eq!(persisted.metadata_source, "debug");
+        assert_eq!(persisted.summary.as_deref(), Some("B"));
+        assert_eq!(live.observed_status.as_deref(), persisted.observed_status.as_deref());
+        assert_eq!(live.metadata_source.as_deref(), Some(persisted.metadata_source.as_str()));
+        assert_eq!(live.summary.as_deref(), persisted.summary.as_deref());
     }
 
     #[tokio::test]

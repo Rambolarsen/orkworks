@@ -527,6 +527,8 @@ pub(crate) fn set_session_status(state: &Arc<AppState>, id: &str, status: &str) 
                 status: status.to_string(),
                 observed_status: None,
                 confidence: None,
+                summary: None,
+                source: None,
             });
         }
     }
@@ -599,6 +601,8 @@ pub(crate) fn complete_session_ending(
                     status: pending.clone(),
                     observed_status: final_snapshot.value.clone(),
                     confidence: final_snapshot.confidence,
+                    summary: None,
+                    source: None,
                 });
                 final_status = Some(pending);
             }

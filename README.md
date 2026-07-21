@@ -31,6 +31,7 @@ orkworks/
 - ADR 0023 defines the target runtime lifecycle as `creating → alive → stopping → dead`, with live attention only while a session is alive. The current implementation retains the earlier lifecycle vocabulary until that migration lands (see [ADR 0023](docs/adr/0023-simplified-session-lifecycle.md))
 - Lifecycle transitions remain metadata-driven; the previously unwired domain aggregate was removed, with a future typed state-machine tracked in [issue #181](https://github.com/Rambolarsen/orkworks/issues/181) (see [ADR 0021](docs/adr/0021-session-lifecycle-phases.md)).
 - PTY lifetime is owned by the Rust sidecar session runtime rather than by a renderer WebSocket; active work survives terminal detach while `orkworksd` stays alive (see [ADR 0022](docs/adr/0022-session-runtime-owned-pty-lifetime.md))
+- Raw terminal replay is bounded to the newest 1,000 lines and 1 MiB, while accepted session summaries are retained as durable checkpoints (see [ADR 0024](docs/adr/0024-bounded-terminal-replay-durable-summary-checkpoints.md))
 - Taskmaster consumes Peon reports and workspace context to propose the next session or user action
 - PTY handles only text I/O; voice (native harness) bypasses PTY entirely
 
@@ -39,7 +40,8 @@ orkworks/
 All metadata lives under `~/.orkworks/` (see [ADR 0018](docs/adr/0018-global-metadata-store.md)). Per-workspace data is keyed by a hash of the workspace path:
 
 - `~/.orkworks/workspaces/<hash>/sessions/<id>.json` — session state
-- `~/.orkworks/workspaces/<hash>/events/<id>.ndjson` — append-only event log
+- `~/.orkworks/workspaces/<hash>/events/<id>.ndjson` — append-only event log with durable, exact consecutive-deduplicated summary checkpoints and accepted provenance
+- `~/.orkworks/workspaces/<hash>/events/<id>.terminal` — recent raw terminal replay, bounded on append to the newest 1,000 lines and 1 MiB; existing oversized dormant files remain unchanged until their next append
 - `~/.orkworks/workspaces/<hash>/capacity/<id>.json` — capacity per model/harness
 - `~/.orkworks/workspaces/<hash>/recommendations/<id>.json` — Taskmaster recommendation state and history
 - `~/.orkworks/workspaces/<hash>/workspace.json` — workspace memory, including the last active session
@@ -49,6 +51,7 @@ All metadata lives under `~/.orkworks/` (see [ADR 0018](docs/adr/0018-global-met
 - Current session records expose the canonical `creating → alive → stopping → dead` lifecycle. Only alive sessions have attention: `working`, `idle`, `needs_you`, `blocked`, `failed`, or `capped`.
 - Peon reads terminal output, writes inferred metadata, never types into terminals
 - Harnesses can write deterministic attention signals at `agent` priority via `POST /sessions/:id/attention`; installation is explicit and user-confirmed only ([ADR 0019](docs/adr/0019-attention-signal-endpoint-opt-in-hook-install.md))
+- The backend-only `GET /sessions/:id/summary-log` returns checkpoints in append order as `{entries: [{timestamp, summary, source, confidence}]}`; `confidence` is nullable and missing data returns `{entries: []}`. No renderer or preload consumer exists yet.
 - Taskmaster proposes cross-session transitions; every v1 transition requires explicit user approval
 
 ## Setup
