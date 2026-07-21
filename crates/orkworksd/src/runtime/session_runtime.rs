@@ -661,7 +661,8 @@ pub(crate) async fn start_session_runtime(
                                     for raw in &raw_persist_lines {
                                         let trimmed = raw.trim();
                                         if !trimmed.is_empty() {
-                                            handle.output_buffer.push(trimmed.to_string());
+                                            handle.runtime.peon_output_revision =
+                                                handle.output_buffer.push(trimmed.to_string());
                                         }
                                     }
                                     handle.output_lines_seen += raw_persist_lines.len() as u64;

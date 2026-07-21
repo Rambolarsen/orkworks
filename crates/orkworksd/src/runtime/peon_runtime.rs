@@ -2,6 +2,12 @@ use crate::workspace_runtime::iso_now;
 use crate::{peon, providers, AppState};
 use std::sync::Arc;
 
+#[derive(Clone, Copy)]
+enum InferenceMode {
+    Output,
+    InputLabel,
+}
+
 pub(crate) async fn peon_loop(state: Arc<AppState>) {
     let interval = state.peon.config.interval_secs;
     tracing::info!(interval_secs = interval, harness = %state.peon.config.harness, "peon started");
@@ -16,7 +22,7 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
         let pending: Vec<String> = state.peon.label_pending.write().unwrap().drain().collect();
 
         // Sessions with new output that has gone silent
-        let mut candidates: Vec<String> = {
+        let mut candidates: Vec<(String, InferenceMode)> = {
             let last_output = state.peon.last_output.read().unwrap();
             let in_flight = state.peon.in_flight.read().unwrap();
             let sessions = state.sessions.lock().unwrap();
@@ -27,20 +33,28 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                         && !in_flight.contains(*id)
                         && sessions
                             .get(*id)
-                            .map(|handle| handle.info.lifecycle_phase == "active")
+                            .map(|handle| {
+                                handle.info.lifecycle_phase == "active"
+                                    && !handle
+                                        .output_buffer
+                                        .snapshot_after(handle.runtime.min_peon_output_revision)
+                                        .is_empty()
+                            })
                             .unwrap_or(false)
                 })
-                .map(|(id, _)| id.clone())
+                .map(|(id, _)| (id.clone(), InferenceMode::Output))
                 .collect()
         };
 
         for id in pending {
-            if !state.peon.in_flight.read().unwrap().contains(&id) && !candidates.contains(&id) {
-                candidates.push(id);
+            if !state.peon.in_flight.read().unwrap().contains(&id)
+                && !candidates.iter().any(|(candidate_id, _)| candidate_id == &id)
+            {
+                candidates.push((id, InferenceMode::InputLabel));
             }
         }
 
-        for session_id in candidates {
+        for (session_id, mode) in candidates {
             {
                 let mut in_flight = state.peon.in_flight.write().unwrap();
                 if !in_flight.insert(session_id.clone()) {
@@ -48,11 +62,15 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                 }
             }
 
-            let hint = state.peon.label_hint.write().unwrap().remove(&session_id);
             let output_snapshot = {
                 let sessions = state.sessions.lock().unwrap();
                 match sessions.get(&session_id) {
-                    Some(handle) => handle.output_buffer.snapshot(),
+                    Some(handle) => match mode {
+                        InferenceMode::Output => handle
+                            .output_buffer
+                            .snapshot_after(handle.runtime.min_peon_output_revision),
+                        InferenceMode::InputLabel => Vec::new(),
+                    },
                     None => {
                         state.peon.in_flight.write().unwrap().remove(&session_id);
                         continue;
@@ -60,24 +78,37 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                 }
             };
 
+            let hint = (matches!(mode, InferenceMode::InputLabel))
+                .then(|| state.peon.label_hint.write().unwrap().remove(&session_id))
+                .flatten();
             if output_snapshot.is_empty() && hint.is_none() {
                 state.peon.in_flight.write().unwrap().remove(&session_id);
                 continue;
             }
 
-            let output_snapshot = if let Some(ref h) = hint {
-                let mut lines = vec![format!("[User input]: {}", h)];
-                lines.extend(output_snapshot);
-                lines
-            } else {
-                output_snapshot
-            };
+            let output_snapshot = hint
+                .as_ref()
+                .map(|h| vec![format!("[User input]: {}", h)])
+                .unwrap_or(output_snapshot);
 
             let state_clone = state.clone();
             let id = session_id.clone();
 
             tokio::task::spawn_blocking(move || {
                 let provider_result = state_clone.providers.run_inference(providers::PeonScope::Session, &output_snapshot);
+                if matches!(mode, InferenceMode::InputLabel) {
+                    if let Some(label) = provider_result
+                        .inference
+                        .and_then(|inference| inference.summary)
+                        .map(|summary| summary.chars().take(100).collect::<String>())
+                    {
+                        if let Some(handle) = state_clone.sessions.lock().unwrap().get_mut(&id) {
+                            handle.info.label = label;
+                        }
+                    }
+                    state_clone.peon.in_flight.write().unwrap().remove(&id);
+                    return;
+                }
                 let inference = provider_result.inference;
                 let now_iso = iso_now();
 
