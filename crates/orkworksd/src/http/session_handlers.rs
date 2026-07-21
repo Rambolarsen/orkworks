@@ -913,9 +913,13 @@ where
 
     let mut contexts: HashMap<String, git::GitContext> = HashMap::new();
     for info in infos {
-        let ctx = contexts
-            .entry(info.cwd.clone())
-            .or_insert_with(|| detect_git(std::path::Path::new(&info.cwd)));
+        if !contexts.contains_key(&info.cwd) {
+            contexts.insert(
+                info.cwd.clone(),
+                detect_git(std::path::Path::new(&info.cwd)),
+            );
+        }
+        let ctx = &contexts[&info.cwd];
         let count = cwd_counts.get(&info.cwd).copied().unwrap_or(1);
         info.recommendation = session_recommendation(ctx, count);
         info.repo_root = ctx.repo_root.clone();
