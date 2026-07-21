@@ -738,6 +738,8 @@ struct SummaryCheckpointCacheEntry {
 pub struct MetadataStore {
     root: PathBuf,
     summary_checkpoints: Mutex<HashMap<String, SummaryCheckpointCacheEntry>>,
+    #[cfg(test)]
+    after_event_write: Mutex<Option<Box<dyn Fn(&Path) + Send>>>,
 }
 
 impl MetadataStore {
@@ -745,6 +747,8 @@ impl MetadataStore {
         Self {
             root: root.to_path_buf(),
             summary_checkpoints: Mutex::new(HashMap::new()),
+            #[cfg(test)]
+            after_event_write: Mutex::new(None),
         }
     }
 
@@ -935,6 +939,10 @@ impl MetadataStore {
                     if let Err(e) = writeln!(file, "{json}") {
                         warn!("failed to write event to {id}: {e}");
                     } else {
+                        #[cfg(test)]
+                        if let Some(hook) = self.after_event_write.lock().unwrap().as_ref() {
+                            hook(&path);
+                        }
                         self.update_summary_checkpoint_cache_after_append(
                             id,
                             event,
@@ -975,16 +983,6 @@ impl MetadataStore {
             self.summary_checkpoints.lock().unwrap().remove(id);
             return;
         };
-        let checkpoint = event.summary.as_ref().filter(|_| event.source.is_some()).cloned();
-        let mut cache = self.summary_checkpoints.lock().unwrap();
-        if let Some(latest) = checkpoint {
-            cache.insert(id.to_string(), SummaryCheckpointCacheEntry {
-                stamp: after_append,
-                latest: Some(latest),
-            });
-            return;
-        }
-
         let append_was_internal_only = match (&before_append, &after_append) {
             (Some(Some(before)), Some(after)) => {
                 after.len == before.len.saturating_add(appended_bytes)
@@ -992,8 +990,15 @@ impl MetadataStore {
             (Some(None), Some(after)) => after.len == appended_bytes,
             _ => false,
         };
+        let checkpoint = event.summary.as_ref().filter(|_| event.source.is_some()).cloned();
+        let mut cache = self.summary_checkpoints.lock().unwrap();
         if cached_stamp == before_append && append_was_internal_only {
-            if let Some(entry) = cache.get_mut(id) {
+            if let Some(latest) = checkpoint {
+                cache.insert(id.to_string(), SummaryCheckpointCacheEntry {
+                    stamp: after_append,
+                    latest: Some(latest),
+                });
+            } else if let Some(entry) = cache.get_mut(id) {
                 entry.stamp = after_append;
             }
         } else {
@@ -1699,6 +1704,40 @@ mod tests {
         assert_eq!(checkpoints.len(), 2);
         assert_eq!(checkpoints[1].summary.as_deref(), Some("B"));
         assert_eq!(checkpoints[1].source.as_deref(), Some("agent"));
+    }
+
+    #[test]
+    fn external_checkpoint_between_write_and_stamp_invalidates_cache() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let id = "interleaved-checkpoint";
+        store.write_session(&test_metadata(id));
+
+        let external = serde_json::to_string(&Event {
+            event_type: "external.checkpoint".into(), timestamp: "t2".into(), status: "running".into(),
+            observed_status: None, confidence: Some(0.9), summary: Some("B".into()), source: Some("agent".into()),
+        }).unwrap();
+        let injected = Arc::new(AtomicBool::new(false));
+        let injected_for_hook = injected.clone();
+        *store.after_event_write.lock().unwrap() = Some(Box::new(move |path| {
+            if !injected_for_hook.swap(true, Ordering::SeqCst) {
+                writeln!(fs::OpenOptions::new().append(true).open(path).unwrap(), "{external}").unwrap();
+            }
+        }));
+
+        store.merge_peon_inference(
+            id, &peon_inference_with_summary(Some("A"), 0.8), "t1", None,
+        ).unwrap();
+        store.merge_peon_inference(
+            id, &peon_inference_with_summary(Some("A"), 1.0), "t3", None,
+        ).unwrap();
+
+        let summaries: Vec<_> = store.read_events(id).into_iter()
+            .filter_map(|event| event.source.and(event.summary)).collect();
+        assert_eq!(summaries, ["A", "B", "A"]);
     }
 
     #[test]
