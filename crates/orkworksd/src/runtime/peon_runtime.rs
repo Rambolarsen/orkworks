@@ -8,6 +8,15 @@ enum InferenceMode {
     InputLabel,
 }
 
+fn output_inference_is_current(
+    captured_generation: u64,
+    captured_min_revision: u64,
+    current_generation: u64,
+    current_min_revision: u64,
+) -> bool {
+    captured_generation == current_generation && captured_min_revision == current_min_revision
+}
+
 pub(crate) async fn peon_loop(state: Arc<AppState>) {
     let interval = state.peon.config.interval_secs;
     tracing::info!(interval_secs = interval, harness = %state.peon.config.harness, "peon started");
@@ -62,14 +71,20 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                 }
             }
 
-            let output_snapshot = {
+            let (output_snapshot, output_boundary) = {
                 let sessions = state.sessions.lock().unwrap();
                 match sessions.get(&session_id) {
                     Some(handle) => match mode {
-                        InferenceMode::Output => handle
-                            .output_buffer
-                            .snapshot_after(handle.runtime.min_peon_output_revision),
-                        InferenceMode::InputLabel => Vec::new(),
+                        InferenceMode::Output => (
+                            handle
+                                .output_buffer
+                                .snapshot_after(handle.runtime.min_peon_output_revision),
+                            Some((
+                                handle.runtime.input_generation,
+                                handle.runtime.min_peon_output_revision,
+                            )),
+                        ),
+                        InferenceMode::InputLabel => (Vec::new(), None),
                     },
                     None => {
                         state.peon.in_flight.write().unwrap().remove(&session_id);
@@ -109,6 +124,28 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                     state_clone.peon.in_flight.write().unwrap().remove(&id);
                     return;
                 }
+                let ws_guard = state_clone.workspace.lock().unwrap();
+                let active_work_hook = {
+                    let sessions = state_clone.sessions.lock().unwrap();
+                    let Some(handle) = sessions.get(&id) else {
+                        state_clone.peon.in_flight.write().unwrap().remove(&id);
+                        return;
+                    };
+                    let Some((generation, min_revision)) = output_boundary else {
+                        state_clone.peon.in_flight.write().unwrap().remove(&id);
+                        return;
+                    };
+                    if !output_inference_is_current(
+                        generation,
+                        min_revision,
+                        handle.runtime.input_generation,
+                        handle.runtime.min_peon_output_revision,
+                    ) {
+                        state_clone.peon.in_flight.write().unwrap().remove(&id);
+                        return;
+                    }
+                    handle.active_work_hook
+                };
                 let inference = provider_result.inference;
                 let now_iso = iso_now();
 
@@ -119,7 +156,6 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                 );
 
                 if let Some(ref obs) = provider_result.observation {
-                    let ws_guard = state_clone.workspace.lock().unwrap();
                     if let Some(ref ws) = *ws_guard {
                         ws.metadata.persist_provider_context(&id, obs);
                     }
@@ -127,14 +163,8 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
 
                 let mut inference_persisted = false;
                 let mut permanent_hold = false;
+                let mut label_update = None;
                 if let Some(mut inf) = inference {
-                    let active_work_hook = state_clone
-                        .sessions
-                        .lock()
-                        .unwrap()
-                        .get(&id)
-                        .map(|h| h.active_work_hook)
-                        .unwrap_or(false);
                     // Active-hook sessions are hook-authoritative for the working
                     // transition specifically: Peon may still persist summary/label/
                     // etc, but must not be the one to flip observed_status to working
@@ -143,9 +173,8 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                     if active_work_hook && inf.observed_status.as_deref() == Some("working") {
                         inf.observed_status = None;
                     }
-                    // Collect label update while holding workspace lock, then drop before taking sessions.
-                    let label_update: Option<String> = {
-                        let ws_guard = state_clone.workspace.lock().unwrap();
+                    // Collect label update while holding the input-boundary lock.
+                    label_update = {
                         if let Some(ref ws) = *ws_guard {
                             let (should_write, is_permanent) = ws.metadata.read_session(&id)
                                 .map(|m| {
@@ -173,11 +202,13 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                         } else {
                             None
                         }
-                    }; // ws_guard dropped
-                    if let Some(label) = label_update {
-                        if let Some(handle) = state_clone.sessions.lock().unwrap().get_mut(&id) {
-                            handle.info.label = label;
-                        }
+                    };
+                }
+
+                drop(ws_guard);
+                if let Some(label) = label_update {
+                    if let Some(handle) = state_clone.sessions.lock().unwrap().get_mut(&id) {
+                        handle.info.label = label;
                     }
                 }
 
@@ -288,6 +319,11 @@ mod tests {
     use std::sync::{Arc, Mutex, RwLock};
     use std::collections::{HashMap, HashSet};
     use std::sync::atomic::AtomicU16;
+
+    #[test]
+    fn output_inference_generation_is_stale_after_accepted_input() {
+        assert!(!output_inference_is_current(4, 12, 5, 12));
+    }
 
     #[tokio::test]
     async fn test_peon_inference_writes_metadata() {

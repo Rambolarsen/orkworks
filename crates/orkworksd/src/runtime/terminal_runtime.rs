@@ -349,18 +349,15 @@ fn mark_committed_input_working(state: &Arc<AppState>, id: &str) {
         && handle.info.detected_question.is_none()
         && handle.info.suggested_options.is_none()
         && handle.pending_work_signal.is_none();
-    if already_working {
-        drop(sessions);
-        drop(ws_guard);
-        state.peon.last_output.write().unwrap().insert(id.to_string(), tokio::time::Instant::now());
-        return;
-    }
     let Some(next_generation) = handle.runtime.input_generation.checked_add(1) else {
         tracing::warn!(session_id = %id, "input generation overflow");
         return;
     };
     let accepted_at = chrono::Utc::now();
     if ws_guard.is_none() {
+        // A detached test/runtime has no metadata store, so there is no
+        // durable state to diverge from. Keep its live terminal contract
+        // explicit here; workspace-backed sessions take the atomic path below.
         handle.info.observed_status = Some("working".into());
         handle.info.attention = Some("working".into());
         handle.info.metadata_source = Some("process".into());
@@ -369,6 +366,20 @@ fn mark_committed_input_working(state: &Arc<AppState>, id: &str) {
         handle.info.detected_question = None;
         handle.info.suggested_options = None;
         handle.pending_work_signal = None;
+        handle.runtime.input_generation = next_generation;
+        handle.runtime.accepted_input_at = Some(accepted_at);
+        handle.runtime.min_peon_output_revision = handle.runtime.peon_output_revision;
+        drop(sessions);
+        drop(ws_guard);
+        state
+            .peon
+            .last_output
+            .write()
+            .unwrap()
+            .insert(id.to_string(), tokio::time::Instant::now());
+        return;
+    }
+    if already_working {
         handle.runtime.input_generation = next_generation;
         handle.runtime.accepted_input_at = Some(accepted_at);
         handle.runtime.min_peon_output_revision = handle.runtime.peon_output_revision;
@@ -1056,12 +1067,22 @@ mod tests {
     }
 
     #[test]
-    fn already_working_input_skips_redundant_metadata_rewrite() {
+    fn already_working_input_advances_the_invalidation_boundary_without_rewriting_metadata() {
         let session_id = "already-working-skip";
         let (state, _dir) = prompted_session_state(session_id);
         // First input performs the real transition to working.
         record_terminal_input(&state, session_id, "y");
         assert_prompt_is_cleared_as_working(&state, session_id);
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut(session_id).unwrap();
+            handle.runtime.peon_output_revision = 7;
+        }
+        let (generation, accepted_at) = {
+            let sessions = state.sessions.lock().unwrap();
+            let runtime = &sessions[session_id].runtime;
+            (runtime.input_generation, runtime.accepted_input_at)
+        };
 
         // Diverge the on-disk record from memory with a canary value that
         // the "already working" fast path does not check against — if the
@@ -1075,6 +1096,13 @@ mod tests {
         }
 
         record_terminal_input(&state, session_id, "z");
+
+        let sessions = state.sessions.lock().unwrap();
+        let runtime = &sessions[session_id].runtime;
+        assert_eq!(runtime.input_generation, generation + 1);
+        assert!(runtime.accepted_input_at > accepted_at);
+        assert_eq!(runtime.min_peon_output_revision, 7);
+        drop(sessions);
 
         let meta = state.workspace.lock().unwrap().as_ref().unwrap()
             .metadata.read_session(session_id).unwrap();
