@@ -148,6 +148,18 @@ function SessionDetailPanel({ sessions, activeSessionId, onResumeSession, onAppl
             </div>
           )}
 
+          {actionZone.kind === "plan" && (
+            <button
+              className="detail-button detail-button--primary"
+              type="button"
+              onClick={() => void window.orkworks.openPlan(active.id).catch((error: unknown) => {
+                pushToast("error", error instanceof Error ? error.message : "Couldn't open plan.");
+              })}
+            >
+              Open plan
+            </button>
+          )}
+
           {actionZone.kind === "resume" && (
             <>
               {/* Every option resumes via the same call for now — the backend doesn't accept a

@@ -401,6 +401,7 @@ pub(crate) fn should_forward_terminal_env(key: &str) -> bool {
         && key != "VSCODE_INSPECTOR_OPTIONS"
         && !key.starts_with("VSCODE_")
         && !key.starts_with("ELECTRON_")
+        && key != "ORKWORKS_OPEN_PLAN_TOKEN"
 }
 
 #[cfg(unix)]

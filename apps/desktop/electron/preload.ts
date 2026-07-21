@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld("orkworks", {
   getProviderLabels: (): Promise<unknown> => ipcRenderer.invoke("get-provider-labels"),
   getClaudeCodeHookStatus: (): Promise<unknown> => ipcRenderer.invoke("get-claude-code-hook-status"),
   installClaudeCodeHook: (): Promise<unknown> => ipcRenderer.invoke("install-claude-code-hook"),
+  openPlan: (sessionId: string): Promise<void> => ipcRenderer.invoke("open-plan", sessionId),
   setHotkeyCaptureActive: (active: boolean) => {
     ipcRenderer.send("orkworks:hotkey-capture-active", active);
   },

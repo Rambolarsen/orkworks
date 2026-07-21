@@ -85,6 +85,7 @@ export interface SessionInfo {
   resume?: ResumeMemory;
   resumeOptions?: ResumeOption[];
   resumedFrom?: string;
+  hasOpenablePlan?: boolean;
 }
 
 export async function createSession(

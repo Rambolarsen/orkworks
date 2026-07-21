@@ -22,6 +22,7 @@ declare global {
       getProviderLabels: () => Promise<ProviderLabelsResponse>;
       getClaudeCodeHookStatus: () => Promise<AttentionHookStatusResponse>;
       installClaudeCodeHook: () => Promise<AttentionHookStatusResponse>;
+      openPlan: (sessionId: string) => Promise<void>;
       setHotkeyCaptureActive: (active: boolean) => void;
       onMenuCommand: (callback: (data: { action: string; panelId?: string }) => void) => () => void;
       notifyPanelVisibility: (panelId: string, visible: boolean) => void;

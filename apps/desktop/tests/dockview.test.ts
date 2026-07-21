@@ -179,6 +179,8 @@ test("SessionDetailPanel's action zone renders at most one move, via the shared 
   assert.match(source, /actionZone\.kind === "cue"/);
   assert.match(source, /actionZone\.kind === "buttons"/);
   assert.match(source, /actionZone\.kind === "resume"/);
+  assert.match(source, /actionZone\.kind === "plan"/);
+  assert.match(source, /window\.orkworks\.openPlan\(active\.id\)/);
   assert.match(source, /<ResumeChooser\b/);
   // "Nothing at all" for a live session with no pending question — no disabled resume button left behind.
   assert.doesNotMatch(source, /session-resume-button/);

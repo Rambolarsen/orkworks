@@ -267,9 +267,11 @@ export type DetailActionZone =
   | { kind: "none" }
   | { kind: "cue"; text: string }
   | { kind: "buttons" }
+  | { kind: "plan" }
   | { kind: "resume"; options: ResumeChoice[]; note?: string };
 
 export function detailActionZone(session: SessionInfo, tone: AttentionTone): DetailActionZone {
+  if (session.attention === "needs_you" && session.hasOpenablePlan === true) return { kind: "plan" };
   if (session.memoryState === "resumable" || session.memoryState === "remembered" || session.memoryState === "unsupported") {
     const options = resumeChoices(session);
     if (options.length === 0) return { kind: "none" };

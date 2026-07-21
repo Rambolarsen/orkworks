@@ -1,5 +1,6 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, shell } from "electron";
 import { spawn, type ChildProcess } from "child_process";
+import { randomBytes } from "crypto";
 import { existsSync } from "fs";
 import * as path from "path";
 import { getDevRepoRoot, getDevSidecarPath, getPackagedSidecarPath } from "./paths";
@@ -10,6 +11,7 @@ import { DEFAULT_HOTKEYS, DEFAULT_RETENTION, normalizeDebugSettings, normalizePr
 import { pushProviderSettings } from "./providerSettingsSync";
 import type { ProviderSettings } from "./providerTypes";
 import { buildMenuTemplate } from "./menuTemplate";
+import { openSessionPlan } from "./planOpener";
 
 app.setName("OrkWorks");
 
@@ -27,6 +29,7 @@ let currentSettings: AppSettings | null = null;
 let providerModels: Map<string, string[]> = new Map();
 let providerLabels: Record<string, string> = {};
 let hotkeyCaptureActive = false;
+const openPlanToken = randomBytes(32).toString("hex");
 const menuPanelIds = ["sessions", "detail", "terminal", "capacity", "recommendations"];
 
 function rendererSettings(settings: AppSettings): AppSettings & { defaultHotkeys: typeof DEFAULT_HOTKEYS } {
@@ -321,6 +324,13 @@ app.whenReady().then(() => {
     return { labels: {} };
   });
 
+  ipcMain.handle("open-plan", async (_event, sessionId: unknown) => {
+    if (typeof sessionId !== "string" || !sessionId) throw new Error("Invalid session ID.");
+    const port = await portPromise;
+    if (!workspacePath) throw new Error("Open a workspace first.");
+    await openSessionPlan(`http://127.0.0.1:${port}`, sessionId, openPlanToken, workspacePath, fetch, (filePath) => shell.openPath(filePath));
+  });
+
   ipcMain.handle("get-claude-code-hook-status", async () => {
     try {
       const port = await portPromise;
@@ -378,6 +388,7 @@ app.whenReady().then(() => {
     sidecarProcess = spawn(getSidecarPath(), [], {
       cwd: dirPath,
       stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env, ORKWORKS_OPEN_PLAN_TOKEN: openPlanToken },
     });
 
     sidecarProcess.stdout?.on("data", (data: Buffer) => {

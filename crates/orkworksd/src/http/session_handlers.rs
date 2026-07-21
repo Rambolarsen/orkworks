@@ -2,6 +2,7 @@ use crate::harness_registry::{
     adapter_for_harness, capabilities_for_harness, default_shell_command,
     resolve_adapter_harness_id,
 };
+use crate::plan_handoff::resolve_openable_plan;
 use crate::session_types::{MemoryState, SessionInfo};
 use crate::session_view::{
     connectivity_for_status, derive_memory_state, detect_conflicts, merge_live_session_info,
@@ -11,6 +12,7 @@ use crate::workspace_runtime::{iso_now, orkworks_global_dir};
 use crate::{git, harness, metadata, migration, peon, watcher, AppState, SessionHandle, WorkspaceState};
 use axum::{
     extract::{Path, State},
+    http::HeaderMap,
     response::IntoResponse,
     Json,
 };
@@ -71,6 +73,43 @@ pub(crate) struct WorkspaceResponse {
     pub(crate) last_active_session_id: Option<String>,
     #[serde(rename = "activeHarnessIds", skip_serializing_if = "Vec::is_empty")]
     pub(crate) active_harness_ids: Vec<String>,
+}
+
+#[derive(Serialize)]
+pub(crate) struct OpenPlanResponse {
+    pub(crate) path: String,
+}
+
+pub(crate) async fn open_session_plan(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    let Ok(token) = std::env::var("ORKWORKS_OPEN_PLAN_TOKEN") else {
+        return axum::http::StatusCode::SERVICE_UNAVAILABLE.into_response();
+    };
+    if token.is_empty() || Some(token.as_str())
+        != headers.get("x-orkworks-open-plan-token").and_then(|value| value.to_str().ok()) {
+        return axum::http::StatusCode::UNAUTHORIZED.into_response();
+    }
+    let (workspace_root, plan_path) = {
+        let workspace = state.workspace.lock().unwrap();
+        let Some(workspace) = workspace.as_ref() else {
+            return axum::http::StatusCode::CONFLICT.into_response();
+        };
+        let Some(metadata) = workspace.metadata.read_session(&id) else {
+            return axum::http::StatusCode::NOT_FOUND.into_response();
+        };
+        let Some(plan_path) = metadata.plan_path else {
+            return axum::http::StatusCode::CONFLICT.into_response();
+        };
+        (workspace.path.clone(), plan_path)
+    };
+
+    match resolve_openable_plan(&workspace_root, &plan_path) {
+        Ok(path) => Json(OpenPlanResponse { path: path.display().to_string() }).into_response(),
+        Err(_) => axum::http::StatusCode::CONFLICT.into_response(),
+    }
 }
 
 pub(crate) async fn set_workspace(
@@ -278,6 +317,7 @@ pub(crate) async fn resume_session(
             capabilities.resume_latest_in_repo,
         ),
         resumed_from: meta.resumed_from.clone(),
+        has_openable_plan: None,
         provider: meta.provider_label.clone(),
         provider_model: meta.provider_model.clone(),
         provider_state: meta.provider_state.clone(),
@@ -776,6 +816,7 @@ pub(crate) async fn create_session(
         }),
         resume_options: vec![],
         resumed_from: None,
+        has_openable_plan: None,
         provider: resolved_launch.provider_label.clone(),
         provider_model: None,
         provider_state: None,
@@ -987,6 +1028,7 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
     };
 
     let ws_guard = state.workspace.lock().unwrap();
+    let workspace_root = ws_guard.as_ref().map(|ws| ws.path.clone());
     let metadata_map = ws_guard.as_ref().map(|ws| {
         let mut metadata = HashMap::new();
         for (info, _, _, _, _, _, _, _, _) in &live_sessions {
@@ -1015,6 +1057,8 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
         let adapter_harness_id = resolve_adapter_harness_id(&harnesses, session_harness_id);
         let caps = capabilities_for_harness(&state.adapters, adapter_harness_id.as_deref());
         let mut merged = merge_live_session_info(info, meta, peon_times.get(&id), &caps);
+        merged.has_openable_plan = meta.and_then(|metadata| metadata.plan_path.as_deref())
+            .and_then(|path| workspace_root.as_deref().map(|root| resolve_openable_plan(root, path).is_ok()));
         let fresh_output_since_origin = origin.map(|(line_count, scan_len)| {
             output_lines_seen > line_count || scan_bytes_seen > scan_len
         }).unwrap_or(false);
@@ -1183,6 +1227,8 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
                 caps.resume_latest_in_repo,
             ),
             resumed_from: meta.resumed_from.clone(),
+            has_openable_plan: meta.plan_path.as_deref()
+                .and_then(|path| workspace_root.as_deref().map(|root| resolve_openable_plan(root, path).is_ok())),
             provider: meta.provider_label.clone(),
             provider_model: meta.provider_model.clone(),
             provider_state: meta.provider_state.clone(),
@@ -4157,5 +4203,34 @@ mod tests {
         )
         .unwrap();
         assert_eq!(unchanged.plan_path, metadata::PlanPathUpdate::Unchanged);
+    }
+
+    #[tokio::test]
+    async fn open_session_plan_returns_a_freshly_validated_canonical_path() {
+        let workspace = tempfile::tempdir().unwrap();
+        std::fs::create_dir(workspace.path().join("docs")).unwrap();
+        let plan = workspace.path().join("docs/plan.md");
+        std::fs::write(&plan, "# plan").unwrap();
+        let state = test_app_state_with_workspace(workspace.path());
+        let mut metadata = test_session_metadata(
+            "plan-session",
+            "Plan session",
+            workspace.path().display().to_string(),
+            "running",
+            "now",
+            "now",
+        );
+        metadata.plan_path = Some("docs/plan.md".into());
+        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&metadata);
+
+        std::env::set_var("ORKWORKS_OPEN_PLAN_TOKEN", "test-token");
+        let mut headers = HeaderMap::new();
+        headers.insert("x-orkworks-open-plan-token", "test-token".parse().unwrap());
+        let response = open_session_plan(State(state), Path("plan-session".into()), headers)
+            .await
+            .into_response();
+        std::env::remove_var("ORKWORKS_OPEN_PLAN_TOKEN");
+
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
     }
 }

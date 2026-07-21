@@ -92,6 +92,8 @@ pub(crate) struct SessionInfo {
     pub(crate) resume_options: Vec<metadata::ResumeOption>,
     #[serde(rename = "resumedFrom", skip_serializing_if = "Option::is_none")]
     pub(crate) resumed_from: Option<String>,
+    #[serde(rename = "hasOpenablePlan", skip_serializing_if = "Option::is_none")]
+    pub(crate) has_openable_plan: Option<bool>,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
@@ -165,6 +167,7 @@ mod tests {
             resume: None,
             resume_options: vec![],
             resumed_from: None,
+            has_openable_plan: None,
         }
     }
 
