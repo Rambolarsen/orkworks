@@ -1068,60 +1068,15 @@ mod tests {
     }
 
     #[test]
-    fn terminal_input_arms_only_completed_hookless_submission() {
+    fn terminal_input_immediately_marks_live_session_working_without_pending_signal() {
         let session_id = "terminal-input-work-signal";
         let state = test_state_with_runtime_session(session_id);
 
         assert!(crate::runtime::terminal_runtime::record_terminal_input(&state, session_id, "fix").is_none());
-        assert!(state.sessions.lock().unwrap()[session_id].pending_work_signal.is_none());
-
-        crate::runtime::terminal_runtime::record_terminal_input(&state, session_id, " status\r")
-            .expect("completed terminal input should be accepted");
-        assert!(state.sessions.lock().unwrap()[session_id].pending_work_signal.is_some());
-
-        let mut sessions = state.sessions.lock().unwrap();
-        let handle = sessions.get_mut(session_id).unwrap();
-        handle.active_work_hook = true;
-        handle.pending_work_signal = None;
-        drop(sessions);
-
-        crate::runtime::terminal_runtime::record_terminal_input(&state, session_id, "another command\r")
-            .expect("capable terminal input should be accepted");
-        assert!(state.sessions.lock().unwrap()[session_id].pending_work_signal.is_none());
-    }
-
-    #[test]
-    fn single_key_acceptance_at_hook_sourced_needs_you_arms_work_signal() {
-        let session_id = "single-key-acceptance";
-        let state = test_state_with_runtime_session(session_id);
-
-        // Simulate a Claude Code hook report having set needs_you with agent source.
-        {
-            let mut sessions = state.sessions.lock().unwrap();
-            let handle = sessions.get_mut(session_id).unwrap();
-            handle.info.attention = Some("needs_you".into());
-            handle.info.metadata_source = Some("agent".into());
-        }
-
-        // Single printable keystroke, no Enter.
-        assert!(
-            crate::runtime::terminal_runtime::record_terminal_input(&state, session_id, "y")
-                .is_none(),
-            "single keystroke without Enter does not produce a completed line"
-        );
-
-        // The new arming block must have armed pending_work_signal despite the
-        // early return (which is what today's bug looks like: the early return
-        // skips the Enter-only arming site at the bottom of record_terminal_input).
         let sessions = state.sessions.lock().unwrap();
-        let signal = sessions[session_id]
-            .pending_work_signal
-            .as_ref()
-            .expect("single printable keystroke at hook-sourced needs_you must arm the work signal");
-        assert_eq!(
-            signal.remaining_echo, "y",
-            "echo prefix must be the in-progress input-line buffer snapshot"
-        );
+        let handle = &sessions[session_id];
+        assert_eq!(handle.info.attention.as_deref(), Some("working"));
+        assert!(handle.pending_work_signal.is_none());
     }
 
     #[test]
@@ -1157,7 +1112,7 @@ mod tests {
     }
 
     #[test]
-    fn multi_char_then_enter_arms_signal_via_existing_path_not_single_key() {
+    fn newline_input_keeps_working_without_pending_signal() {
         let session_id = "multi-char-enter";
         let state = test_state_with_runtime_session(session_id);
 
@@ -1168,40 +1123,18 @@ mod tests {
             handle.info.metadata_source = Some("agent".into());
         }
 
-        // First keystroke without Enter — single-key block arms with prefix "fix".
         assert!(crate::runtime::terminal_runtime::record_terminal_input(
             &state,
             session_id,
             "fix"
         )
         .is_none());
-        {
-            let sessions = state.sessions.lock().unwrap();
-            let signal = sessions[session_id]
-                .pending_work_signal
-                .as_ref()
-                .expect("first printable keystroke should arm via single-key block");
-            assert_eq!(signal.remaining_echo, "fix");
-        }
-
-        // Enter submits the line — the existing Enter-terminated arming path
-        // fires and re-arms with the full committed line. collect_input_line
-        // clears the in-progress buffer first, so the single-key block's
-        // !in_progress_buf.is_empty() check is false — no double-arm, no stale
-        // shorter prefix. The Enter-path's arm wins with the correct full line.
         crate::runtime::terminal_runtime::record_terminal_input(&state, session_id, "\r")
             .expect("Enter submits the line and record_terminal_input returns Some(())");
-        {
-            let sessions = state.sessions.lock().unwrap();
-            let signal = sessions[session_id]
-                .pending_work_signal
-                .as_ref()
-                .expect("Enter-terminated submission should arm the work signal");
-            assert_eq!(
-                signal.remaining_echo, "fix",
-                "Enter-path must re-arm with the committed line, not the stale single-key prefix"
-            );
-        }
+        let sessions = state.sessions.lock().unwrap();
+        let handle = &sessions[session_id];
+        assert_eq!(handle.info.attention.as_deref(), Some("working"));
+        assert!(handle.pending_work_signal.is_none());
     }
 
     #[test]
@@ -1286,7 +1219,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn single_key_at_hook_sourced_needs_you_promotes_to_working_on_visible_output() {
+    async fn single_key_at_hook_sourced_needs_you_is_working_before_visible_output() {
         let dir = tempfile::tempdir().unwrap();
         let session_id = "single-key-e2e-promote";
         let state = test_state_with_runtime_session(session_id);
@@ -1327,7 +1260,8 @@ mod tests {
             ws.as_ref().unwrap().metadata.write_session(&meta);
         }
 
-        // Single printable keystroke arms the work signal via the new block.
+        // Accepted input is sufficient evidence of resumed work; no PTY output
+        // is needed to clear the prompt.
         assert!(crate::runtime::terminal_runtime::record_terminal_input(
             &state,
             session_id,
@@ -1337,10 +1271,8 @@ mod tests {
 
         {
             let sessions = state.sessions.lock().unwrap();
-            assert!(
-                sessions[session_id].pending_work_signal.is_some(),
-                "single-key arming must have fired before PTY output"
-            );
+            assert_eq!(sessions[session_id].info.attention.as_deref(), Some("working"));
+            assert!(sessions[session_id].pending_work_signal.is_none());
         }
 
         // Spin up a real PTY that sleeps briefly (past the 2s startup grace)
@@ -1416,18 +1348,16 @@ mod tests {
         assert_eq!(
             handle.info.attention.as_deref(),
             Some("working"),
-            "single-key acceptance + visible output must promote to working"
+            "later output must not undo the immediate input transition"
         );
         assert!(
             handle.pending_work_signal.is_none(),
-            "consumed qualifying work signal must be cleared"
+            "accepted input must not leave an output-gated work signal behind"
         );
         drop(sessions);
 
-        // The output handler writes metadata_source=process to the persisted
-        // metadata only (not the in-memory handle.info.metadata_source, which
-        // it leaves untouched — see session_runtime.rs:635). This mirrors the
-        // pattern in partial_then_qualifying_hookless_terminal_input_and_output_promote_memory_and_metadata.
+        // The metadata transition is also immediate; later output merely leaves
+        // that current state intact.
         let ws = state.workspace.lock().unwrap();
         let meta = ws
             .as_ref()
@@ -1438,11 +1368,11 @@ mod tests {
         assert_eq!(
             meta.attention.as_deref(),
             Some("working"),
-            "persisted attention must reflect promotion"
+            "persisted attention must reflect the immediate transition"
         );
         assert_eq!(
             meta.metadata_source, "process",
-            "promotion sets metadata_source=process on the persisted record, ending the agent-source gate"
+            "committed input sets metadata_source=process before output"
         );
         drop(ws);
 
@@ -1450,7 +1380,7 @@ mod tests {
     }
 
     #[test]
-    fn long_submission_arms_fallback_with_untruncated_echo() {
+    fn long_submission_immediately_marks_working_without_fallback() {
         let session_id = "terminal-input-long-line";
         let state = test_state_with_runtime_session(session_id);
         let long_command = "x".repeat(150);
@@ -1463,15 +1393,8 @@ mod tests {
         .expect("completed terminal input should be accepted");
 
         let sessions = state.sessions.lock().unwrap();
-        let signal = sessions[session_id]
-            .pending_work_signal
-            .as_ref()
-            .expect("long submission should still arm the fallback");
-        assert_eq!(
-            signal.remaining_echo.len(),
-            long_command.len(),
-            "echo gating must retain the full submitted line, not the 100-char label truncation"
-        );
+        assert_eq!(sessions[session_id].info.attention.as_deref(), Some("working"));
+        assert!(sessions[session_id].pending_work_signal.is_none());
     }
 
     #[test]
@@ -1482,7 +1405,7 @@ mod tests {
     }
 
     #[test]
-    fn terminal_input_preserves_observed_attention_in_memory_and_metadata() {
+    fn terminal_input_overwrites_stale_observed_attention_in_memory_and_metadata() {
         let dir = tempfile::tempdir().unwrap();
         let session_id = "terminal-input-preserves-attention";
         let state = test_state_with_runtime_session(session_id);
@@ -1525,17 +1448,17 @@ mod tests {
         {
             let sessions = state.sessions.lock().unwrap();
             let handle = &sessions[session_id];
-            assert_eq!(handle.info.observed_status.as_deref(), Some("waiting_for_input"));
-            assert_eq!(handle.info.attention.as_deref(), Some("waiting_for_input"));
+            assert_eq!(handle.info.observed_status.as_deref(), Some("working"));
+            assert_eq!(handle.info.attention.as_deref(), Some("working"));
         }
         let ws = state.workspace.lock().unwrap();
         let meta = ws.as_ref().unwrap().metadata.read_session(session_id).unwrap();
-        assert_eq!(meta.observed_status.as_deref(), Some("waiting_for_input"));
-        assert_eq!(meta.attention.as_deref(), Some("waiting_for_input"));
+        assert_eq!(meta.observed_status.as_deref(), Some("working"));
+        assert_eq!(meta.attention.as_deref(), Some("working"));
     }
 
     #[test]
-    fn terminal_input_without_observed_status_records_label_without_scheduling_peon_work() {
+    fn terminal_input_without_observed_status_records_label_and_marks_working() {
         let dir = tempfile::tempdir().unwrap();
         let session_id = "terminal-input-without-observed-status";
         let state = test_state_with_runtime_session(session_id);
@@ -1572,8 +1495,8 @@ mod tests {
         let sessions = state.sessions.lock().unwrap();
         let handle = &sessions[session_id];
         assert_eq!(handle.info.label, line);
-        assert_ne!(handle.info.attention.as_deref(), Some("working"));
-        assert_ne!(handle.info.observed_status.as_deref(), Some("working"));
+        assert_eq!(handle.info.attention.as_deref(), Some("working"));
+        assert_eq!(handle.info.observed_status.as_deref(), Some("working"));
         drop(sessions);
         assert!(state.peon.label_hint.read().unwrap().get(session_id).is_none());
         assert!(!state.peon.label_pending.read().unwrap().contains(session_id));
@@ -1582,8 +1505,8 @@ mod tests {
         let meta = ws.as_ref().unwrap().metadata.read_session(session_id).unwrap();
         assert_eq!(meta.label, line);
         assert_eq!(meta.last_user_input.as_deref(), Some(line));
-        assert_ne!(meta.attention.as_deref(), Some("working"));
-        assert_ne!(meta.observed_status.as_deref(), Some("working"));
+        assert_eq!(meta.attention.as_deref(), Some("working"));
+        assert_eq!(meta.observed_status.as_deref(), Some("working"));
     }
 
     #[tokio::test]
@@ -1680,7 +1603,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn partial_then_qualifying_hookless_terminal_input_and_output_promote_memory_and_metadata() {
+    async fn partial_hookless_terminal_input_immediately_promotes_memory_and_metadata() {
         let dir = tempfile::tempdir().unwrap();
         let session_id = "runtime-hookless-working";
         let state = test_state_with_runtime_session(session_id);
@@ -1769,10 +1692,10 @@ mod tests {
         })
         .await
         .expect("process should produce unsolicited output after startup grace");
-        assert_ne!(
+        assert_eq!(
             state.sessions.lock().unwrap()[session_id].info.observed_status.as_deref(),
             Some("working"),
-            "partial terminal input must not arm unsolicited output"
+            "accepted partial terminal input immediately marks the session working"
         );
 
         assert!(crate::runtime::terminal_runtime::record_terminal_input(
@@ -1815,7 +1738,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn capable_terminal_input_and_output_fail_closed_without_hook_signal() {
+    async fn capable_terminal_input_immediately_marks_working_without_hook_signal() {
         let dir = tempfile::tempdir().unwrap();
         let session_id = "runtime-capable-work-signal";
         let state = test_state_with_runtime_session(session_id);
@@ -1886,8 +1809,8 @@ mod tests {
 
         let handle = state.sessions.lock().unwrap();
         assert!(handle[session_id].pending_work_signal.is_none());
-        assert_ne!(handle[session_id].info.observed_status.as_deref(), Some("working"));
-        assert_ne!(handle[session_id].info.attention.as_deref(), Some("working"));
+        assert_eq!(handle[session_id].info.observed_status.as_deref(), Some("working"));
+        assert_eq!(handle[session_id].info.attention.as_deref(), Some("working"));
     }
 
     #[tokio::test]

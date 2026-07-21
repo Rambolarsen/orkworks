@@ -1,7 +1,4 @@
-use crate::runtime::session_runtime::{
-    arm_pending_work_signal,
-    STARTUP_PENDING_INPUT_BYTES as QUEUED_INPUT_CAP_BYTES,
-};
+use crate::runtime::session_runtime::STARTUP_PENDING_INPUT_BYTES as QUEUED_INPUT_CAP_BYTES;
 use crate::session_view::{connectivity_for_status, terminal_outcome_for_status};
 use crate::workspace_runtime::iso_now;
 use crate::{metadata, peon, providers, AppState};
@@ -167,17 +164,51 @@ fn spawn_command_future(
     }
 }
 
+fn terminal_input_data(action: &TerminalAction) -> Option<String> {
+    match action {
+        TerminalAction::Input(data) if !data.is_empty() => Some(data.clone()),
+        _ => None,
+    }
+}
+
+/// Whether the terminal currently looks like it's mid password-prompt. Must
+/// be captured before an input is dispatched to the PTY, not after delivery
+/// completes — by the time an async send resolves, the child may already
+/// have echoed enough new output to scroll the prompt out of the detection
+/// window, which would misclassify a submitted secret as safe to persist.
+fn snapshot_input_sensitivity(state: &Arc<AppState>, id: &str) -> bool {
+    let sessions = state.sessions.lock().unwrap();
+    sessions
+        .get(id)
+        .map(|h| peon::looks_like_password_prompt(&h.output_buffer.last_n(5)))
+        .unwrap_or(false)
+}
+
+/// The PTY control channel is the delivery authority. Only advance metadata
+/// after its command future succeeds; a closed channel means the user input
+/// was rejected and must leave any prompt state intact.
+fn record_input_after_delivery(
+    state: &Arc<AppState>,
+    id: &str,
+    pending: Option<&(String, bool)>,
+    result: &Result<(), ()>,
+) {
+    if result.is_ok() {
+        if let Some((input, is_sensitive)) = pending {
+            record_peon_input_side_effects(state, id, input, *is_sensitive);
+        }
+    }
+}
+
 pub(crate) fn collect_input_line(buf: &mut String, data: &str) -> Option<String> {
     let mut result: Option<String> = None;
     let mut chars = data.chars().peekable();
     while let Some(ch) = chars.next() {
         match ch {
             '\r' | '\n' => {
-                // Full, untruncated line: callers that only need a short label
-                // truncate at their own call site. Truncating here would starve
-                // echo-gating (`arm_pending_work_signal`) of the tail of any
-                // submission over 100 chars, letting its own PTY echo slip
-                // through as if it were qualifying model output.
+                // Full, untruncated line. The only caller (record_terminal_input)
+                // truncates it to a display-bounded label before persisting —
+                // the full line is not retained anywhere past this point.
                 let line = buf.trim().to_string();
                 buf.clear();
                 if !line.is_empty() && result.is_none() {
@@ -239,61 +270,44 @@ fn mark_usage_limit_recheck_on_input(state: &Arc<AppState>, id: &str) {
 /// Records accepted terminal input for usage-limit rechecks, labels, and pending work signals.
 /// Call only once delivery is actually accepted — never for input dropped by
 /// `PendingActionQueue`.
-fn record_peon_input_side_effects(state: &Arc<AppState>, id: &str, data: &str) {
-    let _ = record_terminal_input(state, id, data);
+fn record_peon_input_side_effects(state: &Arc<AppState>, id: &str, data: &str, is_sensitive: bool) {
+    let _ = record_terminal_input_impl(state, id, data, Some(is_sensitive));
 }
 
-/// Applies accepted terminal input-side bookkeeping without scheduling a Peon scan.
+/// Test-only convenience wrapper that live-checks sensitivity against the
+/// current output buffer, bypassing the snapshot-before-dispatch that
+/// production callers must use (see `record_peon_input_side_effects`) since
+/// the buffer can move on during the real async PTY round-trip.
+#[cfg(test)]
 pub(crate) fn record_terminal_input(
     state: &Arc<AppState>,
     id: &str,
     data: &str,
 ) -> Option<()> {
+    record_terminal_input_impl(state, id, data, None)
+}
+
+fn record_terminal_input_impl(
+    state: &Arc<AppState>,
+    id: &str,
+    data: &str,
+    sensitivity_override: Option<bool>,
+) -> Option<()> {
     if !data.is_empty() {
         mark_usage_limit_recheck_on_input(state, id);
+        mark_committed_input_working(state, id);
     }
 
-    let (collected_line, in_progress_buf) = {
+    let collected_line = {
         let mut bufs = state.peon.input_buf.write().unwrap();
         let buf = bufs.entry(id.to_string()).or_default();
-        let len_before_input = buf.len();
-        let line = collect_input_line(buf, data);
-        let parsed_printable_input = buf.len() > len_before_input;
-        let in_progress_buf = parsed_printable_input.then(|| buf.clone());
-        (line, in_progress_buf)
+        collect_input_line(buf, data)
     };
-
-    // Single-key arming: a printable keystroke received while the session is in
-    // needs_you (set by an agent hook report) arms the work fallback using the
-    // in-progress input-line buffer as the echo prefix. This recovers the
-    // needs_you -> working transition for Claude Code's single-key prompts
-    // (y/n and choice lists), which never produce an Enter-terminated
-    // line. See docs/superpowers/specs/2026-07-17-single-key-work-signal-design.md.
-    if let Some(in_progress_buf) = in_progress_buf {
-        let mut sessions = state.sessions.lock().unwrap();
-        if let Some(handle) = sessions.get_mut(id) {
-            if !handle.active_work_hook
-                && handle.info.attention.as_deref() == Some("needs_you")
-                && handle.info.metadata_source.as_deref() == Some("agent")
-            {
-                handle.pending_work_signal = Some(arm_pending_work_signal(
-                    &in_progress_buf,
-                    tokio::time::Instant::now(),
-                ));
-            }
-        }
-    }
 
     let line = collected_line?;
     // Labels are display-bounded; echo-gating below uses the full `line`.
     let label_line: String = line.chars().take(100).collect();
-    let is_sensitive = {
-        let sessions = state.sessions.lock().unwrap();
-        sessions
-            .get(id)
-            .map(|h| peon::looks_like_password_prompt(&h.output_buffer.last_n(5)))
-            .unwrap_or(false)
-    };
+    let is_sensitive = sensitivity_override.unwrap_or_else(|| snapshot_input_sensitivity(state, id));
     let label_worthy = !is_sensitive && peon::is_descriptive_input(&label_line);
 
     if !is_sensitive {
@@ -309,20 +323,77 @@ pub(crate) fn record_terminal_input(
         }
     }
 
-    let mut sessions = state.sessions.lock().unwrap();
-    if let Some(handle) = sessions.get_mut(id) {
-        if label_worthy {
-            handle.info.label = label_line.clone();
-        }
-        if !line.is_empty() && !handle.active_work_hook {
-            handle.pending_work_signal = Some(arm_pending_work_signal(
-                &line,
-                tokio::time::Instant::now(),
-            ));
+    if label_worthy {
+        if let Some(handle) = state.sessions.lock().unwrap().get_mut(id) {
+            handle.info.label = label_line;
         }
     }
 
     Some(())
+}
+
+/// Caller contract, not enforced here: only call this for a non-empty frame
+/// whose delivery to the PTY was actually accepted. That is direct evidence
+/// the live session is working, stronger than any stale prompt metadata or
+/// later PTY-output heuristic — but this function trusts the caller for it.
+fn mark_committed_input_working(state: &Arc<AppState>, id: &str) {
+    let already_working = {
+        let mut sessions = state.sessions.lock().unwrap();
+        let Some(handle) = sessions.get_mut(id) else {
+            return;
+        };
+        if handle.info.lifecycle != "alive" {
+            return;
+        }
+        let already = handle.info.observed_status.as_deref() == Some("working")
+            && handle.info.attention.as_deref() == Some("working")
+            && handle.info.metadata_source.as_deref() == Some("process")
+            && handle.info.metadata_confidence == Some(1.0)
+            && handle.info.needs_user_input.is_none()
+            && handle.info.detected_question.is_none()
+            && handle.info.suggested_options.is_none()
+            && handle.pending_work_signal.is_none();
+        if !already {
+            handle.info.observed_status = Some("working".into());
+            handle.info.attention = Some("working".into());
+            handle.info.metadata_source = Some("process".into());
+            handle.info.metadata_confidence = Some(1.0);
+            handle.info.needs_user_input = None;
+            handle.info.detected_question = None;
+            handle.info.suggested_options = None;
+            handle.pending_work_signal = None;
+        }
+        already
+    };
+
+    // Accepted input is activity: refresh the idle baseline regardless of
+    // whether metadata needed a rewrite, so a hookless session mid-command
+    // doesn't get flagged idle by the next Peon tick (peon_runtime.rs) just
+    // because it hasn't produced output since before this input arrived.
+    state.peon.last_output.write().unwrap().insert(id.to_string(), tokio::time::Instant::now());
+
+    if already_working {
+        return;
+    }
+
+    let ws_guard = state.workspace.lock().unwrap();
+    let Some(ref ws) = *ws_guard else {
+        return;
+    };
+    let Some(mut meta) = ws.metadata.read_session(id) else {
+        return;
+    };
+    if meta.lifecycle != "alive" {
+        return;
+    }
+    meta.observed_status = Some("working".into());
+    meta.attention = Some("working".into());
+    meta.metadata_source = "process".into();
+    meta.metadata_confidence = 1.0;
+    meta.needs_user_input = None;
+    meta.detected_question = None;
+    meta.suggested_options = None;
+    ws.metadata.write_session(&meta);
 }
 
 pub(crate) fn should_forward_terminal_env(key: &str) -> bool {
@@ -677,6 +748,7 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
     let generation = attachment.generation;
     let mut events = attachment.events;
     let mut pending_command: Option<PendingCommandFuture> = None;
+    let mut pending_input: Option<(String, bool)> = None;
     let mut queue = PendingActionQueue::default();
 
     loop {
@@ -688,18 +760,30 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
                     .await
             }, if pending_command.is_some() => {
                 if result.is_err() {
+                    // This future has already been polled to completion —
+                    // clear it before breaking so the post-loop drain below
+                    // doesn't re-poll an already-resolved future (a panic
+                    // for a compiler-generated async-block state machine).
+                    pending_command = None;
+                    pending_input = None;
                     break;
                 }
+                record_input_after_delivery(&state, &id, pending_input.as_ref(), &result);
+                pending_input = None;
+                pending_command = None;
                 let next_action = queue.take_next();
-                // Record Peon side effects only now, as the queued action is actually handed
-                // to the PTY runtime — not when it was merely accepted into the queue. If the
-                // websocket closes before a queued item drains, it's simply never dispatched
-                // and no side effects for it are recorded either.
-                if let Some(TerminalAction::Input(ref data)) = next_action {
-                    record_peon_input_side_effects(&state, &id, data);
+                if let Some(action) = next_action {
+                    // Sensitivity is captured here, right before dispatch —
+                    // not later when the delivery result comes back — so a
+                    // password prompt scrolling out of view during the PTY
+                    // round-trip can't misclassify a submitted secret.
+                    pending_input = terminal_input_data(&action)
+                        .map(|data| {
+                            let is_sensitive = snapshot_input_sensitivity(&state, &id);
+                            (data, is_sensitive)
+                        });
+                    pending_command = spawn_command_future(state.clone(), id.clone(), action);
                 }
-                pending_command = next_action
-                    .and_then(|action| spawn_command_future(state.clone(), id.clone(), action));
             }
             event = events.recv() => {
                 match event {
@@ -757,9 +841,13 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
                                 )).await;
                             }
                         } else {
-                            if let TerminalAction::Input(ref data) = action {
-                                record_peon_input_side_effects(&state, &id, data);
-                            }
+                            // Sensitivity captured before dispatch — see the
+                            // comment at the queued-dispatch site above.
+                            pending_input = terminal_input_data(&action)
+                                .map(|data| {
+                                    let is_sensitive = snapshot_input_sensitivity(&state, &id);
+                                    (data, is_sensitive)
+                                });
                             pending_command = spawn_command_future(state.clone(), id.clone(), action);
                         }
                     }
@@ -768,6 +856,17 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
                 }
             }
         }
+    }
+
+    // Every exit from the loop above (Close/EOF, Ended, Error, a send
+    // failure, or the broadcast channel closing) can race a still-pending
+    // PTY command: if it was actually delivered, the session goes on
+    // running detached (ADR 0022) and must not be left showing stale
+    // `needs_you` just because nobody was left to observe the result. Drain
+    // it here instead of dropping it silently at each break site.
+    if let Some(cmd) = pending_command.take() {
+        let result = cmd.await;
+        record_input_after_delivery(&state, &id, pending_input.as_ref(), &result);
     }
 
     crate::runtime::session_runtime::release_attachment(&state, &id, generation);
@@ -782,6 +881,284 @@ mod tests {
     use std::collections::{HashMap, HashSet};
     use std::sync::{Arc, Mutex, RwLock};
     use std::sync::atomic::AtomicU16;
+
+    fn prompted_session_state(session_id: &str) -> (Arc<crate::AppState>, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let orkworks = dir.path().join(".orkworks");
+        std::fs::create_dir_all(orkworks.join("sessions")).unwrap();
+        std::fs::create_dir_all(orkworks.join("events")).unwrap();
+        let state = Arc::new(crate::AppState {
+            sessions: Mutex::new(HashMap::new()),
+            workspace: Mutex::new(Some(crate::WorkspaceState {
+                path: dir.path().to_path_buf(),
+                metadata: metadata::MetadataStore::new(&orkworks),
+                watcher: crate::watcher::MetadataWatcher::start(&orkworks.join("sessions")),
+            })),
+            peon: crate::PeonState {
+                last_output: RwLock::new(HashMap::new()),
+                last_inference: RwLock::new(HashMap::new()),
+                in_flight: RwLock::new(HashSet::new()),
+                label_hint: RwLock::new(HashMap::new()),
+                label_pending: RwLock::new(HashSet::new()),
+                input_buf: RwLock::new(HashMap::new()),
+                config: crate::peon::PeonConfig::from_env(),
+            },
+            adapters: crate::harness_registry::builtin_adapters(),
+            retention_config: tokio::sync::RwLock::new(crate::RetentionConfig::default()),
+            harnesses: tokio::sync::RwLock::new(vec![]),
+            bound_port: AtomicU16::new(0),
+            providers: crate::providers::ProviderManager::new(),
+        });
+
+        let mut info = test_session_info(
+            session_id.to_string(),
+            "Prompted session",
+            dir.path().display().to_string(),
+            "running",
+            "now",
+        );
+        info.attention = Some("needs_you".into());
+        info.observed_status = Some("waiting_for_input".into());
+        info.metadata_source = Some("agent".into());
+        info.metadata_confidence = Some(1.0);
+        info.needs_user_input = Some(true);
+        info.detected_question = Some("Proceed?".into());
+        info.suggested_options = Some(vec!["yes".into(), "no".into()]);
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        state.sessions.lock().unwrap().insert(
+            session_id.into(),
+            crate::SessionHandle {
+                info,
+                kill_tx,
+                output_buffer: crate::peon::RingBuffer::new(200),
+                scan_buf: String::new(),
+                pending_work_signal: None,
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                ),
+                terminal_attached: false,
+                at_usage_limit_latched: false,
+                capacity_check_pending: false,
+                output_lines_seen: 0,
+                scan_bytes_seen: 0,
+                resume_scan_origin: None,
+                pending_capacity_visible_once: false,
+                active_work_hook: false,
+            },
+        );
+
+        let mut meta = test_session_metadata(
+            session_id,
+            "Prompted session",
+            dir.path().display().to_string(),
+            "running",
+            "now",
+            "now",
+        );
+        meta.lifecycle_phase = "active".into();
+        meta.lifecycle = "alive".into();
+        meta.connectivity = "online".into();
+        meta.terminal_outcome = None;
+        meta.attention = Some("needs_you".into());
+        meta.observed_status = Some("waiting_for_input".into());
+        meta.metadata_source = "agent".into();
+        meta.metadata_confidence = 1.0;
+        meta.needs_user_input = Some(true);
+        meta.detected_question = Some("Proceed?".into());
+        meta.suggested_options = Some(vec!["yes".into(), "no".into()]);
+        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&meta);
+
+        (state, dir)
+    }
+
+    fn assert_prompt_is_cleared_as_working(state: &Arc<crate::AppState>, session_id: &str) {
+        let info = state.sessions.lock().unwrap()[session_id].info.clone();
+        assert_eq!(info.attention.as_deref(), Some("working"));
+        assert_eq!(info.observed_status.as_deref(), Some("working"));
+        assert_eq!(info.metadata_source.as_deref(), Some("process"));
+        assert_eq!(info.metadata_confidence, Some(1.0));
+        assert_eq!(info.needs_user_input, None);
+        assert_eq!(info.detected_question, None);
+        assert_eq!(info.suggested_options, None);
+
+        let meta = state.workspace.lock().unwrap().as_ref().unwrap()
+            .metadata.read_session(session_id).unwrap();
+        assert_eq!(meta.attention.as_deref(), Some("working"));
+        assert_eq!(meta.observed_status.as_deref(), Some("working"));
+        assert_eq!(meta.metadata_source, "process");
+        assert_eq!(meta.metadata_confidence, 1.0);
+        assert_eq!(meta.needs_user_input, None);
+        assert_eq!(meta.detected_question, None);
+        assert_eq!(meta.suggested_options, None);
+    }
+
+    #[test]
+    fn committed_single_key_immediately_clears_prompt_to_working() {
+        let session_id = "committed-single-key";
+        let (state, _dir) = prompted_session_state(session_id);
+
+        assert_eq!(record_terminal_input(&state, session_id, "y"), None);
+
+        assert_prompt_is_cleared_as_working(&state, session_id);
+    }
+
+    #[test]
+    fn committed_newline_terminated_input_immediately_clears_prompt_to_working() {
+        let session_id = "committed-newline";
+        let (state, _dir) = prompted_session_state(session_id);
+
+        assert_eq!(record_terminal_input(&state, session_id, "yes\r"), Some(()));
+
+        assert_prompt_is_cleared_as_working(&state, session_id);
+    }
+
+    #[test]
+    fn committed_input_refreshes_idle_baseline() {
+        let session_id = "committed-idle-baseline";
+        let (state, _dir) = prompted_session_state(session_id);
+        // Simulate a stale baseline, as if the session had been silent for a
+        // while before the user's response arrived.
+        state.peon.last_output.write().unwrap().insert(
+            session_id.to_string(),
+            tokio::time::Instant::now() - std::time::Duration::from_secs(600),
+        );
+        let stale = *state.peon.last_output.read().unwrap().get(session_id).unwrap();
+
+        record_terminal_input(&state, session_id, "y");
+
+        let refreshed = *state.peon.last_output.read().unwrap().get(session_id).unwrap();
+        assert!(
+            refreshed > stale,
+            "accepted input must refresh the idle baseline, or the next Peon tick can flag a \
+             just-resumed hookless session idle before its command produces output"
+        );
+    }
+
+    #[test]
+    fn already_working_input_skips_redundant_metadata_rewrite() {
+        let session_id = "already-working-skip";
+        let (state, _dir) = prompted_session_state(session_id);
+        // First input performs the real transition to working.
+        record_terminal_input(&state, session_id, "y");
+        assert_prompt_is_cleared_as_working(&state, session_id);
+
+        // Diverge the on-disk record from memory with a canary value that
+        // the "already working" fast path does not check against — if the
+        // fix regresses to unconditionally rewriting metadata, this canary
+        // gets clobbered back to "working" by the second input below.
+        {
+            let ws = state.workspace.lock().unwrap();
+            let mut meta = ws.as_ref().unwrap().metadata.read_session(session_id).unwrap();
+            meta.attention = Some("idle-canary".into());
+            ws.as_ref().unwrap().metadata.write_session(&meta);
+        }
+
+        record_terminal_input(&state, session_id, "z");
+
+        let meta = state.workspace.lock().unwrap().as_ref().unwrap()
+            .metadata.read_session(session_id).unwrap();
+        assert_eq!(
+            meta.attention.as_deref(),
+            Some("idle-canary"),
+            "input arriving while the in-memory handle already reads \"working\" must not \
+             re-read and rewrite persisted metadata"
+        );
+    }
+
+    #[test]
+    fn committed_input_overrides_user_source_and_active_work_hook() {
+        let session_id = "committed-user-source";
+        let (state, _dir) = prompted_session_state(session_id);
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut(session_id).unwrap();
+            handle.info.metadata_source = Some("user".into());
+            handle.active_work_hook = true;
+        }
+        {
+            let ws = state.workspace.lock().unwrap();
+            let mut meta = ws.as_ref().unwrap().metadata.read_session(session_id).unwrap();
+            meta.metadata_source = "user".into();
+            ws.as_ref().unwrap().metadata.write_session(&meta);
+        }
+
+        assert_eq!(record_terminal_input(&state, session_id, "1"), None);
+
+        assert_prompt_is_cleared_as_working(&state, session_id);
+    }
+
+    #[test]
+    fn empty_input_does_not_clear_a_prompt() {
+        let session_id = "empty-input";
+        let (state, _dir) = prompted_session_state(session_id);
+
+        assert_eq!(record_terminal_input(&state, session_id, ""), None);
+
+        let info = state.sessions.lock().unwrap()[session_id].info.clone();
+        assert_eq!(info.attention.as_deref(), Some("needs_you"));
+        assert_eq!(info.observed_status.as_deref(), Some("waiting_for_input"));
+        assert_eq!(info.metadata_source.as_deref(), Some("agent"));
+    }
+
+    #[test]
+    fn rejected_input_does_not_clear_a_prompt() {
+        let session_id = "rejected-input";
+        let (state, _dir) = prompted_session_state(session_id);
+
+        record_input_after_delivery(&state, session_id, Some(&("y".to_string(), false)), &Err(()));
+
+        let info = state.sessions.lock().unwrap()[session_id].info.clone();
+        assert_eq!(info.attention.as_deref(), Some("needs_you"));
+        assert_eq!(info.observed_status.as_deref(), Some("waiting_for_input"));
+        assert_eq!(info.metadata_source.as_deref(), Some("agent"));
+    }
+
+    #[test]
+    fn sensitivity_snapshot_survives_a_moved_on_output_buffer() {
+        // Regression for the race this snapshot-before-dispatch design fixes:
+        // if a captured pre-dispatch `is_sensitive=true` decision were
+        // ignored in favor of re-checking the *current* buffer, a password
+        // that already scrolled out of the detection window would be
+        // misclassified as safe and persisted in plaintext.
+        let session_id = "password-race";
+        let (state, _dir) = prompted_session_state(session_id);
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut(session_id).unwrap();
+            // The live buffer no longer shows the password prompt — it has
+            // already scrolled past by the time this bookkeeping runs.
+            handle.output_buffer.push("Login successful".to_string());
+            handle.output_buffer.push("$ ".to_string());
+        }
+
+        record_peon_input_side_effects(&state, session_id, "hunter2\r", true);
+
+        let ws = state.workspace.lock().unwrap();
+        let meta = ws.as_ref().unwrap().metadata.read_session(session_id).unwrap();
+        assert_ne!(
+            meta.last_user_input.as_deref(),
+            Some("hunter2"),
+            "a pre-dispatch sensitive decision must not be overridden by a moved-on live buffer"
+        );
+        assert_ne!(meta.label, "hunter2");
+        drop(ws);
+
+        let info = state.sessions.lock().unwrap()[session_id].info.clone();
+        assert_ne!(info.label, "hunter2");
+    }
+
+    #[test]
+    fn non_sensitive_snapshot_still_records_label_and_hint() {
+        let session_id = "non-sensitive-input";
+        let (state, _dir) = prompted_session_state(session_id);
+
+        record_peon_input_side_effects(&state, session_id, "add retry logic\r", false);
+
+        let ws = state.workspace.lock().unwrap();
+        let meta = ws.as_ref().unwrap().metadata.read_session(session_id).unwrap();
+        assert_eq!(meta.last_user_input.as_deref(), Some("add retry logic"));
+    }
 
     #[test]
     fn terminal_env_overrides_force_color_capability() {
