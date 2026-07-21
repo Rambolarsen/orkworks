@@ -54,7 +54,7 @@ pub(crate) async fn get_summary_log(
     let entries = tokio::task::spawn_blocking(move || {
         let ws_guard = state.workspace.lock().unwrap();
         match &*ws_guard {
-            Some(ws) => ws
+            Some(ws) if ws.metadata.read_session(&id).is_some() => ws
                 .metadata
                 .read_events(&id)
                 .into_iter()
@@ -77,6 +77,7 @@ pub(crate) async fn get_summary_log(
                     })
                 })
                 .collect(),
+            Some(_) => Vec::new(),
             None => Vec::new(),
         }
     })
@@ -171,6 +172,14 @@ mod tests {
         {
             let ws_guard = state.workspace.lock().unwrap();
             let store = &ws_guard.as_ref().unwrap().metadata;
+            store.write_session(&test_session_metadata(
+                &session_id,
+                "Persisted",
+                dir.path().display().to_string(),
+                "ended",
+                "t0",
+                "t0",
+            ));
             for event in [
                 metadata::Event {
                     event_type: "session.status".into(),
@@ -278,5 +287,31 @@ mod tests {
         )
         .await;
         assert_eq!(missing_workspace, serde_json::json!({ "entries": [] }));
+    }
+
+    #[tokio::test]
+    async fn get_summary_log_returns_empty_entries_for_orphan_event_log() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let session_id = "orphan-summary".to_string();
+        {
+            let ws_guard = state.workspace.lock().unwrap();
+            ws_guard.as_ref().unwrap().metadata.append_event(
+                &session_id,
+                &metadata::Event {
+                    event_type: "peon.inference".into(),
+                    timestamp: "t1".into(),
+                    status: "done".into(),
+                    observed_status: Some("done".into()),
+                    confidence: Some(0.9),
+                    summary: Some("Orphaned checkpoint".into()),
+                    source: Some("peon".into()),
+                },
+            );
+        }
+
+        let payload = response_json(get_summary_log(State(state), Path(session_id)).await).await;
+
+        assert_eq!(payload, serde_json::json!({ "entries": [] }));
     }
 }

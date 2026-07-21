@@ -478,13 +478,25 @@ pub(crate) async fn report_attention(
     }
 
     let now = iso_now();
-    let result = {
-        let ws_guard = state.workspace.lock().unwrap();
+    let persist_state = state.clone();
+    let persist_id = id.clone();
+    let persist_status = status.clone();
+    let message = req.message.clone();
+    let result = match tokio::task::spawn_blocking(move || {
+        let ws_guard = persist_state.workspace.lock().unwrap();
         let Some(ref ws) = *ws_guard else {
-            return axum::http::StatusCode::CONFLICT.into_response();
+            return Err(axum::http::StatusCode::CONFLICT);
         };
-        ws.metadata
-            .merge_agent_attention_signal(&id, &status, req.message.as_deref(), &now, "agent", 1.0)
+        Ok(ws.metadata.merge_agent_attention_signal(
+            &persist_id, &persist_status, message.as_deref(), &now, "agent", 1.0,
+        ))
+    }).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(status)) => return status.into_response(),
+        Err(error) => {
+            tracing::error!(error = %error, "attention metadata task failed");
+            return axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
     };
 
     match result {
@@ -532,37 +544,46 @@ pub(crate) async fn apply_debug_attention(
     // path stores `observed_status` and derives `attention` from it via
     // canonical_attention. Every value round-trips as a passthrough except
     // needs_you, which canonical_attention only produces from waiting_for_input.
-    let observed_status = if req.attention == "needs_you" { "waiting_for_input" } else { &req.attention };
+    let observed_status = if req.attention == "needs_you" {
+        "waiting_for_input".to_string()
+    } else {
+        req.attention.clone()
+    };
     let is_capped = req.attention == "capped";
-    let summary_message = if is_capped { None } else { req.message.as_deref() };
+    let summary_message = if is_capped { None } else { req.message.clone() };
 
     let now = iso_now();
-    let result = {
-        let ws_guard = state.workspace.lock().unwrap();
+    let persist_state = state.clone();
+    let persist_id = id.clone();
+    let persist_status = observed_status.clone();
+    let result = match tokio::task::spawn_blocking(move || {
+        let ws_guard = persist_state.workspace.lock().unwrap();
         let Some(ref ws) = *ws_guard else {
-            return axum::http::StatusCode::CONFLICT.into_response();
+            return Err(axum::http::StatusCode::CONFLICT);
         };
-        match ws.metadata.read_session(&id) {
-            None => return axum::http::StatusCode::NOT_FOUND.into_response(),
+        match ws.metadata.read_session(&persist_id) {
+            None => return Err(axum::http::StatusCode::NOT_FOUND),
             Some(meta) if meta.lifecycle != "alive" => {
-                return axum::http::StatusCode::BAD_REQUEST.into_response();
+                return Err(axum::http::StatusCode::BAD_REQUEST);
             }
             Some(_) => {}
         }
-        ws.metadata.merge_agent_attention_signal(
-            &id,
-            observed_status,
-            summary_message,
-            &now,
-            "debug",
-            0.0,
-        )
+        Ok(ws.metadata.merge_agent_attention_signal(
+            &persist_id, &persist_status, summary_message.as_deref(), &now, "debug", 0.0,
+        ))
+    }).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(status)) => return status.into_response(),
+        Err(error) => {
+            tracing::error!(error = %error, "debug attention metadata task failed");
+            return axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
     };
 
     match result {
         metadata::AttentionMergeResult::Accepted => {
             if let Some(handle) = state.sessions.lock().unwrap().get_mut(&id) {
-                handle.info.observed_status = Some(observed_status.to_string());
+                handle.info.observed_status = Some(observed_status.clone());
                 if handle.info.lifecycle == "alive" {
                     handle.info.attention = Some(req.attention.clone());
                 }
@@ -1895,6 +1916,51 @@ mod tests {
         let updated = ws.as_ref().unwrap().metadata.read_session("attention-known").unwrap();
         assert_eq!(updated.observed_status.as_deref(), Some("waiting_for_input"));
         assert_eq!(updated.metadata_source, "agent");
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn report_attention_metadata_io_does_not_block_tokio_worker() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        {
+            let ws = state.workspace.lock().unwrap();
+            let mut meta = test_session_metadata(
+                "attention-nonblocking", "Known", dir.path().display().to_string(),
+                "running", "now", "now",
+            );
+            meta.lifecycle = "alive".into();
+            ws.as_ref().unwrap().metadata.write_session(&meta);
+        }
+
+        let (locked_tx, locked_rx) = std::sync::mpsc::sync_channel(1);
+        let locked_state = state.clone();
+        let locker = std::thread::spawn(move || {
+            let _guard = locked_state.workspace.lock().unwrap();
+            locked_tx.send(()).unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(250));
+        });
+        locked_rx.recv().unwrap();
+
+        let request_state = state.clone();
+        let response = tokio::spawn(async move {
+            report_attention(
+                State(request_state),
+                Path("attention-nonblocking".into()),
+                Json(AttentionReportRequest {
+                    status: "blocked".into(),
+                    message: Some("Waiting".into()),
+                }),
+            ).await.into_response()
+        });
+        let started = std::time::Instant::now();
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        assert!(
+            started.elapsed() < std::time::Duration::from_millis(100),
+            "Tokio worker was blocked for {:?}", started.elapsed()
+        );
+
+        assert_eq!(response.await.unwrap().status(), axum::http::StatusCode::OK);
+        locker.join().unwrap();
     }
 
     #[tokio::test]
