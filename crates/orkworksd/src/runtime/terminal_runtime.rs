@@ -251,6 +251,7 @@ pub(crate) fn record_terminal_input(
 ) -> Option<()> {
     if !data.is_empty() {
         mark_usage_limit_recheck_on_input(state, id);
+        mark_committed_input_working(state, id);
     }
 
     let (collected_line, in_progress_buf) = {
@@ -262,27 +263,6 @@ pub(crate) fn record_terminal_input(
         let in_progress_buf = parsed_printable_input.then(|| buf.clone());
         (line, in_progress_buf)
     };
-
-    // Single-key arming: a printable keystroke received while the session is in
-    // needs_you (set by an agent hook report) arms the work fallback using the
-    // in-progress input-line buffer as the echo prefix. This recovers the
-    // needs_you -> working transition for Claude Code's single-key prompts
-    // (y/n and choice lists), which never produce an Enter-terminated
-    // line. See docs/superpowers/specs/2026-07-17-single-key-work-signal-design.md.
-    if let Some(in_progress_buf) = in_progress_buf {
-        let mut sessions = state.sessions.lock().unwrap();
-        if let Some(handle) = sessions.get_mut(id) {
-            if !handle.active_work_hook
-                && handle.info.attention.as_deref() == Some("needs_you")
-                && handle.info.metadata_source.as_deref() == Some("agent")
-            {
-                handle.pending_work_signal = Some(arm_pending_work_signal(
-                    &in_progress_buf,
-                    tokio::time::Instant::now(),
-                ));
-            }
-        }
-    }
 
     let line = collected_line?;
     // Labels are display-bounded; echo-gating below uses the full `line`.
@@ -309,20 +289,60 @@ pub(crate) fn record_terminal_input(
         }
     }
 
-    let mut sessions = state.sessions.lock().unwrap();
-    if let Some(handle) = sessions.get_mut(id) {
-        if label_worthy {
-            handle.info.label = label_line.clone();
-        }
-        if !line.is_empty() && !handle.active_work_hook {
-            handle.pending_work_signal = Some(arm_pending_work_signal(
-                &line,
-                tokio::time::Instant::now(),
-            ));
+    if label_worthy {
+        if let Some(handle) = state.sessions.lock().unwrap().get_mut(id) {
+            handle.info.label = label_line;
         }
     }
 
     Some(())
+}
+
+/// A non-empty terminal frame reaches this function only after its delivery
+/// was accepted. That is direct evidence that the live session is working,
+/// stronger than any stale prompt metadata or later PTY-output heuristic.
+fn mark_committed_input_working(state: &Arc<AppState>, id: &str) {
+    let is_live = {
+        let mut sessions = state.sessions.lock().unwrap();
+        let Some(handle) = sessions.get_mut(id) else {
+            return;
+        };
+        if handle.info.lifecycle != "alive" {
+            return;
+        }
+        handle.info.observed_status = Some("working".into());
+        handle.info.attention = Some("working".into());
+        handle.info.metadata_source = Some("process".into());
+        handle.info.metadata_confidence = Some(1.0);
+        handle.info.needs_user_input = None;
+        handle.info.detected_question = None;
+        handle.info.suggested_options = None;
+        handle.pending_work_signal = None;
+        true
+    };
+
+    if !is_live {
+        return;
+    }
+
+    let ws_guard = state.workspace.lock().unwrap();
+    let Some(ref ws) = *ws_guard else {
+        return;
+    };
+    let Some(mut meta) = ws.metadata.read_session(id) else {
+        return;
+    };
+    if meta.lifecycle != "alive" {
+        return;
+    }
+    meta.observed_status = Some("working".into());
+    meta.attention = Some("working".into());
+    meta.metadata_source = "process".into();
+    meta.metadata_confidence = 1.0;
+    meta.needs_user_input = None;
+    meta.detected_question = None;
+    meta.suggested_options = None;
+    ws.metadata.write_session(&meta);
 }
 
 pub(crate) fn should_forward_terminal_env(key: &str) -> bool {
@@ -782,6 +802,137 @@ mod tests {
     use std::collections::{HashMap, HashSet};
     use std::sync::{Arc, Mutex, RwLock};
     use std::sync::atomic::AtomicU16;
+
+    fn prompted_session_state(session_id: &str) -> (Arc<crate::AppState>, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let orkworks = dir.path().join(".orkworks");
+        std::fs::create_dir_all(orkworks.join("sessions")).unwrap();
+        std::fs::create_dir_all(orkworks.join("events")).unwrap();
+        let state = Arc::new(crate::AppState {
+            sessions: Mutex::new(HashMap::new()),
+            workspace: Mutex::new(Some(crate::WorkspaceState {
+                path: dir.path().to_path_buf(),
+                metadata: metadata::MetadataStore::new(&orkworks),
+                watcher: crate::watcher::MetadataWatcher::start(&orkworks.join("sessions")),
+            })),
+            peon: crate::PeonState {
+                last_output: RwLock::new(HashMap::new()),
+                last_inference: RwLock::new(HashMap::new()),
+                in_flight: RwLock::new(HashSet::new()),
+                label_hint: RwLock::new(HashMap::new()),
+                label_pending: RwLock::new(HashSet::new()),
+                input_buf: RwLock::new(HashMap::new()),
+                config: crate::peon::PeonConfig::from_env(),
+            },
+            adapters: crate::harness_registry::builtin_adapters(),
+            retention_config: tokio::sync::RwLock::new(crate::RetentionConfig::default()),
+            harnesses: tokio::sync::RwLock::new(vec![]),
+            bound_port: AtomicU16::new(0),
+            providers: crate::providers::ProviderManager::new(),
+        });
+
+        let mut info = test_session_info(
+            session_id.to_string(),
+            "Prompted session",
+            dir.path().display().to_string(),
+            "running",
+            "now",
+        );
+        info.attention = Some("needs_you".into());
+        info.observed_status = Some("waiting_for_input".into());
+        info.metadata_source = Some("agent".into());
+        info.metadata_confidence = Some(1.0);
+        info.needs_user_input = Some(true);
+        info.detected_question = Some("Proceed?".into());
+        info.suggested_options = Some(vec!["yes".into(), "no".into()]);
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        state.sessions.lock().unwrap().insert(
+            session_id.into(),
+            crate::SessionHandle {
+                info,
+                kill_tx,
+                output_buffer: crate::peon::RingBuffer::new(200),
+                scan_buf: String::new(),
+                pending_work_signal: None,
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                ),
+                terminal_attached: false,
+                at_usage_limit_latched: false,
+                capacity_check_pending: false,
+                output_lines_seen: 0,
+                scan_bytes_seen: 0,
+                resume_scan_origin: None,
+                pending_capacity_visible_once: false,
+                active_work_hook: false,
+            },
+        );
+
+        let mut meta = test_session_metadata(
+            session_id,
+            "Prompted session",
+            dir.path().display().to_string(),
+            "running",
+            "now",
+            "now",
+        );
+        meta.lifecycle_phase = "active".into();
+        meta.lifecycle = "alive".into();
+        meta.connectivity = "online".into();
+        meta.terminal_outcome = None;
+        meta.attention = Some("needs_you".into());
+        meta.observed_status = Some("waiting_for_input".into());
+        meta.metadata_source = "agent".into();
+        meta.metadata_confidence = 1.0;
+        meta.needs_user_input = Some(true);
+        meta.detected_question = Some("Proceed?".into());
+        meta.suggested_options = Some(vec!["yes".into(), "no".into()]);
+        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&meta);
+
+        (state, dir)
+    }
+
+    fn assert_prompt_is_cleared_as_working(state: &Arc<crate::AppState>, session_id: &str) {
+        let info = state.sessions.lock().unwrap()[session_id].info.clone();
+        assert_eq!(info.attention.as_deref(), Some("working"));
+        assert_eq!(info.observed_status.as_deref(), Some("working"));
+        assert_eq!(info.metadata_source.as_deref(), Some("process"));
+        assert_eq!(info.metadata_confidence, Some(1.0));
+        assert_eq!(info.needs_user_input, None);
+        assert_eq!(info.detected_question, None);
+        assert_eq!(info.suggested_options, None);
+
+        let meta = state.workspace.lock().unwrap().as_ref().unwrap()
+            .metadata.read_session(session_id).unwrap();
+        assert_eq!(meta.attention.as_deref(), Some("working"));
+        assert_eq!(meta.observed_status.as_deref(), Some("working"));
+        assert_eq!(meta.metadata_source, "process");
+        assert_eq!(meta.metadata_confidence, 1.0);
+        assert_eq!(meta.needs_user_input, None);
+        assert_eq!(meta.detected_question, None);
+        assert_eq!(meta.suggested_options, None);
+    }
+
+    #[test]
+    fn committed_single_key_immediately_clears_prompt_to_working() {
+        let session_id = "committed-single-key";
+        let (state, _dir) = prompted_session_state(session_id);
+
+        assert_eq!(record_terminal_input(&state, session_id, "y"), None);
+
+        assert_prompt_is_cleared_as_working(&state, session_id);
+    }
+
+    #[test]
+    fn committed_newline_terminated_input_immediately_clears_prompt_to_working() {
+        let session_id = "committed-newline";
+        let (state, _dir) = prompted_session_state(session_id);
+
+        assert_eq!(record_terminal_input(&state, session_id, "yes\r"), Some(()));
+
+        assert_prompt_is_cleared_as_working(&state, session_id);
+    }
 
     #[test]
     fn terminal_env_overrides_force_color_capability() {
