@@ -39,7 +39,9 @@ use crate::http::session_handlers::{
 };
 use crate::runtime::peon_runtime::peon_loop;
 use crate::runtime::retention::retention_cleanup_task;
-use crate::runtime::terminal_http::{get_terminal_output, session_terminal_handler};
+use crate::runtime::terminal_http::{
+    get_summary_log, get_terminal_output, session_terminal_handler,
+};
 use crate::session_types::SessionInfo;
 
 struct SessionHandle {
@@ -181,6 +183,7 @@ async fn main() {
         .route("/harnesses/:id", put(update_harness).delete(delete_harness))
         .route("/sessions/:id/terminal", get(session_terminal_handler))
         .route("/sessions/:id/terminal-output", get(get_terminal_output))
+        .route("/sessions/:id/summary-log", get(get_summary_log))
         .layer(cors)
         .with_state(state.clone());
 
@@ -434,6 +437,7 @@ mod tests {
             .route("/harnesses/:id", put(update_harness).delete(delete_harness))
             .route("/sessions/:id/terminal", get(session_terminal_handler))
             .route("/sessions/:id/terminal-output", get(get_terminal_output))
+            .route("/sessions/:id/summary-log", get(get_summary_log))
             .layer(cors)
             .with_state(state)
     }
@@ -485,6 +489,29 @@ mod tests {
             let response = client.request(method, url).send().await.unwrap();
             assert_eq!(response.status(), reqwest::StatusCode::METHOD_NOT_ALLOWED);
         }
+
+        server.abort();
+        let _ = server.await;
+    }
+
+    #[tokio::test]
+    async fn summary_log_route_is_registered() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let (base_url, server) = test_server_base_url(state).await;
+
+        let response = reqwest::get(format!(
+            "{}/sessions/missing-session/summary-log",
+            base_url
+        ))
+        .await
+        .unwrap();
+
+        assert_eq!(response.status(), reqwest::StatusCode::OK);
+        assert_eq!(
+            response.json::<serde_json::Value>().await.unwrap(),
+            serde_json::json!({ "entries": [] })
+        );
 
         server.abort();
         let _ = server.await;
