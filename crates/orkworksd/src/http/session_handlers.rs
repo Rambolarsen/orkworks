@@ -381,6 +381,8 @@ pub(crate) async fn resume_session(
                 status: "running".into(),
                 observed_status: None,
                 confidence: None,
+                summary: None,
+                source: None,
             });
         }
     }
@@ -893,6 +895,8 @@ pub(crate) async fn create_session(
             status: "running".into(),
             observed_status: None,
             confidence: None,
+            summary: None,
+            source: None,
         });
     }
     drop(ws_guard);

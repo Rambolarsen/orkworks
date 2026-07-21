@@ -5,12 +5,12 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use tracing::warn;
 
-pub const TERMINAL_OUTPUT_MAX_LINES: usize = 10_000;
+pub const TERMINAL_OUTPUT_MAX_LINES: usize = 1_000;
 /// A single persisted record can be as large as the partial-persist byte cap
 /// (`MAX_PARTIAL_PERSIST_BYTES` in `runtime::session_runtime`), so the
 /// line-count limit alone cannot bound on-disk size. This byte budget is
 /// enforced alongside it during trim/read.
-pub const TERMINAL_OUTPUT_MAX_BYTES: u64 = 16 * 1024 * 1024;
+pub const TERMINAL_OUTPUT_MAX_BYTES: u64 = 1 * 1024 * 1024;
 /// Trim target sits below the trigger ceiling so a chatty session doesn't
 /// force a full file read+rewrite on nearly every append once it first hits
 /// the ceiling — the headroom absorbs several appends before trim fires again.
@@ -168,6 +168,10 @@ pub struct Event {
     #[serde(rename = "observedStatus")]
     pub observed_status: Option<String>,
     pub confidence: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -917,6 +921,16 @@ impl MetadataStore {
         }
     }
 
+    fn summary_checkpoint(&self, id: &str, incoming: Option<&str>) -> Option<String> {
+        let incoming = incoming.filter(|summary| !summary.trim().is_empty())?;
+        let latest = self
+            .read_events(id)
+            .into_iter()
+            .rev()
+            .find_map(|event| event.summary);
+        (latest.as_deref() != Some(incoming)).then(|| incoming.to_string())
+    }
+
     pub fn persist_provider_context(
         &self,
         id: &str,
@@ -987,6 +1001,8 @@ impl MetadataStore {
             status: meta.status.clone(),
             observed_status: None,
             confidence: Some(report.confidence),
+            summary: None,
+            source: None,
         });
 
         HarnessSessionMergeResult::Accepted
@@ -1037,12 +1053,17 @@ impl MetadataStore {
             return AttentionMergeResult::PersistFailed;
         }
 
+        let checkpoint = self.summary_checkpoint(id, message);
+        let checkpoint_source = checkpoint.as_ref().map(|_| source.to_string());
+
         self.append_event(id, &Event {
             event_type: "session.attention_reported".into(),
             timestamp: timestamp.to_string(),
             status: meta.status.clone(),
             observed_status: Some(status.to_string()),
             confidence: Some(confidence),
+            summary: checkpoint,
+            source: checkpoint_source,
         });
 
         AttentionMergeResult::Accepted
@@ -1142,12 +1163,17 @@ impl MetadataStore {
 
         self.try_write_session(&meta)?;
 
+        let checkpoint = self.summary_checkpoint(id, inf.summary.as_deref());
+        let checkpoint_source = checkpoint.as_ref().map(|_| "peon".to_string());
+
         self.append_event(id, &Event {
             event_type: "peon.inference".into(),
             timestamp: timestamp.to_string(),
             status: meta.status.clone(),
             observed_status: inf.observed_status.clone(),
             confidence: Some(inf.confidence),
+            summary: checkpoint,
+            source: checkpoint_source,
         });
 
         if let Some(report) = peon_harness_session_report {
@@ -1240,6 +1266,36 @@ fn terminal_output_retain_start(all: &[&str], max_lines: usize, max_bytes: u64) 
 mod tests {
     use super::*;
 
+    fn peon_inference_with_summary(
+        summary: Option<&str>,
+        confidence: f64,
+    ) -> crate::peon::PeonInference {
+        crate::peon::PeonInference {
+            observed_status: None,
+            phase: None,
+            summary: summary.map(str::to_string),
+            next_action: None,
+            needs_user_input: None,
+            detected_question: None,
+            suggested_options: None,
+            blocker_description: None,
+            failed_command: None,
+            failed_test: None,
+            capacity_hints: None,
+            confidence,
+            detected_harness: None,
+            detected_model: None,
+            harness_session_id: None,
+        }
+    }
+
+    #[test]
+    fn terminal_output_limits_match_persistence_contract() {
+        assert_eq!(TERMINAL_OUTPUT_MAX_LINES, 1_000);
+        assert_eq!(TERMINAL_OUTPUT_MAX_BYTES, 1 * 1024 * 1024);
+        assert_eq!(TERMINAL_OUTPUT_TRIM_TARGET_BYTES, 768 * 1024);
+    }
+
     #[test]
     fn write_and_read_session() {
         let dir = tempfile::tempdir().unwrap();
@@ -1309,6 +1365,8 @@ mod tests {
             status: "creating".into(),
             observed_status: None,
             confidence: None,
+            summary: None,
+            source: None,
         });
         store.append_event("test-2", &Event {
             event_type: "session.status".into(),
@@ -1316,10 +1374,16 @@ mod tests {
             status: "running".into(),
             observed_status: None,
             confidence: None,
+            summary: None,
+            source: None,
         });
         let path = store.events_dir().join("test-2.ndjson");
         let contents = fs::read_to_string(&path).unwrap();
         assert_eq!(contents.lines().count(), 2);
+        let first: serde_json::Value =
+            serde_json::from_str(contents.lines().next().unwrap()).unwrap();
+        assert!(first.get("summary").is_none());
+        assert!(first.get("source").is_none());
     }
 
     #[test]
@@ -1332,6 +1396,8 @@ mod tests {
             status: "creating".into(),
             observed_status: None,
             confidence: None,
+            summary: None,
+            source: None,
         });
         store.append_event("test-3", &Event {
             event_type: "session.status".into(),
@@ -1339,11 +1405,94 @@ mod tests {
             status: "running".into(),
             observed_status: None,
             confidence: None,
+            summary: None,
+            source: None,
         });
         let events = store.read_events("test-3");
         assert_eq!(events.len(), 2);
         assert_eq!(events[0].event_type, "session.created");
         assert_eq!(events[1].status, "running");
+    }
+
+    #[test]
+    fn read_events_accepts_legacy_records_without_checkpoint_fields() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        fs::create_dir_all(store.events_dir()).unwrap();
+        fs::write(
+            store.events_dir().join("legacy.ndjson"),
+            r#"{"type":"session.status","timestamp":"t1","status":"running","observedStatus":null,"confidence":null}
+"#,
+        )
+        .unwrap();
+
+        let events = store.read_events("legacy");
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].summary, None);
+        assert_eq!(events[0].source, None);
+    }
+
+    #[test]
+    fn peon_summary_checkpoints_dedupe_consecutive_text_and_preserve_provenance() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        store.write_session(&test_metadata("peon-checkpoints"));
+
+        for (timestamp, summary, confidence) in [
+            ("t1", "  A  ", 0.81),
+            ("t2", "  A  ", 0.82),
+            ("t3", "B", 0.83),
+            ("t4", "  A  ", 0.84),
+        ] {
+            store
+                .merge_peon_inference(
+                    "peon-checkpoints",
+                    &peon_inference_with_summary(Some(summary), confidence),
+                    timestamp,
+                    None,
+                )
+                .unwrap();
+        }
+
+        let checkpoints: Vec<_> = store
+            .read_events("peon-checkpoints")
+            .into_iter()
+            .filter(|event| event.summary.is_some())
+            .collect();
+        assert_eq!(checkpoints.len(), 3);
+        assert_eq!(checkpoints[0].summary.as_deref(), Some("  A  "));
+        assert_eq!(checkpoints[1].summary.as_deref(), Some("B"));
+        assert_eq!(checkpoints[2].summary.as_deref(), Some("  A  "));
+        assert!(checkpoints
+            .iter()
+            .all(|event| event.source.as_deref() == Some("peon")));
+        assert_eq!(checkpoints[0].confidence, Some(0.81));
+        assert_eq!(checkpoints[1].confidence, Some(0.83));
+        assert_eq!(checkpoints[2].confidence, Some(0.84));
+    }
+
+    #[test]
+    fn peon_missing_and_whitespace_summaries_do_not_create_checkpoints() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        store.write_session(&test_metadata("peon-empty-checkpoints"));
+
+        for (timestamp, summary) in [("t1", None), ("t2", Some(" \t\n "))] {
+            store
+                .merge_peon_inference(
+                    "peon-empty-checkpoints",
+                    &peon_inference_with_summary(summary, 0.7),
+                    timestamp,
+                    None,
+                )
+                .unwrap();
+        }
+
+        let events = store.read_events("peon-empty-checkpoints");
+        assert_eq!(events.len(), 2);
+        assert!(events
+            .iter()
+            .all(|event| event.summary.is_none() && event.source.is_none()));
     }
 
     #[test]
@@ -1923,6 +2072,68 @@ mod tests {
     }
 
     #[test]
+    fn attention_summary_checkpoints_dedupe_across_event_types_and_sources() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        store.write_session(&test_metadata("attention-checkpoints"));
+
+        store
+            .merge_peon_inference(
+                "attention-checkpoints",
+                &peon_inference_with_summary(Some("A"), 0.7),
+                "t0",
+                None,
+            )
+            .unwrap();
+        store.append_event("attention-checkpoints", &Event {
+            event_type: "session.status".into(),
+            timestamp: "t0.5".into(),
+            status: "running".into(),
+            observed_status: None,
+            confidence: None,
+            summary: None,
+            source: None,
+        });
+
+        for (timestamp, message, source, confidence) in [
+            ("t1", Some("A"), "debug", 0.0),
+            ("t2", Some("B"), "debug", 0.1),
+            ("t2.5", Some("B"), "agent", 1.0),
+            ("t3", None, "agent", 1.0),
+            ("t4", Some("   "), "agent", 1.0),
+            ("t5", Some("A"), "agent", 0.8),
+        ] {
+            assert_eq!(
+                store.merge_agent_attention_signal(
+                    "attention-checkpoints",
+                    "waiting_for_input",
+                    message,
+                    timestamp,
+                    source,
+                    confidence,
+                ),
+                AttentionMergeResult::Accepted
+            );
+        }
+
+        let checkpoints: Vec<_> = store
+            .read_events("attention-checkpoints")
+            .into_iter()
+            .filter(|event| event.summary.is_some())
+            .collect();
+        assert_eq!(checkpoints.len(), 3);
+        assert_eq!(checkpoints[0].summary.as_deref(), Some("A"));
+        assert_eq!(checkpoints[0].source.as_deref(), Some("peon"));
+        assert_eq!(checkpoints[0].confidence, Some(0.7));
+        assert_eq!(checkpoints[1].summary.as_deref(), Some("B"));
+        assert_eq!(checkpoints[1].source.as_deref(), Some("debug"));
+        assert_eq!(checkpoints[1].confidence, Some(0.1));
+        assert_eq!(checkpoints[2].summary.as_deref(), Some("A"));
+        assert_eq!(checkpoints[2].source.as_deref(), Some("agent"));
+        assert_eq!(checkpoints[2].confidence, Some(0.8));
+    }
+
+    #[test]
     fn agent_attention_signal_cannot_clobber_user_metadata() {
         let dir = tempfile::tempdir().unwrap();
         let store = MetadataStore::new(dir.path());
@@ -1934,7 +2145,7 @@ mod tests {
         let result = store.merge_agent_attention_signal(
             "attention-user-test",
             "waiting_for_input",
-            None,
+            Some("ignored summary"),
             "2026-06-26T12:00:00Z",
             "agent",
             1.0,
@@ -1944,6 +2155,7 @@ mod tests {
         let updated = store.read_session("attention-user-test").unwrap();
         assert_eq!(updated.observed_status.as_deref(), Some("working"));
         assert_eq!(updated.metadata_source, "user");
+        assert!(store.read_events("attention-user-test").is_empty());
     }
 
     #[test]
@@ -1958,7 +2170,7 @@ mod tests {
         let result = store.merge_agent_attention_signal(
             "attention-debug-vs-agent-test",
             "blocked",
-            None,
+            Some("ignored summary"),
             "2026-06-26T12:00:00Z",
             "debug",
             0.0,
@@ -1968,6 +2180,7 @@ mod tests {
         let updated = store.read_session("attention-debug-vs-agent-test").unwrap();
         assert_eq!(updated.observed_status.as_deref(), Some("working"));
         assert_eq!(updated.metadata_source, "agent");
+        assert!(store.read_events("attention-debug-vs-agent-test").is_empty());
     }
 
     #[test]
@@ -2221,7 +2434,11 @@ mod tests {
     #[test]
     fn terminal_output_retain_start_keeps_everything_under_both_budgets() {
         let all: Vec<&str> = vec!["short"; 5];
-        let start = terminal_output_retain_start(&all, 10_000, TERMINAL_OUTPUT_MAX_BYTES);
+        let start = terminal_output_retain_start(
+            &all,
+            TERMINAL_OUTPUT_MAX_LINES,
+            TERMINAL_OUTPUT_MAX_BYTES,
+        );
         assert_eq!(start, 0);
     }
 
@@ -2230,10 +2447,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = MetadataStore::new(dir.path());
 
-        // 300 records of ~64 KiB each (~19 MiB total) is far under the
-        // 10,000-line cap but exceeds TERMINAL_OUTPUT_MAX_BYTES (16 MiB),
+        // 20 records of ~64 KiB each (~1.25 MiB total) is far under the
+        // 1,000-line cap but exceeds TERMINAL_OUTPUT_MAX_BYTES (1 MiB),
         // so only the byte budget can bound this on disk.
-        let record_count = 300;
+        let record_count = 20;
         let big_record = "x".repeat(64 * 1024);
         let lines: Vec<String> = (0..record_count).map(|i| format!("{big_record}-{i}")).collect();
         store.append_terminal_output_lines("big-session", &lines);
@@ -2306,6 +2523,8 @@ mod tests {
             status: "creating".into(),
             observed_status: None,
             confidence: None,
+            summary: None,
+            source: None,
         });
         store.append_terminal_output_lines("del-test", &["line 1".into(), "line 2".into()]);
 
@@ -2509,7 +2728,7 @@ mod tests {
         let result = store.merge_agent_attention_signal(
             "att-fail",
             "waiting_for_input",
-            None,
+            Some("not persisted"),
             "now",
             "agent",
             1.0,
@@ -2518,6 +2737,7 @@ mod tests {
         // The stored metadata must not claim the signal landed.
         let meta = store.read_session("att-fail").unwrap();
         assert_eq!(meta.observed_status, None);
+        assert!(store.read_events("att-fail").is_empty());
     }
 
     #[test]
@@ -2528,7 +2748,11 @@ mod tests {
         std::fs::create_dir_all(store.sessions_dir().join("peon-fail.json.tmp")).unwrap();
 
         let inf: crate::peon::PeonInference =
-            serde_json::from_str(r#"{"status":"working","confidence":0.9}"#).unwrap();
+            serde_json::from_str(
+                r#"{"status":"working","summary":"not persisted","confidence":0.9}"#,
+            )
+            .unwrap();
         assert!(store.merge_peon_inference("peon-fail", &inf, "now", None).is_err());
+        assert!(store.read_events("peon-fail").is_empty());
     }
 }
