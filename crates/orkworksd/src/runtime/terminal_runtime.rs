@@ -164,6 +164,29 @@ fn spawn_command_future(
     }
 }
 
+fn terminal_input_data(action: &TerminalAction) -> Option<String> {
+    match action {
+        TerminalAction::Input(data) if !data.is_empty() => Some(data.clone()),
+        _ => None,
+    }
+}
+
+/// The PTY control channel is the delivery authority. Only advance metadata
+/// after its command future succeeds; a closed channel means the user input
+/// was rejected and must leave any prompt state intact.
+fn record_input_after_delivery(
+    state: &Arc<AppState>,
+    id: &str,
+    input: Option<&str>,
+    result: &Result<(), ()>,
+) {
+    if result.is_ok() {
+        if let Some(input) = input {
+            record_peon_input_side_effects(state, id, input);
+        }
+    }
+}
+
 pub(crate) fn collect_input_line(buf: &mut String, data: &str) -> Option<String> {
     let mut result: Option<String> = None;
     let mut chars = data.chars().peekable();
@@ -688,6 +711,7 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
     let generation = attachment.generation;
     let mut events = attachment.events;
     let mut pending_command: Option<PendingCommandFuture> = None;
+    let mut pending_input: Option<String> = None;
     let mut queue = PendingActionQueue::default();
 
     loop {
@@ -701,16 +725,14 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
                 if result.is_err() {
                     break;
                 }
+                record_input_after_delivery(&state, &id, pending_input.as_deref(), &result);
+                pending_input = None;
+                pending_command = None;
                 let next_action = queue.take_next();
-                // Record Peon side effects only now, as the queued action is actually handed
-                // to the PTY runtime — not when it was merely accepted into the queue. If the
-                // websocket closes before a queued item drains, it's simply never dispatched
-                // and no side effects for it are recorded either.
-                if let Some(TerminalAction::Input(ref data)) = next_action {
-                    record_peon_input_side_effects(&state, &id, data);
+                if let Some(action) = next_action {
+                    pending_input = terminal_input_data(&action);
+                    pending_command = spawn_command_future(state.clone(), id.clone(), action);
                 }
-                pending_command = next_action
-                    .and_then(|action| spawn_command_future(state.clone(), id.clone(), action));
             }
             event = events.recv() => {
                 match event {
@@ -768,9 +790,7 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
                                 )).await;
                             }
                         } else {
-                            if let TerminalAction::Input(ref data) = action {
-                                record_peon_input_side_effects(&state, &id, data);
-                            }
+                            pending_input = terminal_input_data(&action);
                             pending_command = spawn_command_future(state.clone(), id.clone(), action);
                         }
                     }
@@ -953,6 +973,19 @@ mod tests {
         let (state, _dir) = prompted_session_state(session_id);
 
         assert_eq!(record_terminal_input(&state, session_id, ""), None);
+
+        let info = state.sessions.lock().unwrap()[session_id].info.clone();
+        assert_eq!(info.attention.as_deref(), Some("needs_you"));
+        assert_eq!(info.observed_status.as_deref(), Some("waiting_for_input"));
+        assert_eq!(info.metadata_source.as_deref(), Some("agent"));
+    }
+
+    #[test]
+    fn rejected_input_does_not_clear_a_prompt() {
+        let session_id = "rejected-input";
+        let (state, _dir) = prompted_session_state(session_id);
+
+        record_input_after_delivery(&state, session_id, Some("y"), &Err(()));
 
         let info = state.sessions.lock().unwrap()[session_id].info.clone();
         assert_eq!(info.attention.as_deref(), Some("needs_you"));
