@@ -760,6 +760,12 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
                     .await
             }, if pending_command.is_some() => {
                 if result.is_err() {
+                    // This future has already been polled to completion —
+                    // clear it before breaking so the post-loop drain below
+                    // doesn't re-poll an already-resolved future (a panic
+                    // for a compiler-generated async-block state machine).
+                    pending_command = None;
+                    pending_input = None;
                     break;
                 }
                 record_input_after_delivery(&state, &id, pending_input.as_ref(), &result);
