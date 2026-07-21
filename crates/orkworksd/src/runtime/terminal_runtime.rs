@@ -206,9 +206,9 @@ pub(crate) fn collect_input_line(buf: &mut String, data: &str) -> Option<String>
     while let Some(ch) = chars.next() {
         match ch {
             '\r' | '\n' => {
-                // Full, untruncated line: callers that only need a short label
-                // truncate at their own call site, while metadata retains the
-                // complete accepted input for the terminal record.
+                // Full, untruncated line. The only caller (record_terminal_input)
+                // truncates it to a display-bounded label before persisting —
+                // the full line is not retained anywhere past this point.
                 let line = buf.trim().to_string();
                 buf.clear();
                 if !line.is_empty() && result.is_none() {
@@ -332,11 +332,12 @@ fn record_terminal_input_impl(
     Some(())
 }
 
-/// A non-empty terminal frame reaches this function only after its delivery
-/// was accepted. That is direct evidence that the live session is working,
-/// stronger than any stale prompt metadata or later PTY-output heuristic.
+/// Caller contract, not enforced here: only call this for a non-empty frame
+/// whose delivery to the PTY was actually accepted. That is direct evidence
+/// the live session is working, stronger than any stale prompt metadata or
+/// later PTY-output heuristic — but this function trusts the caller for it.
 fn mark_committed_input_working(state: &Arc<AppState>, id: &str) {
-    let is_live = {
+    let already_working = {
         let mut sessions = state.sessions.lock().unwrap();
         let Some(handle) = sessions.get_mut(id) else {
             return;
@@ -344,18 +345,34 @@ fn mark_committed_input_working(state: &Arc<AppState>, id: &str) {
         if handle.info.lifecycle != "alive" {
             return;
         }
-        handle.info.observed_status = Some("working".into());
-        handle.info.attention = Some("working".into());
-        handle.info.metadata_source = Some("process".into());
-        handle.info.metadata_confidence = Some(1.0);
-        handle.info.needs_user_input = None;
-        handle.info.detected_question = None;
-        handle.info.suggested_options = None;
-        handle.pending_work_signal = None;
-        true
+        let already = handle.info.observed_status.as_deref() == Some("working")
+            && handle.info.attention.as_deref() == Some("working")
+            && handle.info.metadata_source.as_deref() == Some("process")
+            && handle.info.metadata_confidence == Some(1.0)
+            && handle.info.needs_user_input.is_none()
+            && handle.info.detected_question.is_none()
+            && handle.info.suggested_options.is_none()
+            && handle.pending_work_signal.is_none();
+        if !already {
+            handle.info.observed_status = Some("working".into());
+            handle.info.attention = Some("working".into());
+            handle.info.metadata_source = Some("process".into());
+            handle.info.metadata_confidence = Some(1.0);
+            handle.info.needs_user_input = None;
+            handle.info.detected_question = None;
+            handle.info.suggested_options = None;
+            handle.pending_work_signal = None;
+        }
+        already
     };
 
-    if !is_live {
+    // Accepted input is activity: refresh the idle baseline regardless of
+    // whether metadata needed a rewrite, so a hookless session mid-command
+    // doesn't get flagged idle by the next Peon tick (peon_runtime.rs) just
+    // because it hasn't produced output since before this input arrived.
+    state.peon.last_output.write().unwrap().insert(id.to_string(), tokio::time::Instant::now());
+
+    if already_working {
         return;
     }
 
@@ -835,6 +852,17 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
         }
     }
 
+    // Every exit from the loop above (Close/EOF, Ended, Error, a send
+    // failure, or the broadcast channel closing) can race a still-pending
+    // PTY command: if it was actually delivered, the session goes on
+    // running detached (ADR 0022) and must not be left showing stale
+    // `needs_you` just because nobody was left to observe the result. Drain
+    // it here instead of dropping it silently at each break site.
+    if let Some(cmd) = pending_command.take() {
+        let result = cmd.await;
+        record_input_after_delivery(&state, &id, pending_input.as_ref(), &result);
+    }
+
     crate::runtime::session_runtime::release_attachment(&state, &id, generation);
     let _ = ws.close().await;
 }
@@ -977,6 +1005,59 @@ mod tests {
         assert_eq!(record_terminal_input(&state, session_id, "yes\r"), Some(()));
 
         assert_prompt_is_cleared_as_working(&state, session_id);
+    }
+
+    #[test]
+    fn committed_input_refreshes_idle_baseline() {
+        let session_id = "committed-idle-baseline";
+        let (state, _dir) = prompted_session_state(session_id);
+        // Simulate a stale baseline, as if the session had been silent for a
+        // while before the user's response arrived.
+        state.peon.last_output.write().unwrap().insert(
+            session_id.to_string(),
+            tokio::time::Instant::now() - std::time::Duration::from_secs(600),
+        );
+        let stale = *state.peon.last_output.read().unwrap().get(session_id).unwrap();
+
+        record_terminal_input(&state, session_id, "y");
+
+        let refreshed = *state.peon.last_output.read().unwrap().get(session_id).unwrap();
+        assert!(
+            refreshed > stale,
+            "accepted input must refresh the idle baseline, or the next Peon tick can flag a \
+             just-resumed hookless session idle before its command produces output"
+        );
+    }
+
+    #[test]
+    fn already_working_input_skips_redundant_metadata_rewrite() {
+        let session_id = "already-working-skip";
+        let (state, _dir) = prompted_session_state(session_id);
+        // First input performs the real transition to working.
+        record_terminal_input(&state, session_id, "y");
+        assert_prompt_is_cleared_as_working(&state, session_id);
+
+        // Diverge the on-disk record from memory with a canary value that
+        // the "already working" fast path does not check against — if the
+        // fix regresses to unconditionally rewriting metadata, this canary
+        // gets clobbered back to "working" by the second input below.
+        {
+            let ws = state.workspace.lock().unwrap();
+            let mut meta = ws.as_ref().unwrap().metadata.read_session(session_id).unwrap();
+            meta.attention = Some("idle-canary".into());
+            ws.as_ref().unwrap().metadata.write_session(&meta);
+        }
+
+        record_terminal_input(&state, session_id, "z");
+
+        let meta = state.workspace.lock().unwrap().as_ref().unwrap()
+            .metadata.read_session(session_id).unwrap();
+        assert_eq!(
+            meta.attention.as_deref(),
+            Some("idle-canary"),
+            "input arriving while the in-memory handle already reads \"working\" must not \
+             re-read and rewrite persisted metadata"
+        );
     }
 
     #[test]
