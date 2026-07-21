@@ -28,27 +28,34 @@ Out of scope:
 
 ### Metadata contract
 
-Add an optional `plan_path` to the session metadata and its API projection. It
-is a path relative to the open workspace, for example:
+Add an optional `plan_path` to session metadata. An agent supplies it through
+the existing attention report endpoint as `planPath`, alongside the status
+that makes the session need review. A supplied string replaces the current
+path; an explicit JSON `null` clears it; omission leaves it unchanged. The
+metadata merge persists the attention signal and this update atomically.
+
+The attention-report request is, for example:
 
 ```json
 {
-  "attention": "needs_you",
-  "plan_path": "docs/superpowers/plans/2026-07-21-example.md"
+  "status": "waiting_for_input",
+  "planPath": "docs/superpowers/plans/2026-07-21-example.md"
 }
 ```
 
 The field is advisory session context, not a workflow command. A session can
 provide it before or after it transitions to `needs_you`, but the product
 expectation is that an agent adds it when asking the user to review its plan.
+Only files whose extension is `.md`, case-insensitively, qualify for v1.
 
 ### User experience
 
 The existing session `needs you` state remains the sole review prompt. In that
-session's Details panel, show **Open plan** only when `plan_path` resolves to a
-valid Markdown file within the active workspace. Selecting it hands the file
-to the operating system, allowing the user to read it in their configured
-editor or browser.
+session's Details panel, show **Open plan** only when the sidecar-derived
+`hasOpenablePlan` projection is true. Selecting it requests opening by session
+ID; the renderer never receives or submits a file path. Electron delegates the
+validated file to `shell.openPath`, which uses the operating system's configured
+file handler (normally the user's editor or browser association).
 
 There is no standalone panel or notification. The user deliberately selects
 the session first, preserving its terminal, branch, and activity context.
@@ -56,9 +63,17 @@ the session first, preserving its terminal, branch, and activity context.
 ### Safety and failures
 
 The sidecar resolves `plan_path` against the workspace root and rejects paths
-that escape it, are not regular files, or are not Markdown. The renderer never
-opens a user-provided path directly; it requests the sidecar/Electron handoff
-through a narrow IPC/API action.
+that escape it, are not regular files, or are not Markdown. It canonicalizes
+both the workspace root and candidate file before checking containment, so an
+in-workspace symlink cannot target a file outside the workspace. The check is
+repeated immediately before opening to limit time-of-check/time-of-use races.
+
+The renderer invokes a narrow `openPlan(sessionId)` preload bridge. Electron
+calls a sidecar `POST /sessions/:id/open-plan` handoff endpoint, which resolves
+and validates that session ID and returns only the freshly validated canonical
+file path. Electron then calls `shell.openPath`. A non-empty error returned by
+`shell.openPath` is shown as a user-facing failure. The renderer never opens a
+user-provided path directly.
 
 If the file has moved, been deleted, or cannot be opened, the action reports a
 clear non-destructive error and the session remains unchanged. The action is
@@ -68,23 +83,25 @@ is handled on click.
 ## Data flow
 
 ```text
-agent/session metadata writes plan_path + needs_you
-  -> sidecar loads and projects plan_path with SessionInfo
-  -> Details validates availability and renders Open plan
+agent reports needs_you + planPath to existing attention endpoint
+  -> sidecar atomically persists plan_path and projects hasOpenablePlan
+  -> Details renders Open plan when hasOpenablePlan is true
   -> user selects Open plan
-  -> narrow IPC/API resolves and validates workspace-relative path
-  -> Electron delegates file to the OS default handler
+  -> preload sends only session ID to Electron
+  -> sidecar canonicalizes and validates path immediately before handoff
+  -> Electron delegates file to the OS configured handler
 ```
 
 ## Testing
 
-- Metadata/API tests retain and expose a valid optional `plan_path`.
-- Path-validation tests reject absolute paths, workspace escapes, non-Markdown
-  files, and missing files.
-- Renderer tests show **Open plan** only for a valid session plan and invoke
-  the bridge with the session identifier.
-- Electron/bridge tests verify that only the validated handoff path reaches
-  the OS opener; tests stub the opener rather than launching an external app.
+- Attention-report tests cover set, replace, clear, and omit semantics for
+  `planPath`, including atomic persistence with the attention update.
+- Path-validation tests reject absolute paths, workspace escapes, symlink
+  escapes, non-Markdown files, and missing files.
+- API/renderer tests expose `hasOpenablePlan`, show **Open plan** only when it
+  is true, and invoke the bridge with the session identifier alone.
+- Electron/bridge tests verify that a freshly validated canonical path reaches
+  `shell.openPath`; tests stub the opener rather than launching an external app.
 
 ## Acceptance criteria
 
