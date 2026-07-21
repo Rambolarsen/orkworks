@@ -8,7 +8,7 @@ use crate::session_view::{
     connectivity_for_status, derive_memory_state, detect_conflicts, merge_live_session_info,
     session_recommendation, terminal_outcome_for_status,
 };
-use crate::workspace_runtime::{iso_now, orkworks_global_dir};
+use crate::workspace_runtime::{iso_now, orkworks_global_dir, parse_hook_observed_at};
 use crate::{git, harness, metadata, migration, peon, watcher, AppState, SessionHandle, WorkspaceState};
 use axum::{
     extract::{Path, State},
@@ -52,8 +52,10 @@ pub(crate) struct AttentionReportRequest {
     pub(crate) status: String,
     #[serde(default)]
     pub(crate) message: Option<String>,
-    #[serde(rename = "planPath", default)]
-    pub(crate) plan_path: metadata::PlanPathUpdate,
+#[serde(rename = "planPath", default)]
+pub(crate) plan_path: metadata::PlanPathUpdate,
+#[serde(rename = "observedAt", default)]
+pub(crate) observed_at: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -487,6 +489,13 @@ pub(crate) async fn report_attention(
     Path(id): Path<String>,
     Json(req): Json<AttentionReportRequest>,
 ) -> impl IntoResponse {
+    let observed_at = match req.observed_at.as_deref() {
+        Some(raw) => match parse_hook_observed_at(raw) {
+            Ok(timestamp) => Some(timestamp),
+            Err(()) => return axum::http::StatusCode::BAD_REQUEST.into_response(),
+        },
+        None => None,
+    };
     let active_alias = matches!(req.status.as_str(), "thinking" | "reasoning");
     if !active_alias && !peon::is_valid_observed_status(&req.status) {
         return axum::http::StatusCode::BAD_REQUEST.into_response();
@@ -504,19 +513,16 @@ pub(crate) async fn report_attention(
         return axum::http::StatusCode::BAD_REQUEST.into_response();
     };
 
-    // A hook report is a harness turn boundary: any keystroke still sitting in
-    // the pending input-line buffer (e.g. a single-key "accept" prompt with no
-    // trailing Enter) belongs to a prompt that's now resolved. Drop it so it
-    // doesn't glue onto the next unrelated line typed into the terminal. Only
-    // drop it if it's not already descriptive, since the hook POST is
-    // asynchronous and can land after the user has started typing a real,
-    // unterminated response to a fresh prompt — that in-progress line must
-    // survive to be joined with the rest once Enter is pressed.
-    {
-        let mut bufs = state.peon.input_buf.write().unwrap();
-        if bufs.get(&id).is_some_and(|buf| !peon::is_descriptive_input(buf)) {
-            bufs.remove(&id);
-        }
+    if observed_at.is_some_and(|timestamp| {
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .get(&id)
+            .and_then(|handle| handle.runtime.accepted_input_at)
+            .is_some_and(|accepted_at| timestamp <= accepted_at)
+    }) {
+        return axum::http::StatusCode::OK.into_response();
     }
 
     let now = iso_now();
@@ -525,11 +531,23 @@ pub(crate) async fn report_attention(
     let persist_status = status.clone();
     let message = req.message.clone();
     let plan_path = req.plan_path.clone();
+    let observed_at_for_commit = observed_at;
     let result = match tokio::task::spawn_blocking(move || {
         let ws_guard = persist_state.workspace.lock().unwrap();
         let Some(ref ws) = *ws_guard else {
             return Err(axum::http::StatusCode::CONFLICT);
         };
+        if observed_at_for_commit.is_some_and(|timestamp| {
+            persist_state
+                .sessions
+                .lock()
+                .unwrap()
+                .get(&persist_id)
+                .and_then(|handle| handle.runtime.accepted_input_at)
+                .is_some_and(|accepted_at| timestamp <= accepted_at)
+        }) {
+            return Ok(metadata::AttentionMergeResult::Ignored);
+        }
         let result = ws.metadata.merge_agent_attention_signal_with_plan(
             &persist_id, &persist_status, message.as_deref(), &plan_path, &now, "agent", 1.0,
         );
@@ -557,6 +575,13 @@ pub(crate) async fn report_attention(
             return axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     };
+
+    if result == metadata::AttentionMergeResult::Accepted {
+        let mut bufs = state.peon.input_buf.write().unwrap();
+        if bufs.get(&id).is_some_and(|buf| !peon::is_descriptive_input(buf)) {
+            bufs.remove(&id);
+        }
+    }
 
     match result {
         metadata::AttentionMergeResult::Accepted => axum::http::StatusCode::OK.into_response(),
@@ -1965,6 +1990,27 @@ mod tests {
                 status: "not_a_real_status".into(),
                 message: None,
                 plan_path: Default::default(),
+                observed_at: None,
+            }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn report_attention_rejects_malformed_observed_at() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let response = report_attention(
+            State(state),
+            Path("missing".into()),
+            Json(AttentionReportRequest {
+                status: "waiting_for_input".into(),
+                message: None,
+                plan_path: Default::default(),
+                observed_at: Some("not-a-timestamp".into()),
             }),
         )
         .await
@@ -1984,6 +2030,7 @@ mod tests {
                 status: "waiting_for_input".into(),
                 message: None,
                 plan_path: Default::default(),
+                observed_at: None,
             }),
         )
         .await
@@ -2058,6 +2105,7 @@ mod tests {
                 status: "waiting_for_input".into(),
                 message: None,
                 plan_path: Default::default(),
+                observed_at: None,
             }),
         )
         .await
@@ -2068,6 +2116,53 @@ mod tests {
         let updated = ws.as_ref().unwrap().metadata.read_session("attention-known").unwrap();
         assert_eq!(updated.observed_status.as_deref(), Some("waiting_for_input"));
         assert_eq!(updated.metadata_source, "agent");
+    }
+
+    #[tokio::test]
+    async fn report_attention_ignores_stale_observed_at_before_side_effects() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let id = "attention-stale-observed-at";
+        {
+            let ws = state.workspace.lock().unwrap();
+            let mut meta = test_session_metadata(id, "Known", dir.path().display().to_string(), "running", "now", "now");
+            meta.lifecycle = "alive".into();
+            meta.lifecycle_phase = "active".into();
+            meta.observed_status = Some("working".into());
+            meta.attention = Some("working".into());
+            meta.metadata_source = "process".into();
+            ws.as_ref().unwrap().metadata.write_session(&meta);
+        }
+        let mut handle = attention_test_handle(id, dir.path());
+        handle.info.observed_status = Some("working".into());
+        handle.info.attention = Some("working".into());
+        handle.info.metadata_source = Some("process".into());
+        handle.runtime.accepted_input_at = Some(
+            crate::workspace_runtime::parse_hook_observed_at("2026-07-21T08:00:01.000000Z").unwrap(),
+        );
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+        state.peon.input_buf.write().unwrap().insert(id.into(), "y".into());
+
+        let response = report_attention(
+            State(state.clone()),
+            Path(id.into()),
+            Json(AttentionReportRequest {
+                status: "waiting_for_input".into(),
+                message: Some("old prompt".into()),
+                plan_path: Default::default(),
+                observed_at: Some("2026-07-21T08:00:00.000000Z".into()),
+            }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let ws = state.workspace.lock().unwrap();
+        let meta = ws.as_ref().unwrap().metadata.read_session(id).unwrap();
+        assert_eq!(meta.observed_status.as_deref(), Some("working"));
+        drop(ws);
+        assert_eq!(state.sessions.lock().unwrap()[id].info.attention.as_deref(), Some("working"));
+        assert_eq!(state.peon.input_buf.read().unwrap().get(id).map(String::as_str), Some("y"));
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -2102,6 +2197,7 @@ mod tests {
                     status: "blocked".into(),
                     message: Some("Waiting".into()),
                     plan_path: Default::default(),
+                    observed_at: None,
                 }),
             ).await.into_response()
         });
@@ -2132,7 +2228,7 @@ mod tests {
 
         let mut first = Box::pin(report_attention(
             State(state.clone()), Path(id.into()), Json(AttentionReportRequest {
-                status: "waiting_for_input".into(), message: Some("A".into()), plan_path: Default::default(),
+                status: "waiting_for_input".into(), message: Some("A".into()), plan_path: Default::default(), observed_at: None,
             }),
         ));
         assert!(poll_once(first.as_mut()).is_pending());
@@ -2140,7 +2236,7 @@ mod tests {
 
         let second = report_attention(
             State(state.clone()), Path(id.into()), Json(AttentionReportRequest {
-                status: "blocked".into(), message: Some("B".into()), plan_path: Default::default(),
+                status: "blocked".into(), message: Some("B".into()), plan_path: Default::default(), observed_at: None,
             }),
         ).await.into_response();
         assert_eq!(second.status(), axum::http::StatusCode::OK);
@@ -2400,7 +2496,7 @@ mod tests {
         let _ = report_attention(
             State(state.clone()),
             Path("debug-reclaim".into()),
-            Json(AttentionReportRequest { status: "blocked".into(), message: None, plan_path: Default::default() }),
+            Json(AttentionReportRequest { status: "blocked".into(), message: None, plan_path: Default::default(), observed_at: None }),
         )
         .await
         .into_response();
@@ -2706,7 +2802,7 @@ mod tests {
         let response = report_attention(
             State(state.clone()),
             Path(created_id.clone()),
-            Json(AttentionReportRequest { status: "thinking".into(), message: None, plan_path: Default::default() }),
+            Json(AttentionReportRequest { status: "thinking".into(), message: None, plan_path: Default::default(), observed_at: None }),
         )
         .await
         .into_response();
@@ -2748,7 +2844,7 @@ mod tests {
         let response = report_attention(
             State(state.clone()),
             Path("attention-unsupported-thinking".into()),
-            Json(AttentionReportRequest { status: "thinking".into(), message: None, plan_path: Default::default() }),
+            Json(AttentionReportRequest { status: "thinking".into(), message: None, plan_path: Default::default(), observed_at: None }),
         )
         .await
         .into_response();
@@ -2794,7 +2890,7 @@ mod tests {
         let response = report_attention(
             State(state.clone()),
             Path("attention-session-scoped".into()),
-            Json(AttentionReportRequest { status: "thinking".into(), message: None, plan_path: Default::default() }),
+            Json(AttentionReportRequest { status: "thinking".into(), message: None, plan_path: Default::default(), observed_at: None }),
         )
         .await
         .into_response();
@@ -2841,6 +2937,7 @@ mod tests {
                 status: "waiting_for_input".into(),
                 message: None,
                 plan_path: Default::default(),
+                observed_at: None,
             }),
         )
         .await
@@ -2887,6 +2984,7 @@ mod tests {
                 status: "waiting_for_input".into(),
                 message: None,
                 plan_path: Default::default(),
+                observed_at: None,
             }),
         )
         .await
@@ -2935,6 +3033,7 @@ mod tests {
                 status: "waiting_for_input".into(),
                 message: None,
                 plan_path: Default::default(),
+                observed_at: None,
             }),
         )
         .await
