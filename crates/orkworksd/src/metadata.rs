@@ -1,7 +1,7 @@
 use crate::harness::{ResumeMemory, ResumeState, ResumeStrategy};
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::io::Write;
+use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use tracing::warn;
 
@@ -1208,13 +1208,14 @@ impl MetadataStore {
                 return;
             }
         }
-        // Inline trim once the file exceeds the byte budget, checked directly
-        // rather than estimated from line count: a single record can be as
-        // large as the partial-persist byte cap, so a fixed bytes-per-line
-        // estimate cannot bound worst-case on-disk size.
+        // Inline trim once the file exceeds either budget. Bytes are checked
+        // directly because a fixed bytes-per-line estimate cannot bound large
+        // records; lines are counted with a bounded streaming read.
         let len_hint = file.metadata().map(|m| m.len()).unwrap_or(0);
         drop(file);
-        if len_hint > TERMINAL_OUTPUT_MAX_BYTES {
+        if len_hint > TERMINAL_OUTPUT_MAX_BYTES
+            || terminal_output_exceeds_line_limit(&path, TERMINAL_OUTPUT_MAX_LINES)
+        {
             let _ = self.trim_terminal_output(id, TERMINAL_OUTPUT_MAX_LINES);
         }
     }
@@ -1260,6 +1261,17 @@ fn terminal_output_retain_start(all: &[&str], max_lines: usize, max_bytes: u64) 
         start += 1;
     }
     start
+}
+
+fn terminal_output_exceeds_line_limit(path: &Path, max_lines: usize) -> bool {
+    let Ok(file) = fs::File::open(path) else {
+        return false;
+    };
+    BufReader::new(file)
+        .lines()
+        .take(max_lines.saturating_add(1))
+        .count()
+        > max_lines
 }
 
 #[cfg(test)]
@@ -2440,6 +2452,26 @@ mod tests {
             TERMINAL_OUTPUT_MAX_BYTES,
         );
         assert_eq!(start, 0);
+    }
+
+    #[test]
+    fn terminal_output_append_physically_trims_short_lines_over_line_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let lines: Vec<String> = (0..=TERMINAL_OUTPUT_MAX_LINES)
+            .map(|i| format!("line-{i}"))
+            .collect();
+
+        store.append_terminal_output_lines("line-limited", &lines[..TERMINAL_OUTPUT_MAX_LINES]);
+        store.append_terminal_output_lines("line-limited", &lines[TERMINAL_OUTPUT_MAX_LINES..]);
+
+        let path = dir.path().join("events").join("line-limited.terminal");
+        assert!(fs::metadata(&path).unwrap().len() < TERMINAL_OUTPUT_MAX_BYTES);
+        let persisted = fs::read_to_string(path).unwrap();
+        let persisted: Vec<&str> = persisted.lines().collect();
+        assert_eq!(persisted.len(), TERMINAL_OUTPUT_MAX_LINES);
+        assert_eq!(persisted.first(), Some(&"line-1"));
+        assert_eq!(persisted.last().copied(), Some("line-1000"));
     }
 
     #[test]
