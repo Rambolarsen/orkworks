@@ -333,49 +333,51 @@ fn record_terminal_input_impl(
 /// the live session is working, stronger than any stale prompt metadata or
 /// later PTY-output heuristic — but this function trusts the caller for it.
 fn mark_committed_input_working(state: &Arc<AppState>, id: &str) {
-    let already_working = {
-        let mut sessions = state.sessions.lock().unwrap();
-        let Some(handle) = sessions.get_mut(id) else {
-            return;
-        };
-        if handle.info.lifecycle != "alive" {
-            return;
-        }
-        let already = handle.info.observed_status.as_deref() == Some("working")
-            && handle.info.attention.as_deref() == Some("working")
-            && handle.info.metadata_source.as_deref() == Some("process")
-            && handle.info.metadata_confidence == Some(1.0)
-            && handle.info.needs_user_input.is_none()
-            && handle.info.detected_question.is_none()
-            && handle.info.suggested_options.is_none()
-            && handle.pending_work_signal.is_none();
-        if !already {
-            handle.info.observed_status = Some("working".into());
-            handle.info.attention = Some("working".into());
-            handle.info.metadata_source = Some("process".into());
-            handle.info.metadata_confidence = Some(1.0);
-            handle.info.needs_user_input = None;
-            handle.info.detected_question = None;
-            handle.info.suggested_options = None;
-            handle.pending_work_signal = None;
-        }
-        already
+    let ws_guard = state.workspace.lock().unwrap();
+    let mut sessions = state.sessions.lock().unwrap();
+    let Some(handle) = sessions.get_mut(id) else {
+        return;
     };
-
-    // Accepted input is activity: refresh the idle baseline regardless of
-    // whether metadata needed a rewrite, so a hookless session mid-command
-    // doesn't get flagged idle by the next Peon tick (peon_runtime.rs) just
-    // because it hasn't produced output since before this input arrived.
-    state.peon.last_output.write().unwrap().insert(id.to_string(), tokio::time::Instant::now());
-
-    if already_working {
+    if handle.info.lifecycle != "alive" {
         return;
     }
-
-    let ws_guard = state.workspace.lock().unwrap();
-    let Some(ref ws) = *ws_guard else {
+    let already_working = handle.info.observed_status.as_deref() == Some("working")
+        && handle.info.attention.as_deref() == Some("working")
+        && handle.info.metadata_source.as_deref() == Some("process")
+        && handle.info.metadata_confidence == Some(1.0)
+        && handle.info.needs_user_input.is_none()
+        && handle.info.detected_question.is_none()
+        && handle.info.suggested_options.is_none()
+        && handle.pending_work_signal.is_none();
+    if already_working {
+        drop(sessions);
+        drop(ws_guard);
+        state.peon.last_output.write().unwrap().insert(id.to_string(), tokio::time::Instant::now());
+        return;
+    }
+    let Some(next_generation) = handle.runtime.input_generation.checked_add(1) else {
+        tracing::warn!(session_id = %id, "input generation overflow");
         return;
     };
+    let accepted_at = chrono::Utc::now();
+    if ws_guard.is_none() {
+        handle.info.observed_status = Some("working".into());
+        handle.info.attention = Some("working".into());
+        handle.info.metadata_source = Some("process".into());
+        handle.info.metadata_confidence = Some(1.0);
+        handle.info.needs_user_input = None;
+        handle.info.detected_question = None;
+        handle.info.suggested_options = None;
+        handle.pending_work_signal = None;
+        handle.runtime.input_generation = next_generation;
+        handle.runtime.accepted_input_at = Some(accepted_at);
+        handle.runtime.min_peon_output_revision = handle.runtime.peon_output_revision;
+        drop(sessions);
+        drop(ws_guard);
+        state.peon.last_output.write().unwrap().insert(id.to_string(), tokio::time::Instant::now());
+        return;
+    }
+    let ws = ws_guard.as_ref().expect("workspace checked above");
     let Some(mut meta) = ws.metadata.read_session(id) else {
         return;
     };
@@ -389,7 +391,24 @@ fn mark_committed_input_working(state: &Arc<AppState>, id: &str) {
     meta.needs_user_input = None;
     meta.detected_question = None;
     meta.suggested_options = None;
-    ws.metadata.write_session(&meta);
+    if ws.metadata.try_write_session(&meta).is_err() {
+        tracing::warn!(session_id = %id, "failed to persist input attention transition");
+        return;
+    }
+    handle.info.observed_status = Some("working".into());
+    handle.info.attention = Some("working".into());
+    handle.info.metadata_source = Some("process".into());
+    handle.info.metadata_confidence = Some(1.0);
+    handle.info.needs_user_input = None;
+    handle.info.detected_question = None;
+    handle.info.suggested_options = None;
+    handle.pending_work_signal = None;
+    handle.runtime.input_generation = next_generation;
+    handle.runtime.accepted_input_at = Some(accepted_at);
+    handle.runtime.min_peon_output_revision = handle.runtime.peon_output_revision;
+    drop(sessions);
+    drop(ws_guard);
+    state.peon.last_output.write().unwrap().insert(id.to_string(), tokio::time::Instant::now());
 }
 
 pub(crate) fn should_forward_terminal_env(key: &str) -> bool {

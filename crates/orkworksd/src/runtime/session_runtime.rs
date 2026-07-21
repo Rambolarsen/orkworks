@@ -4,6 +4,7 @@ use crate::runtime::terminal_runtime::{
 };
 use crate::workspace_runtime::iso_now;
 use crate::{AppState, harness, metadata, peon};
+use chrono::{DateTime, Utc};
 use portable_pty::{CommandBuilder, PtySize, PtySystem};
 use std::collections::VecDeque;
 use std::io::{Read, Write};
@@ -178,6 +179,10 @@ pub(crate) struct SessionRuntime {
     pub(crate) attached_generation: Option<u64>,
     pub(crate) last_rows: u16,
     pub(crate) last_cols: u16,
+    pub(crate) input_generation: u64,
+    pub(crate) accepted_input_at: Option<DateTime<Utc>>,
+    pub(crate) peon_output_revision: u64,
+    pub(crate) min_peon_output_revision: u64,
 }
 
 impl SessionRuntime {
@@ -193,6 +198,10 @@ impl SessionRuntime {
                 attached_generation: None,
                 last_rows: rows,
                 last_cols: cols,
+                input_generation: 0,
+                accepted_input_at: None,
+                peon_output_revision: 0,
+                min_peon_output_revision: 0,
             },
             control_rx,
         )
@@ -210,6 +219,10 @@ impl SessionRuntime {
             attached_generation: None,
             last_rows: rows,
             last_cols: cols,
+            input_generation: 0,
+            accepted_input_at: None,
+            peon_output_revision: 0,
+            min_peon_output_revision: 0,
         }
     }
 
@@ -1459,6 +1472,9 @@ mod tests {
             handle.info.observed_status = Some("waiting_for_input".into());
             handle.info.attention = Some("waiting_for_input".into());
             handle.info.metadata_source = Some("peon".into());
+            handle.info.needs_user_input = Some(true);
+            handle.info.detected_question = Some("Continue?".into());
+            handle.info.suggested_options = Some(vec!["yes".into(), "no".into()]);
         }
         {
             let ws = state.workspace.lock().unwrap();
@@ -1473,6 +1489,9 @@ mod tests {
             meta.observed_status = Some("waiting_for_input".into());
             meta.attention = Some("waiting_for_input".into());
             meta.metadata_source = "peon".into();
+            meta.needs_user_input = Some(true);
+            meta.detected_question = Some("Continue?".into());
+            meta.suggested_options = Some(vec!["yes".into(), "no".into()]);
             meta.lifecycle_phase = "active".into();
             meta.lifecycle = "alive".into();
             meta.connectivity = "online".into();
@@ -1488,11 +1507,23 @@ mod tests {
             let handle = &sessions[session_id];
             assert_eq!(handle.info.observed_status.as_deref(), Some("working"));
             assert_eq!(handle.info.attention.as_deref(), Some("working"));
+            assert_eq!(handle.info.needs_user_input, None);
+            assert_eq!(handle.info.detected_question, None);
+            assert_eq!(handle.info.suggested_options, None);
+            assert_eq!(handle.runtime.input_generation, 1);
+            assert!(handle.runtime.accepted_input_at.is_some());
+            assert_eq!(
+                handle.runtime.min_peon_output_revision,
+                handle.runtime.peon_output_revision
+            );
         }
         let ws = state.workspace.lock().unwrap();
         let meta = ws.as_ref().unwrap().metadata.read_session(session_id).unwrap();
         assert_eq!(meta.observed_status.as_deref(), Some("working"));
         assert_eq!(meta.attention.as_deref(), Some("working"));
+        assert_eq!(meta.needs_user_input, None);
+        assert_eq!(meta.detected_question, None);
+        assert_eq!(meta.suggested_options, None);
     }
 
     #[test]
