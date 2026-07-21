@@ -1,4 +1,4 @@
-import { Check, Circle, CircleX, LoaderCircle, TriangleAlert } from "lucide-react";
+import { Check, Circle, CircleAlert, CircleX, LoaderCircle, TriangleAlert } from "lucide-react";
 import type { ComponentType } from "react";
 import type { AttentionTone } from "../labels";
 
@@ -8,9 +8,15 @@ interface StatusIndicatorProps {
   variant?: "status" | "unread";
 }
 
-/** Shapes carry the same meaning as the tone color, so status stays legible without it. */
+/**
+ * Shapes carry the same meaning as the tone color, so status stays legible
+ * without it. Every non-neutral tone needs an entry here: a tone missing from
+ * this map falls back to a plain dot — the same shape family "unread" uses —
+ * so its read and unread states would look identical.
+ */
 const TONE_ICON: Partial<Record<AttentionTone, ComponentType<{ size?: number; className?: string }>>> = {
   working: LoaderCircle,
+  "needs-you": CircleAlert,
   blocked: TriangleAlert,
   done: Check,
   failed: CircleX,
