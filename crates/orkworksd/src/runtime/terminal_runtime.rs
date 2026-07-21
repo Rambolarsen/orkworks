@@ -144,11 +144,7 @@ fn spawn_command_future(
 ) -> Option<PendingCommandFuture> {
     match action {
         TerminalAction::Input(data) => Some(Box::pin(async move {
-            crate::runtime::session_runtime::send_runtime_command(
-                &state,
-                &id,
-                crate::runtime::session_runtime::RuntimeCommand::Input(data),
-            ).await
+            crate::runtime::session_runtime::send_runtime_input(&state, &id, data).await
         })),
         TerminalAction::Resize { rows, cols } => Some(Box::pin(async move {
             crate::runtime::session_runtime::update_runtime_size(&state, &id, rows, cols).await

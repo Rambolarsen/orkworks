@@ -108,9 +108,12 @@ pub(crate) enum RuntimeEvent {
     Error { code: String, message: String },
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub(crate) enum RuntimeCommand {
-    Input(String),
+    Input {
+        data: String,
+        accepted: Option<tokio::sync::oneshot::Sender<Result<(), ()>>>,
+    },
     Resize { rows: u16, cols: u16 },
     Kill,
 }
@@ -338,6 +341,28 @@ pub(crate) async fn send_runtime_command(
     tx.send(command).await.map_err(|_| ())
 }
 
+pub(crate) async fn send_runtime_input(
+    state: &Arc<AppState>,
+    id: &str,
+    data: String,
+) -> Result<(), ()> {
+    let tx = {
+        let sessions = state.sessions.lock().unwrap();
+        sessions
+            .get(id)
+            .map(|handle| handle.runtime.control_tx.clone())
+    }
+    .ok_or(())?;
+    let (accepted_tx, accepted_rx) = tokio::sync::oneshot::channel();
+    tx.send(RuntimeCommand::Input {
+        data,
+        accepted: Some(accepted_tx),
+    })
+    .await
+    .map_err(|_| ())?;
+    accepted_rx.await.map_err(|_| ())?
+}
+
 pub(crate) async fn update_runtime_size(
     state: &Arc<AppState>,
     id: &str,
@@ -378,13 +403,22 @@ async fn capture_startup_runtime_state(
             }
             Ok(Some(command)) => {
                 if pending_commands.len() >= CONTROL_CHANNEL_CAPACITY {
+                    if let RuntimeCommand::Input { accepted: Some(accepted), .. } = command {
+                        let _ = accepted.send(Err(()));
+                    }
                     continue;
                 }
-                if let RuntimeCommand::Input(data) = &command {
+                if let RuntimeCommand::Input { data, .. } = &command {
                     let Some(next_input_bytes) = pending_input_bytes.checked_add(data.len()) else {
+                        if let RuntimeCommand::Input { accepted: Some(accepted), .. } = command {
+                            let _ = accepted.send(Err(()));
+                        }
                         continue;
                     };
                     if next_input_bytes > STARTUP_PENDING_INPUT_BYTES {
+                        if let RuntimeCommand::Input { accepted: Some(accepted), .. } = command {
+                            let _ = accepted.send(Err(()));
+                        }
                         continue;
                     }
                     pending_input_bytes = next_input_bytes;
@@ -530,9 +564,11 @@ pub(crate) async fn start_session_runtime(
 
         for command in pending_commands {
             match command {
-                RuntimeCommand::Input(data) => {
-                    let _ = writer.write_all(data.as_bytes());
-                    let _ = writer.flush();
+                RuntimeCommand::Input { data, accepted } => {
+                    let result = writer.write_all(data.as_bytes()).and_then(|_| writer.flush()).map_err(|_| ());
+                    if let Some(accepted) = accepted {
+                        let _ = accepted.send(result);
+                    }
                 }
                 RuntimeCommand::Resize { rows, cols } => {
                     let _ = master.lock().unwrap().resize(PtySize {
@@ -577,9 +613,11 @@ pub(crate) async fn start_session_runtime(
                 }
                 Some(command) = control_rx.recv() => {
                     match command {
-                        RuntimeCommand::Input(data) => {
-                            let _ = writer.write_all(data.as_bytes());
-                            let _ = writer.flush();
+                        RuntimeCommand::Input { data, accepted } => {
+                            let result = writer.write_all(data.as_bytes()).and_then(|_| writer.flush()).map_err(|_| ());
+                            if let Some(accepted) = accepted {
+                                let _ = accepted.send(result);
+                            }
                         }
                         RuntimeCommand::Resize { rows, cols } => {
                             let _ = master.lock().unwrap().resize(PtySize {
@@ -942,7 +980,7 @@ mod tests {
 
         // Fill the bounded channel to capacity without draining it.
         for _ in 0..CONTROL_CHANNEL_CAPACITY {
-            send_runtime_command(&state, session_id, RuntimeCommand::Input("x".into()))
+            send_runtime_command(&state, session_id, RuntimeCommand::Input { data: "x".into(), accepted: None })
                 .await
                 .unwrap();
         }
@@ -953,7 +991,7 @@ mod tests {
             send_runtime_command(
                 &state_clone,
                 session_id,
-                RuntimeCommand::Input("overflow".into()),
+                RuntimeCommand::Input { data: "overflow".into(), accepted: None },
             )
             .await
         });
@@ -980,7 +1018,7 @@ mod tests {
         let (tx, mut rx) = mpsc::channel(3);
         let chunk = "x".repeat(STARTUP_PENDING_INPUT_BYTES / 2);
         for _ in 0..3 {
-            tx.send(RuntimeCommand::Input(chunk.clone())).await.unwrap();
+            tx.send(RuntimeCommand::Input { data: chunk.clone(), accepted: None }).await.unwrap();
         }
         drop(tx);
 
@@ -1673,7 +1711,7 @@ mod tests {
             "work",
         )
         .is_none());
-        send_runtime_command(&state, session_id, RuntimeCommand::Input("work".into()))
+        send_runtime_command(&state, session_id, RuntimeCommand::Input { data: "work".into(), accepted: None })
             .await
             .unwrap();
 
@@ -1704,7 +1742,7 @@ mod tests {
             " now\r",
         )
         .is_some());
-        send_runtime_command(&state, session_id, RuntimeCommand::Input(" now\r".into()))
+        send_runtime_command(&state, session_id, RuntimeCommand::Input { data: " now\r".into(), accepted: None })
             .await
             .unwrap();
 
@@ -1787,7 +1825,7 @@ mod tests {
             "work now\r",
         )
         .is_some());
-        send_runtime_command(&state, session_id, RuntimeCommand::Input("work now\r".into()))
+        send_runtime_command(&state, session_id, RuntimeCommand::Input { data: "work now\r".into(), accepted: None })
             .await
             .unwrap();
 
