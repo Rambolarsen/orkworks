@@ -11,6 +11,10 @@ pub const TERMINAL_OUTPUT_MAX_LINES: usize = 10_000;
 /// line-count limit alone cannot bound on-disk size. This byte budget is
 /// enforced alongside it during trim/read.
 pub const TERMINAL_OUTPUT_MAX_BYTES: u64 = 16 * 1024 * 1024;
+/// Trim target sits below the trigger ceiling so a chatty session doesn't
+/// force a full file read+rewrite on nearly every append once it first hits
+/// the ceiling — the headroom absorbs several appends before trim fires again.
+const TERMINAL_OUTPUT_TRIM_TARGET_BYTES: u64 = TERMINAL_OUTPUT_MAX_BYTES * 3 / 4;
 
 fn default_connectivity() -> String {
     "online".into()
@@ -1198,7 +1202,7 @@ impl MetadataStore {
             Err(_) => return,
         };
         let all: Vec<&str> = data.lines().collect();
-        let start = terminal_output_retain_start(&all, max_lines, TERMINAL_OUTPUT_MAX_BYTES);
+        let start = terminal_output_retain_start(&all, max_lines, TERMINAL_OUTPUT_TRIM_TARGET_BYTES);
         if start == 0 {
             return;
         }
@@ -2184,6 +2188,27 @@ mod tests {
             "byte budget should have dropped some of the {record_count} oversized records"
         );
         assert_eq!(remaining.last().unwrap(), &format!("{big_record}-{}", record_count - 1));
+    }
+
+    #[test]
+    fn terminal_output_trim_leaves_headroom_below_byte_ceiling() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+
+        // Many small lines pushing well past the byte ceiling, simulating a
+        // chatty session that keeps emitting output after trim first fires.
+        let line = "y".repeat(200);
+        let line_count = (TERMINAL_OUTPUT_MAX_BYTES as usize / line.len()) + 1000;
+        let lines: Vec<String> = (0..line_count).map(|i| format!("{line}-{i}")).collect();
+        store.append_terminal_output_lines("chatty-session", &lines);
+
+        let path = dir.path().join("events").join("chatty-session.terminal");
+        let on_disk_bytes = fs::metadata(&path).unwrap().len();
+        assert!(
+            on_disk_bytes <= TERMINAL_OUTPUT_TRIM_TARGET_BYTES,
+            "trim should leave headroom below the byte ceiling so the next small \
+             append doesn't immediately retrigger a full rewrite, got {on_disk_bytes} bytes"
+        );
     }
 
     #[test]
