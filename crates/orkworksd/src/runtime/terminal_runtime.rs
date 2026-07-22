@@ -301,7 +301,6 @@ fn record_terminal_input_impl(
 ) -> Option<()> {
     if !data.is_empty() {
         mark_usage_limit_recheck_on_input(state, id);
-        mark_committed_input_working(state, id, output_boundary);
     }
 
     let collected_line = {
@@ -309,6 +308,10 @@ fn record_terminal_input_impl(
         let buf = bufs.entry(id.to_string()).or_default();
         collect_input_line(buf, data)
     };
+
+    if !data.is_empty() {
+        mark_committed_input_working(state, id, output_boundary, collected_line.is_some());
+    }
 
     let line = collected_line?;
     // Labels are display-bounded; echo-gating below uses the full `line`.
@@ -342,7 +345,22 @@ fn record_terminal_input_impl(
 /// whose delivery to the PTY was actually accepted. That is direct evidence
 /// the live session is working, stronger than any stale prompt metadata or
 /// later PTY-output heuristic — but this function trusts the caller for it.
-fn mark_committed_input_working(state: &Arc<AppState>, id: &str, output_boundary: Option<u64>) {
+///
+/// `line_completed` is whether this frame finished a submitted line
+/// (`\r`/`\n` seen). A completed line is definitive submission evidence and
+/// always commits the working transition. Short of that, a bare keystroke is
+/// only trusted when the harness has no active work hook (which is the real
+/// source of truth for it) and the current prompt wasn't Peon's own guess
+/// (`metadata_source == "peon"`) — an ordinary shell session echoes every
+/// keystroke, so a lone key there can't be told apart from someone still
+/// typing a longer command. Every accepted frame still advances the
+/// invalidation boundary and idle baseline below, whether or not it commits.
+fn mark_committed_input_working(
+    state: &Arc<AppState>,
+    id: &str,
+    output_boundary: Option<u64>,
+    line_completed: bool,
+) {
     let ws_guard = state.workspace.lock().unwrap();
     let mut sessions = state.sessions.lock().unwrap();
     let Some(handle) = sessions.get_mut(id) else {
@@ -359,11 +377,22 @@ fn mark_committed_input_working(state: &Arc<AppState>, id: &str, output_boundary
         && handle.info.detected_question.is_none()
         && handle.info.suggested_options.is_none()
         && handle.pending_work_signal.is_none();
+    let commit_working = line_completed
+        || (!handle.active_work_hook && handle.info.metadata_source.as_deref() != Some("peon"));
     let Some(next_generation) = handle.runtime.input_generation.checked_add(1) else {
         tracing::warn!(session_id = %id, "input generation overflow");
         return;
     };
     let accepted_at = chrono::Utc::now();
+    if !commit_working || already_working {
+        handle.runtime.input_generation = next_generation;
+        handle.runtime.accepted_input_at = Some(accepted_at);
+        handle.runtime.min_peon_output_revision = output_boundary.unwrap_or(handle.runtime.peon_output_revision);
+        drop(sessions);
+        drop(ws_guard);
+        state.peon.last_output.write().unwrap().insert(id.to_string(), tokio::time::Instant::now());
+        return;
+    }
     if ws_guard.is_none() {
         // A detached test/runtime has no metadata store, so there is no
         // durable state to diverge from. Keep its live terminal contract
@@ -387,15 +416,6 @@ fn mark_committed_input_working(state: &Arc<AppState>, id: &str, output_boundary
             .write()
             .unwrap()
             .insert(id.to_string(), tokio::time::Instant::now());
-        return;
-    }
-    if already_working {
-        handle.runtime.input_generation = next_generation;
-        handle.runtime.accepted_input_at = Some(accepted_at);
-        handle.runtime.min_peon_output_revision = output_boundary.unwrap_or(handle.runtime.peon_output_revision);
-        drop(sessions);
-        drop(ws_guard);
-        state.peon.last_output.write().unwrap().insert(id.to_string(), tokio::time::Instant::now());
         return;
     }
     let ws = ws_guard.as_ref().expect("workspace checked above");
@@ -1126,8 +1146,11 @@ mod tests {
     }
 
     #[test]
-    fn committed_input_overrides_user_source_and_active_work_hook() {
-        let session_id = "committed-user-source";
+    fn committed_single_key_with_active_work_hook_defers_to_the_hook() {
+        // A hook-capable harness's own event is the source of truth for when
+        // it starts working; a bare keystroke must not preempt it, or the
+        // prompt could clear before the harness has actually reacted.
+        let session_id = "committed-hook-defers";
         let (state, _dir) = prompted_session_state(session_id);
         {
             let mut sessions = state.sessions.lock().unwrap();
@@ -1144,7 +1167,61 @@ mod tests {
 
         assert_eq!(record_terminal_input(&state, session_id, "1"), None);
 
+        let info = state.sessions.lock().unwrap()[session_id].info.clone();
+        assert_eq!(info.attention.as_deref(), Some("needs_you"));
+        assert_eq!(info.metadata_source.as_deref(), Some("user"));
+    }
+
+    #[test]
+    fn committed_line_overrides_user_source_and_active_work_hook() {
+        // A completed line is definitive submission evidence regardless of
+        // harness capability or the prompt's prior metadata source — Enter
+        // always wins.
+        let session_id = "committed-line-overrides";
+        let (state, _dir) = prompted_session_state(session_id);
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut(session_id).unwrap();
+            handle.info.metadata_source = Some("user".into());
+            handle.active_work_hook = true;
+        }
+        {
+            let ws = state.workspace.lock().unwrap();
+            let mut meta = ws.as_ref().unwrap().metadata.read_session(session_id).unwrap();
+            meta.metadata_source = "user".into();
+            ws.as_ref().unwrap().metadata.write_session(&meta);
+        }
+
+        assert_eq!(record_terminal_input(&state, session_id, "1\r"), Some(()));
+
         assert_prompt_is_cleared_as_working(&state, session_id);
+    }
+
+    #[test]
+    fn committed_single_key_leaves_peon_sourced_prompt_for_the_next_poll() {
+        // Peon's own guess is the least certain source — an ordinary shell
+        // session echoes every keystroke, so a bare key can't be trusted as
+        // submission evidence here the way it can for a harness-reported
+        // prompt. Leave it for Peon's next real poll to confirm.
+        let session_id = "committed-peon-sourced";
+        let (state, _dir) = prompted_session_state(session_id);
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut(session_id).unwrap();
+            handle.info.metadata_source = Some("peon".into());
+        }
+        {
+            let ws = state.workspace.lock().unwrap();
+            let mut meta = ws.as_ref().unwrap().metadata.read_session(session_id).unwrap();
+            meta.metadata_source = "peon".into();
+            ws.as_ref().unwrap().metadata.write_session(&meta);
+        }
+
+        assert_eq!(record_terminal_input(&state, session_id, "y"), None);
+
+        let info = state.sessions.lock().unwrap()[session_id].info.clone();
+        assert_eq!(info.attention.as_deref(), Some("needs_you"));
+        assert_eq!(info.metadata_source.as_deref(), Some("peon"));
     }
 
     #[test]
