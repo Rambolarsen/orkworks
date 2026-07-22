@@ -100,28 +100,46 @@ impl PeonConfig {
 
 #[derive(Clone, Debug)]
 pub struct RingBuffer {
-    lines: VecDeque<String>,
+    lines: VecDeque<(u64, String)>,
     capacity: usize,
+    next_revision: u64,
 }
 
 impl RingBuffer {
     pub fn new(capacity: usize) -> Self {
-        Self { lines: VecDeque::new(), capacity }
+        Self { lines: VecDeque::new(), capacity, next_revision: 1 }
     }
 
-    pub fn push(&mut self, line: String) {
-        self.lines.push_back(line);
+    pub fn push(&mut self, line: String) -> u64 {
+        let revision = self.next_revision;
+        self.next_revision += 1;
+        self.lines.push_back((revision, line));
         while self.lines.len() > self.capacity {
             self.lines.pop_front();
         }
+        revision
     }
 
     pub fn snapshot(&self) -> Vec<String> {
-        self.lines.iter().cloned().collect()
+        self.lines.iter().map(|(_, line)| line.clone()).collect()
+    }
+
+    pub fn snapshot_after(&self, revision: u64) -> Vec<String> {
+        self.lines
+            .iter()
+            .filter(|(line_revision, _)| *line_revision > revision)
+            .map(|(_, line)| line.clone())
+            .collect()
+    }
+
+    pub fn has_after(&self, revision: u64) -> bool {
+        self.lines
+            .back()
+            .is_some_and(|(line_revision, _)| *line_revision > revision)
     }
 
     pub fn last_n(&self, n: usize) -> Vec<String> {
-        self.lines.iter().rev().take(n).cloned().collect()
+        self.lines.iter().rev().take(n).map(|(_, line)| line.clone()).collect()
     }
 
     #[allow(dead_code)]
@@ -542,6 +560,19 @@ mod tests {
         let snapshot = buf.snapshot();
         assert_eq!(snapshot, vec!["line1", "line2"]);
     }
+
+    #[test]
+fn test_ring_buffer_snapshot_after_excludes_prior_lines() {
+        let mut buf = RingBuffer::new(5);
+        let first = buf.push("old prompt".into());
+        let boundary = buf.push("old question".into());
+        buf.push("new output".into());
+
+        assert!(boundary > first);
+    assert_eq!(buf.snapshot_after(boundary), vec!["new output"]);
+    assert!(buf.has_after(boundary));
+    assert!(!buf.has_after(boundary + 1));
+}
 
     #[test]
     fn test_ring_buffer_capacity_enforcement() {

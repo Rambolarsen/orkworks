@@ -4,6 +4,7 @@ use crate::runtime::terminal_runtime::{
 };
 use crate::workspace_runtime::iso_now;
 use crate::{AppState, harness, metadata, peon};
+use chrono::{DateTime, Utc};
 use portable_pty::{CommandBuilder, PtySize, PtySystem};
 use std::collections::VecDeque;
 use std::io::{Read, Write};
@@ -108,9 +109,12 @@ pub(crate) enum RuntimeEvent {
     Error { code: String, message: String },
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub(crate) enum RuntimeCommand {
-    Input(String),
+    Input {
+        data: String,
+        accepted: Option<tokio::sync::oneshot::Sender<Result<(), ()>>>,
+    },
     Resize { rows: u16, cols: u16 },
     Kill,
 }
@@ -175,6 +179,10 @@ pub(crate) struct SessionRuntime {
     pub(crate) attached_generation: Option<u64>,
     pub(crate) last_rows: u16,
     pub(crate) last_cols: u16,
+    pub(crate) input_generation: u64,
+    pub(crate) accepted_input_at: Option<DateTime<Utc>>,
+    pub(crate) peon_output_revision: u64,
+    pub(crate) min_peon_output_revision: u64,
 }
 
 impl SessionRuntime {
@@ -190,6 +198,10 @@ impl SessionRuntime {
                 attached_generation: None,
                 last_rows: rows,
                 last_cols: cols,
+                input_generation: 0,
+                accepted_input_at: None,
+                peon_output_revision: 0,
+                min_peon_output_revision: 0,
             },
             control_rx,
         )
@@ -207,6 +219,10 @@ impl SessionRuntime {
             attached_generation: None,
             last_rows: rows,
             last_cols: cols,
+            input_generation: 0,
+            accepted_input_at: None,
+            peon_output_revision: 0,
+            min_peon_output_revision: 0,
         }
     }
 
@@ -338,6 +354,28 @@ pub(crate) async fn send_runtime_command(
     tx.send(command).await.map_err(|_| ())
 }
 
+pub(crate) async fn send_runtime_input(
+    state: &Arc<AppState>,
+    id: &str,
+    data: String,
+) -> Result<(), ()> {
+    let tx = {
+        let sessions = state.sessions.lock().unwrap();
+        sessions
+            .get(id)
+            .map(|handle| handle.runtime.control_tx.clone())
+    }
+    .ok_or(())?;
+    let (accepted_tx, accepted_rx) = tokio::sync::oneshot::channel();
+    tx.send(RuntimeCommand::Input {
+        data,
+        accepted: Some(accepted_tx),
+    })
+    .await
+    .map_err(|_| ())?;
+    accepted_rx.await.map_err(|_| ())?
+}
+
 pub(crate) async fn update_runtime_size(
     state: &Arc<AppState>,
     id: &str,
@@ -378,13 +416,22 @@ async fn capture_startup_runtime_state(
             }
             Ok(Some(command)) => {
                 if pending_commands.len() >= CONTROL_CHANNEL_CAPACITY {
+                    if let RuntimeCommand::Input { accepted: Some(accepted), .. } = command {
+                        let _ = accepted.send(Err(()));
+                    }
                     continue;
                 }
-                if let RuntimeCommand::Input(data) = &command {
+                if let RuntimeCommand::Input { data, .. } = &command {
                     let Some(next_input_bytes) = pending_input_bytes.checked_add(data.len()) else {
+                        if let RuntimeCommand::Input { accepted: Some(accepted), .. } = command {
+                            let _ = accepted.send(Err(()));
+                        }
                         continue;
                     };
                     if next_input_bytes > STARTUP_PENDING_INPUT_BYTES {
+                        if let RuntimeCommand::Input { accepted: Some(accepted), .. } = command {
+                            let _ = accepted.send(Err(()));
+                        }
                         continue;
                     }
                     pending_input_bytes = next_input_bytes;
@@ -530,9 +577,11 @@ pub(crate) async fn start_session_runtime(
 
         for command in pending_commands {
             match command {
-                RuntimeCommand::Input(data) => {
-                    let _ = writer.write_all(data.as_bytes());
-                    let _ = writer.flush();
+                RuntimeCommand::Input { data, accepted } => {
+                    let result = writer.write_all(data.as_bytes()).and_then(|_| writer.flush()).map_err(|_| ());
+                    if let Some(accepted) = accepted {
+                        let _ = accepted.send(result);
+                    }
                 }
                 RuntimeCommand::Resize { rows, cols } => {
                     let _ = master.lock().unwrap().resize(PtySize {
@@ -577,9 +626,11 @@ pub(crate) async fn start_session_runtime(
                 }
                 Some(command) = control_rx.recv() => {
                     match command {
-                        RuntimeCommand::Input(data) => {
-                            let _ = writer.write_all(data.as_bytes());
-                            let _ = writer.flush();
+                        RuntimeCommand::Input { data, accepted } => {
+                            let result = writer.write_all(data.as_bytes()).and_then(|_| writer.flush()).map_err(|_| ());
+                            if let Some(accepted) = accepted {
+                                let _ = accepted.send(result);
+                            }
                         }
                         RuntimeCommand::Resize { rows, cols } => {
                             let _ = master.lock().unwrap().resize(PtySize {
@@ -610,7 +661,8 @@ pub(crate) async fn start_session_runtime(
                                     for raw in &raw_persist_lines {
                                         let trimmed = raw.trim();
                                         if !trimmed.is_empty() {
-                                            handle.output_buffer.push(trimmed.to_string());
+                                            handle.runtime.peon_output_revision =
+                                                handle.output_buffer.push(trimmed.to_string());
                                         }
                                     }
                                     handle.output_lines_seen += raw_persist_lines.len() as u64;
@@ -942,7 +994,7 @@ mod tests {
 
         // Fill the bounded channel to capacity without draining it.
         for _ in 0..CONTROL_CHANNEL_CAPACITY {
-            send_runtime_command(&state, session_id, RuntimeCommand::Input("x".into()))
+            send_runtime_command(&state, session_id, RuntimeCommand::Input { data: "x".into(), accepted: None })
                 .await
                 .unwrap();
         }
@@ -953,7 +1005,7 @@ mod tests {
             send_runtime_command(
                 &state_clone,
                 session_id,
-                RuntimeCommand::Input("overflow".into()),
+                RuntimeCommand::Input { data: "overflow".into(), accepted: None },
             )
             .await
         });
@@ -980,7 +1032,7 @@ mod tests {
         let (tx, mut rx) = mpsc::channel(3);
         let chunk = "x".repeat(STARTUP_PENDING_INPUT_BYTES / 2);
         for _ in 0..3 {
-            tx.send(RuntimeCommand::Input(chunk.clone())).await.unwrap();
+            tx.send(RuntimeCommand::Input { data: chunk.clone(), accepted: None }).await.unwrap();
         }
         drop(tx);
 
@@ -1421,6 +1473,9 @@ mod tests {
             handle.info.observed_status = Some("waiting_for_input".into());
             handle.info.attention = Some("waiting_for_input".into());
             handle.info.metadata_source = Some("peon".into());
+            handle.info.needs_user_input = Some(true);
+            handle.info.detected_question = Some("Continue?".into());
+            handle.info.suggested_options = Some(vec!["yes".into(), "no".into()]);
         }
         {
             let ws = state.workspace.lock().unwrap();
@@ -1435,6 +1490,9 @@ mod tests {
             meta.observed_status = Some("waiting_for_input".into());
             meta.attention = Some("waiting_for_input".into());
             meta.metadata_source = "peon".into();
+            meta.needs_user_input = Some(true);
+            meta.detected_question = Some("Continue?".into());
+            meta.suggested_options = Some(vec!["yes".into(), "no".into()]);
             meta.lifecycle_phase = "active".into();
             meta.lifecycle = "alive".into();
             meta.connectivity = "online".into();
@@ -1450,11 +1508,23 @@ mod tests {
             let handle = &sessions[session_id];
             assert_eq!(handle.info.observed_status.as_deref(), Some("working"));
             assert_eq!(handle.info.attention.as_deref(), Some("working"));
+            assert_eq!(handle.info.needs_user_input, None);
+            assert_eq!(handle.info.detected_question, None);
+            assert_eq!(handle.info.suggested_options, None);
+            assert_eq!(handle.runtime.input_generation, 1);
+            assert!(handle.runtime.accepted_input_at.is_some());
+            assert_eq!(
+                handle.runtime.min_peon_output_revision,
+                handle.runtime.peon_output_revision
+            );
         }
         let ws = state.workspace.lock().unwrap();
         let meta = ws.as_ref().unwrap().metadata.read_session(session_id).unwrap();
         assert_eq!(meta.observed_status.as_deref(), Some("working"));
         assert_eq!(meta.attention.as_deref(), Some("working"));
+        assert_eq!(meta.needs_user_input, None);
+        assert_eq!(meta.detected_question, None);
+        assert_eq!(meta.suggested_options, None);
     }
 
     #[test]
@@ -1673,7 +1743,7 @@ mod tests {
             "work",
         )
         .is_none());
-        send_runtime_command(&state, session_id, RuntimeCommand::Input("work".into()))
+        send_runtime_command(&state, session_id, RuntimeCommand::Input { data: "work".into(), accepted: None })
             .await
             .unwrap();
 
@@ -1704,7 +1774,7 @@ mod tests {
             " now\r",
         )
         .is_some());
-        send_runtime_command(&state, session_id, RuntimeCommand::Input(" now\r".into()))
+        send_runtime_command(&state, session_id, RuntimeCommand::Input { data: " now\r".into(), accepted: None })
             .await
             .unwrap();
 
@@ -1787,7 +1857,7 @@ mod tests {
             "work now\r",
         )
         .is_some());
-        send_runtime_command(&state, session_id, RuntimeCommand::Input("work now\r".into()))
+        send_runtime_command(&state, session_id, RuntimeCommand::Input { data: "work now\r".into(), accepted: None })
             .await
             .unwrap();
 

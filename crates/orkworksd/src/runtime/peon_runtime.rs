@@ -2,6 +2,21 @@ use crate::workspace_runtime::iso_now;
 use crate::{peon, providers, AppState};
 use std::sync::Arc;
 
+#[derive(Clone, Copy)]
+enum InferenceMode {
+    Output,
+    InputLabel,
+}
+
+fn output_inference_is_current(
+    captured_generation: u64,
+    captured_min_revision: u64,
+    current_generation: u64,
+    current_min_revision: u64,
+) -> bool {
+    captured_generation == current_generation && captured_min_revision == current_min_revision
+}
+
 pub(crate) async fn peon_loop(state: Arc<AppState>) {
     let interval = state.peon.config.interval_secs;
     tracing::info!(interval_secs = interval, harness = %state.peon.config.harness, "peon started");
@@ -16,7 +31,7 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
         let pending: Vec<String> = state.peon.label_pending.write().unwrap().drain().collect();
 
         // Sessions with new output that has gone silent
-        let mut candidates: Vec<String> = {
+        let mut candidates: Vec<(String, InferenceMode)> = {
             let last_output = state.peon.last_output.read().unwrap();
             let in_flight = state.peon.in_flight.read().unwrap();
             let sessions = state.sessions.lock().unwrap();
@@ -27,20 +42,27 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                         && !in_flight.contains(*id)
                         && sessions
                             .get(*id)
-                            .map(|handle| handle.info.lifecycle_phase == "active")
+                            .map(|handle| {
+                                handle.info.lifecycle_phase == "active"
+                                    && handle
+                                        .output_buffer
+                                        .has_after(handle.runtime.min_peon_output_revision)
+                            })
                             .unwrap_or(false)
                 })
-                .map(|(id, _)| id.clone())
+                .map(|(id, _)| (id.clone(), InferenceMode::Output))
                 .collect()
         };
 
         for id in pending {
-            if !state.peon.in_flight.read().unwrap().contains(&id) && !candidates.contains(&id) {
-                candidates.push(id);
+            if !state.peon.in_flight.read().unwrap().contains(&id)
+                && !candidates.iter().any(|(candidate_id, _)| candidate_id == &id)
+            {
+                candidates.push((id, InferenceMode::InputLabel));
             }
         }
 
-        for session_id in candidates {
+        for (session_id, mode) in candidates {
             {
                 let mut in_flight = state.peon.in_flight.write().unwrap();
                 if !in_flight.insert(session_id.clone()) {
@@ -48,11 +70,21 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                 }
             }
 
-            let hint = state.peon.label_hint.write().unwrap().remove(&session_id);
-            let output_snapshot = {
+            let (output_snapshot, output_boundary) = {
                 let sessions = state.sessions.lock().unwrap();
                 match sessions.get(&session_id) {
-                    Some(handle) => handle.output_buffer.snapshot(),
+                    Some(handle) => match mode {
+                        InferenceMode::Output => (
+                            handle
+                                .output_buffer
+                                .snapshot_after(handle.runtime.min_peon_output_revision),
+                            Some((
+                                handle.runtime.input_generation,
+                                handle.runtime.min_peon_output_revision,
+                            )),
+                        ),
+                        InferenceMode::InputLabel => (Vec::new(), None),
+                    },
                     None => {
                         state.peon.in_flight.write().unwrap().remove(&session_id);
                         continue;
@@ -60,24 +92,55 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                 }
             };
 
+            let hint = (matches!(mode, InferenceMode::InputLabel))
+                .then(|| state.peon.label_hint.write().unwrap().remove(&session_id))
+                .flatten();
             if output_snapshot.is_empty() && hint.is_none() {
                 state.peon.in_flight.write().unwrap().remove(&session_id);
                 continue;
             }
 
-            let output_snapshot = if let Some(ref h) = hint {
-                let mut lines = vec![format!("[User input]: {}", h)];
-                lines.extend(output_snapshot);
-                lines
-            } else {
-                output_snapshot
-            };
+            let output_snapshot = hint
+                .as_ref()
+                .map(|h| vec![format!("[User input]: {}", h)])
+                .unwrap_or(output_snapshot);
 
             let state_clone = state.clone();
             let id = session_id.clone();
 
             tokio::task::spawn_blocking(move || {
                 let provider_result = state_clone.providers.run_inference(providers::PeonScope::Session, &output_snapshot);
+                if matches!(mode, InferenceMode::InputLabel) {
+                    if let Some(label) = provider_result
+                        .inference
+                        .and_then(|inference| inference.summary)
+                        .map(|summary| summary.chars().take(100).collect::<String>())
+                    {
+                        if let Some(handle) = state_clone.sessions.lock().unwrap().get_mut(&id) {
+                            handle.info.label = label;
+                        }
+                    }
+                    state_clone.peon.in_flight.write().unwrap().remove(&id);
+                    return;
+                }
+                let ws_guard = state_clone.workspace.lock().unwrap();
+                let active_work_hook = {
+                    let sessions = state_clone.sessions.lock().unwrap();
+                    sessions.get(&id).and_then(|handle| {
+                        let (generation, min_revision) = output_boundary?;
+                        output_inference_is_current(
+                            generation,
+                            min_revision,
+                            handle.runtime.input_generation,
+                            handle.runtime.min_peon_output_revision,
+                        )
+                        .then_some(handle.active_work_hook)
+                    })
+                };
+                let Some(active_work_hook) = active_work_hook else {
+                    state_clone.peon.in_flight.write().unwrap().remove(&id);
+                    return;
+                };
                 let inference = provider_result.inference;
                 let now_iso = iso_now();
 
@@ -88,7 +151,6 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                 );
 
                 if let Some(ref obs) = provider_result.observation {
-                    let ws_guard = state_clone.workspace.lock().unwrap();
                     if let Some(ref ws) = *ws_guard {
                         ws.metadata.persist_provider_context(&id, obs);
                     }
@@ -96,14 +158,8 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
 
                 let mut inference_persisted = false;
                 let mut permanent_hold = false;
+                let mut label_update = None;
                 if let Some(mut inf) = inference {
-                    let active_work_hook = state_clone
-                        .sessions
-                        .lock()
-                        .unwrap()
-                        .get(&id)
-                        .map(|h| h.active_work_hook)
-                        .unwrap_or(false);
                     // Active-hook sessions are hook-authoritative for the working
                     // transition specifically: Peon may still persist summary/label/
                     // etc, but must not be the one to flip observed_status to working
@@ -112,9 +168,8 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                     if active_work_hook && inf.observed_status.as_deref() == Some("working") {
                         inf.observed_status = None;
                     }
-                    // Collect label update while holding workspace lock, then drop before taking sessions.
-                    let label_update: Option<String> = {
-                        let ws_guard = state_clone.workspace.lock().unwrap();
+                    // Collect label update while holding the input-boundary lock.
+                    label_update = {
                         if let Some(ref ws) = *ws_guard {
                             let (should_write, is_permanent) = ws.metadata.read_session(&id)
                                 .map(|m| {
@@ -142,11 +197,13 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                         } else {
                             None
                         }
-                    }; // ws_guard dropped
-                    if let Some(label) = label_update {
-                        if let Some(handle) = state_clone.sessions.lock().unwrap().get_mut(&id) {
-                            handle.info.label = label;
-                        }
+                    };
+                }
+
+                drop(ws_guard);
+                if let Some(label) = label_update {
+                    if let Some(handle) = state_clone.sessions.lock().unwrap().get_mut(&id) {
+                        handle.info.label = label;
                     }
                 }
 
@@ -257,6 +314,59 @@ mod tests {
     use std::sync::{Arc, Mutex, RwLock};
     use std::collections::{HashMap, HashSet};
     use std::sync::atomic::AtomicU16;
+
+    #[test]
+    fn output_inference_generation_is_stale_after_accepted_input() {
+        assert!(!output_inference_is_current(4, 12, 5, 12));
+    }
+
+    #[tokio::test]
+    async fn input_label_inference_only_updates_the_live_label() {
+        let dir = tempfile::tempdir().unwrap();
+        let id = "label-only".to_string();
+        let state = Arc::new(crate::AppState {
+            sessions: Mutex::new(HashMap::new()),
+            workspace: Mutex::new(None),
+            peon: crate::PeonState {
+                last_output: RwLock::new(HashMap::new()), last_inference: RwLock::new(HashMap::new()),
+                in_flight: RwLock::new(HashSet::new()), label_hint: RwLock::new(HashMap::new()),
+                label_pending: RwLock::new(HashSet::new()), input_buf: RwLock::new(HashMap::new()),
+                config: peon::PeonConfig { harness: "unused".into(), harness_args: vec![], model: None,
+                    interval_secs: 1, max_lines: 200, timeout_secs: 10, idle_timeout_secs: 30,
+                    final_scan_timeout_secs: 2, enabled: true },
+            },
+            adapters: crate::harness_registry::builtin_adapters(),
+            retention_config: tokio::sync::RwLock::new(crate::RetentionConfig::default()),
+            harnesses: tokio::sync::RwLock::new(vec![]), bound_port: AtomicU16::new(0),
+            providers: providers::ProviderManager::for_tests(
+                providers::ProviderSettingsPayload { version: 1, revision: 1, peon_model: None,
+                    ollama_base_url: providers::default_ollama_base_url(), providers: vec![providers::ProviderSettingsEntry {
+                        id: "opencode".into(), enabled: true, fallback_order: 0,
+                        default_state: providers::ProviderCapacityState::Healthy, override_state: None,
+                    }] },
+                vec![providers::FakeProvider::new("opencode").stdout(r#"{"status":"working","summary":"New label","confidence":0.85}"#)],
+            ),
+        });
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        state.sessions.lock().unwrap().insert(id.clone(), crate::SessionHandle {
+            info: test_session_info(id.clone(), "Old label", dir.path().display().to_string(), "running", "now"),
+            kill_tx, output_buffer: peon::RingBuffer::new(200), scan_buf: String::new(), pending_work_signal: None,
+            runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
+            terminal_attached: false, at_usage_limit_latched: false, capacity_check_pending: false,
+            output_lines_seen: 0, scan_bytes_seen: 0, resume_scan_origin: None,
+            pending_capacity_visible_once: false, active_work_hook: false,
+        });
+        state.peon.label_hint.write().unwrap().insert(id.clone(), "describe this task".into());
+        state.peon.label_pending.write().unwrap().insert(id.clone());
+
+        let task = tokio::spawn(peon_loop(state.clone()));
+        tokio::time::sleep(std::time::Duration::from_millis(2300)).await;
+        task.abort();
+
+        assert_eq!(state.sessions.lock().unwrap()[&id].info.label, "New label");
+        assert!(!state.peon.in_flight.read().unwrap().contains(&id));
+        assert!(!state.peon.last_inference.read().unwrap().contains_key(&id));
+    }
 
     #[tokio::test]
     async fn test_peon_inference_writes_metadata() {
