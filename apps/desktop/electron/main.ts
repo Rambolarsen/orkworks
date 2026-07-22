@@ -29,7 +29,7 @@ let currentSettings: AppSettings | null = null;
 let providerModels: Map<string, string[]> = new Map();
 let providerLabels: Record<string, string> = {};
 let hotkeyCaptureActive = false;
-const openPlanToken = randomBytes(32).toString("hex");
+let openPlanToken = "";
 const menuPanelIds = ["sessions", "detail", "terminal", "capacity", "recommendations"];
 
 function rendererSettings(settings: AppSettings): AppSettings & { defaultHotkeys: typeof DEFAULT_HOTKEYS } {
@@ -81,12 +81,14 @@ function getSidecarPath(): string {
 function startSidecar(cwdOverride?: string): void {
   const binaryPath = getSidecarPath();
   const sidecarCwd = cwdOverride ?? (app.isPackaged ? app.getPath("home") : getDevRepoRoot(__dirname));
+  openPlanToken = randomBytes(32).toString("hex");
   console.log(`[main] starting sidecar: ${binaryPath}`);
   console.log(`[main] sidecar cwd: ${sidecarCwd}`);
 
   sidecarProcess = spawn(binaryPath, [], {
     cwd: sidecarCwd,
     stdio: ["ignore", "pipe", "pipe"],
+    env: { ...process.env, ORKWORKS_OPEN_PLAN_TOKEN: openPlanToken },
   });
 
   sidecarProcess.stdout?.on("data", (data: Buffer) => {
@@ -161,6 +163,7 @@ app.whenReady().then(() => {
     appMemory.lastWorkspacePath && existsSync(appMemory.lastWorkspacePath)
       ? appMemory.lastWorkspacePath
       : null;
+  workspacePath = initialWorkspacePath;
   currentSettings = readSettings(app.getPath("userData"));
 
   ipcMain.handle("get-backend-url", async () => {
@@ -381,6 +384,7 @@ app.whenReady().then(() => {
       sidecarProcess = null;
     }
     backendPort = null;
+    openPlanToken = randomBytes(32).toString("hex");
     portPromise = new Promise<number>((resolve) => {
       portResolve = resolve;
     });

@@ -208,6 +208,7 @@ Electron + React/TypeScript frontend (`apps/desktop/`) communicates with a Rust 
 - ADR 0017: Provider context is session-scoped (read-only in Details), not app-wide.
 - ADR 0022: PTY lifetime is session-runtime-owned in the sidecar; renderer terminal attachment is detachable and does not own process lifetime.
 - ADR 0024: Raw terminal replay is bounded to the newest 1,000 lines and 1 MiB; durable summary checkpoints live in the event log.
+- ADR 0025: Session-plan handoff uses a sidecar-scoped secret and Electron main-process path revalidation; the renderer never receives filesystem paths.
 
 **Rust module layout** (`crates/orkworksd/src/`):
 - `metadata.rs` — `SessionMetadata` and the on-disk metadata store (source of truth for session state)

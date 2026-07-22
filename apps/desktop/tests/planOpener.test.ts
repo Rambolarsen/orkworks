@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, writeFile, rm, realpath } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, rm, realpath, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { openSessionPlan } from "../electron/planOpener.ts";
@@ -39,4 +39,12 @@ test("reports sidecar and OS-handler failures without exposing a path", async ()
   await writeFile(plan, "# plan");
   await assert.rejects(openSessionPlan("http://127.0.0.1:4444", "s", "token", workspace, async () => new Response(JSON.stringify({ path: plan })), async () => "OS refused"), /configured application/);
   await rm(workspace, { recursive: true, force: true });
+});
+
+test("starts the sidecar with the plan token and retains the restored workspace", async () => {
+  const mainSource = await readFile(new URL("../electron/main.ts", import.meta.url), "utf8");
+
+  assert.match(mainSource, /env: \{ \.\.\.process\.env, ORKWORKS_OPEN_PLAN_TOKEN: openPlanToken \}/);
+  assert.match(mainSource, /workspacePath = initialWorkspacePath;/);
+  assert.match(mainSource, /openPlanToken = randomBytes\(32\)\.toString\("hex"\);/);
 });

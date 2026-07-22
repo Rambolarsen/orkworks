@@ -32,3 +32,4 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 | [0022](./0022-session-runtime-owned-pty-lifetime.md) | Session-runtime-owned PTY lifetime | accepted |
 | [0023](./0023-simplified-session-lifecycle.md) | Simplified session lifecycle and alive-only attention | accepted |
 | [0024](./0024-bounded-terminal-replay-durable-summary-checkpoints.md) | Bounded terminal replay with durable summary checkpoints | accepted |
+| [0025](./0025-authenticated-session-plan-handoff.md) | Authenticated session plan handoff | accepted |
