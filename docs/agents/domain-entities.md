@@ -29,7 +29,7 @@ File: `crates/orkworksd/src/metadata.rs`
 - `status: String` — process/terminal state (see vocabulary below)
 - `work_phase: String` (serialized `workPhase`) — `ideation` | `implementation` | `review` | `debugging` | `unknown`, normalized on read via `normalize_work_phase`
 - `lifecycle_phase: String`, `lifecycle: String` — see vocabulary below
-- `attention: Option<String>`, `connectivity: String`
+- `attention: Option<String>`, `plan_path: Option<String>` (serialized `planPath`), `connectivity: String`. `plan_path` is advisory agent context; only a workspace-contained existing Markdown file projects the non-persisted `hasOpenablePlan` API flag.
 - `terminal_outcome: Option<String>`, `pending_terminal_status: Option<String>`
 - `observed_status: Option<String>` plus `ending_observed_status_snapshot` / `final_observed_status_snapshot` (`ObservedStatusSnapshotMetadata { value, source, confidence, observed_at }`)
 - `summary`, `next_action`, `needs_user_input`, `detected_question`, `suggested_options`, `blocker_description`, `failed_command`, `failed_test`, `capacity_hints`, `peon_last_inference` — Peon-inferred fields

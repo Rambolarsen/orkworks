@@ -17,6 +17,7 @@ mod git;
 mod harness;
 mod harness_registry;
 mod peon;
+mod plan_handoff;
 mod providers;
 mod http;
 mod migration;
@@ -33,9 +34,9 @@ use crate::http::hook_handlers::{get_attention_hook_status, install_attention_ho
 use crate::http::provider_handlers::{get_provider_models, get_providers, set_provider_settings, verify_ollama_settings};
 use crate::http::retention_handlers::set_retention;
 use crate::http::session_handlers::{
-    apply_debug_attention, create_session, delete_session, forget_session, list_sessions,
-    report_attention, report_harness_session, resume_session, set_active_harnesses,
-    set_active_session, set_workspace,
+    apply_debug_attention, create_session, delete_session, forget_session, list_sessions, open_session_plan, report_attention,
+    report_harness_session, resume_session, set_active_harnesses, set_active_session,
+    set_workspace,
 };
 use crate::runtime::peon_runtime::peon_loop;
 use crate::runtime::retention::retention_cleanup_task;
@@ -178,6 +179,7 @@ async fn main() {
         .route("/sessions/:id/harness-session", post(report_harness_session))
         .route("/sessions/:id/attention", post(report_attention))
         .route("/sessions/:id/debug-injection", post(apply_debug_attention))
+        .route("/sessions/:id/open-plan", post(open_session_plan))
         .route("/settings/retention", post(set_retention))
         .route("/harnesses", get(list_harnesses).post(create_harness))
         .route("/harnesses/:id", put(update_harness).delete(delete_harness))
@@ -334,6 +336,7 @@ pub(crate) mod test_support {
             resume: None,
             resume_options: vec![],
             resumed_from: None,
+            has_openable_plan: None,
         }
     }
 
@@ -358,6 +361,7 @@ pub(crate) mod test_support {
             lifecycle_phase: "ended".into(),
             lifecycle: "dead".into(),
             attention: None,
+            plan_path: None,
             connectivity: "offline".into(),
             terminal_outcome: Some("ended".into()),
             pending_terminal_status: None,
@@ -432,6 +436,7 @@ mod tests {
             .route("/sessions/:id/harness-session", post(report_harness_session))
             .route("/sessions/:id/attention", post(report_attention))
             .route("/sessions/:id/debug-injection", post(apply_debug_attention))
+            .route("/sessions/:id/open-plan", post(open_session_plan))
             .route("/settings/retention", post(set_retention))
             .route("/harnesses", get(list_harnesses).post(create_harness))
             .route("/harnesses/:id", put(update_harness).delete(delete_harness))

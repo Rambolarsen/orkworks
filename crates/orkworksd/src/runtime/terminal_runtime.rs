@@ -401,6 +401,7 @@ pub(crate) fn should_forward_terminal_env(key: &str) -> bool {
         && key != "VSCODE_INSPECTOR_OPTIONS"
         && !key.starts_with("VSCODE_")
         && !key.starts_with("ELECTRON_")
+        && key != "ORKWORKS_OPEN_PLAN_TOKEN"
 }
 
 #[cfg(unix)]
@@ -1730,6 +1731,7 @@ mod tests {
                 lifecycle_phase: "active".into(),
                 lifecycle: "alive".into(),
                 attention: None,
+                plan_path: None,
                 connectivity: "online".into(),
                 terminal_outcome: None,
                 pending_terminal_status: None,
@@ -1857,6 +1859,7 @@ mod tests {
                     lifecycle_phase: "ending".into(),
                     lifecycle: "stopping".into(),
                     attention: None,
+                    plan_path: None,
                     connectivity: "online".into(),
                 terminal_outcome: None,
                 pending_terminal_status: Some("killed".into()),
@@ -2023,6 +2026,7 @@ mod tests {
                     lifecycle_phase: "ending".into(),
                     lifecycle: "stopping".into(),
                     attention: None,
+                    plan_path: None,
                     connectivity: "online".into(),
                 terminal_outcome: None,
                 pending_terminal_status: Some("ended".into()),

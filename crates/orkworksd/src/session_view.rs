@@ -164,6 +164,7 @@ pub(crate) fn merge_live_session_info(
             capabilities.resume_latest_in_repo,
         ),
         resumed_from: meta.and_then(|m| m.resumed_from.clone()).or(info.resumed_from),
+        has_openable_plan: None,
         provider: meta.and_then(|m| m.provider_label.clone()).or(info.provider),
         provider_model: meta.and_then(|m| m.provider_model.clone()).or(info.provider_model),
         provider_state: meta.and_then(|m| m.provider_state.clone()).or(info.provider_state),
@@ -252,6 +253,7 @@ mod tests {
             resume: None,
             resume_options: vec![],
             resumed_from: None,
+            has_openable_plan: None,
         }
     }
 
@@ -369,6 +371,7 @@ mod tests {
             lifecycle_phase: "ended".into(),
             lifecycle: "dead".into(),
             attention: None,
+            plan_path: None,
             connectivity: "offline".into(),
             terminal_outcome: Some("ended".into()),
             pending_terminal_status: None,

@@ -1,5 +1,5 @@
 use crate::harness::{ResumeMemory, ResumeState, ResumeStrategy};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
@@ -19,6 +19,26 @@ pub const TERMINAL_OUTPUT_MAX_BYTES: u64 = 1 * 1024 * 1024;
 /// the ceiling — the headroom absorbs several appends before trim fires again.
 const TERMINAL_OUTPUT_TRIM_TARGET_BYTES: u64 = TERMINAL_OUTPUT_MAX_BYTES * 3 / 4;
 const TERMINAL_OUTPUT_TRIM_TARGET_LINES: usize = TERMINAL_OUTPUT_MAX_LINES * 3 / 4;
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub(crate) enum PlanPathUpdate {
+    #[default]
+    Unchanged,
+    Clear,
+    Set(String),
+}
+
+impl<'de> Deserialize<'de> for PlanPathUpdate {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        Ok(match Option::<String>::deserialize(deserializer)? {
+            Some(path) => Self::Set(path),
+            None => Self::Clear,
+        })
+    }
+}
 
 fn default_connectivity() -> String {
     "online".into()
@@ -92,6 +112,8 @@ pub struct SessionMetadata {
     pub lifecycle: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub attention: Option<String>,
+    #[serde(rename = "planPath", skip_serializing_if = "Option::is_none")]
+    pub plan_path: Option<String>,
     #[serde(default = "default_connectivity")]
     pub connectivity: String,
     #[serde(rename = "terminalOutcome", skip_serializing_if = "Option::is_none")]
@@ -447,6 +469,7 @@ pub(crate) fn assert_session_metadata_serializes_connectivity_terminal_outcome_a
         lifecycle_phase: "ended".into(),
         lifecycle: "dead".into(),
         attention: None,
+        plan_path: None,
         connectivity: "offline".into(),
         terminal_outcome: Some("ended".into()),
         pending_terminal_status: None,
@@ -1157,6 +1180,19 @@ impl MetadataStore {
         source: &str,
         confidence: f64,
     ) -> AttentionMergeResult {
+        self.merge_agent_attention_signal_with_plan(id, status, message, &PlanPathUpdate::Unchanged, timestamp, source, confidence)
+    }
+
+    pub fn merge_agent_attention_signal_with_plan(
+        &self,
+        id: &str,
+        status: &str,
+        message: Option<&str>,
+        plan_path: &PlanPathUpdate,
+        timestamp: &str,
+        source: &str,
+        confidence: f64,
+    ) -> AttentionMergeResult {
         let mut meta = match self.read_session(id) {
             Some(m) => m,
             None => return AttentionMergeResult::NotFound,
@@ -1175,6 +1211,11 @@ impl MetadataStore {
         }
         if let Some(msg) = message {
             meta.summary = Some(msg.to_string());
+        }
+        match plan_path {
+            PlanPathUpdate::Unchanged => {}
+            PlanPathUpdate::Clear => meta.plan_path = None,
+            PlanPathUpdate::Set(path) => meta.plan_path = Some(path.clone()),
         }
         meta.metadata_source = source.into();
         meta.metadata_confidence = confidence;
@@ -1474,6 +1515,7 @@ mod tests {
             lifecycle_phase: "active".into(),
             lifecycle: "alive".into(),
             attention: None,
+            plan_path: None,
             connectivity: "online".into(),
             terminal_outcome: None,
             pending_terminal_status: None,
@@ -1804,6 +1846,7 @@ mod tests {
         lifecycle_phase: "active".into(),
         lifecycle: "alive".into(),
         attention: None,
+        plan_path: None,
         connectivity: "online".into(),
             terminal_outcome: None,
             pending_terminal_status: None,
@@ -1894,6 +1937,7 @@ mod tests {
             lifecycle_phase: "active".into(),
             lifecycle: "alive".into(),
             attention: None,
+            plan_path: None,
             connectivity: "online".into(),
             terminal_outcome: None,
             pending_terminal_status: None,
@@ -2135,6 +2179,7 @@ mod tests {
             lifecycle_phase: "active".into(),
             lifecycle: "alive".into(),
             attention: None,
+            plan_path: None,
             connectivity: "online".into(),
             terminal_outcome: None,
             pending_terminal_status: None,
@@ -2441,6 +2486,30 @@ mod tests {
         assert_eq!(checkpoints[1].summary.as_deref(), Some("unrelated"));
         assert_eq!(checkpoints[1].source.as_deref(), Some("agent"));
         assert_eq!(checkpoints[1].confidence, Some(1.0));
+    }
+
+    #[test]
+    fn agent_attention_signal_updates_plan_path_atomically() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        store.write_session(&test_metadata("attention-plan-path"));
+
+        assert_eq!(
+            store.merge_agent_attention_signal_with_plan(
+                "attention-plan-path",
+                "waiting_for_input",
+                None,
+                &PlanPathUpdate::Set("docs/plan.md".into()),
+                "2026-07-21T12:00:00Z",
+                "agent",
+                1.0,
+            ),
+            AttentionMergeResult::Accepted,
+        );
+
+        let updated = store.read_session("attention-plan-path").unwrap();
+        assert_eq!(updated.plan_path.as_deref(), Some("docs/plan.md"));
+        assert_eq!(updated.attention.as_deref(), Some("needs_you"));
     }
 
     #[test]

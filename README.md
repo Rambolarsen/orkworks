@@ -32,6 +32,7 @@ orkworks/
 - Lifecycle transitions remain metadata-driven; the previously unwired domain aggregate was removed, with a future typed state-machine tracked in [issue #181](https://github.com/Rambolarsen/orkworks/issues/181) (see [ADR 0021](docs/adr/0021-session-lifecycle-phases.md)).
 - PTY lifetime is owned by the Rust sidecar session runtime rather than by a renderer WebSocket; active work survives terminal detach while `orkworksd` stays alive (see [ADR 0022](docs/adr/0022-session-runtime-owned-pty-lifetime.md))
 - Raw terminal replay is bounded to the newest 1,000 lines and 1 MiB, while accepted session summaries are retained as durable checkpoints (see [ADR 0024](docs/adr/0024-bounded-terminal-replay-durable-summary-checkpoints.md))
+- Session plans are opened only through an authenticated Electron-main-process handoff; the renderer receives availability, never a filesystem path (see [ADR 0025](docs/adr/0025-authenticated-session-plan-handoff.md))
 - Taskmaster consumes Peon reports and workspace context to propose the next session or user action
 - PTY handles only text I/O; voice (native harness) bypasses PTY entirely
 
