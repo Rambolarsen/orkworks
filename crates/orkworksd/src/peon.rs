@@ -132,6 +132,12 @@ impl RingBuffer {
             .collect()
     }
 
+    pub fn has_after(&self, revision: u64) -> bool {
+        self.lines
+            .back()
+            .is_some_and(|(line_revision, _)| *line_revision > revision)
+    }
+
     pub fn last_n(&self, n: usize) -> Vec<String> {
         self.lines.iter().rev().take(n).map(|(_, line)| line.clone()).collect()
     }
@@ -556,15 +562,17 @@ mod tests {
     }
 
     #[test]
-    fn test_ring_buffer_snapshot_after_excludes_prior_lines() {
+fn test_ring_buffer_snapshot_after_excludes_prior_lines() {
         let mut buf = RingBuffer::new(5);
         let first = buf.push("old prompt".into());
         let boundary = buf.push("old question".into());
         buf.push("new output".into());
 
         assert!(boundary > first);
-        assert_eq!(buf.snapshot_after(boundary), vec!["new output"]);
-    }
+    assert_eq!(buf.snapshot_after(boundary), vec!["new output"]);
+    assert!(buf.has_after(boundary));
+    assert!(!buf.has_after(boundary + 1));
+}
 
     #[test]
     fn test_ring_buffer_capacity_enforcement() {

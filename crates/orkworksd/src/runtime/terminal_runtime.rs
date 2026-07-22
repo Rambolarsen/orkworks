@@ -172,12 +172,15 @@ fn terminal_input_data(action: &TerminalAction) -> Option<String> {
 /// completes — by the time an async send resolves, the child may already
 /// have echoed enough new output to scroll the prompt out of the detection
 /// window, which would misclassify a submitted secret as safe to persist.
-fn snapshot_input_sensitivity(state: &Arc<AppState>, id: &str) -> bool {
+fn snapshot_input_context(state: &Arc<AppState>, id: &str) -> (bool, u64) {
     let sessions = state.sessions.lock().unwrap();
     sessions
         .get(id)
-        .map(|h| peon::looks_like_password_prompt(&h.output_buffer.last_n(5)))
-        .unwrap_or(false)
+        .map(|h| (
+            peon::looks_like_password_prompt(&h.output_buffer.last_n(5)),
+            h.runtime.peon_output_revision,
+        ))
+        .unwrap_or((false, 0))
 }
 
 /// The PTY control channel is the delivery authority. Only advance metadata
@@ -186,12 +189,12 @@ fn snapshot_input_sensitivity(state: &Arc<AppState>, id: &str) -> bool {
 fn record_input_after_delivery(
     state: &Arc<AppState>,
     id: &str,
-    pending: Option<&(String, bool)>,
+    pending: Option<&(String, bool, u64)>,
     result: &Result<(), ()>,
 ) {
     if result.is_ok() {
-        if let Some((input, is_sensitive)) = pending {
-            record_peon_input_side_effects(state, id, input, *is_sensitive);
+        if let Some((input, is_sensitive, output_boundary)) = pending {
+            record_peon_input_side_effects(state, id, input, *is_sensitive, *output_boundary);
         }
     }
 }
@@ -266,8 +269,14 @@ fn mark_usage_limit_recheck_on_input(state: &Arc<AppState>, id: &str) {
 /// Records accepted terminal input for usage-limit rechecks, labels, and pending work signals.
 /// Call only once delivery is actually accepted — never for input dropped by
 /// `PendingActionQueue`.
-fn record_peon_input_side_effects(state: &Arc<AppState>, id: &str, data: &str, is_sensitive: bool) {
-    let _ = record_terminal_input_impl(state, id, data, Some(is_sensitive));
+fn record_peon_input_side_effects(
+    state: &Arc<AppState>,
+    id: &str,
+    data: &str,
+    is_sensitive: bool,
+    output_boundary: u64,
+) {
+    let _ = record_terminal_input_impl(state, id, data, Some(is_sensitive), Some(output_boundary));
 }
 
 /// Test-only convenience wrapper that live-checks sensitivity against the
@@ -280,7 +289,7 @@ pub(crate) fn record_terminal_input(
     id: &str,
     data: &str,
 ) -> Option<()> {
-    record_terminal_input_impl(state, id, data, None)
+    record_terminal_input_impl(state, id, data, None, None)
 }
 
 fn record_terminal_input_impl(
@@ -288,10 +297,11 @@ fn record_terminal_input_impl(
     id: &str,
     data: &str,
     sensitivity_override: Option<bool>,
+    output_boundary: Option<u64>,
 ) -> Option<()> {
     if !data.is_empty() {
         mark_usage_limit_recheck_on_input(state, id);
-        mark_committed_input_working(state, id);
+        mark_committed_input_working(state, id, output_boundary);
     }
 
     let collected_line = {
@@ -303,7 +313,7 @@ fn record_terminal_input_impl(
     let line = collected_line?;
     // Labels are display-bounded; echo-gating below uses the full `line`.
     let label_line: String = line.chars().take(100).collect();
-    let is_sensitive = sensitivity_override.unwrap_or_else(|| snapshot_input_sensitivity(state, id));
+    let is_sensitive = sensitivity_override.unwrap_or_else(|| snapshot_input_context(state, id).0);
     let label_worthy = !is_sensitive && peon::is_descriptive_input(&label_line);
 
     if !is_sensitive {
@@ -332,7 +342,7 @@ fn record_terminal_input_impl(
 /// whose delivery to the PTY was actually accepted. That is direct evidence
 /// the live session is working, stronger than any stale prompt metadata or
 /// later PTY-output heuristic — but this function trusts the caller for it.
-fn mark_committed_input_working(state: &Arc<AppState>, id: &str) {
+fn mark_committed_input_working(state: &Arc<AppState>, id: &str, output_boundary: Option<u64>) {
     let ws_guard = state.workspace.lock().unwrap();
     let mut sessions = state.sessions.lock().unwrap();
     let Some(handle) = sessions.get_mut(id) else {
@@ -368,7 +378,7 @@ fn mark_committed_input_working(state: &Arc<AppState>, id: &str) {
         handle.pending_work_signal = None;
         handle.runtime.input_generation = next_generation;
         handle.runtime.accepted_input_at = Some(accepted_at);
-        handle.runtime.min_peon_output_revision = handle.runtime.peon_output_revision;
+        handle.runtime.min_peon_output_revision = output_boundary.unwrap_or(handle.runtime.peon_output_revision);
         drop(sessions);
         drop(ws_guard);
         state
@@ -382,7 +392,7 @@ fn mark_committed_input_working(state: &Arc<AppState>, id: &str) {
     if already_working {
         handle.runtime.input_generation = next_generation;
         handle.runtime.accepted_input_at = Some(accepted_at);
-        handle.runtime.min_peon_output_revision = handle.runtime.peon_output_revision;
+        handle.runtime.min_peon_output_revision = output_boundary.unwrap_or(handle.runtime.peon_output_revision);
         drop(sessions);
         drop(ws_guard);
         state.peon.last_output.write().unwrap().insert(id.to_string(), tokio::time::Instant::now());
@@ -416,7 +426,7 @@ fn mark_committed_input_working(state: &Arc<AppState>, id: &str) {
     handle.pending_work_signal = None;
     handle.runtime.input_generation = next_generation;
     handle.runtime.accepted_input_at = Some(accepted_at);
-    handle.runtime.min_peon_output_revision = handle.runtime.peon_output_revision;
+    handle.runtime.min_peon_output_revision = output_boundary.unwrap_or(handle.runtime.peon_output_revision);
     drop(sessions);
     drop(ws_guard);
     state.peon.last_output.write().unwrap().insert(id.to_string(), tokio::time::Instant::now());
@@ -779,7 +789,7 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
     let generation = attachment.generation;
     let mut events = attachment.events;
     let mut pending_command: Option<PendingCommandFuture> = None;
-    let mut pending_input: Option<(String, bool)> = None;
+    let mut pending_input: Option<(String, bool, u64)> = None;
     let mut queue = PendingActionQueue::default();
 
     loop {
@@ -810,8 +820,8 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
                     // round-trip can't misclassify a submitted secret.
                     pending_input = terminal_input_data(&action)
                         .map(|data| {
-                            let is_sensitive = snapshot_input_sensitivity(&state, &id);
-                            (data, is_sensitive)
+                            let (is_sensitive, output_boundary) = snapshot_input_context(&state, &id);
+                            (data, is_sensitive, output_boundary)
                         });
                     pending_command = spawn_command_future(state.clone(), id.clone(), action);
                 }
@@ -876,8 +886,8 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
                             // comment at the queued-dispatch site above.
                             pending_input = terminal_input_data(&action)
                                 .map(|data| {
-                                    let is_sensitive = snapshot_input_sensitivity(&state, &id);
-                                    (data, is_sensitive)
+                                    let (is_sensitive, output_boundary) = snapshot_input_context(&state, &id);
+                                    (data, is_sensitive, output_boundary)
                                 });
                             pending_command = spawn_command_future(state.clone(), id.clone(), action);
                         }
@@ -889,15 +899,16 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
         }
     }
 
-    // Every exit from the loop above (Close/EOF, Ended, Error, a send
-    // failure, or the broadcast channel closing) can race a still-pending
-    // PTY command: if it was actually delivered, the session goes on
-    // running detached (ADR 0022) and must not be left showing stale
-    // `needs_you` just because nobody was left to observe the result. Drain
-    // it here instead of dropping it silently at each break site.
+    // A pending PTY write can block indefinitely if the child stops reading
+    // stdin. Keep observing its accepted-input side effects detached, but do
+    // not let it retain this renderer attachment after the socket is gone.
     if let Some(cmd) = pending_command.take() {
-        let result = cmd.await;
-        record_input_after_delivery(&state, &id, pending_input.as_ref(), &result);
+        let state = state.clone();
+        let id = id.clone();
+        tokio::spawn(async move {
+            let result = cmd.await;
+            record_input_after_delivery(&state, &id, pending_input.as_ref(), &result);
+        });
     }
 
     crate::runtime::session_runtime::release_attachment(&state, &id, generation);
@@ -1154,7 +1165,7 @@ mod tests {
         let session_id = "rejected-input";
         let (state, _dir) = prompted_session_state(session_id);
 
-        record_input_after_delivery(&state, session_id, Some(&("y".to_string(), false)), &Err(()));
+        record_input_after_delivery(&state, session_id, Some(&("y".to_string(), false, 0)), &Err(()));
 
         let info = state.sessions.lock().unwrap()[session_id].info.clone();
         assert_eq!(info.attention.as_deref(), Some("needs_you"));
@@ -1180,7 +1191,7 @@ mod tests {
             handle.output_buffer.push("$ ".to_string());
         }
 
-        record_peon_input_side_effects(&state, session_id, "hunter2\r", true);
+        record_peon_input_side_effects(&state, session_id, "hunter2\r", true, 0);
 
         let ws = state.workspace.lock().unwrap();
         let meta = ws.as_ref().unwrap().metadata.read_session(session_id).unwrap();
@@ -1201,7 +1212,7 @@ mod tests {
         let session_id = "non-sensitive-input";
         let (state, _dir) = prompted_session_state(session_id);
 
-        record_peon_input_side_effects(&state, session_id, "add retry logic\r", false);
+        record_peon_input_side_effects(&state, session_id, "add retry logic\r", false, 0);
 
         let ws = state.workspace.lock().unwrap();
         let meta = ws.as_ref().unwrap().metadata.read_session(session_id).unwrap();

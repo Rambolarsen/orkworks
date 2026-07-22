@@ -188,10 +188,6 @@ pub(crate) async fn install_attention_hook(
         }
     };
 
-    if is_hook_installed(&settings) {
-        return Json(AttentionHookStatusResponse { installed: true, error: None }).into_response();
-    }
-
     let claude_dir = ws.path.join(".claude");
     if let Err(e) = std::fs::create_dir_all(&claude_dir) {
         return (
@@ -211,6 +207,10 @@ pub(crate) async fn install_attention_hook(
                 .into_response();
         }
     };
+
+    if is_hook_installed(&settings) {
+        return Json(AttentionHookStatusResponse { installed: true, error: None }).into_response();
+    }
 
     let command = format!("\"{}\"", stable_script_path.display());
     if let Err(error) = insert_hook_entry(&mut settings, &command) {

@@ -44,10 +44,9 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                             .get(*id)
                             .map(|handle| {
                                 handle.info.lifecycle_phase == "active"
-                                    && !handle
+                                    && handle
                                         .output_buffer
-                                        .snapshot_after(handle.runtime.min_peon_output_revision)
-                                        .is_empty()
+                                        .has_after(handle.runtime.min_peon_output_revision)
                             })
                             .unwrap_or(false)
                 })
@@ -319,6 +318,54 @@ mod tests {
     #[test]
     fn output_inference_generation_is_stale_after_accepted_input() {
         assert!(!output_inference_is_current(4, 12, 5, 12));
+    }
+
+    #[tokio::test]
+    async fn input_label_inference_only_updates_the_live_label() {
+        let dir = tempfile::tempdir().unwrap();
+        let id = "label-only".to_string();
+        let state = Arc::new(crate::AppState {
+            sessions: Mutex::new(HashMap::new()),
+            workspace: Mutex::new(None),
+            peon: crate::PeonState {
+                last_output: RwLock::new(HashMap::new()), last_inference: RwLock::new(HashMap::new()),
+                in_flight: RwLock::new(HashSet::new()), label_hint: RwLock::new(HashMap::new()),
+                label_pending: RwLock::new(HashSet::new()), input_buf: RwLock::new(HashMap::new()),
+                config: peon::PeonConfig { harness: "unused".into(), harness_args: vec![], model: None,
+                    interval_secs: 1, max_lines: 200, timeout_secs: 10, idle_timeout_secs: 30,
+                    final_scan_timeout_secs: 2, enabled: true },
+            },
+            adapters: crate::harness_registry::builtin_adapters(),
+            retention_config: tokio::sync::RwLock::new(crate::RetentionConfig::default()),
+            harnesses: tokio::sync::RwLock::new(vec![]), bound_port: AtomicU16::new(0),
+            providers: providers::ProviderManager::for_tests(
+                providers::ProviderSettingsPayload { version: 1, revision: 1, peon_model: None,
+                    ollama_base_url: providers::default_ollama_base_url(), providers: vec![providers::ProviderSettingsEntry {
+                        id: "opencode".into(), enabled: true, fallback_order: 0,
+                        default_state: providers::ProviderCapacityState::Healthy, override_state: None,
+                    }] },
+                vec![providers::FakeProvider::new("opencode").stdout(r#"{"status":"working","summary":"New label","confidence":0.85}"#)],
+            ),
+        });
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        state.sessions.lock().unwrap().insert(id.clone(), crate::SessionHandle {
+            info: test_session_info(id.clone(), "Old label", dir.path().display().to_string(), "running", "now"),
+            kill_tx, output_buffer: peon::RingBuffer::new(200), scan_buf: String::new(), pending_work_signal: None,
+            runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
+            terminal_attached: false, at_usage_limit_latched: false, capacity_check_pending: false,
+            output_lines_seen: 0, scan_bytes_seen: 0, resume_scan_origin: None,
+            pending_capacity_visible_once: false, active_work_hook: false,
+        });
+        state.peon.label_hint.write().unwrap().insert(id.clone(), "describe this task".into());
+        state.peon.label_pending.write().unwrap().insert(id.clone());
+
+        let task = tokio::spawn(peon_loop(state.clone()));
+        tokio::time::sleep(std::time::Duration::from_millis(2300)).await;
+        task.abort();
+
+        assert_eq!(state.sessions.lock().unwrap()[&id].info.label, "New label");
+        assert!(!state.peon.in_flight.read().unwrap().contains(&id));
+        assert!(!state.peon.last_inference.read().unwrap().contains_key(&id));
     }
 
     #[tokio::test]
