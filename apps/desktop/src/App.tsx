@@ -83,7 +83,7 @@ function App() {
     try {
       const baseUrl = await window.orkworks.getBackendUrl();
       const list = await listSessions(baseUrl);
-      pruneTerminals(new Set(list.filter((session) => session.lifecycle === "alive").map((session) => session.id)));
+      pruneTerminals(new Set(list.filter((session) => session.lifecycle !== "dead").map((session) => session.id)));
       setSessions(mergeSessionsById([], list));
     } catch {
       // Silent: polled every 2s; transient failures are reflected by the
