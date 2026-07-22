@@ -471,7 +471,7 @@ test("TerminalPanel replays dead sessions without retaining their interactive ha
   assert.match(terminalPanel, /renderTerminalPresentation/);
   assert.match(terminalPanel, /HistoricalTerminal/);
   assert.match(app, /pruneTerminals\(/);
-  assert.match(app, /session\.lifecycle === "alive"/);
+  assert.match(app, /session\.lifecycle !== "dead"/);
 });
 
 test("App activates shared terminal panel on session create", () => {

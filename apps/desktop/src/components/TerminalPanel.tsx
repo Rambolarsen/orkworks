@@ -11,7 +11,7 @@ interface TerminalPanelProps {
 
 function TerminalPanel({ backendStatus, session }: TerminalPanelProps) {
   if (!session) {
-    return <EmptyState message="Select a live session to open its terminal." />;
+    return <EmptyState message="Select a session to open its terminal." />;
   }
   return renderTerminalPresentation(
     session.lifecycle,
