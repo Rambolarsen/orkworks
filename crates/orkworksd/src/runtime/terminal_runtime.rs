@@ -410,8 +410,13 @@ fn mark_committed_input_working(
         && handle.info.detected_question.is_none()
         && handle.info.suggested_options.is_none()
         && handle.pending_work_signal.is_none();
-    let commit_working = line_completed
-        || (!handle.active_work_hook && {
+    // Skip the disambiguation (and its disk read below) entirely once the
+    // session is already working — that path takes the bookkeeping-only
+    // branch below regardless of commit_working, so steady-state typing
+    // must not pay for a filesystem read on every keystroke.
+    let commit_working = !already_working
+        && (line_completed
+            || (!handle.active_work_hook && {
             // Peon persists its inferred metadata_source straight to disk and
             // never mirrors it back into the live handle (only `label` gets
             // synced there), so the persisted record — not `handle.info` — is
@@ -421,7 +426,7 @@ fn mark_committed_input_working(
                 None => handle.info.metadata_source.clone(),
             };
             bare_keystroke_is_trusted(handle.active_work_hook, source.as_deref())
-        });
+        }));
     let Some(next_generation) = handle.runtime.input_generation.checked_add(1) else {
         tracing::warn!(session_id = %id, "input generation overflow");
         return;
