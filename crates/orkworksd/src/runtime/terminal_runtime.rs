@@ -310,7 +310,13 @@ fn record_terminal_input_impl(
     };
 
     if !data.is_empty() {
-        mark_committed_input_working(state, id, output_boundary, collected_line.is_some());
+        // Whether this frame contains a line terminator at all, not whether
+        // the accumulated line was non-empty — collect_input_line reports no
+        // completed line for a bare Enter with nothing typed yet (a very
+        // common case: accepting a prompt's default answer), which must
+        // still count as a submitted line here.
+        let line_completed = data.contains(['\r', '\n']);
+        mark_committed_input_working(state, id, output_boundary, line_completed);
     }
 
     let line = collected_line?;
@@ -341,20 +347,22 @@ fn record_terminal_input_impl(
     Some(())
 }
 
+/// A bare keystroke (no completed line yet) is only strong enough evidence of
+/// resumed work when the harness has no active work hook — which is the real
+/// source of truth for it instead — and the current prompt isn't Peon's own
+/// guess. An ordinary shell session echoes every keystroke, so a lone key
+/// there can't be told apart from someone still typing a longer command.
+fn bare_keystroke_is_trusted(active_work_hook: bool, metadata_source: Option<&str>) -> bool {
+    !active_work_hook && metadata_source != Some("peon")
+}
+
 /// Caller contract, not enforced here: only call this for a non-empty frame
-/// whose delivery to the PTY was actually accepted. That is direct evidence
-/// the live session is working, stronger than any stale prompt metadata or
-/// later PTY-output heuristic — but this function trusts the caller for it.
-///
-/// `line_completed` is whether this frame finished a submitted line
-/// (`\r`/`\n` seen). A completed line is definitive submission evidence and
-/// always commits the working transition. Short of that, a bare keystroke is
-/// only trusted when the harness has no active work hook (which is the real
-/// source of truth for it) and the current prompt wasn't Peon's own guess
-/// (`metadata_source == "peon"`) — an ordinary shell session echoes every
-/// keystroke, so a lone key there can't be told apart from someone still
-/// typing a longer command. Every accepted frame still advances the
-/// invalidation boundary and idle baseline below, whether or not it commits.
+/// whose delivery to the PTY was actually accepted. `line_completed` is
+/// whether this frame finished a submitted line (`\r`/`\n` seen) — that's
+/// definitive submission evidence and always commits the working transition.
+/// Short of that, see `bare_keystroke_is_trusted`. Every accepted frame still
+/// advances the invalidation boundary and idle baseline below, whether or not
+/// it commits.
 fn mark_committed_input_working(
     state: &Arc<AppState>,
     id: &str,
@@ -378,7 +386,17 @@ fn mark_committed_input_working(
         && handle.info.suggested_options.is_none()
         && handle.pending_work_signal.is_none();
     let commit_working = line_completed
-        || (!handle.active_work_hook && handle.info.metadata_source.as_deref() != Some("peon"));
+        || (!handle.active_work_hook && {
+            // Peon persists its inferred metadata_source straight to disk and
+            // never mirrors it back into the live handle (only `label` gets
+            // synced there), so the persisted record — not `handle.info` — is
+            // the only place a "peon"-sourced prompt is actually visible.
+            let source = match ws_guard.as_ref() {
+                Some(ws) => ws.metadata.read_session(id).map(|m| m.metadata_source),
+                None => handle.info.metadata_source.clone(),
+            };
+            bare_keystroke_is_trusted(handle.active_work_hook, source.as_deref())
+        });
     let Some(next_generation) = handle.runtime.input_generation.checked_add(1) else {
         tracing::warn!(session_id = %id, "input generation overflow");
         return;
@@ -1073,6 +1091,59 @@ mod tests {
         assert_eq!(record_terminal_input(&state, session_id, "yes\r"), Some(()));
 
         assert_prompt_is_cleared_as_working(&state, session_id);
+    }
+
+    #[test]
+    fn committed_bare_enter_with_empty_buffer_still_clears_prompt_to_working() {
+        // collect_input_line reports no completed line for a bare Enter with
+        // nothing typed first (e.g. accepting a prompt's default answer) —
+        // that must still count as a submitted line, even for a hook-capable,
+        // Peon-sourced session that would otherwise defer.
+        let session_id = "committed-bare-enter";
+        let (state, _dir) = prompted_session_state(session_id);
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut(session_id).unwrap();
+            handle.active_work_hook = true;
+        }
+        {
+            let ws = state.workspace.lock().unwrap();
+            let mut meta = ws.as_ref().unwrap().metadata.read_session(session_id).unwrap();
+            meta.metadata_source = "peon".into();
+            ws.as_ref().unwrap().metadata.write_session(&meta);
+        }
+
+        assert_eq!(record_terminal_input(&state, session_id, "\r"), None);
+
+        assert_prompt_is_cleared_as_working(&state, session_id);
+    }
+
+    #[test]
+    fn committed_single_key_leaves_disk_only_peon_sourced_prompt_for_the_next_poll() {
+        // Mirrors production: Peon persists metadata_source to disk only,
+        // never into the live handle (only `label` is synced there). The
+        // gate must consult the persisted record, or this exclusion never
+        // actually fires against real data.
+        let session_id = "committed-peon-disk-only";
+        let (state, _dir) = prompted_session_state(session_id);
+        // In-memory metadata_source stays "agent" (from prompted_session_state)
+        // — production never rewrites it to "peon".
+        {
+            let ws = state.workspace.lock().unwrap();
+            let mut meta = ws.as_ref().unwrap().metadata.read_session(session_id).unwrap();
+            meta.metadata_source = "peon".into();
+            ws.as_ref().unwrap().metadata.write_session(&meta);
+        }
+
+        assert_eq!(record_terminal_input(&state, session_id, "y"), None);
+
+        let info = state.sessions.lock().unwrap()[session_id].info.clone();
+        assert_eq!(info.attention.as_deref(), Some("needs_you"));
+        assert_eq!(
+            info.metadata_source.as_deref(),
+            Some("agent"),
+            "in-memory metadata_source is untouched by this path; only the disk record carries \"peon\""
+        );
     }
 
     #[test]
