@@ -1,6 +1,8 @@
 import CenterPanel from "./CenterPanel";
+import HistoricalTerminal from "./HistoricalTerminal";
 import EmptyState from "./EmptyState";
 import type { SessionInfo } from "../api";
+import { renderTerminalPresentation } from "../terminalPresentation";
 
 interface TerminalPanelProps {
   backendStatus: string;
@@ -8,10 +10,14 @@ interface TerminalPanelProps {
 }
 
 function TerminalPanel({ backendStatus, session }: TerminalPanelProps) {
-  if (!session || session.lifecycle !== "alive") {
+  if (!session) {
     return <EmptyState message="Select a live session to open its terminal." />;
   }
-  return <CenterPanel backendStatus={backendStatus} sessionId={session.id} />;
+  return renderTerminalPresentation(
+    session.lifecycle,
+    () => <CenterPanel backendStatus={backendStatus} sessionId={session.id} />,
+    () => <HistoricalTerminal sessionId={session.id} />,
+  );
 }
 
 export default TerminalPanel;

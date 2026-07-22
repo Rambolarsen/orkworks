@@ -40,6 +40,23 @@ test("App renders DockviewApp instead of the legacy three-panel layout", () => {
   assert.doesNotMatch(source, /<RightSidebar/);
 });
 
+test("TerminalPanel uses read-only replay only for dead sessions", () => {
+  const source = readFileSync(new URL("../src/components/TerminalPanel.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /renderTerminalPresentation/);
+  assert.match(source, /<HistoricalTerminal sessionId=\{session\.id\} \/>/);
+  assert.match(source, /\(\) => <CenterPanel backendStatus=\{backendStatus\} sessionId=\{session\.id\} \/>/);
+});
+
+test("HistoricalTerminal loads output without opening an interactive terminal transport", () => {
+  const source = readFileSync(new URL("../src/components/HistoricalTerminal.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /getTerminalOutput\(baseUrl, sessionId\)/);
+  assert.match(source, /loadTerminalReplay/);
+  assert.doesNotMatch(source, /WebSocket/);
+  assert.doesNotMatch(source, /ensureTerminal/);
+});
+
 test("DockviewApp keeps all five panel ids registered (View menu hotkeys depend on it)", () => {
   const source = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
 
@@ -444,14 +461,15 @@ test("TerminalPanel no longer renders internal session tabs or duplicate kill co
   assert.match(source, /<CenterPanel/);
 });
 
-test("TerminalPanel only attaches live sessions and refresh disposes dead handles", () => {
+test("TerminalPanel replays dead sessions without retaining their interactive handles", () => {
   const terminalPanel = readFileSync(
     new URL("../src/components/TerminalPanel.tsx", import.meta.url),
     "utf8",
   );
   const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
 
-  assert.match(terminalPanel, /session\.lifecycle !== "alive"/);
+  assert.match(terminalPanel, /renderTerminalPresentation/);
+  assert.match(terminalPanel, /HistoricalTerminal/);
   assert.match(app, /pruneTerminals\(/);
   assert.match(app, /session\.lifecycle === "alive"/);
 });
