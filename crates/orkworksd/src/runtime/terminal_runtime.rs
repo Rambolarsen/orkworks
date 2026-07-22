@@ -255,6 +255,31 @@ pub(crate) fn collect_input_line(buf: &mut String, data: &str) -> Option<String>
     result
 }
 
+const BRACKETED_PASTE_START: &str = "\x1b[200~";
+const BRACKETED_PASTE_END: &str = "\x1b[201~";
+
+/// Whether `data` contains a genuine submitted-line terminator, ignoring any
+/// bytes bracketed paste marks as pasted content. xterm wraps a paste in
+/// `ESC[200~ ... ESC[201~` and delivers it as a single frame; embedded
+/// newlines there are literal pasted text being inserted, not the user
+/// pressing Enter to submit, and must not be mistaken for one.
+fn frame_completes_a_real_line(data: &str) -> bool {
+    let mut rest = data;
+    let mut outside_paste = String::new();
+    while let Some(start) = rest.find(BRACKETED_PASTE_START) {
+        outside_paste.push_str(&rest[..start]);
+        rest = &rest[start + BRACKETED_PASTE_START.len()..];
+        match rest.find(BRACKETED_PASTE_END) {
+            Some(end) => rest = &rest[end + BRACKETED_PASTE_END.len()..],
+            // Unterminated marker in this frame: treat the remainder as
+            // pasted content too, conservatively excluding it.
+            None => rest = "",
+        }
+    }
+    outside_paste.push_str(rest);
+    outside_paste.contains(['\r', '\n'])
+}
+
 fn mark_usage_limit_recheck_on_input(state: &Arc<AppState>, id: &str) {
     let mut sessions = state.sessions.lock().unwrap();
     let Some(handle) = sessions.get_mut(id) else {
@@ -315,7 +340,7 @@ fn record_terminal_input_impl(
         // completed line for a bare Enter with nothing typed yet (a very
         // common case: accepting a prompt's default answer), which must
         // still count as a submitted line here.
-        let line_completed = data.contains(['\r', '\n']);
+        let line_completed = frame_completes_a_real_line(data);
         mark_committed_input_working(state, id, output_boundary, line_completed);
     }
 
@@ -1116,6 +1141,32 @@ mod tests {
         assert_eq!(record_terminal_input(&state, session_id, "\r"), None);
 
         assert_prompt_is_cleared_as_working(&state, session_id);
+    }
+
+    #[test]
+    fn pasted_multiline_content_does_not_clear_a_hook_managed_prompt() {
+        // xterm wraps a paste in ESC[200~ ... ESC[201~ and delivers it as one
+        // frame; embedded newlines in the pasted text are literal content
+        // being inserted, not the user pressing Enter to submit. A hook-
+        // managed or Peon-sourced session must not treat this as a completed
+        // line the way an actually-typed "text\r" is.
+        let session_id = "committed-pasted-multiline";
+        let (state, _dir) = prompted_session_state(session_id);
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut(session_id).unwrap();
+            handle.active_work_hook = true;
+        }
+
+        // collect_input_line's own line-collection (used for the session
+        // label, not the attention gate) isn't paste-aware and treats the
+        // first embedded newline as a completed label line — a pre-existing,
+        // separate imprecision. What this test guards is that the pasted
+        // content must not clear attention.
+        record_terminal_input(&state, session_id, "\x1b[200~line one\nline two\nline three\x1b[201~");
+
+        let info = state.sessions.lock().unwrap()[session_id].info.clone();
+        assert_eq!(info.attention.as_deref(), Some("needs_you"));
     }
 
     #[test]
