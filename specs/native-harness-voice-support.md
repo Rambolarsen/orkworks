@@ -86,20 +86,24 @@ Harnesses should be able to declare native voice support in configuration.
 
 ```json
 {
-  "id": "example-harness",
-  "name": "Example Harness",
-  "harness": "example",
-  "command": "example-harness",
-  "args": [],
-  "defaultModel": "example-model",
-  "capabilities": {
-    "nativeVoice": true,
-    "requiresMicrophonePermission": true,
-    "orkworksDictation": false,
-    "orkworksVoiceCommands": false
+  "version": 2,
+  "overrides": {
+    "example-harness": {
+      "voice": {
+        "nativeVoice": true,
+        "requiresMicrophonePermission": true,
+        "orkworksDictation": false,
+        "orkworksVoiceCommands": false
+      }
+    }
   }
 }
 ```
+
+The built-in definition owns its immutable ID, launch command, and other
+capabilities. This sparse override changes only voice metadata; omitted fields
+retain the built-in value. Voice remains metadata-only and cannot configure
+audio handling or integration commands.
 
 Suggested capability fields:
 
