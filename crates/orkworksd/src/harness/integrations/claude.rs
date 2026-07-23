@@ -2,7 +2,7 @@ use std::path::Path;
 
 use serde_json::{json, Map, Value};
 
-use super::{FragmentState, JsonHookHandler, ToolHookContract};
+use super::{reporter_invocation, FragmentState, JsonHookHandler, ToolHookContract};
 use crate::harness::integration::{IntegrationActivation, IntegrationCoverage, IntegrationError};
 
 const MARKER: &str = "orkworks:harness-integration:v2:claude-code";
@@ -56,17 +56,20 @@ fn marker_state(group: &Value, reporter: Option<&Path>) -> FragmentState {
                 return FragmentState::Ambiguous;
             }
             let exact = reporter.is_some_and(|path| {
+                let invocation = reporter_invocation(path, MARKER);
                 hook.get("type").and_then(Value::as_str) == Some("command")
                     && hook.get("command").and_then(Value::as_str)
-                        == Some(path.to_string_lossy().as_ref())
+                        == Some(invocation.program.as_str())
                     && hook
                         .get("args")
                         .and_then(Value::as_array)
                         .is_some_and(|args| {
-                            args == &vec![
-                                Value::String("--marker".into()),
-                                Value::String(MARKER.into()),
-                            ]
+                            args == &invocation
+                                .args
+                                .iter()
+                                .cloned()
+                                .map(Value::String)
+                                .collect::<Vec<_>>()
                         })
             });
             if found.is_some() {
@@ -110,7 +113,8 @@ fn merge(document: &mut Map<String, Value>, reporter: &Path) -> Result<(), Integ
     let notifications = notifications.as_array_mut().ok_or_else(|| {
         IntegrationError::InvalidConfig("Claude Notification hooks must be an array.".into())
     })?;
-    notifications.push(json!({"matcher":"*","hooks":[{"type":"command","command":reporter,"args":["--marker",MARKER]}]}));
+    let invocation = reporter_invocation(reporter, MARKER);
+    notifications.push(json!({"matcher":"*","hooks":[{"type":"command","command":invocation.program,"args":invocation.args}]}));
     Ok(())
 }
 

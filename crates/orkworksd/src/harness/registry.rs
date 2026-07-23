@@ -72,10 +72,23 @@ impl ResolvedHarness {
         command: &mut crate::harness::CommandSpec,
         enabled: bool,
         reporter: Option<&std::path::Path>,
-    ) {
+    ) -> Result<(), crate::harness::integration::IntegrationError> {
         if let Some(binding) = &self.definition.integration {
-            crate::harness::integration::handler(binding)
-                .augment_launch(command, enabled, reporter);
+            crate::harness::integration::handler(binding).augment_launch(command, enabled, reporter)
+        } else {
+            Ok(())
+        }
+    }
+
+    pub(crate) fn integration_launch_enabled(
+        &self,
+        metadata_root: Option<&std::path::Path>,
+    ) -> Result<bool, crate::harness::integration::IntegrationError> {
+        match &self.definition.integration {
+            Some(binding) => {
+                crate::harness::integration::handler(binding).launch_enabled(metadata_root)
+            }
+            None => Ok(false),
         }
     }
 

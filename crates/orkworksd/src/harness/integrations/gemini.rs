@@ -2,7 +2,7 @@ use std::path::Path;
 
 use serde_json::{json, Map, Value};
 
-use super::{FragmentState, JsonHookHandler, ToolHookContract};
+use super::{reporter_invocation, FragmentState, JsonHookHandler, ToolHookContract};
 use crate::harness::integration::{IntegrationActivation, IntegrationCoverage, IntegrationError};
 
 const MARKER: &str = "orkworks:harness-integration:v2:gemini";
@@ -51,9 +51,10 @@ fn state(definition: &Value, reporter: Option<&Path>) -> FragmentState {
                 return FragmentState::Ambiguous;
             }
             let exact = reporter.is_some_and(|path| {
+                let invocation = reporter_invocation(path, MARKER);
                 hook.get("type").and_then(Value::as_str) == Some("command")
                     && hook.get("command").and_then(Value::as_str)
-                        == Some(path.to_string_lossy().as_ref())
+                        == Some(invocation.shell_command.as_str())
             });
             if found.is_some() {
                 return FragmentState::Drifted;
@@ -100,7 +101,8 @@ fn merge(document: &mut Map<String, Value>, reporter: &Path) -> Result<(), Integ
         .ok_or_else(|| {
             IntegrationError::InvalidConfig("Gemini Notification hooks must be an array.".into())
         })?;
-    notifications.push(json!({"matcher":"*","sequential":true,"hooks":[{"type":"command","name":MARKER,"command":reporter}]}));
+    let invocation = reporter_invocation(reporter, MARKER);
+    notifications.push(json!({"sequential":true,"hooks":[{"type":"command","name":MARKER,"command":invocation.shell_command}]}));
     Ok(())
 }
 

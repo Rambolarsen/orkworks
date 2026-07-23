@@ -17,13 +17,40 @@ use serde_json::{Map, Value};
 
 use crate::harness::definition::IntegrationBinding;
 use crate::harness::integration::{
-    ConfigFileTransaction, DetectedTool, IntegrationActivation, IntegrationConfirmation,
-    IntegrationContext, IntegrationCoverage, IntegrationDiagnostic, IntegrationError,
-    IntegrationHandler, IntegrationOwnership, IntegrationRegistration, IntegrationStatus,
-    ValidatedWorkspaceTarget,
+    ConfigFileTransaction, IntegrationActivation, IntegrationConfirmation, IntegrationContext,
+    IntegrationCoverage, IntegrationDiagnostic, IntegrationError, IntegrationHandler,
+    IntegrationOwnership, IntegrationRegistration, IntegrationStatus, ValidatedWorkspaceTarget,
 };
 
-const REPORTER_ASSET: &str = "orkworks-reporter.sh";
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ReporterPlatform {
+    Posix,
+    WindowsPowerShell,
+}
+
+impl ReporterPlatform {
+    pub(crate) fn current() -> Self {
+        if cfg!(windows) {
+            Self::WindowsPowerShell
+        } else {
+            Self::Posix
+        }
+    }
+
+    pub(crate) fn asset_name(self) -> &'static str {
+        match self {
+            Self::Posix => "report-harness-event.sh",
+            Self::WindowsPowerShell => "report-harness-event.ps1",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ReporterInvocation {
+    pub program: String,
+    pub args: Vec<String>,
+    pub shell_command: String,
+}
 
 pub(crate) fn handler(binding: &IntegrationBinding) -> &'static dyn IntegrationHandler {
     match binding {
@@ -119,7 +146,7 @@ impl JsonHookHandler {
         ctx: &IntegrationContext<'_>,
         error: &IntegrationError,
     ) -> IntegrationStatus {
-        self.base_status(
+        let mut status = self.base_status(
             ctx,
             IntegrationRegistration::Error,
             IntegrationOwnership::None,
@@ -131,7 +158,9 @@ impl JsonHookHandler {
                         .into(),
                 action: None,
             }],
-        )
+        );
+        status.confirmation = None;
+        status
     }
 
     fn status_from_document(
@@ -140,29 +169,6 @@ impl JsonHookHandler {
         document: &Map<String, Value>,
         reporter: &Path,
     ) -> Result<IntegrationStatus, IntegrationError> {
-        if let Some(DetectedTool {
-            compatible: false, ..
-        }) = ctx.detected_tool
-        {
-            return Ok(self.base_status(
-                ctx,
-                IntegrationRegistration::Error,
-                IntegrationOwnership::None,
-                IntegrationActivation::NeedsTrust,
-                vec![IntegrationDiagnostic {
-                    code: "unsupported_tool_version".into(),
-                    message:
-                        "The detected coding tool version is not eligible for this integration."
-                            .into(),
-                    action: None,
-                }],
-            ));
-        }
-        let activation = if !ctx.enabled {
-            IntegrationActivation::Disabled
-        } else {
-            self.contract.activation.clone()
-        };
         let (registration, ownership, diagnostics) = match (self.probe)(document, reporter)? {
             FragmentState::Absent => (
                 IntegrationRegistration::Absent,
@@ -196,7 +202,46 @@ impl JsonHookHandler {
                 }],
             ),
         };
-        Ok(self.base_status(ctx, registration, ownership, activation, diagnostics))
+        let mut diagnostics = diagnostics;
+        let activation = if !ctx.enabled {
+            IntegrationActivation::Disabled
+        } else if ctx.detected_tool.is_none() {
+            diagnostics.push(IntegrationDiagnostic {
+                code: "tool_not_detected".into(),
+                message: "The coding tool was not detected, so integration activation is unknown."
+                    .into(),
+                action: None,
+            });
+            IntegrationActivation::Unknown
+        } else if ctx.detected_tool.is_some_and(|tool| !tool.compatible) {
+            diagnostics.push(IntegrationDiagnostic {
+                code: "unsupported_tool_version".into(),
+                message: "The detected coding tool version is not eligible for this integration."
+                    .into(),
+                action: None,
+            });
+            IntegrationActivation::NeedsTrust
+        } else if matches!(
+            registration,
+            IntegrationRegistration::Installed | IntegrationRegistration::Drifted
+        ) {
+            self.contract.activation.clone()
+        } else {
+            IntegrationActivation::Disabled
+        };
+        let mut status = self.base_status(
+            ctx,
+            registration.clone(),
+            ownership.clone(),
+            activation,
+            diagnostics,
+        );
+        if matches!(registration, IntegrationRegistration::Error)
+            || matches!(ownership, IntegrationOwnership::Ambiguous)
+        {
+            status.confirmation = None;
+        }
+        Ok(status)
     }
 
     fn load(
@@ -211,7 +256,9 @@ impl JsonHookHandler {
         } else {
             crate::harness::integration::parse_json_object(transaction.current_bytes())?
         };
-        let reporter = ctx.reporter_assets.stable_path(REPORTER_ASSET)?;
+        let reporter = ctx
+            .reporter_assets
+            .stable_path(ReporterPlatform::current().asset_name())?;
         Ok((transaction, document, reporter))
     }
 }
@@ -236,7 +283,9 @@ impl IntegrationHandler for JsonHookHandler {
             FragmentState::Ambiguous => return Err(IntegrationError::OwnershipAmbiguous),
             FragmentState::Absent | FragmentState::Drifted => {}
         }
-        let reporter = ctx.reporter_assets.reconcile(REPORTER_ASSET)?;
+        let reporter = ctx
+            .reporter_assets
+            .reconcile(ReporterPlatform::current().asset_name())?;
         (self.merge)(&mut document, &reporter)?;
         let replacement = serde_json::to_vec_pretty(&document)
             .map_err(|error| IntegrationError::InvalidConfig(error.to_string()))?;
@@ -284,24 +333,55 @@ pub(crate) fn generic_shell_status(
     }
 }
 
-pub(crate) fn render_reporter_command(path: &Path, marker: &str) -> String {
-    if cfg!(windows) {
-        format!(
-            "\"{}\" --marker \"{}\"",
-            path.display().to_string().replace('"', "\\\""),
-            marker
-        )
-    } else {
-        format!(
-            "{} --marker {}",
-            shell_quote(&path.display().to_string()),
-            shell_quote(marker)
-        )
+pub(crate) fn reporter_invocation_for_platform(
+    platform: ReporterPlatform,
+    path: &Path,
+    marker: &str,
+) -> ReporterInvocation {
+    match platform {
+        ReporterPlatform::Posix => ReporterInvocation {
+            program: path.to_string_lossy().into_owned(),
+            args: vec!["--marker".into(), marker.into()],
+            shell_command: format!(
+                "{} --marker {}",
+                shell_quote(&path.to_string_lossy()),
+                shell_quote(marker)
+            ),
+        },
+        ReporterPlatform::WindowsPowerShell => {
+            let args = vec![
+                "-NoProfile".into(),
+                "-NonInteractive".into(),
+                "-ExecutionPolicy".into(),
+                "Bypass".into(),
+                "-File".into(),
+                path.to_string_lossy().into_owned(),
+                "-Marker".into(),
+                marker.into(),
+            ];
+            ReporterInvocation {
+                program: "powershell.exe".into(),
+                shell_command: format!(
+                    "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File {} -Marker {}",
+                    powershell_quote(&path.to_string_lossy()),
+                    powershell_quote(marker)
+                ),
+                args,
+            }
+        }
     }
+}
+
+pub(crate) fn reporter_invocation(path: &Path, marker: &str) -> ReporterInvocation {
+    reporter_invocation_for_platform(ReporterPlatform::current(), path, marker)
 }
 
 fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\\"'\\\"'"))
+}
+
+fn powershell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
 }
 
 #[cfg(test)]
@@ -355,7 +435,11 @@ mod tests {
             fs::create_dir_all(target.parent().unwrap()).unwrap();
             fs::write(&target, r#"{"unrelated":{"keep":true}}"#).unwrap();
             let assets = tempfile::tempdir().unwrap();
-            fs::write(assets.path().join(REPORTER_ASSET), "#!/bin/sh\n").unwrap();
+            fs::write(
+                assets.path().join(ReporterPlatform::current().asset_name()),
+                "#!/bin/sh\n",
+            )
+            .unwrap();
             let stable = tempfile::tempdir().unwrap();
             let reporter = ReporterAssetResolver {
                 source_dir: assets.path().to_path_buf(),
@@ -433,7 +517,11 @@ mod tests {
         fs::create_dir_all(target.parent().unwrap()).unwrap();
         fs::write(&target, "{}").unwrap();
         let assets = tempfile::tempdir().unwrap();
-        fs::write(assets.path().join(REPORTER_ASSET), "#!/bin/sh\n").unwrap();
+        fs::write(
+            assets.path().join(ReporterPlatform::current().asset_name()),
+            "#!/bin/sh\n",
+        )
+        .unwrap();
         let stable = tempfile::tempdir().unwrap();
         let reporter = ReporterAssetResolver {
             source_dir: assets.path().to_path_buf(),
@@ -521,6 +609,60 @@ mod tests {
     }
 
     #[test]
+    fn copilot_uses_top_level_inline_hook_version_and_preserves_unrelated_settings() {
+        let workspace = tempfile::tempdir().unwrap();
+        git2::Repository::init(workspace.path()).unwrap();
+        fs::write(
+            workspace.path().join(".gitignore"),
+            ".github/copilot/settings.local.json\n",
+        )
+        .unwrap();
+        let target = workspace.path().join(".github/copilot/settings.local.json");
+        fs::create_dir_all(target.parent().unwrap()).unwrap();
+        fs::write(&target, r#"{"unrelated":{"keep":true}}"#).unwrap();
+        let assets = tempfile::tempdir().unwrap();
+        fs::write(
+            assets.path().join(ReporterPlatform::current().asset_name()),
+            "#!/bin/sh\n",
+        )
+        .unwrap();
+        let stable = tempfile::tempdir().unwrap();
+        let reporter = ReporterAssetResolver {
+            source_dir: assets.path().to_path_buf(),
+            stable_dir: stable.path().join("hook-scripts"),
+        };
+        let context = IntegrationContext {
+            workspace: workspace.path(),
+            workspace_metadata: None,
+            orkworks_root: stable.path(),
+            enabled: true,
+            detected_tool: None,
+            reporter_assets: &reporter,
+        };
+        handler(&IntegrationBinding::Copilot)
+            .install(&context)
+            .unwrap();
+        let document: Value = serde_json::from_slice(&fs::read(&target).unwrap()).unwrap();
+        assert_eq!(document["version"], 1);
+        assert!(document["hooks"].get("version").is_none());
+        assert_eq!(document["unrelated"]["keep"], true);
+        let hook = &document["hooks"]["notification"][0];
+        assert!(hook.get("bash").is_some());
+        assert!(hook.get("powershell").is_some());
+
+        fs::write(&target, r#"{"version":2,"unrelated":{"keep":true}}"#).unwrap();
+        let before = fs::read_to_string(&target).unwrap();
+        assert_eq!(
+            handler(&IntegrationBinding::Copilot)
+                .install(&context)
+                .unwrap_err()
+                .code(),
+            "invalid_config"
+        );
+        assert_eq!(fs::read_to_string(target).unwrap(), before);
+    }
+
+    #[test]
     fn disabled_and_unknown_activation_remain_independent_axes() {
         let workspace = tempfile::tempdir().unwrap();
         git2::Repository::init(workspace.path()).unwrap();
@@ -557,6 +699,7 @@ mod tests {
             compatible: false,
         };
         let unsupported_context = IntegrationContext {
+            enabled: true,
             detected_tool: Some(&detected),
             ..context
         };
@@ -565,7 +708,14 @@ mod tests {
                 .status(&unsupported_context)
                 .unwrap()
                 .registration,
-            IntegrationRegistration::Error
+            IntegrationRegistration::Absent
+        );
+        assert_eq!(
+            handler(&IntegrationBinding::Gemini)
+                .status(&unsupported_context)
+                .unwrap()
+                .activation,
+            IntegrationActivation::NeedsTrust
         );
     }
 
@@ -604,7 +754,11 @@ mod tests {
         let metadata = tempfile::tempdir().unwrap();
         let store = MetadataStore::new(metadata.path());
         let assets = tempfile::tempdir().unwrap();
-        fs::write(assets.path().join(REPORTER_ASSET), "#!/bin/sh\n").unwrap();
+        fs::write(
+            assets.path().join(ReporterPlatform::current().asset_name()),
+            "#!/bin/sh\n",
+        )
+        .unwrap();
         let stable = tempfile::tempdir().unwrap();
         let reporter = ReporterAssetResolver {
             source_dir: assets.path().to_path_buf(),
@@ -625,23 +779,27 @@ mod tests {
                 .registration,
             IntegrationRegistration::Installed
         );
-        assert!(
-            store
-                .read_workspace_memory()
-                .unwrap()
-                .aider_notifications
-                .unwrap()
-                .enabled
-        );
+        let preference: Value = serde_json::from_slice(
+            &fs::read(metadata.path().join("integrations/aider.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(preference["version"], 1);
+        assert_eq!(preference["enabled"], true);
 
         let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
         let registry =
             crate::harness::registry::resolve_document(&builtins, &Default::default()).unwrap();
         let aider = registry.get("aider").unwrap();
-        let path = reporter.stable_path(REPORTER_ASSET).unwrap();
+        let path = reporter
+            .stable_path(ReporterPlatform::current().asset_name())
+            .unwrap();
         let mut command = aider.build_launch("/workspace", None);
-        aider.augment_launch_for_integration(&mut command, true, Some(&path));
-        aider.augment_launch_for_integration(&mut command, true, Some(&path));
+        aider
+            .augment_launch_for_integration(&mut command, true, Some(&path))
+            .unwrap();
+        aider
+            .augment_launch_for_integration(&mut command, true, Some(&path))
+            .unwrap();
         assert_eq!(
             command
                 .args
@@ -660,13 +818,27 @@ mod tests {
     }
 
     #[test]
-    fn command_rendering_quotes_reporter_paths_on_each_platform() {
-        let rendered = render_reporter_command(Path::new("/a path/with'quote"), "marker");
-        if cfg!(windows) {
-            assert!(rendered.contains("\""));
-        } else {
-            assert!(rendered.contains("'\\\"'\\\"'"));
-        }
+    fn reporter_rendering_is_explicit_for_posix_and_powershell() {
+        let posix = reporter_invocation_for_platform(
+            ReporterPlatform::Posix,
+            Path::new("/stable path/report-harness-event.sh"),
+            "marker'value",
+        );
+        assert_eq!(posix.program, "/stable path/report-harness-event.sh");
+        assert_eq!(posix.args, vec!["--marker", "marker'value"]);
+        assert!(posix.shell_command.contains("'\\\"'\\\"'"));
+
+        let powershell = reporter_invocation_for_platform(
+            ReporterPlatform::WindowsPowerShell,
+            Path::new(r"C:\stable path\report-harness-event.ps1"),
+            "marker'value",
+        );
+        assert_eq!(powershell.program, "powershell.exe");
+        assert_eq!(powershell.args[0], "-NoProfile");
+        assert!(powershell.args.contains(&"-File".into()));
+        assert!(powershell.shell_command.contains("powershell.exe"));
+        assert!(powershell.shell_command.contains("-File"));
+        assert!(powershell.shell_command.contains("''"));
     }
 
     #[test]
@@ -691,6 +863,72 @@ mod tests {
         assert!(handler(&IntegrationBinding::Aider)
             .install(&context)
             .is_err());
-        assert!(store.read_workspace_memory().is_none());
+        assert!(!metadata.path().join("integrations/aider.json").exists());
+    }
+
+    #[test]
+    fn aider_refuses_malformed_preference_without_overwriting_it() {
+        let workspace = tempfile::tempdir().unwrap();
+        let metadata = tempfile::tempdir().unwrap();
+        fs::create_dir_all(metadata.path().join("integrations")).unwrap();
+        let preference = metadata.path().join("integrations/aider.json");
+        fs::write(&preference, "{bad json").unwrap();
+        let store = MetadataStore::new(metadata.path());
+        let assets = tempfile::tempdir().unwrap();
+        fs::write(
+            assets.path().join(ReporterPlatform::current().asset_name()),
+            "#!/bin/sh\n",
+        )
+        .unwrap();
+        let stable = tempfile::tempdir().unwrap();
+        let reporter = ReporterAssetResolver {
+            source_dir: assets.path().to_path_buf(),
+            stable_dir: stable.path().join("hook-scripts"),
+        };
+        let context = IntegrationContext {
+            workspace: workspace.path(),
+            workspace_metadata: Some(&store),
+            orkworks_root: stable.path(),
+            enabled: true,
+            detected_tool: None,
+            reporter_assets: &reporter,
+        };
+        let status = handler(&IntegrationBinding::Aider)
+            .status(&context)
+            .unwrap();
+        assert_eq!(status.registration, IntegrationRegistration::Error);
+        assert!(status.confirmation.is_none());
+        assert!(handler(&IntegrationBinding::Aider)
+            .uninstall(&context)
+            .is_err());
+        assert_eq!(fs::read_to_string(preference).unwrap(), "{bad json");
+    }
+
+    #[test]
+    fn aider_launch_preserves_an_unrelated_notification_command_as_a_conflict() {
+        let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
+        let registry =
+            crate::harness::registry::resolve_document(&builtins, &Default::default()).unwrap();
+        let aider = registry.get("aider").unwrap();
+        let mut command = aider.build_launch("/workspace", None);
+        command
+            .args
+            .extend(["--notifications-command".into(), "user-command".into()]);
+        let error = aider
+            .augment_launch_for_integration(
+                &mut command,
+                true,
+                Some(Path::new("/stable/report-harness-event.sh")),
+            )
+            .unwrap_err();
+        assert_eq!(error.code(), "launch_conflict");
+        assert_eq!(
+            command
+                .args
+                .windows(2)
+                .filter(|pair| pair[0] == "--notifications-command")
+                .count(),
+            1
+        );
     }
 }

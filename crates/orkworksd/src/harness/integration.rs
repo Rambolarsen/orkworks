@@ -451,7 +451,12 @@ pub(crate) trait IntegrationHandler: Send + Sync {
         _command: &mut crate::harness::CommandSpec,
         _enabled: bool,
         _reporter: Option<&Path>,
-    ) {
+    ) -> Result<(), IntegrationError> {
+        Ok(())
+    }
+
+    fn launch_enabled(&self, _metadata_root: Option<&Path>) -> Result<bool, IntegrationError> {
+        Ok(false)
     }
 }
 
@@ -485,7 +490,7 @@ pub(crate) fn default_reporter_path() -> Option<PathBuf> {
     dirs::home_dir().map(|home| {
         home.join(".orkworks")
             .join("hook-scripts")
-            .join("orkworks-reporter.sh")
+            .join(crate::harness::integrations::ReporterPlatform::current().asset_name())
     })
 }
 
@@ -523,6 +528,7 @@ pub(crate) enum IntegrationError {
     UnsafeTarget { code: &'static str, message: String },
     InvalidConfig(String),
     OwnershipAmbiguous,
+    LaunchConflict,
     RevisionChanged,
     Io(std::io::Error),
 }
@@ -534,6 +540,7 @@ impl IntegrationError {
             Self::UnsafeTarget { code, .. } => code,
             Self::InvalidConfig(_) => "invalid_config",
             Self::OwnershipAmbiguous => "ownership_ambiguous",
+            Self::LaunchConflict => "launch_conflict",
             Self::RevisionChanged => "revision_changed",
             Self::Io(_) => "io_error",
         }

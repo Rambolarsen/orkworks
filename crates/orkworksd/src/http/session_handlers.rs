@@ -201,11 +201,7 @@ pub(crate) async fn set_active_session(
             .write_workspace_memory(&metadata::WorkspaceMemory {
                 last_active_session_id: Some(req.session_id),
                 last_active_at: Some(now),
-                active_harness_ids: existing
-                    .as_ref()
-                    .map(|m| m.active_harness_ids.clone())
-                    .unwrap_or_default(),
-                aider_notifications: existing.and_then(|m| m.aider_notifications),
+                active_harness_ids: existing.map(|m| m.active_harness_ids).unwrap_or_default(),
             });
         return axum::http::StatusCode::OK;
     }
@@ -227,7 +223,6 @@ pub(crate) async fn set_active_harnesses(
                     .and_then(|m| m.last_active_session_id.clone()),
                 last_active_at: Some(now),
                 active_harness_ids: req.active_harness_ids,
-                aider_notifications: existing.and_then(|m| m.aider_notifications),
             });
         return axum::http::StatusCode::OK;
     }
@@ -824,35 +819,55 @@ pub(crate) async fn create_session(
                 .map(|path| path.display().to_string())
         })
         .unwrap_or_else(|| "/".into());
-    let aider_notifications_enabled = match workspace_metadata_root {
-        Some(root) => tokio::task::spawn_blocking(move || {
-            metadata::MetadataStore::new(&root)
-                .read_workspace_memory()
-                .and_then(|memory| memory.aider_notifications)
-                .is_some_and(|preference| preference.version == 1 && preference.enabled)
-        })
-        .await
-        .unwrap_or(false),
-        None => false,
-    };
-
     let registry = state
         .harness_catalog
         .read()
         .expect("harness catalog lock poisoned")
         .clone();
     let mut resolved_launch = resolve_session_launch(&registry, &req, cwd.clone());
+    let integration_enabled = if let Some(harness) = resolved_launch
+        .session_harness_id
+        .as_deref()
+        .and_then(|id| registry.get(id))
+    {
+        let metadata_root = workspace_metadata_root.clone();
+        let harness_id = harness.definition.id.clone();
+        let registry = registry.clone();
+        match tokio::task::spawn_blocking(move || {
+            registry
+                .get(&harness_id)
+                .map_or(Ok(false), |harness| {
+                    harness.integration_launch_enabled(metadata_root.as_deref())
+                })
+        })
+        .await
+        {
+            Ok(Ok(enabled)) => enabled,
+            Ok(Err(error)) => {
+                tracing::warn!(code = error.code(), "harness launch integration state was ignored");
+                false
+            }
+            Err(error) => {
+                tracing::warn!(%error, "harness launch integration state task failed");
+                false
+            }
+        }
+    } else {
+        false
+    };
     if let Some(harness) = resolved_launch
         .session_harness_id
         .as_deref()
         .and_then(|id| registry.get(id))
     {
         let reporter = crate::harness::integration::default_reporter_path();
-        harness.augment_launch_for_integration(
+        if let Err(error) = harness.augment_launch_for_integration(
             &mut resolved_launch.command,
-            aider_notifications_enabled,
+            integration_enabled,
             reporter.as_deref(),
-        );
+        ) {
+            tracing::warn!(code = error.code(), "harness launch integration was not applied");
+        }
     }
 
     let (kill_tx, _kill_rx) = tokio::sync::watch::channel(false);
