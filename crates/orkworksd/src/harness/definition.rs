@@ -70,6 +70,7 @@ pub(crate) struct ResumeCapability {
 pub(crate) enum ModelCapability {
     Static { models: Vec<String> },
     Command { command: String, args: Vec<String> },
+    Http,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -121,8 +122,11 @@ impl BuiltinDocument {
 pub(crate) struct LegacyBuiltinSnapshot {
     pub schema_version: u32,
     pub harness_id: String,
-    pub sha256: String,
-    pub definition: HarnessDefinition,
+    pub source: String,
+    #[serde(default)]
+    pub definition: Option<serde_json::Value>,
+    #[serde(default)]
+    pub environment_dependent: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -166,6 +170,7 @@ pub(crate) struct LaunchPatch {
     pub command: Option<String>,
     pub args: Option<Vec<String>>,
     pub model_prefix: Option<Option<String>>,
+    pub login: Option<bool>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
@@ -201,6 +206,21 @@ impl<'de> Deserialize<'de> for HarnessPatch {
         D: serde::Deserializer<'de>,
     {
         let fields = BTreeMap::<String, serde_json::Value>::deserialize(deserializer)?;
+        reject_unknown_fields(
+            &fields,
+            &[
+                "name",
+                "launch",
+                "defaultModel",
+                "resume",
+                "models",
+                "peon",
+                "capacity",
+                "sessionSignals",
+                "integration",
+                "voice",
+            ],
+        )?;
         Ok(Self {
             name: required_patch_field(&fields, "name")?,
             launch: required_patch_field(&fields, "launch")?,
@@ -222,11 +242,16 @@ impl<'de> Deserialize<'de> for LaunchPatch {
         D: serde::Deserializer<'de>,
     {
         let fields = BTreeMap::<String, serde_json::Value>::deserialize(deserializer)?;
+        reject_unknown_fields(
+            &fields,
+            &["kind", "command", "args", "modelPrefix", "login"],
+        )?;
         Ok(Self {
             kind: required_patch_field(&fields, "kind")?,
             command: required_patch_field(&fields, "command")?,
             args: required_patch_field(&fields, "args")?,
             model_prefix: optional_boundary_field(&fields, "modelPrefix")?,
+            login: required_patch_field(&fields, "login")?,
         })
     }
 }
@@ -237,6 +262,7 @@ impl<'de> Deserialize<'de> for ResumePatch {
         D: serde::Deserializer<'de>,
     {
         let fields = BTreeMap::<String, serde_json::Value>::deserialize(deserializer)?;
+        reject_unknown_fields(&fields, &["exact", "latestCwd", "latestRepo"])?;
         Ok(Self {
             exact: optional_boundary_field(&fields, "exact")?,
             latest_cwd: optional_boundary_field(&fields, "latestCwd")?,
@@ -251,6 +277,16 @@ impl<'de> Deserialize<'de> for PeonPatch {
         D: serde::Deserializer<'de>,
     {
         let fields = BTreeMap::<String, serde_json::Value>::deserialize(deserializer)?;
+        reject_unknown_fields(
+            &fields,
+            &[
+                "commandOverride",
+                "args",
+                "modelArgTemplate",
+                "supportsModel",
+                "timeoutSecs",
+            ],
+        )?;
         Ok(Self {
             command_override: optional_boundary_field(&fields, "commandOverride")?,
             args: required_patch_field(&fields, "args")?,
@@ -267,6 +303,15 @@ impl<'de> Deserialize<'de> for VoicePatch {
         D: serde::Deserializer<'de>,
     {
         let fields = BTreeMap::<String, serde_json::Value>::deserialize(deserializer)?;
+        reject_unknown_fields(
+            &fields,
+            &[
+                "nativeVoice",
+                "requiresMicrophonePermission",
+                "orkworksDictation",
+                "orkworksVoiceCommands",
+            ],
+        )?;
         Ok(Self {
             native_voice: required_patch_field(&fields, "nativeVoice")?,
             requires_microphone_permission: required_patch_field(
@@ -317,6 +362,22 @@ where
         .map_err(E::custom)
 }
 
+fn reject_unknown_fields<E>(
+    fields: &BTreeMap<String, serde_json::Value>,
+    allowed: &[&str],
+) -> Result<(), E>
+where
+    E: serde::de::Error,
+{
+    if let Some(field) = fields
+        .keys()
+        .find(|field| !allowed.contains(&field.as_str()))
+    {
+        return Err(E::custom(format!("unknown patch field {field}")));
+    }
+    Ok(())
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum DefinitionOrigin {
     Builtin,
@@ -337,11 +398,45 @@ impl HarnessDefinition {
                     LaunchCapability::PlatformShell { .. } => "platform-shell",
                 };
                 if kind != expected {
-                    return Err(HarnessDiagnostic::for_id(
-                        &self.id,
-                        "launch_kind_replace_required",
-                        "Changing launch kind requires a complete capability value.",
-                    ));
+                    result.launch = match kind.as_str() {
+                        "command-template" => LaunchCapability::CommandTemplate {
+                            command: launch.command.clone().ok_or_else(|| {
+                                HarnessDiagnostic::for_id(
+                                    &self.id,
+                                    "launch_kind_replace_required",
+                                    "Changing launch kind requires command and args.",
+                                )
+                            })?,
+                            args: launch.args.clone().ok_or_else(|| {
+                                HarnessDiagnostic::for_id(
+                                    &self.id,
+                                    "launch_kind_replace_required",
+                                    "Changing launch kind requires command and args.",
+                                )
+                            })?,
+                            model_prefix: launch.model_prefix.clone().unwrap_or(None),
+                        },
+                        "platform-shell" => LaunchCapability::PlatformShell {
+                            login: launch.login.ok_or_else(|| {
+                                HarnessDiagnostic::for_id(
+                                    &self.id,
+                                    "launch_kind_replace_required",
+                                    "Changing launch kind requires login.",
+                                )
+                            })?,
+                        },
+                        _ => {
+                            return Err(HarnessDiagnostic::for_id(
+                                &self.id,
+                                "unknown_launch_kind",
+                                "Unknown launch kind.",
+                            ))
+                        }
+                    };
+                    result
+                        .validate(DefinitionOrigin::Override)
+                        .map_err(|mut errors| errors.remove(0))?;
+                    return Ok(result);
                 }
             }
             match &mut result.launch {
@@ -371,7 +466,11 @@ impl HarnessDefinition {
                         "Platform-shell launch accepts no command fields.",
                     ))
                 }
-                LaunchCapability::PlatformShell { .. } => {}
+                LaunchCapability::PlatformShell { login } => {
+                    if let Some(value) = launch.login {
+                        *login = value;
+                    }
+                }
             }
         }
         if let Some(value) = &patch.default_model {
@@ -703,5 +802,36 @@ mod tests {
         let mut custom = codex();
         custom.id = "company-codex".into();
         assert!(custom.validate(DefinitionOrigin::Custom).is_err());
+    }
+
+    #[test]
+    fn changing_launch_kind_requires_a_complete_and_valid_replacement() {
+        let shell = BuiltinDocument::parse(EMBEDDED_BUILTINS)
+            .unwrap()
+            .builtins
+            .into_iter()
+            .find(|definition| definition.id == "generic-shell")
+            .unwrap();
+        let patch: HarnessPatch = serde_json::from_str(
+            r#"{"launch":{"kind":"command-template","command":"fish","args":["-i"],"modelPrefix":null}}"#,
+        )
+        .unwrap();
+        assert!(
+            matches!(shell.apply_patch(&patch).unwrap().launch, LaunchCapability::CommandTemplate { ref command, .. } if command == "fish")
+        );
+
+        let incomplete: HarnessPatch =
+            serde_json::from_str(r#"{"launch":{"kind":"command-template","command":"fish"}}"#)
+                .unwrap();
+        assert!(shell.apply_patch(&incomplete).is_err());
+    }
+
+    #[test]
+    fn patch_deserialization_rejects_unknown_fields() {
+        assert!(serde_json::from_str::<HarnessPatch>(r#"{"untrusted":true}"#).is_err());
+        assert!(serde_json::from_str::<HarnessPatch>(
+            r#"{"launch":{"command":"codex","unknown":true}}"#
+        )
+        .is_err());
     }
 }

@@ -57,6 +57,10 @@ impl ResolvedHarnessRegistry {
     pub(crate) fn providers(&self) -> &[ProviderDefinition] {
         &self.providers
     }
+    pub(crate) fn with_diagnostics(mut self, mut diagnostics: Vec<HarnessDiagnostic>) -> Self {
+        self.diagnostics.append(&mut diagnostics);
+        self
+    }
 }
 
 pub(crate) type HarnessCatalog = Arc<RwLock<Arc<ResolvedHarnessRegistry>>>;
@@ -173,12 +177,21 @@ fn capability_names(definition: &HarnessDefinition) -> BTreeSet<CapabilityName> 
     if definition.voice.is_some() {
         names.insert(CapabilityName::Voice);
     }
-    if definition.session_signals.is_some() {
-        names.extend([
-            CapabilityName::NativeSessionId,
-            CapabilityName::Attention,
-            CapabilityName::Lifecycle,
-        ]);
+    if let Some(binding) = &definition.session_signals {
+        // Keep this aligned with the evidence register. Task 7 may only add a
+        // signal after its exact payload fixture is implemented.
+        match binding {
+            super::definition::SessionSignalBinding::Claude
+            | super::definition::SessionSignalBinding::Gemini
+            | super::definition::SessionSignalBinding::Copilot => {
+                names.insert(CapabilityName::NativeSessionId);
+            }
+            super::definition::SessionSignalBinding::Aider => {
+                names.insert(CapabilityName::Attention);
+            }
+            super::definition::SessionSignalBinding::Codex
+            | super::definition::SessionSignalBinding::OpenCode => {}
+        }
     }
     if definition.integration.is_some() {
         names.insert(CapabilityName::WorkspaceIntegration);
@@ -199,6 +212,7 @@ fn provider_from_harness(harness: &ResolvedHarness) -> Option<ProviderDefinition
         Some(ModelCapability::Command { command, args }) => {
             (Some(command.clone()), args.clone(), Vec::new())
         }
+        Some(ModelCapability::Http) => (None, Vec::new(), Vec::new()),
         None => (None, Vec::new(), Vec::new()),
     };
     let command = command_override.unwrap_or_else(|| match &harness.definition.launch {
@@ -216,7 +230,7 @@ fn provider_from_harness(harness: &ResolvedHarness) -> Option<ProviderDefinition
         list_models_command,
         list_models_args,
         static_models,
-        http_list_models: false,
+        http_list_models: matches!(harness.definition.models, Some(ModelCapability::Http)),
     })
 }
 
@@ -271,5 +285,22 @@ mod tests {
             .diagnostics()
             .iter()
             .all(|diagnostic| diagnostic.code == "custom_id_collision"));
+    }
+
+    #[test]
+    fn signal_capabilities_follow_the_conservative_contract_evidence() {
+        let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
+        let registry = resolve_document(&builtins, &HarnessUserDocument::default()).unwrap();
+        let codex = &registry.get("codex").unwrap().effective_capabilities;
+        assert!(!codex.contains(&CapabilityName::NativeSessionId));
+        assert!(!codex.contains(&CapabilityName::Attention));
+        assert!(!codex.contains(&CapabilityName::Lifecycle));
+        let aider = &registry.get("aider").unwrap().effective_capabilities;
+        assert!(aider.contains(&CapabilityName::Attention));
+        assert!(!aider.contains(&CapabilityName::NativeSessionId));
+        let claude = &registry.get("claude-code").unwrap().effective_capabilities;
+        assert!(claude.contains(&CapabilityName::NativeSessionId));
+        assert!(!claude.contains(&CapabilityName::Attention));
+        assert!(!claude.contains(&CapabilityName::Lifecycle));
     }
 }
