@@ -36,8 +36,9 @@ test("alive sessions use attention and dead sessions are neutral", () => {
   assert.equal(sessionAttentionStatus(session("dead", "dead", "blocked")), "neutral");
 });
 
-test("a session spawning its PTY reads working", () => {
+test("a session spawning or tearing down its PTY reads working", () => {
   assert.equal(sessionAttentionStatus(session("creating", "creating")), "working");
+  assert.equal(sessionAttentionStatus(session("stopping", "stopping")), "working");
 });
 
 test("a session reads idle the instant it goes alive, even before the harness reports in", () => {

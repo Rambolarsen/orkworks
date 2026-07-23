@@ -19,11 +19,11 @@ export function needsAttention(status: string): boolean {
 }
 
 export function sessionAttentionStatus(session: SessionInfo): string {
-  // Spawning the PTY is real activity, so "working" is fair here. Once
-  // lifecycle flips to alive, nothing sets attention to "working" on its
-  // own — the fallback below reads idle immediately unless the harness has
-  // actually reported otherwise.
-  if (session.lifecycle === "creating") return "working";
+  // Spawning or tearing down the PTY is real activity, so "working" is fair
+  // here. Once lifecycle settles to alive, nothing sets attention to
+  // "working" on its own — the fallback below reads idle immediately unless
+  // the harness has actually reported otherwise.
+  if (session.lifecycle === "creating" || session.lifecycle === "stopping") return "working";
   if (session.lifecycle !== "alive") return "neutral";
   return session.attention ?? "idle";
 }

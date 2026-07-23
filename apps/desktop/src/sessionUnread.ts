@@ -33,7 +33,10 @@ export function trackUnread(
   const signatures = new Map<string, string>();
   const unreadIds = new Set<string>();
   for (const s of sessions) {
-    const sig = sessionAttentionStatus(s);
+    // "working" while still spawning the PTY isn't a real working turn —
+    // give it its own signature so settling to alive/idle right after
+    // never reads as an unread result.
+    const sig = s.lifecycle === "creating" ? "creating" : sessionAttentionStatus(s);
     signatures.set(s.id, sig);
     if (s.id === activeSessionId) continue; // being looked at right now
     const prevSig = prev.signatures.get(s.id);

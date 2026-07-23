@@ -116,6 +116,12 @@ test("an unchanged snapshot returns the same state object so React can bail out"
   assert.equal(next, first);
 });
 
+test("a session finishing PTY spawn does not mark itself unread when it settles to idle", () => {
+  const first = trackUnread(EMPTY_UNREAD_STATE, [session("a", { lifecycle: "creating", attention: undefined })], null);
+  const next = trackUnread(first, [session("a", { lifecycle: "alive", attention: undefined })], null);
+  assert.equal(next.unreadIds.has("a"), false);
+});
+
 test("hitting the usage cap counts as an attention change", () => {
   const first = trackUnread(EMPTY_UNREAD_STATE, [session("a")], null);
   const next = trackUnread(first, [session("a", { attention: "capped" })], null);
