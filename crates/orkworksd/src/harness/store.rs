@@ -21,6 +21,7 @@ use super::definition::{
     BuiltinDocument, HarnessDefinition, HarnessDiagnostic, HarnessPatch, HarnessUserDocument,
     LaunchCapability, ModelCapability, PeonCapability, PeonPatch, VoiceCapability, VoicePatch,
 };
+use super::integration::atomic_replace;
 use super::registry::{resolve_document, HarnessCatalog, ResolvedHarnessRegistry};
 
 pub(crate) struct HarnessStore {
@@ -203,7 +204,7 @@ impl AtomicWriter for FileAtomicWriter {
             let _ = fs::remove_file(&temporary);
             return Err(HarnessStoreError::RevisionChanged);
         }
-        match fs::rename(&temporary, target) {
+        match atomic_replace(&temporary, target) {
             Ok(()) => Ok(()),
             Err(error) => {
                 let _ = fs::remove_file(&temporary);
