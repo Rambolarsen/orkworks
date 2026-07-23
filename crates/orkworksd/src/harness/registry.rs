@@ -174,7 +174,12 @@ fn capability_names(definition: &HarnessDefinition) -> BTreeSet<CapabilityName> 
     if definition.capacity.is_some() {
         names.insert(CapabilityName::Capacity);
     }
-    if definition.voice.is_some() {
+    if definition.voice.as_ref().is_some_and(|voice| {
+        voice.native_voice
+            || voice.requires_microphone_permission
+            || voice.orkworks_dictation
+            || voice.orkworks_voice_commands
+    }) {
         names.insert(CapabilityName::Voice);
     }
     if let Some(binding) = &definition.session_signals {
@@ -302,5 +307,32 @@ mod tests {
         assert!(claude.contains(&CapabilityName::NativeSessionId));
         assert!(!claude.contains(&CapabilityName::Attention));
         assert!(!claude.contains(&CapabilityName::Lifecycle));
+    }
+
+    #[test]
+    fn false_voice_flags_do_not_advertise_voice_support() {
+        let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
+        assert!(builtins
+            .builtins
+            .iter()
+            .find(|definition| definition.id == "claude-code")
+            .expect("Claude Code builtin")
+            .voice
+            .is_none());
+
+        let mut definition = builtins
+            .builtins
+            .iter()
+            .find(|definition| definition.id == "codex")
+            .expect("Codex builtin")
+            .clone();
+        definition.voice = Some(super::super::definition::VoiceCapability {
+            native_voice: false,
+            requires_microphone_permission: false,
+            orkworks_dictation: false,
+            orkworks_voice_commands: false,
+        });
+
+        assert!(!capability_names(&definition).contains(&CapabilityName::Voice));
     }
 }

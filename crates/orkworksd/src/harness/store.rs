@@ -242,16 +242,38 @@ fn migrate_v1(
         if stock {
             continue;
         }
+        if snapshot.is_some_and(|candidate| entry.attention != candidate.attention) {
+            diagnostics.push(HarnessDiagnostic::for_id(
+                &entry.id,
+                "legacy_attention_unrepresentable",
+                "Legacy active-work-hook configuration cannot be represented without granting a custom definition compiled authority.",
+            ));
+        }
         if entry.id == "gh-copilot" {
             let id = unique_legacy_id("gh-copilot-legacy", &document, builtins);
-            document.custom.push(legacy_definition(entry, id));
+            let safe_adapter = safe_adapter_definition(builtins, &entry.harness);
+            document
+                .custom
+                .push(legacy_definition(entry, id, safe_adapter));
             diagnostics.push(HarnessDiagnostic::for_id(
                 "gh-copilot",
                 "legacy_gh_copilot_custom",
                 "Customized legacy gh-copilot was preserved as a custom harness; it does not override interactive Copilot.",
             ));
         } else if let Some(snapshot) = snapshot {
-            if builtins
+            if entry.harness != snapshot.harness {
+                let id = unique_legacy_id(&format!("{}-legacy", entry.id), &document, builtins);
+                let safe_adapter = safe_adapter_definition(builtins, &entry.harness);
+                let original_id = entry.id.clone();
+                document
+                    .custom
+                    .push(legacy_definition(entry, id, safe_adapter));
+                diagnostics.push(HarnessDiagnostic::for_id(
+                    &original_id,
+                    "legacy_harness_binding_custom",
+                    "Legacy adapter binding changed, so the harness was preserved as a custom declarative definition.",
+                ));
+            } else if builtins
                 .builtins
                 .iter()
                 .any(|definition| definition.id == entry.id)
@@ -261,8 +283,11 @@ fn migrate_v1(
                     .insert(entry.id.clone(), legacy_patch(&entry, snapshot));
             } else {
                 let id = unique_legacy_id(&entry.id, &document, builtins);
+                let safe_adapter = safe_adapter_definition(builtins, &entry.harness);
                 let original_id = entry.id.clone();
-                document.custom.push(legacy_definition(entry, id));
+                document
+                    .custom
+                    .push(legacy_definition(entry, id, safe_adapter));
                 diagnostics.push(HarnessDiagnostic::for_id(
                     &original_id,
                     "unmatched_legacy_harness",
@@ -271,8 +296,11 @@ fn migrate_v1(
             }
         } else {
             let id = unique_legacy_id(&format!("{}-legacy", entry.id), &document, builtins);
+            let safe_adapter = safe_adapter_definition(builtins, &entry.harness);
             let original_id = entry.id.clone();
-            document.custom.push(legacy_definition(entry, id));
+            document
+                .custom
+                .push(legacy_definition(entry, id, safe_adapter));
             diagnostics.push(HarnessDiagnostic::for_id(
                 &original_id,
                 "unmatched_legacy_harness",
@@ -377,7 +405,21 @@ fn legacy_models(peon: &LegacyPeonConfig) -> Option<ModelCapability> {
     }
 }
 
-fn legacy_definition(entry: LegacyHarnessConfig, id: String) -> HarnessDefinition {
+fn safe_adapter_definition<'a>(
+    builtins: &'a BuiltinDocument,
+    legacy_harness: &str,
+) -> Option<&'a HarnessDefinition> {
+    builtins
+        .builtins
+        .iter()
+        .find(|definition| definition.id == legacy_harness)
+}
+
+fn legacy_definition(
+    entry: LegacyHarnessConfig,
+    id: String,
+    safe_adapter: Option<&HarnessDefinition>,
+) -> HarnessDefinition {
     HarnessDefinition {
         id,
         name: entry.name,
@@ -387,7 +429,7 @@ fn legacy_definition(entry: LegacyHarnessConfig, id: String) -> HarnessDefinitio
             model_prefix: (!entry.model_prefix.is_empty()).then_some(entry.model_prefix),
         },
         default_model: (!entry.default_model.is_empty()).then_some(entry.default_model),
-        resume: None,
+        resume: safe_adapter.and_then(|definition| definition.resume.clone()),
         models: entry.peon.as_ref().and_then(legacy_models),
         peon: entry.peon.map(|peon| PeonCapability {
             command_override: peon.command_override,
@@ -396,16 +438,24 @@ fn legacy_definition(entry: LegacyHarnessConfig, id: String) -> HarnessDefinitio
             supports_model: peon.supports_model,
             timeout_secs: peon.timeout_secs,
         }),
-        capacity: None,
+        capacity: safe_adapter.and_then(|definition| definition.capacity.clone()),
         session_signals: None,
         integration: None,
-        voice: Some(VoiceCapability {
-            native_voice: entry.capabilities.native_voice,
-            requires_microphone_permission: entry.capabilities.requires_microphone_permission,
-            orkworks_dictation: entry.capabilities.orkworks_dictation,
-            orkworks_voice_commands: entry.capabilities.orkworks_voice_commands,
-        }),
+        voice: legacy_voice(&entry.capabilities),
     }
+}
+
+fn legacy_voice(capabilities: &LegacyVoiceCapabilities) -> Option<VoiceCapability> {
+    (capabilities.native_voice
+        || capabilities.requires_microphone_permission
+        || capabilities.orkworks_dictation
+        || capabilities.orkworks_voice_commands)
+        .then_some(VoiceCapability {
+            native_voice: capabilities.native_voice,
+            requires_microphone_permission: capabilities.requires_microphone_permission,
+            orkworks_dictation: capabilities.orkworks_dictation,
+            orkworks_voice_commands: capabilities.orkworks_voice_commands,
+        })
 }
 
 fn legacy_baselines(
@@ -670,6 +720,58 @@ mod tests {
     }
 
     #[test]
+    fn changed_legacy_adapter_binding_freezes_a_known_builtin_as_custom() {
+        let builtins = Arc::new(BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap());
+        let mut legacy = captured_legacy_entry("codex");
+        legacy.harness = "claude-code".into();
+
+        let (document, diagnostics) =
+            migrate_v1(vec![serde_json::to_value(legacy).unwrap()], &builtins);
+        let custom = document.custom.first().expect("frozen custom definition");
+
+        assert!(document.overrides.is_empty());
+        assert_eq!(custom.id, "codex-legacy");
+        assert!(custom.resume.is_some());
+        assert!(custom.capacity.is_some());
+        assert!(custom.session_signals.is_none());
+        assert!(custom.integration.is_none());
+        assert!(diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "legacy_harness_binding_custom"));
+    }
+
+    #[test]
+    fn unmatched_legacy_entry_inherits_safe_adapter_resume_and_capacity() {
+        let builtins = Arc::new(BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap());
+        let mut legacy = captured_legacy_entry("codex");
+        legacy.id = "old-wrapper".into();
+        legacy.harness = "claude-code".into();
+
+        let (document, _) = migrate_v1(vec![serde_json::to_value(legacy).unwrap()], &builtins);
+        let custom = document.custom.first().expect("frozen custom definition");
+
+        assert!(custom.resume.is_some());
+        assert!(custom.capacity.is_some());
+        assert!(custom.session_signals.is_none());
+        assert!(custom.integration.is_none());
+    }
+
+    #[test]
+    fn changed_legacy_attention_is_reported_without_granting_authority() {
+        let builtins = Arc::new(BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap());
+        let mut legacy = captured_legacy_entry("codex");
+        legacy.attention.active_work_hook = true;
+
+        let (document, diagnostics) =
+            migrate_v1(vec![serde_json::to_value(legacy).unwrap()], &builtins);
+
+        assert!(document.custom.is_empty());
+        assert!(diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "legacy_attention_unrepresentable"));
+    }
+
+    #[test]
     fn legacy_peon_execution_change_does_not_replace_unchanged_model_discovery() {
         let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
         let mut legacy = captured_legacy_entry("opencode");
@@ -753,6 +855,22 @@ mod tests {
         assert!(diagnostics
             .iter()
             .any(|diagnostic| diagnostic.code == "unmatched_legacy_harness"));
+    }
+
+    #[test]
+    fn legacy_all_false_voice_is_not_frozen_as_voice_support() {
+        let builtins = Arc::new(BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap());
+        let mut legacy = captured_legacy_entry("codex");
+        legacy.id = "voice-less-legacy".into();
+
+        let (document, _) = migrate_v1(vec![serde_json::to_value(legacy).unwrap()], &builtins);
+
+        assert!(document
+            .custom
+            .first()
+            .expect("custom definition")
+            .voice
+            .is_none());
     }
 
     #[test]
