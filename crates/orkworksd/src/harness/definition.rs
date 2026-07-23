@@ -23,7 +23,11 @@ pub(crate) struct HarnessDefinition {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(tag = "kind", rename_all = "kebab-case")]
+#[serde(
+    tag = "kind",
+    rename_all = "kebab-case",
+    rename_all_fields = "camelCase"
+)]
 pub(crate) enum LaunchCapability {
     CommandTemplate {
         command: String,
@@ -430,7 +434,7 @@ impl HarnessDefinition {
                                 &self.id,
                                 "unknown_launch_kind",
                                 "Unknown launch kind.",
-                            ))
+                            ));
                         }
                     };
                     result
@@ -464,7 +468,7 @@ impl HarnessDefinition {
                         &self.id,
                         "invalid_launch_patch",
                         "Platform-shell launch accepts no command fields.",
-                    ))
+                    ));
                 }
                 LaunchCapability::PlatformShell { login } => {
                     if let Some(value) = launch.login {
@@ -675,11 +679,10 @@ impl HarnessDiagnostic {
     }
 }
 
-pub(crate) use super::registry::resolve_document;
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::harness::registry::resolve_document;
 
     fn codex() -> HarnessDefinition {
         BuiltinDocument::parse(EMBEDDED_BUILTINS)

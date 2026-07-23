@@ -6,6 +6,7 @@ use serde::Serialize;
 use super::definition::{
     BuiltinDocument, DefinitionOrigin, HarnessDiagnostic, HarnessUserDocument,
 };
+use super::definition::{CapacityCapability, LaunchCapability};
 use super::definition::{HarnessDefinition, ModelCapability, PeonCapability};
 use crate::providers::ProviderDefinition;
 
@@ -21,6 +22,7 @@ pub(crate) enum CapabilityName {
     Capacity,
     NativeSessionId,
     Attention,
+    #[allow(dead_code)]
     Lifecycle,
     Voice,
     WorkspaceIntegration,
@@ -31,6 +33,102 @@ pub(crate) struct ResolvedHarness {
     pub definition: HarnessDefinition,
     pub origin: DefinitionOrigin,
     pub effective_capabilities: BTreeSet<CapabilityName>,
+}
+
+impl ResolvedHarness {
+    pub(crate) fn build_launch(
+        &self,
+        cwd: &str,
+        model: Option<&str>,
+    ) -> crate::harness::CommandSpec {
+        match &self.definition.launch {
+            LaunchCapability::PlatformShell { .. } => crate::harness::default_shell_command(cwd),
+            LaunchCapability::CommandTemplate {
+                command,
+                args,
+                model_prefix,
+            } => {
+                let model = model
+                    .map(|model| format!("{}{}", model_prefix.as_deref().unwrap_or(""), model));
+                let mut rendered = Vec::with_capacity(args.len());
+                for arg in args {
+                    if arg.contains("{model}") && model.is_none() {
+                        let _ = rendered.pop();
+                    } else {
+                        rendered.push(arg.replace("{model}", model.as_deref().unwrap_or_default()));
+                    }
+                }
+                crate::harness::CommandSpec {
+                    program: command.clone(),
+                    args: rendered,
+                    cwd: cwd.into(),
+                }
+            }
+        }
+    }
+
+    pub(crate) fn build_resume(
+        &self,
+        strategy: crate::harness::ResumeStrategy,
+        cwd: &str,
+        harness_session_id: Option<&str>,
+        repo_root: Option<&str>,
+        model: Option<&str>,
+    ) -> Option<crate::harness::CommandSpec> {
+        let resume = self.definition.resume.as_ref()?;
+        let template = match strategy {
+            crate::harness::ResumeStrategy::Exact => resume.exact.as_ref()?,
+            crate::harness::ResumeStrategy::LatestCwd => resume.latest_cwd.as_ref()?,
+            crate::harness::ResumeStrategy::LatestRepo => resume.latest_repo.as_ref()?,
+            crate::harness::ResumeStrategy::None => return None,
+        };
+        Some(crate::harness::render_command_template(
+            template,
+            cwd,
+            repo_root,
+            harness_session_id,
+            model,
+        ))
+    }
+
+    pub(crate) fn capacity_patterns(&self) -> &[String] {
+        match self.definition.capacity.as_ref() {
+            Some(CapacityCapability::TerminalPatterns { limit_patterns }) => limit_patterns,
+            None => &[],
+        }
+    }
+
+    pub(crate) fn select_resume_strategy(
+        &self,
+        memory: &crate::harness::ResumeMemory,
+    ) -> crate::harness::ResumeStrategy {
+        if memory.state != crate::harness::ResumeState::Available {
+            return crate::harness::ResumeStrategy::None;
+        }
+        let Some(resume) = self.definition.resume.as_ref() else {
+            return crate::harness::ResumeStrategy::None;
+        };
+        if resume.exact.is_some() && memory.harness_session_id.is_some() {
+            crate::harness::ResumeStrategy::Exact
+        } else if resume.latest_cwd.is_some() && memory.latest_fallback {
+            crate::harness::ResumeStrategy::LatestCwd
+        } else if resume.latest_repo.is_some() && memory.latest_fallback {
+            crate::harness::ResumeStrategy::LatestRepo
+        } else {
+            crate::harness::ResumeStrategy::None
+        }
+    }
+
+    pub(crate) fn resume_flags(&self) -> (bool, bool, bool) {
+        let Some(resume) = self.definition.resume.as_ref() else {
+            return (false, false, false);
+        };
+        (
+            resume.exact.is_some(),
+            resume.latest_cwd.is_some(),
+            resume.latest_repo.is_some(),
+        )
+    }
 }
 
 pub(crate) struct ResolvedHarnessRegistry {
@@ -51,11 +149,12 @@ impl ResolvedHarnessRegistry {
         let canonical = self.aliases.get(id).map(String::as_str).unwrap_or(id);
         self.by_id.get(canonical).map(|index| &self.ordered[*index])
     }
-    pub(crate) fn diagnostics(&self) -> &[HarnessDiagnostic] {
-        &self.diagnostics
-    }
     pub(crate) fn providers(&self) -> &[ProviderDefinition] {
         &self.providers
+    }
+    #[allow(dead_code)]
+    pub(crate) fn diagnostics(&self) -> &[HarnessDiagnostic] {
+        &self.diagnostics
     }
     pub(crate) fn with_diagnostics(mut self, mut diagnostics: Vec<HarnessDiagnostic>) -> Self {
         self.diagnostics.append(&mut diagnostics);
@@ -334,5 +433,45 @@ mod tests {
         });
 
         assert!(!capability_names(&definition).contains(&CapabilityName::Voice));
+    }
+
+    #[test]
+    fn opencode_launch_and_resume_share_one_definition() {
+        let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
+        let registry = resolve_document(&builtins, &HarnessUserDocument::default()).unwrap();
+        let harness = registry.get("opencode").unwrap();
+
+        let launch = harness.build_launch("/repo", Some("qwen3"));
+        let resume = harness
+            .build_resume(
+                crate::harness::ResumeStrategy::Exact,
+                "/repo",
+                Some("ses_1"),
+                None,
+                None,
+            )
+            .unwrap();
+
+        assert_eq!(launch.program, "opencode");
+        assert_eq!(launch.args, ["--model", "ollama/qwen3"]);
+        assert_eq!(resume.program, "opencode");
+        assert_eq!(resume.args, ["--session", "ses_1"]);
+    }
+
+    #[test]
+    fn builtin_launch_without_model_drops_model_flag_and_capacity_is_declarative() {
+        let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
+        let registry = resolve_document(&builtins, &HarnessUserDocument::default()).unwrap();
+        let opencode = registry.get("opencode").unwrap();
+        let claude = registry.get("claude-code").unwrap();
+
+        assert_eq!(
+            opencode.build_launch("/repo", None).args,
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            claude.capacity_patterns(),
+            ["you've hit your session limit"]
+        );
     }
 }

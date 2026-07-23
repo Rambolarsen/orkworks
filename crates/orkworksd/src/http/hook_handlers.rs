@@ -42,7 +42,7 @@ fn resolve_claude_hook_script_path(exe_dir: Option<PathBuf>, manifest_dir: &Path
 
 /// Stable, packaging-independent location the installed hook command should
 /// point at: `~/.orkworks/hook-scripts/<script>`, mirroring the existing
-/// `~/.orkworks/harnesses.json` global-config convention (harness_registry.rs).
+/// `~/.orkworks/harnesses.json` global-config convention.
 fn stable_claude_hook_script_path() -> Option<PathBuf> {
     stable_claude_hook_script_path_under(dirs::home_dir())
 }

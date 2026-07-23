@@ -30,6 +30,13 @@ pub(crate) struct HarnessStore {
     writer: Arc<dyn AtomicWriter>,
 }
 
+pub(crate) fn global_harnesses_path() -> PathBuf {
+    dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".orkworks")
+        .join("harnesses.json")
+}
+
 pub(crate) trait AtomicWriter: Send + Sync {
     fn replace_if_revision(
         &self,
@@ -365,7 +372,7 @@ fn legacy_peon_patch(
                 timeout_secs: (entry.timeout_secs != baseline.timeout_secs)
                     .then_some(entry.timeout_secs),
             };
-            (patch != PeonPatch::default()).then(|| Some(patch))
+            (patch != PeonPatch::default()).then_some(Some(patch))
         }
     }
 }
@@ -385,7 +392,7 @@ fn legacy_voice_patch(
             != baseline.orkworks_voice_commands)
             .then_some(entry.orkworks_voice_commands),
     };
-    (patch != VoicePatch::default()).then(|| Some(patch))
+    (patch != VoicePatch::default()).then_some(Some(patch))
 }
 
 fn legacy_models(peon: &LegacyPeonConfig) -> Option<ModelCapability> {

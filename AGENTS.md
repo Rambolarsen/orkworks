@@ -214,7 +214,7 @@ Electron + React/TypeScript frontend (`apps/desktop/`) communicates with a Rust 
 **Rust module layout** (`crates/orkworksd/src/`):
 - `metadata.rs` — `SessionMetadata` and the on-disk metadata store (source of truth for session state)
 - `session_types.rs`, `session_view.rs` — session-facing types and view/projection helpers
-- `harness.rs`, `harness_registry.rs` — harness adapter abstraction and built-in harness definitions
+- `harness.rs` and its `definition`, `registry`, and `store` submodules — versioned harness definitions, sparse overrides, resolved immutable capability snapshots, and persistence
 - `providers.rs` — model provider registry, fallback, and capacity state
 - `peon.rs` — terminal-output observation and label/status inference
 - `git.rs`, `watcher.rs`, `migration.rs`, `workspace_runtime.rs` — Git context detection, metadata file watching, on-disk migrations, workspace bootstrap

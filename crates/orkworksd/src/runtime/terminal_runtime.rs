@@ -31,14 +31,6 @@ pub(crate) fn session_env_overrides(session_id: &str, port: Option<u16>) -> Vec<
     env
 }
 
-pub(crate) fn codex_thread_id_from_jsonl_line(line: &str) -> Option<String> {
-    let value: serde_json::Value = serde_json::from_str(line).ok()?;
-    if value.get("type").and_then(|v| v.as_str()) != Some("thread.started") {
-        return None;
-    }
-    value.get("thread_id").and_then(|v| v.as_str()).map(str::to_string)
-}
-
 #[derive(Debug, PartialEq)]
 pub(crate) enum TerminalAction {
     Input(String),
@@ -154,7 +146,8 @@ fn spawn_command_future(
                 &state,
                 &id,
                 crate::runtime::session_runtime::RuntimeCommand::Kill,
-            ).await
+            )
+            .await
         })),
         TerminalAction::Noop => None,
     }
@@ -176,10 +169,12 @@ fn snapshot_input_context(state: &Arc<AppState>, id: &str) -> (bool, u64) {
     let sessions = state.sessions.lock().unwrap();
     sessions
         .get(id)
-        .map(|h| (
-            peon::looks_like_password_prompt(&h.output_buffer.last_n(5)),
-            h.runtime.peon_output_revision,
-        ))
+        .map(|h| {
+            (
+                peon::looks_like_password_prompt(&h.output_buffer.last_n(5)),
+                h.runtime.peon_output_revision,
+            )
+        })
         .unwrap_or((false, 0))
 }
 
@@ -214,8 +209,12 @@ pub(crate) fn collect_input_line(buf: &mut String, data: &str) -> Option<String>
                     result = Some(line);
                 }
             }
-            '\x7f' => { buf.pop(); }
-            '\x03' | '\x04' => { buf.clear(); }
+            '\x7f' => {
+                buf.pop();
+            }
+            '\x03' | '\x04' => {
+                buf.clear();
+            }
             '\x1b' => {
                 match chars.peek().copied() {
                     Some('[') => {
@@ -223,13 +222,19 @@ pub(crate) fn collect_input_line(buf: &mut String, data: &str) -> Option<String>
                         chars.next();
                         while let Some(&c) = chars.peek() {
                             chars.next();
-                            if c.is_ascii_alphabetic() || c == '~' { break; }
+                            if c.is_ascii_alphabetic() || c == '~' {
+                                break;
+                            }
                         }
                     }
                     Some('O') => {
                         // SS3: ESC O letter (arrows/F1-F4 in application cursor mode)
                         chars.next();
-                        if chars.peek().map(|c| c.is_ascii_alphabetic()).unwrap_or(false) {
+                        if chars
+                            .peek()
+                            .map(|c| c.is_ascii_alphabetic())
+                            .unwrap_or(false)
+                        {
                             chars.next();
                         }
                     }
@@ -237,18 +242,26 @@ pub(crate) fn collect_input_line(buf: &mut String, data: &str) -> Option<String>
                         // OSC: ESC ] ... BEL or ESC \
                         chars.next();
                         while let Some(c) = chars.next() {
-                            if c == '\x07' { break; }
+                            if c == '\x07' {
+                                break;
+                            }
                             if c == '\x1b' {
-                                if chars.peek() == Some(&'\\') { chars.next(); }
+                                if chars.peek() == Some(&'\\') {
+                                    chars.next();
+                                }
                                 break;
                             }
                         }
                     }
-                    Some(_) => { chars.next(); } // alt-key: ESC + one char
-                    None => {}                   // bare ESC at end of frame
+                    Some(_) => {
+                        chars.next();
+                    } // alt-key: ESC + one char
+                    None => {} // bare ESC at end of frame
                 }
             }
-            ch if !ch.is_ascii_control() => { buf.push(ch); }
+            ch if !ch.is_ascii_control() => {
+                buf.push(ch);
+            }
             _ => {}
         }
     }
@@ -285,7 +298,10 @@ fn mark_usage_limit_recheck_on_input(state: &Arc<AppState>, id: &str) {
     let Some(handle) = sessions.get_mut(id) else {
         return;
     };
-    if !handle.at_usage_limit_latched || handle.capacity_check_pending || handle.resume_scan_origin.is_some() {
+    if !handle.at_usage_limit_latched
+        || handle.capacity_check_pending
+        || handle.resume_scan_origin.is_some()
+    {
         return;
     }
     handle.resume_scan_origin = Some((handle.output_lines_seen, handle.scan_bytes_seen));
@@ -309,11 +325,7 @@ fn record_peon_input_side_effects(
 /// production callers must use (see `record_peon_input_side_effects`) since
 /// the buffer can move on during the real async PTY round-trip.
 #[cfg(test)]
-pub(crate) fn record_terminal_input(
-    state: &Arc<AppState>,
-    id: &str,
-    data: &str,
-) -> Option<()> {
+pub(crate) fn record_terminal_input(state: &Arc<AppState>, id: &str, data: &str) -> Option<()> {
     record_terminal_input_impl(state, id, data, None, None)
 }
 
@@ -417,16 +429,16 @@ fn mark_committed_input_working(
     let commit_working = !already_working
         && (line_completed
             || (!handle.active_work_hook && {
-            // Peon persists its inferred metadata_source straight to disk and
-            // never mirrors it back into the live handle (only `label` gets
-            // synced there), so the persisted record — not `handle.info` — is
-            // the only place a "peon"-sourced prompt is actually visible.
-            let source = match ws_guard.as_ref() {
-                Some(ws) => ws.metadata.read_session(id).map(|m| m.metadata_source),
-                None => handle.info.metadata_source.clone(),
-            };
-            bare_keystroke_is_trusted(handle.active_work_hook, source.as_deref())
-        }));
+                // Peon persists its inferred metadata_source straight to disk and
+                // never mirrors it back into the live handle (only `label` gets
+                // synced there), so the persisted record — not `handle.info` — is
+                // the only place a "peon"-sourced prompt is actually visible.
+                let source = match ws_guard.as_ref() {
+                    Some(ws) => ws.metadata.read_session(id).map(|m| m.metadata_source),
+                    None => handle.info.metadata_source.clone(),
+                };
+                bare_keystroke_is_trusted(handle.active_work_hook, source.as_deref())
+            }));
     let Some(next_generation) = handle.runtime.input_generation.checked_add(1) else {
         tracing::warn!(session_id = %id, "input generation overflow");
         return;
@@ -435,10 +447,16 @@ fn mark_committed_input_working(
     if !commit_working || already_working {
         handle.runtime.input_generation = next_generation;
         handle.runtime.accepted_input_at = Some(accepted_at);
-        handle.runtime.min_peon_output_revision = output_boundary.unwrap_or(handle.runtime.peon_output_revision);
+        handle.runtime.min_peon_output_revision =
+            output_boundary.unwrap_or(handle.runtime.peon_output_revision);
         drop(sessions);
         drop(ws_guard);
-        state.peon.last_output.write().unwrap().insert(id.to_string(), tokio::time::Instant::now());
+        state
+            .peon
+            .last_output
+            .write()
+            .unwrap()
+            .insert(id.to_string(), tokio::time::Instant::now());
         return;
     }
     if ws_guard.is_none() {
@@ -455,7 +473,8 @@ fn mark_committed_input_working(
         handle.pending_work_signal = None;
         handle.runtime.input_generation = next_generation;
         handle.runtime.accepted_input_at = Some(accepted_at);
-        handle.runtime.min_peon_output_revision = output_boundary.unwrap_or(handle.runtime.peon_output_revision);
+        handle.runtime.min_peon_output_revision =
+            output_boundary.unwrap_or(handle.runtime.peon_output_revision);
         drop(sessions);
         drop(ws_guard);
         state
@@ -494,10 +513,16 @@ fn mark_committed_input_working(
     handle.pending_work_signal = None;
     handle.runtime.input_generation = next_generation;
     handle.runtime.accepted_input_at = Some(accepted_at);
-    handle.runtime.min_peon_output_revision = output_boundary.unwrap_or(handle.runtime.peon_output_revision);
+    handle.runtime.min_peon_output_revision =
+        output_boundary.unwrap_or(handle.runtime.peon_output_revision);
     drop(sessions);
     drop(ws_guard);
-    state.peon.last_output.write().unwrap().insert(id.to_string(), tokio::time::Instant::now());
+    state
+        .peon
+        .last_output
+        .write()
+        .unwrap()
+        .insert(id.to_string(), tokio::time::Instant::now());
 }
 
 pub(crate) fn should_forward_terminal_env(key: &str) -> bool {
@@ -530,9 +555,8 @@ pub(crate) fn set_session_status(state: &Arc<AppState>, id: &str, status: &str) 
     let (handle_decision, session_resume, entered_running, entered_terminal) = {
         let mut sessions = state.sessions.lock().unwrap();
         if let Some(handle) = sessions.get_mut(id) {
-            let entered_running = !is_terminal
-                && status == "running"
-                && handle.info.status != "running";
+            let entered_running =
+                !is_terminal && status == "running" && handle.info.status != "running";
             if is_terminal && matches!(handle.info.lifecycle_phase.as_str(), "ending" | "ended") {
                 return false;
             }
@@ -550,7 +574,12 @@ pub(crate) fn set_session_status(state: &Arc<AppState>, id: &str, status: &str) 
                 } else {
                     "active".to_string()
                 };
-                handle.info.lifecycle = if status == "creating" { "creating" } else { "alive" }.to_string();
+                handle.info.lifecycle = if status == "creating" {
+                    "creating"
+                } else {
+                    "alive"
+                }
+                .to_string();
                 handle.info.connectivity = Some(connectivity_for_status(status).to_string());
                 handle.info.terminal_outcome = terminal_outcome_for_status(status);
             }
@@ -571,7 +600,11 @@ pub(crate) fn set_session_status(state: &Arc<AppState>, id: &str, status: &str) 
     if entered_terminal {
         state.peon.last_output.write().unwrap().remove(id);
     } else if entered_running && state.peon.config.enabled {
-        state.peon.last_output.write().unwrap()
+        state
+            .peon
+            .last_output
+            .write()
+            .unwrap()
             .entry(id.to_string())
             .or_insert_with(tokio::time::Instant::now);
     }
@@ -596,12 +629,13 @@ pub(crate) fn set_session_status(state: &Arc<AppState>, id: &str, status: &str) 
                 meta.connectivity = connectivity_for_status("running").to_string();
                 meta.terminal_outcome = None;
                 meta.pending_terminal_status = Some(status.to_string());
-                meta.ending_observed_status_snapshot = Some(metadata::ObservedStatusSnapshotMetadata {
-                    value: meta.observed_status.clone(),
-                    source: meta.metadata_source.clone(),
-                    confidence: Some(meta.metadata_confidence),
-                    observed_at: Some(now.clone()),
-                });
+                meta.ending_observed_status_snapshot =
+                    Some(metadata::ObservedStatusSnapshotMetadata {
+                        value: meta.observed_status.clone(),
+                        source: meta.metadata_source.clone(),
+                        confidence: Some(meta.metadata_confidence),
+                        observed_at: Some(now.clone()),
+                    });
             } else {
                 meta.status = status.to_string();
                 meta.lifecycle_phase = if status == "creating" {
@@ -609,7 +643,12 @@ pub(crate) fn set_session_status(state: &Arc<AppState>, id: &str, status: &str) 
                 } else {
                     "active".to_string()
                 };
-                meta.lifecycle = if status == "creating" { "creating" } else { "alive" }.to_string();
+                meta.lifecycle = if status == "creating" {
+                    "creating"
+                } else {
+                    "alive"
+                }
+                .to_string();
                 meta.connectivity = connectivity_for_status(status).to_string();
                 meta.terminal_outcome = terminal_outcome_for_status(status);
             }
@@ -626,15 +665,18 @@ pub(crate) fn set_session_status(state: &Arc<AppState>, id: &str, status: &str) 
             ws.metadata.write_session(&meta);
         }
         if applied {
-            ws.metadata.append_event(id, &metadata::Event {
-                event_type: "session.status".into(),
-                timestamp: now,
-                status: status.to_string(),
-                observed_status: None,
-                confidence: None,
-                summary: None,
-                source: None,
-            });
+            ws.metadata.append_event(
+                id,
+                &metadata::Event {
+                    event_type: "session.status".into(),
+                    timestamp: now,
+                    status: status.to_string(),
+                    observed_status: None,
+                    confidence: None,
+                    summary: None,
+                    source: None,
+                },
+            );
         }
     }
     applied
@@ -647,11 +689,11 @@ fn final_snapshot_from_inference(
     inference.and_then(|inf| {
         let value = inf.observed_status.clone()?;
         Some(metadata::ObservedStatusSnapshotMetadata {
-        value: Some(value),
-        source: "peon".into(),
-        confidence: Some(inf.confidence),
-        observed_at: Some(observed_at.to_string()),
-    })
+            value: Some(value),
+            source: "peon".into(),
+            confidence: Some(inf.confidence),
+            observed_at: Some(observed_at.to_string()),
+        })
     })
 }
 
@@ -662,7 +704,9 @@ fn fallback_final_snapshot(
     meta.ending_observed_status_snapshot
         .clone()
         .or_else(|| meta.final_observed_status_snapshot.clone())
-        .unwrap_or_else(|| metadata::canonical_null_snapshot("recovery", Some(observed_at.to_string())))
+        .unwrap_or_else(|| {
+            metadata::canonical_null_snapshot("recovery", Some(observed_at.to_string()))
+        })
 }
 
 /// `fallback_terminal_status` is the terminal status the exit path intended;
@@ -700,15 +744,18 @@ pub(crate) fn complete_session_ending(
                 meta.observed_status = None;
                 meta.last_activity = now.clone();
                 ws.metadata.write_session(&meta);
-                ws.metadata.append_event(id, &metadata::Event {
-                    event_type: "session.status".into(),
-                    timestamp: now.clone(),
-                    status: pending.clone(),
-                    observed_status: final_snapshot.value.clone(),
-                    confidence: final_snapshot.confidence,
-                    summary: None,
-                    source: None,
-                });
+                ws.metadata.append_event(
+                    id,
+                    &metadata::Event {
+                        event_type: "session.status".into(),
+                        timestamp: now.clone(),
+                        status: pending.clone(),
+                        observed_status: final_snapshot.value.clone(),
+                        confidence: final_snapshot.confidence,
+                        summary: None,
+                        source: None,
+                    },
+                );
                 final_status = Some(pending);
             }
         }
@@ -740,7 +787,9 @@ pub(crate) async fn finalize_session_ending(
     let output_snapshot = {
         let sessions = state.sessions.lock().unwrap();
         match sessions.get(&id) {
-            Some(handle) if handle.info.lifecycle_phase == "ending" => handle.output_buffer.snapshot(),
+            Some(handle) if handle.info.lifecycle_phase == "ending" => {
+                handle.output_buffer.snapshot()
+            }
             _ => return,
         }
     };
@@ -769,8 +818,12 @@ pub(crate) async fn finalize_session_ending(
     };
 
     let now = iso_now();
-    let inferred_snapshot =
-        final_snapshot_from_inference(scan_result.as_ref().and_then(|result| result.inference.as_ref()), &now);
+    let inferred_snapshot = final_snapshot_from_inference(
+        scan_result
+            .as_ref()
+            .and_then(|result| result.inference.as_ref()),
+        &now,
+    );
     let final_snapshot = {
         let ws_guard = state.workspace.lock().unwrap();
         let meta = ws_guard
@@ -824,35 +877,51 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
         Some(claim) => claim,
         None => {
             tracing::warn!(session_id = %id, "rejected terminal WebSocket: session unavailable for attach");
-            let _ = ws.send(Message::Text(
-                serde_json::json!({
-                    "type": "terminal-unavailable",
-                    "reason": "already-attached"
-                }).to_string().into()
-            )).await;
+            let _ = ws
+                .send(Message::Text(
+                    serde_json::json!({
+                        "type": "terminal-unavailable",
+                        "reason": "already-attached"
+                    })
+                    .to_string()
+                    .into(),
+                ))
+                .await;
             let _ = ws.close().await;
             return;
         }
     };
-    let _ = ws.send(Message::Text(
-        serde_json::json!({
-            "type": "replay-start",
-            "cursor": attachment.replay_from,
-        }).to_string().into()
-    )).await;
+    let _ = ws
+        .send(Message::Text(
+            serde_json::json!({
+                "type": "replay-start",
+                "cursor": attachment.replay_from,
+            })
+            .to_string()
+            .into(),
+        ))
+        .await;
     for (_, chunk) in &attachment.replay_chunks {
-        if ws.send(Message::Binary(chunk.clone().into())).await.is_err() {
+        if ws
+            .send(Message::Binary(chunk.clone().into()))
+            .await
+            .is_err()
+        {
             crate::runtime::session_runtime::release_attachment(&state, &id, attachment.generation);
             let _ = ws.close().await;
             return;
         }
     }
-    let _ = ws.send(Message::Text(
-        serde_json::json!({
-            "type": "replay-end",
-            "cursor": attachment.replay_to,
-        }).to_string().into()
-    )).await;
+    let _ = ws
+        .send(Message::Text(
+            serde_json::json!({
+                "type": "replay-end",
+                "cursor": attachment.replay_to,
+            })
+            .to_string()
+            .into(),
+        ))
+        .await;
 
     let generation = attachment.generation;
     let mut events = attachment.events;
@@ -989,8 +1058,8 @@ mod tests {
     use crate::test_support::*;
     use crate::{metadata, providers};
     use std::collections::{HashMap, HashSet};
-    use std::sync::{Arc, Mutex, RwLock};
     use std::sync::atomic::AtomicU16;
+    use std::sync::{Arc, Mutex, RwLock};
 
     fn prompted_session_state(session_id: &str) -> (Arc<crate::AppState>, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
@@ -1013,9 +1082,9 @@ mod tests {
                 input_buf: RwLock::new(HashMap::new()),
                 config: crate::peon::PeonConfig::from_env(),
             },
-            adapters: crate::harness_registry::builtin_adapters(),
+            harness_catalog: crate::test_support::test_harness_components().0,
+            harness_store: crate::test_support::test_harness_components().1,
             retention_config: tokio::sync::RwLock::new(crate::RetentionConfig::default()),
-            harnesses: tokio::sync::RwLock::new(vec![]),
             bound_port: AtomicU16::new(0),
             providers: crate::providers::ProviderManager::new(),
         });
@@ -1077,7 +1146,14 @@ mod tests {
         meta.needs_user_input = Some(true);
         meta.detected_question = Some("Proceed?".into());
         meta.suggested_options = Some(vec!["yes".into(), "no".into()]);
-        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&meta);
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&meta);
 
         (state, dir)
     }
@@ -1092,8 +1168,15 @@ mod tests {
         assert_eq!(info.detected_question, None);
         assert_eq!(info.suggested_options, None);
 
-        let meta = state.workspace.lock().unwrap().as_ref().unwrap()
-            .metadata.read_session(session_id).unwrap();
+        let meta = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(session_id)
+            .unwrap();
         assert_eq!(meta.attention.as_deref(), Some("working"));
         assert_eq!(meta.observed_status.as_deref(), Some("working"));
         assert_eq!(meta.metadata_source, "process");
@@ -1138,7 +1221,12 @@ mod tests {
         }
         {
             let ws = state.workspace.lock().unwrap();
-            let mut meta = ws.as_ref().unwrap().metadata.read_session(session_id).unwrap();
+            let mut meta = ws
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(session_id)
+                .unwrap();
             meta.metadata_source = "peon".into();
             ws.as_ref().unwrap().metadata.write_session(&meta);
         }
@@ -1168,7 +1256,11 @@ mod tests {
         // first embedded newline as a completed label line — a pre-existing,
         // separate imprecision. What this test guards is that the pasted
         // content must not clear attention.
-        record_terminal_input(&state, session_id, "\x1b[200~line one\nline two\nline three\x1b[201~");
+        record_terminal_input(
+            &state,
+            session_id,
+            "\x1b[200~line one\nline two\nline three\x1b[201~",
+        );
 
         let info = state.sessions.lock().unwrap()[session_id].info.clone();
         assert_eq!(info.attention.as_deref(), Some("needs_you"));
@@ -1186,7 +1278,12 @@ mod tests {
         // — production never rewrites it to "peon".
         {
             let ws = state.workspace.lock().unwrap();
-            let mut meta = ws.as_ref().unwrap().metadata.read_session(session_id).unwrap();
+            let mut meta = ws
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(session_id)
+                .unwrap();
             meta.metadata_source = "peon".into();
             ws.as_ref().unwrap().metadata.write_session(&meta);
         }
@@ -1212,11 +1309,23 @@ mod tests {
             session_id.to_string(),
             tokio::time::Instant::now() - std::time::Duration::from_secs(600),
         );
-        let stale = *state.peon.last_output.read().unwrap().get(session_id).unwrap();
+        let stale = *state
+            .peon
+            .last_output
+            .read()
+            .unwrap()
+            .get(session_id)
+            .unwrap();
 
         record_terminal_input(&state, session_id, "y");
 
-        let refreshed = *state.peon.last_output.read().unwrap().get(session_id).unwrap();
+        let refreshed = *state
+            .peon
+            .last_output
+            .read()
+            .unwrap()
+            .get(session_id)
+            .unwrap();
         assert!(
             refreshed > stale,
             "accepted input must refresh the idle baseline, or the next Peon tick can flag a \
@@ -1248,7 +1357,12 @@ mod tests {
         // gets clobbered back to "working" by the second input below.
         {
             let ws = state.workspace.lock().unwrap();
-            let mut meta = ws.as_ref().unwrap().metadata.read_session(session_id).unwrap();
+            let mut meta = ws
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(session_id)
+                .unwrap();
             meta.attention = Some("idle-canary".into());
             ws.as_ref().unwrap().metadata.write_session(&meta);
         }
@@ -1262,8 +1376,15 @@ mod tests {
         assert_eq!(runtime.min_peon_output_revision, 7);
         drop(sessions);
 
-        let meta = state.workspace.lock().unwrap().as_ref().unwrap()
-            .metadata.read_session(session_id).unwrap();
+        let meta = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(session_id)
+            .unwrap();
         assert_eq!(
             meta.attention.as_deref(),
             Some("idle-canary"),
@@ -1287,7 +1408,12 @@ mod tests {
         }
         {
             let ws = state.workspace.lock().unwrap();
-            let mut meta = ws.as_ref().unwrap().metadata.read_session(session_id).unwrap();
+            let mut meta = ws
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(session_id)
+                .unwrap();
             meta.metadata_source = "user".into();
             ws.as_ref().unwrap().metadata.write_session(&meta);
         }
@@ -1314,7 +1440,12 @@ mod tests {
         }
         {
             let ws = state.workspace.lock().unwrap();
-            let mut meta = ws.as_ref().unwrap().metadata.read_session(session_id).unwrap();
+            let mut meta = ws
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(session_id)
+                .unwrap();
             meta.metadata_source = "user".into();
             ws.as_ref().unwrap().metadata.write_session(&meta);
         }
@@ -1339,7 +1470,12 @@ mod tests {
         }
         {
             let ws = state.workspace.lock().unwrap();
-            let mut meta = ws.as_ref().unwrap().metadata.read_session(session_id).unwrap();
+            let mut meta = ws
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(session_id)
+                .unwrap();
             meta.metadata_source = "peon".into();
             ws.as_ref().unwrap().metadata.write_session(&meta);
         }
@@ -1369,7 +1505,12 @@ mod tests {
         let session_id = "rejected-input";
         let (state, _dir) = prompted_session_state(session_id);
 
-        record_input_after_delivery(&state, session_id, Some(&("y".to_string(), false, 0)), &Err(()));
+        record_input_after_delivery(
+            &state,
+            session_id,
+            Some(&("y".to_string(), false, 0)),
+            &Err(()),
+        );
 
         let info = state.sessions.lock().unwrap()[session_id].info.clone();
         assert_eq!(info.attention.as_deref(), Some("needs_you"));
@@ -1398,7 +1539,12 @@ mod tests {
         record_peon_input_side_effects(&state, session_id, "hunter2\r", true, 0);
 
         let ws = state.workspace.lock().unwrap();
-        let meta = ws.as_ref().unwrap().metadata.read_session(session_id).unwrap();
+        let meta = ws
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(session_id)
+            .unwrap();
         assert_ne!(
             meta.last_user_input.as_deref(),
             Some("hunter2"),
@@ -1419,7 +1565,12 @@ mod tests {
         record_peon_input_side_effects(&state, session_id, "add retry logic\r", false, 0);
 
         let ws = state.workspace.lock().unwrap();
-        let meta = ws.as_ref().unwrap().metadata.read_session(session_id).unwrap();
+        let meta = ws
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(session_id)
+            .unwrap();
         assert_eq!(meta.last_user_input.as_deref(), Some("add retry logic"));
     }
 
@@ -1465,21 +1616,6 @@ mod tests {
             script.contains("--max-time"),
             "reporter must cap curl so a stuck orkworksd cannot hang the harness hook"
         );
-    }
-
-    #[test]
-    fn codex_jsonl_parser_extracts_thread_started_id() {
-        let line = r#"{"type":"thread.started","thread_id":"0199a213-81c0-7800-8aa1-bbab2a035a53"}"#;
-        assert_eq!(
-            codex_thread_id_from_jsonl_line(line).as_deref(),
-            Some("0199a213-81c0-7800-8aa1-bbab2a035a53"),
-        );
-    }
-
-    #[test]
-    fn codex_jsonl_parser_ignores_other_events() {
-        let line = r#"{"type":"turn.started"}"#;
-        assert_eq!(codex_thread_id_from_jsonl_line(line), None);
     }
 
     #[test]
@@ -1538,7 +1674,13 @@ mod tests {
     fn terminal_message_dispatches_resize() {
         let msg = serde_json::json!({"type": "resize", "rows": 40, "cols": 120});
         let action = dispatch_terminal_message(&msg);
-        assert_eq!(action, TerminalAction::Resize { rows: 40, cols: 120 });
+        assert_eq!(
+            action,
+            TerminalAction::Resize {
+                rows: 40,
+                cols: 120
+            }
+        );
     }
 
     #[test]
@@ -1562,7 +1704,10 @@ mod tests {
         let mut queue = PendingActionQueue::default();
         queue.push(TerminalAction::Resize { rows: 10, cols: 20 });
         queue.push(TerminalAction::Resize { rows: 30, cols: 40 });
-        assert_eq!(queue.take_next(), Some(TerminalAction::Resize { rows: 30, cols: 40 }));
+        assert_eq!(
+            queue.take_next(),
+            Some(TerminalAction::Resize { rows: 30, cols: 40 })
+        );
         assert_eq!(queue.take_next(), None);
     }
 
@@ -1573,7 +1718,10 @@ mod tests {
         queue.push(TerminalAction::Resize { rows: 10, cols: 20 });
         queue.push(TerminalAction::Kill);
         assert_eq!(queue.take_next(), Some(TerminalAction::Input("x".into())));
-        assert_eq!(queue.take_next(), Some(TerminalAction::Resize { rows: 10, cols: 20 }));
+        assert_eq!(
+            queue.take_next(),
+            Some(TerminalAction::Resize { rows: 10, cols: 20 })
+        );
         assert_eq!(queue.take_next(), Some(TerminalAction::Kill));
         assert_eq!(queue.take_next(), None);
     }
@@ -1586,7 +1734,10 @@ mod tests {
         let mut queue = PendingActionQueue::default();
         queue.push(TerminalAction::Resize { rows: 10, cols: 20 });
         queue.push(TerminalAction::Input("x".into()));
-        assert_eq!(queue.take_next(), Some(TerminalAction::Resize { rows: 10, cols: 20 }));
+        assert_eq!(
+            queue.take_next(),
+            Some(TerminalAction::Resize { rows: 10, cols: 20 })
+        );
         assert_eq!(queue.take_next(), Some(TerminalAction::Input("x".into())));
         assert_eq!(queue.take_next(), None);
     }
@@ -1600,7 +1751,10 @@ mod tests {
         queue.push(TerminalAction::Resize { rows: 10, cols: 20 });
         queue.push(TerminalAction::Input("b".into()));
         assert_eq!(queue.take_next(), Some(TerminalAction::Input("a".into())));
-        assert_eq!(queue.take_next(), Some(TerminalAction::Resize { rows: 10, cols: 20 }));
+        assert_eq!(
+            queue.take_next(),
+            Some(TerminalAction::Resize { rows: 10, cols: 20 })
+        );
         assert_eq!(queue.take_next(), Some(TerminalAction::Input("b".into())));
         assert_eq!(queue.take_next(), None);
     }
@@ -1634,9 +1788,9 @@ mod tests {
                 input_buf: std::sync::RwLock::new(std::collections::HashMap::new()),
                 config: crate::peon::PeonConfig::from_env(),
             },
-            adapters: crate::harness_registry::builtin_adapters(),
+            harness_catalog: crate::test_support::test_harness_components().0,
+            harness_store: crate::test_support::test_harness_components().1,
             retention_config: tokio::sync::RwLock::new(crate::RetentionConfig::default()),
-            harnesses: tokio::sync::RwLock::new(vec![]),
             bound_port: std::sync::atomic::AtomicU16::new(0),
             providers: crate::providers::ProviderManager::new(),
         });
@@ -1648,12 +1802,21 @@ mod tests {
         state.sessions.lock().unwrap().insert(
             id.clone(),
             crate::SessionHandle {
-                info: crate::test_support::test_session_info(id.clone(), "Codex Wrapper", "/tmp", "running", "now"),
+                info: crate::test_support::test_session_info(
+                    id.clone(),
+                    "Codex Wrapper",
+                    "/tmp",
+                    "running",
+                    "now",
+                ),
                 kill_tx,
                 output_buffer,
                 scan_buf: "abc".into(),
                 pending_work_signal: None,
-                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                ),
                 terminal_attached: false,
                 at_usage_limit_latched: true,
                 capacity_check_pending: false,
@@ -1664,10 +1827,23 @@ mod tests {
                 active_work_hook: false,
             },
         );
-        state.sessions.lock().unwrap().get_mut(&id).unwrap().info.harness_id = Some("codex-wrapper".into());
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .get_mut(&id)
+            .unwrap()
+            .info
+            .harness_id = Some("codex-wrapper".into());
 
         mark_usage_limit_recheck_on_input(&state, &id);
-        let first_origin = state.sessions.lock().unwrap().get(&id).unwrap().resume_scan_origin;
+        let first_origin = state
+            .sessions
+            .lock()
+            .unwrap()
+            .get(&id)
+            .unwrap()
+            .resume_scan_origin;
         assert_eq!(first_origin, Some((1, 3)));
 
         {
@@ -1680,7 +1856,13 @@ mod tests {
         }
 
         mark_usage_limit_recheck_on_input(&state, &id);
-        let second_origin = state.sessions.lock().unwrap().get(&id).unwrap().resume_scan_origin;
+        let second_origin = state
+            .sessions
+            .lock()
+            .unwrap()
+            .get(&id)
+            .unwrap()
+            .resume_scan_origin;
         assert_eq!(second_origin, first_origin);
     }
 
@@ -1698,9 +1880,9 @@ mod tests {
                 input_buf: std::sync::RwLock::new(std::collections::HashMap::new()),
                 config: crate::peon::PeonConfig::from_env(),
             },
-            adapters: crate::harness_registry::builtin_adapters(),
+            harness_catalog: crate::test_support::test_harness_components().0,
+            harness_store: crate::test_support::test_harness_components().1,
             retention_config: tokio::sync::RwLock::new(crate::RetentionConfig::default()),
-            harnesses: tokio::sync::RwLock::new(vec![]),
             bound_port: std::sync::atomic::AtomicU16::new(0),
             providers: crate::providers::ProviderManager::new(),
         });
@@ -1715,7 +1897,10 @@ mod tests {
                 output_buffer: crate::peon::RingBuffer::new(200),
                 scan_buf: String::new(),
                 pending_work_signal: None,
-                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                ),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
@@ -1770,9 +1955,9 @@ mod tests {
                     ..crate::peon::PeonConfig::from_env()
                 },
             },
-            adapters: crate::harness_registry::builtin_adapters(),
+            harness_catalog: crate::test_support::test_harness_components().0,
+            harness_store: crate::test_support::test_harness_components().1,
             retention_config: tokio::sync::RwLock::new(crate::RetentionConfig::default()),
-            harnesses: tokio::sync::RwLock::new(vec![]),
             bound_port: std::sync::atomic::AtomicU16::new(0),
             providers: crate::providers::ProviderManager::new(),
         });
@@ -1789,7 +1974,10 @@ mod tests {
                 output_buffer: crate::peon::RingBuffer::new(200),
                 scan_buf: String::new(),
                 pending_work_signal: None,
-                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                ),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
@@ -1828,9 +2016,9 @@ mod tests {
                     ..crate::peon::PeonConfig::from_env()
                 },
             },
-            adapters: crate::harness_registry::builtin_adapters(),
+            harness_catalog: crate::test_support::test_harness_components().0,
+            harness_store: crate::test_support::test_harness_components().1,
             retention_config: tokio::sync::RwLock::new(crate::RetentionConfig::default()),
-            harnesses: tokio::sync::RwLock::new(vec![]),
             bound_port: std::sync::atomic::AtomicU16::new(0),
             providers: crate::providers::ProviderManager::new(),
         });
@@ -1847,7 +2035,10 @@ mod tests {
                 output_buffer: crate::peon::RingBuffer::new(200),
                 scan_buf: String::new(),
                 pending_work_signal: None,
-                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                ),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
@@ -1860,7 +2051,12 @@ mod tests {
         );
 
         let seeded_at = tokio::time::Instant::now() - std::time::Duration::from_secs(3);
-        state.peon.last_output.write().unwrap().insert(id.clone(), seeded_at);
+        state
+            .peon
+            .last_output
+            .write()
+            .unwrap()
+            .insert(id.clone(), seeded_at);
 
         set_session_status(&state, &id, "running");
 
@@ -1882,9 +2078,9 @@ mod tests {
                 input_buf: std::sync::RwLock::new(std::collections::HashMap::new()),
                 config: crate::peon::PeonConfig::from_env(),
             },
-            adapters: crate::harness_registry::builtin_adapters(),
+            harness_catalog: crate::test_support::test_harness_components().0,
+            harness_store: crate::test_support::test_harness_components().1,
             retention_config: tokio::sync::RwLock::new(crate::RetentionConfig::default()),
-            harnesses: tokio::sync::RwLock::new(vec![]),
             bound_port: std::sync::atomic::AtomicU16::new(0),
             providers: crate::providers::ProviderManager::new(),
         });
@@ -1901,7 +2097,10 @@ mod tests {
                 output_buffer: crate::peon::RingBuffer::new(200),
                 scan_buf: String::new(),
                 pending_work_signal: None,
-                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                ),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
@@ -1914,7 +2113,14 @@ mod tests {
         );
 
         set_session_status(&state, "test-ending", "ended");
-        let session = state.sessions.lock().unwrap().get("test-ending").unwrap().info.clone();
+        let session = state
+            .sessions
+            .lock()
+            .unwrap()
+            .get("test-ending")
+            .unwrap()
+            .info
+            .clone();
         assert_eq!(session.status, "running");
         assert_eq!(session.lifecycle_phase, "ending");
     }
@@ -1942,16 +2148,22 @@ mod tests {
                 input_buf: RwLock::new(HashMap::new()),
                 config: crate::peon::PeonConfig::from_env(),
             },
-            adapters: crate::harness_registry::builtin_adapters(),
+            harness_catalog: crate::test_support::test_harness_components().0,
+            harness_store: crate::test_support::test_harness_components().1,
             retention_config: tokio::sync::RwLock::new(crate::RetentionConfig::default()),
-            harnesses: tokio::sync::RwLock::new(vec![]),
             bound_port: AtomicU16::new(0),
             providers: crate::providers::ProviderManager::new(),
         });
 
         let session_id = "ending-idempotent".to_string();
         let (kill_tx, _) = tokio::sync::watch::channel(false);
-        let mut info = test_session_info(session_id.clone(), "Test", dir.path().display().to_string(), "running", "now");
+        let mut info = test_session_info(
+            session_id.clone(),
+            "Test",
+            dir.path().display().to_string(),
+            "running",
+            "now",
+        );
         info.lifecycle_phase = "active".into();
         state.sessions.lock().unwrap().insert(
             session_id.clone(),
@@ -1961,7 +2173,10 @@ mod tests {
                 output_buffer: crate::peon::RingBuffer::new(200),
                 scan_buf: String::new(),
                 pending_work_signal: None,
-                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                ),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
@@ -2070,16 +2285,22 @@ mod tests {
                 input_buf: RwLock::new(HashMap::new()),
                 config: crate::peon::PeonConfig::from_env(),
             },
-            adapters: crate::harness_registry::builtin_adapters(),
+            harness_catalog: crate::test_support::test_harness_components().0,
+            harness_store: crate::test_support::test_harness_components().1,
             retention_config: tokio::sync::RwLock::new(crate::RetentionConfig::default()),
-            harnesses: tokio::sync::RwLock::new(vec![]),
             bound_port: AtomicU16::new(0),
             providers: crate::providers::ProviderManager::new(),
         });
 
         let session_id = "ending-complete".to_string();
         let (kill_tx, _) = tokio::sync::watch::channel(false);
-        let mut info = test_session_info(session_id.clone(), "Test", dir.path().display().to_string(), "running", "now");
+        let mut info = test_session_info(
+            session_id.clone(),
+            "Test",
+            dir.path().display().to_string(),
+            "running",
+            "now",
+        );
         info.lifecycle_phase = "ending".into();
         state.sessions.lock().unwrap().insert(
             session_id.clone(),
@@ -2089,7 +2310,10 @@ mod tests {
                 output_buffer: crate::peon::RingBuffer::new(200),
                 scan_buf: String::new(),
                 pending_work_signal: None,
-                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                ),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
@@ -2114,11 +2338,11 @@ mod tests {
                 cwd: dir.path().display().to_string(),
                 status: "running".into(),
                 work_phase: "unknown".into(),
-                    lifecycle_phase: "ending".into(),
-                    lifecycle: "stopping".into(),
-                    attention: None,
-                    plan_path: None,
-                    connectivity: "online".into(),
+                lifecycle_phase: "ending".into(),
+                lifecycle: "stopping".into(),
+                attention: None,
+                plan_path: None,
+                connectivity: "online".into(),
                 terminal_outcome: None,
                 pending_terminal_status: Some("killed".into()),
                 observed_status: None,
@@ -2174,7 +2398,14 @@ mod tests {
             "killed",
         );
 
-        let session = state.sessions.lock().unwrap().get(&session_id).unwrap().info.clone();
+        let session = state
+            .sessions
+            .lock()
+            .unwrap()
+            .get(&session_id)
+            .unwrap()
+            .info
+            .clone();
         assert_eq!(session.status, "killed");
         assert_eq!(session.lifecycle_phase, "ended");
         assert_eq!(session.terminal_outcome.as_deref(), Some("killed"));
@@ -2188,7 +2419,10 @@ mod tests {
         assert_eq!(meta.pending_terminal_status, None);
         assert_eq!(meta.ending_observed_status_snapshot, None);
         assert_eq!(
-            meta.final_observed_status_snapshot.unwrap().value.as_deref(),
+            meta.final_observed_status_snapshot
+                .unwrap()
+                .value
+                .as_deref(),
             Some("done")
         );
     }
@@ -2219,9 +2453,9 @@ mod tests {
                 input_buf: RwLock::new(HashMap::new()),
                 config,
             },
-            adapters: crate::harness_registry::builtin_adapters(),
+            harness_catalog: crate::test_support::test_harness_components().0,
+            harness_store: crate::test_support::test_harness_components().1,
             retention_config: tokio::sync::RwLock::new(crate::RetentionConfig::default()),
-            harnesses: tokio::sync::RwLock::new(vec![]),
             bound_port: AtomicU16::new(0),
             providers: providers::ProviderManager::for_tests(
                 providers::ProviderSettingsPayload {
@@ -2245,7 +2479,13 @@ mod tests {
 
         let session_id = "ending-timeout".to_string();
         let (kill_tx, _) = tokio::sync::watch::channel(false);
-        let mut info = test_session_info(session_id.clone(), "Test", dir.path().display().to_string(), "running", "now");
+        let mut info = test_session_info(
+            session_id.clone(),
+            "Test",
+            dir.path().display().to_string(),
+            "running",
+            "now",
+        );
         info.lifecycle_phase = "ending".into();
         state.sessions.lock().unwrap().insert(
             session_id.clone(),
@@ -2255,7 +2495,10 @@ mod tests {
                 output_buffer: crate::peon::RingBuffer::new(200),
                 scan_buf: String::new(),
                 pending_work_signal: None,
-                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                ),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
@@ -2266,7 +2509,14 @@ mod tests {
                 active_work_hook: false,
             },
         );
-        state.sessions.lock().unwrap().get_mut(&session_id).unwrap().output_buffer.push("final line".into());
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .get_mut(&session_id)
+            .unwrap()
+            .output_buffer
+            .push("final line".into());
 
         {
             let ws_guard = state.workspace.lock().unwrap();
@@ -2281,11 +2531,11 @@ mod tests {
                 cwd: dir.path().display().to_string(),
                 status: "running".into(),
                 work_phase: "unknown".into(),
-                    lifecycle_phase: "ending".into(),
-                    lifecycle: "stopping".into(),
-                    attention: None,
-                    plan_path: None,
-                    connectivity: "online".into(),
+                lifecycle_phase: "ending".into(),
+                lifecycle: "stopping".into(),
+                attention: None,
+                plan_path: None,
+                connectivity: "online".into(),
                 terminal_outcome: None,
                 pending_terminal_status: Some("ended".into()),
                 observed_status: None,
@@ -2331,7 +2581,14 @@ mod tests {
 
         finalize_session_ending(state.clone(), session_id.clone(), "ended".to_string()).await;
 
-        let session = state.sessions.lock().unwrap().get(&session_id).unwrap().info.clone();
+        let session = state
+            .sessions
+            .lock()
+            .unwrap()
+            .get(&session_id)
+            .unwrap()
+            .info
+            .clone();
         assert_eq!(session.status, "ended");
         assert_eq!(session.lifecycle_phase, "ended");
         assert_eq!(session.final_observed_status.as_deref(), Some("blocked"));
@@ -2350,14 +2607,20 @@ mod tests {
         let mut buf = String::new();
         assert!(collect_input_line(&mut buf, "hel").is_none());
         assert!(collect_input_line(&mut buf, "lo").is_none());
-        assert_eq!(collect_input_line(&mut buf, "\r\n").as_deref(), Some("hello"));
+        assert_eq!(
+            collect_input_line(&mut buf, "\r\n").as_deref(),
+            Some("hello")
+        );
         assert!(buf.is_empty());
     }
 
     #[test]
     fn collect_input_line_strips_trailing_whitespace() {
         let mut buf = String::new();
-        assert_eq!(collect_input_line(&mut buf, "cargo build  \n").as_deref(), Some("cargo build"));
+        assert_eq!(
+            collect_input_line(&mut buf, "cargo build  \n").as_deref(),
+            Some("cargo build")
+        );
     }
 
     #[test]
@@ -2365,5 +2628,4 @@ mod tests {
         let mut buf = String::new();
         assert!(collect_input_line(&mut buf, "\n").is_none());
     }
-
 }
