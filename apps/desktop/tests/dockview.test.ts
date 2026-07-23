@@ -235,30 +235,32 @@ test("sessionAttentionStatus defaults an alive session to idle", () => {
   assert.equal(sessionAttentionStatus(session), "idle");
 });
 
-test("sessionAttentionStatus is neutral outside alive lifecycle", () => {
+test("sessionAttentionStatus is neutral for a dead session, ignoring stale attention", () => {
   const session: SessionInfo = {
     id: "1",
-    label: "ending",
-    status: "running",
-    lifecycle: "stopping",
+    label: "ended",
+    status: "ended",
+    lifecycle: "dead",
     attention: "needs_you",
     cwd: "/tmp",
     created_at: "now",
-    memoryState: "live",
+    memoryState: "remembered",
     resumeStrategy: "none",
   };
 
   assert.equal(sessionAttentionStatus(session), "neutral");
 });
 
-test("transitional lifecycle phases render a spinner without lifecycle copy", () => {
+test("session rows derive tone from sessionAttentionStatus, no component-local lifecycle override", () => {
   const list = readFileSync(new URL("../src/components/SessionListPanel.tsx", import.meta.url), "utf8");
   const detail = readFileSync(new URL("../src/components/SessionDetailPanel.tsx", import.meta.url), "utf8");
 
+  // Whether creating/stopping reads as working is sessionAttentionStatus's
+  // call, so it stays correct the instant a session goes alive (idle,
+  // unless the harness has actually reported otherwise). A component-local
+  // override here would risk drifting out of sync with it.
   for (const source of [list, detail]) {
-    assert.match(source, /lifecycle\s*===\s*"creating"/);
-    assert.match(source, /lifecycle\s*===\s*"stopping"/);
-    assert.match(source, /transitional\s*\?\s*"working"/);
+    assert.doesNotMatch(source, /transitional/);
   }
 });
 
@@ -288,7 +290,7 @@ test("SessionDetailPanel keeps the normal status variant", () => {
     "utf8",
   );
 
-  assert.match(source, /<StatusIndicator tone=\{tone\} label=\{transitional \? "" : attentionLabel\(attn\)\} \/>/);
+  assert.match(source, /<StatusIndicator tone=\{tone\} label=\{attentionLabel\(attn\)\} \/>/);
   assert.doesNotMatch(source, /<StatusIndicator[^>]*variant=/);
 });
 

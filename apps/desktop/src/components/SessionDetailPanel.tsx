@@ -56,18 +56,15 @@ function SessionDetailPanel({ sessions, activeSessionId, onResumeSession, onAppl
   }
 
   const attn = sessionAttentionStatus(active);
-  const transitional = active.lifecycle === "creating" || active.lifecycle === "stopping";
-  const tone = transitional ? "working" : attentionTone(attn);
+  const tone = attentionTone(attn);
   const sourceTag = active.metadataSource;
   const providerContext = sessionProviderContext(active);
   const folder = active.cwd.split("/").pop() || active.cwd;
   const headline = situationHeadline(active);
   const tail = situationTail(active, tone);
-  const actionZone = transitional ? { kind: "none" as const } : detailActionZone(active, tone);
+  const actionZone = detailActionZone(active, tone);
   const badgeText =
-    transitional
-      ? ""
-      : attn === "capped" && active.usageLimitResetHint
+    attn === "capped" && active.usageLimitResetHint
       ? `Capped · ${active.usageLimitResetHint}`
       : attentionLabel(attn);
 
@@ -101,7 +98,7 @@ function SessionDetailPanel({ sessions, activeSessionId, onResumeSession, onAppl
       <div className="detail-situation" data-attention={tone}>
         <div className="detail-situation-top">
           <span className="detail-badge" data-attention={tone}>
-            <StatusIndicator tone={tone} label={transitional ? "" : attentionLabel(attn)} />
+            <StatusIndicator tone={tone} label={attentionLabel(attn)} />
             {badgeText}
           </span>
           <span className="detail-situation-time">{relativeTime(active.peonLastInference, now) || relativeTime(active.created_at, now)}</span>
