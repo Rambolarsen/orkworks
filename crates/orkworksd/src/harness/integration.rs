@@ -443,6 +443,16 @@ pub(crate) trait IntegrationHandler: Send + Sync {
         &self,
         ctx: &IntegrationContext<'_>,
     ) -> Result<IntegrationStatus, IntegrationError>;
+
+    /// Augments a launch only for the closed binding that owns the behavior.
+    /// Generic session launch code never switches on harness IDs.
+    fn augment_launch(
+        &self,
+        _command: &mut crate::harness::CommandSpec,
+        _enabled: bool,
+        _reporter: Option<&Path>,
+    ) {
+    }
 }
 
 pub(crate) fn handler(binding: &IntegrationBinding) -> &'static dyn IntegrationHandler {
@@ -451,6 +461,9 @@ pub(crate) fn handler(binding: &IntegrationBinding) -> &'static dyn IntegrationH
 
 pub(crate) struct IntegrationContext<'a> {
     pub workspace: &'a Path,
+    /// Global metadata already scoped to this workspace. Integration handlers
+    /// may use it for OrkWorks-owned preferences, never for repository files.
+    pub workspace_metadata: Option<&'a crate::metadata::MetadataStore>,
     pub orkworks_root: &'a Path,
     pub enabled: bool,
     pub detected_tool: Option<&'a DetectedTool>,
@@ -468,22 +481,35 @@ pub(crate) struct ReporterAssetResolver {
     pub stable_dir: PathBuf,
 }
 
+pub(crate) fn default_reporter_path() -> Option<PathBuf> {
+    dirs::home_dir().map(|home| {
+        home.join(".orkworks")
+            .join("hook-scripts")
+            .join("orkworks-reporter.sh")
+    })
+}
+
 impl ReporterAssetResolver {
-    /// Copies a code-owned reporter asset to the stable OrkWorks directory.
-    ///
-    /// Asset names must be a single safe file name; tool handlers cannot use
-    /// this resolver to choose arbitrary source or destination paths.
-    pub(crate) fn reconcile(&self, asset_name: &str) -> Result<PathBuf, IntegrationError> {
+    pub(crate) fn stable_path(&self, asset_name: &str) -> Result<PathBuf, IntegrationError> {
         if !is_safe_asset_name(asset_name) {
             return Err(IntegrationError::UnsafeTarget {
                 code: "invalid_asset_name",
                 message: "Reporter asset name must be a single relative file name.".into(),
             });
         }
+        Ok(self.stable_dir.join(asset_name))
+    }
+
+    /// Copies a code-owned reporter asset to the stable OrkWorks directory.
+    ///
+    /// Asset names must be a single safe file name; tool handlers cannot use
+    /// this resolver to choose arbitrary source or destination paths.
+    pub(crate) fn reconcile(&self, asset_name: &str) -> Result<PathBuf, IntegrationError> {
+        self.stable_path(asset_name)?;
         let source = self.source_dir.join(asset_name);
         let bytes = fs::read(&source)?;
         fs::create_dir_all(&self.stable_dir)?;
-        let destination = self.stable_dir.join(asset_name);
+        let destination = self.stable_path(asset_name)?;
         if fs::read(&destination).ok().as_deref() != Some(bytes.as_slice()) {
             write_new_file_atomically(&destination, &bytes)?;
         }

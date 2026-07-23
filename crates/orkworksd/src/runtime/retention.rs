@@ -192,6 +192,7 @@ mod tests {
                 last_active_session_id: Some(session_id.clone()),
                 last_active_at: Some("2024-01-01T00:00:00Z".into()),
                 active_harness_ids: vec![],
+                aider_notifications: None,
             });
         }
 

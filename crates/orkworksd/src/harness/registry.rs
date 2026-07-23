@@ -67,6 +67,36 @@ impl ResolvedHarness {
         }
     }
 
+    pub(crate) fn augment_launch_for_integration(
+        &self,
+        command: &mut crate::harness::CommandSpec,
+        enabled: bool,
+        reporter: Option<&std::path::Path>,
+    ) {
+        if let Some(binding) = &self.definition.integration {
+            crate::harness::integration::handler(binding)
+                .augment_launch(command, enabled, reporter);
+        }
+    }
+
+    #[allow(dead_code)] // Read by generic integration routes in Task 8.
+    pub(crate) fn integration_status(
+        &self,
+        ctx: &crate::harness::integration::IntegrationContext<'_>,
+    ) -> Result<
+        crate::harness::integration::IntegrationStatus,
+        crate::harness::integration::IntegrationError,
+    > {
+        match &self.definition.integration {
+            Some(binding) => crate::harness::integration::handler(binding).status(ctx),
+            None => Ok(crate::harness::integrations::generic_shell_status(
+                ctx.workspace,
+                ctx.enabled,
+                ctx.detected_tool.is_some(),
+            )),
+        }
+    }
+
     pub(crate) fn build_resume(
         &self,
         strategy: crate::harness::ResumeStrategy,

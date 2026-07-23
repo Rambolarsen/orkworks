@@ -208,6 +208,21 @@ pub struct WorkspaceMemory {
     pub last_active_at: Option<String>,
     #[serde(rename = "activeHarnessIds", default, skip_serializing_if = "Vec::is_empty")]
     pub active_harness_ids: Vec<String>,
+    #[serde(
+        rename = "aiderNotifications",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub aider_notifications: Option<WorkspaceAiderNotifications>,
+}
+
+/// Workspace-owned enablement for Aider's notification-command augmentation.
+/// This is deliberately stored in OrkWorks metadata rather than repository
+/// configuration because Aider has no verified local integration file.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct WorkspaceAiderNotifications {
+    pub version: u32,
+    pub enabled: bool,
 }
 
 fn normalize_session_metadata(mut meta: SessionMetadata) -> SessionMetadata {
@@ -762,6 +777,7 @@ struct SummaryCheckpointCacheEntry {
 pub struct MetadataStore {
     root: PathBuf,
     summary_checkpoints: Mutex<HashMap<String, SummaryCheckpointCacheEntry>>,
+    workspace_memory_lock: Mutex<()>,
     #[cfg(test)]
     after_event_write: Mutex<Option<Box<dyn Fn(&Path) + Send>>>,
 }
@@ -771,6 +787,7 @@ impl MetadataStore {
         Self {
             root: root.to_path_buf(),
             summary_checkpoints: Mutex::new(HashMap::new()),
+            workspace_memory_lock: Mutex::new(()),
             #[cfg(test)]
             after_event_write: Mutex::new(None),
         }
@@ -778,6 +795,10 @@ impl MetadataStore {
 
     pub fn sessions_dir(&self) -> PathBuf {
         self.root.join("sessions")
+    }
+
+    pub fn root_path(&self) -> PathBuf {
+        self.root.clone()
     }
 
     pub fn events_dir(&self) -> PathBuf {
@@ -807,6 +828,26 @@ impl MetadataStore {
             }
             Err(e) => warn!("failed to serialize workspace memory: {e}"),
         }
+    }
+
+    /// Atomically updates the small workspace-owned Aider preference while
+    /// serializing in-process writers. Callers receive persistence failures
+    /// rather than publishing an in-memory-only enablement state.
+    pub fn set_aider_notifications(&self, enabled: bool) -> std::io::Result<WorkspaceMemory> {
+        let _guard = self
+            .workspace_memory_lock
+            .lock()
+            .expect("workspace memory lock poisoned");
+        fs::create_dir_all(&self.root)?;
+        let mut memory = self.read_workspace_memory().unwrap_or_default();
+        memory.aider_notifications = Some(WorkspaceAiderNotifications {
+            version: 1,
+            enabled,
+        });
+        let json = serde_json::to_string_pretty(&memory)
+            .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
+        write_atomic(&self.workspace_memory_path(), &json)?;
+        Ok(memory)
     }
 
     pub fn read_all_sessions(&self) -> Vec<SessionMetadata> {
@@ -2228,6 +2269,7 @@ mod tests {
             last_active_session_id: Some("session-1".into()),
             last_active_at: Some("2026-06-17T12:00:00Z".into()),
             active_harness_ids: vec![],
+            aider_notifications: None,
         });
 
         let memory = store.read_workspace_memory().unwrap();
