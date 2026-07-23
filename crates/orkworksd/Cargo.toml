@@ -22,5 +22,10 @@ sha2 = "0.10"
 hex = "0.4"
 libc = "0.2"
 
+[target.'cfg(windows)'.dependencies]
+# ReplaceFileW preserves Windows replacement semantics for existing targets;
+# MoveFileExW publishes new targets without clobbering a raced creation.
+windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
+
 [dev-dependencies]
 tempfile = "3"

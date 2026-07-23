@@ -11,32 +11,35 @@ use std::sync::{Arc, Mutex, RwLock as StdRwLock};
 use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-mod metadata;
-mod watcher;
 mod git;
 mod harness;
-mod harness_registry;
+mod http;
+mod metadata;
+mod migration;
 mod peon;
 mod plan_handoff;
 mod providers;
-mod http;
-mod migration;
 mod runtime;
 mod session_types;
 mod session_view;
+mod watcher;
 mod workspace_runtime;
 
-use crate::harness_registry::{builtin_adapters, load_harnesses, HarnessConfig};
+use crate::harness::definition::{BuiltinDocument, EMBEDDED_BUILTINS};
+use crate::harness::registry::HarnessCatalog;
+use crate::harness::store::{global_harnesses_path, HarnessStore};
 use crate::http::harness_handlers::{
     create_harness, delete_harness, list_harnesses, update_harness,
 };
 use crate::http::hook_handlers::{get_attention_hook_status, install_attention_hook};
-use crate::http::provider_handlers::{get_provider_models, get_providers, set_provider_settings, verify_ollama_settings};
+use crate::http::provider_handlers::{
+    get_provider_models, get_providers, set_provider_settings, verify_ollama_settings,
+};
 use crate::http::retention_handlers::set_retention;
 use crate::http::session_handlers::{
-    apply_debug_attention, create_session, delete_session, forget_session, list_sessions, open_session_plan, report_attention,
-    report_harness_session, resume_session, set_active_harnesses, set_active_session,
-    set_workspace,
+    apply_debug_attention, create_session, delete_session, forget_session, list_sessions,
+    open_session_plan, report_attention, report_harness_session, resume_session,
+    set_active_harnesses, set_active_session, set_workspace,
 };
 use crate::runtime::peon_runtime::peon_loop;
 use crate::runtime::retention::retention_cleanup_task;
@@ -101,9 +104,9 @@ struct AppState {
     workspace: Mutex<Option<WorkspaceState>>,
     peon: PeonState,
     providers: providers::ProviderManager,
-    adapters: HashMap<String, harness::HarnessAdapter>,
+    harness_catalog: HarnessCatalog,
+    harness_store: Arc<HarnessStore>,
     retention_config: tokio::sync::RwLock<RetentionConfig>,
-    harnesses: tokio::sync::RwLock<Vec<HarnessConfig>>,
     bound_port: AtomicU16,
 }
 
@@ -117,8 +120,20 @@ async fn main() {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    let harnesses = load_harnesses();
-    let providers = providers::ProviderManager::new_with_harnesses(&harnesses);
+    let (harness_catalog, harness_store, providers) = {
+        let builtins =
+            Arc::new(BuiltinDocument::parse(EMBEDDED_BUILTINS).expect("embedded harnesses parse"));
+        let harness_store = Arc::new(HarnessStore::new(global_harnesses_path(), builtins));
+        let loaded_harnesses = harness_store
+            .load()
+            .expect("harness configuration must load");
+        if loaded_harnesses.migrated_from_v1 {
+            tracing::info!("migrated legacy harness configuration to version 2");
+        }
+        let harness_catalog: HarnessCatalog = Arc::new(StdRwLock::new(loaded_harnesses.registry));
+        let providers = providers::ProviderManager::new_with_catalog(harness_catalog.clone());
+        (harness_catalog, harness_store, providers)
+    };
 
     let state = Arc::new(AppState {
         sessions: Mutex::new(HashMap::new()),
@@ -133,9 +148,9 @@ async fn main() {
             config: peon::PeonConfig::from_env(),
         },
         providers,
-        adapters: builtin_adapters(),
+        harness_catalog,
+        harness_store,
         retention_config: tokio::sync::RwLock::new(RetentionConfig::default()),
-        harnesses: tokio::sync::RwLock::new(harnesses),
         bound_port: AtomicU16::new(0),
     });
 
@@ -165,18 +180,30 @@ async fn main() {
         .route("/providers", get(get_providers))
         .route("/providers/:id/models", get(get_provider_models))
         .route("/settings/providers", post(set_provider_settings))
-        .route("/settings/providers/ollama/verify", post(verify_ollama_settings))
+        .route(
+            "/settings/providers/ollama/verify",
+            post(verify_ollama_settings),
+        )
         .route("/workspace", post(set_workspace))
         .route("/workspace/active-session", post(set_active_session))
         .route("/workspace/active-harnesses", put(set_active_harnesses))
-        .route("/workspace/attention-hook/status", get(get_attention_hook_status))
-        .route("/workspace/attention-hook/install", post(install_attention_hook))
+        .route(
+            "/workspace/attention-hook/status",
+            get(get_attention_hook_status),
+        )
+        .route(
+            "/workspace/attention-hook/install",
+            post(install_attention_hook),
+        )
         .route("/sessions", post(create_session))
         .route("/sessions", get(list_sessions))
         .route("/sessions/:id", delete(delete_session))
         .route("/sessions/:id/forget", delete(forget_session))
         .route("/sessions/:id/resume", post(resume_session))
-        .route("/sessions/:id/harness-session", post(report_harness_session))
+        .route(
+            "/sessions/:id/harness-session",
+            post(report_harness_session),
+        )
         .route("/sessions/:id/attention", post(report_attention))
         .route("/sessions/:id/debug-injection", post(apply_debug_attention))
         .route("/sessions/:id/open-plan", post(open_session_plan))
@@ -214,6 +241,22 @@ fn session_metadata_serializes_connectivity_terminal_outcome_and_last_activity()
 #[cfg(test)]
 pub(crate) mod test_support {
     use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static TEST_HARNESS_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    pub(crate) fn test_harness_components() -> (HarnessCatalog, Arc<HarnessStore>) {
+        let builtins = Arc::new(BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap());
+        let path = std::env::temp_dir().join(format!(
+            "orkworksd-test-harnesses-{}-{}.json",
+            std::process::id(),
+            TEST_HARNESS_COUNTER.fetch_add(1, Ordering::Relaxed),
+        ));
+        let store = Arc::new(HarnessStore::new(path, builtins));
+        let registry = store.load().unwrap().registry;
+        let catalog = Arc::new(StdRwLock::new(registry));
+        (catalog, store)
+    }
     use crate::session_types::MemoryState;
     use crate::session_view::{connectivity_for_status, terminal_outcome_for_status};
     use std::sync::{Mutex as StdMutex, MutexGuard, OnceLock};
@@ -250,6 +293,7 @@ pub(crate) mod test_support {
 
     pub(crate) fn test_app_state_with_workspace(path: &std::path::Path) -> Arc<AppState> {
         let metadata_root = path.join(".orkworks-test");
+        let (harness_catalog, harness_store) = test_harness_components();
         Arc::new(AppState {
             sessions: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(WorkspaceState {
@@ -266,11 +310,11 @@ pub(crate) mod test_support {
                 input_buf: StdRwLock::new(HashMap::new()),
                 config: peon::PeonConfig::from_env(),
             },
-            adapters: builtin_adapters(),
+            harness_catalog: harness_catalog.clone(),
+            harness_store,
             retention_config: tokio::sync::RwLock::new(RetentionConfig::default()),
-            harnesses: tokio::sync::RwLock::new(vec![]),
             bound_port: AtomicU16::new(0),
-            providers: providers::ProviderManager::new(),
+            providers: providers::ProviderManager::new_with_catalog(harness_catalog),
         })
     }
 
@@ -426,14 +470,23 @@ mod tests {
             .route("/workspace", post(set_workspace))
             .route("/workspace/active-session", post(set_active_session))
             .route("/workspace/active-harnesses", put(set_active_harnesses))
-            .route("/workspace/attention-hook/status", get(get_attention_hook_status))
-            .route("/workspace/attention-hook/install", post(install_attention_hook))
+            .route(
+                "/workspace/attention-hook/status",
+                get(get_attention_hook_status),
+            )
+            .route(
+                "/workspace/attention-hook/install",
+                post(install_attention_hook),
+            )
             .route("/sessions", post(create_session))
             .route("/sessions", get(list_sessions))
             .route("/sessions/:id", delete(delete_session))
             .route("/sessions/:id/forget", delete(forget_session))
             .route("/sessions/:id/resume", post(resume_session))
-            .route("/sessions/:id/harness-session", post(report_harness_session))
+            .route(
+                "/sessions/:id/harness-session",
+                post(report_harness_session),
+            )
             .route("/sessions/:id/attention", post(report_attention))
             .route("/sessions/:id/debug-injection", post(apply_debug_attention))
             .route("/sessions/:id/open-plan", post(open_session_plan))
@@ -448,7 +501,9 @@ mod tests {
     }
 
     async fn test_server_base_url(state: Arc<AppState>) -> (String, tokio::task::JoinHandle<()>) {
-        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .unwrap();
         let addr = listener.local_addr().unwrap();
         let app = test_router(state);
         let server = tokio::spawn(async move {
@@ -487,7 +542,10 @@ mod tests {
                 reqwest::Method::GET,
                 format!("{}/sessions/test-id/harness-session", base_url),
             ),
-            (reqwest::Method::POST, format!("{}/sessions/test-id", base_url)),
+            (
+                reqwest::Method::POST,
+                format!("{}/sessions/test-id", base_url),
+            ),
         ];
 
         for (method, url) in cases {
@@ -505,18 +563,40 @@ mod tests {
         let state = test_app_state_with_workspace(dir.path());
         let (base_url, server) = test_server_base_url(state).await;
 
-        let response = reqwest::get(format!(
-            "{}/sessions/missing-session/summary-log",
-            base_url
-        ))
-        .await
-        .unwrap();
+        let response = reqwest::get(format!("{}/sessions/missing-session/summary-log", base_url))
+            .await
+            .unwrap();
 
         assert_eq!(response.status(), reqwest::StatusCode::OK);
         assert_eq!(
             response.json::<serde_json::Value>().await.unwrap(),
             serde_json::json!({ "entries": [] })
         );
+
+        server.abort();
+        let _ = server.await;
+    }
+
+    #[tokio::test]
+    async fn deleting_a_harness_distinguishes_unknown_id_from_builtin() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let (base_url, server) = test_server_base_url(state).await;
+        let client = reqwest::Client::new();
+
+        let missing = client
+            .delete(format!("{}/harnesses/not-a-real-harness", base_url))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(missing.status(), reqwest::StatusCode::NOT_FOUND);
+
+        let builtin = client
+            .delete(format!("{}/harnesses/codex", base_url))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(builtin.status(), reqwest::StatusCode::CONFLICT);
 
         server.abort();
         let _ = server.await;
@@ -536,9 +616,9 @@ mod tests {
                 input_buf: StdRwLock::new(HashMap::new()),
                 config: peon::PeonConfig::from_env(),
             },
-            adapters: builtin_adapters(),
+            harness_catalog: test_harness_components().0,
+            harness_store: test_harness_components().1,
             retention_config: tokio::sync::RwLock::new(RetentionConfig::default()),
-            harnesses: tokio::sync::RwLock::new(vec![]),
             bound_port: AtomicU16::new(0),
             providers: providers::ProviderManager::new(),
         });
@@ -549,17 +629,18 @@ mod tests {
         let id = "test-1".to_string();
         let info = test_session_info(id.clone(), "Test", "/tmp", "creating", "now");
 
-        state
-            .sessions
-            .lock()
-            .unwrap()
-            .insert(id, SessionHandle {
+        state.sessions.lock().unwrap().insert(
+            id,
+            SessionHandle {
                 info: info.clone(),
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
                 scan_buf: String::new(),
                 pending_work_signal: None,
-                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                ),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
@@ -568,7 +649,8 @@ mod tests {
                 resume_scan_origin: None,
                 pending_capacity_visible_once: false,
                 active_work_hook: false,
-            });
+            },
+        );
 
         let sessions = state.sessions.lock().unwrap();
         assert_eq!(sessions.len(), 1);

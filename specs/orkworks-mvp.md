@@ -185,6 +185,35 @@ Valid metadata sources:
 
 Peon must not overwrite higher-priority metadata unless the higher-priority metadata is stale or explicitly cleared.
 
+### Resolved harness capabilities and integrations
+
+OrkWorks resolves versioned, embedded built-in harness definitions together
+with sparse version-2 user overrides into one immutable registry. Launch,
+resume, models, Peon, capacity, native signals, voice projection, and workspace
+integration status all read that one snapshot. A definition expresses support
+by the presence of a closed capability binding; it does not use independent
+"supports" booleans. User overrides preserve omitted built-in fields, while
+complete custom definitions cannot select compiled signal handlers, reporters,
+or authority-bearing paths.
+
+The user document is `{ "version": 2, "overrides": { ... }, "custom": [ ... ] }`.
+An override is keyed by the immutable built-in ID. Arrays replace, nested
+objects merge, tagged-kind changes replace the complete capability, and `null`
+removes only an optional capability. Legacy v1 arrays remain readable and are
+migrated in memory; only a later successful save writes v2. A failed write
+never publishes an unpersisted registry.
+
+Each harness has read-only, independent integration axes: `enabled`, tool
+detection, registration (`unsupported`, `absent`, `installed`, `drifted`, or
+`error`), ownership, activation/trust, coverage, and diagnostics. Workspace
+install, repair, and uninstall are explicit, idempotent actions only. They
+require Electron-main confirmation and sidecar mutation authority; the
+renderer and child processes never receive that authority. Mutations are
+workspace-only, canonical/no-follow contained, ownership-aware, and durable
+write-before-publish. OrkWorks never edits tracked/shareable configuration,
+`.gitignore`, or arbitrary user hook commands. See
+[ADR 0026](../docs/adr/0026-resolved-harness-capability-registry.md).
+
 ### Deterministic harness-supplied signals
 
 Alongside Peon's LLM-based inference, some harnesses expose deterministic, higher-confidence signals that OrkWorks can consume directly instead of inferring them from terminal output:
@@ -193,7 +222,11 @@ Alongside Peon's LLM-based inference, some harnesses expose deterministic, highe
 - **Plan handoff**: an attention report may include an optional repo-relative Markdown `planPath` identifying the plan that led to the current `needs_you` state. A JSON `null` clears a previously reported path; omission preserves it. The sidecar exposes only a boolean availability flag to the renderer, then validates the stored path before returning it to Electron for an explicit OS-level open action. The renderer never receives a filesystem path. The authenticated plan-open endpoint is available only to the Electron main process via a per-sidecar secret, and Electron revalidates the returned path immediately before opening it. See [ADR 0025](../docs/adr/0025-authenticated-session-plan-handoff.md).
 - **Harness-native session ID**: a harness-specific mechanism (env var, hook JSON, structured JSONL event) reports the session's native ID via `POST /sessions/:id/harness-session`, tagged with a source string and confidence. This is the same generic capture endpoint used for OpenCode's `OPENCODE_SESSION_ID`, Claude Code's hook `session_id`, and Codex's `thread.started` JSONL event; see `skills/adding-harness/`.
 
-These are opt-in per harness and never installed automatically. For Claude Code, `POST /workspace/attention-hook/install` (paired with `GET /workspace/attention-hook/status`) merges a single hook entry into the workspace's `.claude/settings.local.json` only after explicit, user-confirmed action in Settings — never `settings.json`, and never at session spawn time. See [ADR 0019](../docs/adr/0019-attention-signal-endpoint-opt-in-hook-install.md).
+These are opt-in per harness and never installed automatically. Generic
+workspace integration routes report status and, only after explicit
+Electron-main confirmation, install/reconcile or uninstall a supported
+integration. A contract without an exact primary-source payload fixture remains
+limited or unsupported rather than inferred.
 
 When no harness-specific signal source is registered or installed for a session, Peon's LLM-based inference remains the sole/fallback source, unchanged.
 
@@ -376,7 +409,7 @@ Sessions should be prioritized:
 
 #### Harness Configuration
 
-- manual harness configuration
+- declarative built-ins plus sparse user overrides and complete custom definitions
 - generic terminal adapter
 - ability to start configured commands such as:
   - OpenCode
@@ -386,7 +419,7 @@ Sessions should be prioritized:
   - Aider
 - harness/model labels in UI
 - initial prompt/instruction injection or display
-- no smart harness-specific adapters required for v0.1
+- small compiled bindings only for verified tool-specific protocols
 
 #### Capacity Tracking
 

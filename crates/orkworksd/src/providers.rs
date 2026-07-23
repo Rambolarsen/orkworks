@@ -11,8 +11,12 @@ use std::time::Duration;
 use reqwest::Client as HttpClient;
 use serde::{Deserialize, Serialize};
 
+#[cfg(test)]
+use crate::harness::definition::{BuiltinDocument, HarnessUserDocument, EMBEDDED_BUILTINS};
+#[cfg(test)]
+use crate::harness::registry::resolve_document;
+use crate::harness::registry::HarnessCatalog;
 use crate::peon;
-use crate::harness_registry;
 
 // --- Ollama API types ---
 
@@ -113,7 +117,13 @@ pub(crate) fn default_ollama_base_url() -> String {
 
 impl Default for ProviderSettingsPayload {
     fn default() -> Self {
-        Self { version: 1, revision: 0, peon_model: None, ollama_base_url: default_ollama_base_url(), providers: vec![] }
+        Self {
+            version: 1,
+            revision: 0,
+            peon_model: None,
+            ollama_base_url: default_ollama_base_url(),
+            providers: vec![],
+        }
     }
 }
 
@@ -273,28 +283,6 @@ pub struct ProviderDefinition {
     pub http_list_models: bool,
 }
 
-fn derive_from_harness_configs(harnesses: &[harness_registry::HarnessConfig]) -> Vec<ProviderDefinition> {
-    harnesses
-        .iter()
-        .filter_map(|h| {
-            let peon = h.peon.clone()?;
-            Some(ProviderDefinition {
-                id: h.id.clone(),
-                label: h.name.clone(),
-                command: peon.command_override.unwrap_or_else(|| h.command.clone()),
-                default_args: peon.args,
-                model_arg_template: peon.model_arg_template,
-                supports_model: peon.supports_model,
-                timeout_secs: peon.timeout_secs,
-                list_models_command: peon.list_models_command,
-                list_models_args: peon.list_models_args,
-                static_models: peon.static_models,
-                http_list_models: peon.http_list_models,
-            })
-        })
-        .collect()
-}
-
 pub fn builtin_provider_registry() -> Vec<ProviderDefinition> {
     vec![ProviderDefinition {
         id: "ollama".into(),
@@ -386,7 +374,8 @@ fn block_on_http<F: std::future::Future>(f: F) -> F::Output {
     match tokio::runtime::Handle::try_current() {
         Ok(handle) => handle.block_on(f),
         Err(_) => {
-            let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime for HTTP");
+            let rt =
+                tokio::runtime::Runtime::new().expect("failed to create tokio runtime for HTTP");
             rt.block_on(f)
         }
     }
@@ -409,7 +398,14 @@ struct CompositeRunner {
 }
 
 impl ProviderRunner for CompositeRunner {
-    fn run(&self, id: &str, command: &str, args: &[String], prompt: &str, timeout_secs: u64) -> InvocationResult {
+    fn run(
+        &self,
+        id: &str,
+        command: &str,
+        args: &[String],
+        prompt: &str,
+        timeout_secs: u64,
+    ) -> InvocationResult {
         match id {
             "ollama" => self.http.run(id, command, args, prompt, timeout_secs),
             _ => self.process.run(id, command, args, prompt, timeout_secs),
@@ -420,7 +416,14 @@ impl ProviderRunner for CompositeRunner {
 struct ProcessRunner;
 
 impl ProviderRunner for ProcessRunner {
-    fn run(&self, id: &str, command: &str, args: &[String], prompt: &str, timeout_secs: u64) -> InvocationResult {
+    fn run(
+        &self,
+        id: &str,
+        command: &str,
+        args: &[String],
+        prompt: &str,
+        timeout_secs: u64,
+    ) -> InvocationResult {
         let mut cmd = Command::new(command);
         for arg in args {
             cmd.arg(arg);
@@ -449,14 +452,22 @@ impl ProviderRunner for ProcessRunner {
             Ok(c) => c,
             Err(e) => {
                 tracing::warn!(provider = %id, error = %e, "peon: failed to spawn");
-                return InvocationResult { success: false, stdout: String::new(), stderr: e.to_string() };
+                return InvocationResult {
+                    success: false,
+                    stdout: String::new(),
+                    stderr: e.to_string(),
+                };
             }
         };
 
         if let Some(mut stdin) = child.stdin.take() {
             if let Err(e) = stdin.write_all(prompt.as_bytes()) {
                 tracing::warn!(provider = %id, error = %e, "peon: failed to write prompt");
-                return InvocationResult { success: false, stdout: String::new(), stderr: e.to_string() };
+                return InvocationResult {
+                    success: false,
+                    stdout: String::new(),
+                    stderr: e.to_string(),
+                };
             }
         }
 
@@ -471,7 +482,11 @@ impl ProviderRunner for ProcessRunner {
             _ => {
                 let _ = Command::new("kill").arg(pid.to_string()).output();
                 tracing::warn!(provider = %id, "peon: provider timed out");
-                return InvocationResult { success: false, stdout: String::new(), stderr: "timed out".to_string() };
+                return InvocationResult {
+                    success: false,
+                    stdout: String::new(),
+                    stderr: "timed out".to_string(),
+                };
             }
         };
 
@@ -488,15 +503,24 @@ struct HttpRunner {
 }
 
 impl ProviderRunner for HttpRunner {
-    fn run(&self, id: &str, _command: &str, _args: &[String], prompt: &str, timeout_secs: u64) -> InvocationResult {
+    fn run(
+        &self,
+        id: &str,
+        _command: &str,
+        _args: &[String],
+        prompt: &str,
+        timeout_secs: u64,
+    ) -> InvocationResult {
         let settings = self.settings.read().unwrap().clone();
         let base_url = match id {
             "ollama" => settings.ollama_base_url.clone(),
-            _ => return InvocationResult {
-                success: false,
-                stdout: String::new(),
-                stderr: format!("HttpRunner does not support provider {id}"),
-            },
+            _ => {
+                return InvocationResult {
+                    success: false,
+                    stdout: String::new(),
+                    stderr: format!("HttpRunner does not support provider {id}"),
+                }
+            }
         };
 
         let model = match &settings.peon_model {
@@ -532,10 +556,18 @@ impl ProviderRunner for HttpRunner {
                 } else {
                     format!("Ollama generate request failed: {e}")
                 };
-                return InvocationResult { success: false, stdout: String::new(), stderr: msg };
+                return InvocationResult {
+                    success: false,
+                    stdout: String::new(),
+                    stderr: msg,
+                };
             }
             Err(_) => {
-                return InvocationResult { success: false, stdout: String::new(), stderr: "Ollama generate request timed out".to_string() };
+                return InvocationResult {
+                    success: false,
+                    stdout: String::new(),
+                    stderr: "Ollama generate request timed out".to_string(),
+                };
             }
         };
 
@@ -545,34 +577,36 @@ impl ProviderRunner for HttpRunner {
             return InvocationResult {
                 success: false,
                 stdout: String::new(),
-                stderr: format!("Ollama returned HTTP {}: {}", status.as_u16(), err_body.trim()),
+                stderr: format!(
+                    "Ollama returned HTTP {}: {}",
+                    status.as_u16(),
+                    err_body.trim()
+                ),
             };
         }
 
         let text = match block_on_http(resp.text()) {
             Ok(t) => t,
-            Err(e) => return InvocationResult {
-                success: false,
-                stdout: String::new(),
-                stderr: format!("failed to read Ollama response: {e}"),
-            },
+            Err(e) => {
+                return InvocationResult {
+                    success: false,
+                    stdout: String::new(),
+                    stderr: format!("failed to read Ollama response: {e}"),
+                }
+            }
         };
 
         match serde_json::from_str::<OllamaGenerateResponse>(&text) {
-            Ok(gen) => {
-                InvocationResult {
-                    success: true,
-                    stdout: gen.response,
-                    stderr: String::new(),
-                }
-            }
-            Err(e) => {
-                InvocationResult {
-                    success: false,
-                    stdout: String::new(),
-                    stderr: format!("failed to parse Ollama generate response: {e}"),
-                }
-            }
+            Ok(gen) => InvocationResult {
+                success: true,
+                stdout: gen.response,
+                stderr: String::new(),
+            },
+            Err(e) => InvocationResult {
+                success: false,
+                stdout: String::new(),
+                stderr: format!("failed to parse Ollama generate response: {e}"),
+            },
         }
     }
 }
@@ -582,6 +616,7 @@ impl ProviderRunner for HttpRunner {
 #[derive(Clone)]
 pub struct ProviderManager {
     registry: Vec<ProviderDefinition>,
+    harness_catalog: Option<HarnessCatalog>,
     settings: Arc<RwLock<ProviderSettingsPayload>>,
     applied_revision: Arc<RwLock<Option<u64>>>,
     runtime: Arc<RwLock<HashMap<String, ProviderRuntimeEntry>>>,
@@ -594,19 +629,18 @@ pub struct ProviderManager {
 impl ProviderManager {
     #[cfg(test)]
     pub fn new() -> Self {
-        let harnesses = harness_registry::builtin_harness_configs();
-        Self::new_with_harnesses(&harnesses)
+        let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
+        let registry =
+            Arc::new(resolve_document(&builtins, &HarnessUserDocument::default()).unwrap());
+        Self::new_with_catalog(Arc::new(RwLock::new(registry)))
     }
 
-    pub fn new_with_harnesses(harnesses: &[harness_registry::HarnessConfig]) -> Self {
+    pub fn new_with_catalog(catalog: HarnessCatalog) -> Self {
         let settings = Arc::new(RwLock::new(ProviderSettingsPayload::default()));
         let runtime = Arc::new(RwLock::new(HashMap::new()));
-        let registry: Vec<ProviderDefinition> = derive_from_harness_configs(harnesses)
-            .into_iter()
-            .chain(builtin_provider_registry())
-            .collect();
         Self {
-            registry,
+            registry: builtin_provider_registry(),
+            harness_catalog: Some(catalog),
             settings: settings.clone(),
             applied_revision: Arc::new(RwLock::new(None)),
             runtime,
@@ -618,6 +652,22 @@ impl ProviderManager {
             session_reset_hint: Arc::new(RwLock::new(HashMap::new())),
             session_checking: Arc::new(RwLock::new(HashSet::new())),
         }
+    }
+
+    fn definitions(&self) -> Vec<ProviderDefinition> {
+        let mut definitions = self
+            .harness_catalog
+            .as_ref()
+            .map(|catalog| {
+                catalog
+                    .read()
+                    .expect("harness catalog lock poisoned")
+                    .providers()
+                    .to_vec()
+            })
+            .unwrap_or_default();
+        definitions.extend(self.registry.clone());
+        definitions
     }
 
     /// Called by list_sessions after each peon scan cycle to keep provider
@@ -657,49 +707,60 @@ impl ProviderManager {
         let session_capped = self.session_capped.read().unwrap().clone();
         let session_reset_hint = self.session_reset_hint.read().unwrap().clone();
         let session_checking = self.session_checking.read().unwrap().clone();
+        let definitions = self.definitions();
 
-        let providers = settings.providers.iter().map(|entry| {
-            let effective = entry.effective_state();
-            let session_is_capped = session_capped.get(&entry.id).copied().unwrap_or(false);
-            let effective_str = if effective == ProviderEffectiveState::Disabled {
-                "disabled"
-            } else if session_checking.contains(&entry.id) {
-                "checking_capacity"
-            } else if session_is_capped {
-                "capped"
-            } else {
-                match effective {
-                    ProviderEffectiveState::Healthy => "healthy",
-                    ProviderEffectiveState::Degraded => "degraded",
-                    ProviderEffectiveState::Capped => "capped",
-                    ProviderEffectiveState::Unknown => "unknown",
-                    ProviderEffectiveState::Disabled => unreachable!(),
+        let providers = settings
+            .providers
+            .iter()
+            .map(|entry| {
+                let effective = entry.effective_state();
+                let session_is_capped = session_capped.get(&entry.id).copied().unwrap_or(false);
+                let effective_str = if effective == ProviderEffectiveState::Disabled {
+                    "disabled"
+                } else if session_checking.contains(&entry.id) {
+                    "checking_capacity"
+                } else if session_is_capped {
+                    "capped"
+                } else {
+                    match effective {
+                        ProviderEffectiveState::Healthy => "healthy",
+                        ProviderEffectiveState::Degraded => "degraded",
+                        ProviderEffectiveState::Capped => "capped",
+                        ProviderEffectiveState::Unknown => "unknown",
+                        ProviderEffectiveState::Disabled => unreachable!(),
+                    }
+                };
+                let label = definitions
+                    .iter()
+                    .find(|d| d.id == entry.id)
+                    .map(|d| d.label.clone())
+                    .unwrap_or_else(|| entry.id.clone());
+                let mut rt = runtime.get(&entry.id).cloned().unwrap_or_default();
+                if rt.reset_hint.is_none() {
+                    rt.reset_hint = session_reset_hint.get(&entry.id).cloned();
                 }
-            };
-            let label = self.registry.iter()
-                .find(|d| d.id == entry.id)
-                .map(|d| d.label.clone())
-                .unwrap_or_else(|| entry.id.clone());
-            let mut rt = runtime.get(&entry.id).cloned().unwrap_or_default();
-            if rt.reset_hint.is_none() {
-                rt.reset_hint = session_reset_hint.get(&entry.id).cloned();
-            }
 
-            ProviderEntry {
-                id: entry.id.clone(),
-                label,
-                enabled: entry.enabled,
-                fallback_order: entry.fallback_order,
-                effective_state: effective_str.to_string(),
-                runtime: rt,
-            }
-        }).collect();
+                ProviderEntry {
+                    id: entry.id.clone(),
+                    label,
+                    enabled: entry.enabled,
+                    fallback_order: entry.fallback_order,
+                    effective_state: effective_str.to_string(),
+                    runtime: rt,
+                }
+            })
+            .collect();
 
-        ProvidersResponse { providers, applied_revision }
+        ProvidersResponse {
+            providers,
+            applied_revision,
+        }
     }
 
     pub fn list_models(&self, provider_id: &str) -> Result<Vec<String>, String> {
-        let definition = self.registry.iter()
+        let definitions = self.definitions();
+        let definition = definitions
+            .iter()
             .find(|d| d.id == provider_id)
             .ok_or_else(|| format!("unknown provider: {provider_id}"))?;
 
@@ -743,7 +804,10 @@ impl ProviderManager {
         if let Err(std::sync::mpsc::RecvTimeoutError::Timeout) = receive_result {
             let _ = child.kill();
             let _ = child.wait();
-            return Err(format!("{command} timed out after {}s", definition.timeout_secs));
+            return Err(format!(
+                "{command} timed out after {}s",
+                definition.timeout_secs
+            ));
         }
 
         let (stdout, stderr) = match receive_result {
@@ -762,7 +826,9 @@ impl ProviderManager {
 
         let status = match exit_status {
             Some(s) => s,
-            None => child.wait().map_err(|e| format!("failed to wait on {command}: {e}"))?,
+            None => child
+                .wait()
+                .map_err(|e| format!("failed to wait on {command}: {e}"))?,
         };
 
         if !status.success() {
@@ -779,7 +845,11 @@ impl ProviderManager {
             serde_json::from_str::<Vec<String>>(trimmed)
                 .map_err(|e| format!("failed to parse JSON model list: {e}"))?
         } else {
-            trimmed.lines().map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect()
+            trimmed
+                .lines()
+                .map(|l| l.trim().to_string())
+                .filter(|l| !l.is_empty())
+                .collect()
         };
 
         Ok(models)
@@ -867,7 +937,9 @@ impl ProviderManager {
                     http_status: Some(status.as_u16()),
                     models: vec![],
                     excluded_models: vec![],
-                    diagnostic: Some(format!("failed to parse Ollama /api/tags response: {error}")),
+                    diagnostic: Some(format!(
+                        "failed to parse Ollama /api/tags response: {error}"
+                    )),
                 };
             }
         };
@@ -918,7 +990,8 @@ impl ProviderManager {
                 continue;
             }
 
-            let definition = match self.registry.iter().find(|d| d.id == entry.id.as_str()) {
+            let definitions = self.definitions();
+            let definition = match definitions.iter().find(|d| d.id == entry.id.as_str()) {
                 Some(d) => d,
                 None => {
                     tracing::warn!(provider = %entry.id, "peon: no registry entry for provider");
@@ -941,11 +1014,16 @@ impl ProviderManager {
             }
 
             let timeout_secs = timeout_secs_override.unwrap_or(definition.timeout_secs);
-            let result = self.runner.run(&entry.id, &definition.command, &args, &prompt, timeout_secs);
+            let result =
+                self.runner
+                    .run(&entry.id, &definition.command, &args, &prompt, timeout_secs);
 
             if result.success {
                 if let Some(inference) = peon::parse_inference(&result.stdout) {
-                    let rt_entry = ProviderRuntimeEntry { fallback_step: Some(step), ..Default::default() };
+                    let rt_entry = ProviderRuntimeEntry {
+                        fallback_step: Some(step),
+                        ..Default::default()
+                    };
                     attempts.push(AttemptRecord {
                         provider_id: entry.id.clone(),
                         step,
@@ -979,7 +1057,11 @@ impl ProviderManager {
             let stderr = result.stderr.trim().to_string();
             let rt_entry = if !stderr.is_empty() {
                 let (summary, hint) = parse_error_hint(&stderr);
-                ProviderRuntimeEntry { fallback_step: Some(step), last_error_summary: Some(summary), reset_hint: hint }
+                ProviderRuntimeEntry {
+                    fallback_step: Some(step),
+                    last_error_summary: Some(summary),
+                    reset_hint: hint,
+                }
             } else {
                 ProviderRuntimeEntry {
                     fallback_step: Some(step),
@@ -997,7 +1079,12 @@ impl ProviderManager {
         }
 
         *self.runtime.write().unwrap() = runtime.clone();
-        ProviderRunResult { inference: None, observation: None, attempts, runtime }
+        ProviderRunResult {
+            inference: None,
+            observation: None,
+            attempts,
+            runtime,
+        }
     }
 
     fn list_models_http(&self, provider_id: &str) -> Result<Vec<String>, String> {
@@ -1051,7 +1138,11 @@ fn parse_error_hint(stderr: &str) -> (String, Option<String>) {
     if let Some(comma_pos) = stderr.find(',') {
         let summary = stderr[..comma_pos].trim().to_string();
         let after = stderr[comma_pos + 1..].trim();
-        let hint = if after.is_empty() { None } else { Some(after.to_string()) };
+        let hint = if after.is_empty() {
+            None
+        } else {
+            Some(after.to_string())
+        };
         (summary, hint)
     } else {
         (stderr.to_string(), None)
@@ -1126,7 +1217,14 @@ pub struct FakeProvider {
 #[cfg(test)]
 impl FakeProvider {
     pub fn new(id: &'static str) -> Self {
-        Self { id, stdout_val: String::new(), stderr_val: String::new(), exit_code: 0, sleep_ms: 0, call_count: None }
+        Self {
+            id,
+            stdout_val: String::new(),
+            stderr_val: String::new(),
+            exit_code: 0,
+            sleep_ms: 0,
+            call_count: None,
+        }
     }
 
     pub fn stdout(mut self, s: &str) -> Self {
@@ -1162,7 +1260,14 @@ struct FakeRunner {
 
 #[cfg(test)]
 impl ProviderRunner for FakeRunner {
-    fn run(&self, id: &str, _command: &str, _args: &[String], _prompt: &str, timeout_secs: u64) -> InvocationResult {
+    fn run(
+        &self,
+        id: &str,
+        _command: &str,
+        _args: &[String],
+        _prompt: &str,
+        timeout_secs: u64,
+    ) -> InvocationResult {
         match self.specs.get(id) {
             Some(spec) => {
                 if let Some(ref counter) = spec.call_count {
@@ -1198,13 +1303,12 @@ impl ProviderManager {
     pub fn for_tests(settings: ProviderSettingsPayload, fakes: Vec<FakeProvider>) -> Self {
         let specs: HashMap<String, FakeProvider> =
             fakes.into_iter().map(|f| (f.id.to_string(), f)).collect();
-        let harnesses = harness_registry::builtin_harness_configs();
-        let registry: Vec<ProviderDefinition> = derive_from_harness_configs(&harnesses)
-            .into_iter()
-            .chain(builtin_provider_registry())
-            .collect();
+        let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
+        let resolved =
+            Arc::new(resolve_document(&builtins, &HarnessUserDocument::default()).unwrap());
         Self {
-            registry,
+            registry: builtin_provider_registry(),
+            harness_catalog: Some(Arc::new(RwLock::new(resolved))),
             settings: Arc::new(RwLock::new(settings)),
             applied_revision: Arc::new(RwLock::new(None)),
             runtime: Arc::new(RwLock::new(HashMap::new())),
@@ -1224,6 +1328,7 @@ impl ProviderManager {
             fakes.into_iter().map(|f| (f.id.to_string(), f)).collect();
         Self {
             registry,
+            harness_catalog: None,
             settings: Arc::new(RwLock::new(settings)),
             applied_revision: Arc::new(RwLock::new(None)),
             runtime: Arc::new(RwLock::new(HashMap::new())),
@@ -1238,7 +1343,6 @@ impl ProviderManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::harness_registry::{HarnessConfig, HarnessPeonConfig, HarnessVoiceCapabilities};
 
     struct TestEntryBuilder {
         id: &'static str,
@@ -1264,9 +1368,18 @@ mod tests {
             }
         }
 
-        fn enabled(mut self, v: bool) -> Self { self.enabled = v; self }
-        fn default_state(mut self, s: ProviderCapacityState) -> Self { self.default_state = s; self }
-        fn override_state(mut self, s: Option<ProviderCapacityState>) -> Self { self.override_state = s; self }
+        fn enabled(mut self, v: bool) -> Self {
+            self.enabled = v;
+            self
+        }
+        fn default_state(mut self, s: ProviderCapacityState) -> Self {
+            self.default_state = s;
+            self
+        }
+        fn override_state(mut self, s: Option<ProviderCapacityState>) -> Self {
+            self.override_state = s;
+            self
+        }
 
         fn build(self) -> ProviderSettingsEntry {
             ProviderSettingsEntry {
@@ -1305,7 +1418,9 @@ mod tests {
     fn skips_disabled_and_capped_providers_before_spawn() {
         let manager = ProviderManager::for_tests(
             sample_settings(vec![
-                entry("opencode").enabled(false).default_state(ProviderCapacityState::Healthy),
+                entry("opencode")
+                    .enabled(false)
+                    .default_state(ProviderCapacityState::Healthy),
                 entry("claude-code").override_state(Some(ProviderCapacityState::Capped)),
             ]),
             registry_with(vec![
@@ -1325,45 +1440,62 @@ mod tests {
     #[test]
     fn falls_back_to_second_provider_after_primary_quota_failure() {
         let manager = ProviderManager::for_tests(
-            sample_settings(vec![
-                entry("opencode"),
-                entry("claude-code"),
-            ]),
+            sample_settings(vec![entry("opencode"), entry("claude-code")]),
             registry_with(vec![
-                fake_provider("opencode").stderr("usage limit reached, resets in 2h").exit_code(1),
-                fake_provider("claude-code").stdout(r#"{"observedStatus":"working","confidence":0.9}"#),
+                fake_provider("opencode")
+                    .stderr("usage limit reached, resets in 2h")
+                    .exit_code(1),
+                fake_provider("claude-code")
+                    .stdout(r#"{"observedStatus":"working","confidence":0.9}"#),
             ]),
         );
 
         let result = manager.run_inference(PeonScope::Session, &["terminal line".to_string()]);
 
         assert!(result.inference.is_some());
-        assert_eq!(result.runtime["opencode"].last_error_summary.as_deref(), Some("usage limit reached"));
-        assert_eq!(result.runtime["opencode"].reset_hint.as_deref(), Some("resets in 2h"));
+        assert_eq!(
+            result.runtime["opencode"].last_error_summary.as_deref(),
+            Some("usage limit reached")
+        );
+        assert_eq!(
+            result.runtime["opencode"].reset_hint.as_deref(),
+            Some("resets in 2h")
+        );
         assert_eq!(result.runtime["claude-code"].fallback_step, Some(2));
     }
 
     #[test]
     fn get_providers_response_exposes_last_runtime_state() {
         let manager = ProviderManager::for_tests(
-            sample_settings(vec![
-                entry("opencode"),
-                entry("claude-code"),
-            ]),
+            sample_settings(vec![entry("opencode"), entry("claude-code")]),
             registry_with(vec![
-                fake_provider("opencode").stderr("usage limit reached, resets in 2h").exit_code(1),
-                fake_provider("claude-code").stdout(r#"{"observedStatus":"working","confidence":0.9}"#),
+                fake_provider("opencode")
+                    .stderr("usage limit reached, resets in 2h")
+                    .exit_code(1),
+                fake_provider("claude-code")
+                    .stdout(r#"{"observedStatus":"working","confidence":0.9}"#),
             ]),
         );
 
         let _ = manager.run_inference(PeonScope::Session, &["terminal line".to_string()]);
         let response = manager.get_providers_response();
 
-        let opencode = response.providers.iter().find(|provider| provider.id == "opencode").unwrap();
-        assert_eq!(opencode.runtime.last_error_summary.as_deref(), Some("usage limit reached"));
+        let opencode = response
+            .providers
+            .iter()
+            .find(|provider| provider.id == "opencode")
+            .unwrap();
+        assert_eq!(
+            opencode.runtime.last_error_summary.as_deref(),
+            Some("usage limit reached")
+        );
         assert_eq!(opencode.runtime.reset_hint.as_deref(), Some("resets in 2h"));
 
-        let claude = response.providers.iter().find(|provider| provider.id == "claude-code").unwrap();
+        let claude = response
+            .providers
+            .iter()
+            .find(|provider| provider.id == "claude-code")
+            .unwrap();
         assert_eq!(claude.runtime.fallback_step, Some(2));
     }
 
@@ -1381,7 +1513,11 @@ mod tests {
         );
 
         let response = manager.get_providers_response();
-        let opencode = response.providers.iter().find(|provider| provider.id == "opencode").unwrap();
+        let opencode = response
+            .providers
+            .iter()
+            .find(|provider| provider.id == "opencode")
+            .unwrap();
         assert_eq!(opencode.effective_state, "checking_capacity");
     }
 
@@ -1399,7 +1535,11 @@ mod tests {
         );
 
         let response = manager.get_providers_response();
-        let opencode = response.providers.iter().find(|provider| provider.id == "opencode").unwrap();
+        let opencode = response
+            .providers
+            .iter()
+            .find(|provider| provider.id == "opencode")
+            .unwrap();
         assert_eq!(opencode.effective_state, "disabled");
     }
 
@@ -1453,20 +1593,12 @@ mod tests {
 
     #[test]
     fn provider_manager_uses_supplied_harness_peon_configs() {
-        let harnesses = vec![HarnessConfig {
-            id: "custom-ai".into(),
-            name: "Custom AI".into(),
-            harness: "generic-shell".into(),
-            command: "custom-ai".into(),
-            args: vec![],
-            default_model: String::new(),
-            model_prefix: String::new(),
-            capabilities: HarnessVoiceCapabilities::default(),
-            attention: crate::harness_registry::HarnessAttentionCapabilities::default(),
-            is_builtin: false,
-            peon: Some(HarnessPeonConfig {
-                command_override: Some("custom-ai-peon".into()),
-                args: vec!["infer".into()],
+        let manager = ProviderManager::for_tests_with_registry(
+            vec![ProviderDefinition {
+                id: "custom-ai".into(),
+                label: "Custom AI".into(),
+                command: "custom-ai-peon".into(),
+                default_args: vec!["infer".into()],
                 model_arg_template: Some("--model={model}".into()),
                 supports_model: true,
                 timeout_secs: 7,
@@ -1474,10 +1606,10 @@ mod tests {
                 list_models_args: vec![],
                 static_models: vec!["custom-small".into(), "custom-large".into()],
                 http_list_models: false,
-            }),
-        }];
-
-        let manager = ProviderManager::new_with_harnesses(&harnesses);
+            }],
+            sample_settings(vec![]),
+            vec![],
+        );
 
         let result = manager.list_models("custom-ai").unwrap();
         assert_eq!(result, vec!["custom-small", "custom-large"]);
@@ -1485,10 +1617,7 @@ mod tests {
 
     #[test]
     fn list_models_returns_error_for_unknown_provider() {
-        let manager = ProviderManager::for_tests(
-            sample_settings(vec![]),
-            vec![],
-        );
+        let manager = ProviderManager::for_tests(sample_settings(vec![]), vec![]);
 
         let err = manager.list_models("nonexistent").unwrap_err();
         assert!(err.contains("unknown provider"));
@@ -1566,7 +1695,10 @@ mod tests {
         // This bypasses FakeRunner — list_models() dispatches on http_list_models
         // Uses a non-default port to avoid conflicting with a running Ollama
         let result = manager.list_models("ollama");
-        assert!(result.is_err(), "expected error connecting to unused port 49999");
+        assert!(
+            result.is_err(),
+            "expected error connecting to unused port 49999"
+        );
         let e = result.unwrap_err();
         assert!(
             e.contains("unreachable") || e.contains("connection refused"),
@@ -1634,6 +1766,9 @@ mod tests {
         let response = manager.verify_ollama("http://127.0.0.1:11434/api");
         assert!(!response.ok);
         assert_eq!(response.status, OllamaVerificationStatus::Failed);
-        assert_eq!(response.reason_code, OllamaVerificationReasonCode::InvalidUrl);
+        assert_eq!(
+            response.reason_code,
+            OllamaVerificationReasonCode::InvalidUrl
+        );
     }
 }

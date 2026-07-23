@@ -1,6 +1,6 @@
 # Attention signal via unauthenticated localhost endpoint, opt-in hook install only
 
-- Status: accepted
+- Status: superseded by [ADR 0026](./0026-resolved-harness-capability-registry.md)
 - Deciders: Lars-Erik
 - Date: 2026-06-25
 

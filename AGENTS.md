@@ -77,6 +77,8 @@ podman compose run --rm dev cargo test   --manifest-path crates/orkworksd/Cargo.
 
 `apps/desktop/node_modules`, `crates/orkworksd/target`, and the Cargo registry live in **named volumes** — never bind-mounted from the host, since Electron and native deps are platform-specific and the caches must not corrupt each other. On Windows, Podman runs in a WSL2 VM (bind-mount perf penalty on NTFS paths; set `git config core.autocrlf input` so CRLF endings don't break in-container shell scripts).
 
+The Rust sidecar uses the target-specific `windows-sys` `Win32_Storage_FileSystem` feature only on Windows: `ReplaceFileW` replaces an expected existing configuration while preserving Windows replacement semantics, and `MoveFileExW` publishes an expected new file without replace-existing. These operations remain best-effort optimistic concurrency, not portable compare-and-swap. It adds no dependency to Unix builds.
+
 ## Issue board
 
 All implementation work is tracked as GitHub issues: [https://github.com/Rambolarsen/orkworks/issues](https://github.com/Rambolarsen/orkworks/issues)
@@ -209,11 +211,12 @@ Electron + React/TypeScript frontend (`apps/desktop/`) communicates with a Rust 
 - ADR 0022: PTY lifetime is session-runtime-owned in the sidecar; renderer terminal attachment is detachable and does not own process lifetime.
 - ADR 0024: Raw terminal replay is bounded to the newest 1,000 lines and 1 MiB; durable summary checkpoints live in the event log.
 - ADR 0025: Session-plan handoff uses a sidecar-scoped secret and Electron main-process path revalidation; the renderer never receives filesystem paths.
+- ADR 0026: Harness capabilities resolve from one immutable registry; integration mutations require Electron-main confirmation and sidecar-only authority.
 
 **Rust module layout** (`crates/orkworksd/src/`):
 - `metadata.rs` — `SessionMetadata` and the on-disk metadata store (source of truth for session state)
 - `session_types.rs`, `session_view.rs` — session-facing types and view/projection helpers
-- `harness.rs`, `harness_registry.rs` — harness adapter abstraction and built-in harness definitions
+- `harness.rs` and its `definition`, `registry`, and `store` submodules — versioned harness definitions, sparse overrides, resolved immutable capability snapshots, and persistence
 - `providers.rs` — model provider registry, fallback, and capacity state
 - `peon.rs` — terminal-output observation and label/status inference
 - `git.rs`, `watcher.rs`, `migration.rs`, `workspace_runtime.rs` — Git context detection, metadata file watching, on-disk migrations, workspace bootstrap
@@ -232,6 +235,7 @@ See [`docs/agents/domain-entities.md`](docs/agents/domain-entities.md) for the c
 - `~/.orkworks/workspaces/<hash>/capacity/<id>.json` — capacity per model/harness
 - `~/.orkworks/workspaces/<hash>/recommendations/<id>.json` — Taskmaster recommendation state and history
 - `~/.orkworks/workspaces/<hash>/workspace.json` — workspace memory, including the last active session
+- `~/.orkworks/workspaces/<hash>/integrations/aider.json` — versioned OrkWorks-owned Aider notification-command preference
 - `~/.orkworks/harnesses.json` — global harness definitions
 - `~/.orkworks/hook-scripts/` — stable copies of harness reporter scripts (e.g. the Claude Code Notification hook), installed hook commands always point here rather than at the packaged/dev source, so they keep working across app updates and packaging schemes whose own paths aren't stable at runtime (Linux AppImage's per-launch mount point, in particular)
 - Priority: user > agent > peon > backend_inference > process > unknown > debug

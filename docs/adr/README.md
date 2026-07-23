@@ -26,10 +26,11 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 | [0015](./0015-provider-ops-peon-fallback.md) | Provider ops panel and app-wide Peon fallback | superseded by 0016 |
 | [0016](./0016-session-details-provider-context.md) | Session details provider context | superseded by 0017 (Settings surface) |
 | [0017](./0017-provider-context-session-scoped.md) | Provider context is session-scoped, not app-wide | superseded (peon model picker restores per-provider model selection in Settings) |
-| [0019](./0019-attention-signal-endpoint-opt-in-hook-install.md) | Attention signal via unauthenticated localhost endpoint, opt-in hook install only | accepted |
+| [0019](./0019-attention-signal-endpoint-opt-in-hook-install.md) | Attention signal via unauthenticated localhost endpoint, opt-in hook install only | superseded by [0026](./0026-resolved-harness-capability-registry.md) |
 | [0020](./0020-phosphor-visual-refresh-token-layer.md) | Phosphor visual refresh: cool-graphite + lime token layer | accepted |
 | [0021](./0021-session-lifecycle-phases.md) | Explicit session lifecycle phases with frozen final observed state | superseded by [0023](./0023-simplified-session-lifecycle.md) |
 | [0022](./0022-session-runtime-owned-pty-lifetime.md) | Session-runtime-owned PTY lifetime | accepted |
 | [0023](./0023-simplified-session-lifecycle.md) | Simplified session lifecycle and alive-only attention | accepted |
 | [0024](./0024-bounded-terminal-replay-durable-summary-checkpoints.md) | Bounded terminal replay with durable summary checkpoints | accepted |
 | [0025](./0025-authenticated-session-plan-handoff.md) | Authenticated session plan handoff | accepted |
+| [0026](./0026-resolved-harness-capability-registry.md) | Resolved harness capability registry | accepted |

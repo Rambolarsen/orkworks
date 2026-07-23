@@ -1,9 +1,8 @@
 use crate::runtime::terminal_runtime::{
-    codex_thread_id_from_jsonl_line, make_pty_system, schedule_session_ending_finalization,
-    session_env_overrides, set_session_status, should_forward_terminal_env, terminal_env_overrides,
+    make_pty_system, schedule_session_ending_finalization, session_env_overrides,
+    set_session_status, should_forward_terminal_env, terminal_env_overrides,
 };
-use crate::workspace_runtime::iso_now;
-use crate::{AppState, harness, metadata, peon};
+use crate::{harness, metadata, peon, AppState};
 use chrono::{DateTime, Utc};
 use portable_pty::{CommandBuilder, PtySize, PtySystem};
 use std::collections::VecDeque;
@@ -115,7 +114,10 @@ pub(crate) enum RuntimeCommand {
         data: String,
         accepted: Option<tokio::sync::oneshot::Sender<Result<(), ()>>>,
     },
-    Resize { rows: u16, cols: u16 },
+    Resize {
+        rows: u16,
+        cols: u16,
+    },
     Kill,
 }
 
@@ -416,20 +418,32 @@ async fn capture_startup_runtime_state(
             }
             Ok(Some(command)) => {
                 if pending_commands.len() >= CONTROL_CHANNEL_CAPACITY {
-                    if let RuntimeCommand::Input { accepted: Some(accepted), .. } = command {
+                    if let RuntimeCommand::Input {
+                        accepted: Some(accepted),
+                        ..
+                    } = command
+                    {
                         let _ = accepted.send(Err(()));
                     }
                     continue;
                 }
                 if let RuntimeCommand::Input { data, .. } = &command {
                     let Some(next_input_bytes) = pending_input_bytes.checked_add(data.len()) else {
-                        if let RuntimeCommand::Input { accepted: Some(accepted), .. } = command {
+                        if let RuntimeCommand::Input {
+                            accepted: Some(accepted),
+                            ..
+                        } = command
+                        {
                             let _ = accepted.send(Err(()));
                         }
                         continue;
                     };
                     if next_input_bytes > STARTUP_PENDING_INPUT_BYTES {
-                        if let RuntimeCommand::Input { accepted: Some(accepted), .. } = command {
+                        if let RuntimeCommand::Input {
+                            accepted: Some(accepted),
+                            ..
+                        } = command
+                        {
                             let _ = accepted.send(Err(()));
                         }
                         continue;
@@ -578,7 +592,10 @@ pub(crate) async fn start_session_runtime(
         for command in pending_commands {
             match command {
                 RuntimeCommand::Input { data, accepted } => {
-                    let result = writer.write_all(data.as_bytes()).and_then(|_| writer.flush()).map_err(|_| ());
+                    let result = writer
+                        .write_all(data.as_bytes())
+                        .and_then(|_| writer.flush())
+                        .map_err(|_| ());
                     if let Some(accepted) = accepted {
                         let _ = accepted.send(result);
                     }
@@ -653,7 +670,6 @@ pub(crate) async fn start_session_runtime(
                             let stripped = peon::strip_ansi(&String::from_utf8_lossy(&data));
                             let raw_persist_lines = drain_persist_records(&mut persist_buffer);
 
-                            let mut codex_thread_id: Option<String> = None;
                             let mut promoted_working = false;
                             {
                                 let mut sessions = driver_state.sessions.lock().unwrap();
@@ -689,24 +705,8 @@ pub(crate) async fn start_session_runtime(
                                         handle.info.attention = Some("working".into());
                                         promoted_working = true;
                                     }
-                                    if handle.info.harness_id.as_deref() == Some("codex") {
-                                        codex_thread_id = raw_persist_lines.iter()
-                                            .find_map(|line| codex_thread_id_from_jsonl_line(line));
-                                    }
                                     let cursor = handle.runtime.replay.push(data.clone());
                                     let _ = handle.runtime.output_tx.send(RuntimeEvent::Output { cursor, chunk: data.clone() });
-                                }
-                            }
-
-                            if let Some(thread_id) = codex_thread_id {
-                                let ws_guard = driver_state.workspace.lock().unwrap();
-                                if let Some(ref ws) = *ws_guard {
-                                    let report = metadata::HarnessSessionReport {
-                                        harness_session_id: thread_id,
-                                        source: "codex_jsonl".into(),
-                                        confidence: 0.99,
-                                    };
-                                    let _ = ws.metadata.merge_harness_session_report(&driver_id, &report, &iso_now());
                                 }
                             }
 
@@ -863,9 +863,9 @@ mod tests {
                 input_buf: RwLock::new(HashMap::new()),
                 config: crate::peon::PeonConfig::from_env(),
             },
-            adapters: crate::harness_registry::builtin_adapters(),
+            harness_catalog: crate::test_support::test_harness_components().0,
+            harness_store: crate::test_support::test_harness_components().1,
             retention_config: tokio::sync::RwLock::new(crate::RetentionConfig::default()),
-            harnesses: tokio::sync::RwLock::new(vec![]),
             bound_port: AtomicU16::new(0),
             providers: crate::providers::ProviderManager::new(),
         });
@@ -994,9 +994,16 @@ mod tests {
 
         // Fill the bounded channel to capacity without draining it.
         for _ in 0..CONTROL_CHANNEL_CAPACITY {
-            send_runtime_command(&state, session_id, RuntimeCommand::Input { data: "x".into(), accepted: None })
-                .await
-                .unwrap();
+            send_runtime_command(
+                &state,
+                session_id,
+                RuntimeCommand::Input {
+                    data: "x".into(),
+                    accepted: None,
+                },
+            )
+            .await
+            .unwrap();
         }
 
         // The channel is now full; one more send should not resolve until something drains it.
@@ -1005,7 +1012,10 @@ mod tests {
             send_runtime_command(
                 &state_clone,
                 session_id,
-                RuntimeCommand::Input { data: "overflow".into(), accepted: None },
+                RuntimeCommand::Input {
+                    data: "overflow".into(),
+                    accepted: None,
+                },
             )
             .await
         });
@@ -1032,7 +1042,12 @@ mod tests {
         let (tx, mut rx) = mpsc::channel(3);
         let chunk = "x".repeat(STARTUP_PENDING_INPUT_BYTES / 2);
         for _ in 0..3 {
-            tx.send(RuntimeCommand::Input { data: chunk.clone(), accepted: None }).await.unwrap();
+            tx.send(RuntimeCommand::Input {
+                data: chunk.clone(),
+                accepted: None,
+            })
+            .await
+            .unwrap();
         }
         drop(tx);
 
@@ -1053,7 +1068,14 @@ mod tests {
     #[test]
     fn observer_only_output_cannot_resume_finished_states() {
         let past_grace = tokio::time::Instant::now() - std::time::Duration::from_millis(1);
-        for status in ["idle", "waiting_for_input", "blocked", "failed", "stale", "done"] {
+        for status in [
+            "idle",
+            "waiting_for_input",
+            "blocked",
+            "failed",
+            "stale",
+            "done",
+        ] {
             assert!(
                 !should_infer_working("alive", false, false, past_grace),
                 "observer-only output should not resume {status} to working"
@@ -1095,7 +1117,10 @@ mod tests {
             "model output",
             now + std::time::Duration::from_secs(10),
         ));
-        assert!(signal.is_none(), "expired signal must be cleared, not rechecked forever");
+        assert!(
+            signal.is_none(),
+            "expired signal must be cleared, not rechecked forever"
+        );
     }
 
     #[test]
@@ -1124,7 +1149,10 @@ mod tests {
         let session_id = "terminal-input-work-signal";
         let state = test_state_with_runtime_session(session_id);
 
-        assert!(crate::runtime::terminal_runtime::record_terminal_input(&state, session_id, "fix").is_none());
+        assert!(
+            crate::runtime::terminal_runtime::record_terminal_input(&state, session_id, "fix")
+                .is_none()
+        );
         let sessions = state.sessions.lock().unwrap();
         let handle = &sessions[session_id];
         assert_eq!(handle.info.attention.as_deref(), Some("working"));
@@ -1146,7 +1174,10 @@ mod tests {
         // A prior accepted response leaves an in-progress echo prefix. Model a
         // later arrow-key edit after its original work signal expired.
         crate::runtime::terminal_runtime::record_terminal_input(&state, session_id, "y");
-        state.sessions.lock().unwrap()
+        state
+            .sessions
+            .lock()
+            .unwrap()
             .get_mut(session_id)
             .unwrap()
             .pending_work_signal = None;
@@ -1175,12 +1206,10 @@ mod tests {
             handle.info.metadata_source = Some("agent".into());
         }
 
-        assert!(crate::runtime::terminal_runtime::record_terminal_input(
-            &state,
-            session_id,
-            "fix"
-        )
-        .is_none());
+        assert!(
+            crate::runtime::terminal_runtime::record_terminal_input(&state, session_id, "fix")
+                .is_none()
+        );
         crate::runtime::terminal_runtime::record_terminal_input(&state, session_id, "\r")
             .expect("Enter submits the line and record_terminal_input returns Some(())");
         let sessions = state.sessions.lock().unwrap();
@@ -1314,16 +1343,17 @@ mod tests {
 
         // Accepted input is sufficient evidence of resumed work; no PTY output
         // is needed to clear the prompt.
-        assert!(crate::runtime::terminal_runtime::record_terminal_input(
-            &state,
-            session_id,
-            "y"
-        )
-        .is_none());
+        assert!(
+            crate::runtime::terminal_runtime::record_terminal_input(&state, session_id, "y")
+                .is_none()
+        );
 
         {
             let sessions = state.sessions.lock().unwrap();
-            assert_eq!(sessions[session_id].info.attention.as_deref(), Some("working"));
+            assert_eq!(
+                sessions[session_id].info.attention.as_deref(),
+                Some("working")
+            );
             assert!(sessions[session_id].pending_work_signal.is_none());
         }
 
@@ -1445,7 +1475,10 @@ mod tests {
         .expect("completed terminal input should be accepted");
 
         let sessions = state.sessions.lock().unwrap();
-        assert_eq!(sessions[session_id].info.attention.as_deref(), Some("working"));
+        assert_eq!(
+            sessions[session_id].info.attention.as_deref(),
+            Some("working")
+        );
         assert!(sessions[session_id].pending_work_signal.is_none());
     }
 
@@ -1519,7 +1552,12 @@ mod tests {
             );
         }
         let ws = state.workspace.lock().unwrap();
-        let meta = ws.as_ref().unwrap().metadata.read_session(session_id).unwrap();
+        let meta = ws
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(session_id)
+            .unwrap();
         assert_eq!(meta.observed_status.as_deref(), Some("working"));
         assert_eq!(meta.attention.as_deref(), Some("working"));
         assert_eq!(meta.needs_user_input, None);
@@ -1568,11 +1606,27 @@ mod tests {
         assert_eq!(handle.info.attention.as_deref(), Some("working"));
         assert_eq!(handle.info.observed_status.as_deref(), Some("working"));
         drop(sessions);
-        assert!(state.peon.label_hint.read().unwrap().get(session_id).is_none());
-        assert!(!state.peon.label_pending.read().unwrap().contains(session_id));
+        assert!(state
+            .peon
+            .label_hint
+            .read()
+            .unwrap()
+            .get(session_id)
+            .is_none());
+        assert!(!state
+            .peon
+            .label_pending
+            .read()
+            .unwrap()
+            .contains(session_id));
 
         let ws = state.workspace.lock().unwrap();
-        let meta = ws.as_ref().unwrap().metadata.read_session(session_id).unwrap();
+        let meta = ws
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(session_id)
+            .unwrap();
         assert_eq!(meta.label, line);
         assert_eq!(meta.last_user_input.as_deref(), Some(line));
         assert_eq!(meta.attention.as_deref(), Some("working"));
@@ -1649,21 +1703,17 @@ mod tests {
 
         let handle = state.sessions.lock().unwrap();
         let session = handle.get(session_id).unwrap();
-        assert!(
-            session
-                .runtime
-                .replay
-                .snapshot()
-                .iter()
-                .any(|(_, chunk)| String::from_utf8_lossy(chunk).contains("startup-grace-output"))
-        );
-        assert!(
-            session
-                .output_buffer
-                .snapshot()
-                .iter()
-                .any(|line| line.contains("startup-grace-output"))
-        );
+        assert!(session
+            .runtime
+            .replay
+            .snapshot()
+            .iter()
+            .any(|(_, chunk)| String::from_utf8_lossy(chunk).contains("startup-grace-output")));
+        assert!(session
+            .output_buffer
+            .snapshot()
+            .iter()
+            .any(|line| line.contains("startup-grace-output")));
         assert_ne!(session.info.attention.as_deref(), Some("working"));
         assert_ne!(session.info.observed_status.as_deref(), Some("working"));
         assert!(session.pending_work_signal.is_none());
@@ -1738,14 +1788,19 @@ mod tests {
         .unwrap();
 
         assert!(crate::runtime::terminal_runtime::record_terminal_input(
-            &state,
-            session_id,
-            "work",
+            &state, session_id, "work",
         )
         .is_none());
-        send_runtime_command(&state, session_id, RuntimeCommand::Input { data: "work".into(), accepted: None })
-            .await
-            .unwrap();
+        send_runtime_command(
+            &state,
+            session_id,
+            RuntimeCommand::Input {
+                data: "work".into(),
+                accepted: None,
+            },
+        )
+        .await
+        .unwrap();
 
         tokio::time::timeout(Duration::from_secs(3), async {
             loop {
@@ -1763,20 +1818,28 @@ mod tests {
         .await
         .expect("process should produce unsolicited output after startup grace");
         assert_eq!(
-            state.sessions.lock().unwrap()[session_id].info.observed_status.as_deref(),
+            state.sessions.lock().unwrap()[session_id]
+                .info
+                .observed_status
+                .as_deref(),
             Some("working"),
             "accepted partial terminal input immediately marks the session working"
         );
 
         assert!(crate::runtime::terminal_runtime::record_terminal_input(
-            &state,
-            session_id,
-            " now\r",
+            &state, session_id, " now\r",
         )
         .is_some());
-        send_runtime_command(&state, session_id, RuntimeCommand::Input { data: " now\r".into(), accepted: None })
-            .await
-            .unwrap();
+        send_runtime_command(
+            &state,
+            session_id,
+            RuntimeCommand::Input {
+                data: " now\r".into(),
+                accepted: None,
+            },
+        )
+        .await
+        .unwrap();
 
         tokio::time::timeout(Duration::from_secs(3), async {
             loop {
@@ -1801,7 +1864,12 @@ mod tests {
         drop(sessions);
 
         let ws = state.workspace.lock().unwrap();
-        let meta = ws.as_ref().unwrap().metadata.read_session(session_id).unwrap();
+        let meta = ws
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(session_id)
+            .unwrap();
         assert_eq!(meta.observed_status.as_deref(), Some("working"));
         assert_eq!(meta.attention.as_deref(), Some("working"));
         assert_eq!(meta.metadata_source, "process");
@@ -1857,9 +1925,16 @@ mod tests {
             "work now\r",
         )
         .is_some());
-        send_runtime_command(&state, session_id, RuntimeCommand::Input { data: "work now\r".into(), accepted: None })
-            .await
-            .unwrap();
+        send_runtime_command(
+            &state,
+            session_id,
+            RuntimeCommand::Input {
+                data: "work now\r".into(),
+                accepted: None,
+            },
+        )
+        .await
+        .unwrap();
 
         tokio::time::timeout(Duration::from_secs(3), async {
             loop {
@@ -1879,8 +1954,14 @@ mod tests {
 
         let handle = state.sessions.lock().unwrap();
         assert!(handle[session_id].pending_work_signal.is_none());
-        assert_eq!(handle[session_id].info.observed_status.as_deref(), Some("working"));
-        assert_eq!(handle[session_id].info.attention.as_deref(), Some("working"));
+        assert_eq!(
+            handle[session_id].info.observed_status.as_deref(),
+            Some("working")
+        );
+        assert_eq!(
+            handle[session_id].info.attention.as_deref(),
+            Some("working")
+        );
     }
 
     #[tokio::test]
@@ -2231,10 +2312,7 @@ mod tests {
         buffer.extend(vec![b'x'; MAX_PARTIAL_PERSIST_BYTES - 3]);
         buffer.extend_from_slice(&[0xE2, 0x82]);
 
-        assert_eq!(
-            drain_persist_records(&mut buffer),
-            Vec::<String>::new(),
-        );
+        assert_eq!(drain_persist_records(&mut buffer), Vec::<String>::new(),);
         let mut expected = vec![0xFF];
         expected.extend(vec![b'x'; MAX_PARTIAL_PERSIST_BYTES - 3]);
         expected.extend_from_slice(&[0xE2, 0x82]);
