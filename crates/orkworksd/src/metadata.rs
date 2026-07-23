@@ -1222,6 +1222,7 @@ impl MetadataStore {
             PlanPathUpdate::Clear => meta.plan_path = None,
             PlanPathUpdate::Set(path) => meta.plan_path = Some(path.clone()),
         }
+        meta.last_activity = timestamp.to_string();
         meta.metadata_source = source.into();
         meta.metadata_confidence = confidence;
         if let Err(e) = self.try_write_session(&meta) {
@@ -1334,6 +1335,7 @@ impl MetadataStore {
             }
         }
 
+        meta.last_activity = timestamp.to_string();
         meta.peon_last_inference = Some(timestamp.to_string());
         meta.metadata_source = "peon".into();
         meta.metadata_confidence = inf.confidence;
