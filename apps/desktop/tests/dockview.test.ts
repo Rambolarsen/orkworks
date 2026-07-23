@@ -251,15 +251,14 @@ test("sessionAttentionStatus is neutral outside alive lifecycle", () => {
   assert.equal(sessionAttentionStatus(session), "neutral");
 });
 
-test("creating/stopping sessions do not force a working tone", () => {
+test("session rows derive tone from sessionAttentionStatus, no component-local lifecycle override", () => {
   const list = readFileSync(new URL("../src/components/SessionListPanel.tsx", import.meta.url), "utf8");
   const detail = readFileSync(new URL("../src/components/SessionDetailPanel.tsx", import.meta.url), "utf8");
 
-  // A session that's merely spawning or tearing down its PTY hasn't had the
-  // harness do anything yet — sessionAttentionStatus already reports "idle"
-  // while creating and "neutral" while stopping. Forcing tone="working" here
-  // would show the same spinner as real harness activity, so no such
-  // override should exist.
+  // Whether "creating" reads as working and "stopping" reads as neutral is
+  // sessionAttentionStatus's call, so it stays correct the instant a session
+  // goes alive (idle, unless the harness has actually reported otherwise).
+  // A component-local override here would risk drifting out of sync with it.
   for (const source of [list, detail]) {
     assert.doesNotMatch(source, /transitional/);
   }
