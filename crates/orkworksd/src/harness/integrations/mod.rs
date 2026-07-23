@@ -89,6 +89,9 @@ pub(crate) struct JsonHookHandler {
     probe: fn(&Map<String, Value>, &Path) -> Result<FragmentState, IntegrationError>,
     merge: fn(&mut Map<String, Value>, &Path) -> Result<(), IntegrationError>,
     remove: fn(&mut Map<String, Value>) -> Result<FragmentState, IntegrationError>,
+    reconcile: fn(
+        &crate::harness::integration::ReporterAssetResolver,
+    ) -> Result<PathBuf, IntegrationError>,
 }
 
 impl JsonHookHandler {
@@ -97,12 +100,16 @@ impl JsonHookHandler {
         probe: fn(&Map<String, Value>, &Path) -> Result<FragmentState, IntegrationError>,
         merge: fn(&mut Map<String, Value>, &Path) -> Result<(), IntegrationError>,
         remove: fn(&mut Map<String, Value>) -> Result<FragmentState, IntegrationError>,
+        reconcile: fn(
+            &crate::harness::integration::ReporterAssetResolver,
+        ) -> Result<PathBuf, IntegrationError>,
     ) -> Self {
         Self {
             contract,
             probe,
             merge,
             remove,
+            reconcile,
         }
     }
 
@@ -205,6 +212,10 @@ impl JsonHookHandler {
         let mut diagnostics = diagnostics;
         let activation = if !ctx.enabled {
             IntegrationActivation::Disabled
+        } else if registration == IntegrationRegistration::Drifted
+            || ownership == IntegrationOwnership::Ambiguous
+        {
+            IntegrationActivation::Unknown
         } else if ctx.detected_tool.is_none() {
             diagnostics.push(IntegrationDiagnostic {
                 code: "tool_not_detected".into(),
@@ -221,10 +232,7 @@ impl JsonHookHandler {
                 action: None,
             });
             IntegrationActivation::NeedsTrust
-        } else if matches!(
-            registration,
-            IntegrationRegistration::Installed | IntegrationRegistration::Drifted
-        ) {
+        } else if registration == IntegrationRegistration::Installed {
             self.contract.activation.clone()
         } else {
             IntegrationActivation::Disabled
@@ -283,9 +291,7 @@ impl IntegrationHandler for JsonHookHandler {
             FragmentState::Ambiguous => return Err(IntegrationError::OwnershipAmbiguous),
             FragmentState::Absent | FragmentState::Drifted => {}
         }
-        let reporter = ctx
-            .reporter_assets
-            .reconcile(ReporterPlatform::current().asset_name())?;
+        let reporter = (self.reconcile)(ctx.reporter_assets)?;
         (self.merge)(&mut document, &reporter)?;
         let replacement = serde_json::to_vec_pretty(&document)
             .map_err(|error| IntegrationError::InvalidConfig(error.to_string()))?;
@@ -308,6 +314,12 @@ impl IntegrationHandler for JsonHookHandler {
         transaction.commit(&replacement)?;
         self.status(ctx)
     }
+}
+
+pub(crate) fn reconcile_current(
+    resolver: &crate::harness::integration::ReporterAssetResolver,
+) -> Result<PathBuf, IntegrationError> {
+    resolver.reconcile(ReporterPlatform::current().asset_name())
 }
 
 #[allow(dead_code)] // Read by generic integration routes in Task 8.
@@ -436,8 +448,15 @@ mod tests {
             fs::write(&target, r#"{"unrelated":{"keep":true}}"#).unwrap();
             let assets = tempfile::tempdir().unwrap();
             fs::write(
-                assets.path().join(ReporterPlatform::current().asset_name()),
+                assets.path().join(ReporterPlatform::Posix.asset_name()),
                 "#!/bin/sh\n",
+            )
+            .unwrap();
+            fs::write(
+                assets
+                    .path()
+                    .join(ReporterPlatform::WindowsPowerShell.asset_name()),
+                "# noop\n",
             )
             .unwrap();
             let stable = tempfile::tempdir().unwrap();
@@ -622,8 +641,15 @@ mod tests {
         fs::write(&target, r#"{"unrelated":{"keep":true}}"#).unwrap();
         let assets = tempfile::tempdir().unwrap();
         fs::write(
-            assets.path().join(ReporterPlatform::current().asset_name()),
+            assets.path().join(ReporterPlatform::Posix.asset_name()),
             "#!/bin/sh\n",
+        )
+        .unwrap();
+        fs::write(
+            assets
+                .path()
+                .join(ReporterPlatform::WindowsPowerShell.asset_name()),
+            "# noop\n",
         )
         .unwrap();
         let stable = tempfile::tempdir().unwrap();

@@ -2,7 +2,9 @@ use std::path::Path;
 
 use serde_json::{json, Map, Value};
 
-use super::{reporter_invocation, FragmentState, JsonHookHandler, ToolHookContract};
+use super::{
+    reconcile_current, reporter_invocation, FragmentState, JsonHookHandler, ToolHookContract,
+};
 use crate::harness::integration::{IntegrationActivation, IntegrationCoverage, IntegrationError};
 
 const MARKER: &str = "orkworks:harness-integration:v2:claude-code";
@@ -19,22 +21,21 @@ pub(crate) static HANDLER: JsonHookHandler = JsonHookHandler::new(
     probe,
     merge,
     remove,
+    reconcile_current,
 );
 
 fn groups(document: &Map<String, Value>) -> Result<Vec<Value>, IntegrationError> {
     let Some(hooks) = document.get("hooks") else {
         return Ok(vec![]);
     };
-    hooks
+    let hooks = hooks
         .as_object()
-        .and_then(|hooks| hooks.get("Notification"))
-        .map_or(Ok(vec![]), |value| {
-            value.as_array().cloned().ok_or_else(|| {
-                IntegrationError::InvalidConfig(
-                    "Claude Notification hooks must be an array.".into(),
-                )
-            })
+        .ok_or_else(|| IntegrationError::InvalidConfig("Claude hooks must be an object.".into()))?;
+    hooks.get("Notification").map_or(Ok(vec![]), |value| {
+        value.as_array().cloned().ok_or_else(|| {
+            IntegrationError::InvalidConfig("Claude Notification hooks must be an array.".into())
         })
+    })
 }
 
 fn marker_state(group: &Value, reporter: Option<&Path>) -> FragmentState {
@@ -91,20 +92,24 @@ fn probe(
 ) -> Result<FragmentState, IntegrationError> {
     let mut state = FragmentState::Absent;
     for group in groups(document)? {
-        match marker_state(&group, Some(reporter)) {
+        let next = marker_state(&group, Some(reporter));
+        if state != FragmentState::Absent && next != FragmentState::Absent {
+            return Ok(FragmentState::Ambiguous);
+        }
+        match next {
             FragmentState::Absent => {}
             FragmentState::Ambiguous => return Ok(FragmentState::Ambiguous),
-            FragmentState::Installed if state == FragmentState::Absent => {
-                state = FragmentState::Installed
-            }
-            FragmentState::Installed | FragmentState::Drifted => state = FragmentState::Drifted,
+            FragmentState::Installed => state = FragmentState::Installed,
+            FragmentState::Drifted => state = FragmentState::Drifted,
         }
     }
     Ok(state)
 }
 
 fn merge(document: &mut Map<String, Value>, reporter: &Path) -> Result<(), IntegrationError> {
-    let _ = remove(document)?;
+    if remove(document)? == FragmentState::Ambiguous {
+        return Err(IntegrationError::OwnershipAmbiguous);
+    }
     let hooks = document.entry("hooks").or_insert_with(|| json!({}));
     let hooks = hooks
         .as_object_mut()

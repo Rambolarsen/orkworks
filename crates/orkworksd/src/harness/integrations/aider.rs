@@ -166,6 +166,11 @@ fn read_preference(
     let enabled = match document.get("version") {
         None => false,
         Some(version) if version == &Value::from(1) => {
+            if document.get("marker").and_then(Value::as_str) != Some(MARKER) {
+                return Err(IntegrationError::InvalidConfig(
+                    "Aider integration preference marker is missing or does not match.".into(),
+                ));
+            }
             document.get("enabled").map_or(Ok(false), |enabled| {
                 enabled.as_bool().ok_or_else(|| {
                     IntegrationError::InvalidConfig(
@@ -188,7 +193,11 @@ fn write_preference(ctx: &IntegrationContext<'_>, enabled: bool) -> Result<(), I
         .workspace_metadata
         .ok_or(IntegrationError::NoWorkspace)?;
     let (transaction, mut document, _) = read_preference(&metadata.root_path())?;
+    if !enabled && transaction.current_bytes().is_empty() {
+        return Ok(());
+    }
     document.insert("version".into(), Value::from(1));
+    document.insert("marker".into(), Value::String(MARKER.into()));
     document.insert("enabled".into(), Value::Bool(enabled));
     let bytes = serde_json::to_vec_pretty(&document)
         .map_err(|error| IntegrationError::InvalidConfig(error.to_string()))?;
