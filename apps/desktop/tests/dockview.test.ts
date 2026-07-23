@@ -251,14 +251,17 @@ test("sessionAttentionStatus is neutral outside alive lifecycle", () => {
   assert.equal(sessionAttentionStatus(session), "neutral");
 });
 
-test("transitional lifecycle phases render a spinner without lifecycle copy", () => {
+test("creating/stopping sessions do not force a working tone", () => {
   const list = readFileSync(new URL("../src/components/SessionListPanel.tsx", import.meta.url), "utf8");
   const detail = readFileSync(new URL("../src/components/SessionDetailPanel.tsx", import.meta.url), "utf8");
 
+  // A session that's merely spawning or tearing down its PTY hasn't had the
+  // harness do anything yet — sessionAttentionStatus already reports "idle"
+  // while creating and "neutral" while stopping. Forcing tone="working" here
+  // would show the same spinner as real harness activity, so no such
+  // override should exist.
   for (const source of [list, detail]) {
-    assert.match(source, /lifecycle\s*===\s*"creating"/);
-    assert.match(source, /lifecycle\s*===\s*"stopping"/);
-    assert.match(source, /transitional\s*\?\s*"working"/);
+    assert.doesNotMatch(source, /transitional/);
   }
 });
 
@@ -288,7 +291,7 @@ test("SessionDetailPanel keeps the normal status variant", () => {
     "utf8",
   );
 
-  assert.match(source, /<StatusIndicator tone=\{tone\} label=\{transitional \? "" : attentionLabel\(attn\)\} \/>/);
+  assert.match(source, /<StatusIndicator tone=\{tone\} label=\{attentionLabel\(attn\)\} \/>/);
   assert.doesNotMatch(source, /<StatusIndicator[^>]*variant=/);
 });
 

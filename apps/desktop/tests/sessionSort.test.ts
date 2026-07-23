@@ -36,6 +36,10 @@ test("alive sessions use attention and dead sessions are neutral", () => {
   assert.equal(sessionAttentionStatus(session("dead", "dead", "blocked")), "neutral");
 });
 
+test("a session spawning its PTY reads idle, never working — nothing has run yet", () => {
+  assert.equal(sessionAttentionStatus(session("creating", "creating")), "idle");
+});
+
 test("sortSessions ranks actionable alive sessions before working, idle, and dead", () => {
   const ordered = sortSessions([
     session("dead", "dead"),

@@ -19,6 +19,8 @@ export function needsAttention(status: string): boolean {
 }
 
 export function sessionAttentionStatus(session: SessionInfo): string {
+  // Spawning a PTY isn't the harness doing anything yet — read as idle, not working.
+  if (session.lifecycle === "creating") return "idle";
   if (session.lifecycle !== "alive") return "neutral";
   return session.attention ?? "idle";
 }
