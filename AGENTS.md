@@ -77,7 +77,7 @@ podman compose run --rm dev cargo test   --manifest-path crates/orkworksd/Cargo.
 
 `apps/desktop/node_modules`, `crates/orkworksd/target`, and the Cargo registry live in **named volumes** — never bind-mounted from the host, since Electron and native deps are platform-specific and the caches must not corrupt each other. On Windows, Podman runs in a WSL2 VM (bind-mount perf penalty on NTFS paths; set `git config core.autocrlf input` so CRLF endings don't break in-container shell scripts).
 
-The Rust sidecar uses the target-specific `windows-sys` `Win32_Storage_FileSystem` feature only on Windows, where `MoveFileExW` provides replace-existing atomic file publication for durable configuration updates. It adds no dependency to Unix builds.
+The Rust sidecar uses the target-specific `windows-sys` `Win32_Storage_FileSystem` feature only on Windows: `ReplaceFileW` replaces an expected existing configuration while preserving Windows replacement semantics, and `MoveFileExW` publishes an expected new file without replace-existing. These operations remain best-effort optimistic concurrency, not portable compare-and-swap. It adds no dependency to Unix builds.
 
 ## Issue board
 

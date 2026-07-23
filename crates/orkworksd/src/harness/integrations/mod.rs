@@ -36,7 +36,7 @@ impl StubHandler {
             tool_detected: detected_tool.is_some(),
             registration: IntegrationRegistration::Unsupported,
             ownership: IntegrationOwnership::None,
-            activation: IntegrationActivation::Unknown,
+            activation: IntegrationActivation::NotApplicable,
             coverage: IntegrationCoverage::None,
             diagnostics: vec![IntegrationDiagnostic {
                 code: "integration_not_implemented".into(),

@@ -23,8 +23,8 @@ hex = "0.4"
 libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
-# MoveFileExW gives replace-existing atomic publication semantics unavailable
-# through std::fs::rename on Windows.
+# ReplaceFileW preserves Windows replacement semantics for existing targets;
+# MoveFileExW publishes new targets without clobbering a raced creation.
 windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
 
 [dev-dependencies]

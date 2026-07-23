@@ -87,7 +87,7 @@ mod tests {
 
         let error = ConfigFileTransaction::open(target)
             .unwrap()
-            .with_replace(|_, _| Err(std::io::Error::other("injected failure")))
+            .with_replace(|_, _, _| Err(std::io::Error::other("injected failure")))
             .commit(b"replacement")
             .unwrap_err();
 
@@ -160,6 +160,34 @@ mod tests {
     }
 
     #[test]
+    fn ownership_uses_only_the_selected_fragment_marker_field() {
+        let conflicting_marker_with_expected_nested_text = serde_json::json!({
+            "marker": "orkworks:harness-integration:v2:claude-code",
+            "description": "orkworks:harness-integration:v2:codex",
+            "nested": { "marker": "orkworks:harness-integration:v2:codex" },
+        });
+        let unrelated_nested_expected_text = serde_json::json!({
+            "description": "orkworks:harness-integration:v2:codex",
+            "nested": { "marker": "orkworks:harness-integration:v2:codex" },
+        });
+
+        assert_eq!(
+            json_ownership(
+                &conflicting_marker_with_expected_nested_text,
+                "orkworks:harness-integration:v2:codex"
+            ),
+            IntegrationOwnership::Ambiguous
+        );
+        assert_eq!(
+            json_ownership(
+                &unrelated_nested_expected_text,
+                "orkworks:harness-integration:v2:codex"
+            ),
+            IntegrationOwnership::None
+        );
+    }
+
+    #[test]
     fn git_safety_rejects_tracked_and_unignored_targets_but_accepts_ignored_local_targets() {
         let workspace = tempfile::tempdir().unwrap();
         let repository = git2::Repository::init(workspace.path()).unwrap();
@@ -214,6 +242,62 @@ mod tests {
             transaction.commit(b"replacement").unwrap_err().code(),
             "workspace_changed"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn transaction_rejects_a_parent_symlink_created_before_missing_parent_creation() {
+        use std::os::unix::fs::symlink;
+
+        let workspace = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let outside_path = outside.path().to_path_buf();
+        let target =
+            ValidatedWorkspaceTarget::new(workspace.path(), Path::new(".codex/hooks.json"))
+                .unwrap();
+        let transaction = ConfigFileTransaction::open(target)
+            .unwrap()
+            .with_before_parent_create(move |parent| symlink(&outside_path, parent).unwrap());
+
+        let error = transaction.commit(b"replacement").unwrap_err();
+        assert_eq!(error.code(), "workspace_escape");
+        assert!(!outside.path().join("hooks.json").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn git_safety_revalidates_workspace_before_reading_repository_state() {
+        let parent = tempfile::tempdir().unwrap();
+        let workspace = parent.path().join("workspace");
+        fs::create_dir(&workspace).unwrap();
+        git2::Repository::init(&workspace).unwrap();
+        let target =
+            ValidatedWorkspaceTarget::new(&workspace, Path::new(".codex/hooks.json")).unwrap();
+        fs::rename(&workspace, parent.path().join("moved-workspace")).unwrap();
+        fs::create_dir(&workspace).unwrap();
+
+        assert_eq!(
+            target
+                .require_local_or_ignored_untracked()
+                .unwrap_err()
+                .code(),
+            "workspace_changed"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_publication_replaces_the_target_and_syncs_its_parent_best_effort() {
+        let directory = tempfile::tempdir().unwrap();
+        let target = directory.path().join("hooks.json");
+        let source = directory.path().join("replacement.tmp");
+        fs::write(&target, "old").unwrap();
+        fs::write(&source, "new").unwrap();
+
+        super::atomic_replace(&source, &target, true).unwrap();
+
+        assert_eq!(fs::read_to_string(target).unwrap(), "new");
+        assert!(!source.exists());
     }
 
     #[cfg(windows)]
@@ -514,6 +598,7 @@ impl ValidatedWorkspaceTarget {
     }
 
     pub(crate) fn require_local_or_ignored_untracked(&self) -> Result<(), IntegrationError> {
+        self.revalidate()?;
         let repository = git2::Repository::discover(&self.identity.canonical_root).map_err(|_| {
             IntegrationError::UnsafeTarget {
                 code: "not_git_workspace",
@@ -598,14 +683,18 @@ impl FileRevision {
 }
 
 /// A write transaction which only publishes after final containment and
-/// optimistic revision checks. It does not provide portable CAS semantics
-/// against another process that changes the file after that final check.
+/// optimistic revision checks. Missing parents are created one component at a
+/// time with no-follow inspection and are rechecked after creation. A process
+/// can still change the workspace or target after the final check and before
+/// publication, so this is not portable CAS semantics.
 pub(crate) struct ConfigFileTransaction {
     target: ValidatedWorkspaceTarget,
     original: FileRevision,
     current_bytes: Vec<u8>,
     retain_backup: bool,
-    replace: fn(&Path, &Path) -> std::io::Result<()>,
+    replace: fn(&Path, &Path, bool) -> std::io::Result<()>,
+    #[cfg(test)]
+    before_parent_create: Option<Box<dyn Fn(&Path) + Send + Sync>>,
     #[cfg(test)]
     before_replace: Option<fn(&Path)>,
 }
@@ -620,6 +709,8 @@ impl ConfigFileTransaction {
             current_bytes,
             retain_backup: false,
             replace: atomic_replace,
+            #[cfg(test)]
+            before_parent_create: None,
             #[cfg(test)]
             before_replace: None,
         })
@@ -642,7 +733,16 @@ impl ConfigFileTransaction {
     }
 
     #[cfg(test)]
-    fn with_replace(mut self, replace: fn(&Path, &Path) -> std::io::Result<()>) -> Self {
+    fn with_before_parent_create(
+        mut self,
+        callback: impl Fn(&Path) + Send + Sync + 'static,
+    ) -> Self {
+        self.before_parent_create = Some(Box::new(callback));
+        self
+    }
+
+    #[cfg(test)]
+    fn with_replace(mut self, replace: fn(&Path, &Path, bool) -> std::io::Result<()>) -> Self {
         self.replace = replace;
         self
     }
@@ -657,7 +757,11 @@ impl ConfigFileTransaction {
                 code: "invalid_target",
                 message: "Integration target has no parent directory.".into(),
             })?;
-        fs::create_dir_all(parent)?;
+        #[cfg(test)]
+        if let Some(callback) = &self.before_parent_create {
+            callback(parent);
+        }
+        create_confined_parent(&self.target.identity.canonical_root, parent)?;
         self.target.revalidate()?;
         let temporary = temporary_path(&self.target.target);
         let result = (|| -> Result<(), IntegrationError> {
@@ -682,7 +786,11 @@ impl ConfigFileTransaction {
             if self.retain_backup && self.original.hash.is_some() {
                 write_new_file_atomically(&backup_path(&self.target.target), &self.current_bytes)?;
             }
-            (self.replace)(&temporary, &self.target.target)?;
+            (self.replace)(
+                &temporary,
+                &self.target.target,
+                self.original.hash.is_some(),
+            )?;
             Ok(())
         })();
         if result.is_err() {
@@ -692,16 +800,23 @@ impl ConfigFileTransaction {
     }
 }
 
-pub(crate) fn atomic_replace(source: &Path, target: &Path) -> std::io::Result<()> {
+pub(crate) fn atomic_replace(
+    source: &Path,
+    target: &Path,
+    target_existed: bool,
+) -> std::io::Result<()> {
     #[cfg(not(windows))]
     {
-        fs::rename(source, target)
+        let _ = target_existed;
+        fs::rename(source, target)?;
+        sync_parent_directory_best_effort(target.parent());
+        Ok(())
     }
     #[cfg(windows)]
     {
         use std::os::windows::ffi::OsStrExt;
         use windows_sys::Win32::Storage::FileSystem::{
-            MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
+            MoveFileExW, ReplaceFileW, MOVEFILE_WRITE_THROUGH,
         };
 
         let source = wide_path(source.as_os_str());
@@ -709,11 +824,24 @@ pub(crate) fn atomic_replace(source: &Path, target: &Path) -> std::io::Result<()
         // SAFETY: both buffers are nul-terminated UTF-16 paths and remain
         // alive for the duration of the Windows API call.
         let result = unsafe {
-            MoveFileExW(
-                source.as_ptr(),
-                target.as_ptr(),
-                MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
-            )
+            if target_existed {
+                // SAFETY: source and target are nul-terminated UTF-16 paths;
+                // optional backup/exclude/reserved pointers are null as
+                // documented by ReplaceFileW and remain valid for this call.
+                ReplaceFileW(
+                    target.as_ptr(),
+                    source.as_ptr(),
+                    std::ptr::null(),
+                    0,
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                )
+            } else {
+                // SAFETY: source and target are nul-terminated UTF-16 paths
+                // that remain valid for this call. Omitting REPLACE_EXISTING
+                // refuses to clobber a target created after the final check.
+                MoveFileExW(source.as_ptr(), target.as_ptr(), MOVEFILE_WRITE_THROUGH)
+            }
         };
         if result == 0 {
             Err(std::io::Error::last_os_error())
@@ -721,6 +849,17 @@ pub(crate) fn atomic_replace(source: &Path, target: &Path) -> std::io::Result<()
             Ok(())
         }
     }
+}
+
+#[cfg(not(windows))]
+fn sync_parent_directory_best_effort(parent: Option<&Path>) {
+    let Some(parent) = parent else {
+        return;
+    };
+    // A successful rename has already published the file. Directory sync is a
+    // durability improvement only; filesystems that reject directory sync
+    // must not make a successful replacement appear to have failed.
+    let _ = File::open(parent).and_then(|directory| directory.sync_all());
 }
 
 #[cfg(windows)]
@@ -762,6 +901,60 @@ fn ensure_existing_ancestor_is_confined(
         return Err(IntegrationError::UnsafeTarget {
             code: "workspace_escape",
             message: "Integration target resolves outside the workspace.".into(),
+        });
+    }
+    Ok(())
+}
+
+fn create_confined_parent(root: &Path, parent: &Path) -> Result<(), IntegrationError> {
+    let relative = parent
+        .strip_prefix(root)
+        .map_err(|_| IntegrationError::UnsafeTarget {
+            code: "workspace_escape",
+            message: "Integration parent directory is outside the workspace.".into(),
+        })?;
+    let mut current = root.to_path_buf();
+    for component in relative.components() {
+        let Component::Normal(component) = component else {
+            return Err(IntegrationError::UnsafeTarget {
+                code: "workspace_escape",
+                message: "Integration parent directory is not safely contained in the workspace."
+                    .into(),
+            });
+        };
+        current.push(component);
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) => ensure_confined_directory(root, &current, &metadata)?,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                match fs::create_dir(&current) {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                    Err(error) => return Err(error.into()),
+                }
+                let metadata = fs::symlink_metadata(&current)?;
+                ensure_confined_directory(root, &current, &metadata)?;
+            }
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(())
+}
+
+fn ensure_confined_directory(
+    root: &Path,
+    directory: &Path,
+    metadata: &fs::Metadata,
+) -> Result<(), IntegrationError> {
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err(IntegrationError::UnsafeTarget {
+            code: "workspace_escape",
+            message: "Integration parent directory is a link or non-directory.".into(),
+        });
+    }
+    if !fs::canonicalize(directory)?.starts_with(root) {
+        return Err(IntegrationError::UnsafeTarget {
+            code: "workspace_escape",
+            message: "Integration parent directory resolves outside the workspace.".into(),
         });
     }
     Ok(())
@@ -820,34 +1013,15 @@ pub(crate) fn parse_json_object(
 /// A different OrkWorks integration marker is ambiguous and must not be
 /// removed by the calling handler.
 pub(crate) fn json_ownership(value: &serde_json::Value, marker: &str) -> IntegrationOwnership {
-    let mut markers = Vec::new();
-    collect_markers(value, &mut markers);
-    if markers.contains(&marker) {
+    let Some(actual) = value.get("marker").and_then(serde_json::Value::as_str) else {
+        return IntegrationOwnership::None;
+    };
+    if actual == marker {
         IntegrationOwnership::OrkWorks
-    } else if markers
-        .iter()
-        .any(|candidate| candidate.starts_with("orkworks:harness-integration:"))
-    {
+    } else if actual.starts_with("orkworks:harness-integration:") {
         IntegrationOwnership::Ambiguous
     } else {
         IntegrationOwnership::None
-    }
-}
-
-fn collect_markers<'a>(value: &'a serde_json::Value, markers: &mut Vec<&'a str>) {
-    match value {
-        serde_json::Value::String(string) => markers.push(string),
-        serde_json::Value::Array(values) => {
-            for value in values {
-                collect_markers(value, markers);
-            }
-        }
-        serde_json::Value::Object(values) => {
-            for value in values.values() {
-                collect_markers(value, markers);
-            }
-        }
-        serde_json::Value::Null | serde_json::Value::Bool(_) | serde_json::Value::Number(_) => {}
     }
 }
 
@@ -861,7 +1035,14 @@ fn write_new_file_atomically(path: &Path, contents: &[u8]) -> std::io::Result<()
         file.write_all(contents)?;
         file.flush()?;
         file.sync_all()?;
-        atomic_replace(&temporary, path)
+        let target_existed = fs::symlink_metadata(path).map(|_| true).or_else(|error| {
+            if error.kind() == std::io::ErrorKind::NotFound {
+                Ok(false)
+            } else {
+                Err(error)
+            }
+        })?;
+        atomic_replace(&temporary, path, target_existed)
     })();
     if result.is_err() {
         let _ = fs::remove_file(temporary);

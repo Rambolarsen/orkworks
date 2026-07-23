@@ -204,7 +204,7 @@ impl AtomicWriter for FileAtomicWriter {
             let _ = fs::remove_file(&temporary);
             return Err(HarnessStoreError::RevisionChanged);
         }
-        match atomic_replace(&temporary, target) {
+        match atomic_replace(&temporary, target, expected_revision.is_some()) {
             Ok(()) => Ok(()),
             Err(error) => {
                 let _ = fs::remove_file(&temporary);

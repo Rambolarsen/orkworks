@@ -117,7 +117,7 @@ podman compose run --rm dev cargo test    --manifest-path crates/orkworksd/Cargo
 
 **Windows:** Podman runs inside a `podman machine` (WSL2) VM, so bind-mounting the source tree from an NTFS path incurs a filesystem-perf penalty; keeping the repo on the Linux/WSL2 side is faster. Set `git config core.autocrlf input` (or use a `.gitattributes` `* text=auto`) so CRLF line endings from Windows checkouts don't break shell scripts inside the Linux container.
 
-The Rust sidecar has one Windows-only dependency feature (`windows-sys` / `Win32_Storage_FileSystem`) so durable configuration writes can use `MoveFileExW` with replace-existing semantics; Unix builds do not include it.
+The Rust sidecar has one Windows-only dependency feature (`windows-sys` / `Win32_Storage_FileSystem`) so durable configuration writes use `ReplaceFileW` for an expected existing file and non-replacing `MoveFileExW` for an expected new file. This narrows external-edit races but is not portable compare-and-swap; Unix builds do not include the dependency.
 
 ## Peon configuration
 
