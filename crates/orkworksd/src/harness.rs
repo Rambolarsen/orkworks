@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 pub(crate) mod definition;
 pub(crate) mod registry;
+pub(crate) mod store;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CommandSpec {

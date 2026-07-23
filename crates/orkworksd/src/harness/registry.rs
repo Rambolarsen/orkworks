@@ -4,8 +4,7 @@ use std::sync::{Arc, RwLock};
 use serde::Serialize;
 
 use super::definition::{
-    BuiltinDocument, DefinitionOrigin, HarnessDiagnostic, HarnessUserDocument, IntegrationBinding,
-    SessionSignalBinding,
+    BuiltinDocument, DefinitionOrigin, HarnessDiagnostic, HarnessUserDocument,
 };
 use super::definition::{HarnessDefinition, ModelCapability, PeonCapability};
 use crate::providers::ProviderDefinition;
