@@ -142,6 +142,26 @@ pub(crate) async fn delete_harness(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
+    let exists = state
+        .harness_catalog
+        .read()
+        .expect("harness catalog lock poisoned")
+        .get(&id)
+        .is_some();
+    if !exists {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(HarnessErrorResponse {
+                error: "Harness was not found.".into(),
+                diagnostics: vec![HarnessDiagnostic::for_id(
+                    &id,
+                    "harness_not_found",
+                    "Harness was not found.",
+                )],
+            }),
+        )
+            .into_response();
+    }
     let store = state.harness_store.clone();
     let catalog = state.harness_catalog.clone();
     let requested_id = id.clone();

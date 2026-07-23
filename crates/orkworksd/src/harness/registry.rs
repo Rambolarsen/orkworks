@@ -52,8 +52,15 @@ impl ResolvedHarness {
                     .map(|model| format!("{}{}", model_prefix.as_deref().unwrap_or(""), model));
                 let mut rendered = Vec::with_capacity(args.len());
                 for arg in args {
-                    if arg.contains("{model}") && model.is_none() {
-                        let _ = rendered.pop();
+                    if model.is_none() && arg.contains("{model}") {
+                        // A standalone `{model}` placeholder is a value paired with
+                        // the flag rendered just before it (e.g. `["--model",
+                        // "{model}"]`); drop that flag too. A combined form like
+                        // `"--model={model}"` carries its own flag, so only this
+                        // argument is omitted.
+                        if arg == "{model}" {
+                            let _ = rendered.pop();
+                        }
                     } else {
                         rendered.push(arg.replace("{model}", model.as_deref().unwrap_or_default()));
                     }
@@ -515,6 +522,33 @@ mod tests {
         assert_eq!(
             claude.capacity_patterns(),
             ["you've hit your session limit"]
+        );
+    }
+
+    #[test]
+    fn combined_model_placeholder_is_omitted_without_dropping_the_prior_argument() {
+        let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
+        let mut definition = builtins
+            .builtins
+            .iter()
+            .find(|definition| definition.id == "codex")
+            .unwrap()
+            .clone();
+        definition.launch = LaunchCapability::CommandTemplate {
+            command: "tool".into(),
+            args: vec!["--keep".into(), "--model={model}".into()],
+            model_prefix: None,
+        };
+        let harness = ResolvedHarness {
+            definition,
+            origin: DefinitionOrigin::Builtin,
+            effective_capabilities: BTreeSet::new(),
+        };
+
+        assert_eq!(harness.build_launch("/repo", None).args, ["--keep"]);
+        assert_eq!(
+            harness.build_launch("/repo", Some("gpt-5")).args,
+            ["--keep", "--model=gpt-5"]
         );
     }
 }

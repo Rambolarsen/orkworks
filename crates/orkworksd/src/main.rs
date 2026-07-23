@@ -577,6 +577,31 @@ mod tests {
         let _ = server.await;
     }
 
+    #[tokio::test]
+    async fn deleting_a_harness_distinguishes_unknown_id_from_builtin() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let (base_url, server) = test_server_base_url(state).await;
+        let client = reqwest::Client::new();
+
+        let missing = client
+            .delete(format!("{}/harnesses/not-a-real-harness", base_url))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(missing.status(), reqwest::StatusCode::NOT_FOUND);
+
+        let builtin = client
+            .delete(format!("{}/harnesses/codex", base_url))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(builtin.status(), reqwest::StatusCode::CONFLICT);
+
+        server.abort();
+        let _ = server.await;
+    }
+
     #[test]
     fn session_registry_create_and_list() {
         let state = Arc::new(AppState {

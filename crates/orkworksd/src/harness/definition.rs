@@ -569,6 +569,19 @@ impl HarnessDefinition {
             }
             validate_templates(&self.id, args, &mut errors);
         }
+        if let Some(peon) = &self.peon {
+            let command_is_empty = match &peon.command_override {
+                Some(over) => over.trim().is_empty(),
+                None => matches!(self.launch, LaunchCapability::PlatformShell { .. }),
+            };
+            if command_is_empty {
+                errors.push(HarnessDiagnostic::for_id(
+                    &self.id,
+                    "invalid_peon_command",
+                    "Peon requires a non-empty command: set peon.commandOverride or use a command-template launch.",
+                ));
+            }
+        }
         if matches!(origin, DefinitionOrigin::Custom)
             && (self.integration.is_some() || self.session_signals.is_some())
         {
@@ -805,6 +818,37 @@ mod tests {
         let mut custom = codex();
         custom.id = "company-codex".into();
         assert!(custom.validate(DefinitionOrigin::Custom).is_err());
+    }
+
+    #[test]
+    fn peon_with_platform_shell_launch_and_no_override_is_rejected() {
+        let mut definition = codex();
+        definition.integration = None;
+        definition.session_signals = None;
+        definition.launch = LaunchCapability::PlatformShell { login: true };
+        assert!(definition.peon.is_some());
+
+        let errors = definition
+            .validate(DefinitionOrigin::Builtin)
+            .expect_err("empty peon command must fail validation");
+        assert!(errors
+            .iter()
+            .any(|error| error.code == "invalid_peon_command"));
+    }
+
+    #[test]
+    fn peon_with_blank_command_override_is_rejected() {
+        let mut definition = codex();
+        definition.integration = None;
+        definition.session_signals = None;
+        definition.peon.as_mut().unwrap().command_override = Some("   ".into());
+
+        let errors = definition
+            .validate(DefinitionOrigin::Builtin)
+            .expect_err("blank commandOverride must fail validation");
+        assert!(errors
+            .iter()
+            .any(|error| error.code == "invalid_peon_command"));
     }
 
     #[test]

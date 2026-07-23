@@ -24,9 +24,18 @@ impl IntegrationHandler for OpenCodeHandler {
 
 fn unsupported(ctx: &IntegrationContext<'_>) -> IntegrationStatus {
     IntegrationStatus {
-        harness_id: "opencode".into(), enabled: ctx.enabled, tool_detected: ctx.detected_tool.is_some(),
-        registration: IntegrationRegistration::Unsupported, ownership: IntegrationOwnership::None,
-        activation: IntegrationActivation::Unknown, coverage: IntegrationCoverage::Limited,
-        diagnostics: vec![IntegrationDiagnostic { code: "installation_unsupported".into(), message: "OpenCode plugin activation and an eligible local target are unverified; no plugin file is written.".into(), action: None }], confirmation: None,
+        harness_id: "opencode".into(),
+        enabled: ctx.enabled,
+        tool_detected: ctx.detected_tool.is_some(),
+        registration: IntegrationRegistration::Unsupported,
+        ownership: IntegrationOwnership::None,
+        activation: IntegrationActivation::Unknown,
+        coverage: IntegrationCoverage::Limited,
+        diagnostics: vec![IntegrationDiagnostic {
+            code: "installation_unsupported".into(),
+            message: "OpenCode plugin activation and an eligible local target are unverified; no plugin file is written.".into(),
+            action: None,
+        }],
+        confirmation: None,
     }
 }

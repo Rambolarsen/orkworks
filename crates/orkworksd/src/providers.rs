@@ -707,6 +707,7 @@ impl ProviderManager {
         let session_capped = self.session_capped.read().unwrap().clone();
         let session_reset_hint = self.session_reset_hint.read().unwrap().clone();
         let session_checking = self.session_checking.read().unwrap().clone();
+        let definitions = self.definitions();
 
         let providers = settings
             .providers
@@ -729,7 +730,6 @@ impl ProviderManager {
                         ProviderEffectiveState::Disabled => unreachable!(),
                     }
                 };
-                let definitions = self.definitions();
                 let label = definitions
                     .iter()
                     .find(|d| d.id == entry.id)
