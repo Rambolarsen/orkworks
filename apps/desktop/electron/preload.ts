@@ -15,8 +15,12 @@ contextBridge.exposeInMainWorld("orkworks", {
   verifyOllama: (baseUrl: string): Promise<unknown> => ipcRenderer.invoke("verify-ollama", baseUrl),
   getProviderModels: (providerId: string): Promise<unknown> => ipcRenderer.invoke("get-provider-models", providerId),
   getProviderLabels: (): Promise<unknown> => ipcRenderer.invoke("get-provider-labels"),
-  getClaudeCodeHookStatus: (): Promise<unknown> => ipcRenderer.invoke("get-claude-code-hook-status"),
-  installClaudeCodeHook: (): Promise<unknown> => ipcRenderer.invoke("install-claude-code-hook"),
+  getHarnessIntegrationStatus: (harnessId: string): Promise<unknown> =>
+    ipcRenderer.invoke("get-harness-integration-status", harnessId),
+  installHarnessIntegration: (harnessId: string): Promise<unknown> =>
+    ipcRenderer.invoke("install-harness-integration", harnessId),
+  uninstallHarnessIntegration: (harnessId: string): Promise<unknown> =>
+    ipcRenderer.invoke("uninstall-harness-integration", harnessId),
   openPlan: (sessionId: string): Promise<void> => ipcRenderer.invoke("open-plan", sessionId),
   setHotkeyCaptureActive: (active: boolean) => {
     ipcRenderer.send("orkworks:hotkey-capture-active", active);

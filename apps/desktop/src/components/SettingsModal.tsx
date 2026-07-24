@@ -3,7 +3,7 @@ import { acceleratorFromKeyboardEvent } from "../hotkeyCapture";
 import type { AppSettings, DebugSettings, HotkeySettings, RetentionSettings, SaveHotkeysResult } from "../appSettingsTypes";
 import type { ProviderSettings, ProviderModelsResponse, OllamaVerificationResponse } from "../providerTypes";
 import type { ProviderRuntimeResponse } from "../api";
-import type { HarnessConfig, AttentionHookStatusResponse } from "../harnessTypes";
+import type { HarnessConfig, IntegrationStatusResult } from "../harnessTypes";
 import ProviderSettingsSection from "./ProviderSettingsSection";
 
 type HotkeyAction = keyof HotkeySettings;
@@ -55,8 +55,8 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
   const [ollamaVerification, setOllamaVerification] = useState<OllamaVerificationViewState>({ phase: "idle" });
   const [activeDraft, setActiveDraft] = useState<string[]>(activeHarnessIds);
   const [activeSaveStatus, setActiveSaveStatus] = useState<string | null>(null);
-  const [claudeHookStatus, setClaudeHookStatus] = useState<AttentionHookStatusResponse | null>(null);
-  const [claudeHookInstalling, setClaudeHookInstalling] = useState(false);
+  const [claudeIntegration, setClaudeIntegration] = useState<IntegrationStatusResult | null>(null);
+  const [claudeIntegrationBusy, setClaudeIntegrationBusy] = useState(false);
   const hasClaudeCodeHarness = harnesses.some((h) => h.id === "claude-code");
 
   useLayoutEffect(() => {
@@ -127,27 +127,29 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
   useEffect(() => {
     if (!hasClaudeCodeHarness) return;
     let cancelled = false;
-    window.orkworks.getClaudeCodeHookStatus().then((status) => {
-      if (!cancelled) setClaudeHookStatus(status);
+    window.orkworks.getHarnessIntegrationStatus("claude-code").then((result) => {
+      if (!cancelled) setClaudeIntegration(result);
     });
     return () => {
       cancelled = true;
     };
   }, [hasClaudeCodeHarness]);
 
-  async function installClaudeHookHandler() {
-    const confirmed = window.confirm(
-      "This will add a Notification hook entry to .claude/settings.local.json in this workspace, " +
-      "so OrkWorks can detect when Claude Code is waiting for input. Continue?"
-    );
-    if (!confirmed) return;
-
-    setClaudeHookInstalling(true);
+  async function installClaudeIntegrationHandler() {
+    setClaudeIntegrationBusy(true);
     try {
-      const status = await window.orkworks.installClaudeCodeHook();
-      setClaudeHookStatus(status);
+      setClaudeIntegration(await window.orkworks.installHarnessIntegration("claude-code"));
     } finally {
-      setClaudeHookInstalling(false);
+      setClaudeIntegrationBusy(false);
+    }
+  }
+
+  async function uninstallClaudeIntegrationHandler() {
+    setClaudeIntegrationBusy(true);
+    try {
+      setClaudeIntegration(await window.orkworks.uninstallHarnessIntegration("claude-code"));
+    } finally {
+      setClaudeIntegrationBusy(false);
     }
   }
 
@@ -373,19 +375,53 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
                   </label>
                   {h.id === "claude-code" && activeDraft.includes(h.id) && (
                     <div className="settings-config-item-actions">
-                      {claudeHookStatus === null && (
-                        <span className="settings-config-status">checking attention hook…</span>
+                      {claudeIntegration === null && (
+                        <span className="settings-config-status">checking Claude Code integration…</span>
                       )}
-                      {claudeHookStatus?.installed && (
-                        <span className="settings-config-status settings-config-status--ok">✓ Attention hook installed</span>
+                      {claudeIntegration && !claudeIntegration.ok && (
+                        <span className="settings-config-status">{claudeIntegration.error}</span>
                       )}
-                      {claudeHookStatus && !claudeHookStatus.installed && (
-                        <button type="button" onClick={installClaudeHookHandler} disabled={claudeHookInstalling}>
-                          {claudeHookInstalling ? "Installing…" : "Install attention hook"}
-                        </button>
+                      {claudeIntegration?.ok && claudeIntegration.status.registration === "installed" && (
+                        <>
+                          <span className="settings-config-status settings-config-status--ok">✓ Notification hook installed</span>
+                          <button type="button" onClick={uninstallClaudeIntegrationHandler} disabled={claudeIntegrationBusy}>
+                            {claudeIntegrationBusy ? "Removing…" : "Uninstall"}
+                          </button>
+                        </>
                       )}
-                      {claudeHookStatus?.error && (
-                        <span className="settings-config-status">{claudeHookStatus.error}</span>
+                      {claudeIntegration?.ok &&
+                        (claudeIntegration.status.registration === "absent" ||
+                          claudeIntegration.status.registration === "drifted") && (
+                          <>
+                            {claudeIntegration.status.confirmation && (
+                              <p className="settings-section-copy">
+                                Installing will add a Notification hook to{" "}
+                                {claudeIntegration.status.confirmation.relativePaths.join(", ")} in this
+                                workspace ({claudeIntegration.status.confirmation.coverageSummary}).
+                                {claudeIntegration.status.confirmation.executableCodeWarning && (
+                                  <> This hook runs an OrkWorks-installed script whenever Claude Code
+                                  waits for input.</>
+                                )}
+                              </p>
+                            )}
+                            <button type="button" onClick={installClaudeIntegrationHandler} disabled={claudeIntegrationBusy}>
+                              {claudeIntegrationBusy
+                                ? "Installing…"
+                                : claudeIntegration.status.registration === "drifted"
+                                  ? "Reinstall"
+                                  : "Install attention hook"}
+                            </button>
+                          </>
+                        )}
+                      {claudeIntegration?.ok && claudeIntegration.status.registration === "unsupported" && (
+                        <span className="settings-config-status">
+                          Attention hook isn't supported for this coding tool.
+                        </span>
+                      )}
+                      {claudeIntegration?.ok && claudeIntegration.status.diagnostics.length > 0 && (
+                        <span className="settings-config-status">
+                          {claudeIntegration.status.diagnostics[0].message}
+                        </span>
                       )}
                     </div>
                   )}

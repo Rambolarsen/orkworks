@@ -138,6 +138,28 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn reconciled_reporter_script_is_executable() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let source = tempfile::tempdir().unwrap();
+        let stable = tempfile::tempdir().unwrap();
+        fs::write(source.path().join("report.sh"), "#!/bin/sh\n").unwrap();
+        let resolver = super::ReporterAssetResolver {
+            source_dir: source.path().to_path_buf(),
+            stable_dir: stable.path().join("hook-scripts"),
+        };
+
+        let resolved = resolver.reconcile("report.sh").unwrap();
+        let mode = fs::metadata(&resolved).unwrap().permissions().mode();
+        assert_ne!(
+            mode & 0o111,
+            0,
+            "reconciled reporter script must be executable, or the installed hook can never run it"
+        );
+    }
+
     #[test]
     fn ownership_requires_the_exact_expected_marker() {
         let exact = serde_json::json!({"marker": "orkworks:harness-integration:v2:codex"});
@@ -517,6 +539,19 @@ impl ReporterAssetResolver {
         let destination = self.stable_path(asset_name)?;
         if fs::read(&destination).ok().as_deref() != Some(bytes.as_slice()) {
             write_new_file_atomically(&destination, &bytes)?;
+        }
+        // Reporter scripts are invoked directly (not via `sh script`), so the
+        // stable copy must carry the executable bit. `write_new_file_atomically`
+        // is shared with config-backup writes (`backup_path`, above) that must
+        // NOT be executable, so this is set here rather than in that helper.
+        // Only the owner-execute bit is added — not 0o755 — so this never
+        // broadens group/other permissions beyond what the file already had.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = fs::metadata(&destination)?.permissions();
+            perms.set_mode(perms.mode() | 0o100);
+            fs::set_permissions(&destination, perms)?;
         }
         Ok(destination)
     }

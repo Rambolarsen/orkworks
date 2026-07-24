@@ -99,7 +99,6 @@ impl ResolvedHarness {
         }
     }
 
-    #[allow(dead_code)] // Read by generic integration routes in Task 8.
     pub(crate) fn integration_status(
         &self,
         ctx: &crate::harness::integration::IntegrationContext<'_>,
@@ -110,6 +109,43 @@ impl ResolvedHarness {
         match &self.definition.integration {
             Some(binding) => crate::harness::integration::handler(binding).status(ctx),
             None => Ok(crate::harness::integrations::generic_shell_status(
+                &self.definition.id,
+                ctx.workspace,
+                ctx.enabled,
+                ctx.detected_tool.is_some(),
+            )),
+        }
+    }
+
+    pub(crate) fn integration_install(
+        &self,
+        ctx: &crate::harness::integration::IntegrationContext<'_>,
+    ) -> Result<
+        crate::harness::integration::IntegrationStatus,
+        crate::harness::integration::IntegrationError,
+    > {
+        match &self.definition.integration {
+            Some(binding) => crate::harness::integration::handler(binding).install(ctx),
+            None => Ok(crate::harness::integrations::generic_shell_status(
+                &self.definition.id,
+                ctx.workspace,
+                ctx.enabled,
+                ctx.detected_tool.is_some(),
+            )),
+        }
+    }
+
+    pub(crate) fn integration_uninstall(
+        &self,
+        ctx: &crate::harness::integration::IntegrationContext<'_>,
+    ) -> Result<
+        crate::harness::integration::IntegrationStatus,
+        crate::harness::integration::IntegrationError,
+    > {
+        match &self.definition.integration {
+            Some(binding) => crate::harness::integration::handler(binding).uninstall(ctx),
+            None => Ok(crate::harness::integrations::generic_shell_status(
+                &self.definition.id,
                 ctx.workspace,
                 ctx.enabled,
                 ctx.detected_tool.is_some(),
@@ -392,6 +428,140 @@ fn provider_from_harness(harness: &ResolvedHarness) -> Option<ProviderDefinition
 mod tests {
     use super::*;
     use crate::harness::definition::{BuiltinDocument, HarnessPatch, EMBEDDED_BUILTINS};
+
+    fn test_reporter_assets() -> (tempfile::TempDir, tempfile::TempDir, crate::harness::integration::ReporterAssetResolver) {
+        use crate::harness::integrations::ReporterPlatform;
+
+        let assets = tempfile::tempdir().unwrap();
+        std::fs::write(
+            assets.path().join(ReporterPlatform::Posix.asset_name()),
+            "#!/bin/sh\n",
+        )
+        .unwrap();
+        std::fs::write(
+            assets.path().join(ReporterPlatform::WindowsPowerShell.asset_name()),
+            "# noop\n",
+        )
+        .unwrap();
+        let stable = tempfile::tempdir().unwrap();
+        let resolver = crate::harness::integration::ReporterAssetResolver {
+            source_dir: assets.path().to_path_buf(),
+            stable_dir: stable.path().join("hook-scripts"),
+        };
+        (assets, stable, resolver)
+    }
+
+    #[test]
+    fn integration_install_and_uninstall_round_trip_for_claude_code() {
+        let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
+        let user = HarnessUserDocument::default();
+        let resolved = resolve_document(&builtins, &user).unwrap();
+        let claude = resolved.get("claude-code").unwrap();
+
+        let workspace = tempfile::tempdir().unwrap();
+        // Claude's handler is a JsonHookHandler, which refuses to touch a
+        // config file outside a Git workspace where the target is ignored
+        // (see `ValidatedWorkspaceTarget::require_local_or_ignored_untracked`
+        // in harness/integration.rs) — without this, install/uninstall below
+        // return `UnsafeTarget { code: "not_git_workspace" }` and `.unwrap()` panics.
+        git2::Repository::init(workspace.path()).unwrap();
+        std::fs::write(
+            workspace.path().join(".gitignore"),
+            ".claude/settings.local.json\n",
+        )
+        .unwrap();
+        let (_assets, _stable, reporter_assets) = test_reporter_assets();
+        let orkworks_root = tempfile::tempdir().unwrap();
+        let ctx = crate::harness::integration::IntegrationContext {
+            workspace: workspace.path(),
+            workspace_metadata: None,
+            orkworks_root: orkworks_root.path(),
+            enabled: true,
+            detected_tool: None,
+            reporter_assets: &reporter_assets,
+        };
+
+        let installed = claude.integration_install(&ctx).unwrap();
+        assert_eq!(
+            installed.registration,
+            crate::harness::integration::IntegrationRegistration::Installed
+        );
+
+        let uninstalled = claude.integration_uninstall(&ctx).unwrap();
+        assert_eq!(
+            uninstalled.registration,
+            crate::harness::integration::IntegrationRegistration::Absent
+        );
+    }
+
+    #[test]
+    fn integration_install_on_a_harness_with_no_binding_is_a_no_op() {
+        let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
+        let user = HarnessUserDocument::default();
+        let resolved = resolve_document(&builtins, &user).unwrap();
+        let shell = resolved.get("generic-shell").unwrap();
+
+        let workspace = tempfile::tempdir().unwrap();
+        let (_assets, _stable, reporter_assets) = test_reporter_assets();
+        let orkworks_root = tempfile::tempdir().unwrap();
+        let ctx = crate::harness::integration::IntegrationContext {
+            workspace: workspace.path(),
+            workspace_metadata: None,
+            orkworks_root: orkworks_root.path(),
+            enabled: true,
+            detected_tool: None,
+            reporter_assets: &reporter_assets,
+        };
+
+        let status = shell.integration_install(&ctx).unwrap();
+        assert_eq!(
+            status.registration,
+            crate::harness::integration::IntegrationRegistration::Unsupported
+        );
+        let status = shell.integration_uninstall(&ctx).unwrap();
+        assert_eq!(
+            status.registration,
+            crate::harness::integration::IntegrationRegistration::Unsupported
+        );
+    }
+
+    #[test]
+    fn no_binding_status_reports_the_actual_harness_id_not_generic_shell() {
+        let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
+        // A custom harness definition can't carry an `integration` binding
+        // (validate() rejects it for DefinitionOrigin::Custom), so every
+        // custom harness hits the `None` branch in integration_status/
+        // install/uninstall — this pins that `generic_shell_status` reports
+        // the querying harness's own id, not a hardcoded "generic-shell".
+        let mut custom = builtins
+            .builtins
+            .iter()
+            .find(|definition| definition.id == "generic-shell")
+            .unwrap()
+            .clone();
+        custom.id = "my-custom-tool".into();
+        custom.name = "My Custom Tool".into();
+        custom.integration = None;
+        let mut user = HarnessUserDocument::default();
+        user.custom = vec![custom];
+        let resolved = resolve_document(&builtins, &user).unwrap();
+        let custom_harness = resolved.get("my-custom-tool").unwrap();
+
+        let workspace = tempfile::tempdir().unwrap();
+        let (_assets, _stable, reporter_assets) = test_reporter_assets();
+        let orkworks_root = tempfile::tempdir().unwrap();
+        let ctx = crate::harness::integration::IntegrationContext {
+            workspace: workspace.path(),
+            workspace_metadata: None,
+            orkworks_root: orkworks_root.path(),
+            enabled: true,
+            detected_tool: None,
+            reporter_assets: &reporter_assets,
+        };
+
+        let status = custom_harness.integration_status(&ctx).unwrap();
+        assert_eq!(status.harness_id, "my-custom-tool");
+    }
 
     #[test]
     fn invalid_override_keeps_the_builtin_and_reports_a_diagnostic() {

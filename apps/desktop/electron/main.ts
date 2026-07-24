@@ -334,38 +334,39 @@ app.whenReady().then(() => {
     await openSessionPlan(`http://127.0.0.1:${port}`, sessionId, openPlanToken, workspacePath, fetch, (filePath) => shell.openPath(filePath));
   });
 
-  ipcMain.handle("get-claude-code-hook-status", async () => {
-    try {
-      const port = await portPromise;
-      const resp = await fetch(`http://127.0.0.1:${port}/workspace/attention-hook/status`);
-      if (resp.status === 409) {
-        return { installed: false, error: "Open a workspace first." };
-      }
-      if (resp.ok) {
-        return await resp.json() as { installed: boolean; error?: string };
-      }
-    } catch {
-      // Fall through to unknown status
-    }
-    return { installed: false, error: "Couldn't reach the OrkWorks sidecar." };
-  });
+  const integrationActionLabels: Record<"status" | "install" | "uninstall", string> = {
+    status: "check the integration status",
+    install: "install the integration",
+    uninstall: "uninstall the integration",
+  };
 
-  ipcMain.handle("install-claude-code-hook", async () => {
+  async function callIntegrationRoute(harnessId: unknown, action: "status" | "install" | "uninstall") {
+    if (typeof harnessId !== "string" || !harnessId) throw new Error("Invalid harness ID.");
     try {
       const port = await portPromise;
-      const resp = await fetch(`http://127.0.0.1:${port}/workspace/attention-hook/install`, { method: "POST" });
-      if (resp.status === 409) {
-        return { installed: false, error: "Open a workspace first." };
-      }
-      const body = await resp.json() as { installed?: boolean; error?: string };
+      const method = action === "status" ? "GET" : "POST";
+      const resp = await fetch(
+        `http://127.0.0.1:${port}/workspace/integrations/${encodeURIComponent(harnessId)}/${action}`,
+        { method },
+      );
       if (resp.ok) {
-        return { installed: Boolean(body.installed), error: undefined };
+        return { ok: true, status: await resp.json() };
       }
-      return { installed: false, error: body.error ?? "Couldn't install the hook." };
+      const body = await resp.json().catch(() => ({ error: undefined }));
+      return { ok: false, error: (body as { error?: string }).error ?? `Couldn't ${integrationActionLabels[action]}.` };
     } catch {
-      return { installed: false, error: "Couldn't reach the OrkWorks sidecar." };
+      return { ok: false, error: "Couldn't reach the OrkWorks sidecar." };
     }
-  });
+  }
+
+  ipcMain.handle("get-harness-integration-status", async (_event, harnessId: unknown) =>
+    callIntegrationRoute(harnessId, "status"));
+
+  ipcMain.handle("install-harness-integration", async (_event, harnessId: unknown) =>
+    callIntegrationRoute(harnessId, "install"));
+
+  ipcMain.handle("uninstall-harness-integration", async (_event, harnessId: unknown) =>
+    callIntegrationRoute(harnessId, "uninstall"));
 
   ipcMain.handle("open-workspace", async () => {
     const result = await dialog.showOpenDialog({

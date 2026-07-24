@@ -324,12 +324,13 @@ pub(crate) fn reconcile_current(
 
 #[allow(dead_code)] // Read by generic integration routes in Task 8.
 pub(crate) fn generic_shell_status(
+    harness_id: &str,
     _workspace: &Path,
     enabled: bool,
     tool_detected: bool,
 ) -> IntegrationStatus {
     IntegrationStatus {
-        harness_id: "generic-shell".into(),
+        harness_id: harness_id.into(),
         enabled,
         tool_detected,
         registration: IntegrationRegistration::Unsupported,
@@ -389,7 +390,10 @@ pub(crate) fn reporter_invocation(path: &Path, marker: &str) -> ReporterInvocati
 }
 
 fn shell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\\\"'\\\"'"))
+    // Close the quoted string, emit a literal quote via the standard
+    // close-escape-reopen idiom (`'\''`), then reopen — NOT `'\"'\"'`, which
+    // embeds a literal backslash and leaves the quoting unbalanced.
+    format!("'{}'", value.replace('\'', "'\\''"))
 }
 
 fn powershell_quote(value: &str) -> String {
@@ -406,6 +410,41 @@ mod tests {
         IntegrationContext, IntegrationOwnership, IntegrationRegistration, ReporterAssetResolver,
     };
     use crate::metadata::MetadataStore;
+
+    #[test]
+    fn report_harness_event_always_posts_generic_attention() {
+        let script = include_str!("../../../scripts/report-harness-event.sh");
+        assert!(script.contains("ORKWORKS_SESSION_ID"));
+        assert!(script.contains("ORKWORKS_PORT"));
+        assert!(script.contains("/sessions/$ORKWORKS_SESSION_ID/attention"));
+        assert!(script.contains("\"status\":\"waiting_for_input\""));
+    }
+
+    #[test]
+    fn report_harness_event_captures_claude_session_id_only_for_claude_marker() {
+        let script = include_str!("../../../scripts/report-harness-event.sh");
+        assert!(script.contains("claude-code"));
+        assert!(script.contains("session_id"));
+        assert!(script.contains("/sessions/$ORKWORKS_SESSION_ID/harness-session"));
+        assert!(script.contains("\"source\":\"claude_hook\""));
+    }
+
+    #[test]
+    fn report_harness_event_bounds_every_curl_with_a_timeout() {
+        let script = include_str!("../../../scripts/report-harness-event.sh");
+        let max_time_count = script.matches("--max-time").count();
+        assert_eq!(
+            max_time_count, 2,
+            "both possible curl calls must cap their own runtime so a stuck orkworksd cannot \
+             hang the harness's own hook mechanism"
+        );
+    }
+
+    #[test]
+    fn report_harness_event_parses_the_marker_flag() {
+        let script = include_str!("../../../scripts/report-harness-event.sh");
+        assert!(script.contains("--marker"));
+    }
 
     struct Case {
         name: &'static str,
@@ -852,7 +891,7 @@ mod tests {
         );
         assert_eq!(posix.program, "/stable path/report-harness-event.sh");
         assert_eq!(posix.args, vec!["--marker", "marker'value"]);
-        assert!(posix.shell_command.contains("'\\\"'\\\"'"));
+        assert!(posix.shell_command.contains("'\\''"));
 
         let powershell = reporter_invocation_for_platform(
             ReporterPlatform::WindowsPowerShell,
@@ -865,6 +904,34 @@ mod tests {
         assert!(powershell.shell_command.contains("powershell.exe"));
         assert!(powershell.shell_command.contains("-File"));
         assert!(powershell.shell_command.contains("''"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn shell_quote_produces_syntactically_valid_shell_for_apostrophe_containing_paths() {
+        // A real-world trigger: a home directory or workspace path containing
+        // an apostrophe (e.g. "/Users/o'brien/..."), which shell_quote must
+        // still embed as one syntactically valid, single shell token — this
+        // is what feeds Copilot's `bash`/`powershell` hook fields and
+        // Gemini's `command` field (copilot.rs, gemini.rs), both of which
+        // execute `shell_command` through an actual shell.
+        let invocation = reporter_invocation_for_platform(
+            ReporterPlatform::Posix,
+            Path::new("/Users/o'brien/.orkworks/hook-scripts/report-harness-event.sh"),
+            "orkworks:harness-integration:v2:gemini",
+        );
+
+        let status = std::process::Command::new("sh")
+            .arg("-n")
+            .arg("-c")
+            .arg(&invocation.shell_command)
+            .status()
+            .expect("sh must be available to validate shell syntax");
+        assert!(
+            status.success(),
+            "shell_command is not valid shell syntax: {}",
+            invocation.shell_command
+        );
     }
 
     #[test]

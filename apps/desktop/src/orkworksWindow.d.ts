@@ -1,7 +1,7 @@
 import type { WorkspaceInfo } from "./api";
 import type { AppSettings, DebugSettings, HotkeySettings, RetentionSettings, SaveHotkeysResult } from "./appSettingsTypes";
 import type { ProviderSettings, ProviderModelsResponse, ProviderLabelsResponse, OllamaVerificationResponse } from "./providerTypes";
-import type { AttentionHookStatusResponse } from "./harnessTypes";
+import type { IntegrationStatusResult } from "./harnessTypes";
 
 declare global {
   interface Window {
@@ -20,8 +20,9 @@ declare global {
       verifyOllama: (baseUrl: string) => Promise<OllamaVerificationResponse>;
       getProviderModels: (providerId: string) => Promise<ProviderModelsResponse>;
       getProviderLabels: () => Promise<ProviderLabelsResponse>;
-      getClaudeCodeHookStatus: () => Promise<AttentionHookStatusResponse>;
-      installClaudeCodeHook: () => Promise<AttentionHookStatusResponse>;
+      getHarnessIntegrationStatus: (harnessId: string) => Promise<IntegrationStatusResult>;
+      installHarnessIntegration: (harnessId: string) => Promise<IntegrationStatusResult>;
+      uninstallHarnessIntegration: (harnessId: string) => Promise<IntegrationStatusResult>;
       openPlan: (sessionId: string) => Promise<void>;
       setHotkeyCaptureActive: (active: boolean) => void;
       onMenuCommand: (callback: (data: { action: string; panelId?: string }) => void) => () => void;
