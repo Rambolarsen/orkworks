@@ -156,6 +156,33 @@ mod tests {
         std::fs::write(workspace.join(".gitignore"), ".claude/settings.local.json\n").unwrap();
     }
 
+    // Pins the packaged-vs-dev fallback that used to be covered by
+    // hook_handlers.rs's resolve_claude_hook_script_path_* tests (deleted
+    // along with that file) — this is the same AppImage/packaging-sensitive
+    // logic, just resolving a scripts directory instead of one script file.
+    #[test]
+    fn resolve_scripts_source_dir_prefers_packaged_layout_when_present() {
+        let exe_dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(exe_dir.path().join("scripts")).unwrap();
+        let manifest_dir = tempfile::tempdir().unwrap();
+
+        let resolved =
+            resolve_scripts_source_dir(Some(exe_dir.path().to_path_buf()), manifest_dir.path());
+
+        assert_eq!(resolved, exe_dir.path().join("scripts"));
+    }
+
+    #[test]
+    fn resolve_scripts_source_dir_falls_back_to_dev_manifest_dir() {
+        let exe_dir = tempfile::tempdir().unwrap();
+        let manifest_dir = tempfile::tempdir().unwrap();
+
+        let resolved =
+            resolve_scripts_source_dir(Some(exe_dir.path().to_path_buf()), manifest_dir.path());
+
+        assert_eq!(resolved, manifest_dir.path().join("scripts"));
+    }
+
     #[tokio::test]
     async fn status_reports_absent_for_a_fresh_workspace() {
         let dir = tempfile::tempdir().unwrap();
