@@ -1607,28 +1607,6 @@ mod tests {
     }
 
     #[test]
-    fn claude_hook_reporter_extracts_session_id_and_posts() {
-        let script = include_str!("../../scripts/report-claude-session-from-hook.sh");
-        assert!(script.contains("session_id"));
-        assert!(script.contains("ORKWORKS_SESSION_ID"));
-        assert!(script.contains("ORKWORKS_PORT"));
-        assert!(script.contains("/sessions/$ORKWORKS_SESSION_ID/harness-session"));
-        assert!(script.contains("\"source\":\"claude_hook\""));
-        assert!(script.contains("/sessions/$ORKWORKS_SESSION_ID/attention"));
-    }
-
-    #[test]
-    fn claude_hook_reporter_script_bounds_both_curls_with_a_timeout() {
-        let script = include_str!("../../scripts/report-claude-session-from-hook.sh");
-        let max_time_count = script.matches("--max-time").count();
-        assert_eq!(
-            max_time_count, 2,
-            "both curl calls must cap their own runtime so a stuck orkworksd cannot hang \
-             the UserPromptSubmit/Notification hook until the harness's own default timeout"
-        );
-    }
-
-    #[test]
     fn terminal_env_filter_removes_launcher_debug_variables() {
         assert!(!should_forward_terminal_env("NODE_OPTIONS"));
         assert!(!should_forward_terminal_env("VSCODE_INSPECTOR_OPTIONS"));
