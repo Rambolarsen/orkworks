@@ -120,12 +120,18 @@ pub(crate) fn apply_attention_signal(
 /// directly, since it must keep both locks held to atomically bump its own
 /// input-generation bookkeeping alongside the status write (see issue #193).
 ///
-/// Only applies when the session's current persisted `observed_status` is
-/// `None` or `"working"` -- a session already in a more specific state (e.g.
-/// `capped`) must not be silently downgraded by a background sweep. Applies
-/// to both stores together or neither: previously the live handle could be
-/// overwritten even when the persisted gate rejected the write, letting disk
-/// and memory disagree.
+/// For `IdleTimeout` only: applies solely when the session's current persisted
+/// `observed_status` is `None` or `"working"` -- a session already in a more
+/// specific state (e.g. `capped`) must not be silently downgraded by a
+/// background sweep. Applies to both stores together or neither: previously
+/// the live handle could be overwritten even when the persisted gate rejected
+/// the write, letting disk and memory disagree.
+///
+/// This gate is idle-sweep-specific reasoning, not a universal rule for every
+/// `ProcessTransition` -- `CommittedWorking`'s real semantics are unconditional
+/// (committed input must flip a `blocked`/`capped`/`waiting_for_input` session
+/// back to `working`), so it is intentionally excluded here rather than
+/// applied to every kind this function might ever be called with.
 pub(crate) fn apply_process_transition(state: &Arc<AppState>, id: &str, kind: ProcessTransition) {
     let fields = process_transition_fields(kind);
     let ws_guard = state.workspace.lock().unwrap();
@@ -135,7 +141,9 @@ pub(crate) fn apply_process_transition(state: &Arc<AppState>, id: &str, kind: Pr
     let Some(mut meta) = ws.metadata.read_session(id) else {
         return;
     };
-    if !matches!(meta.observed_status.as_deref(), None | Some("working")) {
+    if matches!(kind, ProcessTransition::IdleTimeout)
+        && !matches!(meta.observed_status.as_deref(), None | Some("working"))
+    {
         return;
     }
     apply_process_transition_to_meta(&mut meta, &fields);
