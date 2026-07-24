@@ -18,6 +18,8 @@ dependencies:
     - leonardomso/rust-skills
     - git: mattpocock/skills
       skills:
+        - codebase-design
+        - grilling
         - improve-codebase-architecture
   mcp: []
 includes: auto
