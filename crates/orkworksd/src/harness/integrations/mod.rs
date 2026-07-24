@@ -390,7 +390,10 @@ pub(crate) fn reporter_invocation(path: &Path, marker: &str) -> ReporterInvocati
 }
 
 fn shell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\\\"'\\\"'"))
+    // Close the quoted string, emit a literal quote via the standard
+    // close-escape-reopen idiom (`'\''`), then reopen — NOT `'\"'\"'`, which
+    // embeds a literal backslash and leaves the quoting unbalanced.
+    format!("'{}'", value.replace('\'', "'\\''"))
 }
 
 fn powershell_quote(value: &str) -> String {
@@ -888,7 +891,7 @@ mod tests {
         );
         assert_eq!(posix.program, "/stable path/report-harness-event.sh");
         assert_eq!(posix.args, vec!["--marker", "marker'value"]);
-        assert!(posix.shell_command.contains("'\\\"'\\\"'"));
+        assert!(posix.shell_command.contains("'\\''"));
 
         let powershell = reporter_invocation_for_platform(
             ReporterPlatform::WindowsPowerShell,
@@ -901,6 +904,34 @@ mod tests {
         assert!(powershell.shell_command.contains("powershell.exe"));
         assert!(powershell.shell_command.contains("-File"));
         assert!(powershell.shell_command.contains("''"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn shell_quote_produces_syntactically_valid_shell_for_apostrophe_containing_paths() {
+        // A real-world trigger: a home directory or workspace path containing
+        // an apostrophe (e.g. "/Users/o'brien/..."), which shell_quote must
+        // still embed as one syntactically valid, single shell token — this
+        // is what feeds Copilot's `bash`/`powershell` hook fields and
+        // Gemini's `command` field (copilot.rs, gemini.rs), both of which
+        // execute `shell_command` through an actual shell.
+        let invocation = reporter_invocation_for_platform(
+            ReporterPlatform::Posix,
+            Path::new("/Users/o'brien/.orkworks/hook-scripts/report-harness-event.sh"),
+            "orkworks:harness-integration:v2:gemini",
+        );
+
+        let status = std::process::Command::new("sh")
+            .arg("-n")
+            .arg("-c")
+            .arg(&invocation.shell_command)
+            .status()
+            .expect("sh must be available to validate shell syntax");
+        assert!(
+            status.success(),
+            "shell_command is not valid shell syntax: {}",
+            invocation.shell_command
+        );
     }
 
     #[test]
