@@ -194,20 +194,35 @@ fn record_input_after_delivery(
     }
 }
 
-pub(crate) fn collect_input_line(buf: &mut String, data: &str) -> Option<String> {
+/// Scans one raw PTY input frame for both the label-worthy completed line (if
+/// any) and whether the frame contains a genuine outside-paste line
+/// terminator. Answering both questions from a single pass is what keeps the
+/// label path and the working-transition decision from disagreeing about
+/// where bracketed paste (`ESC[200~ ... ESC[201~`) begins or ends: xterm
+/// wraps a paste in those markers and delivers it as one frame, and embedded
+/// newlines there are literal pasted text being inserted, not the user
+/// pressing Enter to submit.
+pub(crate) fn collect_input_line(buf: &mut String, data: &str) -> (Option<String>, bool) {
     let mut result: Option<String> = None;
+    let mut line_completed = false;
+    let mut in_paste = false;
     let mut chars = data.chars().peekable();
     while let Some(ch) = chars.next() {
         match ch {
-            '\r' | '\n' => {
+            '\r' | '\n' if !in_paste => {
                 // Full, untruncated line. The only caller (record_terminal_input)
                 // truncates it to a display-bounded label before persisting —
                 // the full line is not retained anywhere past this point.
+                line_completed = true;
                 let line = buf.trim().to_string();
                 buf.clear();
                 if !line.is_empty() && result.is_none() {
                     result = Some(line);
                 }
+            }
+            '\r' | '\n' => {
+                // Inside bracketed paste: literal pasted text, not a submit.
+                buf.push(ch);
             }
             '\x7f' => {
                 buf.pop();
@@ -218,12 +233,24 @@ pub(crate) fn collect_input_line(buf: &mut String, data: &str) -> Option<String>
             '\x1b' => {
                 match chars.peek().copied() {
                     Some('[') => {
-                        // CSI: ESC [ params letter/~
+                        // CSI: ESC [ params letter/~. Bracketed paste is the
+                        // params "200"/"201" with final byte '~'.
                         chars.next();
+                        let mut params = String::new();
+                        let mut final_byte = None;
                         while let Some(&c) = chars.peek() {
                             chars.next();
                             if c.is_ascii_alphabetic() || c == '~' {
+                                final_byte = Some(c);
                                 break;
+                            }
+                            params.push(c);
+                        }
+                        if final_byte == Some('~') {
+                            match params.as_str() {
+                                "200" => in_paste = true,
+                                "201" => in_paste = false,
+                                _ => {}
                             }
                         }
                     }
@@ -265,32 +292,7 @@ pub(crate) fn collect_input_line(buf: &mut String, data: &str) -> Option<String>
             _ => {}
         }
     }
-    result
-}
-
-const BRACKETED_PASTE_START: &str = "\x1b[200~";
-const BRACKETED_PASTE_END: &str = "\x1b[201~";
-
-/// Whether `data` contains a genuine submitted-line terminator, ignoring any
-/// bytes bracketed paste marks as pasted content. xterm wraps a paste in
-/// `ESC[200~ ... ESC[201~` and delivers it as a single frame; embedded
-/// newlines there are literal pasted text being inserted, not the user
-/// pressing Enter to submit, and must not be mistaken for one.
-fn frame_completes_a_real_line(data: &str) -> bool {
-    let mut rest = data;
-    let mut outside_paste = String::new();
-    while let Some(start) = rest.find(BRACKETED_PASTE_START) {
-        outside_paste.push_str(&rest[..start]);
-        rest = &rest[start + BRACKETED_PASTE_START.len()..];
-        match rest.find(BRACKETED_PASTE_END) {
-            Some(end) => rest = &rest[end + BRACKETED_PASTE_END.len()..],
-            // Unterminated marker in this frame: treat the remainder as
-            // pasted content too, conservatively excluding it.
-            None => rest = "",
-        }
-    }
-    outside_paste.push_str(rest);
-    outside_paste.contains(['\r', '\n'])
+    (result, line_completed)
 }
 
 fn mark_usage_limit_recheck_on_input(state: &Arc<AppState>, id: &str) {
@@ -340,19 +342,18 @@ fn record_terminal_input_impl(
         mark_usage_limit_recheck_on_input(state, id);
     }
 
-    let collected_line = {
+    let (collected_line, line_completed) = {
         let mut bufs = state.peon.input_buf.write().unwrap();
         let buf = bufs.entry(id.to_string()).or_default();
         collect_input_line(buf, data)
     };
 
     if !data.is_empty() {
-        // Whether this frame contains a line terminator at all, not whether
-        // the accumulated line was non-empty — collect_input_line reports no
-        // completed line for a bare Enter with nothing typed yet (a very
-        // common case: accepting a prompt's default answer), which must
-        // still count as a submitted line here.
-        let line_completed = frame_completes_a_real_line(data);
+        // Whether this frame contains a line terminator outside any
+        // bracketed paste, not whether the accumulated line was non-empty —
+        // collect_input_line reports no completed line for a bare Enter with
+        // nothing typed yet (a very common case: accepting a prompt's
+        // default answer), which must still count as a submitted line here.
         mark_committed_input_working(state, id, output_boundary, line_completed);
     }
 
@@ -1239,11 +1240,10 @@ mod tests {
             handle.active_work_hook = true;
         }
 
-        // collect_input_line's own line-collection (used for the session
-        // label, not the attention gate) isn't paste-aware and treats the
-        // first embedded newline as a completed label line — a pre-existing,
-        // separate imprecision. What this test guards is that the pasted
-        // content must not clear attention.
+        // collect_input_line now shares the same paste-aware scan as the
+        // attention gate: the embedded newlines are literal pasted text, not
+        // line terminators, so the buffer retains the full paste intact
+        // rather than fragmenting it into a premature label line.
         record_terminal_input(
             &state,
             session_id,
@@ -1252,6 +1252,10 @@ mod tests {
 
         let info = state.sessions.lock().unwrap()[session_id].info.clone();
         assert_eq!(info.attention.as_deref(), Some("needs_you"));
+        assert_eq!(
+            state.peon.input_buf.read().unwrap()[session_id],
+            "line one\nline two\nline three"
+        );
     }
 
     #[test]
@@ -2571,12 +2575,11 @@ mod tests {
     #[test]
     fn collect_input_line_returns_none_until_newline() {
         let mut buf = String::new();
-        assert!(collect_input_line(&mut buf, "hel").is_none());
-        assert!(collect_input_line(&mut buf, "lo").is_none());
-        assert_eq!(
-            collect_input_line(&mut buf, "\r\n").as_deref(),
-            Some("hello")
-        );
+        assert!(collect_input_line(&mut buf, "hel").0.is_none());
+        assert!(collect_input_line(&mut buf, "lo").0.is_none());
+        let (line, completed) = collect_input_line(&mut buf, "\r\n");
+        assert_eq!(line.as_deref(), Some("hello"));
+        assert!(completed);
         assert!(buf.is_empty());
     }
 
@@ -2584,7 +2587,7 @@ mod tests {
     fn collect_input_line_strips_trailing_whitespace() {
         let mut buf = String::new();
         assert_eq!(
-            collect_input_line(&mut buf, "cargo build  \n").as_deref(),
+            collect_input_line(&mut buf, "cargo build  \n").0.as_deref(),
             Some("cargo build")
         );
     }
@@ -2592,6 +2595,34 @@ mod tests {
     #[test]
     fn collect_input_line_empty_line_is_none() {
         let mut buf = String::new();
-        assert!(collect_input_line(&mut buf, "\n").is_none());
+        let (line, completed) = collect_input_line(&mut buf, "\n");
+        assert!(line.is_none());
+        assert!(completed);
+    }
+
+    #[test]
+    fn collect_input_line_treats_pasted_newlines_as_literal_not_a_submit() {
+        // Pasted multi-line content with no trailing real Enter must not be
+        // mistaken for a submitted line, and must not fragment the buffer —
+        // the full pasted text (embedded newlines included) stays intact for
+        // the next frame.
+        let mut buf = String::new();
+        let (line, completed) =
+            collect_input_line(&mut buf, "\x1b[200~line one\nline two\nline three\x1b[201~");
+        assert!(line.is_none());
+        assert!(!completed);
+        assert_eq!(buf, "line one\nline two\nline three");
+    }
+
+    #[test]
+    fn collect_input_line_completes_a_line_after_a_paste_followed_by_enter() {
+        // The same frame classifier answers "is there a submitted line" and
+        // "what's the outside-paste text" consistently: a paste followed by
+        // a real Enter completes one line containing the full pasted text.
+        let mut buf = String::new();
+        let (line, completed) = collect_input_line(&mut buf, "\x1b[200~line one\nline two\x1b[201~\r");
+        assert_eq!(line.as_deref(), Some("line one\nline two"));
+        assert!(completed);
+        assert!(buf.is_empty());
     }
 }
