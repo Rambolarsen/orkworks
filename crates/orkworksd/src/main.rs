@@ -31,7 +31,9 @@ use crate::harness::store::{global_harnesses_path, HarnessStore};
 use crate::http::harness_handlers::{
     create_harness, delete_harness, list_harnesses, update_harness,
 };
-use crate::http::hook_handlers::{get_attention_hook_status, install_attention_hook};
+use crate::http::integration_handlers::{
+    get_integration_status, install_integration, uninstall_integration,
+};
 use crate::http::provider_handlers::{
     get_provider_models, get_providers, set_provider_settings, verify_ollama_settings,
 };
@@ -188,12 +190,16 @@ async fn main() {
         .route("/workspace/active-session", post(set_active_session))
         .route("/workspace/active-harnesses", put(set_active_harnesses))
         .route(
-            "/workspace/attention-hook/status",
-            get(get_attention_hook_status),
+            "/workspace/integrations/:harness_id/status",
+            get(get_integration_status),
         )
         .route(
-            "/workspace/attention-hook/install",
-            post(install_attention_hook),
+            "/workspace/integrations/:harness_id/install",
+            post(install_integration),
+        )
+        .route(
+            "/workspace/integrations/:harness_id/uninstall",
+            post(uninstall_integration),
         )
         .route("/sessions", post(create_session))
         .route("/sessions", get(list_sessions))
@@ -471,12 +477,16 @@ mod tests {
             .route("/workspace/active-session", post(set_active_session))
             .route("/workspace/active-harnesses", put(set_active_harnesses))
             .route(
-                "/workspace/attention-hook/status",
-                get(get_attention_hook_status),
+                "/workspace/integrations/:harness_id/status",
+                get(get_integration_status),
             )
             .route(
-                "/workspace/attention-hook/install",
-                post(install_attention_hook),
+                "/workspace/integrations/:harness_id/install",
+                post(install_integration),
+            )
+            .route(
+                "/workspace/integrations/:harness_id/uninstall",
+                post(uninstall_integration),
             )
             .route("/sessions", post(create_session))
             .route("/sessions", get(list_sessions))
