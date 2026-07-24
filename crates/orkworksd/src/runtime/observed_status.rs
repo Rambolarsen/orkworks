@@ -147,7 +147,10 @@ pub(crate) fn apply_process_transition(state: &Arc<AppState>, id: &str, kind: Pr
         return;
     }
     apply_process_transition_to_meta(&mut meta, &fields);
-    ws.metadata.write_session(&meta);
+    if ws.metadata.try_write_session(&meta).is_err() {
+        tracing::warn!(session_id = %id, "failed to persist process transition");
+        return;
+    }
     if let Some(handle) = state.sessions.lock().unwrap().get_mut(id) {
         apply_process_transition_to_handle(&mut handle.info, &fields);
     }
@@ -510,5 +513,38 @@ mod tests {
             Some(persisted.metadata_source.as_str())
         );
         assert_eq!(live.summary.as_deref(), persisted.summary.as_deref());
+    }
+
+    /// Regression test: apply_process_transition must not update the live
+    /// handle when the persisted write fails, or disk and memory disagree --
+    /// exactly the failure mode this module exists to prevent (caught in PR
+    /// #208 review).
+    #[test]
+    fn apply_process_transition_does_not_update_handle_when_persist_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(dir.path());
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .insert("s1".into(), test_handle("s1"));
+        {
+            let ws = state.workspace.lock().unwrap();
+            let metadata = &ws.as_ref().unwrap().metadata;
+            metadata.write_session(&alive_meta("s1"));
+            // A directory squatting on the atomic-write temp path makes the
+            // write fail while the session file itself remains readable.
+            std::fs::create_dir_all(metadata.sessions_dir().join("s1.json.tmp")).unwrap();
+        }
+
+        apply_process_transition(&state, "s1", ProcessTransition::IdleTimeout);
+
+        let persisted = {
+            let ws = state.workspace.lock().unwrap();
+            ws.as_ref().unwrap().metadata.read_session("s1").unwrap()
+        };
+        assert_ne!(persisted.observed_status.as_deref(), Some("idle"));
+        let sessions = state.sessions.lock().unwrap();
+        assert_eq!(sessions.get("s1").unwrap().info.observed_status, None);
     }
 }
