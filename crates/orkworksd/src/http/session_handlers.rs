@@ -565,10 +565,13 @@ pub(crate) async fn report_attention(
     let plan_path = req.plan_path.clone();
     let observed_at_for_commit = observed_at;
     let result = match tokio::task::spawn_blocking(move || {
-        let ws_guard = persist_state.workspace.lock().unwrap();
-        let Some(ref ws) = *ws_guard else {
+        // Workspace existence is checked unconditionally first, matching the
+        // pre-refactor order: a torn-down workspace must always mean 409, not
+        // 200, regardless of whether this particular report also turns out to
+        // be stale.
+        if persist_state.workspace.lock().unwrap().is_none() {
             return Err(axum::http::StatusCode::CONFLICT);
-        };
+        }
         if observed_at_for_commit.is_some_and(|timestamp| {
             persist_state
                 .sessions
@@ -580,7 +583,8 @@ pub(crate) async fn report_attention(
         }) {
             return Ok(metadata::AttentionMergeResult::Ignored);
         }
-        let result = ws.metadata.merge_agent_attention_signal_with_plan(
+        match crate::runtime::observed_status::apply_attention_signal(
+            &persist_state,
             &persist_id,
             &persist_status,
             message.as_deref(),
@@ -588,24 +592,10 @@ pub(crate) async fn report_attention(
             &now,
             "agent",
             1.0,
-        );
-        if result == metadata::AttentionMergeResult::Accepted {
-            // Global lock order for combined metadata/live updates is workspace -> sessions.
-            // Other paths release either lock before acquiring the other.
-            if let Some(handle) = persist_state.sessions.lock().unwrap().get_mut(&persist_id) {
-                handle.info.observed_status = Some(persist_status.clone());
-                if handle.info.lifecycle == "alive" {
-                    handle.info.attention =
-                        metadata::canonical_attention(Some(persist_status.as_str()));
-                }
-                if let Some(message) = message.as_ref() {
-                    handle.info.summary = Some(message.clone());
-                }
-                handle.info.metadata_source = Some("agent".into());
-                handle.info.metadata_confidence = Some(1.0);
-            }
+        ) {
+            Some(result) => Ok(result),
+            None => Err(axum::http::StatusCode::CONFLICT),
         }
-        Ok(result)
     })
     .await
     {
@@ -670,10 +660,6 @@ pub(crate) async fn apply_debug_attention(
         return axum::http::StatusCode::BAD_REQUEST.into_response();
     }
 
-    // The debug picker speaks the `attention` vocabulary directly; the merge
-    // path stores `observed_status` and derives `attention` from it via
-    // canonical_attention. Every value round-trips as a passthrough except
-    // needs_you, which canonical_attention only produces from waiting_for_input.
     let observed_status = if req.attention == "needs_you" {
         "waiting_for_input".to_string()
     } else {
@@ -686,9 +672,14 @@ pub(crate) async fn apply_debug_attention(
     let persist_state = state.clone();
     let persist_id = id.clone();
     let persist_status = observed_status.clone();
-    let persist_attention = req.attention.clone();
     let persist_message = req.message.clone();
     let result = match tokio::task::spawn_blocking(move || {
+        // This bypasses apply_attention_signal's self-locking shell and holds
+        // the workspace/sessions locks itself, like mark_committed_input_working
+        // does -- the lifecycle precheck and usage_limit_reset_hint write both
+        // need to stay atomic with the attention-field write, not split into
+        // separately-locked critical sections a concurrent call could interleave
+        // with.
         let ws_guard = persist_state.workspace.lock().unwrap();
         let Some(ref ws) = *ws_guard else {
             return Err(axum::http::StatusCode::CONFLICT);
@@ -700,26 +691,24 @@ pub(crate) async fn apply_debug_attention(
             }
             Some(_) => {}
         }
-        let result = ws.metadata.merge_agent_attention_signal(
+        let result = ws.metadata.merge_agent_attention_signal_with_plan(
             &persist_id,
             &persist_status,
             summary_message.as_deref(),
+            &metadata::PlanPathUpdate::Unchanged,
             &now,
             "debug",
             0.0,
         );
         if result == metadata::AttentionMergeResult::Accepted {
-            // Keep persistence and registry convergence in the workspace-serialized order.
             if let Some(handle) = persist_state.sessions.lock().unwrap().get_mut(&persist_id) {
-                handle.info.observed_status = Some(persist_status.clone());
-                if handle.info.lifecycle == "alive" {
-                    handle.info.attention = Some(persist_attention.clone());
-                }
-                if let Some(message) = summary_message.as_ref() {
-                    handle.info.summary = Some(message.clone());
-                }
-                handle.info.metadata_source = Some("debug".into());
-                handle.info.metadata_confidence = Some(0.0);
+                crate::runtime::observed_status::apply_live_attention_fields(
+                    &mut handle.info,
+                    &persist_status,
+                    summary_message.as_deref(),
+                    "debug",
+                    0.0,
+                );
                 if is_capped {
                     if persist_message.is_some() {
                         handle.info.usage_limit_reset_hint = persist_message.clone();
@@ -1612,46 +1601,6 @@ mod tests {
     use super::*;
     use crate::runtime::terminal_runtime::set_session_status;
     use crate::test_support::*;
-    use std::future::Future;
-    use std::pin::Pin;
-    use std::task::{Context, Poll, Wake, Waker};
-
-    struct NoopWake;
-
-    impl Wake for NoopWake {
-        fn wake(self: Arc<Self>) {}
-    }
-
-    fn poll_once<F: Future>(future: Pin<&mut F>) -> Poll<F::Output> {
-        let waker = Waker::from(Arc::new(NoopWake));
-        future.poll(&mut Context::from_waker(&waker))
-    }
-
-    async fn wait_for_persisted_attention(
-        state: &Arc<AppState>,
-        id: &str,
-        observed_status: &str,
-        source: &str,
-        summary: &str,
-    ) {
-        tokio::time::timeout(std::time::Duration::from_secs(2), async {
-            loop {
-                let persisted = {
-                    let ws = state.workspace.lock().unwrap();
-                    ws.as_ref().unwrap().metadata.read_session(id).unwrap()
-                };
-                if persisted.observed_status.as_deref() == Some(observed_status)
-                    && persisted.metadata_source == source
-                    && persisted.summary.as_deref() == Some(summary)
-                {
-                    return;
-                }
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .expect("attention persistence did not reach the barrier");
-    }
 
     #[test]
     fn session_git_context_is_resolved_once_per_unique_cwd() {
@@ -2479,161 +2428,12 @@ mod tests {
         locker.join().unwrap();
     }
 
-    #[tokio::test]
-    async fn concurrent_agent_attention_keeps_registry_at_latest_persisted_update() {
-        let dir = tempfile::tempdir().unwrap();
-        let state = test_app_state_with_workspace(dir.path());
-        let id = "agent-order";
-        {
-            let ws = state.workspace.lock().unwrap();
-            let mut meta = test_session_metadata(
-                id,
-                "Known",
-                dir.path().display().to_string(),
-                "running",
-                "now",
-                "now",
-            );
-            meta.lifecycle = "alive".into();
-            meta.lifecycle_phase = "active".into();
-            ws.as_ref().unwrap().metadata.write_session(&meta);
-        }
-        state
-            .sessions
-            .lock()
-            .unwrap()
-            .insert(id.into(), attention_test_handle(id, dir.path()));
-
-        let mut first = Box::pin(report_attention(
-            State(state.clone()),
-            Path(id.into()),
-            Json(AttentionReportRequest {
-                status: "waiting_for_input".into(),
-                message: Some("A".into()),
-                plan_path: Default::default(),
-                observed_at: None,
-            }),
-        ));
-        assert!(poll_once(first.as_mut()).is_pending());
-        wait_for_persisted_attention(&state, id, "waiting_for_input", "agent", "A").await;
-
-        let second = report_attention(
-            State(state.clone()),
-            Path(id.into()),
-            Json(AttentionReportRequest {
-                status: "blocked".into(),
-                message: Some("B".into()),
-                plan_path: Default::default(),
-                observed_at: None,
-            }),
-        )
-        .await
-        .into_response();
-        assert_eq!(second.status(), axum::http::StatusCode::OK);
-        assert_eq!(
-            first.await.into_response().status(),
-            axum::http::StatusCode::OK
-        );
-
-        let persisted = state
-            .workspace
-            .lock()
-            .unwrap()
-            .as_ref()
-            .unwrap()
-            .metadata
-            .read_session(id)
-            .unwrap();
-        let live = state.sessions.lock().unwrap()[id].info.clone();
-        assert_eq!(persisted.observed_status.as_deref(), Some("blocked"));
-        assert_eq!(persisted.metadata_source, "agent");
-        assert_eq!(persisted.summary.as_deref(), Some("B"));
-        assert_eq!(
-            live.observed_status.as_deref(),
-            persisted.observed_status.as_deref()
-        );
-        assert_eq!(
-            live.metadata_source.as_deref(),
-            Some(persisted.metadata_source.as_str())
-        );
-        assert_eq!(live.summary.as_deref(), persisted.summary.as_deref());
-    }
-
-    #[tokio::test]
-    async fn concurrent_debug_attention_keeps_registry_at_latest_persisted_update() {
-        let dir = tempfile::tempdir().unwrap();
-        let state = test_app_state_with_workspace(dir.path());
-        let id = "debug-order";
-        {
-            let ws = state.workspace.lock().unwrap();
-            let mut meta = test_session_metadata(
-                id,
-                "Known",
-                dir.path().display().to_string(),
-                "running",
-                "now",
-                "now",
-            );
-            meta.lifecycle = "alive".into();
-            meta.lifecycle_phase = "active".into();
-            ws.as_ref().unwrap().metadata.write_session(&meta);
-        }
-        state
-            .sessions
-            .lock()
-            .unwrap()
-            .insert(id.into(), attention_test_handle(id, dir.path()));
-
-        let mut first = Box::pin(apply_debug_attention(
-            State(state.clone()),
-            Path(id.into()),
-            Json(DebugAttentionRequest {
-                attention: "failed".into(),
-                message: Some("A".into()),
-            }),
-        ));
-        assert!(poll_once(first.as_mut()).is_pending());
-        wait_for_persisted_attention(&state, id, "failed", "debug", "A").await;
-
-        let second = apply_debug_attention(
-            State(state.clone()),
-            Path(id.into()),
-            Json(DebugAttentionRequest {
-                attention: "blocked".into(),
-                message: Some("B".into()),
-            }),
-        )
-        .await
-        .into_response();
-        assert_eq!(second.status(), axum::http::StatusCode::OK);
-        assert_eq!(
-            first.await.into_response().status(),
-            axum::http::StatusCode::OK
-        );
-
-        let persisted = state
-            .workspace
-            .lock()
-            .unwrap()
-            .as_ref()
-            .unwrap()
-            .metadata
-            .read_session(id)
-            .unwrap();
-        let live = state.sessions.lock().unwrap()[id].info.clone();
-        assert_eq!(persisted.observed_status.as_deref(), Some("blocked"));
-        assert_eq!(persisted.metadata_source, "debug");
-        assert_eq!(persisted.summary.as_deref(), Some("B"));
-        assert_eq!(
-            live.observed_status.as_deref(),
-            persisted.observed_status.as_deref()
-        );
-        assert_eq!(
-            live.metadata_source.as_deref(),
-            Some(persisted.metadata_source.as_str())
-        );
-        assert_eq!(live.summary.as_deref(), persisted.summary.as_deref());
-    }
+    // The "concurrent calls keep live/persisted in agreement" guarantee for
+    // both report_attention and apply_debug_attention now lives in a single
+    // test on the shared apply_attention_signal module they both call
+    // through: runtime::observed_status::tests::
+    // apply_attention_signal_keeps_stores_in_agreement_under_concurrent_calls
+    // (see ADR 0027).
 
     #[tokio::test]
     async fn apply_debug_attention_rejects_invalid_attention() {
@@ -2973,6 +2773,81 @@ mod tests {
                 .status(),
             axum::http::StatusCode::OK
         );
+    }
+
+    /// Regression test for a race apply_debug_attention used to have: the
+    /// usage_limit_reset_hint write was a separate, later critical section
+    /// from the attention-field write, so a concurrent call could leave the
+    /// two fields disagreeing (see ADR 0027 / PR #208 review). Both calls
+    /// race through spawn_blocking; whichever lands last must leave
+    /// usage_limit_reset_hint consistent with its own attention, not a mix
+    /// of the two calls' state.
+    #[tokio::test]
+    async fn apply_debug_attention_keeps_reset_hint_consistent_with_attention_under_concurrent_calls(
+    ) {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let id = "debug-concurrent-reset-hint";
+        {
+            let ws = state.workspace.lock().unwrap();
+            let mut meta = test_session_metadata(
+                id,
+                "Known",
+                dir.path().display().to_string(),
+                "running",
+                "now",
+                "now",
+            );
+            meta.lifecycle = "alive".into();
+            meta.lifecycle_phase = "active".into();
+            ws.as_ref().unwrap().metadata.write_session(&meta);
+        }
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .insert(id.into(), attention_test_handle(id, dir.path()));
+
+        let capped = apply_debug_attention(
+            State(state.clone()),
+            Path(id.into()),
+            Json(DebugAttentionRequest {
+                attention: "capped".into(),
+                message: Some("resets in 2h".into()),
+            }),
+        );
+        let working = apply_debug_attention(
+            State(state.clone()),
+            Path(id.into()),
+            Json(DebugAttentionRequest {
+                attention: "working".into(),
+                message: None,
+            }),
+        );
+        let (capped_response, working_response) = tokio::join!(capped, working);
+        assert_eq!(
+            capped_response.into_response().status(),
+            axum::http::StatusCode::OK
+        );
+        assert_eq!(
+            working_response.into_response().status(),
+            axum::http::StatusCode::OK
+        );
+
+        let sessions = state.sessions.lock().unwrap();
+        let info = &sessions.get(id).unwrap().info;
+        if info.attention.as_deref() == Some("capped") {
+            assert!(
+                info.usage_limit_reset_hint.is_some(),
+                "attention is capped but reset hint is missing"
+            );
+        } else {
+            assert!(
+                info.usage_limit_reset_hint.is_none(),
+                "attention is {:?} but a stale capped reset hint survived",
+                info.attention
+            );
+        }
     }
 
     #[tokio::test]

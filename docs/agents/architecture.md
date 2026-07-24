@@ -59,6 +59,7 @@ Single binary. Top-level modules:
   - `retention_handlers.rs` — retention config handler (`POST /settings/retention`)
   - `session_handlers.rs` — session/workspace HTTP handlers (`POST /workspace`, `GET/POST /sessions`, `DELETE /sessions/:id`, `POST /sessions/:id/resume`, `POST /sessions/:id/harness-session`, etc.) and associated request/response types. `POST /workspace` reconciles sessions orphaned by a previous daemon run via `metadata::reconcile_orphaned_session`: stale "running"/"creating" sessions are completed to `ended`, and sessions persisted mid-`ending` consume their `pendingTerminalStatus` as the final status so they cannot stay stuck in the ending phase
 - `runtime/` — background-task and PTY submodules:
+  - `observed_status.rs` — owns every write to `observed_status`/`attention` across the live session handle and persisted metadata: `apply_attention_signal` (external hook/debug reports) and `apply_process_transition` (the sidecar's own observations — committed input, idle timeout). See [ADR 0027](../adr/0027-observed-status-attention-owning-module.md).
   - `peon_runtime.rs` — `peon_loop` (continuous Peon observation loop); idle sessions enter an in-memory hold and resume observation only after qualifying user input
   - `retention.rs` — `retention_cleanup_task`, `retention_cleanup_once`
   - `session_runtime.rs` — session-runtime-owned PTY/process startup, bounded PTY/persistence/control backpressure queues (including startup input buffering), output draining, replay state, attachment ownership, child wait/finalization

@@ -54,23 +54,35 @@ separately as issue #207 and is out of scope here.
   documented lock order) and the writes.
 - Two named entry points on the apply layer, matching two distinct signal
   shapes rather than one generic parameterized function:
-  - `apply_attention_signal` — external status reports (`report_attention`,
-    `apply_debug_attention`). Always requires a workspace, matching both
-    current callers, which already reject with `409` without one. Self-locks.
+  - `apply_attention_signal` — external status reports. Always requires a
+    workspace, matching its caller, which already rejects with `409` without
+    one. Self-locks.
   - `apply_process_transition` — the sidecar's own observations (committed
     input, idle timeout). Persistence is an internal
     `Option<&WorkspaceState>` branch, matching `mark_committed_input_working`'s
-    existing detached-runtime support. Self-locks — **except**
-    `mark_committed_input_working` calls the pure decision function directly
-    instead of the self-locking shell, since it must keep both locks held to
-    atomically bump `input_generation`/`accepted_input_at`/
-    `min_peon_output_revision` alongside the status write. This is the one
-    caller allowed to bypass the shell, specifically to avoid reopening the
-    race issue #193 tracks.
-  - Callers that don't need to hold the lock for anything else
-    (`report_attention`, `apply_debug_attention`, the idle-timer sweep) use
-    the self-locking entry points and never acquire `sessions`/`workspace`
-    directly for this purpose again.
+    existing detached-runtime support. Self-locks for the idle-timer sweep.
+  - Callers that don't need to hold the lock for anything else beyond the
+    single field-sync write (`report_attention`, the idle-timer sweep) use the
+    self-locking entry points.
+  - Two callers bypass the self-locking shell and call the pure functions
+    (`apply_live_attention_fields`, `apply_process_transition_to_meta`/
+    `_to_handle`) directly instead, because each needs to do more under the
+    *same* held lock than the shell alone provides:
+    - `mark_committed_input_working` must atomically bump
+      `input_generation`/`accepted_input_at`/`min_peon_output_revision`
+      alongside the status write, to avoid reopening the race issue #193
+      tracks.
+    - `apply_debug_attention` must keep its `lifecycle == "alive"`
+      precondition check and its `usage_limit_reset_hint` write atomic with
+      the attention-field write — an earlier version of this change routed
+      it through the self-locking `apply_attention_signal` shell instead,
+      which reintroduced exactly the kind of split-critical-section race
+      this ADR exists to remove (caught in `/code-review` on PR #208 before
+      merge, not shipped).
+  - The gate inside `apply_process_transition` ("don't overwrite a session
+    already in a more specific state than `working`") is `IdleTimeout`-specific
+    reasoning, not a universal rule for every `ProcessTransition` kind — it is
+    scoped to that variant explicitly in code, not applied unconditionally.
 - Known drift is fixed, not preserved: the idle-timer sweep starts setting
   `metadata_confidence` on both stores, and `apply_debug_attention`'s
   hand-derivation of `attention` is replaced by `canonical_attention` (which
@@ -84,16 +96,19 @@ separately as issue #207 and is out of scope here.
   transition) means calling one of two existing entry points, not
   re-deriving the field-sync logic again.
 - The pure decision function is testable with plain structs — no `Mutex`,
-  `MetadataStore`, async runtime, or `tokio::spawn`/`sleep` required. Field-
-  sync and concurrency-race tests currently living on `report_attention`/
-  `apply_debug_attention` (`http/session_handlers.rs:2267`, `:2483`, `:2563`)
-  move down to test `apply_attention_signal` directly; the HTTP handlers keep
-  only their own validation/status-code tests plus one wiring smoke test
-  each.
-- `mark_committed_input_working` remains the one place allowed to hold both
-  locks across a combined status-and-generation transition; this is a
-  documented exception, not a precedent for future callers to bypass the
-  shell casually.
+  `MetadataStore`, async runtime, or `tokio::spawn`/`sleep` required. The
+  concurrency-race test that used to live separately on both `report_attention`
+  and `apply_debug_attention` is now one test on `apply_attention_signal`
+  directly (`runtime/observed_status.rs`); `apply_debug_attention` keeps its
+  own concurrency regression test at the handler level for the
+  `usage_limit_reset_hint`/attention consistency its bypass exists to
+  guarantee, since that guarantee lives in the handler, not in the shared
+  module. The HTTP handlers otherwise keep only their own validation/
+  status-code tests plus one wiring smoke test each.
+- `mark_committed_input_working` and `apply_debug_attention` are the two
+  places allowed to hold their own locks across a combined transition instead
+  of using the self-locking shell; both are documented exceptions, not a
+  precedent for future callers to bypass the shell casually.
 - Does not change the canonical attention vocabulary (ADR 0023) or PTY-
   lifetime ownership (ADR 0022); purely relocates who writes already-agreed
   fields.

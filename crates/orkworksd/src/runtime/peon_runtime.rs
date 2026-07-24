@@ -300,30 +300,12 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                 }
             }
 
-            if !silent_ids.is_empty() {
-                {
-                    let ws_guard = state.workspace.lock().unwrap();
-                    if let Some(ref ws) = *ws_guard {
-                        for id in &silent_ids {
-                            if let Some(mut meta) = ws.metadata.read_session(id) {
-                                if matches!(meta.observed_status.as_deref(), None | Some("working"))
-                                {
-                                    meta.observed_status = Some("idle".into());
-                                    meta.attention = Some("idle".into());
-                                    meta.metadata_source = "process".into();
-                                    ws.metadata.write_session(&meta);
-                                }
-                            }
-                        }
-                    }
-                } // ws_guard dropped
-                let mut sessions = state.sessions.lock().unwrap();
-                for id in &silent_ids {
-                    if let Some(handle) = sessions.get_mut(id) {
-                        handle.info.observed_status = Some("idle".into());
-                        handle.info.attention = Some("idle".into());
-                    }
-                }
+            for id in &silent_ids {
+                crate::runtime::observed_status::apply_process_transition(
+                    &state,
+                    id,
+                    crate::runtime::observed_status::ProcessTransition::IdleTimeout,
+                );
             }
         }
     }
