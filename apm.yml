@@ -6,16 +6,19 @@ author: Lars-Erik
 # Resolution order: --target flag > this field > auto-detect from filesystem.
 # Accepted values: copilot, claude, cursor, opencode, codex, gemini, windsurf, all
 targets:
-- claude
-- codex
-- copilot
-- opencode
+  - claude
+  - codex
+  - copilot
+  - opencode
 dependencies:
   apm:
     - obra/superpowers
     - DietrichGebert/ponytail
     - thedotmack/claude-mem
     - leonardomso/rust-skills
+    - git: mattpocock/skills
+      skills:
+        - improve-codebase-architecture
   mcp: []
 includes: auto
 scripts: {}
