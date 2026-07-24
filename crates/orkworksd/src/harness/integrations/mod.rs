@@ -407,6 +407,41 @@ mod tests {
     };
     use crate::metadata::MetadataStore;
 
+    #[test]
+    fn report_harness_event_always_posts_generic_attention() {
+        let script = include_str!("../../../scripts/report-harness-event.sh");
+        assert!(script.contains("ORKWORKS_SESSION_ID"));
+        assert!(script.contains("ORKWORKS_PORT"));
+        assert!(script.contains("/sessions/$ORKWORKS_SESSION_ID/attention"));
+        assert!(script.contains("\"status\":\"waiting_for_input\""));
+    }
+
+    #[test]
+    fn report_harness_event_captures_claude_session_id_only_for_claude_marker() {
+        let script = include_str!("../../../scripts/report-harness-event.sh");
+        assert!(script.contains("claude-code"));
+        assert!(script.contains("session_id"));
+        assert!(script.contains("/sessions/$ORKWORKS_SESSION_ID/harness-session"));
+        assert!(script.contains("\"source\":\"claude_hook\""));
+    }
+
+    #[test]
+    fn report_harness_event_bounds_every_curl_with_a_timeout() {
+        let script = include_str!("../../../scripts/report-harness-event.sh");
+        let max_time_count = script.matches("--max-time").count();
+        assert_eq!(
+            max_time_count, 2,
+            "both possible curl calls must cap their own runtime so a stuck orkworksd cannot \
+             hang the harness's own hook mechanism"
+        );
+    }
+
+    #[test]
+    fn report_harness_event_parses_the_marker_flag() {
+        let script = include_str!("../../../scripts/report-harness-event.sh");
+        assert!(script.contains("--marker"));
+    }
+
     struct Case {
         name: &'static str,
         binding: IntegrationBinding,
