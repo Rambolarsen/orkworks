@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import type { SessionInfo, WorkspaceInfo } from "../src/api.ts";
-import { forgetSession } from "../src/api.ts";
+import { forgetSession, listHarnesses } from "../src/api.ts";
 
 test("SessionInfo type accepts metadata fields", () => {
   const session: SessionInfo = {
@@ -172,6 +172,44 @@ test("forgetSession resolves on 200", async () => {
     Promise.resolve(new Response(null, { status: 200 }));
   try {
     await assert.doesNotReject(() => forgetSession("http://localhost:0", "test-id"));
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+});
+
+const V2_HARNESS_FIXTURE = {
+  id: "generic-shell",
+  name: "Shell",
+  launch: { kind: "command-template", command: "sh", args: [] },
+  defaultModel: null,
+  resume: null,
+  models: null,
+  peon: null,
+  capacity: null,
+  sessionSignals: null,
+  integration: null,
+  voice: null,
+};
+
+test("listHarnesses unwraps the {harnesses} envelope into an array", async () => {
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = (_url: string | URL | Request, _init?: RequestInit) =>
+    Promise.resolve(new Response(JSON.stringify({ harnesses: [V2_HARNESS_FIXTURE] }), { status: 200 }));
+  try {
+    const harnesses = await listHarnesses("http://localhost:0");
+    assert.equal(Array.isArray(harnesses), true);
+    assert.equal(harnesses[0].id, "generic-shell");
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+});
+
+test("listHarnesses throws on a malformed envelope missing harnesses", async () => {
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = (_url: string | URL | Request, _init?: RequestInit) =>
+    Promise.resolve(new Response(JSON.stringify({ notHarnesses: [] }), { status: 200 }));
+  try {
+    await assert.rejects(() => listHarnesses("http://localhost:0"), /malformed response/);
   } finally {
     globalThis.fetch = origFetch;
   }

@@ -25,7 +25,7 @@ export function syncDraftWithHarnesses(
   const fallback = harnesses[0];
   return {
     harnessId: fallback.id,
-    model: draft.model || fallback.defaultModel,
+    model: draft.model || fallback.defaultModel || "",
   };
 }
 
