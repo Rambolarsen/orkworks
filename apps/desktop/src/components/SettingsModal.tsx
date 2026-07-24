@@ -398,6 +398,10 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
                                 Installing will add a Notification hook to{" "}
                                 {claudeIntegration.status.confirmation.relativePaths.join(", ")} in this
                                 workspace ({claudeIntegration.status.confirmation.coverageSummary}).
+                                {claudeIntegration.status.confirmation.executableCodeWarning && (
+                                  <> This hook runs an OrkWorks-installed script whenever Claude Code
+                                  waits for input.</>
+                                )}
                               </p>
                             )}
                             <button type="button" onClick={installClaudeIntegrationHandler} disabled={claudeIntegrationBusy}>

@@ -334,6 +334,12 @@ app.whenReady().then(() => {
     await openSessionPlan(`http://127.0.0.1:${port}`, sessionId, openPlanToken, workspacePath, fetch, (filePath) => shell.openPath(filePath));
   });
 
+  const integrationActionLabels: Record<"status" | "install" | "uninstall", string> = {
+    status: "check the integration status",
+    install: "install the integration",
+    uninstall: "uninstall the integration",
+  };
+
   async function callIntegrationRoute(harnessId: unknown, action: "status" | "install" | "uninstall") {
     if (typeof harnessId !== "string" || !harnessId) throw new Error("Invalid harness ID.");
     try {
@@ -347,7 +353,7 @@ app.whenReady().then(() => {
         return { ok: true, status: await resp.json() };
       }
       const body = await resp.json().catch(() => ({ error: undefined }));
-      return { ok: false, error: (body as { error?: string }).error ?? `Couldn't ${action} the integration.` };
+      return { ok: false, error: (body as { error?: string }).error ?? `Couldn't ${integrationActionLabels[action]}.` };
     } catch {
       return { ok: false, error: "Couldn't reach the OrkWorks sidecar." };
     }

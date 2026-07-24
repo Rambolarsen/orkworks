@@ -544,11 +544,13 @@ impl ReporterAssetResolver {
         // stable copy must carry the executable bit. `write_new_file_atomically`
         // is shared with config-backup writes (`backup_path`, above) that must
         // NOT be executable, so this is set here rather than in that helper.
+        // Only the owner-execute bit is added — not 0o755 — so this never
+        // broadens group/other permissions beyond what the file already had.
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
             let mut perms = fs::metadata(&destination)?.permissions();
-            perms.set_mode(perms.mode() | 0o755);
+            perms.set_mode(perms.mode() | 0o100);
             fs::set_permissions(&destination, perms)?;
         }
         Ok(destination)
