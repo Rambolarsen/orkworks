@@ -84,11 +84,11 @@ test("SettingsModal renders a Model providers section", () => {
 
 test("SettingsModal offers a per-harness attention hook install affordance when enabled but not installed", () => {
   const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
-  assert.match(source, /getClaudeCodeHookStatus/);
-  assert.match(source, /installClaudeCodeHook/);
+  assert.match(source, /getHarnessIntegrationStatus/);
+  assert.match(source, /installHarnessIntegration/);
+  assert.match(source, /uninstallHarnessIntegration/);
   assert.match(source, /h\.id === "claude-code" && activeDraft\.includes\(h\.id\)/);
   assert.match(source, /Install attention hook/);
-  assert.match(source, /window\.confirm/);
 });
 
 test("ProviderSettingsSection keeps model provider editing simplified", () => {
