@@ -44,6 +44,14 @@ Ponytail also ships its own `AGENTS.md` — if cross-referenced from this repo's
 
 [leonardomso/rust-skills](https://github.com/leonardomso/rust-skills) — 265 Rust coding rules across 26 categories (ownership, error handling, async/tokio, unsafe, API design, memory, concurrency, serde, observability, performance, anti-patterns, and more). Current for Rust 1.96 / 2024 edition. Invoke with `/rust-skills` when writing, reviewing, or refactoring any code under `crates/`.
 
+## mattpocock/skills (pinned subset)
+
+[mattpocock/skills](https://github.com/mattpocock/skills) — a multi-skill bundle repo; only three skills are pinned via `apm.yml`'s `skills:` list rather than the whole ~17-skill bundle:
+
+- `improve-codebase-architecture` — scans for deepening opportunities, presents them as a visual HTML report, then hands off to `grilling` for the one picked
+- `codebase-design` — shared deep-module vocabulary (module, interface, seam, adapter, leverage, locality) the above skill designs against
+- `grilling` — one-question-at-a-time decision-tree interview, used to walk a chosen deepening candidate to a shared understanding before implementation
+
 ## Repo-level skills
 
 The `skills/` directory contains repo-level agent skills committed with the project. These follow the Agent Skills standard: each skill is a directory with a `SKILL.md` file using YAML frontmatter and a markdown body.
