@@ -459,17 +459,17 @@ fn mark_committed_input_working(
             .insert(id.to_string(), tokio::time::Instant::now());
         return;
     }
+    let fields = crate::runtime::observed_status::process_transition_fields(
+        crate::runtime::observed_status::ProcessTransition::CommittedWorking,
+    );
     if ws_guard.is_none() {
         // A detached test/runtime has no metadata store, so there is no
         // durable state to diverge from. Keep its live terminal contract
         // explicit here; workspace-backed sessions take the atomic path below.
-        handle.info.observed_status = Some("working".into());
-        handle.info.attention = Some("working".into());
-        handle.info.metadata_source = Some("process".into());
-        handle.info.metadata_confidence = Some(1.0);
-        handle.info.needs_user_input = None;
-        handle.info.detected_question = None;
-        handle.info.suggested_options = None;
+        crate::runtime::observed_status::apply_process_transition_to_handle(
+            &mut handle.info,
+            &fields,
+        );
         handle.pending_work_signal = None;
         handle.runtime.input_generation = next_generation;
         handle.runtime.accepted_input_at = Some(accepted_at);
@@ -492,24 +492,12 @@ fn mark_committed_input_working(
     if meta.lifecycle != "alive" {
         return;
     }
-    meta.observed_status = Some("working".into());
-    meta.attention = Some("working".into());
-    meta.metadata_source = "process".into();
-    meta.metadata_confidence = 1.0;
-    meta.needs_user_input = None;
-    meta.detected_question = None;
-    meta.suggested_options = None;
+    crate::runtime::observed_status::apply_process_transition_to_meta(&mut meta, &fields);
     if ws.metadata.try_write_session(&meta).is_err() {
         tracing::warn!(session_id = %id, "failed to persist input attention transition");
         return;
     }
-    handle.info.observed_status = Some("working".into());
-    handle.info.attention = Some("working".into());
-    handle.info.metadata_source = Some("process".into());
-    handle.info.metadata_confidence = Some(1.0);
-    handle.info.needs_user_input = None;
-    handle.info.detected_question = None;
-    handle.info.suggested_options = None;
+    crate::runtime::observed_status::apply_process_transition_to_handle(&mut handle.info, &fields);
     handle.pending_work_signal = None;
     handle.runtime.input_generation = next_generation;
     handle.runtime.accepted_input_at = Some(accepted_at);
