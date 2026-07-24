@@ -1,19 +1,16 @@
-export interface HarnessVoiceCapabilities {
-  nativeVoice: boolean;
-  requiresMicrophonePermission: boolean;
-  orkworksDictation: boolean;
-  orkworksVoiceCommands: boolean;
-}
-
+/** Mirrors crates/orkworksd/src/harness/definition.rs HarnessDefinition (v2, resolved-registry shape). */
 export interface HarnessConfig {
   id: string;
   name: string;
-  harness: string;
-  command: string;
-  args: string[];
-  defaultModel: string;
-  capabilities: HarnessVoiceCapabilities;
-  isBuiltin: boolean;
+  launch: unknown;
+  defaultModel: string | null;
+  resume: unknown;
+  models: unknown;
+  peon: unknown;
+  capacity: unknown;
+  sessionSignals: unknown;
+  integration: unknown;
+  voice: unknown;
 }
 
 export interface CreateSessionOptions {

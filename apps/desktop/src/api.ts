@@ -1,3 +1,4 @@
+import type { HarnessConfig } from "./harnessTypes.ts";
 import type { ProviderEffectiveState } from "./providerTypes.ts";
 
 export type MemoryState = "live" | "remembered" | "resumable" | "unsupported";
@@ -101,10 +102,11 @@ export async function createSession(
   return resp.json();
 }
 
-export async function listHarnesses(baseUrl: string) {
+export async function listHarnesses(baseUrl: string): Promise<HarnessConfig[]> {
   const resp = await fetch(`${baseUrl}/harnesses`);
   if (!resp.ok) throw new Error(`list harnesses failed: ${resp.status}`);
-  return resp.json();
+  const body = await resp.json();
+  return body.harnesses;
 }
 
 export async function listSessions(
