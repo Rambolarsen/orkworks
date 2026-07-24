@@ -324,12 +324,13 @@ pub(crate) fn reconcile_current(
 
 #[allow(dead_code)] // Read by generic integration routes in Task 8.
 pub(crate) fn generic_shell_status(
+    harness_id: &str,
     _workspace: &Path,
     enabled: bool,
     tool_detected: bool,
 ) -> IntegrationStatus {
     IntegrationStatus {
-        harness_id: "generic-shell".into(),
+        harness_id: harness_id.into(),
         enabled,
         tool_detected,
         registration: IntegrationRegistration::Unsupported,

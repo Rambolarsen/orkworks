@@ -109,6 +109,7 @@ impl ResolvedHarness {
         match &self.definition.integration {
             Some(binding) => crate::harness::integration::handler(binding).status(ctx),
             None => Ok(crate::harness::integrations::generic_shell_status(
+                &self.definition.id,
                 ctx.workspace,
                 ctx.enabled,
                 ctx.detected_tool.is_some(),
@@ -126,6 +127,7 @@ impl ResolvedHarness {
         match &self.definition.integration {
             Some(binding) => crate::harness::integration::handler(binding).install(ctx),
             None => Ok(crate::harness::integrations::generic_shell_status(
+                &self.definition.id,
                 ctx.workspace,
                 ctx.enabled,
                 ctx.detected_tool.is_some(),
@@ -143,6 +145,7 @@ impl ResolvedHarness {
         match &self.definition.integration {
             Some(binding) => crate::harness::integration::handler(binding).uninstall(ctx),
             None => Ok(crate::harness::integrations::generic_shell_status(
+                &self.definition.id,
                 ctx.workspace,
                 ctx.enabled,
                 ctx.detected_tool.is_some(),
@@ -520,6 +523,44 @@ mod tests {
             status.registration,
             crate::harness::integration::IntegrationRegistration::Unsupported
         );
+    }
+
+    #[test]
+    fn no_binding_status_reports_the_actual_harness_id_not_generic_shell() {
+        let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
+        // A custom harness definition can't carry an `integration` binding
+        // (validate() rejects it for DefinitionOrigin::Custom), so every
+        // custom harness hits the `None` branch in integration_status/
+        // install/uninstall — this pins that `generic_shell_status` reports
+        // the querying harness's own id, not a hardcoded "generic-shell".
+        let mut custom = builtins
+            .builtins
+            .iter()
+            .find(|definition| definition.id == "generic-shell")
+            .unwrap()
+            .clone();
+        custom.id = "my-custom-tool".into();
+        custom.name = "My Custom Tool".into();
+        custom.integration = None;
+        let mut user = HarnessUserDocument::default();
+        user.custom = vec![custom];
+        let resolved = resolve_document(&builtins, &user).unwrap();
+        let custom_harness = resolved.get("my-custom-tool").unwrap();
+
+        let workspace = tempfile::tempdir().unwrap();
+        let (_assets, _stable, reporter_assets) = test_reporter_assets();
+        let orkworks_root = tempfile::tempdir().unwrap();
+        let ctx = crate::harness::integration::IntegrationContext {
+            workspace: workspace.path(),
+            workspace_metadata: None,
+            orkworks_root: orkworks_root.path(),
+            enabled: true,
+            detected_tool: None,
+            reporter_assets: &reporter_assets,
+        };
+
+        let status = custom_harness.integration_status(&ctx).unwrap();
+        assert_eq!(status.harness_id, "my-custom-tool");
     }
 
     #[test]
