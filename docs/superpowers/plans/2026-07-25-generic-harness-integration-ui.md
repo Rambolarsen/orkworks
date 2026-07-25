@@ -202,7 +202,7 @@ export default function HarnessIntegrationSection({ harnessId, harnessName, harn
                 type="text"
                 value={customPathDraft}
                 onChange={(e) => setCustomPathDraft(e.target.value)}
-                placeholder="/opt/homebrew/bin/claude"
+                placeholder="/path/to/binary"
                 disabled={customPathBusy}
               />
             </label>
@@ -270,13 +270,7 @@ import HarnessIntegrationSection from "./HarnessIntegrationSection";
 
 (`IntegrationStatusResult` is dropped — its only use in this file was the state variable removed in Step 3 below.)
 
-Then, immediately after the now-empty spot where `looksAbsolute()` used to be defined (see Step 2 — it's being deleted, not kept here), add the allowlist near the other module-level constants:
-
-```typescript
-const INTEGRATION_HARNESS_IDS = ["claude-code", "gemini", "copilot"];
-```
-
-Place it right after the `FOCUSABLE` constant:
+Then add the new allowlist constant right after the existing `FOCUSABLE` constant:
 
 ```typescript
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
