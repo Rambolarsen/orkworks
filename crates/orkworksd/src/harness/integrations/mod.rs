@@ -160,9 +160,7 @@ impl JsonHookHandler {
             IntegrationActivation::Unknown,
             vec![IntegrationDiagnostic {
                 code: error.code().into(),
-                message:
-                    "The integration configuration is unsafe or malformed and was not changed."
-                        .into(),
+                message: error.to_string(),
                 action: None,
             }],
         );
@@ -557,6 +555,71 @@ mod tests {
             assert_eq!(
                 persisted["unrelated"]["keep"], true,
                 "{} round trip",
+                case.name
+            );
+        }
+    }
+
+    #[test]
+    fn error_status_surfaces_the_specific_integration_error_message() {
+        // libgit2's ignore resolution consults the real machine's global
+        // excludes file regardless of the HOME env var (it isn't resolved
+        // the way `dirs::home_dir()` is elsewhere in this codebase). A
+        // developer machine that happens to globally ignore one of these
+        // paths (e.g. a personal `**/.claude/settings.local.json` rule)
+        // would silently make that case pass for the wrong reason.
+        // Override the test repo's own `core.excludesFile` to a guaranteed-
+        // empty file so this test only ever sees the target's real
+        // local-ignore state.
+        for case in json_cases() {
+            let workspace = tempfile::tempdir().unwrap();
+            let repo = git2::Repository::init(workspace.path()).unwrap();
+            let empty_excludes = workspace.path().join("empty-global-excludes");
+            fs::write(&empty_excludes, "").unwrap();
+            repo.config()
+                .unwrap()
+                .set_str("core.excludesFile", empty_excludes.to_str().unwrap())
+                .unwrap();
+            // Deliberately no .gitignore entry for `case.target`, so
+            // `require_local_or_ignored_untracked` rejects it as not ignored.
+            let assets = tempfile::tempdir().unwrap();
+            fs::write(
+                assets.path().join(ReporterPlatform::Posix.asset_name()),
+                "#!/bin/sh\n",
+            )
+            .unwrap();
+            fs::write(
+                assets
+                    .path()
+                    .join(ReporterPlatform::WindowsPowerShell.asset_name()),
+                "# noop\n",
+            )
+            .unwrap();
+            let stable = tempfile::tempdir().unwrap();
+            let reporter = ReporterAssetResolver {
+                source_dir: assets.path().to_path_buf(),
+                stable_dir: stable.path().join("hook-scripts"),
+            };
+            let context = IntegrationContext {
+                workspace: workspace.path(),
+                workspace_metadata: None,
+                orkworks_root: stable.path(),
+                enabled: true,
+                detected_tool: None,
+                reporter_assets: &reporter,
+            };
+
+            let status = handler(&case.binding).status(&context).unwrap();
+            assert_eq!(
+                status.registration,
+                IntegrationRegistration::Error,
+                "{}",
+                case.name
+            );
+            assert_eq!(
+                status.diagnostics[0].message,
+                "Integration configuration is not ignored by Git and will not be edited automatically.",
+                "{}",
                 case.name
             );
         }

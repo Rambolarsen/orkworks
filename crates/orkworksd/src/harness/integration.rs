@@ -582,6 +582,23 @@ impl IntegrationError {
     }
 }
 
+impl std::fmt::Display for IntegrationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NoWorkspace => write!(f, "Open a workspace first."),
+            Self::UnsafeTarget { message, .. } => write!(f, "{message}"),
+            Self::InvalidConfig(message) => write!(f, "{message}"),
+            Self::OwnershipAmbiguous => write!(
+                f,
+                "This integration's config entry doesn't match what OrkWorks installed; resolve it manually."
+            ),
+            Self::LaunchConflict => write!(f, "Unexpected launch conflict."),
+            Self::RevisionChanged => write!(f, "Configuration changed; retry the request."),
+            Self::Io(error) => write!(f, "{error}"),
+        }
+    }
+}
+
 impl From<std::io::Error> for IntegrationError {
     fn from(error: std::io::Error) -> Self {
         Self::Io(error)

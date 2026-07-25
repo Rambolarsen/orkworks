@@ -48,17 +48,7 @@ fn integration_error_response(error: IntegrationError) -> axum::response::Respon
             StatusCode::INTERNAL_SERVER_ERROR
         }
     };
-    let message = match &error {
-        IntegrationError::NoWorkspace => "Open a workspace first.".to_string(),
-        IntegrationError::UnsafeTarget { message, .. } => message.clone(),
-        IntegrationError::InvalidConfig(message) => message.clone(),
-        IntegrationError::OwnershipAmbiguous => {
-            "This integration's config entry doesn't match what OrkWorks installed; resolve it manually.".to_string()
-        }
-        IntegrationError::LaunchConflict => "Unexpected launch conflict.".to_string(),
-        IntegrationError::RevisionChanged => "Configuration changed; retry the request.".to_string(),
-        IntegrationError::Io(error) => error.to_string(),
-    };
+    let message = error.to_string();
     (status, Json(ErrorResponse { error: message })).into_response()
 }
 
