@@ -292,6 +292,49 @@ pub(crate) mod test_support {
         }
     }
 
+    pub(crate) struct FakePath {
+        previous: Option<std::ffi::OsString>,
+        _lock: MutexGuard<'static, ()>,
+    }
+
+    impl FakePath {
+        /// Prepends `dir` to the real `PATH`, so a test can plant a fake
+        /// executable that resolves first without stripping real system
+        /// binaries other concurrently-running tests may need.
+        pub(crate) fn prepend(dir: &std::path::Path) -> Self {
+            static PATH_LOCK: OnceLock<StdMutex<()>> = OnceLock::new();
+            let lock = PATH_LOCK.get_or_init(|| StdMutex::new(()));
+            let _lock = lock.lock().unwrap();
+            let previous = std::env::var_os("PATH");
+            let mut dirs = vec![dir.to_path_buf()];
+            if let Some(existing) = &previous {
+                dirs.extend(std::env::split_paths(existing));
+            }
+            let joined =
+                std::env::join_paths(dirs).expect("test PATH directories must be joinable");
+            std::env::set_var("PATH", joined);
+            Self { previous, _lock }
+        }
+    }
+
+    impl Drop for FakePath {
+        fn drop(&mut self) {
+            match self.previous.take() {
+                Some(value) => std::env::set_var("PATH", value),
+                None => std::env::remove_var("PATH"),
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn make_test_executable(path: &std::path::Path) {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    #[cfg(not(unix))]
+    pub(crate) fn make_test_executable(_path: &std::path::Path) {}
+
     pub(crate) fn with_fake_home<T>(home: &std::path::Path, f: impl FnOnce() -> T) -> T {
         let _home = FakeHome::set(home);
         f()

@@ -102,12 +102,14 @@ fn run_integration_action(
         }
     };
 
+    let probed_tool = crate::harness::detect::probe_installed_tool(&harness.launch_command());
+
     let ctx = IntegrationContext {
         workspace: &ws.path,
         workspace_metadata: Some(&ws.metadata),
         orkworks_root: &orkworks_root,
         enabled: true,
-        detected_tool: None,
+        detected_tool: probed_tool.as_ref(),
         reporter_assets: &reporter_assets,
     };
 
@@ -280,5 +282,109 @@ mod tests {
             .await
             .into_response();
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn detected_tool_reflects_probe_result_for_a_resolvable_command() {
+        use crate::test_support::{make_test_executable, FakePath};
+        use std::fs;
+
+        let dir = tempfile::tempdir().unwrap();
+        init_git_workspace_with_claude_settings_ignored(dir.path());
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        let state = test_app_state_with_workspace(dir.path());
+
+        let install_response =
+            install_integration(State(state.clone()), AxumPath("claude-code".into()))
+                .await
+                .into_response();
+        assert_eq!(install_response.status(), StatusCode::OK);
+
+        let fake_bin_dir = tempfile::tempdir().unwrap();
+        // On Windows, probe_installed_tool searches PATHEXT candidates
+        // (claude.exe, claude.cmd, ...) for a bare "claude" — a plain
+        // extensionless file wouldn't match any of them.
+        let bin_name = if cfg!(windows) { "claude.exe" } else { "claude" };
+        let bin = fake_bin_dir.path().join(bin_name);
+        fs::write(&bin, "#!/bin/sh\n").unwrap();
+        make_test_executable(&bin);
+        let _fake_path = FakePath::prepend(fake_bin_dir.path());
+
+        let response = get_integration_status(State(state), AxumPath("claude-code".into()))
+            .await
+            .into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["toolDetected"], true);
+        assert_eq!(body["activation"], "active");
+    }
+
+    // This one already passes before the fix too (detected_tool was always
+    // None, so activation was always forced to Unknown regardless of the
+    // real command) — it's a regression guard for the genuinely-not-found
+    // path, not a red/green driver. Kept alongside the test above for
+    // coverage of both outcomes of the same wiring.
+    //
+    // It overrides claude-code's launch command to an unresolvable name
+    // rather than relying on the ambient PATH lacking a real `claude`
+    // binary: FakePath::prepend only prepends (by design — see Task 1), so
+    // it can't hide a real `claude` install elsewhere on PATH, and this
+    // test must still pass on a machine that has Claude Code installed.
+    #[tokio::test]
+    async fn detected_tool_stays_absent_when_the_command_is_not_on_path() {
+        use crate::harness::definition::{HarnessPatch, LaunchPatch};
+        use crate::test_support::FakePath;
+
+        let dir = tempfile::tempdir().unwrap();
+        init_git_workspace_with_claude_settings_ignored(dir.path());
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        let state = test_app_state_with_workspace(dir.path());
+
+        state
+            .harness_store
+            .mutate(&state.harness_catalog, |document| {
+                document.overrides.insert(
+                    "claude-code".to_string(),
+                    HarnessPatch {
+                        name: None,
+                        launch: Some(LaunchPatch {
+                            kind: None,
+                            command: Some("definitely-not-a-real-binary-xyz".to_string()),
+                            args: None,
+                            model_prefix: None,
+                            login: None,
+                        }),
+                        default_model: None,
+                        resume: None,
+                        models: None,
+                        peon: None,
+                        capacity: None,
+                        session_signals: None,
+                        integration: None,
+                        voice: None,
+                    },
+                );
+                Ok(())
+            })
+            .unwrap();
+
+        let empty_bin_dir = tempfile::tempdir().unwrap();
+        let _fake_path = FakePath::prepend(empty_bin_dir.path());
+
+        let response = get_integration_status(State(state), AxumPath("claude-code".into()))
+            .await
+            .into_response();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["toolDetected"], false);
+        assert_eq!(body["activation"], "unknown");
+        assert!(body["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|d| d["code"] == "tool_not_detected"));
     }
 }

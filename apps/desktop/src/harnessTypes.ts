@@ -1,8 +1,13 @@
+/** Mirrors crates/orkworksd/src/harness/definition.rs LaunchCapability. */
+export type HarnessLaunch =
+  | { kind: "command-template"; command: string; args: string[]; modelPrefix: string | null }
+  | { kind: "platform-shell"; login: boolean };
+
 /** Mirrors crates/orkworksd/src/harness/definition.rs HarnessDefinition (v2, resolved-registry shape). */
 export interface HarnessConfig {
   id: string;
   name: string;
-  launch: unknown;
+  launch: HarnessLaunch;
   defaultModel: string | null;
   resume: unknown;
   models: unknown;

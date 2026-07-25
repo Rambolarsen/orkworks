@@ -74,6 +74,13 @@ impl ResolvedHarness {
         }
     }
 
+    pub(crate) fn launch_command(&self) -> String {
+        match &self.definition.launch {
+            LaunchCapability::CommandTemplate { command, .. } => command.clone(),
+            LaunchCapability::PlatformShell { .. } => String::new(),
+        }
+    }
+
     pub(crate) fn augment_launch_for_integration(
         &self,
         command: &mut crate::harness::CommandSpec,
@@ -405,10 +412,7 @@ fn provider_from_harness(harness: &ResolvedHarness) -> Option<ProviderDefinition
         Some(ModelCapability::Http) => (None, Vec::new(), Vec::new()),
         None => (None, Vec::new(), Vec::new()),
     };
-    let command = command_override.unwrap_or_else(|| match &harness.definition.launch {
-        super::definition::LaunchCapability::CommandTemplate { command, .. } => command.clone(),
-        super::definition::LaunchCapability::PlatformShell { .. } => String::new(),
-    });
+    let command = command_override.unwrap_or_else(|| harness.launch_command());
     Some(ProviderDefinition {
         id: harness.definition.id.clone(),
         label: harness.definition.name.clone(),
