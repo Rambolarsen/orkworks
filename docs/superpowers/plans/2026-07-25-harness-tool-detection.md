@@ -850,6 +850,8 @@ insert:
         return;
       }
       setClaudeIntegration(await window.orkworks.getHarnessIntegrationStatus("claude-code"));
+    } catch (error) {
+      setCustomPathError(error instanceof Error ? error.message : "Couldn't set the custom path.");
     } finally {
       setCustomPathBusy(false);
     }
@@ -866,11 +868,15 @@ insert:
       }
       setCustomPathDraft("");
       setClaudeIntegration(await window.orkworks.getHarnessIntegrationStatus("claude-code"));
+    } catch (error) {
+      setCustomPathError(error instanceof Error ? error.message : "Couldn't clear the custom path.");
     } finally {
       setCustomPathBusy(false);
     }
   }
 ```
+
+Adding `catch` here (not just `try`/`finally`) matters because `window.orkworks.setHarnessCommandOverride` rejects (not resolves `{ok:false}`) if the IPC handler's own input validation throws — see Task 6's `main.ts` code, which throws before entering its own `try` for an empty/invalid `commandPath`. Without a `catch`, that becomes an unhandled promise rejection instead of surfacing in `customPathError`.
 
 Finally, add the `looksAbsolute` helper as a module-level function (outside the component), near the top of the file after the existing type aliases (`type HotkeyAction = ...` / `type OllamaVerificationViewState = ...`):
 
@@ -886,7 +892,7 @@ function looksAbsolute(command: string): boolean {
 
 - [ ] **Step 2: Render the input**
 
-In `apps/desktop/src/components/SettingsModal.tsx`, find the block ending with the existing diagnostics message:
+In `apps/desktop/src/components/SettingsModal.tsx`, find this exact block (the tail end of the Claude Code row, including the closing tags for `settings-config-item-actions`, the row, the `.map(...)`, and `settings-config-list`):
 
 ```typescript
                       {claudeIntegration?.ok && claudeIntegration.status.diagnostics.length > 0 && (
@@ -901,9 +907,14 @@ In `apps/desktop/src/components/SettingsModal.tsx`, find the block ending with t
           </div>
 ```
 
-Insert a new conditional block right before the closing `</div>` that follows the diagnostics `span` (i.e. right after the `{claudeIntegration?.ok && claudeIntegration.status.diagnostics.length > 0 && (...)}` block, still inside the same `settings-config-item-actions` `<div>`). The condition is just "diagnostics contains `tool_not_detected`" — `.some()` on an empty array is already `false`, so no separate empty-check is needed:
+Replace it with the same block plus one new sibling conditional inserted between the existing diagnostics `<span>` and the closing tags — the original diagnostics block is unchanged, only the new block and the trailing closing tags (unchanged, appearing exactly once) are added:
 
 ```typescript
+                      {claudeIntegration?.ok && claudeIntegration.status.diagnostics.length > 0 && (
+                        <span className="settings-config-status">
+                          {claudeIntegration.status.diagnostics[0].message}
+                        </span>
+                      )}
                       {claudeIntegration?.ok &&
                         claudeIntegration.status.diagnostics.some((d) => d.code === "tool_not_detected") && (
                           <div className="settings-config-custom-path">
@@ -940,6 +951,8 @@ Insert a new conditional block right before the closing `</div>` that follows th
               ))}
           </div>
 ```
+
+The condition on the new block is just "diagnostics contains `tool_not_detected`" — `.some()` on an empty array is already `false`, so no separate `diagnostics.length > 0` check is needed on the new block (only the pre-existing block above it needs its own, unchanged).
 
 - [ ] **Step 3: Type-check**
 
