@@ -368,6 +368,18 @@ app.whenReady().then(() => {
   ipcMain.handle("uninstall-harness-integration", async (_event, harnessId: unknown) =>
     callIntegrationRoute(harnessId, "uninstall"));
 
+  async function parseErrorBody(resp: Response, fallback: string): Promise<string> {
+    const body = await resp.json().catch(() => ({ error: undefined }));
+    return (body as { error?: string }).error ?? fallback;
+  }
+
+  // PUT/DELETE /harnesses/:id (crates/orkworksd/src/http/harness_handlers.rs)
+  // replace or remove the harness's *entire* stored override document, not
+  // just the launch.command field these two functions touch. Harmless today
+  // since nothing else writes a claude-code override, but if a future
+  // feature adds another per-field override for this harness, Save/Clear
+  // here will silently clobber it too — that endpoint would need to become
+  // field-scoped (merge-on-write) before this could safely coexist with one.
   async function setHarnessCommandOverride(harnessId: unknown, commandPath: unknown) {
     if (typeof harnessId !== "string" || !harnessId) throw new Error("Invalid harness ID.");
     if (typeof commandPath !== "string" || !commandPath.trim()) throw new Error("Invalid command path.");
@@ -384,8 +396,7 @@ app.whenReady().then(() => {
       if (resp.ok) {
         return { ok: true, harness: await resp.json() };
       }
-      const body = await resp.json().catch(() => ({ error: undefined }));
-      return { ok: false, error: (body as { error?: string }).error ?? "Couldn't set the custom path." };
+      return { ok: false, error: await parseErrorBody(resp, "Couldn't set the custom path.") };
     } catch {
       return { ok: false, error: "Couldn't reach the OrkWorks sidecar." };
     }
@@ -401,8 +412,7 @@ app.whenReady().then(() => {
       if (resp.ok) {
         return { ok: true };
       }
-      const body = await resp.json().catch(() => ({ error: undefined }));
-      return { ok: false, error: (body as { error?: string }).error ?? "Couldn't clear the custom path." };
+      return { ok: false, error: await parseErrorBody(resp, "Couldn't clear the custom path.") };
     } catch {
       return { ok: false, error: "Couldn't reach the OrkWorks sidecar." };
     }

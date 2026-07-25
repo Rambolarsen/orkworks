@@ -73,6 +73,12 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
   const [customPathDraft, setCustomPathDraft] = useState<string>(() =>
     claudeHasCustomPath && claudeLaunchCommand ? claudeLaunchCommand : "",
   );
+  // Locally owned rather than derived from `claudeHasCustomPath` on every
+  // render: the `harnesses` prop only refreshes when Settings is reopened,
+  // so a save/clear updates this immediately instead of leaving the
+  // Clear button (and the block's visibility once detection succeeds)
+  // stuck showing pre-save state until the modal is closed and reopened.
+  const [customPathActive, setCustomPathActive] = useState<boolean>(() => claudeHasCustomPath);
   const [customPathBusy, setCustomPathBusy] = useState(false);
   const [customPathError, setCustomPathError] = useState<string | null>(null);
 
@@ -179,6 +185,7 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
         setCustomPathError(result.error);
         return;
       }
+      setCustomPathActive(true);
       setClaudeIntegration(await window.orkworks.getHarnessIntegrationStatus("claude-code"));
     } catch (error) {
       setCustomPathError(error instanceof Error ? error.message : "Couldn't set the custom path.");
@@ -196,6 +203,7 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
         setCustomPathError(result.error);
         return;
       }
+      setCustomPathActive(false);
       setCustomPathDraft("");
       setClaudeIntegration(await window.orkworks.getHarnessIntegrationStatus("claude-code"));
     } catch (error) {
@@ -476,7 +484,8 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
                         </span>
                       )}
                       {claudeIntegration?.ok &&
-                        claudeIntegration.status.diagnostics.some((d) => d.code === "tool_not_detected") && (
+                        (claudeIntegration.status.diagnostics.some((d) => d.code === "tool_not_detected") ||
+                          customPathActive) && (
                           <div className="settings-config-custom-path">
                             <label>
                               Custom path
@@ -488,14 +497,18 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
                                 disabled={customPathBusy}
                               />
                             </label>
+                            <p className="settings-section-copy">
+                              This also becomes the command OrkWorks launches Claude Code sessions with —
+                              make sure it points at the real binary.
+                            </p>
                             <button
                               type="button"
                               onClick={saveCustomPathHandler}
-                              disabled={customPathBusy || !customPathDraft.trim()}
+                              disabled={customPathBusy || !looksAbsolute(customPathDraft.trim())}
                             >
                               {customPathBusy ? "Saving…" : "Save"}
                             </button>
-                            {claudeHasCustomPath && (
+                            {customPathActive && (
                               <button type="button" onClick={clearCustomPathHandler} disabled={customPathBusy}>
                                 Clear
                               </button>
