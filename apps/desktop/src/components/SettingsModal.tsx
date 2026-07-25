@@ -12,6 +12,14 @@ type OllamaVerificationViewState =
   | { phase: "checking"; requestedBaseUrl: string }
   | { phase: "done"; result: OllamaVerificationResponse };
 
+// Mirrors the sole direct-reference condition in the backend probe
+// (crates/orkworksd/src/harness/detect.rs::probe_installed_tool): POSIX
+// absolute (`/...`), Windows drive-letter (`C:\...` / `C:/...`), or UNC
+// (`\\server\...`).
+function looksAbsolute(command: string): boolean {
+  return command.startsWith("/") || /^[a-zA-Z]:[\\/]/.test(command) || command.startsWith("\\\\");
+}
+
 interface SettingsModalProps {
   initialSettings: AppSettings;
   harnesses: HarnessConfig[];
@@ -58,6 +66,15 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
   const [claudeIntegration, setClaudeIntegration] = useState<IntegrationStatusResult | null>(null);
   const [claudeIntegrationBusy, setClaudeIntegrationBusy] = useState(false);
   const hasClaudeCodeHarness = harnesses.some((h) => h.id === "claude-code");
+  const claudeHarness = harnesses.find((h) => h.id === "claude-code");
+  const claudeLaunchCommand =
+    claudeHarness?.launch.kind === "command-template" ? claudeHarness.launch.command : null;
+  const claudeHasCustomPath = claudeLaunchCommand !== null && looksAbsolute(claudeLaunchCommand);
+  const [customPathDraft, setCustomPathDraft] = useState<string>(() =>
+    claudeHasCustomPath && claudeLaunchCommand ? claudeLaunchCommand : "",
+  );
+  const [customPathBusy, setCustomPathBusy] = useState(false);
+  const [customPathError, setCustomPathError] = useState<string | null>(null);
 
   useLayoutEffect(() => {
     const modal = modalRef.current;
@@ -150,6 +167,41 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
       setClaudeIntegration(await window.orkworks.uninstallHarnessIntegration("claude-code"));
     } finally {
       setClaudeIntegrationBusy(false);
+    }
+  }
+
+  async function saveCustomPathHandler() {
+    setCustomPathBusy(true);
+    setCustomPathError(null);
+    try {
+      const result = await window.orkworks.setHarnessCommandOverride("claude-code", customPathDraft.trim());
+      if (!result.ok) {
+        setCustomPathError(result.error);
+        return;
+      }
+      setClaudeIntegration(await window.orkworks.getHarnessIntegrationStatus("claude-code"));
+    } catch (error) {
+      setCustomPathError(error instanceof Error ? error.message : "Couldn't set the custom path.");
+    } finally {
+      setCustomPathBusy(false);
+    }
+  }
+
+  async function clearCustomPathHandler() {
+    setCustomPathBusy(true);
+    setCustomPathError(null);
+    try {
+      const result = await window.orkworks.clearHarnessCommandOverride("claude-code");
+      if (!result.ok) {
+        setCustomPathError(result.error);
+        return;
+      }
+      setCustomPathDraft("");
+      setClaudeIntegration(await window.orkworks.getHarnessIntegrationStatus("claude-code"));
+    } catch (error) {
+      setCustomPathError(error instanceof Error ? error.message : "Couldn't clear the custom path.");
+    } finally {
+      setCustomPathBusy(false);
     }
   }
 
@@ -423,6 +475,36 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
                           {claudeIntegration.status.diagnostics[0].message}
                         </span>
                       )}
+                      {claudeIntegration?.ok &&
+                        claudeIntegration.status.diagnostics.some((d) => d.code === "tool_not_detected") && (
+                          <div className="settings-config-custom-path">
+                            <label>
+                              Custom path
+                              <input
+                                type="text"
+                                value={customPathDraft}
+                                onChange={(e) => setCustomPathDraft(e.target.value)}
+                                placeholder="/opt/homebrew/bin/claude"
+                                disabled={customPathBusy}
+                              />
+                            </label>
+                            <button
+                              type="button"
+                              onClick={saveCustomPathHandler}
+                              disabled={customPathBusy || !customPathDraft.trim()}
+                            >
+                              {customPathBusy ? "Saving…" : "Save"}
+                            </button>
+                            {claudeHasCustomPath && (
+                              <button type="button" onClick={clearCustomPathHandler} disabled={customPathBusy}>
+                                Clear
+                              </button>
+                            )}
+                            {customPathError && (
+                              <span className="settings-config-status">{customPathError}</span>
+                            )}
+                          </div>
+                        )}
                     </div>
                   )}
                 </div>
