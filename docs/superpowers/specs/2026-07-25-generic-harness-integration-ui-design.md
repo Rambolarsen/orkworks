@@ -15,10 +15,16 @@ and the literal display string `"Claude Code"` in three places (checking-status
 text, the hook-install confirmation copy, and the custom-path warning copy).
 
 The backend has no equivalent gap. `crates/orkworksd/src/harness/integrations/gemini.rs`
-and `copilot.rs` both use the same `JsonHookHandler` as `claude.rs` (identical
+and `copilot.rs` both use the same `JsonHookHandler` as `claude.rs` — identical
 `IntegrationStatus` shape, identical `confirmation` semantics, identical
 `tool_detected` population via the PATH-detection probe shipped in the
-harness-tool-detection work). The HTTP routes
+harness-tool-detection work, identical `IntegrationCoverage::Limited` and
+probe-merge-remove wiring. (One inert difference: `gemini.rs` sets
+`activation: IntegrationActivation::Unknown` where `claude.rs`/`copilot.rs`
+both set `Active` — doesn't affect this UI, since `SettingsModal.tsx` never
+reads `.activation`, only `toolDetected`/`registration`/`confirmation`/
+`diagnostics`, all of which are genuinely identical across the three.) The
+HTTP routes
 (`/workspace/integrations/:harness_id/{status,install,uninstall}`) and the
 Electron IPC bridge (`getHarnessIntegrationStatus`/`installHarnessIntegration`/
 `uninstallHarnessIntegration`/`setHarnessCommandOverride`/
@@ -67,13 +73,25 @@ current code hardcodes `"claude-code"` or `"Claude Code"`:
 - the fetch `useEffect`, keyed on `harnessId` in its dependency array instead of a `hasClaudeCodeHarness` boolean
 - `installIntegrationHandler`/`uninstallIntegrationHandler`/`saveCustomPathHandler`/`clearCustomPathHandler`, each calling `window.orkworks.*("...", harnessId, ...)` instead of the literal `"claude-code"`
 - the `looksAbsolute()` helper (moves here from `SettingsModal.tsx` module scope — it's only used by this component's custom-path logic)
-- the JSX currently at `SettingsModal.tsx:436-517` (the whole `{h.id === "claude-code" && activeDraft.includes(h.id) && (...)}` block), with the three hardcoded "Claude Code" copy strings replaced by `{harnessName}`
+- the JSX currently at `SettingsModal.tsx:436-532` (the whole `{h.id === "claude-code" && activeDraft.includes(h.id) && (...)}` block), with the three hardcoded "Claude Code" copy strings replaced by `{harnessName}`
 
 `harness: HarnessConfig | undefined` is passed in (rather than having the
 component look it up from a `harnesses` array prop) so `SettingsModal.tsx`
 keeps sole ownership of harness data, matching how it already passes
 `harnesses` down elsewhere — this component only ever needs its one harness's
 `launch.command` for the custom-path prefill/heuristic.
+
+**Accepted behavior change:** today, Claude's integration state lives in
+`SettingsModal`'s own hooks, so it's session-persistent — merely JSX-hidden,
+never unmounted, regardless of the "Active" checkbox. Moving it into
+`HarnessIntegrationSection` makes it mount-scoped: unchecking a harness's
+"Active" checkbox now unmounts its section, discarding any unsaved
+`customPathDraft`/`customPathError`, and re-checking it remounts (refetching
+status fresh). This is intentional, not an oversight — deactivating a harness
+discarding an in-progress, unsaved edit to *that harness's* settings is
+reasonable, and refetching on reactivation is arguably more correct than
+serving a possibly-stale cached status. Not treated as a regression to guard
+against.
 
 ### `SettingsModal.tsx` changes
 
