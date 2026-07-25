@@ -82,12 +82,17 @@ test("SettingsModal renders a Model providers section", () => {
   assert.match(source, /getProviderModels/);
 });
 
-test("SettingsModal offers a per-harness attention hook install affordance when enabled but not installed", () => {
+test("SettingsModal mounts a per-harness attention hook install affordance when enabled but not installed", () => {
   const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
+  assert.match(source, /INTEGRATION_HARNESS_IDS\.includes\(h\.id\) && activeDraft\.includes\(h\.id\)/);
+  assert.match(source, /<HarnessIntegrationSection/);
+});
+
+test("HarnessIntegrationSection offers the attention hook install affordance", () => {
+  const source = readFileSync(new URL("../src/components/HarnessIntegrationSection.tsx", import.meta.url), "utf8");
   assert.match(source, /getHarnessIntegrationStatus/);
   assert.match(source, /installHarnessIntegration/);
   assert.match(source, /uninstallHarnessIntegration/);
-  assert.match(source, /h\.id === "claude-code" && activeDraft\.includes\(h\.id\)/);
   assert.match(source, /Install attention hook/);
 });
 
