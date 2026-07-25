@@ -89,7 +89,7 @@ In `crates/orkworksd/src/main.rs`, immediately after the closing brace of `impl 
 - [ ] **Step 2: Confirm it compiles**
 
 Run: `cargo build --manifest-path crates/orkworksd/Cargo.toml --tests`
-Expected: builds successfully (the new items are `pub(crate)` and currently unused outside tests, so no warnings yet since nothing calls them until Task 2).
+Expected: builds successfully. `dead_code` warnings for `FakePath`/`make_test_executable` are expected here — nothing calls them until Task 2 uses them. Not a blocker; there's no `-D warnings` gate in this crate's build.
 
 - [ ] **Step 3: Commit**
 
@@ -462,8 +462,15 @@ In `crates/orkworksd/src/http/integration_handlers.rs`, inside `mod tests` (afte
     // real command) — it's a regression guard for the genuinely-not-found
     // path, not a red/green driver. Kept alongside the test above for
     // coverage of both outcomes of the same wiring.
+    //
+    // It overrides claude-code's launch command to an unresolvable name
+    // rather than relying on the ambient PATH lacking a real `claude`
+    // binary: FakePath::prepend only prepends (by design — see Task 1), so
+    // it can't hide a real `claude` install elsewhere on PATH, and this
+    // test must still pass on a machine that has Claude Code installed.
     #[tokio::test]
     async fn detected_tool_stays_absent_when_the_command_is_not_on_path() {
+        use crate::harness::definition::{HarnessPatch, LaunchPatch};
         use crate::test_support::FakePath;
 
         let dir = tempfile::tempdir().unwrap();
@@ -471,6 +478,34 @@ In `crates/orkworksd/src/http/integration_handlers.rs`, inside `mod tests` (afte
         let home = tempfile::tempdir().unwrap();
         let _fake_home = FakeHome::set(home.path());
         let state = test_app_state_with_workspace(dir.path());
+
+        state
+            .harness_store
+            .mutate(&state.harness_catalog, |document| {
+                document.overrides.insert(
+                    "claude-code".to_string(),
+                    HarnessPatch {
+                        name: None,
+                        launch: Some(LaunchPatch {
+                            kind: None,
+                            command: Some("definitely-not-a-real-binary-xyz".to_string()),
+                            args: None,
+                            model_prefix: None,
+                            login: None,
+                        }),
+                        default_model: None,
+                        resume: None,
+                        models: None,
+                        peon: None,
+                        capacity: None,
+                        session_signals: None,
+                        integration: None,
+                        voice: None,
+                    },
+                );
+                Ok(())
+            })
+            .unwrap();
 
         let empty_bin_dir = tempfile::tempdir().unwrap();
         let _fake_path = FakePath::prepend(empty_bin_dir.path());
