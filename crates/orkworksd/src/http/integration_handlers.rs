@@ -302,7 +302,11 @@ mod tests {
         assert_eq!(install_response.status(), StatusCode::OK);
 
         let fake_bin_dir = tempfile::tempdir().unwrap();
-        let bin = fake_bin_dir.path().join("claude");
+        // On Windows, probe_installed_tool searches PATHEXT candidates
+        // (claude.exe, claude.cmd, ...) for a bare "claude" — a plain
+        // extensionless file wouldn't match any of them.
+        let bin_name = if cfg!(windows) { "claude.exe" } else { "claude" };
+        let bin = fake_bin_dir.path().join(bin_name);
         fs::write(&bin, "#!/bin/sh\n").unwrap();
         make_test_executable(&bin);
         let _fake_path = FakePath::prepend(fake_bin_dir.path());
