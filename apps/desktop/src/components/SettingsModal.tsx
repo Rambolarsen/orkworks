@@ -3,22 +3,15 @@ import { acceleratorFromKeyboardEvent } from "../hotkeyCapture";
 import type { AppSettings, DebugSettings, HotkeySettings, RetentionSettings, SaveHotkeysResult } from "../appSettingsTypes";
 import type { ProviderSettings, ProviderModelsResponse, OllamaVerificationResponse } from "../providerTypes";
 import type { ProviderRuntimeResponse } from "../api";
-import type { HarnessConfig, IntegrationStatusResult } from "../harnessTypes";
+import type { HarnessConfig } from "../harnessTypes";
 import ProviderSettingsSection from "./ProviderSettingsSection";
+import HarnessIntegrationSection from "./HarnessIntegrationSection";
 
 type HotkeyAction = keyof HotkeySettings;
 type OllamaVerificationViewState =
   | { phase: "idle" }
   | { phase: "checking"; requestedBaseUrl: string }
   | { phase: "done"; result: OllamaVerificationResponse };
-
-// Mirrors the sole direct-reference condition in the backend probe
-// (crates/orkworksd/src/harness/detect.rs::probe_installed_tool): POSIX
-// absolute (`/...`), Windows drive-letter (`C:\...` / `C:/...`), or UNC
-// (`\\server\...`).
-function looksAbsolute(command: string): boolean {
-  return command.startsWith("/") || /^[a-zA-Z]:[\\/]/.test(command) || command.startsWith("\\\\");
-}
 
 interface SettingsModalProps {
   initialSettings: AppSettings;
@@ -41,6 +34,7 @@ const hotkeyRows: Array<{ action: HotkeyAction; label: string; optional?: boolea
 ];
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+const INTEGRATION_HARNESS_IDS = ["claude-code", "gemini", "copilot"];
 
 export default function SettingsModal({ initialSettings, harnesses, activeHarnessIds, providerRuntime, onClose, onSaved, onSaveActiveHarnesses }: SettingsModalProps) {
   const modalRef = useRef<HTMLElement>(null);
@@ -63,25 +57,6 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
   const [ollamaVerification, setOllamaVerification] = useState<OllamaVerificationViewState>({ phase: "idle" });
   const [activeDraft, setActiveDraft] = useState<string[]>(activeHarnessIds);
   const [activeSaveStatus, setActiveSaveStatus] = useState<string | null>(null);
-  const [claudeIntegration, setClaudeIntegration] = useState<IntegrationStatusResult | null>(null);
-  const [claudeIntegrationBusy, setClaudeIntegrationBusy] = useState(false);
-  const hasClaudeCodeHarness = harnesses.some((h) => h.id === "claude-code");
-  const claudeHarness = harnesses.find((h) => h.id === "claude-code");
-  const claudeLaunchCommand =
-    claudeHarness?.launch.kind === "command-template" ? claudeHarness.launch.command : null;
-  const claudeHasCustomPath = claudeLaunchCommand !== null && looksAbsolute(claudeLaunchCommand);
-  const [customPathDraft, setCustomPathDraft] = useState<string>(() =>
-    claudeHasCustomPath && claudeLaunchCommand ? claudeLaunchCommand : "",
-  );
-  // Locally owned rather than derived from `claudeHasCustomPath` on every
-  // render: the `harnesses` prop only refreshes when Settings is reopened,
-  // so a save/clear updates this immediately instead of leaving the
-  // Clear button (and the block's visibility once detection succeeds)
-  // stuck showing pre-save state until the modal is closed and reopened.
-  const [customPathActive, setCustomPathActive] = useState<boolean>(() => claudeHasCustomPath);
-  const [customPathBusy, setCustomPathBusy] = useState(false);
-  const [customPathError, setCustomPathError] = useState<string | null>(null);
-
   useLayoutEffect(() => {
     const modal = modalRef.current;
     if (!modal) return;
@@ -146,72 +121,6 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
       window.orkworks.setHotkeyCaptureActive(false);
     };
   }, [capturing]);
-
-  useEffect(() => {
-    if (!hasClaudeCodeHarness) return;
-    let cancelled = false;
-    window.orkworks.getHarnessIntegrationStatus("claude-code").then((result) => {
-      if (!cancelled) setClaudeIntegration(result);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [hasClaudeCodeHarness]);
-
-  async function installClaudeIntegrationHandler() {
-    setClaudeIntegrationBusy(true);
-    try {
-      setClaudeIntegration(await window.orkworks.installHarnessIntegration("claude-code"));
-    } finally {
-      setClaudeIntegrationBusy(false);
-    }
-  }
-
-  async function uninstallClaudeIntegrationHandler() {
-    setClaudeIntegrationBusy(true);
-    try {
-      setClaudeIntegration(await window.orkworks.uninstallHarnessIntegration("claude-code"));
-    } finally {
-      setClaudeIntegrationBusy(false);
-    }
-  }
-
-  async function saveCustomPathHandler() {
-    setCustomPathBusy(true);
-    setCustomPathError(null);
-    try {
-      const result = await window.orkworks.setHarnessCommandOverride("claude-code", customPathDraft.trim());
-      if (!result.ok) {
-        setCustomPathError(result.error);
-        return;
-      }
-      setCustomPathActive(true);
-      setClaudeIntegration(await window.orkworks.getHarnessIntegrationStatus("claude-code"));
-    } catch (error) {
-      setCustomPathError(error instanceof Error ? error.message : "Couldn't set the custom path.");
-    } finally {
-      setCustomPathBusy(false);
-    }
-  }
-
-  async function clearCustomPathHandler() {
-    setCustomPathBusy(true);
-    setCustomPathError(null);
-    try {
-      const result = await window.orkworks.clearHarnessCommandOverride("claude-code");
-      if (!result.ok) {
-        setCustomPathError(result.error);
-        return;
-      }
-      setCustomPathActive(false);
-      setCustomPathDraft("");
-      setClaudeIntegration(await window.orkworks.getHarnessIntegrationStatus("claude-code"));
-    } catch (error) {
-      setCustomPathError(error instanceof Error ? error.message : "Couldn't clear the custom path.");
-    } finally {
-      setCustomPathBusy(false);
-    }
-  }
 
   useEffect(() => {
     const ids = providerDraft.providers.map((p) => p.id);
@@ -433,102 +342,8 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
                     />
                     <span>{h.name}</span>
                   </label>
-                  {h.id === "claude-code" && activeDraft.includes(h.id) && (
-                    <div className="settings-config-item-actions">
-                      {claudeIntegration === null && (
-                        <span className="settings-config-status">checking Claude Code integration…</span>
-                      )}
-                      {claudeIntegration && !claudeIntegration.ok && (
-                        <span className="settings-config-status">{claudeIntegration.error}</span>
-                      )}
-                      {claudeIntegration?.ok && (
-                        <span
-                          className={
-                            "settings-config-status" +
-                            (claudeIntegration.status.toolDetected ? " settings-config-status--ok" : "")
-                          }
-                        >
-                          {claudeIntegration.status.toolDetected ? "✓ Detected" : "Not detected"}
-                        </span>
-                      )}
-                      {claudeIntegration?.ok && claudeIntegration.status.registration === "installed" && (
-                        <>
-                          <span className="settings-config-status settings-config-status--ok">✓ Notification hook installed</span>
-                          <button type="button" onClick={uninstallClaudeIntegrationHandler} disabled={claudeIntegrationBusy}>
-                            {claudeIntegrationBusy ? "Removing…" : "Uninstall"}
-                          </button>
-                        </>
-                      )}
-                      {claudeIntegration?.ok &&
-                        (claudeIntegration.status.registration === "absent" ||
-                          claudeIntegration.status.registration === "drifted") && (
-                          <>
-                            {claudeIntegration.status.confirmation && (
-                              <p className="settings-section-copy">
-                                Installing will add a Notification hook to{" "}
-                                {claudeIntegration.status.confirmation.relativePaths.join(", ")} in this
-                                workspace ({claudeIntegration.status.confirmation.coverageSummary}).
-                                {claudeIntegration.status.confirmation.executableCodeWarning && (
-                                  <> This hook runs an OrkWorks-installed script whenever Claude Code
-                                  waits for input.</>
-                                )}
-                              </p>
-                            )}
-                            <button type="button" onClick={installClaudeIntegrationHandler} disabled={claudeIntegrationBusy}>
-                              {claudeIntegrationBusy
-                                ? "Installing…"
-                                : claudeIntegration.status.registration === "drifted"
-                                  ? "Reinstall"
-                                  : "Install attention hook"}
-                            </button>
-                          </>
-                        )}
-                      {claudeIntegration?.ok && claudeIntegration.status.registration === "unsupported" && (
-                        <span className="settings-config-status">
-                          Attention hook isn't supported for this coding tool.
-                        </span>
-                      )}
-                      {claudeIntegration?.ok && claudeIntegration.status.diagnostics.length > 0 && (
-                        <span className="settings-config-status">
-                          {claudeIntegration.status.diagnostics[0].message}
-                        </span>
-                      )}
-                      {claudeIntegration?.ok &&
-                        (claudeIntegration.status.diagnostics.some((d) => d.code === "tool_not_detected") ||
-                          customPathActive) && (
-                          <div className="settings-config-custom-path">
-                            <label>
-                              Custom path
-                              <input
-                                type="text"
-                                value={customPathDraft}
-                                onChange={(e) => setCustomPathDraft(e.target.value)}
-                                placeholder="/opt/homebrew/bin/claude"
-                                disabled={customPathBusy}
-                              />
-                            </label>
-                            <p className="settings-section-copy">
-                              This also becomes the command OrkWorks launches Claude Code sessions with —
-                              make sure it points at the real binary.
-                            </p>
-                            <button
-                              type="button"
-                              onClick={saveCustomPathHandler}
-                              disabled={customPathBusy || !looksAbsolute(customPathDraft.trim())}
-                            >
-                              {customPathBusy ? "Saving…" : "Save"}
-                            </button>
-                            {customPathActive && (
-                              <button type="button" onClick={clearCustomPathHandler} disabled={customPathBusy}>
-                                Clear
-                              </button>
-                            )}
-                            {customPathError && (
-                              <span className="settings-config-status">{customPathError}</span>
-                            )}
-                          </div>
-                        )}
-                    </div>
+                  {INTEGRATION_HARNESS_IDS.includes(h.id) && activeDraft.includes(h.id) && (
+                    <HarnessIntegrationSection harnessId={h.id} harnessName={h.name} harness={h} />
                   )}
                 </div>
               ))}
