@@ -485,6 +485,30 @@ mod tests {
         assert!(script.contains("[string]$Marker"));
     }
 
+    // Every prior test above (and the .sh equivalents) reads asset content
+    // via a synthetic ReporterAssetResolver pointed at a throwaway tempdir,
+    // never the real crates/orkworksd/scripts/ directory a handler's
+    // reconcile step actually copies from in production. That's exactly why
+    // this issue (copilot.rs needing report-harness-event.ps1, which never
+    // existed) shipped with zero CI signal: nothing asserted that every
+    // reporter asset any handler could reference is really present on disk.
+    // Both known asset names are enumerated by ReporterPlatform — a bare
+    // existence check on both closes the gap for every current and future
+    // handler without needing per-handler knowledge of which asset(s) it
+    // reconciles.
+    #[test]
+    fn every_reporter_asset_exists_in_the_real_scripts_directory() {
+        let scripts_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts");
+        for platform in [ReporterPlatform::Posix, ReporterPlatform::WindowsPowerShell] {
+            let path = scripts_dir.join(platform.asset_name());
+            assert!(
+                path.is_file(),
+                "{platform:?} reporter asset missing from the real scripts/ directory: {}",
+                path.display()
+            );
+        }
+    }
+
     struct Case {
         name: &'static str,
         binding: IntegrationBinding,
