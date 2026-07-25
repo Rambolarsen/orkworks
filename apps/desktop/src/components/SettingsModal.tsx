@@ -441,6 +441,16 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
                       {claudeIntegration && !claudeIntegration.ok && (
                         <span className="settings-config-status">{claudeIntegration.error}</span>
                       )}
+                      {claudeIntegration?.ok && (
+                        <span
+                          className={
+                            "settings-config-status" +
+                            (claudeIntegration.status.toolDetected ? " settings-config-status--ok" : "")
+                          }
+                        >
+                          {claudeIntegration.status.toolDetected ? "✓ Detected" : "Not detected"}
+                        </span>
+                      )}
                       {claudeIntegration?.ok && claudeIntegration.status.registration === "installed" && (
                         <>
                           <span className="settings-config-status settings-config-status--ok">✓ Notification hook installed</span>
