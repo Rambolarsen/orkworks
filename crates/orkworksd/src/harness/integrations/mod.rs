@@ -444,6 +444,47 @@ mod tests {
         assert!(script.contains("--marker"));
     }
 
+    #[test]
+    fn report_harness_event_ps1_always_posts_generic_attention() {
+        let script = include_str!("../../../scripts/report-harness-event.ps1");
+        assert!(script.contains("ORKWORKS_SESSION_ID"));
+        assert!(script.contains("ORKWORKS_PORT"));
+        assert!(script.contains("/sessions/$sessionId/attention"));
+        assert!(script.contains("waiting_for_input"));
+    }
+
+    #[test]
+    fn report_harness_event_ps1_captures_claude_session_id_only_for_claude_marker() {
+        let script = include_str!("../../../scripts/report-harness-event.ps1");
+        assert!(script.contains("claude-code"));
+        assert!(script.contains("session_id"));
+        assert!(script.contains("/sessions/$sessionId/harness-session"));
+        assert!(script.contains("claude_hook"));
+    }
+
+    #[test]
+    fn report_harness_event_ps1_bounds_every_request_with_a_timeout() {
+        let script = include_str!("../../../scripts/report-harness-event.ps1");
+        let timeout_count = script.matches("-TimeoutSec").count();
+        assert_eq!(
+            timeout_count, 2,
+            "both possible requests must cap their own runtime so a stuck orkworksd cannot \
+             hang the harness's own hook mechanism"
+        );
+    }
+
+    #[test]
+    fn report_harness_event_ps1_parses_the_marker_parameter() {
+        let script = include_str!("../../../scripts/report-harness-event.ps1");
+        // The Rust side invokes this with a literal `-Marker <value>` flag
+        // (see reporter_invocation_for_platform's WindowsPowerShell arm),
+        // which PowerShell's CmdletBinding param() block binds to `$Marker`
+        // without that dash ever appearing in the script source itself —
+        // so assert on the param declaration, the literal counterpart of
+        // the .sh version's `--marker` string match.
+        assert!(script.contains("[string]$Marker"));
+    }
+
     struct Case {
         name: &'static str,
         binding: IntegrationBinding,
