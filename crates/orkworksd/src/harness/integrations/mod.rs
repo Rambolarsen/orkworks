@@ -444,6 +444,71 @@ mod tests {
         assert!(script.contains("--marker"));
     }
 
+    #[test]
+    fn report_harness_event_ps1_always_posts_generic_attention() {
+        let script = include_str!("../../../scripts/report-harness-event.ps1");
+        assert!(script.contains("ORKWORKS_SESSION_ID"));
+        assert!(script.contains("ORKWORKS_PORT"));
+        assert!(script.contains("/sessions/$sessionId/attention"));
+        assert!(script.contains("waiting_for_input"));
+    }
+
+    #[test]
+    fn report_harness_event_ps1_captures_claude_session_id_only_for_claude_marker() {
+        let script = include_str!("../../../scripts/report-harness-event.ps1");
+        assert!(script.contains("claude-code"));
+        assert!(script.contains("session_id"));
+        assert!(script.contains("/sessions/$sessionId/harness-session"));
+        assert!(script.contains("claude_hook"));
+    }
+
+    #[test]
+    fn report_harness_event_ps1_bounds_every_request_with_a_timeout() {
+        let script = include_str!("../../../scripts/report-harness-event.ps1");
+        let timeout_count = script.matches("-TimeoutSec").count();
+        assert_eq!(
+            timeout_count, 2,
+            "both possible requests must cap their own runtime so a stuck orkworksd cannot \
+             hang the harness's own hook mechanism"
+        );
+    }
+
+    #[test]
+    fn report_harness_event_ps1_parses_the_marker_parameter() {
+        let script = include_str!("../../../scripts/report-harness-event.ps1");
+        // The Rust side invokes this with a literal `-Marker <value>` flag
+        // (see reporter_invocation_for_platform's WindowsPowerShell arm),
+        // which PowerShell's CmdletBinding param() block binds to `$Marker`
+        // without that dash ever appearing in the script source itself —
+        // so assert on the param declaration, the literal counterpart of
+        // the .sh version's `--marker` string match.
+        assert!(script.contains("[string]$Marker"));
+    }
+
+    // Every prior test above (and the .sh equivalents) reads asset content
+    // via a synthetic ReporterAssetResolver pointed at a throwaway tempdir,
+    // never the real crates/orkworksd/scripts/ directory a handler's
+    // reconcile step actually copies from in production. That's exactly why
+    // this issue (copilot.rs needing report-harness-event.ps1, which never
+    // existed) shipped with zero CI signal: nothing asserted that every
+    // reporter asset any handler could reference is really present on disk.
+    // Both known asset names are enumerated by ReporterPlatform — a bare
+    // existence check on both closes the gap for every current and future
+    // handler without needing per-handler knowledge of which asset(s) it
+    // reconciles.
+    #[test]
+    fn every_reporter_asset_exists_in_the_real_scripts_directory() {
+        let scripts_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts");
+        for platform in [ReporterPlatform::Posix, ReporterPlatform::WindowsPowerShell] {
+            let path = scripts_dir.join(platform.asset_name());
+            assert!(
+                path.is_file(),
+                "{platform:?} reporter asset missing from the real scripts/ directory: {}",
+                path.display()
+            );
+        }
+    }
+
     struct Case {
         name: &'static str,
         binding: IntegrationBinding,
