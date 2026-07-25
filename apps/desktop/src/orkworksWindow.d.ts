@@ -1,7 +1,7 @@
 import type { WorkspaceInfo } from "./api";
 import type { AppSettings, DebugSettings, HotkeySettings, RetentionSettings, SaveHotkeysResult } from "./appSettingsTypes";
 import type { ProviderSettings, ProviderModelsResponse, ProviderLabelsResponse, OllamaVerificationResponse } from "./providerTypes";
-import type { IntegrationStatusResult } from "./harnessTypes";
+import type { HarnessConfig, IntegrationStatusResult } from "./harnessTypes";
 
 declare global {
   interface Window {
@@ -23,6 +23,13 @@ declare global {
       getHarnessIntegrationStatus: (harnessId: string) => Promise<IntegrationStatusResult>;
       installHarnessIntegration: (harnessId: string) => Promise<IntegrationStatusResult>;
       uninstallHarnessIntegration: (harnessId: string) => Promise<IntegrationStatusResult>;
+      setHarnessCommandOverride: (
+        harnessId: string,
+        commandPath: string,
+      ) => Promise<{ ok: true; harness: HarnessConfig } | { ok: false; error: string }>;
+      clearHarnessCommandOverride: (
+        harnessId: string,
+      ) => Promise<{ ok: true } | { ok: false; error: string }>;
       openPlan: (sessionId: string) => Promise<void>;
       setHotkeyCaptureActive: (active: boolean) => void;
       onMenuCommand: (callback: (data: { action: string; panelId?: string }) => void) => () => void;

@@ -368,6 +368,52 @@ app.whenReady().then(() => {
   ipcMain.handle("uninstall-harness-integration", async (_event, harnessId: unknown) =>
     callIntegrationRoute(harnessId, "uninstall"));
 
+  async function setHarnessCommandOverride(harnessId: unknown, commandPath: unknown) {
+    if (typeof harnessId !== "string" || !harnessId) throw new Error("Invalid harness ID.");
+    if (typeof commandPath !== "string" || !commandPath.trim()) throw new Error("Invalid command path.");
+    try {
+      const port = await portPromise;
+      const resp = await fetch(`http://127.0.0.1:${port}/harnesses/${encodeURIComponent(harnessId)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kind: "BuiltinPatch",
+          patch: { launch: { command: commandPath } },
+        }),
+      });
+      if (resp.ok) {
+        return { ok: true, harness: await resp.json() };
+      }
+      const body = await resp.json().catch(() => ({ error: undefined }));
+      return { ok: false, error: (body as { error?: string }).error ?? "Couldn't set the custom path." };
+    } catch {
+      return { ok: false, error: "Couldn't reach the OrkWorks sidecar." };
+    }
+  }
+
+  async function clearHarnessCommandOverride(harnessId: unknown) {
+    if (typeof harnessId !== "string" || !harnessId) throw new Error("Invalid harness ID.");
+    try {
+      const port = await portPromise;
+      const resp = await fetch(`http://127.0.0.1:${port}/harnesses/${encodeURIComponent(harnessId)}`, {
+        method: "DELETE",
+      });
+      if (resp.ok) {
+        return { ok: true };
+      }
+      const body = await resp.json().catch(() => ({ error: undefined }));
+      return { ok: false, error: (body as { error?: string }).error ?? "Couldn't clear the custom path." };
+    } catch {
+      return { ok: false, error: "Couldn't reach the OrkWorks sidecar." };
+    }
+  }
+
+  ipcMain.handle("set-harness-command-override", async (_event, harnessId: unknown, commandPath: unknown) =>
+    setHarnessCommandOverride(harnessId, commandPath));
+
+  ipcMain.handle("clear-harness-command-override", async (_event, harnessId: unknown) =>
+    clearHarnessCommandOverride(harnessId));
+
   ipcMain.handle("open-workspace", async () => {
     const result = await dialog.showOpenDialog({
       properties: ["openDirectory"],
