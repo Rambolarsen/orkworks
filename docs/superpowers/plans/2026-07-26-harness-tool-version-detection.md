@@ -368,13 +368,17 @@ Add these tests to the `#[cfg(test)] mod tests` block at the bottom of the file 
             .trim()
             .parse()
             .unwrap();
-        // SIGKILL delivery/reaping is asynchronous; poll briefly rather than
-        // assert instantly.
+        // SIGKILL delivery/reaping is asynchronous — tokio reaps the killed
+        // child via a background task on the *same* current-thread runtime
+        // this test runs on, so the poll must yield with `tokio::time::sleep`
+        // rather than block the thread with `std::thread::sleep`; blocking
+        // here would starve that reaping task and make this loop spin until
+        // timeout even though the kill succeeded.
         for _ in 0..20 {
             if unsafe { libc::kill(pid, 0) } != 0 {
                 return; // ESRCH: process no longer exists.
             }
-            std::thread::sleep(Duration::from_millis(100));
+            tokio::time::sleep(Duration::from_millis(100)).await;
         }
         panic!("child process {pid} is still alive after kill_on_drop should have killed it");
     }
