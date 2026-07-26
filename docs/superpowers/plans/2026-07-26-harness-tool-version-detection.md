@@ -489,13 +489,17 @@ This is the task the independent design review flagged as the real risk: `run_in
 Add to the `tests` module in `crates/orkworksd/src/http/integration_handlers.rs`, near `init_git_workspace_with_claude_settings_ignored`:
 
 ```rust
-    fn init_git_workspace_with_gemini_settings_ignored(workspace: &std::path::Path) {
+    fn init_git_workspace_with_copilot_settings_ignored(workspace: &std::path::Path) {
         git2::Repository::init(workspace).unwrap();
-        std::fs::write(workspace.join(".gitignore"), ".gemini/settings.json\n").unwrap();
+        std::fs::write(
+            workspace.join(".gitignore"),
+            ".github/copilot/settings.local.json\n",
+        )
+        .unwrap();
     }
 ```
 
-Then add these two tests (near `detected_tool_reflects_probe_result_for_a_resolvable_command`):
+Then add these two tests (near `detected_tool_reflects_probe_result_for_a_resolvable_command`). Use `copilot`, not `gemini`: discovered while running this step, `gemini.rs`'s own `ToolHookContract` declares `activation: IntegrationActivation::Unknown` even in its fully-installed, fully-detected steady state (its coverage is `Limited` by pre-existing design) — so a "fully active" assertion against gemini can never pass, for reasons unrelated to `min_version`. Copilot and Claude both declare `activation: IntegrationActivation::Active`; copilot is used here to keep this test independent of the Claude-code-specific tests already in this file.
 
 ```rust
     #[tokio::test]
@@ -504,7 +508,7 @@ Then add these two tests (near `detected_tool_reflects_probe_result_for_a_resolv
         use crate::test_support::{make_test_executable, FakePath};
 
         let dir = tempfile::tempdir().unwrap();
-        init_git_workspace_with_gemini_settings_ignored(dir.path());
+        init_git_workspace_with_copilot_settings_ignored(dir.path());
         let home = tempfile::tempdir().unwrap();
         let _fake_home = FakeHome::set(home.path());
         let state = test_app_state_with_workspace(dir.path());
@@ -513,7 +517,7 @@ Then add these two tests (near `detected_tool_reflects_probe_result_for_a_resolv
             .harness_store
             .mutate(&state.harness_catalog, |document| {
                 document.overrides.insert(
-                    "gemini".to_string(),
+                    "copilot".to_string(),
                     HarnessPatch {
                         min_version: Some(Some(VersionRequirement { min: (99, 0, 0) })),
                         ..Default::default()
@@ -524,13 +528,13 @@ Then add these two tests (near `detected_tool_reflects_probe_result_for_a_resolv
             .unwrap();
 
         let fake_bin_dir = tempfile::tempdir().unwrap();
-        let bin_name = if cfg!(windows) { "gemini.exe" } else { "gemini" };
+        let bin_name = if cfg!(windows) { "copilot.exe" } else { "copilot" };
         let bin = fake_bin_dir.path().join(bin_name);
-        std::fs::write(&bin, "#!/bin/sh\necho 'gemini-cli 1.0.0'\n").unwrap();
+        std::fs::write(&bin, "#!/bin/sh\necho 'copilot-cli 1.0.0'\n").unwrap();
         make_test_executable(&bin);
         let _fake_path = FakePath::prepend(fake_bin_dir.path());
 
-        let response = get_integration_status(State(state), AxumPath("gemini".into()))
+        let response = get_integration_status(State(state), AxumPath("copilot".into()))
             .await
             .into_response();
         assert_eq!(response.status(), StatusCode::OK);
@@ -551,7 +555,7 @@ Then add these two tests (near `detected_tool_reflects_probe_result_for_a_resolv
         use crate::test_support::{make_test_executable, FakePath};
 
         let dir = tempfile::tempdir().unwrap();
-        init_git_workspace_with_gemini_settings_ignored(dir.path());
+        init_git_workspace_with_copilot_settings_ignored(dir.path());
         let home = tempfile::tempdir().unwrap();
         let _fake_home = FakeHome::set(home.path());
         let state = test_app_state_with_workspace(dir.path());
@@ -560,7 +564,7 @@ Then add these two tests (near `detected_tool_reflects_probe_result_for_a_resolv
             .harness_store
             .mutate(&state.harness_catalog, |document| {
                 document.overrides.insert(
-                    "gemini".to_string(),
+                    "copilot".to_string(),
                     HarnessPatch {
                         min_version: Some(Some(VersionRequirement { min: (0, 0, 1) })),
                         ..Default::default()
@@ -571,13 +575,25 @@ Then add these two tests (near `detected_tool_reflects_probe_result_for_a_resolv
             .unwrap();
 
         let fake_bin_dir = tempfile::tempdir().unwrap();
-        let bin_name = if cfg!(windows) { "gemini.exe" } else { "gemini" };
+        let bin_name = if cfg!(windows) { "copilot.exe" } else { "copilot" };
         let bin = fake_bin_dir.path().join(bin_name);
-        std::fs::write(&bin, "#!/bin/sh\necho 'gemini-cli 1.0.0'\n").unwrap();
+        std::fs::write(&bin, "#!/bin/sh\necho 'copilot-cli 1.0.0'\n").unwrap();
         make_test_executable(&bin);
         let _fake_path = FakePath::prepend(fake_bin_dir.path());
 
-        let response = get_integration_status(State(state), AxumPath("gemini".into()))
+        // Active (as opposed to Absent/Disabled) only applies once the hook
+        // is actually Installed — status_from_document's activation match
+        // only reaches self.contract.activation via the `registration ==
+        // Installed` arm, so an install must happen first, exactly like the
+        // pre-existing Claude reference test this one is modeled on
+        // (detected_tool_reflects_probe_result_for_a_resolvable_command).
+        let install_response =
+            install_integration(State(state.clone()), AxumPath("copilot".into()))
+                .await
+                .into_response();
+        assert_eq!(install_response.status(), StatusCode::OK);
+
+        let response = get_integration_status(State(state), AxumPath("copilot".into()))
             .await
             .into_response();
         let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();

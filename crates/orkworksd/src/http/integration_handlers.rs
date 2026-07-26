@@ -52,7 +52,7 @@ fn integration_error_response(error: IntegrationError) -> axum::response::Respon
     (status, Json(ErrorResponse { error: message })).into_response()
 }
 
-fn run_integration_action(
+async fn run_integration_action(
     state: &Arc<AppState>,
     harness_id: &str,
     action: impl FnOnce(&ResolvedHarness, &IntegrationContext<'_>) -> Result<
@@ -60,18 +60,63 @@ fn run_integration_action(
         IntegrationError,
     >,
 ) -> axum::response::Response {
+    // Checked first (and dropped immediately) to preserve today's exact
+    // error-priority order: a request against a missing workspace reports
+    // NoWorkspace even if harness_id is also unknown. Re-checked again below
+    // after the version probe, since a lock held only long enough to check
+    // "does a workspace exist" leaves a window (however small) for a
+    // concurrent request to clear it before this request re-acquires the
+    // lock for real use.
+    {
+        let ws_guard = state.workspace.lock().unwrap();
+        if ws_guard.is_none() {
+            return integration_error_response(IntegrationError::NoWorkspace);
+        }
+    }
+
+    let harness: ResolvedHarness = {
+        let registry = state.harness_catalog.read().expect("harness catalog lock poisoned");
+        let Some(harness) = registry.get(harness_id) else {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse { error: format!("unknown harness id \"{harness_id}\"") }),
+            )
+                .into_response();
+        };
+        harness.clone()
+    };
+
+    // No lock guard is held from here through the `.await` below — both
+    // guards above are `!Send`, and the workspace mutex must not be held
+    // for the probe's full timeout, which other workspace-touching requests
+    // would otherwise queue behind.
+    let probed_tool = crate::harness::detect::probe_installed_tool(&harness.launch_command());
+    let detected_tool = match (probed_tool, harness.definition.min_version.as_ref()) {
+        (Some(mut tool), Some(requirement)) => {
+            match crate::harness::detect::probe_tool_version(&tool.executable).await {
+                Some(output) => match crate::harness::detect::parse_version_token(&output) {
+                    Some(parsed) => {
+                        tool.compatible = parsed >= requirement.min;
+                        tool.version = Some(output);
+                    }
+                    None => {
+                        tool.compatible = false;
+                        tool.version = None;
+                    }
+                },
+                None => {
+                    tool.compatible = false;
+                    tool.version = None;
+                }
+            }
+            Some(tool)
+        }
+        (probed_tool, _) => probed_tool,
+    };
+
     let ws_guard = state.workspace.lock().unwrap();
     let Some(ref ws) = *ws_guard else {
         return integration_error_response(IntegrationError::NoWorkspace);
-    };
-
-    let registry = state.harness_catalog.read().expect("harness catalog lock poisoned");
-    let Some(harness) = registry.get(harness_id) else {
-        return (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse { error: format!("unknown harness id \"{harness_id}\"") }),
-        )
-            .into_response();
     };
 
     let reporter_assets = match reporter_assets() {
@@ -92,18 +137,16 @@ fn run_integration_action(
         }
     };
 
-    let probed_tool = crate::harness::detect::probe_installed_tool(&harness.launch_command());
-
     let ctx = IntegrationContext {
         workspace: &ws.path,
         workspace_metadata: Some(&ws.metadata),
         orkworks_root: &orkworks_root,
         enabled: true,
-        detected_tool: probed_tool.as_ref(),
+        detected_tool: detected_tool.as_ref(),
         reporter_assets: &reporter_assets,
     };
 
-    match action(harness, &ctx) {
+    match action(&harness, &ctx) {
         Ok(status) => Json(status).into_response(),
         Err(error) => integration_error_response(error),
     }
@@ -113,21 +156,21 @@ pub(crate) async fn get_integration_status(
     State(state): State<Arc<AppState>>,
     AxumPath(harness_id): AxumPath<String>,
 ) -> impl IntoResponse {
-    run_integration_action(&state, &harness_id, |harness, ctx| harness.integration_status(ctx))
+    run_integration_action(&state, &harness_id, |harness, ctx| harness.integration_status(ctx)).await
 }
 
 pub(crate) async fn install_integration(
     State(state): State<Arc<AppState>>,
     AxumPath(harness_id): AxumPath<String>,
 ) -> impl IntoResponse {
-    run_integration_action(&state, &harness_id, |harness, ctx| harness.integration_install(ctx))
+    run_integration_action(&state, &harness_id, |harness, ctx| harness.integration_install(ctx)).await
 }
 
 pub(crate) async fn uninstall_integration(
     State(state): State<Arc<AppState>>,
     AxumPath(harness_id): AxumPath<String>,
 ) -> impl IntoResponse {
-    run_integration_action(&state, &harness_id, |harness, ctx| harness.integration_uninstall(ctx))
+    run_integration_action(&state, &harness_id, |harness, ctx| harness.integration_uninstall(ctx)).await
 }
 
 #[cfg(test)]
@@ -146,6 +189,15 @@ mod tests {
     fn init_git_workspace_with_claude_settings_ignored(workspace: &std::path::Path) {
         git2::Repository::init(workspace).unwrap();
         std::fs::write(workspace.join(".gitignore"), ".claude/settings.local.json\n").unwrap();
+    }
+
+    fn init_git_workspace_with_copilot_settings_ignored(workspace: &std::path::Path) {
+        git2::Repository::init(workspace).unwrap();
+        std::fs::write(
+            workspace.join(".gitignore"),
+            ".github/copilot/settings.local.json\n",
+        )
+        .unwrap();
     }
 
     // Pins the packaged-vs-dev fallback that used to be covered by
@@ -305,6 +357,113 @@ mod tests {
             .await
             .into_response();
         assert_eq!(response.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["toolDetected"], true);
+        assert_eq!(body["activation"], "active");
+    }
+
+    #[tokio::test]
+    async fn min_version_gating_marks_a_below_threshold_binary_as_needing_trust() {
+        use crate::harness::definition::{HarnessPatch, VersionRequirement};
+        use crate::test_support::{make_test_executable, FakePath};
+
+        let dir = tempfile::tempdir().unwrap();
+        init_git_workspace_with_copilot_settings_ignored(dir.path());
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        let state = test_app_state_with_workspace(dir.path());
+
+        state
+            .harness_store
+            .mutate(&state.harness_catalog, |document| {
+                document.overrides.insert(
+                    "copilot".to_string(),
+                    HarnessPatch {
+                        min_version: Some(Some(VersionRequirement { min: (99, 0, 0) })),
+                        ..Default::default()
+                    },
+                );
+                Ok(())
+            })
+            .unwrap();
+
+        let fake_bin_dir = tempfile::tempdir().unwrap();
+        let bin_name = if cfg!(windows) { "copilot.exe" } else { "copilot" };
+        let bin = fake_bin_dir.path().join(bin_name);
+        std::fs::write(&bin, "#!/bin/sh\necho 'copilot-cli 1.0.0'\n").unwrap();
+        make_test_executable(&bin);
+        let _fake_path = FakePath::prepend(fake_bin_dir.path());
+
+        let response = get_integration_status(State(state), AxumPath("copilot".into()))
+            .await
+            .into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["toolDetected"], true);
+        assert_eq!(body["activation"], "needs_trust");
+        assert!(body["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|d| d["code"] == "unsupported_tool_version"));
+    }
+
+    #[tokio::test]
+    async fn min_version_gating_leaves_an_above_threshold_binary_fully_active() {
+        use crate::harness::definition::{HarnessPatch, VersionRequirement};
+        use crate::test_support::{make_test_executable, FakePath};
+
+        let dir = tempfile::tempdir().unwrap();
+        init_git_workspace_with_copilot_settings_ignored(dir.path());
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        let state = test_app_state_with_workspace(dir.path());
+
+        state
+            .harness_store
+            .mutate(&state.harness_catalog, |document| {
+                document.overrides.insert(
+                    "copilot".to_string(),
+                    HarnessPatch {
+                        min_version: Some(Some(VersionRequirement { min: (0, 0, 1) })),
+                        ..Default::default()
+                    },
+                );
+                Ok(())
+            })
+            .unwrap();
+
+        let fake_bin_dir = tempfile::tempdir().unwrap();
+        let bin_name = if cfg!(windows) { "copilot.exe" } else { "copilot" };
+        let bin = fake_bin_dir.path().join(bin_name);
+        std::fs::write(&bin, "#!/bin/sh\necho 'copilot-cli 1.0.0'\n").unwrap();
+        make_test_executable(&bin);
+        let _fake_path = FakePath::prepend(fake_bin_dir.path());
+
+        // Active (as opposed to Absent/Disabled) only applies once the hook
+        // is actually Installed — status_from_document's activation match
+        // only reaches self.contract.activation via the `registration ==
+        // Installed` arm, so an install must happen first, exactly like the
+        // pre-existing Claude reference test this one is modeled on
+        // (detected_tool_reflects_probe_result_for_a_resolvable_command).
+        // Copilot (like Claude, unlike Gemini) declares
+        // activation: IntegrationActivation::Active on its contract
+        // (harness/integrations/copilot.rs) — Gemini's own contract
+        // declares Unknown even when fully installed and detected (its
+        // coverage is Limited by design), which is unrelated to min_version
+        // and would make this assertion fail no matter what this task
+        // wires up.
+        let install_response =
+            install_integration(State(state.clone()), AxumPath("copilot".into()))
+                .await
+                .into_response();
+        assert_eq!(install_response.status(), StatusCode::OK);
+
+        let response = get_integration_status(State(state), AxumPath("copilot".into()))
+            .await
+            .into_response();
         let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let body: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(body["toolDetected"], true);
