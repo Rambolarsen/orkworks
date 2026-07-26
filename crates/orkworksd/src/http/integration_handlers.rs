@@ -470,6 +470,76 @@ mod tests {
         assert_eq!(body["activation"], "active");
     }
 
+    #[tokio::test]
+    async fn a_slow_version_probe_does_not_block_a_concurrent_workspace_request() {
+        use crate::harness::definition::{HarnessPatch, VersionRequirement};
+        use crate::test_support::{make_test_executable, FakePath};
+
+        let dir = tempfile::tempdir().unwrap();
+        init_git_workspace_with_copilot_settings_ignored(dir.path());
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        let state = test_app_state_with_workspace(dir.path());
+
+        state
+            .harness_store
+            .mutate(&state.harness_catalog, |document| {
+                document.overrides.insert(
+                    "copilot".to_string(),
+                    HarnessPatch {
+                        min_version: Some(Some(VersionRequirement { min: (0, 0, 1) })),
+                        ..Default::default()
+                    },
+                );
+                Ok(())
+            })
+            .unwrap();
+
+        let fake_bin_dir = tempfile::tempdir().unwrap();
+        let bin_name = if cfg!(windows) { "copilot.exe" } else { "copilot" };
+        let bin = fake_bin_dir.path().join(bin_name);
+        // `exec` matters here exactly as it does in detect.rs's kill-on-
+        // timeout test: without it, `sh` forks `sleep` as a grandchild that
+        // kill_on_drop's signal never reaches, leaking it independently of
+        // (and in addition to) whatever detect.rs's own test covers — that
+        // test only exercises its own spawned binary, not this one.
+        std::fs::write(&bin, "#!/bin/sh\nexec sleep 30\n").unwrap();
+        make_test_executable(&bin);
+        let _fake_path = FakePath::prepend(fake_bin_dir.path());
+
+        let slow_state = state.clone();
+        let slow_request = tokio::spawn(async move {
+            get_integration_status(State(slow_state), AxumPath("copilot".into())).await.into_response()
+        });
+        // Give the slow request a head start into its probe before firing
+        // the concurrent one.
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        let start = std::time::Instant::now();
+        let concurrent_response =
+            get_integration_status(State(state.clone()), AxumPath("claude-code".into()))
+                .await
+                .into_response();
+        let elapsed = start.elapsed();
+
+        assert_eq!(concurrent_response.status(), StatusCode::OK);
+        // 2s of margin below the probe's 3s timeout: generous enough to
+        // absorb scheduling jitter on a loaded CI runner while still being a
+        // meaningful signal that the concurrent request didn't queue behind
+        // the slow one. If this proves flaky in practice, widen the margin
+        // rather than add retry logic — a single fixed threshold is enough
+        // signal for what this test is checking.
+        assert!(
+            elapsed < std::time::Duration::from_secs(2),
+            "a concurrent request must not wait behind the slow probe's 3s timeout, took {elapsed:?}"
+        );
+
+        // Clean up: let the slow request finish so the test doesn't leak a
+        // background task past its own scope.
+        let slow_response = slow_request.await.unwrap();
+        assert_eq!(slow_response.status(), StatusCode::OK);
+    }
+
     // This one already passes before the fix too (detected_tool was always
     // None, so activation was always forced to Unknown regardless of the
     // real command) — it's a regression guard for the genuinely-not-found

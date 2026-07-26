@@ -782,7 +782,7 @@ Add to the same `tests` module:
         use crate::test_support::{make_test_executable, FakePath};
 
         let dir = tempfile::tempdir().unwrap();
-        init_git_workspace_with_gemini_settings_ignored(dir.path());
+        init_git_workspace_with_copilot_settings_ignored(dir.path());
         let home = tempfile::tempdir().unwrap();
         let _fake_home = FakeHome::set(home.path());
         let state = test_app_state_with_workspace(dir.path());
@@ -791,7 +791,7 @@ Add to the same `tests` module:
             .harness_store
             .mutate(&state.harness_catalog, |document| {
                 document.overrides.insert(
-                    "gemini".to_string(),
+                    "copilot".to_string(),
                     HarnessPatch {
                         min_version: Some(Some(VersionRequirement { min: (0, 0, 1) })),
                         ..Default::default()
@@ -802,7 +802,7 @@ Add to the same `tests` module:
             .unwrap();
 
         let fake_bin_dir = tempfile::tempdir().unwrap();
-        let bin_name = if cfg!(windows) { "gemini.exe" } else { "gemini" };
+        let bin_name = if cfg!(windows) { "copilot.exe" } else { "copilot" };
         let bin = fake_bin_dir.path().join(bin_name);
         // `exec` matters here exactly as it does in detect.rs's kill-on-
         // timeout test: without it, `sh` forks `sleep` as a grandchild that
@@ -815,11 +815,11 @@ Add to the same `tests` module:
 
         let slow_state = state.clone();
         let slow_request = tokio::spawn(async move {
-            get_integration_status(State(slow_state), AxumPath("gemini".into())).await.into_response()
+            get_integration_status(State(slow_state), AxumPath("copilot".into())).await.into_response()
         });
         // Give the slow request a head start into its probe before firing
         // the concurrent one.
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
         let start = std::time::Instant::now();
         let concurrent_response =
@@ -836,7 +836,7 @@ Add to the same `tests` module:
         // rather than add retry logic — a single fixed threshold is enough
         // signal for what this test is checking.
         assert!(
-            elapsed < Duration::from_secs(2),
+            elapsed < std::time::Duration::from_secs(2),
             "a concurrent request must not wait behind the slow probe's 3s timeout, took {elapsed:?}"
         );
 
@@ -847,7 +847,7 @@ Add to the same `tests` module:
     }
 ```
 
-Add `use std::time::Duration;` to the top of the `tests` module's imports if not already present via `use super::*;` (it is not — `super::*` doesn't bring in `std::time::Duration` unless `integration_handlers.rs` itself imports it, which it doesn't yet).
+The code above uses `std::time::Duration::...` fully-qualified rather than a bare `Duration`, so no new `use` import is needed in the `tests` module.
 
 Run: `cargo test --manifest-path crates/orkworksd/Cargo.toml --bin orkworksd http::integration_handlers::tests::a_slow_version_probe`
 Expected: PASS, completing in a small fraction of the slow request's ~3s timeout. If this test hangs or takes >3s, the lock-reordering fix in Step 3 has a bug — a guard is still being held across the await.
