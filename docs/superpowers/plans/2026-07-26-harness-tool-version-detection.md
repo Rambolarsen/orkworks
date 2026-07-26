@@ -27,7 +27,7 @@ No new files. All changes land in four existing files, each already responsible 
 ### Task 1: Data model — `min_version` on `HarnessDefinition`/`HarnessPatch`
 
 **Files:**
-- Modify: `crates/orkworksd/src/harness/definition.rs:9-23` (struct), `:157-168` (patch struct), `:170-183`ish (patch `Deserialize` impl), `:496-511`ish (`apply_patch`), tests module (~line 696 onward)
+- Modify: `crates/orkworksd/src/harness/definition.rs` — `HarnessDefinition` struct (~line 9), `HarnessPatch` struct (~line 157), `HarnessPatch`'s manual `Deserialize` impl (~line 207), `apply_patch` (~line 393 onward), tests module (~line 696 onward). Locate each by the code shown in the steps below, not by line number — this file shifts as earlier steps land.
 - Modify: `crates/orkworksd/resources/harnesses-v2.json:6` (codex entry)
 - Modify: `crates/orkworksd/src/harness/store.rs:431-453` (`legacy_definition`)
 
@@ -185,9 +185,11 @@ new: ..."integration": { "kind": "codex" }, "voice": null, "minVersion": { "min"
 
 Every other entry in that file (`gemini`, `aider`, `copilot`, `generic-shell`, and the `legacySnapshots` array) is untouched — they have no `minVersion` key, which deserializes to `min_version: None`.
 
-- [ ] **Step 7: Fix the one other place that constructs `HarnessDefinition` literally**
+- [ ] **Step 7: Fix the other three places that construct `HarnessDefinition`/`HarnessPatch` literally**
 
-`crates/orkworksd/src/harness/store.rs:426-454`, function `legacy_definition`, builds a `HarnessDefinition` field-by-field for pre-v2 migrated entries — this won't compile once the struct gains a new field. Add `min_version`, falling back to the safe builtin adapter's value the same way `capacity` already does:
+Adding a field to a struct breaks every exhaustive (non-`..Default::default()`) literal of that struct, not just the one in `apply_patch`. Three more exist:
+
+`crates/orkworksd/src/harness/store.rs:426-454`, function `legacy_definition`, builds a `HarnessDefinition` field-by-field for pre-v2 migrated entries. Add `min_version`, falling back to the safe builtin adapter's value the same way `capacity` already does:
 
 ```rust
         capacity: safe_adapter.and_then(|definition| definition.capacity.clone()),
@@ -199,6 +201,38 @@ Every other entry in that file (`gemini`, `aider`, `copilot`, `generic-shell`, a
 ```
 
 (Insert the new line right before the closing `}` of the struct literal, after `voice:`.)
+
+`crates/orkworksd/src/harness/store.rs:322-348`, function `legacy_patch`, builds a `HarnessPatch` field-by-field for the same migration path. Legacy entries never carry a version requirement, so this is always `None`:
+
+```rust
+        capacity: None,
+        session_signals: None,
+        integration: None,
+        voice: legacy_voice_patch(&entry.capabilities, &baseline.capabilities),
+        min_version: None,
+    }
+```
+
+(Insert the new line right before the closing `}`, after `voice:`.)
+
+`crates/orkworksd/src/http/integration_handlers.rs:341-358` (inside the existing test `detected_tool_stays_absent_when_the_command_is_not_on_path`) builds a `HarnessPatch` field-by-field to override `claude-code`'s launch command. Add the same `None`:
+
+```rust
+                        default_model: None,
+                        resume: None,
+                        models: None,
+                        peon: None,
+                        capacity: None,
+                        session_signals: None,
+                        integration: None,
+                        voice: None,
+                        min_version: None,
+                    },
+```
+
+(Insert the new line right before the closing `}` of the `HarnessPatch { ... }` literal, after `voice: None,`.)
+
+Skipping any of these three produces `error[E0063]: missing field `min_version`` — a crate-wide compile failure, not a scoped one, since `cargo test` compiles the whole lib regardless of which module's tests you're targeting.
 
 - [ ] **Step 8: Run the test to verify it passes**
 
@@ -442,7 +476,7 @@ wired into any call site yet — that's the next commit."
 ### Task 3: Wire the probe into `run_integration_action`, fixing the lock/await ordering
 
 **Files:**
-- Modify: `crates/orkworksd/src/http/integration_handlers.rs:55-110` (`run_integration_action` and its three callers), tests module
+- Modify: `crates/orkworksd/src/http/integration_handlers.rs` — `run_integration_action` and its three callers (locate by the function/handler names and the code shown below, not by line number — Task 1's edits elsewhere don't shift this file, but exact current line numbers are still easy to get stale), tests module
 
 This is the task the independent design review flagged as the real risk: `run_integration_action` today holds a `MutexGuard` (`state.workspace.lock()`) and an `RwLockReadGuard` (`state.harness_catalog.read()`) across its entire body. Both are `!Send`. Awaiting the version probe anywhere in that body while either guard is alive would either fail to compile (axum requires `Send` handler futures) or, if it somehow did compile, serialize every other workspace-touching request behind the probe's timeout. The fix reorders the function so no guard is alive across the one `.await` point, while preserving today's exact error-priority order (a request with both a missing workspace *and* an unknown harness ID still reports "no workspace" first, not "not found" — that ordering is preserved by re-checking the workspace after the probe rather than moving the harness lookup ahead of the workspace check).
 
@@ -556,7 +590,7 @@ Expected: both tests FAIL (not compile-fail — `HarnessPatch.min_version` and t
 
 - [ ] **Step 3: Reorder and async-ify `run_integration_action`**
 
-Replace the whole function in `crates/orkworksd/src/http/integration_handlers.rs` (currently lines 55-102):
+Replace the whole `run_integration_action` function in `crates/orkworksd/src/http/integration_handlers.rs` (match it by its signature and body shown below, not by line number):
 
 ```rust
 async fn run_integration_action(
@@ -663,7 +697,7 @@ async fn run_integration_action(
 
 - [ ] **Step 4: Await the now-async function at its three call sites**
 
-Still in `crates/orkworksd/src/http/integration_handlers.rs`, update each of the three handlers (currently ~lines 104-121) to add `.await`:
+Still in `crates/orkworksd/src/http/integration_handlers.rs`, update each of the three handlers immediately below `run_integration_action` to add `.await`:
 
 ```rust
 pub(crate) async fn get_integration_status(
@@ -710,8 +744,9 @@ preserving today's error-priority order (missing-workspace still
 wins over unknown-harness-id when both are true).
 
 Closes the loop on #227: JsonHookHandler's NeedsTrust/
-unsupported_tool_version branch (mod.rs:225-231) was dead code until
-now — this is the first real producer of DetectedTool.compatible."
+unsupported_tool_version branch (harness/integrations/mod.rs,
+status_from_document) was dead code until now — this is the first
+real producer of DetectedTool.compatible."
 ```
 
 - [ ] **Step 7: Write and run the concurrency regression test**
@@ -749,10 +784,12 @@ Add to the same `tests` module:
         let fake_bin_dir = tempfile::tempdir().unwrap();
         let bin_name = if cfg!(windows) { "gemini.exe" } else { "gemini" };
         let bin = fake_bin_dir.path().join(bin_name);
-        // No `exec`/pidfile machinery needed here (unlike detect.rs's
-        // kill-on-timeout test) — this test only cares about latency, not
-        // process cleanup, which detect.rs already covers directly.
-        std::fs::write(&bin, "#!/bin/sh\nsleep 30\n").unwrap();
+        // `exec` matters here exactly as it does in detect.rs's kill-on-
+        // timeout test: without it, `sh` forks `sleep` as a grandchild that
+        // kill_on_drop's signal never reaches, leaking it independently of
+        // (and in addition to) whatever detect.rs's own test covers — that
+        // test only exercises its own spawned binary, not this one.
+        std::fs::write(&bin, "#!/bin/sh\nexec sleep 30\n").unwrap();
         make_test_executable(&bin);
         let _fake_path = FakePath::prepend(fake_bin_dir.path());
 
@@ -772,6 +809,12 @@ Add to the same `tests` module:
         let elapsed = start.elapsed();
 
         assert_eq!(concurrent_response.status(), StatusCode::OK);
+        // 2s of margin below the probe's 3s timeout: generous enough to
+        // absorb scheduling jitter on a loaded CI runner while still being a
+        // meaningful signal that the concurrent request didn't queue behind
+        // the slow one. If this proves flaky in practice, widen the margin
+        // rather than add retry logic — a single fixed threshold is enough
+        // signal for what this test is checking.
         assert!(
             elapsed < Duration::from_secs(2),
             "a concurrent request must not wait behind the slow probe's 3s timeout, took {elapsed:?}"
