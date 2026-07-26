@@ -355,6 +355,7 @@ mod tests {
                         session_signals: None,
                         integration: None,
                         voice: None,
+                        min_version: None,
                     },
                 );
                 Ok(())

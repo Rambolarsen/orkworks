@@ -239,7 +239,7 @@ Skipping any of these three produces `error[E0063]: missing field `min_version``
 Run: `cargo test --manifest-path crates/orkworksd/Cargo.toml min_version_round_trips`
 Expected: PASS. Also run the full `definition.rs` test module to make sure nothing else broke:
 
-Run: `cargo test --manifest-path crates/orkworksd/Cargo.toml --lib harness::definition::`
+Run: `cargo test --manifest-path crates/orkworksd/Cargo.toml --bin orkworksd harness::definition::`
 Expected: all PASS.
 
 - [ ] **Step 9: Commit**
@@ -382,7 +382,7 @@ Add these tests to the `#[cfg(test)] mod tests` block at the bottom of the file 
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `cargo test --manifest-path crates/orkworksd/Cargo.toml --lib harness::detect::`
+Run: `cargo test --manifest-path crates/orkworksd/Cargo.toml --bin orkworksd harness::detect::`
 Expected: compile failure — `parse_version_token` and `probe_tool_version` don't exist yet.
 
 - [ ] **Step 3: Implement `parse_version_token`**
@@ -455,7 +455,7 @@ pub(crate) async fn probe_tool_version(executable: &Path) -> Option<String> {
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
-Run: `cargo test --manifest-path crates/orkworksd/Cargo.toml --lib harness::detect::`
+Run: `cargo test --manifest-path crates/orkworksd/Cargo.toml --bin orkworksd harness::detect::`
 Expected: all PASS, including the two pre-existing test groups (`windows_candidate_names_*`, `probe_installed_tool` tests) — this task must not change `probe_installed_tool` at all.
 
 - [ ] **Step 6: Commit**
@@ -585,7 +585,7 @@ Then add these two tests (near `detected_tool_reflects_probe_result_for_a_resolv
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `cargo test --manifest-path crates/orkworksd/Cargo.toml --lib http::integration_handlers::tests::min_version_gating`
+Run: `cargo test --manifest-path crates/orkworksd/Cargo.toml --bin orkworksd http::integration_handlers::tests::min_version_gating`
 Expected: both tests FAIL (not compile-fail — `HarnessPatch.min_version` and the detect.rs functions already exist from Tasks 1-2). They fail because `run_integration_action` never calls `probe_tool_version` yet, so `compatible` stays hardcoded `true` regardless of the declared `min_version` — the below-threshold test expects `"needs_trust"` but gets `"active"`.
 
 - [ ] **Step 3: Reorder and async-ify `run_integration_action`**
@@ -724,7 +724,7 @@ pub(crate) async fn uninstall_integration(
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
-Run: `cargo test --manifest-path crates/orkworksd/Cargo.toml --lib http::integration_handlers::`
+Run: `cargo test --manifest-path crates/orkworksd/Cargo.toml --bin orkworksd http::integration_handlers::`
 Expected: all PASS — the two new tests from Step 1, and every pre-existing test in this file (`status_reports_absent_for_a_fresh_workspace`, `install_then_status_reports_installed`, `install_then_uninstall_reports_absent`, `status_without_a_workspace_returns_conflict`, `status_for_an_unknown_harness_id_returns_not_found`, `install_rejects_malformed_existing_settings_file`, `detected_tool_reflects_probe_result_for_a_resolvable_command`, `detected_tool_stays_absent_when_the_command_is_not_on_path`) must be unaffected — they exercise harnesses with no `min_version` declared, so the probe branch never triggers for them.
 
 - [ ] **Step 6: Commit**
@@ -829,7 +829,7 @@ Add to the same `tests` module:
 
 Add `use std::time::Duration;` to the top of the `tests` module's imports if not already present via `use super::*;` (it is not — `super::*` doesn't bring in `std::time::Duration` unless `integration_handlers.rs` itself imports it, which it doesn't yet).
 
-Run: `cargo test --manifest-path crates/orkworksd/Cargo.toml --lib http::integration_handlers::tests::a_slow_version_probe`
+Run: `cargo test --manifest-path crates/orkworksd/Cargo.toml --bin orkworksd http::integration_handlers::tests::a_slow_version_probe`
 Expected: PASS, completing in a small fraction of the slow request's ~3s timeout. If this test hangs or takes >3s, the lock-reordering fix in Step 3 has a bug — a guard is still being held across the await.
 
 - [ ] **Step 8: Commit**

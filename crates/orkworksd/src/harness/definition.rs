@@ -20,6 +20,7 @@ pub(crate) struct HarnessDefinition {
     pub session_signals: Option<SessionSignalBinding>,
     pub integration: Option<IntegrationBinding>,
     pub voice: Option<VoiceCapability>,
+    pub min_version: Option<VersionRequirement>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -99,6 +100,12 @@ pub(crate) enum CapacityCapability {
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+pub(crate) struct VersionRequirement {
+    pub min: (u64, u64, u64),
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct VoiceCapability {
     pub native_voice: bool,
     pub requires_microphone_permission: bool,
@@ -165,6 +172,7 @@ pub(crate) struct HarnessPatch {
     pub session_signals: Option<Option<SessionSignalBinding>>,
     pub integration: Option<Option<IntegrationBinding>>,
     pub voice: Option<Option<VoicePatch>>,
+    pub min_version: Option<Option<VersionRequirement>>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
@@ -223,6 +231,7 @@ impl<'de> Deserialize<'de> for HarnessPatch {
                 "sessionSignals",
                 "integration",
                 "voice",
+                "minVersion",
             ],
         )?;
         Ok(Self {
@@ -236,6 +245,7 @@ impl<'de> Deserialize<'de> for HarnessPatch {
             session_signals: optional_boundary_field(&fields, "sessionSignals")?,
             integration: optional_boundary_field(&fields, "integration")?,
             voice: optional_boundary_field(&fields, "voice")?,
+            min_version: optional_boundary_field(&fields, "minVersion")?,
         })
     }
 }
@@ -507,6 +517,9 @@ impl HarnessDefinition {
                 .as_ref()
                 .map(|patch| patch_voice(result.voice.as_ref(), patch));
         }
+        if let Some(value) = &patch.min_version {
+            result.min_version = value.clone();
+        }
         result
             .validate(DefinitionOrigin::Override)
             .map_err(|mut errors| errors.remove(0))?;
@@ -765,6 +778,41 @@ mod tests {
         assert!(codex().apply_patch(&patch).unwrap().capacity.is_none());
 
         assert!(serde_json::from_str::<HarnessPatch>(r#"{"name":null}"#).is_err());
+    }
+
+    #[test]
+    fn min_version_round_trips_through_serde_and_patch_and_the_codex_builtin_has_it_set() {
+        // The codex builtin entry declares the hooks framework's minimum version.
+        let definition = codex();
+        assert_eq!(
+            definition.min_version,
+            Some(VersionRequirement { min: (0, 114, 0) })
+        );
+
+        // A sparse patch can set min_version on a harness that doesn't have one.
+        let set_patch: HarnessPatch =
+            serde_json::from_str(r#"{"minVersion":{"min":[1,2,3]}}"#).unwrap();
+        let patched = definition.apply_patch(&set_patch).unwrap();
+        assert_eq!(
+            patched.min_version,
+            Some(VersionRequirement { min: (1, 2, 3) })
+        );
+
+        // Explicit null clears it, same as every other optional capability.
+        let clear_patch: HarnessPatch = serde_json::from_str(r#"{"minVersion":null}"#).unwrap();
+        assert!(definition
+            .apply_patch(&clear_patch)
+            .unwrap()
+            .min_version
+            .is_none());
+
+        // Omitting the field entirely leaves the builtin's min_version untouched.
+        let noop_patch: HarnessPatch =
+            serde_json::from_str(r#"{"name":"Configured Codex"}"#).unwrap();
+        assert_eq!(
+            definition.apply_patch(&noop_patch).unwrap().min_version,
+            definition.min_version
+        );
     }
 
     #[test]
