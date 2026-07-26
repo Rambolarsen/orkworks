@@ -367,6 +367,21 @@ pub(crate) mod test_support {
         })
     }
 
+    /// Replaces the active workspace with a fresh one rooted at `path`,
+    /// simulating a mid-request workspace switch. `WorkspaceState` is
+    /// private to this module, so tests elsewhere in the crate that need to
+    /// exercise a workspace change (rather than just clearing it, which
+    /// `*state.workspace.lock().unwrap() = None` already handles inline)
+    /// go through this helper instead of constructing one directly.
+    pub(crate) fn swap_workspace(state: &AppState, path: &std::path::Path) {
+        let metadata_root = path.join(".orkworks-test");
+        *state.workspace.lock().unwrap() = Some(WorkspaceState {
+            path: path.to_path_buf(),
+            metadata: metadata::MetadataStore::new(&metadata_root),
+            watcher: watcher::MetadataWatcher::start(&metadata_root.join("sessions")),
+        });
+    }
+
     pub(crate) fn test_session_info(
         id: impl Into<String>,
         label: impl Into<String>,

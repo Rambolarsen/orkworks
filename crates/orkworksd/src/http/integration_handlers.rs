@@ -60,19 +60,20 @@ async fn run_integration_action(
         IntegrationError,
     >,
 ) -> axum::response::Response {
-    // Checked first (and dropped immediately) to preserve today's exact
-    // error-priority order: a request against a missing workspace reports
-    // NoWorkspace even if harness_id is also unknown. Re-checked again below
-    // after the version probe, since a lock held only long enough to check
-    // "does a workspace exist" leaves a window (however small) for a
-    // concurrent request to clear it before this request re-acquires the
-    // lock for real use.
-    {
+    // Captured before the async probe below (and the lock dropped
+    // immediately) so a concurrent workspace switch or harness-definition
+    // edit during the probe's up-to-3s window can be *detected* afterward
+    // rather than silently acted on — see the re-checks below the probe.
+    // This also preserves today's exact error-priority order: a request
+    // against a missing workspace reports NoWorkspace even if harness_id is
+    // also unknown.
+    let workspace_path_at_start = {
         let ws_guard = state.workspace.lock().unwrap();
-        if ws_guard.is_none() {
+        let Some(ws) = ws_guard.as_ref() else {
             return integration_error_response(IntegrationError::NoWorkspace);
-        }
-    }
+        };
+        ws.path.clone()
+    };
 
     let harness: ResolvedHarness = {
         let registry = state.harness_catalog.read().expect("harness catalog lock poisoned");
@@ -114,10 +115,39 @@ async fn run_integration_action(
         (probed_tool, _) => probed_tool,
     };
 
+    // Re-validate both pieces of state captured before the probe. A
+    // concurrent harness-definition edit or workspace switch landing during
+    // the probe's window must not let this request silently proceed against
+    // a target different from the one it started against; the harness clone
+    // above and the workspace path captured above would otherwise go stale
+    // without either lock ever objecting.
+    {
+        let registry = state.harness_catalog.read().expect("harness catalog lock poisoned");
+        match registry.get(harness_id) {
+            Some(current) if current.definition == harness.definition => {}
+            _ => {
+                return (
+                    StatusCode::CONFLICT,
+                    Json(ErrorResponse {
+                        error: "harness definition changed during this request; retry".into(),
+                    }),
+                )
+                    .into_response();
+            }
+        }
+    }
+
     let ws_guard = state.workspace.lock().unwrap();
     let Some(ref ws) = *ws_guard else {
         return integration_error_response(IntegrationError::NoWorkspace);
     };
+    if ws.path != workspace_path_at_start {
+        return (
+            StatusCode::CONFLICT,
+            Json(ErrorResponse { error: "workspace changed during this request; retry".into() }),
+        )
+            .into_response();
+    }
 
     let reporter_assets = match reporter_assets() {
         Ok(resolver) => resolver,
@@ -538,6 +568,132 @@ mod tests {
         // background task past its own scope.
         let slow_response = slow_request.await.unwrap();
         assert_eq!(slow_response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn a_workspace_switch_during_the_probe_is_rejected_instead_of_targeting_the_new_one() {
+        use crate::harness::definition::{HarnessPatch, VersionRequirement};
+        use crate::test_support::{make_test_executable, swap_workspace, FakePath};
+
+        let dir = tempfile::tempdir().unwrap();
+        init_git_workspace_with_copilot_settings_ignored(dir.path());
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        let state = test_app_state_with_workspace(dir.path());
+
+        state
+            .harness_store
+            .mutate(&state.harness_catalog, |document| {
+                document.overrides.insert(
+                    "copilot".to_string(),
+                    HarnessPatch {
+                        min_version: Some(Some(VersionRequirement { min: (0, 0, 1) })),
+                        ..Default::default()
+                    },
+                );
+                Ok(())
+            })
+            .unwrap();
+
+        let fake_bin_dir = tempfile::tempdir().unwrap();
+        let bin_name = if cfg!(windows) { "copilot.exe" } else { "copilot" };
+        let bin = fake_bin_dir.path().join(bin_name);
+        std::fs::write(&bin, "#!/bin/sh\nexec sleep 30\n").unwrap();
+        make_test_executable(&bin);
+        let _fake_path = FakePath::prepend(fake_bin_dir.path());
+
+        let slow_state = state.clone();
+        let slow_request = tokio::spawn(async move {
+            get_integration_status(State(slow_state), AxumPath("copilot".into())).await.into_response()
+        });
+        // Give the slow request a head start into its probe, then switch
+        // the active workspace to a different directory while it's still
+        // in flight.
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        let other_dir = tempfile::tempdir().unwrap();
+        swap_workspace(&state, other_dir.path());
+
+        let response = slow_request.await.unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::CONFLICT,
+            "a request whose workspace changed mid-flight must be rejected, not silently \
+             completed against the new workspace"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_harness_definition_change_during_the_probe_is_rejected_instead_of_using_stale_data() {
+        use crate::harness::definition::{HarnessPatch, VersionRequirement};
+        use crate::test_support::{make_test_executable, FakePath};
+
+        let dir = tempfile::tempdir().unwrap();
+        init_git_workspace_with_copilot_settings_ignored(dir.path());
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        let state = test_app_state_with_workspace(dir.path());
+
+        state
+            .harness_store
+            .mutate(&state.harness_catalog, |document| {
+                document.overrides.insert(
+                    "copilot".to_string(),
+                    HarnessPatch {
+                        min_version: Some(Some(VersionRequirement { min: (0, 0, 1) })),
+                        ..Default::default()
+                    },
+                );
+                Ok(())
+            })
+            .unwrap();
+
+        let fake_bin_dir = tempfile::tempdir().unwrap();
+        let bin_name = if cfg!(windows) { "copilot.exe" } else { "copilot" };
+        let bin = fake_bin_dir.path().join(bin_name);
+        std::fs::write(&bin, "#!/bin/sh\nexec sleep 30\n").unwrap();
+        make_test_executable(&bin);
+        let _fake_path = FakePath::prepend(fake_bin_dir.path());
+
+        let slow_state = state.clone();
+        let slow_request = tokio::spawn(async move {
+            get_integration_status(State(slow_state), AxumPath("copilot".into())).await.into_response()
+        });
+        // Give the slow request a head start into its probe, then change the
+        // harness definition it's probing against while it's still in
+        // flight. This swaps the resolved registry directly rather than
+        // going through HarnessStore::mutate a second time on the same
+        // store — a second sequential mutate() call on one store hits an
+        // unrelated pre-existing bug (issue #230, reproduced with a plain
+        // .name patch too, nothing to do with min_version) where the store
+        // fails to read back what it just wrote. Swapping the registry
+        // directly still exercises exactly what this test needs: the
+        // harness_catalog RwLock's content changing between this request's
+        // clone and its re-validation.
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        let mut changed_document = crate::harness::definition::HarnessUserDocument::default();
+        changed_document.overrides.insert(
+            "copilot".to_string(),
+            HarnessPatch {
+                min_version: Some(Some(VersionRequirement { min: (99, 0, 0) })),
+                ..Default::default()
+            },
+        );
+        let builtins = crate::harness::definition::BuiltinDocument::parse(
+            crate::harness::definition::EMBEDDED_BUILTINS,
+        )
+        .unwrap();
+        let changed_registry =
+            crate::harness::registry::resolve_document(&builtins, &changed_document).unwrap();
+        *state.harness_catalog.write().expect("harness catalog lock poisoned") =
+            std::sync::Arc::new(changed_registry);
+
+        let response = slow_request.await.unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::CONFLICT,
+            "a request whose harness definition changed mid-flight must be rejected, not \
+             silently completed against the stale pre-patch definition"
+        );
     }
 
     // This one already passes before the fix too (detected_tool was always
