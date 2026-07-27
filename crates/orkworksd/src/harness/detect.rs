@@ -6,6 +6,7 @@ use std::env;
 use std::path::Path;
 use std::time::Duration;
 
+use super::definition::VersionRequirement;
 use super::integration::DetectedTool;
 
 pub(crate) fn probe_installed_tool(command: &str) -> Option<DetectedTool> {
@@ -194,6 +195,35 @@ pub(crate) fn parse_version_token(text: &str) -> Option<(u64, u64, u64)> {
         return Some((numbers[0], numbers[1], numbers.get(2).copied().unwrap_or(0)));
     }
     None
+}
+
+/// Runs the full version-detection-and-gating pipeline: probes whether
+/// `command` resolves to an installed binary, and if `min_version` is set
+/// and the binary resolves, spawns `<executable> --version` to check the
+/// version requirement. Returns `None` when the command is not found at all;
+/// returns `Some(DetectedTool { compatible: false, .. })` when the binary
+/// exists but no version string can be extracted, or when the extracted
+/// version is below the requirement, or when the version is a prerelease.
+pub(crate) async fn resolve_tool_gate(
+    command: &str,
+    min_version: Option<&VersionRequirement>,
+) -> Option<DetectedTool> {
+    let mut tool = probe_installed_tool(command)?;
+    let Some(requirement) = min_version else {
+        return Some(tool);
+    };
+    let version_output = probe_tool_version(&tool.executable).await;
+    match version_output.as_deref().and_then(parse_version_token) {
+        Some(parsed) => {
+            tool.compatible = parsed >= requirement.min;
+            tool.version = version_output;
+        }
+        None => {
+            tool.compatible = false;
+            tool.version = None;
+        }
+    }
+    Some(tool)
 }
 
 #[cfg(test)]

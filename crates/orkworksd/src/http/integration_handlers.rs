@@ -91,29 +91,11 @@ async fn run_integration_action(
     // guards above are `!Send`, and the workspace mutex must not be held
     // for the probe's full timeout, which other workspace-touching requests
     // would otherwise queue behind.
-    let probed_tool = crate::harness::detect::probe_installed_tool(&harness.launch_command());
-    let detected_tool = match (probed_tool, harness.definition.min_version.as_ref()) {
-        (Some(mut tool), Some(requirement)) => {
-            match crate::harness::detect::probe_tool_version(&tool.executable).await {
-                Some(output) => match crate::harness::detect::parse_version_token(&output) {
-                    Some(parsed) => {
-                        tool.compatible = parsed >= requirement.min;
-                        tool.version = Some(output);
-                    }
-                    None => {
-                        tool.compatible = false;
-                        tool.version = None;
-                    }
-                },
-                None => {
-                    tool.compatible = false;
-                    tool.version = None;
-                }
-            }
-            Some(tool)
-        }
-        (probed_tool, _) => probed_tool,
-    };
+    let detected_tool = crate::harness::detect::resolve_tool_gate(
+        &harness.launch_command(),
+        harness.definition.min_version.as_ref(),
+    )
+    .await;
 
     // Re-validate both pieces of state captured before the probe. A
     // concurrent harness-definition edit or workspace switch landing during
