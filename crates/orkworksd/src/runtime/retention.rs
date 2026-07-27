@@ -30,9 +30,7 @@ pub(crate) async fn retention_cleanup_once(
         sessions
             .iter()
             .filter(|(_, h)| {
-                h.info.status == "live"
-                    || h.info.status == "creating"
-                    || h.info.status == "running"
+                h.info.status == "live" || h.info.status == "creating" || h.info.status == "running"
             })
             .map(|(id, _)| id.clone())
             .collect()
@@ -146,7 +144,10 @@ mod tests {
                 output_buffer: crate::peon::RingBuffer::new(200),
                 scan_buf: String::new(),
                 pending_work_signal: None,
-                runtime: crate::runtime::session_runtime::SessionRuntime::detached(crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS, crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS),
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                ),
                 terminal_attached: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
@@ -188,11 +189,12 @@ mod tests {
                 "2024-01-01T00:00:00Z",
                 "2024-01-01T00:00:00Z",
             ));
-            ws.metadata.write_workspace_memory(&metadata::WorkspaceMemory {
-                last_active_session_id: Some(session_id.clone()),
-                last_active_at: Some("2024-01-01T00:00:00Z".into()),
-                active_harness_ids: vec![],
-            });
+            ws.metadata
+                .write_workspace_memory(&metadata::WorkspaceMemory {
+                    last_active_session_id: Some(session_id.clone()),
+                    last_active_at: Some("2024-01-01T00:00:00Z".into()),
+                    active_harness_ids: vec![],
+                });
         }
 
         {

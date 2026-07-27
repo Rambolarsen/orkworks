@@ -433,7 +433,11 @@ mod tests {
     use super::*;
     use crate::harness::definition::{BuiltinDocument, HarnessPatch, EMBEDDED_BUILTINS};
 
-    fn test_reporter_assets() -> (tempfile::TempDir, tempfile::TempDir, crate::harness::integration::ReporterAssetResolver) {
+    fn test_reporter_assets() -> (
+        tempfile::TempDir,
+        tempfile::TempDir,
+        crate::harness::integration::ReporterAssetResolver,
+    ) {
         use crate::harness::integrations::ReporterPlatform;
 
         let assets = tempfile::tempdir().unwrap();
@@ -443,7 +447,9 @@ mod tests {
         )
         .unwrap();
         std::fs::write(
-            assets.path().join(ReporterPlatform::WindowsPowerShell.asset_name()),
+            assets
+                .path()
+                .join(ReporterPlatform::WindowsPowerShell.asset_name()),
             "# noop\n",
         )
         .unwrap();

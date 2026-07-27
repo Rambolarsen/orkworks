@@ -149,10 +149,7 @@ pub(crate) async fn probe_tool_version(executable: &Path) -> Option<String> {
     let (stdout_buf, stderr_buf) = tokio::time::timeout(Duration::from_secs(3), read_capped_output)
         .await
         .ok()??;
-    Some(
-        String::from_utf8_lossy(&stdout_buf).into_owned()
-            + &String::from_utf8_lossy(&stderr_buf),
-    )
+    Some(String::from_utf8_lossy(&stdout_buf).into_owned() + &String::from_utf8_lossy(&stderr_buf))
 }
 
 /// Extracts the first `major.minor[.patch]`-shaped token from arbitrary CLI
@@ -291,8 +288,7 @@ mod tests {
         fs::write(&bin, "#!/bin/sh\n").unwrap();
         make_test_executable(&bin);
 
-        let detected =
-            probe_installed_tool(bin.to_str().unwrap()).expect("should be detected");
+        let detected = probe_installed_tool(bin.to_str().unwrap()).expect("should be detected");
         assert_eq!(detected.executable, bin);
     }
 
@@ -334,7 +330,10 @@ mod tests {
 
     #[test]
     fn parse_version_token_finds_a_three_component_version() {
-        assert_eq!(parse_version_token("codex-cli 0.114.2\n"), Some((0, 114, 2)));
+        assert_eq!(
+            parse_version_token("codex-cli 0.114.2\n"),
+            Some((0, 114, 2))
+        );
     }
 
     #[test]
@@ -356,7 +355,10 @@ mod tests {
 
     #[test]
     fn parse_version_token_returns_none_for_output_with_no_numeric_token() {
-        assert_eq!(parse_version_token("no version information available"), None);
+        assert_eq!(
+            parse_version_token("no version information available"),
+            None
+        );
     }
 
     #[test]
@@ -395,7 +397,8 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
-    async fn probe_tool_version_terminates_within_the_timeout_for_a_binary_that_never_stops_writing() {
+    async fn probe_tool_version_terminates_within_the_timeout_for_a_binary_that_never_stops_writing(
+    ) {
         use crate::test_support::make_test_executable;
 
         let dir = tempfile::tempdir().unwrap();
@@ -471,7 +474,10 @@ mod tests {
         // reach, leaking an orphaned `sleep` even with the fix in place.
         std::fs::write(
             &bin,
-            format!("#!/bin/sh\necho $$ > {}\nexec sleep 30\n", pidfile.display()),
+            format!(
+                "#!/bin/sh\necho $$ > {}\nexec sleep 30\n",
+                pidfile.display()
+            ),
         )
         .unwrap();
         make_test_executable(&bin);

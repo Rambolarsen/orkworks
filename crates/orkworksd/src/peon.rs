@@ -84,7 +84,9 @@ impl PeonConfig {
                 Ok(raw) => match raw.parse() {
                     Ok(v) => v,
                     Err(_) => {
-                        tracing::warn!("PEON_FINAL_SCAN_TIMEOUT is not a valid number, using default 2");
+                        tracing::warn!(
+                            "PEON_FINAL_SCAN_TIMEOUT is not a valid number, using default 2"
+                        );
                         2
                     }
                 },
@@ -107,7 +109,11 @@ pub struct RingBuffer {
 
 impl RingBuffer {
     pub fn new(capacity: usize) -> Self {
-        Self { lines: VecDeque::new(), capacity, next_revision: 1 }
+        Self {
+            lines: VecDeque::new(),
+            capacity,
+            next_revision: 1,
+        }
     }
 
     pub fn push(&mut self, line: String) -> u64 {
@@ -139,7 +145,12 @@ impl RingBuffer {
     }
 
     pub fn last_n(&self, n: usize) -> Vec<String> {
-        self.lines.iter().rev().take(n).map(|(_, line)| line.clone()).collect()
+        self.lines
+            .iter()
+            .rev()
+            .take(n)
+            .map(|(_, line)| line.clone())
+            .collect()
     }
 
     #[allow(dead_code)]
@@ -170,18 +181,27 @@ pub fn strip_ansi(s: &str) -> String {
 /// Processes one escape sequence starting immediately after the ESC byte.
 /// Extracted so OSC/DCS handlers can recurse when a bare ESC terminates the
 /// string command and starts a new sequence (e.g. `ESC ] title ESC [ H`).
-fn strip_ansi_escape<I: Iterator<Item = char>>(chars: &mut std::iter::Peekable<I>, out: &mut String) {
+fn strip_ansi_escape<I: Iterator<Item = char>>(
+    chars: &mut std::iter::Peekable<I>,
+    out: &mut String,
+) {
     match chars.peek().copied() {
         Some('[') => {
             // CSI: ESC [ params final (final = 0x40–0x7E)
             chars.next();
             let mut final_byte = '\0';
             for c2 in chars.by_ref() {
-                if ('@'..='~').contains(&c2) { final_byte = c2; break; }
+                if ('@'..='~').contains(&c2) {
+                    final_byte = c2;
+                    break;
+                }
             }
             // Cursor-positioning finals: insert a space so adjacent screen
             // regions don't merge into a single token after stripping.
-            if matches!(final_byte, 'A'|'B'|'C'|'D'|'E'|'F'|'G'|'H'|'d'|'f'|'s'|'u') {
+            if matches!(
+                final_byte,
+                'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | 'H' | 'd' | 'f' | 's' | 'u'
+            ) {
                 out.push(' ');
             }
         }
@@ -226,15 +246,18 @@ fn strip_ansi_escape<I: Iterator<Item = char>>(chars: &mut std::iter::Peekable<I
         }
         Some('O') => {
             // SS3: ESC O x — function keys, consume the payload char
-            chars.next(); chars.next();
+            chars.next();
+            chars.next();
         }
         Some('(' | ')') => {
             // Charset select: ESC ( x  or  ESC ) x
-            chars.next(); chars.next();
+            chars.next();
+            chars.next();
         }
         Some('%') => {
             // ESC % G (select UTF-8) / ESC % @ (select default) — two-char sequences
-            chars.next(); chars.next();
+            chars.next();
+            chars.next();
         }
         Some(_) => {
             // Single-char escape: ESC 7/8/M/c/= etc.
@@ -245,10 +268,14 @@ fn strip_ansi_escape<I: Iterator<Item = char>>(chars: &mut std::iter::Peekable<I
 }
 
 pub fn detect_usage_limit<S: AsRef<str>>(patterns: &[S], lines: &[String]) -> bool {
-    if patterns.is_empty() { return false; }
+    if patterns.is_empty() {
+        return false;
+    }
     lines.iter().any(|line| {
         let lower = strip_ansi(line).to_lowercase();
-        patterns.iter().any(|p| lower.contains(p.as_ref().to_lowercase().as_str()))
+        patterns
+            .iter()
+            .any(|p| lower.contains(p.as_ref().to_lowercase().as_str()))
     })
 }
 
@@ -261,7 +288,9 @@ pub fn looks_like_password_prompt(recent_lines: &[String]) -> bool {
         // Also check with whitespace collapsed: cursor-positioning moves insert
         // spaces, which can split "passphrase" → "pass phrase".
         let compact = lower.split_whitespace().collect::<String>();
-        patterns.iter().any(|p| lower.contains(p) || compact.contains(p))
+        patterns
+            .iter()
+            .any(|p| lower.contains(p) || compact.contains(p))
     })
 }
 
@@ -279,15 +308,20 @@ pub fn is_descriptive_input(line: &str) -> bool {
 
 /// Detects usage limit in a raw text blob (for TUI apps that use cursor positioning, not newlines).
 pub fn detect_usage_limit_raw<S: AsRef<str>>(patterns: &[S], text: &str) -> bool {
-    if patterns.is_empty() { return false; }
+    if patterns.is_empty() {
+        return false;
+    }
     let lower = strip_ansi(text).to_lowercase();
-    patterns.iter().any(|p| lower.contains(p.as_ref().to_lowercase().as_str()))
+    patterns
+        .iter()
+        .any(|p| lower.contains(p.as_ref().to_lowercase().as_str()))
 }
 
 /// TUI status glyphs (spinners, separators, box drawing) that mark the end of
 /// a reset hint when screen content follows it without a newline.
-const HINT_STOP_GLYPHS: &[char] =
-    &['✳', '✻', '✽', '✶', '●', '○', '◐', '·', '│', '╭', '╰', '─', '—'];
+const HINT_STOP_GLYPHS: &[char] = &[
+    '✳', '✻', '✽', '✶', '●', '○', '◐', '·', '│', '╭', '╰', '─', '—',
+];
 const HINT_MAX_CHARS: usize = 80;
 
 /// Extracts the bounded "resets in X" fragment from ANSI-stripped text.
@@ -307,17 +341,26 @@ fn extract_reset_hint(plain: &str, lower: &str) -> Option<String> {
     // glyph and cap the length so screen content can't leak into the hint.
     let fragment = &fragment[..end];
     let end = fragment.find(HINT_STOP_GLYPHS).unwrap_or(fragment.len());
-    let mut hint: String = fragment[..end].trim().chars().take(HINT_MAX_CHARS).collect();
+    let mut hint: String = fragment[..end]
+        .trim()
+        .chars()
+        .take(HINT_MAX_CHARS)
+        .collect();
     hint.truncate(hint.trim_end().len());
     Some(hint)
 }
 
 /// Extracts reset hint from a raw text blob (for TUI apps that use cursor positioning, not newlines).
 pub fn detect_usage_limit_hint_raw<S: AsRef<str>>(patterns: &[S], text: &str) -> Option<String> {
-    if patterns.is_empty() { return None; }
+    if patterns.is_empty() {
+        return None;
+    }
     let plain = strip_ansi(text);
     let lower = plain.to_ascii_lowercase();
-    if !patterns.iter().any(|p| lower.contains(p.as_ref().to_lowercase().as_str())) {
+    if !patterns
+        .iter()
+        .any(|p| lower.contains(p.as_ref().to_lowercase().as_str()))
+    {
         return None;
     }
     extract_reset_hint(&plain, &lower)
@@ -325,11 +368,16 @@ pub fn detect_usage_limit_hint_raw<S: AsRef<str>>(patterns: &[S], text: &str) ->
 
 /// Returns the "reset in X" fragment from the usage-limit line, if present.
 pub fn detect_usage_limit_hint<S: AsRef<str>>(patterns: &[S], lines: &[String]) -> Option<String> {
-    if patterns.is_empty() { return None; }
+    if patterns.is_empty() {
+        return None;
+    }
     lines.iter().rev().find_map(|line| {
         let plain = strip_ansi(line);
         let lower = plain.to_ascii_lowercase();
-        if !patterns.iter().any(|p| lower.contains(p.as_ref().to_lowercase().as_str())) {
+        if !patterns
+            .iter()
+            .any(|p| lower.contains(p.as_ref().to_lowercase().as_str()))
+        {
             return None;
         }
         extract_reset_hint(&plain, &lower)
@@ -359,8 +407,13 @@ Available fields:
 If a line starting with '[User input]:' is present, it is what the user just typed to the AI coding tool. Use it to derive a short, direct, present-tense summary of what the user is doing — like a commit-message subject line. NEVER start the summary with \"User\", \"User is\", \"User wants\", \"User asked\", \"User requested\", or \"User typed\". Examples: \"Fixing peon model detection\" not \"User is fixing peon model detection\". \"Reviewing PR feedback\" not \"User wants to review PR feedback\". Keep it under 8 words.";
 
 const VALID_STATUSES: &[&str] = &[
-    "waiting_for_input", "blocked", "failed", "done",
-    "stale", "working", "idle",
+    "waiting_for_input",
+    "blocked",
+    "failed",
+    "done",
+    "stale",
+    "working",
+    "idle",
 ];
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -524,13 +577,16 @@ const PEON_AGENT_OVERWRITE_SECS: u64 = 15;
 /// terminal output is exactly the correction a stuck attention signal needs.
 pub fn peon_should_overwrite(source: &str, last_modified_secs_ago: Option<u64>) -> bool {
     match source {
-        "agent" => last_modified_secs_ago.map(|s| s > PEON_AGENT_OVERWRITE_SECS).unwrap_or(false),
+        "agent" => last_modified_secs_ago
+            .map(|s| s > PEON_AGENT_OVERWRITE_SECS)
+            .unwrap_or(false),
         _ => should_overwrite(source, last_modified_secs_ago),
     }
 }
 
 pub fn build_prompt(output: &[String]) -> String {
-    let output_text: String = output.iter()
+    let output_text: String = output
+        .iter()
         .map(|l| l.as_str())
         .collect::<Vec<_>>()
         .join("\n");
@@ -543,7 +599,6 @@ pub fn build_prompt(output: &[String]) -> String {
 
     format!("{SYSTEM_PROMPT}\n\nTerminal output:\n```\n{truncated}\n```")
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -562,17 +617,17 @@ mod tests {
     }
 
     #[test]
-fn test_ring_buffer_snapshot_after_excludes_prior_lines() {
+    fn test_ring_buffer_snapshot_after_excludes_prior_lines() {
         let mut buf = RingBuffer::new(5);
         let first = buf.push("old prompt".into());
         let boundary = buf.push("old question".into());
         buf.push("new output".into());
 
         assert!(boundary > first);
-    assert_eq!(buf.snapshot_after(boundary), vec!["new output"]);
-    assert!(buf.has_after(boundary));
-    assert!(!buf.has_after(boundary + 1));
-}
+        assert_eq!(buf.snapshot_after(boundary), vec!["new output"]);
+        assert!(buf.has_after(boundary));
+        assert!(!buf.has_after(boundary + 1));
+    }
 
     #[test]
     fn test_ring_buffer_capacity_enforcement() {
@@ -779,8 +834,8 @@ fn test_ring_buffer_snapshot_after_excludes_prior_lines() {
 
     #[test]
     fn test_should_overwrite_user_never() {
-        assert!(!should_overwrite("user", None));       // no last_modified
-        assert!(!should_overwrite("user", Some(0)));    // stale
+        assert!(!should_overwrite("user", None)); // no last_modified
+        assert!(!should_overwrite("user", Some(0))); // stale
     }
 
     #[test]
@@ -796,11 +851,11 @@ fn test_ring_buffer_snapshot_after_excludes_prior_lines() {
     #[test]
     fn test_should_overwrite_lower_priority() {
         assert!(should_overwrite("peon", None));
-        assert!(should_overwrite("peon", Some(9999)));  // always overwrite peon
+        assert!(should_overwrite("peon", Some(9999))); // always overwrite peon
         assert!(should_overwrite("backend_inference", None));
         assert!(should_overwrite("process", None));
         assert!(should_overwrite("unknown", None));
-        assert!(should_overwrite("", None));             // absent source
+        assert!(should_overwrite("", None)); // absent source
     }
 
     #[test]
@@ -817,9 +872,19 @@ fn test_ring_buffer_snapshot_after_excludes_prior_lines() {
 
     #[test]
     fn test_peon_should_overwrite_matches_should_overwrite_for_other_sources() {
-        for source in ["user", "peon", "backend_inference", "process", "unknown", ""] {
+        for source in [
+            "user",
+            "peon",
+            "backend_inference",
+            "process",
+            "unknown",
+            "",
+        ] {
             for age in [None, Some(0), Some(60), Some(600)] {
-                assert_eq!(peon_should_overwrite(source, age), should_overwrite(source, age));
+                assert_eq!(
+                    peon_should_overwrite(source, age),
+                    should_overwrite(source, age)
+                );
             }
         }
     }
@@ -858,7 +923,10 @@ fn test_ring_buffer_snapshot_after_excludes_prior_lines() {
 
     #[test]
     fn detect_usage_limit_returns_true_on_match() {
-        let lines = vec!["some output".into(), "usage limit reached, resets in 2h".into()];
+        let lines = vec![
+            "some output".into(),
+            "usage limit reached, resets in 2h".into(),
+        ];
         assert!(detect_usage_limit(&["usage limit reached"], &lines));
     }
 
@@ -926,7 +994,10 @@ fn test_ring_buffer_snapshot_after_excludes_prior_lines() {
         let hint = detect_usage_limit_hint_raw(&["usage limit reached"], &text).unwrap();
         assert!(hint.starts_with("resets in 2h"));
         let len = hint.chars().count();
-        assert!((70..=80).contains(&len), "cap not applied near 80: {len} ({hint})");
+        assert!(
+            (70..=80).contains(&len),
+            "cap not applied near 80: {len} ({hint})"
+        );
     }
 
     #[test]
@@ -1064,11 +1135,15 @@ fn test_ring_buffer_snapshot_after_excludes_prior_lines() {
     fn password_prompt_detected_despite_cursor_split() {
         // A TUI rendering "passphrase:" with a cursor move inside the word
         let lines = vec!["pass\x1b[Gphrase:".to_string()];
-        assert!(looks_like_password_prompt(&lines),
-            "cursor-split passphrase must still be detected");
+        assert!(
+            looks_like_password_prompt(&lines),
+            "cursor-split passphrase must still be detected"
+        );
         let lines2 = vec!["pass\x1b[Gword:".to_string()];
-        assert!(looks_like_password_prompt(&lines2),
-            "cursor-split password must still be detected");
+        assert!(
+            looks_like_password_prompt(&lines2),
+            "cursor-split password must still be detected"
+        );
     }
 
     #[test]
@@ -1077,6 +1152,9 @@ fn test_ring_buffer_snapshot_after_excludes_prior_lines() {
         // to detect_usage_limit_hint_raw so it doesn't produce spurious hints.
         let raw = "\x1b]0;resets 1pm (Europe/Oslo)\x07\x1b[H\x1b[2J";
         let result = detect_usage_limit_hint_raw(&["resets"], raw);
-        assert!(result.is_none(), "OSC title must not produce a usage-limit hint");
+        assert!(
+            result.is_none(),
+            "OSC title must not produce a usage-limit hint"
+        );
     }
 }

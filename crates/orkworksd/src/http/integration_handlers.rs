@@ -21,7 +21,9 @@ fn resolve_scripts_source_dir(exe_dir: Option<PathBuf>, manifest_dir: &Path) -> 
 
 fn scripts_source_dir() -> PathBuf {
     resolve_scripts_source_dir(
-        std::env::current_exe().ok().and_then(|p| p.parent().map(Path::to_path_buf)),
+        std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(Path::to_path_buf)),
         Path::new(env!("CARGO_MANIFEST_DIR")),
     )
 }
@@ -33,7 +35,10 @@ fn stable_hook_scripts_dir() -> Option<PathBuf> {
 fn reporter_assets() -> Result<ReporterAssetResolver, String> {
     let stable_dir = stable_hook_scripts_dir()
         .ok_or_else(|| "couldn't resolve home directory for the reporter scripts".to_string())?;
-    Ok(ReporterAssetResolver { source_dir: scripts_source_dir(), stable_dir })
+    Ok(ReporterAssetResolver {
+        source_dir: scripts_source_dir(),
+        stable_dir,
+    })
 }
 
 fn integration_error_response(error: IntegrationError) -> axum::response::Response {
@@ -55,10 +60,10 @@ fn integration_error_response(error: IntegrationError) -> axum::response::Respon
 async fn run_integration_action(
     state: &Arc<AppState>,
     harness_id: &str,
-    action: impl FnOnce(&ResolvedHarness, &IntegrationContext<'_>) -> Result<
-        crate::harness::integration::IntegrationStatus,
-        IntegrationError,
-    >,
+    action: impl FnOnce(
+        &ResolvedHarness,
+        &IntegrationContext<'_>,
+    ) -> Result<crate::harness::integration::IntegrationStatus, IntegrationError>,
 ) -> axum::response::Response {
     // Captured before the async probe below (and the lock dropped
     // immediately) so a concurrent workspace switch or harness-definition
@@ -76,11 +81,16 @@ async fn run_integration_action(
     };
 
     let harness: ResolvedHarness = {
-        let registry = state.harness_catalog.read().expect("harness catalog lock poisoned");
+        let registry = state
+            .harness_catalog
+            .read()
+            .expect("harness catalog lock poisoned");
         let Some(harness) = registry.get(harness_id) else {
             return (
                 StatusCode::NOT_FOUND,
-                Json(ErrorResponse { error: format!("unknown harness id \"{harness_id}\"") }),
+                Json(ErrorResponse {
+                    error: format!("unknown harness id \"{harness_id}\""),
+                }),
             )
                 .into_response();
         };
@@ -104,7 +114,10 @@ async fn run_integration_action(
     // above and the workspace path captured above would otherwise go stale
     // without either lock ever objecting.
     {
-        let registry = state.harness_catalog.read().expect("harness catalog lock poisoned");
+        let registry = state
+            .harness_catalog
+            .read()
+            .expect("harness catalog lock poisoned");
         match registry.get(harness_id) {
             Some(current) if current.definition == harness.definition => {}
             _ => {
@@ -126,7 +139,9 @@ async fn run_integration_action(
     if ws.path != workspace_path_at_start {
         return (
             StatusCode::CONFLICT,
-            Json(ErrorResponse { error: "workspace changed during this request; retry".into() }),
+            Json(ErrorResponse {
+                error: "workspace changed during this request; retry".into(),
+            }),
         )
             .into_response();
     }
@@ -134,7 +149,11 @@ async fn run_integration_action(
     let reporter_assets = match reporter_assets() {
         Ok(resolver) => resolver,
         Err(error) => {
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error })).into_response();
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { error }),
+            )
+                .into_response();
         }
     };
 
@@ -143,7 +162,9 @@ async fn run_integration_action(
         None => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse { error: "couldn't resolve home directory".into() }),
+                Json(ErrorResponse {
+                    error: "couldn't resolve home directory".into(),
+                }),
             )
                 .into_response();
         }
@@ -168,21 +189,30 @@ pub(crate) async fn get_integration_status(
     State(state): State<Arc<AppState>>,
     AxumPath(harness_id): AxumPath<String>,
 ) -> impl IntoResponse {
-    run_integration_action(&state, &harness_id, |harness, ctx| harness.integration_status(ctx)).await
+    run_integration_action(&state, &harness_id, |harness, ctx| {
+        harness.integration_status(ctx)
+    })
+    .await
 }
 
 pub(crate) async fn install_integration(
     State(state): State<Arc<AppState>>,
     AxumPath(harness_id): AxumPath<String>,
 ) -> impl IntoResponse {
-    run_integration_action(&state, &harness_id, |harness, ctx| harness.integration_install(ctx)).await
+    run_integration_action(&state, &harness_id, |harness, ctx| {
+        harness.integration_install(ctx)
+    })
+    .await
 }
 
 pub(crate) async fn uninstall_integration(
     State(state): State<Arc<AppState>>,
     AxumPath(harness_id): AxumPath<String>,
 ) -> impl IntoResponse {
-    run_integration_action(&state, &harness_id, |harness, ctx| harness.integration_uninstall(ctx)).await
+    run_integration_action(&state, &harness_id, |harness, ctx| {
+        harness.integration_uninstall(ctx)
+    })
+    .await
 }
 
 #[cfg(test)]
@@ -200,7 +230,11 @@ mod tests {
     // `"error"` registration, and `install`/`uninstall` return it as an error.
     fn init_git_workspace_with_claude_settings_ignored(workspace: &std::path::Path) {
         git2::Repository::init(workspace).unwrap();
-        std::fs::write(workspace.join(".gitignore"), ".claude/settings.local.json\n").unwrap();
+        std::fs::write(
+            workspace.join(".gitignore"),
+            ".claude/settings.local.json\n",
+        )
+        .unwrap();
     }
 
     fn init_git_workspace_with_copilot_settings_ignored(workspace: &std::path::Path) {
@@ -251,7 +285,9 @@ mod tests {
             .await
             .into_response();
         assert_eq!(response.status(), StatusCode::OK);
-        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let body: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(body["registration"], "absent");
     }
@@ -264,15 +300,18 @@ mod tests {
         let _fake_home = FakeHome::set(home.path());
         let state = test_app_state_with_workspace(dir.path());
 
-        let install_response = install_integration(State(state.clone()), AxumPath("claude-code".into()))
-            .await
-            .into_response();
+        let install_response =
+            install_integration(State(state.clone()), AxumPath("claude-code".into()))
+                .await
+                .into_response();
         assert_eq!(install_response.status(), StatusCode::OK);
 
         let status_response = get_integration_status(State(state), AxumPath("claude-code".into()))
             .await
             .into_response();
-        let bytes = axum::body::to_bytes(status_response.into_body(), usize::MAX).await.unwrap();
+        let bytes = axum::body::to_bytes(status_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let body: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(body["registration"], "installed");
     }
@@ -285,15 +324,19 @@ mod tests {
         let _fake_home = FakeHome::set(home.path());
         let state = test_app_state_with_workspace(dir.path());
 
-        let install_response = install_integration(State(state.clone()), AxumPath("claude-code".into()))
-            .await
-            .into_response();
+        let install_response =
+            install_integration(State(state.clone()), AxumPath("claude-code".into()))
+                .await
+                .into_response();
         assert_eq!(install_response.status(), StatusCode::OK);
-        let uninstall_response = uninstall_integration(State(state), AxumPath("claude-code".into()))
-            .await
-            .into_response();
+        let uninstall_response =
+            uninstall_integration(State(state), AxumPath("claude-code".into()))
+                .await
+                .into_response();
         assert_eq!(uninstall_response.status(), StatusCode::OK);
-        let bytes = axum::body::to_bytes(uninstall_response.into_body(), usize::MAX).await.unwrap();
+        let bytes = axum::body::to_bytes(uninstall_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let body: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(body["registration"], "absent");
     }
@@ -359,7 +402,11 @@ mod tests {
         // On Windows, probe_installed_tool searches PATHEXT candidates
         // (claude.exe, claude.cmd, ...) for a bare "claude" — a plain
         // extensionless file wouldn't match any of them.
-        let bin_name = if cfg!(windows) { "claude.exe" } else { "claude" };
+        let bin_name = if cfg!(windows) {
+            "claude.exe"
+        } else {
+            "claude"
+        };
         let bin = fake_bin_dir.path().join(bin_name);
         fs::write(&bin, "#!/bin/sh\n").unwrap();
         make_test_executable(&bin);
@@ -369,7 +416,9 @@ mod tests {
             .await
             .into_response();
         assert_eq!(response.status(), StatusCode::OK);
-        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let body: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(body["toolDetected"], true);
         assert_eq!(body["activation"], "active");
@@ -401,7 +450,11 @@ mod tests {
             .unwrap();
 
         let fake_bin_dir = tempfile::tempdir().unwrap();
-        let bin_name = if cfg!(windows) { "copilot.exe" } else { "copilot" };
+        let bin_name = if cfg!(windows) {
+            "copilot.exe"
+        } else {
+            "copilot"
+        };
         let bin = fake_bin_dir.path().join(bin_name);
         std::fs::write(&bin, "#!/bin/sh\necho 'copilot-cli 1.0.0'\n").unwrap();
         make_test_executable(&bin);
@@ -411,7 +464,9 @@ mod tests {
             .await
             .into_response();
         assert_eq!(response.status(), StatusCode::OK);
-        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let body: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(body["toolDetected"], true);
         assert_eq!(body["activation"], "needs_trust");
@@ -448,7 +503,11 @@ mod tests {
             .unwrap();
 
         let fake_bin_dir = tempfile::tempdir().unwrap();
-        let bin_name = if cfg!(windows) { "copilot.exe" } else { "copilot" };
+        let bin_name = if cfg!(windows) {
+            "copilot.exe"
+        } else {
+            "copilot"
+        };
         let bin = fake_bin_dir.path().join(bin_name);
         std::fs::write(&bin, "#!/bin/sh\necho 'copilot-cli 1.0.0'\n").unwrap();
         make_test_executable(&bin);
@@ -476,7 +535,9 @@ mod tests {
         let response = get_integration_status(State(state), AxumPath("copilot".into()))
             .await
             .into_response();
-        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let body: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(body["toolDetected"], true);
         assert_eq!(body["activation"], "active");
@@ -508,7 +569,11 @@ mod tests {
             .unwrap();
 
         let fake_bin_dir = tempfile::tempdir().unwrap();
-        let bin_name = if cfg!(windows) { "copilot.exe" } else { "copilot" };
+        let bin_name = if cfg!(windows) {
+            "copilot.exe"
+        } else {
+            "copilot"
+        };
         let bin = fake_bin_dir.path().join(bin_name);
         // `exec` matters here exactly as it does in detect.rs's kill-on-
         // timeout test: without it, `sh` forks `sleep` as a grandchild that
@@ -521,7 +586,9 @@ mod tests {
 
         let slow_state = state.clone();
         let slow_request = tokio::spawn(async move {
-            get_integration_status(State(slow_state), AxumPath("copilot".into())).await.into_response()
+            get_integration_status(State(slow_state), AxumPath("copilot".into()))
+                .await
+                .into_response()
         });
         // Give the slow request a head start into its probe before firing
         // the concurrent one.
@@ -578,7 +645,11 @@ mod tests {
             .unwrap();
 
         let fake_bin_dir = tempfile::tempdir().unwrap();
-        let bin_name = if cfg!(windows) { "copilot.exe" } else { "copilot" };
+        let bin_name = if cfg!(windows) {
+            "copilot.exe"
+        } else {
+            "copilot"
+        };
         let bin = fake_bin_dir.path().join(bin_name);
         std::fs::write(&bin, "#!/bin/sh\nexec sleep 30\n").unwrap();
         make_test_executable(&bin);
@@ -586,7 +657,9 @@ mod tests {
 
         let slow_state = state.clone();
         let slow_request = tokio::spawn(async move {
-            get_integration_status(State(slow_state), AxumPath("copilot".into())).await.into_response()
+            get_integration_status(State(slow_state), AxumPath("copilot".into()))
+                .await
+                .into_response()
         });
         // Give the slow request a head start into its probe, then switch
         // the active workspace to a different directory while it's still
@@ -605,7 +678,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_harness_definition_change_during_the_probe_is_rejected_instead_of_using_stale_data() {
+    async fn a_harness_definition_change_during_the_probe_is_rejected_instead_of_using_stale_data()
+    {
         use crate::harness::definition::{HarnessPatch, VersionRequirement};
         use crate::test_support::{make_test_executable, FakePath};
 
@@ -630,7 +704,11 @@ mod tests {
             .unwrap();
 
         let fake_bin_dir = tempfile::tempdir().unwrap();
-        let bin_name = if cfg!(windows) { "copilot.exe" } else { "copilot" };
+        let bin_name = if cfg!(windows) {
+            "copilot.exe"
+        } else {
+            "copilot"
+        };
         let bin = fake_bin_dir.path().join(bin_name);
         std::fs::write(&bin, "#!/bin/sh\nexec sleep 30\n").unwrap();
         make_test_executable(&bin);
@@ -638,7 +716,9 @@ mod tests {
 
         let slow_state = state.clone();
         let slow_request = tokio::spawn(async move {
-            get_integration_status(State(slow_state), AxumPath("copilot".into())).await.into_response()
+            get_integration_status(State(slow_state), AxumPath("copilot".into()))
+                .await
+                .into_response()
         });
         // Give the slow request a head start into its probe, then change the
         // harness definition it's probing against while it's still in
@@ -666,8 +746,10 @@ mod tests {
         .unwrap();
         let changed_registry =
             crate::harness::registry::resolve_document(&builtins, &changed_document).unwrap();
-        *state.harness_catalog.write().expect("harness catalog lock poisoned") =
-            std::sync::Arc::new(changed_registry);
+        *state
+            .harness_catalog
+            .write()
+            .expect("harness catalog lock poisoned") = std::sync::Arc::new(changed_registry);
 
         let response = slow_request.await.unwrap();
         assert_eq!(
@@ -735,7 +817,9 @@ mod tests {
         let response = get_integration_status(State(state), AxumPath("claude-code".into()))
             .await
             .into_response();
-        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let body: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(body["toolDetected"], false);
         assert_eq!(body["activation"], "unknown");

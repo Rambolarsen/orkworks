@@ -38,7 +38,9 @@ pub(crate) async fn get_terminal_output(
     let lines = tokio::task::spawn_blocking(move || {
         let ws_guard = state_clone.workspace.lock().unwrap();
         match &*ws_guard {
-            Some(ws) => ws.metadata.read_terminal_output(&id_clone, metadata::TERMINAL_OUTPUT_MAX_LINES),
+            Some(ws) => ws
+                .metadata
+                .read_terminal_output(&id_clone, metadata::TERMINAL_OUTPUT_MAX_LINES),
             None => Vec::new(),
         }
     })
@@ -103,14 +105,10 @@ pub(crate) async fn session_terminal_handler(
     };
 
     match session_status {
-        None => {
-            ws.on_upgrade(|mut ws| async move {
-                let _ = ws
-                    .send(Message::Text("session not found".into()))
-                    .await;
-                let _ = ws.close().await;
-            })
-        }
+        None => ws.on_upgrade(|mut ws| async move {
+            let _ = ws.send(Message::Text("session not found".into())).await;
+            let _ = ws.close().await;
+        }),
         Some(ref status) if status == "killed" || status == "ended" || status == "error" => {
             let msg = format!("session {status}");
             ws.on_upgrade(move |mut ws| async move {
@@ -118,9 +116,7 @@ pub(crate) async fn session_terminal_handler(
                 let _ = ws.close().await;
             })
         }
-        Some(_) => {
-            ws.on_upgrade(move |ws| handle_session_terminal(ws, id, state))
-        }
+        Some(_) => ws.on_upgrade(move |ws| handle_session_terminal(ws, id, state)),
     }
 }
 
@@ -257,11 +253,7 @@ mod tests {
         let state = test_app_state_with_workspace(dir.path());
 
         let missing_file = response_json(
-            get_summary_log(
-                State(state.clone()),
-                Path("unknown-session".into()),
-            )
-            .await,
+            get_summary_log(State(state.clone()), Path("unknown-session".into())).await,
         )
         .await;
         assert_eq!(missing_file, serde_json::json!({ "entries": [] }));
@@ -281,17 +273,14 @@ mod tests {
                 },
             );
         }
-        let no_checkpoints = response_json(
-            get_summary_log(State(state.clone()), Path("legacy-only".into())).await,
-        )
-        .await;
+        let no_checkpoints =
+            response_json(get_summary_log(State(state.clone()), Path("legacy-only".into())).await)
+                .await;
         assert_eq!(no_checkpoints, serde_json::json!({ "entries": [] }));
 
         *state.workspace.lock().unwrap() = None;
-        let missing_workspace = response_json(
-            get_summary_log(State(state), Path("any-session".into())).await,
-        )
-        .await;
+        let missing_workspace =
+            response_json(get_summary_log(State(state), Path("any-session".into())).await).await;
         assert_eq!(missing_workspace, serde_json::json!({ "entries": [] }));
     }
 

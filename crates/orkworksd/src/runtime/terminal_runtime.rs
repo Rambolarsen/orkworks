@@ -2620,7 +2620,8 @@ mod tests {
         // "what's the outside-paste text" consistently: a paste followed by
         // a real Enter completes one line containing the full pasted text.
         let mut buf = String::new();
-        let (line, completed) = collect_input_line(&mut buf, "\x1b[200~line one\nline two\x1b[201~\r");
+        let (line, completed) =
+            collect_input_line(&mut buf, "\x1b[200~line one\nline two\x1b[201~\r");
         assert_eq!(line.as_deref(), Some("line one\nline two"));
         assert!(completed);
         assert!(buf.is_empty());

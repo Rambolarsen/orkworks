@@ -799,7 +799,12 @@ pub(crate) async fn create_session(
         .lock()
         .unwrap()
         .as_ref()
-        .map(|workspace| (workspace.path.display().to_string(), workspace.metadata.root_path()))
+        .map(|workspace| {
+            (
+                workspace.path.display().to_string(),
+                workspace.metadata.root_path(),
+            )
+        })
         .unzip();
     let cwd = workspace_cwd
         .or_else(|| {
@@ -823,17 +828,18 @@ pub(crate) async fn create_session(
         let harness_id = harness.definition.id.clone();
         let registry = registry.clone();
         match tokio::task::spawn_blocking(move || {
-            registry
-                .get(&harness_id)
-                .map_or(Ok(false), |harness| {
-                    harness.integration_launch_enabled(metadata_root.as_deref())
-                })
+            registry.get(&harness_id).map_or(Ok(false), |harness| {
+                harness.integration_launch_enabled(metadata_root.as_deref())
+            })
         })
         .await
         {
             Ok(Ok(enabled)) => enabled,
             Ok(Err(error)) => {
-                tracing::warn!(code = error.code(), "harness launch integration state was ignored");
+                tracing::warn!(
+                    code = error.code(),
+                    "harness launch integration state was ignored"
+                );
                 false
             }
             Err(error) => {
@@ -855,7 +861,10 @@ pub(crate) async fn create_session(
             integration_enabled,
             reporter.as_deref(),
         ) {
-            tracing::warn!(code = error.code(), "harness launch integration was not applied");
+            tracing::warn!(
+                code = error.code(),
+                "harness launch integration was not applied"
+            );
         }
     }
 

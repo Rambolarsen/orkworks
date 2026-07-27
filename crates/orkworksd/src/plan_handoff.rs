@@ -1,14 +1,26 @@
 use std::path::{Path, PathBuf};
 
-pub(crate) fn resolve_openable_plan(workspace_root: &Path, relative_path: &str) -> Result<PathBuf, String> {
+pub(crate) fn resolve_openable_plan(
+    workspace_root: &Path,
+    relative_path: &str,
+) -> Result<PathBuf, String> {
     let relative = Path::new(relative_path);
     if relative.is_absolute() {
         return Err("plan path must be workspace-relative".into());
     }
-    let workspace = workspace_root.canonicalize().map_err(|error| error.to_string())?;
-    let candidate = workspace.join(relative).canonicalize().map_err(|error| error.to_string())?;
-    if !candidate.starts_with(&workspace) || !candidate.is_file()
-        || !candidate.extension().is_some_and(|extension| extension.eq_ignore_ascii_case("md")) {
+    let workspace = workspace_root
+        .canonicalize()
+        .map_err(|error| error.to_string())?;
+    let candidate = workspace
+        .join(relative)
+        .canonicalize()
+        .map_err(|error| error.to_string())?;
+    if !candidate.starts_with(&workspace)
+        || !candidate.is_file()
+        || !candidate
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("md"))
+    {
         return Err("plan path is not an openable workspace Markdown file".into());
     }
     Ok(candidate)
@@ -27,7 +39,11 @@ mod tests {
         fs::write(workspace.path().join("docs/notes.txt"), "notes").unwrap();
 
         assert!(resolve_openable_plan(workspace.path(), "docs/plan.MD").is_ok());
-        assert!(resolve_openable_plan(workspace.path(), workspace.path().join("docs/plan.MD").to_str().unwrap()).is_err());
+        assert!(resolve_openable_plan(
+            workspace.path(),
+            workspace.path().join("docs/plan.MD").to_str().unwrap()
+        )
+        .is_err());
         assert!(resolve_openable_plan(workspace.path(), "../outside.md").is_err());
         assert!(resolve_openable_plan(workspace.path(), "docs/missing.md").is_err());
         assert!(resolve_openable_plan(workspace.path(), "docs/notes.txt").is_err());
