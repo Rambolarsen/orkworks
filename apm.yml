@@ -21,6 +21,7 @@ dependencies:
         - codebase-design
         - grilling
         - improve-codebase-architecture
-  mcp: []
+  mcp:
+    - oraios/serena
 includes: auto
 scripts: {}
