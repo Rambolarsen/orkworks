@@ -162,53 +162,81 @@ impl Default for HarnessUserDocument {
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct HarnessPatch {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub launch: Option<LaunchPatch>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub default_model: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub resume: Option<Option<ResumePatch>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub models: Option<Option<ModelCapability>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub peon: Option<Option<PeonPatch>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub capacity: Option<Option<CapacityCapability>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub session_signals: Option<Option<SessionSignalBinding>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub integration: Option<Option<IntegrationBinding>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub voice: Option<Option<VoicePatch>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub min_version: Option<Option<VersionRequirement>>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct LaunchPatch {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub command: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub args: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub model_prefix: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub login: Option<bool>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ResumePatch {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub exact: Option<Option<CommandTemplate>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub latest_cwd: Option<Option<CommandTemplate>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub latest_repo: Option<Option<CommandTemplate>>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PeonPatch {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub command_override: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub args: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub model_arg_template: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub supports_model: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout_secs: Option<u64>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct VoicePatch {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub native_voice: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub requires_microphone_permission: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub orkworks_dictation: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub orkworks_voice_commands: Option<bool>,
 }
 
@@ -758,6 +786,19 @@ mod tests {
         assert_eq!(patched.launch, original.launch);
         assert_eq!(patched.peon, original.peon);
         assert_eq!(patched.capacity, original.capacity);
+    }
+
+    #[test]
+    fn sparse_json_patch_serializes_without_null_placeholders() {
+        let patch = HarnessPatch {
+            name: Some("Configured Codex".into()),
+            ..Default::default()
+        };
+
+        let json = serde_json::to_string(&patch).unwrap();
+
+        assert_eq!(json, r#"{"name":"Configured Codex"}"#);
+        assert_eq!(serde_json::from_str::<HarnessPatch>(&json).unwrap(), patch);
     }
 
     #[test]

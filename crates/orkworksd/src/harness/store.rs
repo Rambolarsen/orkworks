@@ -218,12 +218,16 @@ fn parse_document(
     bytes: &[u8],
     builtins: &BuiltinDocument,
 ) -> Result<(HarnessUserDocument, Vec<HarnessDiagnostic>, bool), HarnessStoreError> {
-    if let Ok(document) = serde_json::from_slice::<HarnessUserDocument>(bytes) {
-        return Ok((document, Vec::new(), false));
+    match serde_json::from_slice::<serde_json::Value>(bytes)? {
+        serde_json::Value::Array(legacy) => {
+            let (document, diagnostics) = migrate_v1(legacy, builtins);
+            Ok((document, diagnostics, true))
+        }
+        value => {
+            let document = serde_json::from_value::<HarnessUserDocument>(value)?;
+            Ok((document, Vec::new(), false))
+        }
     }
-    let legacy = serde_json::from_slice::<Vec<serde_json::Value>>(bytes)?;
-    let (document, diagnostics) = migrate_v1(legacy, builtins);
-    Ok((document, diagnostics, true))
 }
 
 fn migrate_v1(
@@ -676,6 +680,36 @@ mod tests {
         assert_eq!(
             fixture.read_document().overrides,
             HarnessUserDocument::default().overrides
+        );
+    }
+
+    #[test]
+    fn sequential_mutate_calls_round_trip_the_written_document() {
+        let fixture = StoreFixture::v2();
+
+        fixture
+            .store
+            .mutate(&fixture.catalog, |document| {
+                document.overrides.entry("codex".into()).or_default().name = Some("First".into());
+                Ok(())
+            })
+            .unwrap();
+        fixture
+            .store
+            .mutate(&fixture.catalog, |document| {
+                document.overrides.entry("codex".into()).or_default().name = Some("Second".into());
+                Ok(())
+            })
+            .unwrap();
+
+        let loaded = fixture.store.load().unwrap();
+        assert_eq!(
+            loaded
+                .document
+                .overrides
+                .get("codex")
+                .and_then(|patch| patch.name.as_deref()),
+            Some("Second")
         );
     }
 
