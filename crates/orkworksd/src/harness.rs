@@ -4,6 +4,7 @@ pub(crate) mod definition;
 pub(crate) mod detect;
 pub(crate) mod integration;
 pub(crate) mod integrations;
+pub(crate) mod probe_cache;
 pub(crate) mod registry;
 pub(crate) mod store;
 

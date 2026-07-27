@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use super::definition::VersionRequirement;
 use super::integration::DetectedTool;
+use super::probe_cache::{VersionProbeCache, VersionProbeCacheKey};
 
 pub(crate) fn probe_installed_tool(command: &str) -> Option<DetectedTool> {
     if command.is_empty() {
@@ -202,6 +203,8 @@ pub(crate) fn parse_version_token(text: &str) -> Option<(u64, u64, u64)> {
 /// exists but no version string can be extracted, or when the extracted
 /// version is below the requirement, or when the version is a prerelease.
 pub(crate) async fn resolve_tool_gate(
+    cache: &VersionProbeCache,
+    harness_id: &str,
     command: &str,
     min_version: Option<&VersionRequirement>,
 ) -> Option<DetectedTool> {
@@ -209,7 +212,20 @@ pub(crate) async fn resolve_tool_gate(
     let Some(requirement) = min_version else {
         return Some(tool);
     };
-    let version_output = probe_tool_version(&tool.executable).await;
+    let executable = tool.executable.clone();
+    let version_output = cache
+        .probe_or_get(
+            VersionProbeCacheKey {
+                harness_id: harness_id.to_owned(),
+                launch_command: command.to_owned(),
+                executable: executable.clone(),
+            },
+            std::time::Instant::now(),
+            Duration::from_secs(30),
+            Duration::from_secs(5),
+            || probe_tool_version(&executable),
+        )
+        .await;
     match version_output.as_deref().and_then(parse_version_token) {
         Some(parsed) => {
             tool.compatible = parsed >= requirement.min;

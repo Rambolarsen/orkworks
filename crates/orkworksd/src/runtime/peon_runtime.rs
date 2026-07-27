@@ -369,6 +369,7 @@ mod tests {
             },
             harness_catalog: crate::test_support::test_harness_components().0,
             harness_store: crate::test_support::test_harness_components().1,
+            integration_probe_cache: crate::harness::probe_cache::VersionProbeCache::new(),
             retention_config: tokio::sync::RwLock::new(crate::RetentionConfig::default()),
             bound_port: AtomicU16::new(0),
             providers: providers::ProviderManager::for_tests(
@@ -824,6 +825,7 @@ mod tests {
             },
             harness_catalog: crate::test_support::test_harness_components().0,
             harness_store: crate::test_support::test_harness_components().1,
+            integration_probe_cache: crate::harness::probe_cache::VersionProbeCache::new(),
             retention_config: tokio::sync::RwLock::new(crate::RetentionConfig::default()),
             bound_port: AtomicU16::new(0),
             providers: providers::ProviderManager::for_tests(
@@ -1003,6 +1005,7 @@ mod tests {
             },
             harness_catalog: crate::test_support::test_harness_components().0,
             harness_store: crate::test_support::test_harness_components().1,
+            integration_probe_cache: crate::harness::probe_cache::VersionProbeCache::new(),
             retention_config: tokio::sync::RwLock::new(crate::RetentionConfig::default()),
             bound_port: AtomicU16::new(0),
             providers: providers::ProviderManager::for_tests(
@@ -1116,6 +1119,7 @@ mod tests {
             },
             harness_catalog: crate::test_support::test_harness_components().0,
             harness_store: crate::test_support::test_harness_components().1,
+            integration_probe_cache: crate::harness::probe_cache::VersionProbeCache::new(),
             retention_config: tokio::sync::RwLock::new(crate::RetentionConfig::default()),
             bound_port: AtomicU16::new(0),
             providers: providers::ProviderManager::for_tests(
@@ -1219,6 +1223,7 @@ mod tests {
             },
             harness_catalog: crate::test_support::test_harness_components().0,
             harness_store: crate::test_support::test_harness_components().1,
+            integration_probe_cache: crate::harness::probe_cache::VersionProbeCache::new(),
             retention_config: tokio::sync::RwLock::new(crate::RetentionConfig::default()),
             bound_port: AtomicU16::new(0),
             providers: providers::ProviderManager::new(),
@@ -1319,6 +1324,7 @@ mod tests {
             },
             harness_catalog: crate::test_support::test_harness_components().0,
             harness_store: crate::test_support::test_harness_components().1,
+            integration_probe_cache: crate::harness::probe_cache::VersionProbeCache::new(),
             retention_config: tokio::sync::RwLock::new(crate::RetentionConfig::default()),
             providers: providers::ProviderManager::new(),
             bound_port: AtomicU16::new(0),
@@ -1481,6 +1487,7 @@ mod tests {
             },
             harness_catalog: crate::test_support::test_harness_components().0,
             harness_store: crate::test_support::test_harness_components().1,
+            integration_probe_cache: crate::harness::probe_cache::VersionProbeCache::new(),
             retention_config: tokio::sync::RwLock::new(crate::RetentionConfig::default()),
             providers: providers::ProviderManager::new(),
             bound_port: AtomicU16::new(0),
@@ -1655,6 +1662,7 @@ mod tests {
             },
             harness_catalog: crate::test_support::test_harness_components().0,
             harness_store: crate::test_support::test_harness_components().1,
+            integration_probe_cache: crate::harness::probe_cache::VersionProbeCache::new(),
             retention_config: tokio::sync::RwLock::new(crate::RetentionConfig::default()),
             providers: providers::ProviderManager::new(),
             bound_port: AtomicU16::new(0),
@@ -1811,6 +1819,7 @@ mod tests {
             },
             harness_catalog: crate::test_support::test_harness_components().0,
             harness_store: crate::test_support::test_harness_components().1,
+            integration_probe_cache: crate::harness::probe_cache::VersionProbeCache::new(),
             retention_config: tokio::sync::RwLock::new(crate::RetentionConfig::default()),
             providers: providers::ProviderManager::new(),
             bound_port: AtomicU16::new(0),
@@ -1965,6 +1974,7 @@ mod tests {
             },
             harness_catalog: crate::test_support::test_harness_components().0,
             harness_store: crate::test_support::test_harness_components().1,
+            integration_probe_cache: crate::harness::probe_cache::VersionProbeCache::new(),
             retention_config: tokio::sync::RwLock::new(crate::RetentionConfig::default()),
             providers: providers::ProviderManager::new(),
             bound_port: AtomicU16::new(0),
@@ -2124,6 +2134,7 @@ mod tests {
             },
             harness_catalog: crate::test_support::test_harness_components().0,
             harness_store: crate::test_support::test_harness_components().1,
+            integration_probe_cache: crate::harness::probe_cache::VersionProbeCache::new(),
             retention_config: tokio::sync::RwLock::new(crate::RetentionConfig::default()),
             providers: providers::ProviderManager::new(),
             bound_port: AtomicU16::new(0),
@@ -2272,6 +2283,7 @@ mod tests {
             },
             harness_catalog: crate::test_support::test_harness_components().0,
             harness_store: crate::test_support::test_harness_components().1,
+            integration_probe_cache: crate::harness::probe_cache::VersionProbeCache::new(),
             retention_config: tokio::sync::RwLock::new(crate::RetentionConfig::default()),
             providers: providers::ProviderManager::for_tests(
                 providers::ProviderSettingsPayload {
@@ -2442,6 +2454,7 @@ mod tests {
             },
             harness_catalog: crate::test_support::test_harness_components().0,
             harness_store: crate::test_support::test_harness_components().1,
+            integration_probe_cache: crate::harness::probe_cache::VersionProbeCache::new(),
             retention_config: tokio::sync::RwLock::new(crate::RetentionConfig::default()),
             bound_port: AtomicU16::new(0),
             // FakeProvider returns "idle" → reached_terminal=true inside spawn_blocking

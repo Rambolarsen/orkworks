@@ -163,6 +163,7 @@ pub(crate) async fn set_workspace(
         metadata: store,
         watcher,
     });
+    state.bump_harness_probe_generation();
 
     // Reconcile sessions left in "running"/"creating" from a previous daemon run.
     // On restart state.sessions is empty, so anything still "running" in metadata is orphaned.
@@ -3573,6 +3574,7 @@ mod tests {
             },
             harness_catalog: crate::test_support::test_harness_components().0,
             harness_store: crate::test_support::test_harness_components().1,
+            integration_probe_cache: crate::harness::probe_cache::VersionProbeCache::new(),
             retention_config: tokio::sync::RwLock::new(crate::RetentionConfig::default()),
             bound_port: std::sync::atomic::AtomicU16::new(0),
             providers: crate::providers::ProviderManager::new(),
@@ -3892,6 +3894,7 @@ mod tests {
             },
             harness_catalog: crate::test_support::test_harness_components().0,
             harness_store: crate::test_support::test_harness_components().1,
+            integration_probe_cache: crate::harness::probe_cache::VersionProbeCache::new(),
             retention_config: tokio::sync::RwLock::new(crate::RetentionConfig::default()),
             bound_port: std::sync::atomic::AtomicU16::new(0),
             providers: crate::providers::ProviderManager::new(),
@@ -3980,6 +3983,7 @@ mod tests {
             },
             harness_catalog: crate::test_support::test_harness_components().0,
             harness_store: crate::test_support::test_harness_components().1,
+            integration_probe_cache: crate::harness::probe_cache::VersionProbeCache::new(),
             retention_config: tokio::sync::RwLock::new(crate::RetentionConfig::default()),
             bound_port: std::sync::atomic::AtomicU16::new(0),
             providers: crate::providers::ProviderManager::new(),
@@ -4070,6 +4074,7 @@ mod tests {
             },
             harness_catalog: crate::test_support::test_harness_components().0,
             harness_store: crate::test_support::test_harness_components().1,
+            integration_probe_cache: crate::harness::probe_cache::VersionProbeCache::new(),
             retention_config: tokio::sync::RwLock::new(crate::RetentionConfig::default()),
             bound_port: std::sync::atomic::AtomicU16::new(0),
             providers: crate::providers::ProviderManager::for_tests(settings, vec![]),
@@ -4142,6 +4147,7 @@ mod tests {
             },
             harness_catalog: crate::test_support::test_harness_components().0,
             harness_store: crate::test_support::test_harness_components().1,
+            integration_probe_cache: crate::harness::probe_cache::VersionProbeCache::new(),
             retention_config: tokio::sync::RwLock::new(crate::RetentionConfig::default()),
             bound_port: std::sync::atomic::AtomicU16::new(0),
             providers: crate::providers::ProviderManager::new(),
@@ -4631,6 +4637,7 @@ mod tests {
             },
             harness_catalog: crate::test_support::test_harness_components().0,
             harness_store: crate::test_support::test_harness_components().1,
+            integration_probe_cache: crate::harness::probe_cache::VersionProbeCache::new(),
             retention_config: tokio::sync::RwLock::new(crate::RetentionConfig::default()),
             bound_port: std::sync::atomic::AtomicU16::new(0),
             providers: crate::providers::ProviderManager::new(),

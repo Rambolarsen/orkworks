@@ -26,6 +26,7 @@ mod watcher;
 mod workspace_runtime;
 
 use crate::harness::definition::{BuiltinDocument, EMBEDDED_BUILTINS};
+use crate::harness::probe_cache::VersionProbeCache;
 use crate::harness::registry::HarnessCatalog;
 use crate::harness::store::{global_harnesses_path, HarnessStore};
 use crate::http::harness_handlers::{
@@ -108,8 +109,15 @@ struct AppState {
     providers: providers::ProviderManager,
     harness_catalog: HarnessCatalog,
     harness_store: Arc<HarnessStore>,
+    integration_probe_cache: VersionProbeCache,
     retention_config: tokio::sync::RwLock<RetentionConfig>,
     bound_port: AtomicU16,
+}
+
+impl AppState {
+    fn bump_harness_probe_generation(&self) {
+        self.integration_probe_cache.bump_generation();
+    }
 }
 
 #[tokio::main]
@@ -152,6 +160,7 @@ async fn main() {
         providers,
         harness_catalog,
         harness_store,
+        integration_probe_cache: crate::harness::probe_cache::VersionProbeCache::new(),
         retention_config: tokio::sync::RwLock::new(RetentionConfig::default()),
         bound_port: AtomicU16::new(0),
     });
@@ -361,6 +370,7 @@ pub(crate) mod test_support {
             },
             harness_catalog: harness_catalog.clone(),
             harness_store,
+            integration_probe_cache: crate::harness::probe_cache::VersionProbeCache::new(),
             retention_config: tokio::sync::RwLock::new(RetentionConfig::default()),
             bound_port: AtomicU16::new(0),
             providers: providers::ProviderManager::new_with_catalog(harness_catalog),
@@ -380,6 +390,7 @@ pub(crate) mod test_support {
             metadata: metadata::MetadataStore::new(&metadata_root),
             watcher: watcher::MetadataWatcher::start(&metadata_root.join("sessions")),
         });
+        state.bump_harness_probe_generation();
     }
 
     pub(crate) fn test_session_info(
@@ -686,6 +697,7 @@ mod tests {
             },
             harness_catalog: test_harness_components().0,
             harness_store: test_harness_components().1,
+            integration_probe_cache: crate::harness::probe_cache::VersionProbeCache::new(),
             retention_config: tokio::sync::RwLock::new(RetentionConfig::default()),
             bound_port: AtomicU16::new(0),
             providers: providers::ProviderManager::new(),
