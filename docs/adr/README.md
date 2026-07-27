@@ -35,3 +35,4 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 | [0025](./0025-authenticated-session-plan-handoff.md) | Authenticated session plan handoff | accepted |
 | [0026](./0026-resolved-harness-capability-registry.md) | Resolved harness capability registry | accepted |
 | [0027](./0027-observed-status-attention-owning-module.md) | Observed-status/attention writes owned by one runtime module | accepted |
+| [0028](./0028-generation-aware-harness-version-probe-cache.md) | Generation-aware harness version probe cache | accepted |
