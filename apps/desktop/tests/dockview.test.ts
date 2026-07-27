@@ -289,6 +289,11 @@ test("StatusIndicator renders every unread result as an accessible dot", () => {
       new RegExp(`\\.status-indicator-unread\\[data-attention="${tone}"\\][\\s\\S]*color:\\s*var\\(--attention-needs-you\\)`),
     );
   }
+  assert.ok(
+    css.indexOf('.status-indicator-unread[data-attention="working"]')
+      > css.indexOf('.status-indicator[data-attention="working"]'),
+    "the unread working override must follow the general working color",
+  );
 });
 
 test("SessionDetailPanel keeps the normal status variant", () => {
