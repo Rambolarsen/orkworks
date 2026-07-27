@@ -25,7 +25,7 @@ const TONE_ICON: Partial<Record<AttentionTone, ComponentType<{ size?: number; cl
 
 function StatusIndicator({ tone, label, variant = "status" }: StatusIndicatorProps) {
   if (tone === "neutral") return null; // no signal to show — matches the design contract
-  if (variant === "unread") {
+  if (variant === "unread" && tone !== "working") {
     return (
       <span
         className="status-indicator status-indicator-unread"
