@@ -802,6 +802,19 @@ mod tests {
     }
 
     #[test]
+    fn boundary_nulls_still_serialize_as_null() {
+        let patch = HarnessPatch {
+            capacity: Some(None),
+            ..Default::default()
+        };
+
+        let json = serde_json::to_string(&patch).unwrap();
+
+        assert_eq!(json, r#"{"capacity":null}"#);
+        assert_eq!(serde_json::from_str::<HarnessPatch>(&json).unwrap(), patch);
+    }
+
+    #[test]
     fn patch_arrays_replace_instead_of_append() {
         let patch: HarnessPatch =
             serde_json::from_str(r#"{"launch":{"args":["--sandbox","workspace-write"]}}"#).unwrap();
