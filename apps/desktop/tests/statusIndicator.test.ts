@@ -24,3 +24,15 @@ test("every non-neutral, non-working attention tone has a distinct status icon",
     );
   }
 });
+
+test("unread rendering stays hidden while a session is working", () => {
+  const source = readFileSync(
+    new URL("../src/components/StatusIndicator.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(
+    source,
+    /variant\s*===\s*"unread"\s*&&\s*tone\s*!==\s*"working"/,
+  );
+});

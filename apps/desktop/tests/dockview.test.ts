@@ -264,7 +264,7 @@ test("session rows derive tone from sessionAttentionStatus, no component-local l
   }
 });
 
-test("StatusIndicator gives working precedence and renders unread results accessibly", () => {
+test("StatusIndicator renders completed unread results as accessible dots", () => {
   const source = readFileSync(
     new URL("../src/components/StatusIndicator.tsx", import.meta.url),
     "utf8",
@@ -282,6 +282,10 @@ test("StatusIndicator gives working precedence and renders unread results access
   for (const tone of ["needs-you", "blocked", "failed", "idle"]) {
     assert.match(css, new RegExp(`\\.status-indicator\\[data-attention="${tone}"\\]`));
   }
+  assert.match(
+    css,
+    /\.status-indicator-unread\[data-attention="idle"\][\s\S]*color:\s*var\(--attention-needs-you\)/,
+  );
 });
 
 test("SessionDetailPanel keeps the normal status variant", () => {

@@ -743,6 +743,10 @@ html, body, #root {
 .status-indicator[data-attention="failed"]    { color: var(--attention-failed); }
 .status-indicator[data-attention="idle"]      { color: var(--attention-idle); }
 
+.status-indicator-unread[data-attention="idle"] {
+  color: var(--attention-needs-you);
+}
+
 @media (prefers-reduced-motion: no-preference) {
   .status-indicator-spin { animation: status-indicator-spin 1s linear infinite; }
 }
