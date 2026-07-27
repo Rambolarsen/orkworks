@@ -716,7 +716,9 @@ mod tests {
     fn test_extract_json_plain() {
         let raw = r#"{"observedStatus": "working", "confidence": 0.9}"#;
         let result = extract_json(raw);
-        assert!(result.is_some());
+        let parsed: PeonInference = serde_json::from_str(&result.unwrap()).unwrap();
+        assert_eq!(parsed.observed_status, Some("working".into()));
+        assert!((parsed.confidence - 0.9).abs() < 0.001);
     }
 
     #[test]
