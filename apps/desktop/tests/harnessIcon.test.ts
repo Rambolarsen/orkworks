@@ -24,6 +24,8 @@ test("every builtin harness display name and id resolves to a vendored mark", ()
     ["OpenCode", "opencode"],
     ["Aider", "aider"],
     ["Gemini CLI", "gemini"],
+    ["GitHub Copilot CLI", "gh-copilot"],
+    ["Copilot", "copilot"],
   ];
   for (const [name, id] of builtins) {
     assert.ok(HARNESS_ICON_PATHS[harnessIconKey(name)], `missing icon path for name ${name}`);
