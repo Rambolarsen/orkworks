@@ -188,6 +188,34 @@ test("SessionDetailPanel fetches and renders the summary-log checkpoint history"
   assert.match(source, /summaryLog\.map/);
 });
 
+test("SessionDetailPanel resets task history synchronously on session switch, not just via effect", () => {
+  const source = readFileSync(new URL("../src/components/SessionDetailPanel.tsx", import.meta.url), "utf8");
+
+  // Regression: switching sessions must not paint the previous session's
+  // task history under the new one's header while the fetch is in flight.
+  // The reset has to run during render (not inside a useEffect, which only
+  // fires after the stale content has already painted once).
+  assert.match(source, /summaryLogSessionId/);
+  const resetIndex = source.indexOf("active.id !== summaryLogSessionId");
+  const firstEffectIndex = source.indexOf("useEffect(");
+  assert.notEqual(resetIndex, -1, "expected a render-time session-id comparison");
+  assert.ok(
+    resetIndex < firstEffectIndex,
+    "the session-id reset must run before any effect, i.e. during render",
+  );
+});
+
+test("SessionDetailPanel refetches task history on lastActivityAt, not just peonLastInference", () => {
+  const source = readFileSync(new URL("../src/components/SessionDetailPanel.tsx", import.meta.url), "utf8");
+
+  // Regression: agent-hook-driven summary checkpoints advance lastActivityAt
+  // but not peonLastInference, so the fetch effect must depend on the
+  // former (which advances for every checkpoint source) to pick those up.
+  const fetchEffectStart = source.indexOf("getSummaryLog(baseUrl, active.id)");
+  const depsSlice = source.slice(fetchEffectStart, fetchEffectStart + 700);
+  assert.match(depsSlice, /\[active\?\.id, active\?\.lastActivityAt\]/);
+});
+
 test("SessionDetailPanel surfaces lifecycle, work phase, and frozen final attention metadata", () => {
   const source = readFileSync(new URL("../src/components/SessionDetailPanel.tsx", import.meta.url), "utf8");
 

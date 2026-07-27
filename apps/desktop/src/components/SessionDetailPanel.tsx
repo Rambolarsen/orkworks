@@ -42,7 +42,16 @@ function SessionDetailPanel({ sessions, activeSessionId, onResumeSession, onAppl
   const [debugAttention, setDebugAttention] = useState<SessionAttention>("working");
   const [debugMessage, setDebugMessage] = useState("");
   const [summaryLog, setSummaryLog] = useState<SummaryLogEntry[]>([]);
+  const [summaryLogSessionId, setSummaryLogSessionId] = useState<string | null>(null);
   const active = sessions.find((s) => s.id === activeSessionId);
+
+  // Reset synchronously (during render, not in an effect) so a session
+  // switch never paints the previous session's task history under the new
+  // one's header while the fetch below is still in flight.
+  if (active && active.id !== summaryLogSessionId) {
+    setSummaryLogSessionId(active.id);
+    setSummaryLog([]);
+  }
 
   useEffect(() => {
     if (!active) return;
@@ -61,7 +70,10 @@ function SessionDetailPanel({ sessions, activeSessionId, onResumeSession, onAppl
       .then((entries) => { if (current) setSummaryLog(entries); })
       .catch(() => { if (current) setSummaryLog([]); });
     return () => { current = false; };
-  }, [active?.id, active?.peonLastInference]);
+    // lastActivityAt advances for every summary-checkpoint source (Peon
+    // inference and agent-hook attention reports alike), unlike
+    // peonLastInference, which only advances for Peon's own inferences.
+  }, [active?.id, active?.lastActivityAt]);
 
   if (!active) {
     return <EmptyState message="Select an agent session to see details." />;
