@@ -118,49 +118,57 @@ pub min_version: Option<Option<VersionRequirement>>,
 ### Version probe
 
 New function in `crates/orkworksd/src/harness/detect.rs`, alongside (not
-replacing) `probe_installed_tool`:
+replacing) `probe_installed_tool`. Reads stdout/stderr through an explicit
+`AsyncReadExt::take(MAX_PROBE_OUTPUT_BYTES)` cap (64 KiB per stream) rather
+than `Command::output()`, which buffers both streams with no size limit —
+added after the initial implementation, per code review, to close a
+resource-exhaustion gap: a broken or hostile tool writing continuously for
+the full timeout could otherwise let a single Settings status request buffer
+unbounded memory. Once a stream's cap is hit, the read stops there (not an
+error); the `Child` handle is dropped without an explicit `.wait()`, since a
+genuinely gluttonous writer may never exit once its own write blocks on the
+now-undrained pipe — waiting for its exit would just re-block on the outer
+timeout for no benefit, and `kill_on_drop(true)` still cleans it up on drop
+exactly as it does on the timeout-cancellation path. The accepted worst case
+for a truly adversarial writer is bounded *memory* and bounded *latency by
+the existing 3s timeout*, not a fast return — a well-behaved tool's stdout
+and stderr both close together when it exits normally, long before either
+the cap or the timeout matters.
 
-```rust
-pub(crate) async fn probe_tool_version(executable: &Path) -> Option<String> {
-    let mut command = tokio::process::Command::new(executable);
-    command.arg("--version").kill_on_drop(true);
-    let output = tokio::time::timeout(Duration::from_secs(3), command.output())
-        .await
-        .ok()?
-        .ok()?;
-    let text = String::from_utf8_lossy(&output.stdout).into_owned()
-        + &String::from_utf8_lossy(&output.stderr);
-    Some(text)
-}
-```
-
-`kill_on_drop(true)` matters specifically because of the timeout: when
-`tokio::time::timeout` fires, the `Command::output()` future is dropped
+`kill_on_drop(true)` matters independently of the above for the ordinary
+timeout path: when `tokio::time::timeout` fires, the read future is dropped
 without ever completing, and without this flag the spawned child is orphaned
 rather than killed — a hanging binary would keep running in the background
 after every timed-out probe, one per Settings poll.
 
 Stdout and stderr are combined because some CLIs print version information to
-stderr; `.output()` drains both streams concurrently, so this doesn't risk
-the classic pipe-buffer deadlock a naive `stdout`-then-`stderr` read would.
+stderr; the two capped reads run concurrently via `tokio::join!`, so this
+doesn't risk the classic pipe-buffer deadlock a naive `stdout`-then-`stderr`
+read would.
 
-A separate pure function extracts a version token from that text: split on
-any character that isn't an ASCII digit or `.`, then take the first
-resulting piece matching `\d+\.\d+(\.\d+)?` (two or three numeric
-components — CLIs that report `MAJOR.MINOR` without a patch number are
-common and shouldn't hard-fail the probe). A missing third component is
-treated as `0`. Comparison against `VersionRequirement.min` is a plain tuple
-`>=`.
+A separate pure function extracts a version token from that text, scanning
+by byte position (not a naive split) so it can inspect the character
+immediately following each candidate token: a run of ASCII digits/`.`
+matching `\d+\.\d+(\.\d+)?` (two or three numeric components — CLIs that
+report `MAJOR.MINOR` without a patch number are common and shouldn't
+hard-fail the probe) is accepted only if it is *not* immediately followed by
+`-` or `+` (semver's prerelease/build-metadata separators). A token like
+`0.114.0-alpha.1` is therefore treated as unparseable rather than silently
+accepted as if it were the stable `0.114.0` — added per code review, since a
+prerelease must not compare equal to its corresponding stable release under
+a `>=` gate. A missing third component defaults to `0`. Comparison against
+`VersionRequirement.min` is a plain tuple `>=`.
 
-Known residual limitation, accepted rather than solved here: this is a
-generic heuristic, not a real version-output parser. A `--version` banner
-that prints an unrelated numeric-looking token before the actual version
-(e.g. a bundled dependency or schema version) could be picked up instead.
-Solving that properly would mean either a per-harness version-extraction
-pattern (rejected above as unneeded surface) or a real parsing dependency
-(rejected above per the no-new-dependency non-goal). If this bites in
-practice for a specific harness, that's grounds for a follow-up, not a
-reason to add speculative robustness now.
+Known residual limitation, accepted rather than solved here: this is still a
+generic heuristic, not a real version-output parser, for anything other than
+the prerelease/build-metadata case above. A `--version` banner that prints
+an unrelated numeric-looking token before the actual version (e.g. a bundled
+dependency or schema version) could be picked up instead. Solving that
+properly would mean either a per-harness version-extraction pattern
+(rejected above as unneeded surface) or a real parsing dependency (rejected
+above per the no-new-dependency non-goal). If this bites in practice for a
+specific harness, that's grounds for a follow-up, not a reason to add
+speculative robustness now.
 
 `probe_installed_tool` itself is unchanged — still the fast, pure PATH check,
 still used as-is at every existing call site.
@@ -191,15 +199,60 @@ The fix is to reorder the function so no lock guard is alive across the
    declares `min_version`, `.await probe_tool_version(...)`, parse, and
    compare — this is the only point in the function that awaits, and it now
    does so with zero guards in scope.
-3. *After* the probe resolves, acquire `state.workspace.lock()` as before to
-   build `reporter_assets`, `orkworks_root`, and `ctx`, then call
-   `action(&harness, &ctx)` using the owned clone from step 1.
+3. *After* the probe resolves, re-validate both pieces of state captured
+   before it (added post-implementation, per code review — see below), then
+   acquire `state.workspace.lock()` as before to build `reporter_assets`,
+   `orkworks_root`, and `ctx`, then call `action(&harness, &ctx)` using the
+   owned clone from step 1.
 
 Net effect: `detected_tool` construction moves earlier in the function
 (before the workspace lock is even taken) rather than staying where it is
 today; everything else keeps its current order. The workspace mutex is now
 held only across the same fast, synchronous work it always was — the new
 subprocess spawn happens entirely outside both locks.
+
+**Re-validation after the probe.** The first implementation of this reorder
+shipped with two real TOCTOU regressions, both caught by code review, since
+dropping each lock before the probe trades away a consistency guarantee the
+old fully-synchronous function had for free:
+
+- *Workspace switch mid-request*: `ctx.workspace` used to come from the same
+  single lock acquisition held for the whole function; after the reorder it
+  came from a second, later acquisition taken after the probe, so a user
+  switching OrkWorks's active workspace during the probe's window could
+  cause install/uninstall to silently target the new workspace instead of
+  the one active when the request was made.
+- *Harness-catalog clone staleness*: the `ResolvedHarness` clone (step 1) was
+  never re-checked; a concurrent `PATCH /harnesses/:id` landing mid-probe
+  would leave the request executing `action()` against the stale pre-patch
+  definition instead of blocking behind the write (the old read-guard-held-
+  through-`action()` behavior) or picking up the fresh value.
+
+Both are fixed the same way — capture an identity key *before* the probe,
+and after it resolves, re-check the key and return `409 Conflict` if it
+changed, rather than silently proceeding against stale or mismatched state:
+
+- Workspace: capture `ws.path.clone()` at the same point the original
+  `NoWorkspace` check already runs (before the harness lookup). After the
+  probe, re-acquire the lock and compare `ws.path` against the captured
+  value; mismatch → 409.
+- Harness: after the probe, re-acquire `state.harness_catalog.read()`,
+  re-fetch by `harness_id`, and compare `.definition` against the step-1
+  clone's `.definition` (`HarnessDefinition` already derives `PartialEq`);
+  mismatch or now-missing → 409.
+
+This is simpler than adding a generation/revision counter to
+`WorkspaceState` (none exists today) and matches the "reject on change"
+semantics already used elsewhere in the codebase (`ConfigFileTransaction`'s
+own revision guard). A narrower, related race remains *not* fixed: a
+concurrent request could still clear the workspace in the gap between the
+initial `NoWorkspace` check and the harness-registry lookup (both now
+separate lock scopes), which could flip which error a request with both a
+missing workspace and an unknown harness ID receives. Rated PLAUSIBLE rather
+than CONFIRMED by review (the window is two back-to-back synchronous lock
+operations with nothing in between) and left as an accepted, undocumented-
+by-test edge case — it only affects which error status a rare dual-failure
+request receives, not which workspace/harness gets acted on.
 
 Resulting `DetectedTool` states:
 
@@ -254,3 +307,20 @@ consumer receive real data for the first time.
   reintroduces the held-lock bug would otherwise only surface as a compile
   failure (if the guard type stays `!Send`) or a latent contention bug (if
   it doesn't) — neither of which today's other tests would catch.
+- `detect.rs`: two tests added post-implementation per code review —
+  `parse_version_token` rejecting `-`/`+`-suffixed (prerelease/build-
+  metadata) tokens instead of silently matching their numeric prefix, and
+  `probe_tool_version` terminating within the timeout (returning `None`,
+  not hanging or buffering unbounded memory) against a binary that never
+  stops writing far past `MAX_PROBE_OUTPUT_BYTES`.
+- `integration_handlers.rs`: two regression tests added post-implementation
+  per code review, both using the same slow-hanging-binary pattern as the
+  concurrency test above — one swaps the active workspace mid-probe (via a
+  new `swap_workspace` test-support helper in `main.rs`, since
+  `WorkspaceState` is private to that module) and asserts `409 Conflict`
+  rather than the request silently completing against the new workspace;
+  the other swaps the resolved harness-catalog registry directly mid-probe
+  (bypassing `HarnessStore::mutate` — calling it twice in one test hits an
+  unrelated pre-existing bug, filed as issue #230) and asserts `409
+  Conflict` rather than the request completing against the stale
+  pre-patch harness definition.

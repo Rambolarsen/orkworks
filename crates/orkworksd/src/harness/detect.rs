@@ -87,22 +87,70 @@ fn is_executable_file(path: &Path) -> bool {
     path.is_file()
 }
 
-/// Runs `<executable> --version`, bounded to 3 seconds, and returns the
-/// combined stdout+stderr text (some CLIs print version info to stderr;
-/// non-UTF8 bytes are lossily converted rather than treated as an error).
-/// Returns `None` on any spawn error or timeout. `.output()` drains both
-/// streams concurrently, so combining them here doesn't risk a
-/// pipe-buffer deadlock.
+/// Caps how much of a probed tool's stdout/stderr is buffered. A version
+/// string is a handful of bytes; this is generous headroom for a noisy
+/// banner while still bounding memory if the tool is broken or hostile and
+/// writes continuously for the whole probe timeout. Each stream gets its
+/// own cap, so total worst-case buffering is `2 * MAX_PROBE_OUTPUT_BYTES`.
+const MAX_PROBE_OUTPUT_BYTES: usize = 64 * 1024;
+
+/// Runs `<executable> --version`, bounded to 3 seconds and to
+/// `MAX_PROBE_OUTPUT_BYTES` per stream, and returns the combined
+/// stdout+stderr text (some CLIs print version info to stderr; non-UTF8
+/// bytes are lossily converted rather than treated as an error). Returns
+/// `None` on any spawn error or timeout.
+///
+/// Reads stdout and stderr through an explicit byte cap (`AsyncReadExt::
+/// take`) rather than `Command::output()`, which buffers both streams
+/// without any size limit — a broken or hostile tool that writes
+/// continuously for the full timeout would otherwise let a single Settings
+/// status request buffer unbounded memory. Once each stream's cap is hit,
+/// the read stops there (not an error) and any further output the child
+/// writes just backs up in the OS pipe buffer, which the child sees as
+/// ordinary write-side backpressure — it does not need to be drained for
+/// the timeout or `kill_on_drop` to still take effect.
 pub(crate) async fn probe_tool_version(executable: &Path) -> Option<String> {
+    use tokio::io::AsyncReadExt;
+
     let mut command = tokio::process::Command::new(executable);
-    command.arg("--version").kill_on_drop(true);
-    let output = tokio::time::timeout(Duration::from_secs(3), command.output())
+    command
+        .arg("--version")
+        .kill_on_drop(true)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+
+    let read_capped_output = async {
+        let mut child = command.spawn().ok()?;
+        let stdout = child.stdout.take()?;
+        let stderr = child.stderr.take()?;
+        let mut stdout_capped = stdout.take(MAX_PROBE_OUTPUT_BYTES as u64);
+        let mut stderr_capped = stderr.take(MAX_PROBE_OUTPUT_BYTES as u64);
+        let mut stdout_buf = Vec::new();
+        let mut stderr_buf = Vec::new();
+        let (stdout_result, stderr_result) = tokio::join!(
+            stdout_capped.read_to_end(&mut stdout_buf),
+            stderr_capped.read_to_end(&mut stderr_buf),
+        );
+        stdout_result.ok()?;
+        stderr_result.ok()?;
+        // Deliberately not awaiting child.wait() here: once each stream's
+        // cap is hit (or the child exits first, whichever comes first), the
+        // probe already has everything it needs. A gluttonous writer that
+        // keeps producing past the cap may never exit on its own once we
+        // stop draining it (kernel pipe backpressure blocks its next
+        // write()), so waiting for exit here would just re-block on the
+        // outer 3s timeout for no benefit. `command.kill_on_drop(true)`
+        // cleans up `child` when it drops at the end of this scope, the
+        // same as it does on the timeout-cancellation path.
+        Some((stdout_buf, stderr_buf))
+    };
+
+    let (stdout_buf, stderr_buf) = tokio::time::timeout(Duration::from_secs(3), read_capped_output)
         .await
-        .ok()?
-        .ok()?;
+        .ok()??;
     Some(
-        String::from_utf8_lossy(&output.stdout).into_owned()
-            + &String::from_utf8_lossy(&output.stderr),
+        String::from_utf8_lossy(&stdout_buf).into_owned()
+            + &String::from_utf8_lossy(&stderr_buf),
     )
 }
 
@@ -110,23 +158,30 @@ pub(crate) async fn probe_tool_version(executable: &Path) -> Option<String> {
 /// output. A generic heuristic, not a real version parser — see the design
 /// spec for the accepted limitations (e.g. a noisy banner with an unrelated
 /// leading numeric token). A missing patch component defaults to 0.
+///
+/// A token immediately followed by `-` or `+` (semver's prerelease/build-
+/// metadata separators, e.g. `0.114.0-alpha.1`) is treated as unparseable
+/// rather than accepted as its numeric prefix — a prerelease must not
+/// silently compare equal to its corresponding stable release.
 pub(crate) fn parse_version_token(text: &str) -> Option<(u64, u64, u64)> {
-    let mut tokens = Vec::new();
-    let mut current = String::new();
-    for ch in text.chars() {
-        if ch.is_ascii_digit() || ch == '.' {
-            current.push(ch);
-        } else if !current.is_empty() {
-            tokens.push(std::mem::take(&mut current));
+    let bytes = text.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if !(bytes[i].is_ascii_digit() || bytes[i] == b'.') {
+            i += 1;
+            continue;
         }
-    }
-    if !current.is_empty() {
-        tokens.push(current);
-    }
-
-    for token in tokens {
+        let start = i;
+        while i < bytes.len() && (bytes[i].is_ascii_digit() || bytes[i] == b'.') {
+            i += 1;
+        }
+        let followed_by_prerelease_marker = bytes.get(i).is_some_and(|&b| b == b'-' || b == b'+');
+        if followed_by_prerelease_marker {
+            continue;
+        }
+        let token = &text[start..i];
         let parts: Vec<&str> = token.split('.').filter(|part| !part.is_empty()).collect();
-        if parts.len() < 2 || parts.len() > 3 {
+        if !(2..=3).contains(&parts.len()) {
             continue;
         }
         let Some(numbers) = parts
@@ -279,6 +334,22 @@ mod tests {
         assert_eq!(parse_version_token(""), None);
     }
 
+    #[test]
+    fn parse_version_token_treats_a_prerelease_suffix_as_unparseable() {
+        // 0.114.0-alpha.1 must not compare equal to the stable 0.114.0 —
+        // prereleases sort below their corresponding stable release and may
+        // lack the finalized feature a min_version threshold is gating on.
+        // Returning None here (rather than silently stripping the suffix)
+        // makes the caller's existing "can't confirm" -> compatible: false
+        // path do the right thing without needing full semver ordering.
+        assert_eq!(parse_version_token("codex-cli 0.114.0-alpha.1"), None);
+    }
+
+    #[test]
+    fn parse_version_token_treats_a_build_metadata_suffix_as_unparseable() {
+        assert_eq!(parse_version_token("tool 1.2.3+build.5"), None);
+    }
+
     #[tokio::test]
     async fn probe_tool_version_returns_combined_stdout_and_stderr() {
         use crate::test_support::make_test_executable;
@@ -290,6 +361,52 @@ mod tests {
 
         let output = probe_tool_version(&bin).await.expect("should run");
         assert_eq!(parse_version_token(&output), Some((1, 2, 3)));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn probe_tool_version_terminates_within_the_timeout_for_a_binary_that_never_stops_writing() {
+        use crate::test_support::make_test_executable;
+
+        let dir = tempfile::tempdir().unwrap();
+        let bin = dir.path().join("firehose");
+        // Writes ~3MB of filler — many times over MAX_PROBE_OUTPUT_BYTES
+        // and any real OS pipe buffer. Once the capped stdout reader stops
+        // draining past its limit, this binary blocks on write-side
+        // backpressure and never exits on its own; since its stderr is
+        // still open (the process hasn't exited), the read on that stream
+        // only ever completes via child-exit-driven EOF, which never
+        // happens here. So this case legitimately runs out the full probe
+        // timeout before probe_tool_version returns None — that's the
+        // correct, accepted worst case for a genuinely adversarial writer.
+        // The guarantee this fix provides is bounded *memory* (verified
+        // indirectly here: nothing about this test's assertions could pass
+        // if the read attempted to buffer the full ~3MB before giving up)
+        // and bounded *latency* — still bounded by the existing timeout,
+        // just not below it. A well-behaved tool's stdout and stderr both
+        // close together when it exits normally, long before either the
+        // cap or the timeout matters — see the sibling test using a small,
+        // real version string for that path.
+        std::fs::write(
+            &bin,
+            "#!/bin/sh\ni=0\nwhile [ $i -lt 3000 ]; do printf '%1000s' x; i=$((i+1)); done\n",
+        )
+        .unwrap();
+        make_test_executable(&bin);
+
+        let start = std::time::Instant::now();
+        let output = probe_tool_version(&bin).await;
+        let elapsed = start.elapsed();
+
+        assert_eq!(
+            output, None,
+            "a writer that never exits must time out, not return partial output"
+        );
+        assert!(
+            elapsed < std::time::Duration::from_secs(4),
+            "must terminate via the existing 3s probe timeout rather than hanging forever, \
+             took {elapsed:?}"
+        );
     }
 
     #[tokio::test]
