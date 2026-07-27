@@ -11,8 +11,8 @@ Show the correct Copilot brand mark anywhere OrkWorks renders a harness icon.
 ## Proposed change
 
 1. Add a Copilot SVG mark to `apps/desktop/src/harnessIcons.ts`.
-2. Map both `gh-copilot` and `copilot` to that mark so legacy session data and the current provider id resolve the same way.
-3. Extend `apps/desktop/tests/harnessIcon.test.ts` so the Copilot id/name pair is covered alongside the other built-ins.
+2. Map every Copilot value the UI can pass today to that mark: legacy id `gh-copilot`, current harness id `copilot`, legacy display name `Copilot`, and current display name `GitHub Copilot CLI`.
+3. Extend `apps/desktop/tests/harnessIcon.test.ts` so both legacy and current Copilot ids and display names are covered alongside the other built-ins.
 
 ## Non-goals
 
