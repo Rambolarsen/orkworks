@@ -264,7 +264,7 @@ test("session rows derive tone from sessionAttentionStatus, no component-local l
   }
 });
 
-test("StatusIndicator gives working precedence and renders unread results accessibly", () => {
+test("StatusIndicator renders every unread result as an accessible dot", () => {
   const source = readFileSync(
     new URL("../src/components/StatusIndicator.tsx", import.meta.url),
     "utf8",
@@ -273,7 +273,8 @@ test("StatusIndicator gives working precedence and renders unread results access
 
   assert.match(source, /variant\?:\s*"status"\s*\|\s*"unread"/);
   assert.match(source, /variant\s*=\s*"status"/);
-  assert.match(source, /variant\s*===\s*"unread"\s*&&\s*tone\s*!==\s*"working"/);
+  assert.match(source, /if \(variant === "unread"\) \{/);
+  assert.doesNotMatch(source, /variant\s*===\s*"unread"\s*&&\s*tone\s*!==\s*"working"/);
   assert.match(source, /className="status-indicator status-indicator-unread"/);
   assert.match(source, /aria-label=\{`Unread:\s*\$\{label\}`\}/);
   assert.match(css, /\.status-indicator\s*\{[\s\S]*width:\s*14px;[\s\S]*height:\s*14px;/);
@@ -281,6 +282,12 @@ test("StatusIndicator gives working precedence and renders unread results access
   assert.match(css, /\.status-indicator-unread::before\s*\{[\s\S]*display:\s*block;[\s\S]*width:\s*7px;[\s\S]*height:\s*7px;/);
   for (const tone of ["needs-you", "blocked", "failed", "idle"]) {
     assert.match(css, new RegExp(`\\.status-indicator\\[data-attention="${tone}"\\]`));
+  }
+  for (const tone of ["idle", "working"]) {
+    assert.match(
+      css,
+      new RegExp(`\\.status-indicator-unread\\[data-attention="${tone}"\\][\\s\\S]*color:\\s*var\\(--attention-needs-you\\)`),
+    );
   }
 });
 

@@ -736,6 +736,11 @@ html, body, #root {
   background: currentColor;
 }
 
+.status-indicator-unread[data-attention="idle"],
+.status-indicator-unread[data-attention="working"] {
+  color: var(--attention-needs-you);
+}
+
 .status-indicator[data-attention="needs-you"] { color: var(--attention-needs-you); }
 .status-indicator[data-attention="blocked"]   { color: var(--attention-blocked); }
 .status-indicator[data-attention="done"]      { color: var(--attention-done); }
