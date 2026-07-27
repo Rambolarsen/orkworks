@@ -363,12 +363,17 @@ fn record_terminal_input_impl(
     let is_sensitive = sensitivity_override.unwrap_or_else(|| snapshot_input_context(state, id).0);
     let label_worthy = !is_sensitive && peon::is_descriptive_input(&label_line);
 
+    // Seed-once: the label is a stable topic (ADR 0029), not a running log of
+    // whatever was last typed. Only the still-placeholder label gets replaced
+    // here; once seeded, later lines leave it alone.
+    let mut queue_topic_inference = false;
     if !is_sensitive {
         let ws_guard = state.workspace.lock().unwrap();
         if let Some(ref ws) = *ws_guard {
             if let Some(mut meta) = ws.metadata.read_session(id) {
-                if label_worthy {
+                if label_worthy && is_placeholder_label(&meta.label, id) {
                     meta.label = label_line.clone();
+                    queue_topic_inference = true;
                 }
                 meta.last_user_input = Some(label_line.clone());
                 ws.metadata.write_session(&meta);
@@ -376,13 +381,32 @@ fn record_terminal_input_impl(
         }
     }
 
-    if label_worthy {
+    // Reuses the same decision as the metadata write above (rather than
+    // re-checking the in-memory label independently) so the two copies of
+    // the label can never disagree about whether this line seeded it.
+    if queue_topic_inference {
         if let Some(handle) = state.sessions.lock().unwrap().get_mut(id) {
-            handle.info.label = label_line;
+            handle.info.label = label_line.clone();
         }
     }
 
+    if queue_topic_inference {
+        state
+            .peon
+            .label_hint
+            .write()
+            .unwrap()
+            .insert(id.to_string(), label_line);
+        state.peon.label_pending.write().unwrap().insert(id.to_string());
+    }
+
     Some(())
+}
+
+/// Whether `label` is still the creation-time placeholder for `id`, i.e. the
+/// label has not yet been seeded from any descriptive input.
+fn is_placeholder_label(label: &str, id: &str) -> bool {
+    label == crate::session_types::placeholder_label(id)
 }
 
 /// A bare keystroke (no completed line yet) is only strong enough evidence of
@@ -1564,6 +1588,72 @@ mod tests {
             .read_session(session_id)
             .unwrap();
         assert_eq!(meta.last_user_input.as_deref(), Some("add retry logic"));
+    }
+
+    #[test]
+    fn first_descriptive_line_seeds_placeholder_label_and_queues_topic_inference() {
+        // ADR 0029: the placeholder label is a one-shot seed, immediately
+        // replaced with the typed line as a synchronous fallback while Peon's
+        // InputLabel inference (queued here) produces the real topic later.
+        let session_id = "fresh-session-seed";
+        let (state, _dir) = prompted_session_state(session_id);
+        let placeholder = format!("Session {}", &session_id[..8]);
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            sessions.get_mut(session_id).unwrap().info.label = placeholder.clone();
+        }
+        {
+            let ws = state.workspace.lock().unwrap();
+            let mut meta = ws.as_ref().unwrap().metadata.read_session(session_id).unwrap();
+            meta.label = placeholder.clone();
+            ws.as_ref().unwrap().metadata.write_session(&meta);
+        }
+
+        record_terminal_input(&state, session_id, "fix the login redirect bug\r");
+
+        let info = state.sessions.lock().unwrap()[session_id].info.clone();
+        assert_eq!(info.label, "fix the login redirect bug");
+        let meta = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(session_id)
+            .unwrap();
+        assert_eq!(meta.label, "fix the login redirect bug");
+        assert_eq!(
+            state.peon.label_hint.read().unwrap().get(session_id),
+            Some(&"fix the login redirect bug".to_string())
+        );
+        assert!(state.peon.label_pending.read().unwrap().contains(session_id));
+    }
+
+    #[test]
+    fn subsequent_descriptive_line_does_not_change_an_already_seeded_label() {
+        // `prompted_session_state` starts with a non-placeholder label
+        // ("Prompted session"), simulating a session whose label has already
+        // been seeded — further keystrokes must not churn it (ADR 0029).
+        let session_id = "already-seeded-label";
+        let (state, _dir) = prompted_session_state(session_id);
+
+        record_terminal_input(&state, session_id, "now do something unrelated\r");
+
+        let info = state.sessions.lock().unwrap()[session_id].info.clone();
+        assert_eq!(info.label, "Prompted session");
+        let meta = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(session_id)
+            .unwrap();
+        assert_eq!(meta.label, "Prompted session");
+        assert!(state.peon.label_hint.read().unwrap().get(session_id).is_none());
+        assert!(!state.peon.label_pending.read().unwrap().contains(session_id));
     }
 
     #[test]

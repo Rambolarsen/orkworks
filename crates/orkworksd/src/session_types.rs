@@ -2,6 +2,14 @@ use crate::harness;
 use crate::metadata;
 use serde::Serialize;
 
+/// The creation-time placeholder label for a session, before anything has
+/// seeded a real topic (ADR 0029). Single source of truth for both the
+/// construction site (`create_session`) and the seed-once guard
+/// (`terminal_runtime::is_placeholder_label`).
+pub(crate) fn placeholder_label(id: &str) -> String {
+    format!("Session {}", &id[..id.len().min(8)])
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct SessionInfo {
     pub(crate) id: String,

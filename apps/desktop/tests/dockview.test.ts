@@ -179,6 +179,15 @@ test("SessionDetailPanel groups content into situation/actions/facts/provenance 
   assert.match(source, /sourceWithConfidence/);
 });
 
+test("SessionDetailPanel fetches and renders the summary-log checkpoint history", () => {
+  const source = readFileSync(new URL("../src/components/SessionDetailPanel.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /import\s*\{\s*getSummaryLog\s*\}\s*from\s*"\.\.\/api"/);
+  assert.match(source, /getSummaryLog\(baseUrl, active\.id\)/);
+  assert.match(source, /detail-task-history/);
+  assert.match(source, /summaryLog\.map/);
+});
+
 test("SessionDetailPanel surfaces lifecycle, work phase, and frozen final attention metadata", () => {
   const source = readFileSync(new URL("../src/components/SessionDetailPanel.tsx", import.meta.url), "utf8");
 

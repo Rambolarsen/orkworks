@@ -1,7 +1,8 @@
 import { Fragment, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { GitBranch } from "lucide-react";
-import type { SessionAttention, SessionInfo } from "../api";
+import { getSummaryLog } from "../api";
+import type { SessionAttention, SessionInfo, SummaryLogEntry } from "../api";
 import { sessionProviderContext } from "../sessionProviderContext";
 import { sessionAttentionStatus } from "../sessionSort";
 import {
@@ -40,6 +41,7 @@ function SessionDetailPanel({ sessions, activeSessionId, onResumeSession, onAppl
   const [now, setNow] = useState(() => new Date());
   const [debugAttention, setDebugAttention] = useState<SessionAttention>("working");
   const [debugMessage, setDebugMessage] = useState("");
+  const [summaryLog, setSummaryLog] = useState<SummaryLogEntry[]>([]);
   const active = sessions.find((s) => s.id === activeSessionId);
 
   useEffect(() => {
@@ -50,6 +52,16 @@ function SessionDetailPanel({ sessions, activeSessionId, onResumeSession, onAppl
     const timeout = window.setTimeout(() => setNow(new Date()), nextRefresh);
     return () => window.clearTimeout(timeout);
   }, [active, now]);
+
+  useEffect(() => {
+    if (!active) return;
+    let current = true;
+    void window.orkworks.getBackendUrl()
+      .then((baseUrl) => getSummaryLog(baseUrl, active.id))
+      .then((entries) => { if (current) setSummaryLog(entries); })
+      .catch(() => { if (current) setSummaryLog([]); });
+    return () => { current = false; };
+  }, [active?.id, active?.peonLastInference]);
 
   if (!active) {
     return <EmptyState message="Select an agent session to see details." />;
@@ -250,7 +262,27 @@ function SessionDetailPanel({ sessions, activeSessionId, onResumeSession, onAppl
         )}
       </div>
 
-      {/* Surface 4 — provenance footer. */}
+      {/* Surface 4 — task history: durable checkpoints of what the session has done, distinct from the live headline above. */}
+      {summaryLog.length > 0 && (
+        <div className="detail-task-history">
+          <div className="detail-task-history-title">Task history</div>
+          <ul className="detail-task-history-list">
+            {summaryLog.map((entry, i) => (
+              <li key={i} className="detail-task-history-item">
+                <span className="detail-task-history-time">
+                  {relativeTime(entry.timestamp, now) || entry.timestamp}
+                </span>
+                <span className="detail-task-history-summary">{entry.summary}</span>
+                <SourceBadge source={entry.source}>
+                  {sourceWithConfidence(entry.source, entry.confidence ?? undefined)}
+                </SourceBadge>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Surface 5 — provenance footer. */}
       <div className="detail-provenance">
         {provenanceItems.map((item, i) => (
           <Fragment key={i}>

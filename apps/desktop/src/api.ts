@@ -207,6 +207,23 @@ export async function getTerminalOutput(
   return data.lines ?? [];
 }
 
+export interface SummaryLogEntry {
+  timestamp: string;
+  summary: string;
+  source: string;
+  confidence: number | null;
+}
+
+export async function getSummaryLog(
+  baseUrl: string,
+  id: string,
+): Promise<SummaryLogEntry[]> {
+  const resp = await fetch(`${baseUrl}/sessions/${id}/summary-log`);
+  if (!resp.ok) throw new Error(`get summary log failed: ${resp.status}`);
+  const data = await resp.json();
+  return data.entries ?? [];
+}
+
 export interface ProviderRuntimeEntry {
   id: string;
   label: string;

@@ -1379,10 +1379,9 @@ impl MetadataStore {
         if let Some(ref phase) = inf.phase {
             meta.work_phase = normalize_work_phase(phase);
         }
+        // `label` is a one-shot topic, not the turn-by-turn activity summary —
+        // it must not be clobbered here (ADR 0029).
         meta.summary = inf.summary.clone().or(meta.summary);
-        if let Some(ref summary) = inf.summary {
-            meta.label = summary.chars().take(100).collect();
-        }
         meta.next_action = inf.next_action.clone().or(meta.next_action);
         meta.needs_user_input = inf.needs_user_input.or(meta.needs_user_input);
         // Normalize: treat empty-string question as absent (LLM may emit "" instead of null).
@@ -2079,6 +2078,42 @@ mod tests {
         assert_eq!(meta2.label, "Session abc12345");
         assert_eq!(meta2.harness, "claude-code");
         assert_eq!(meta2.model, "claude-sonnet-4-5");
+    }
+
+    #[test]
+    fn merge_peon_inference_does_not_touch_label() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let mut meta = test_metadata("label-untouched");
+        meta.label = "Session label12345".into();
+        store.write_session(&meta);
+
+        let inf = crate::peon::PeonInference {
+            observed_status: Some("working".into()),
+            phase: None,
+            summary: Some("Fixing the login redirect bug".into()),
+            next_action: None,
+            needs_user_input: None,
+            detected_question: None,
+            suggested_options: None,
+            blocker_description: None,
+            failed_command: None,
+            failed_test: None,
+            capacity_hints: None,
+            confidence: 0.8,
+            detected_harness: None,
+            detected_model: None,
+            harness_session_id: None,
+        };
+        store
+            .merge_peon_inference("label-untouched", &inf, "t1", None)
+            .unwrap();
+
+        let updated = store.read_session("label-untouched").unwrap();
+        // Peon's turn-by-turn summary must never clobber the session label/topic
+        // (ADR 0029) — summary is free to change while label stays put.
+        assert_eq!(updated.label, "Session label12345");
+        assert_eq!(updated.summary.as_deref(), Some("Fixing the login redirect bug"));
     }
 
     #[test]
