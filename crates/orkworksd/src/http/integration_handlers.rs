@@ -102,6 +102,8 @@ async fn run_integration_action(
     // for the probe's full timeout, which other workspace-touching requests
     // would otherwise queue behind.
     let detected_tool = crate::harness::detect::resolve_tool_gate(
+        &state.integration_probe_cache,
+        &harness.definition.id,
         &harness.launch_command(),
         harness.definition.min_version.as_ref(),
     )
@@ -541,6 +543,194 @@ mod tests {
         let body: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(body["toolDetected"], true);
         assert_eq!(body["activation"], "active");
+    }
+
+    #[tokio::test]
+    async fn repeated_status_polls_reuse_one_version_probe_within_ttl() {
+        use crate::harness::definition::{HarnessPatch, VersionRequirement};
+        use crate::test_support::{make_test_executable, FakeHome, FakePath};
+        use std::fs;
+
+        let dir = tempfile::tempdir().unwrap();
+        init_git_workspace_with_copilot_settings_ignored(dir.path());
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        let state = test_app_state_with_workspace(dir.path());
+
+        state
+            .harness_store
+            .mutate(&state.harness_catalog, |document| {
+                document.overrides.insert(
+                    "copilot".to_string(),
+                    HarnessPatch {
+                        min_version: Some(Some(VersionRequirement { min: (0, 0, 1) })),
+                        ..Default::default()
+                    },
+                );
+                Ok(())
+            })
+            .unwrap();
+
+        let fake_bin_dir = tempfile::tempdir().unwrap();
+        let counter = fake_bin_dir.path().join("probe-count.txt");
+        let bin_name = if cfg!(windows) {
+            "copilot.exe"
+        } else {
+            "copilot"
+        };
+        let bin = fake_bin_dir.path().join(bin_name);
+        fs::write(
+            &bin,
+            format!(
+                "#!/bin/sh\nprintf '1.2.3\\n'\nprintf 'probe\\n' >> '{}'\n",
+                counter.display()
+            ),
+        )
+        .unwrap();
+        make_test_executable(&bin);
+        let _fake_path = FakePath::prepend(fake_bin_dir.path());
+
+        let first = get_integration_status(State(state.clone()), AxumPath("copilot".into()))
+            .await
+            .into_response();
+        let second = get_integration_status(State(state), AxumPath("copilot".into()))
+            .await
+            .into_response();
+
+        assert_eq!(first.status(), StatusCode::OK);
+        assert_eq!(second.status(), StatusCode::OK);
+        assert_eq!(fs::read_to_string(counter).unwrap().lines().count(), 1);
+    }
+
+    #[tokio::test]
+    async fn workspace_switch_forces_a_fresh_version_probe() {
+        use crate::harness::definition::{HarnessPatch, VersionRequirement};
+        use crate::test_support::{make_test_executable, swap_workspace, FakeHome, FakePath};
+        use std::fs;
+
+        let dir = tempfile::tempdir().unwrap();
+        init_git_workspace_with_copilot_settings_ignored(dir.path());
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        let state = test_app_state_with_workspace(dir.path());
+
+        state
+            .harness_store
+            .mutate(&state.harness_catalog, |document| {
+                document.overrides.insert(
+                    "copilot".to_string(),
+                    HarnessPatch {
+                        min_version: Some(Some(VersionRequirement { min: (0, 0, 1) })),
+                        ..Default::default()
+                    },
+                );
+                Ok(())
+            })
+            .unwrap();
+
+        let fake_bin_dir = tempfile::tempdir().unwrap();
+        let counter = fake_bin_dir.path().join("probe-count.txt");
+        let bin_name = if cfg!(windows) {
+            "copilot.exe"
+        } else {
+            "copilot"
+        };
+        let bin = fake_bin_dir.path().join(bin_name);
+        fs::write(
+            &bin,
+            format!(
+                "#!/bin/sh\nprintf '1.2.3\\n'\nprintf 'probe\\n' >> '{}'\n",
+                counter.display()
+            ),
+        )
+        .unwrap();
+        make_test_executable(&bin);
+        let _fake_path = FakePath::prepend(fake_bin_dir.path());
+
+        let _ = get_integration_status(State(state.clone()), AxumPath("copilot".into()))
+            .await
+            .into_response();
+
+        let other_workspace = tempfile::tempdir().unwrap();
+        init_git_workspace_with_copilot_settings_ignored(other_workspace.path());
+        swap_workspace(&state, other_workspace.path());
+
+        let _ = get_integration_status(State(state), AxumPath("copilot".into()))
+            .await
+            .into_response();
+
+        assert_eq!(fs::read_to_string(counter).unwrap().lines().count(), 2);
+    }
+
+    #[tokio::test]
+    async fn harness_edit_forces_a_fresh_version_probe() {
+        use crate::harness::definition::{HarnessPatch, VersionRequirement};
+        use crate::http::harness_handlers::UpdateHarnessRequest;
+        use crate::test_support::{make_test_executable, FakeHome, FakePath};
+        use std::fs;
+
+        let dir = tempfile::tempdir().unwrap();
+        init_git_workspace_with_copilot_settings_ignored(dir.path());
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        let state = test_app_state_with_workspace(dir.path());
+
+        state
+            .harness_store
+            .mutate(&state.harness_catalog, |document| {
+                document.overrides.insert(
+                    "copilot".to_string(),
+                    HarnessPatch {
+                        min_version: Some(Some(VersionRequirement { min: (0, 0, 1) })),
+                        ..Default::default()
+                    },
+                );
+                Ok(())
+            })
+            .unwrap();
+
+        let fake_bin_dir = tempfile::tempdir().unwrap();
+        let counter = fake_bin_dir.path().join("probe-count.txt");
+        let bin_name = if cfg!(windows) {
+            "copilot.exe"
+        } else {
+            "copilot"
+        };
+        let bin = fake_bin_dir.path().join(bin_name);
+        fs::write(
+            &bin,
+            format!(
+                "#!/bin/sh\nprintf '1.2.3\\n'\nprintf 'probe\\n' >> '{}'\n",
+                counter.display()
+            ),
+        )
+        .unwrap();
+        make_test_executable(&bin);
+        let _fake_path = FakePath::prepend(fake_bin_dir.path());
+
+        let _ = get_integration_status(State(state.clone()), AxumPath("copilot".into()))
+            .await
+            .into_response();
+
+        let update_response = crate::http::harness_handlers::update_harness(
+            State(state.clone()),
+            AxumPath("copilot".into()),
+            Json(UpdateHarnessRequest::BuiltinPatch {
+                patch: HarnessPatch {
+                    min_version: Some(Some(VersionRequirement { min: (0, 0, 2) })),
+                    ..Default::default()
+                },
+            }),
+        )
+        .await
+        .into_response();
+        assert_eq!(update_response.status(), StatusCode::OK);
+
+        let _ = get_integration_status(State(state), AxumPath("copilot".into()))
+            .await
+            .into_response();
+
+        assert_eq!(fs::read_to_string(counter).unwrap().lines().count(), 2);
     }
 
     #[tokio::test]
