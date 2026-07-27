@@ -1597,7 +1597,7 @@ mod tests {
         // InputLabel inference (queued here) produces the real topic later.
         let session_id = "fresh-session-seed";
         let (state, _dir) = prompted_session_state(session_id);
-        let placeholder = format!("Session {}", &session_id[..8]);
+        let placeholder = crate::session_types::placeholder_label(session_id);
         {
             let mut sessions = state.sessions.lock().unwrap();
             sessions.get_mut(session_id).unwrap().info.label = placeholder.clone();
