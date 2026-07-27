@@ -52,7 +52,7 @@ fn integration_error_response(error: IntegrationError) -> axum::response::Respon
     (status, Json(ErrorResponse { error: message })).into_response()
 }
 
-fn run_integration_action(
+async fn run_integration_action(
     state: &Arc<AppState>,
     harness_id: &str,
     action: impl FnOnce(&ResolvedHarness, &IntegrationContext<'_>) -> Result<
@@ -60,19 +60,76 @@ fn run_integration_action(
         IntegrationError,
     >,
 ) -> axum::response::Response {
+    // Captured before the async probe below (and the lock dropped
+    // immediately) so a concurrent workspace switch or harness-definition
+    // edit during the probe's up-to-3s window can be *detected* afterward
+    // rather than silently acted on — see the re-checks below the probe.
+    // This also preserves today's exact error-priority order: a request
+    // against a missing workspace reports NoWorkspace even if harness_id is
+    // also unknown.
+    let workspace_path_at_start = {
+        let ws_guard = state.workspace.lock().unwrap();
+        let Some(ws) = ws_guard.as_ref() else {
+            return integration_error_response(IntegrationError::NoWorkspace);
+        };
+        ws.path.clone()
+    };
+
+    let harness: ResolvedHarness = {
+        let registry = state.harness_catalog.read().expect("harness catalog lock poisoned");
+        let Some(harness) = registry.get(harness_id) else {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse { error: format!("unknown harness id \"{harness_id}\"") }),
+            )
+                .into_response();
+        };
+        harness.clone()
+    };
+
+    // No lock guard is held from here through the `.await` below — both
+    // guards above are `!Send`, and the workspace mutex must not be held
+    // for the probe's full timeout, which other workspace-touching requests
+    // would otherwise queue behind.
+    let detected_tool = crate::harness::detect::resolve_tool_gate(
+        &harness.launch_command(),
+        harness.definition.min_version.as_ref(),
+    )
+    .await;
+
+    // Re-validate both pieces of state captured before the probe. A
+    // concurrent harness-definition edit or workspace switch landing during
+    // the probe's window must not let this request silently proceed against
+    // a target different from the one it started against; the harness clone
+    // above and the workspace path captured above would otherwise go stale
+    // without either lock ever objecting.
+    {
+        let registry = state.harness_catalog.read().expect("harness catalog lock poisoned");
+        match registry.get(harness_id) {
+            Some(current) if current.definition == harness.definition => {}
+            _ => {
+                return (
+                    StatusCode::CONFLICT,
+                    Json(ErrorResponse {
+                        error: "harness definition changed during this request; retry".into(),
+                    }),
+                )
+                    .into_response();
+            }
+        }
+    }
+
     let ws_guard = state.workspace.lock().unwrap();
     let Some(ref ws) = *ws_guard else {
         return integration_error_response(IntegrationError::NoWorkspace);
     };
-
-    let registry = state.harness_catalog.read().expect("harness catalog lock poisoned");
-    let Some(harness) = registry.get(harness_id) else {
+    if ws.path != workspace_path_at_start {
         return (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse { error: format!("unknown harness id \"{harness_id}\"") }),
+            StatusCode::CONFLICT,
+            Json(ErrorResponse { error: "workspace changed during this request; retry".into() }),
         )
             .into_response();
-    };
+    }
 
     let reporter_assets = match reporter_assets() {
         Ok(resolver) => resolver,
@@ -92,18 +149,16 @@ fn run_integration_action(
         }
     };
 
-    let probed_tool = crate::harness::detect::probe_installed_tool(&harness.launch_command());
-
     let ctx = IntegrationContext {
         workspace: &ws.path,
         workspace_metadata: Some(&ws.metadata),
         orkworks_root: &orkworks_root,
         enabled: true,
-        detected_tool: probed_tool.as_ref(),
+        detected_tool: detected_tool.as_ref(),
         reporter_assets: &reporter_assets,
     };
 
-    match action(harness, &ctx) {
+    match action(&harness, &ctx) {
         Ok(status) => Json(status).into_response(),
         Err(error) => integration_error_response(error),
     }
@@ -113,21 +168,21 @@ pub(crate) async fn get_integration_status(
     State(state): State<Arc<AppState>>,
     AxumPath(harness_id): AxumPath<String>,
 ) -> impl IntoResponse {
-    run_integration_action(&state, &harness_id, |harness, ctx| harness.integration_status(ctx))
+    run_integration_action(&state, &harness_id, |harness, ctx| harness.integration_status(ctx)).await
 }
 
 pub(crate) async fn install_integration(
     State(state): State<Arc<AppState>>,
     AxumPath(harness_id): AxumPath<String>,
 ) -> impl IntoResponse {
-    run_integration_action(&state, &harness_id, |harness, ctx| harness.integration_install(ctx))
+    run_integration_action(&state, &harness_id, |harness, ctx| harness.integration_install(ctx)).await
 }
 
 pub(crate) async fn uninstall_integration(
     State(state): State<Arc<AppState>>,
     AxumPath(harness_id): AxumPath<String>,
 ) -> impl IntoResponse {
-    run_integration_action(&state, &harness_id, |harness, ctx| harness.integration_uninstall(ctx))
+    run_integration_action(&state, &harness_id, |harness, ctx| harness.integration_uninstall(ctx)).await
 }
 
 #[cfg(test)]
@@ -146,6 +201,15 @@ mod tests {
     fn init_git_workspace_with_claude_settings_ignored(workspace: &std::path::Path) {
         git2::Repository::init(workspace).unwrap();
         std::fs::write(workspace.join(".gitignore"), ".claude/settings.local.json\n").unwrap();
+    }
+
+    fn init_git_workspace_with_copilot_settings_ignored(workspace: &std::path::Path) {
+        git2::Repository::init(workspace).unwrap();
+        std::fs::write(
+            workspace.join(".gitignore"),
+            ".github/copilot/settings.local.json\n",
+        )
+        .unwrap();
     }
 
     // Pins the packaged-vs-dev fallback that used to be covered by
@@ -311,6 +375,309 @@ mod tests {
         assert_eq!(body["activation"], "active");
     }
 
+    #[tokio::test]
+    async fn min_version_gating_marks_a_below_threshold_binary_as_needing_trust() {
+        use crate::harness::definition::{HarnessPatch, VersionRequirement};
+        use crate::test_support::{make_test_executable, FakePath};
+
+        let dir = tempfile::tempdir().unwrap();
+        init_git_workspace_with_copilot_settings_ignored(dir.path());
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        let state = test_app_state_with_workspace(dir.path());
+
+        state
+            .harness_store
+            .mutate(&state.harness_catalog, |document| {
+                document.overrides.insert(
+                    "copilot".to_string(),
+                    HarnessPatch {
+                        min_version: Some(Some(VersionRequirement { min: (99, 0, 0) })),
+                        ..Default::default()
+                    },
+                );
+                Ok(())
+            })
+            .unwrap();
+
+        let fake_bin_dir = tempfile::tempdir().unwrap();
+        let bin_name = if cfg!(windows) { "copilot.exe" } else { "copilot" };
+        let bin = fake_bin_dir.path().join(bin_name);
+        std::fs::write(&bin, "#!/bin/sh\necho 'copilot-cli 1.0.0'\n").unwrap();
+        make_test_executable(&bin);
+        let _fake_path = FakePath::prepend(fake_bin_dir.path());
+
+        let response = get_integration_status(State(state), AxumPath("copilot".into()))
+            .await
+            .into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["toolDetected"], true);
+        assert_eq!(body["activation"], "needs_trust");
+        assert!(body["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|d| d["code"] == "unsupported_tool_version"));
+    }
+
+    #[tokio::test]
+    async fn min_version_gating_leaves_an_above_threshold_binary_fully_active() {
+        use crate::harness::definition::{HarnessPatch, VersionRequirement};
+        use crate::test_support::{make_test_executable, FakePath};
+
+        let dir = tempfile::tempdir().unwrap();
+        init_git_workspace_with_copilot_settings_ignored(dir.path());
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        let state = test_app_state_with_workspace(dir.path());
+
+        state
+            .harness_store
+            .mutate(&state.harness_catalog, |document| {
+                document.overrides.insert(
+                    "copilot".to_string(),
+                    HarnessPatch {
+                        min_version: Some(Some(VersionRequirement { min: (0, 0, 1) })),
+                        ..Default::default()
+                    },
+                );
+                Ok(())
+            })
+            .unwrap();
+
+        let fake_bin_dir = tempfile::tempdir().unwrap();
+        let bin_name = if cfg!(windows) { "copilot.exe" } else { "copilot" };
+        let bin = fake_bin_dir.path().join(bin_name);
+        std::fs::write(&bin, "#!/bin/sh\necho 'copilot-cli 1.0.0'\n").unwrap();
+        make_test_executable(&bin);
+        let _fake_path = FakePath::prepend(fake_bin_dir.path());
+
+        // Active (as opposed to Absent/Disabled) only applies once the hook
+        // is actually Installed — status_from_document's activation match
+        // only reaches self.contract.activation via the `registration ==
+        // Installed` arm, so an install must happen first, exactly like the
+        // pre-existing Claude reference test this one is modeled on
+        // (detected_tool_reflects_probe_result_for_a_resolvable_command).
+        // Copilot (like Claude, unlike Gemini) declares
+        // activation: IntegrationActivation::Active on its contract
+        // (harness/integrations/copilot.rs) — Gemini's own contract
+        // declares Unknown even when fully installed and detected (its
+        // coverage is Limited by design), which is unrelated to min_version
+        // and would make this assertion fail no matter what this task
+        // wires up.
+        let install_response =
+            install_integration(State(state.clone()), AxumPath("copilot".into()))
+                .await
+                .into_response();
+        assert_eq!(install_response.status(), StatusCode::OK);
+
+        let response = get_integration_status(State(state), AxumPath("copilot".into()))
+            .await
+            .into_response();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["toolDetected"], true);
+        assert_eq!(body["activation"], "active");
+    }
+
+    #[tokio::test]
+    async fn a_slow_version_probe_does_not_block_a_concurrent_workspace_request() {
+        use crate::harness::definition::{HarnessPatch, VersionRequirement};
+        use crate::test_support::{make_test_executable, FakePath};
+
+        let dir = tempfile::tempdir().unwrap();
+        init_git_workspace_with_copilot_settings_ignored(dir.path());
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        let state = test_app_state_with_workspace(dir.path());
+
+        state
+            .harness_store
+            .mutate(&state.harness_catalog, |document| {
+                document.overrides.insert(
+                    "copilot".to_string(),
+                    HarnessPatch {
+                        min_version: Some(Some(VersionRequirement { min: (0, 0, 1) })),
+                        ..Default::default()
+                    },
+                );
+                Ok(())
+            })
+            .unwrap();
+
+        let fake_bin_dir = tempfile::tempdir().unwrap();
+        let bin_name = if cfg!(windows) { "copilot.exe" } else { "copilot" };
+        let bin = fake_bin_dir.path().join(bin_name);
+        // `exec` matters here exactly as it does in detect.rs's kill-on-
+        // timeout test: without it, `sh` forks `sleep` as a grandchild that
+        // kill_on_drop's signal never reaches, leaking it independently of
+        // (and in addition to) whatever detect.rs's own test covers — that
+        // test only exercises its own spawned binary, not this one.
+        std::fs::write(&bin, "#!/bin/sh\nexec sleep 30\n").unwrap();
+        make_test_executable(&bin);
+        let _fake_path = FakePath::prepend(fake_bin_dir.path());
+
+        let slow_state = state.clone();
+        let slow_request = tokio::spawn(async move {
+            get_integration_status(State(slow_state), AxumPath("copilot".into())).await.into_response()
+        });
+        // Give the slow request a head start into its probe before firing
+        // the concurrent one.
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        let start = std::time::Instant::now();
+        let concurrent_response =
+            get_integration_status(State(state.clone()), AxumPath("claude-code".into()))
+                .await
+                .into_response();
+        let elapsed = start.elapsed();
+
+        assert_eq!(concurrent_response.status(), StatusCode::OK);
+        // 2s of margin below the probe's 3s timeout: generous enough to
+        // absorb scheduling jitter on a loaded CI runner while still being a
+        // meaningful signal that the concurrent request didn't queue behind
+        // the slow one. If this proves flaky in practice, widen the margin
+        // rather than add retry logic — a single fixed threshold is enough
+        // signal for what this test is checking.
+        assert!(
+            elapsed < std::time::Duration::from_secs(2),
+            "a concurrent request must not wait behind the slow probe's 3s timeout, took {elapsed:?}"
+        );
+
+        // Clean up: let the slow request finish so the test doesn't leak a
+        // background task past its own scope.
+        let slow_response = slow_request.await.unwrap();
+        assert_eq!(slow_response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn a_workspace_switch_during_the_probe_is_rejected_instead_of_targeting_the_new_one() {
+        use crate::harness::definition::{HarnessPatch, VersionRequirement};
+        use crate::test_support::{make_test_executable, swap_workspace, FakePath};
+
+        let dir = tempfile::tempdir().unwrap();
+        init_git_workspace_with_copilot_settings_ignored(dir.path());
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        let state = test_app_state_with_workspace(dir.path());
+
+        state
+            .harness_store
+            .mutate(&state.harness_catalog, |document| {
+                document.overrides.insert(
+                    "copilot".to_string(),
+                    HarnessPatch {
+                        min_version: Some(Some(VersionRequirement { min: (0, 0, 1) })),
+                        ..Default::default()
+                    },
+                );
+                Ok(())
+            })
+            .unwrap();
+
+        let fake_bin_dir = tempfile::tempdir().unwrap();
+        let bin_name = if cfg!(windows) { "copilot.exe" } else { "copilot" };
+        let bin = fake_bin_dir.path().join(bin_name);
+        std::fs::write(&bin, "#!/bin/sh\nexec sleep 30\n").unwrap();
+        make_test_executable(&bin);
+        let _fake_path = FakePath::prepend(fake_bin_dir.path());
+
+        let slow_state = state.clone();
+        let slow_request = tokio::spawn(async move {
+            get_integration_status(State(slow_state), AxumPath("copilot".into())).await.into_response()
+        });
+        // Give the slow request a head start into its probe, then switch
+        // the active workspace to a different directory while it's still
+        // in flight.
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        let other_dir = tempfile::tempdir().unwrap();
+        swap_workspace(&state, other_dir.path());
+
+        let response = slow_request.await.unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::CONFLICT,
+            "a request whose workspace changed mid-flight must be rejected, not silently \
+             completed against the new workspace"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_harness_definition_change_during_the_probe_is_rejected_instead_of_using_stale_data() {
+        use crate::harness::definition::{HarnessPatch, VersionRequirement};
+        use crate::test_support::{make_test_executable, FakePath};
+
+        let dir = tempfile::tempdir().unwrap();
+        init_git_workspace_with_copilot_settings_ignored(dir.path());
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        let state = test_app_state_with_workspace(dir.path());
+
+        state
+            .harness_store
+            .mutate(&state.harness_catalog, |document| {
+                document.overrides.insert(
+                    "copilot".to_string(),
+                    HarnessPatch {
+                        min_version: Some(Some(VersionRequirement { min: (0, 0, 1) })),
+                        ..Default::default()
+                    },
+                );
+                Ok(())
+            })
+            .unwrap();
+
+        let fake_bin_dir = tempfile::tempdir().unwrap();
+        let bin_name = if cfg!(windows) { "copilot.exe" } else { "copilot" };
+        let bin = fake_bin_dir.path().join(bin_name);
+        std::fs::write(&bin, "#!/bin/sh\nexec sleep 30\n").unwrap();
+        make_test_executable(&bin);
+        let _fake_path = FakePath::prepend(fake_bin_dir.path());
+
+        let slow_state = state.clone();
+        let slow_request = tokio::spawn(async move {
+            get_integration_status(State(slow_state), AxumPath("copilot".into())).await.into_response()
+        });
+        // Give the slow request a head start into its probe, then change the
+        // harness definition it's probing against while it's still in
+        // flight. This swaps the resolved registry directly rather than
+        // going through HarnessStore::mutate a second time on the same
+        // store — a second sequential mutate() call on one store hits an
+        // unrelated pre-existing bug (issue #230, reproduced with a plain
+        // .name patch too, nothing to do with min_version) where the store
+        // fails to read back what it just wrote. Swapping the registry
+        // directly still exercises exactly what this test needs: the
+        // harness_catalog RwLock's content changing between this request's
+        // clone and its re-validation.
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        let mut changed_document = crate::harness::definition::HarnessUserDocument::default();
+        changed_document.overrides.insert(
+            "copilot".to_string(),
+            HarnessPatch {
+                min_version: Some(Some(VersionRequirement { min: (99, 0, 0) })),
+                ..Default::default()
+            },
+        );
+        let builtins = crate::harness::definition::BuiltinDocument::parse(
+            crate::harness::definition::EMBEDDED_BUILTINS,
+        )
+        .unwrap();
+        let changed_registry =
+            crate::harness::registry::resolve_document(&builtins, &changed_document).unwrap();
+        *state.harness_catalog.write().expect("harness catalog lock poisoned") =
+            std::sync::Arc::new(changed_registry);
+
+        let response = slow_request.await.unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::CONFLICT,
+            "a request whose harness definition changed mid-flight must be rejected, not \
+             silently completed against the stale pre-patch definition"
+        );
+    }
+
     // This one already passes before the fix too (detected_tool was always
     // None, so activation was always forced to Unknown regardless of the
     // real command) — it's a regression guard for the genuinely-not-found
@@ -355,6 +722,7 @@ mod tests {
                         session_signals: None,
                         integration: None,
                         voice: None,
+                        min_version: None,
                     },
                 );
                 Ok(())
