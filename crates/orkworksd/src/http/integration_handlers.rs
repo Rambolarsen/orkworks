@@ -57,25 +57,19 @@ fn integration_error_response(error: IntegrationError) -> axum::response::Respon
     (status, Json(ErrorResponse { error: message })).into_response()
 }
 
-async fn run_integration_action(
+async fn with_revalidated_integration_target<R>(
     state: &Arc<AppState>,
     harness_id: &str,
     action: impl FnOnce(
         &ResolvedHarness,
-        &IntegrationContext<'_>,
-    ) -> Result<crate::harness::integration::IntegrationStatus, IntegrationError>,
-) -> axum::response::Response {
-    // Captured before the async probe below (and the lock dropped
-    // immediately) so a concurrent workspace switch or harness-definition
-    // edit during the probe's up-to-3s window can be *detected* afterward
-    // rather than silently acted on — see the re-checks below the probe.
-    // This also preserves today's exact error-priority order: a request
-    // against a missing workspace reports NoWorkspace even if harness_id is
-    // also unknown.
+        &crate::WorkspaceState,
+        Option<&crate::harness::integration::DetectedTool>,
+    ) -> R,
+) -> Result<R, axum::response::Response> {
     let workspace_path_at_start = {
         let ws_guard = state.workspace.lock().unwrap();
         let Some(ws) = ws_guard.as_ref() else {
-            return integration_error_response(IntegrationError::NoWorkspace);
+            return Err(integration_error_response(IntegrationError::NoWorkspace));
         };
         ws.path.clone()
     };
@@ -86,33 +80,23 @@ async fn run_integration_action(
             .read()
             .expect("harness catalog lock poisoned");
         let Some(harness) = registry.get(harness_id) else {
-            return (
+            return Err((
                 StatusCode::NOT_FOUND,
                 Json(ErrorResponse {
                     error: format!("unknown harness id \"{harness_id}\""),
                 }),
             )
-                .into_response();
+                .into_response());
         };
         harness.clone()
     };
 
-    // No lock guard is held from here through the `.await` below — both
-    // guards above are `!Send`, and the workspace mutex must not be held
-    // for the probe's full timeout, which other workspace-touching requests
-    // would otherwise queue behind.
     let detected_tool = crate::harness::detect::resolve_tool_gate(
         &harness.launch_command(),
         harness.definition.min_version.as_ref(),
     )
     .await;
 
-    // Re-validate both pieces of state captured before the probe. A
-    // concurrent harness-definition edit or workspace switch landing during
-    // the probe's window must not let this request silently proceed against
-    // a target different from the one it started against; the harness clone
-    // above and the workspace path captured above would otherwise go stale
-    // without either lock ever objecting.
     {
         let registry = state
             .harness_catalog
@@ -121,67 +105,85 @@ async fn run_integration_action(
         match registry.get(harness_id) {
             Some(current) if current.definition == harness.definition => {}
             _ => {
-                return (
+                return Err((
                     StatusCode::CONFLICT,
                     Json(ErrorResponse {
                         error: "harness definition changed during this request; retry".into(),
                     }),
                 )
-                    .into_response();
+                    .into_response());
             }
         }
     }
 
     let ws_guard = state.workspace.lock().unwrap();
     let Some(ref ws) = *ws_guard else {
-        return integration_error_response(IntegrationError::NoWorkspace);
+        return Err(integration_error_response(IntegrationError::NoWorkspace));
     };
     if ws.path != workspace_path_at_start {
-        return (
+        return Err((
             StatusCode::CONFLICT,
             Json(ErrorResponse {
                 error: "workspace changed during this request; retry".into(),
             }),
         )
-            .into_response();
+            .into_response());
     }
 
-    let reporter_assets = match reporter_assets() {
-        Ok(resolver) => resolver,
-        Err(error) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse { error }),
-            )
-                .into_response();
+    Ok(action(&harness, ws, detected_tool.as_ref()))
+}
+
+async fn run_integration_action(
+    state: &Arc<AppState>,
+    harness_id: &str,
+    action: impl FnOnce(
+        &ResolvedHarness,
+        &IntegrationContext<'_>,
+    ) -> Result<crate::harness::integration::IntegrationStatus, IntegrationError>,
+) -> axum::response::Response {
+    match with_revalidated_integration_target(state, harness_id, |harness, ws, detected_tool| {
+        let reporter_assets = match reporter_assets() {
+            Ok(resolver) => resolver,
+            Err(error) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse { error }),
+                )
+                    .into_response();
+            }
+        };
+
+        let orkworks_root = match dirs::home_dir() {
+            Some(home) => home.join(".orkworks"),
+            None => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: "couldn't resolve home directory".into(),
+                    }),
+                )
+                    .into_response();
+            }
+        };
+
+        let ctx = IntegrationContext {
+            workspace: &ws.path,
+            workspace_metadata: Some(&ws.metadata),
+            orkworks_root: &orkworks_root,
+            enabled: true,
+            detected_tool,
+            reporter_assets: &reporter_assets,
+        };
+
+        match action(harness, &ctx) {
+            Ok(status) => Json(status).into_response(),
+            Err(error) => integration_error_response(error),
         }
-    };
-
-    let orkworks_root = match dirs::home_dir() {
-        Some(home) => home.join(".orkworks"),
-        None => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "couldn't resolve home directory".into(),
-                }),
-            )
-                .into_response();
-        }
-    };
-
-    let ctx = IntegrationContext {
-        workspace: &ws.path,
-        workspace_metadata: Some(&ws.metadata),
-        orkworks_root: &orkworks_root,
-        enabled: true,
-        detected_tool: detected_tool.as_ref(),
-        reporter_assets: &reporter_assets,
-    };
-
-    match action(&harness, &ctx) {
-        Ok(status) => Json(status).into_response(),
-        Err(error) => integration_error_response(error),
+    })
+    .await
+    {
+        Ok(response) => response,
+        Err(response) => response,
     }
 }
 
@@ -620,6 +622,143 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn with_revalidated_integration_target_rejects_workspace_switch() {
+        use crate::harness::definition::{HarnessPatch, VersionRequirement};
+        use crate::test_support::{make_test_executable, swap_workspace, FakePath};
+
+        let dir = tempfile::tempdir().unwrap();
+        init_git_workspace_with_copilot_settings_ignored(dir.path());
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        let state = test_app_state_with_workspace(dir.path());
+
+        state
+            .harness_store
+            .mutate(&state.harness_catalog, |document| {
+                document.overrides.insert(
+                    "copilot".to_string(),
+                    HarnessPatch {
+                        min_version: Some(Some(VersionRequirement { min: (0, 0, 1) })),
+                        ..Default::default()
+                    },
+                );
+                Ok(())
+            })
+            .unwrap();
+
+        let fake_bin_dir = tempfile::tempdir().unwrap();
+        let bin_name = if cfg!(windows) {
+            "copilot.exe"
+        } else {
+            "copilot"
+        };
+        let bin = fake_bin_dir.path().join(bin_name);
+        std::fs::write(&bin, "#!/bin/sh\nexec sleep 30\n").unwrap();
+        make_test_executable(&bin);
+        let _fake_path = FakePath::prepend(fake_bin_dir.path());
+
+        let slow_state = state.clone();
+        let request = tokio::spawn(async move {
+            with_revalidated_integration_target(&slow_state, "copilot", |_h, _ws, _detected| {
+                StatusCode::OK
+            })
+            .await
+        });
+
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        let other_dir = tempfile::tempdir().unwrap();
+        swap_workspace(&state, other_dir.path());
+
+        let result = request.await.unwrap();
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().status(), StatusCode::CONFLICT);
+    }
+
+    #[tokio::test]
+    async fn with_revalidated_integration_target_rejects_harness_definition_change() {
+        use crate::harness::definition::{HarnessPatch, VersionRequirement};
+        use crate::test_support::{make_test_executable, FakePath};
+
+        let dir = tempfile::tempdir().unwrap();
+        init_git_workspace_with_copilot_settings_ignored(dir.path());
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        let state = test_app_state_with_workspace(dir.path());
+
+        state
+            .harness_store
+            .mutate(&state.harness_catalog, |document| {
+                document.overrides.insert(
+                    "copilot".to_string(),
+                    HarnessPatch {
+                        min_version: Some(Some(VersionRequirement { min: (0, 0, 1) })),
+                        ..Default::default()
+                    },
+                );
+                Ok(())
+            })
+            .unwrap();
+
+        let fake_bin_dir = tempfile::tempdir().unwrap();
+        let bin_name = if cfg!(windows) {
+            "copilot.exe"
+        } else {
+            "copilot"
+        };
+        let bin = fake_bin_dir.path().join(bin_name);
+        std::fs::write(&bin, "#!/bin/sh\nexec sleep 30\n").unwrap();
+        make_test_executable(&bin);
+        let _fake_path = FakePath::prepend(fake_bin_dir.path());
+
+        let slow_state = state.clone();
+        let request = tokio::spawn(async move {
+            with_revalidated_integration_target(&slow_state, "copilot", |_h, _ws, _detected| {
+                StatusCode::OK
+            })
+            .await
+        });
+
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        let mut changed_document = crate::harness::definition::HarnessUserDocument::default();
+        changed_document.overrides.insert(
+            "copilot".to_string(),
+            HarnessPatch {
+                min_version: Some(Some(VersionRequirement { min: (99, 0, 0) })),
+                ..Default::default()
+            },
+        );
+        let builtins = crate::harness::definition::BuiltinDocument::parse(
+            crate::harness::definition::EMBEDDED_BUILTINS,
+        )
+        .unwrap();
+        let changed_registry =
+            crate::harness::registry::resolve_document(&builtins, &changed_document).unwrap();
+        *state
+            .harness_catalog
+            .write()
+            .expect("harness catalog lock poisoned") = std::sync::Arc::new(changed_registry);
+
+        let result = request.await.unwrap();
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().status(), StatusCode::CONFLICT);
+    }
+
+    #[tokio::test]
+    async fn with_revalidated_integration_target_returns_harness_and_probe_data() {
+        let dir = tempfile::tempdir().unwrap();
+        init_git_workspace_with_claude_settings_ignored(dir.path());
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        let state = test_app_state_with_workspace(dir.path());
+
+        let result = with_revalidated_integration_target(&state, "claude-code", |h, _ws, _tool| {
+            h.definition.id.clone()
+        })
+        .await;
+        assert_eq!(result.unwrap(), "claude-code");
+    }
+
+    #[tokio::test]
     async fn a_workspace_switch_during_the_probe_is_rejected_instead_of_targeting_the_new_one() {
         use crate::harness::definition::{HarnessPatch, VersionRequirement};
         use crate::test_support::{make_test_executable, swap_workspace, FakePath};
@@ -675,6 +814,11 @@ mod tests {
             "a request whose workspace changed mid-flight must be rejected, not silently \
              completed against the new workspace"
         );
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let payload: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(payload["error"], "workspace changed during this request; retry");
     }
 
     #[tokio::test]
@@ -757,6 +901,14 @@ mod tests {
             StatusCode::CONFLICT,
             "a request whose harness definition changed mid-flight must be rejected, not \
              silently completed against the stale pre-patch definition"
+        );
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let payload: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(
+            payload["error"],
+            "harness definition changed during this request; retry"
         );
     }
 
