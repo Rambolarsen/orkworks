@@ -301,6 +301,16 @@ test("session rows derive tone from sessionAttentionStatus, no component-local l
   }
 });
 
+test("SessionListPanel displays canonical session activity when present", () => {
+  const source = readFileSync(
+    new URL("../src/components/SessionListPanel.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(source, /return relativeTime\(s\.lastActivityAt \?\? s\.peonLastInference, now\)/);
+  assert.match(source, /return s\.lastActivityAt \?\? s\.peonLastInference \?\? s\.created_at/);
+});
+
 test("StatusIndicator renders completed unread results as accessible dots", () => {
   const source = readFileSync(
     new URL("../src/components/StatusIndicator.tsx", import.meta.url),

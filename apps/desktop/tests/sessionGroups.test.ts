@@ -38,6 +38,16 @@ test("groupForSession uses today's last activity for a session created yesterday
   assert.equal(groupForSession(resumed, now), "today");
 });
 
+test("groupForSession falls back to a Peon observation when activity is unavailable", () => {
+  const now = new Date(2026, 5, 28, 18, 0);
+  const observed = {
+    ...session("a", new Date(2026, 5, 1, 9, 0).toISOString()),
+    peonLastInference: new Date(2026, 5, 28, 9, 0).toISOString(),
+  };
+
+  assert.equal(groupForSession(observed, now), "today");
+});
+
 test("groupForSession buckets a session from 3 days ago as 'week'", () => {
   const now = new Date("2026-06-28T18:00:00Z");
   assert.equal(groupForSession(session("a", "2026-06-25T18:00:00Z"), now), "week");
