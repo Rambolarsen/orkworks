@@ -22,7 +22,7 @@
 ### Task 1: Record architecture + complete call-site survey
 
 **Files:**
-- Create: `docs/adr/0029-integration-lock-check-await-helper.md`
+- Create: `docs/adr/0030-integration-lock-check-await-helper.md`
 - Modify: `docs/adr/README.md`
 - Modify: `docs/superpowers/specs/2026-07-27-lock-check-await-helper-design.md`
 
@@ -44,7 +44,7 @@ Add this checklist block near the top of the ADR draft and leave one unchecked i
 - [ ] **Step 2: Run a docs grep to verify the checklist is still incomplete**
 
 Run:  
-`rg "\- \[ \] .*spawn_blocking" docs/adr/0029-integration-lock-check-await-helper.md`
+`rg "\- \[ \] .*spawn_blocking" docs/adr/0030-integration-lock-check-await-helper.md`
 
 Expected: one unchecked line is returned.
 
@@ -84,7 +84,7 @@ Centralizes the only lock-drop-await-revalidate path while preserving current 40
 - [ ] **Step 4: Run docs grep to verify checklist completion**
 
 Run:  
-`rg "\- \[ \] " docs/adr/0029-integration-lock-check-await-helper.md`
+`rg "\- \[ \] " docs/adr/0030-integration-lock-check-await-helper.md`
 
 Expected: no output.
 
@@ -93,13 +93,13 @@ Expected: no output.
 Add this row at the end of `docs/adr/README.md`:
 
 ```markdown
-| [0029](./0029-integration-lock-check-await-helper.md) | Integration lock-check-drop-await-relock helper | accepted |
+| [0030](./0030-integration-lock-check-await-helper.md) | Integration lock-check-drop-await-relock helper | accepted |
 ```
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add docs/adr/0029-integration-lock-check-await-helper.md docs/adr/README.md docs/superpowers/specs/2026-07-27-lock-check-await-helper-design.md
+git add docs/adr/0030-integration-lock-check-await-helper.md docs/adr/README.md docs/superpowers/specs/2026-07-27-lock-check-await-helper-design.md
 git commit -m "docs: add ADR for integration lock-check await helper" -m "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
 ```
 
@@ -368,7 +368,7 @@ Add a short PR/issue note including:
 
 ```markdown
 - Survey completed for lock/await/revalidate and spawn_blocking-adjacent sites.
-- ADR 0029 records primitive choice and rejected broader alternatives.
+- ADR 0030 records primitive choice and rejected broader alternatives.
 - Primitive extracted and covered by direct helper tests + existing handler regressions.
 - `cargo test` and `cargo clippy -- -D warnings` clean.
 ```
