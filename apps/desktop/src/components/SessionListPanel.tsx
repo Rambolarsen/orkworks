@@ -32,11 +32,11 @@ interface SessionListPanelProps {
 }
 
 function lastActivity(s: SessionInfo, now: Date): string {
-  return relativeTime(s.peonLastInference, now) || relativeTime(s.created_at, now);
+  return relativeTime(s.lastActivityAt ?? s.peonLastInference, now) || relativeTime(s.created_at, now);
 }
 
 function lastActivityTimestamp(s: SessionInfo): string | undefined {
-  return s.peonLastInference || s.created_at;
+  return s.lastActivityAt ?? s.peonLastInference ?? s.created_at;
 }
 
 function SessionListPanel({

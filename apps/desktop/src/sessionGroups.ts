@@ -11,8 +11,11 @@ export const GROUP_LABELS: Record<GroupKey, string> = {
 
 function groupingTimeFor(s: SessionInfo): Date {
   const lastActivity = s.lastActivityAt ? new Date(s.lastActivityAt) : undefined;
-  return lastActivity && !Number.isNaN(lastActivity.getTime())
-    ? lastActivity
+  if (lastActivity && !Number.isNaN(lastActivity.getTime())) return lastActivity;
+
+  const peonLastInference = s.peonLastInference ? new Date(s.peonLastInference) : undefined;
+  return peonLastInference && !Number.isNaN(peonLastInference.getTime())
+    ? peonLastInference
     : new Date(s.created_at);
 }
 
