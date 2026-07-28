@@ -126,6 +126,10 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                         .and_then(|inference| inference.summary)
                         .map(|summary| summary.chars().take(100).collect::<String>())
                         .filter(|label| !label.trim().is_empty())
+                        .filter(|label| {
+                            hint.as_deref()
+                                .is_some_and(|hint| peon::is_usable_input_label(label, hint))
+                        })
                     {
                         if let Some(handle) = state_clone.sessions.lock().unwrap().get_mut(&id) {
                             handle.info.label = label.clone();
@@ -791,6 +795,132 @@ mod tests {
         let ws_guard = state.workspace.lock().unwrap();
         let meta = ws_guard.as_ref().unwrap().metadata.read_session(&id).unwrap();
         assert_eq!(meta.label, "fallback from typed input");
+    }
+
+    #[tokio::test]
+    async fn input_label_inference_rejects_a_pr_number_dropping_label() {
+        // A provider summary that drops a PR number from the typed input is
+        // not descriptive enough to replace the synchronous fallback label.
+        let dir = tempfile::tempdir().unwrap();
+        let orkworks = dir.path().join(".orkworks");
+        std::fs::create_dir_all(orkworks.join("sessions")).unwrap();
+        std::fs::create_dir_all(orkworks.join("events")).unwrap();
+        let id = "label-pr-number-rejected".to_string();
+        let fallback_label = "keep watching PR #249";
+        let state = Arc::new(crate::AppState {
+            sessions: Mutex::new(HashMap::new()),
+            workspace: Mutex::new(Some(crate::WorkspaceState {
+                path: dir.path().to_path_buf(),
+                metadata: metadata::MetadataStore::new(&orkworks),
+                watcher: crate::watcher::MetadataWatcher::start(&orkworks.join("sessions")),
+            })),
+            peon: crate::PeonState {
+                last_output: RwLock::new(HashMap::new()),
+                last_inference: RwLock::new(HashMap::new()),
+                in_flight: RwLock::new(HashSet::new()),
+                label_hint: RwLock::new(HashMap::new()),
+                label_pending: RwLock::new(HashSet::new()),
+                input_buf: RwLock::new(HashMap::new()),
+                config: peon::PeonConfig {
+                    harness: "unused".into(),
+                    harness_args: vec![],
+                    model: None,
+                    interval_secs: 1,
+                    max_lines: 200,
+                    timeout_secs: 10,
+                    idle_timeout_secs: 30,
+                    final_scan_timeout_secs: 2,
+                    enabled: true,
+                },
+            },
+            harness_catalog: crate::test_support::test_harness_components().0,
+            harness_store: crate::test_support::test_harness_components().1,
+            retention_config: tokio::sync::RwLock::new(crate::RetentionConfig::default()),
+            bound_port: AtomicU16::new(0),
+            providers: providers::ProviderManager::for_tests(
+                providers::ProviderSettingsPayload {
+                    version: 1,
+                    revision: 1,
+                    peon_model: None,
+                    ollama_base_url: providers::default_ollama_base_url(),
+                    providers: vec![providers::ProviderSettingsEntry {
+                        id: "opencode".into(),
+                        enabled: true,
+                        fallback_order: 0,
+                        default_state: providers::ProviderCapacityState::Healthy,
+                        override_state: None,
+                    }],
+                },
+                vec![providers::FakeProvider::new("opencode").stdout(
+                    r#"{"status":"working","summary":"Monitoring pull request","confidence":0.85}"#,
+                )],
+            ),
+        });
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        state.sessions.lock().unwrap().insert(
+            id.clone(),
+            crate::SessionHandle {
+                info: test_session_info(
+                    id.clone(),
+                    fallback_label,
+                    dir.path().display().to_string(),
+                    "running",
+                    "now",
+                ),
+                kill_tx,
+                output_buffer: peon::RingBuffer::new(200),
+                scan_buf: String::new(),
+                pending_work_signal: None,
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                ),
+                terminal_attached: false,
+                at_usage_limit_latched: false,
+                capacity_check_pending: false,
+                output_lines_seen: 0,
+                scan_bytes_seen: 0,
+                resume_scan_origin: None,
+                pending_capacity_visible_once: false,
+                active_work_hook: false,
+            },
+        );
+        {
+            let ws_guard = state.workspace.lock().unwrap();
+            let ws = ws_guard.as_ref().unwrap();
+            ws.metadata.write_session(&test_session_metadata(
+                &id,
+                fallback_label,
+                dir.path().display().to_string(),
+                "running",
+                "now",
+                "now",
+            ));
+        }
+        state
+            .peon
+            .label_hint
+            .write()
+            .unwrap()
+            .insert(id.clone(), fallback_label.into());
+        state.peon.label_pending.write().unwrap().insert(id.clone());
+
+        let task = tokio::spawn(peon_loop(state.clone()));
+        tokio::time::sleep(std::time::Duration::from_millis(2300)).await;
+        task.abort();
+
+        assert_eq!(
+            state.sessions.lock().unwrap()[&id].info.label,
+            fallback_label
+        );
+        let ws_guard = state.workspace.lock().unwrap();
+        let meta = ws_guard
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(&id)
+            .unwrap();
+        assert_eq!(meta.label, fallback_label);
     }
 
     #[tokio::test]
