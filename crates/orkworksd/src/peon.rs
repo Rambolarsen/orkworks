@@ -306,6 +306,69 @@ pub fn is_descriptive_input(line: &str) -> bool {
         && trimmed.chars().any(char::is_alphabetic)
 }
 
+fn explicit_pr_numbers(text: &str) -> Vec<String> {
+    let lower = text.to_ascii_lowercase();
+    let bytes = lower.as_bytes();
+    let mut numbers = Vec::new();
+    let mut index = 0;
+
+    while index < bytes.len() {
+        let prefix_len = if bytes[index..].starts_with(b"pr #") {
+            4
+        } else if bytes[index..].starts_with(b"pull request #") {
+            14
+        } else {
+            index += 1;
+            continue;
+        };
+
+        let digits_start = index + prefix_len;
+        let mut digits_end = digits_start;
+        while digits_end < bytes.len() && bytes[digits_end].is_ascii_digit() {
+            digits_end += 1;
+        }
+        if digits_end > digits_start {
+            numbers.push(lower[digits_start..digits_end].to_string());
+        }
+        index = digits_end.max(index + prefix_len);
+    }
+
+    numbers
+}
+
+fn normalize_generic_instruction(label: &str) -> String {
+    label
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() {
+                character.to_ascii_lowercase()
+            } else {
+                ' '
+            }
+        })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Returns whether an input-triggered label names the task and retains all PR
+/// numbers explicitly mentioned in the submitted input.
+pub fn is_usable_input_label(label: &str, input_hint: &str) -> bool {
+    const GENERIC_INSTRUCTIONS: &[&str] = &[
+        "instructing system to continue current task execution",
+        "continue current task execution",
+        "continuing current task execution",
+    ];
+
+    let normalized = normalize_generic_instruction(label);
+    !normalized.is_empty()
+        && !GENERIC_INSTRUCTIONS.contains(&normalized.as_str())
+        && explicit_pr_numbers(input_hint)
+            .iter()
+            .all(|number| explicit_pr_numbers(label).contains(number))
+}
+
 /// Detects usage limit in a raw text blob (for TUI apps that use cursor positioning, not newlines).
 pub fn detect_usage_limit_raw<S: AsRef<str>>(patterns: &[S], text: &str) -> bool {
     if patterns.is_empty() {
@@ -404,7 +467,7 @@ Available fields:
 - detectedModel: model identifier visible in the terminal output (e.g. \"claude-sonnet-4-5\", \"gpt-4o\"), or omit if not detectable
 - harnessSessionId: the harness's internal session identifier visible in terminal output (e.g. a UUID, session hex string, or ID shown in a \"resume\" or \"continue\" prompt), or omit if not detectable
 
-If a line starting with '[User input]:' is present, it is what the user just typed to the AI coding tool. Use it to derive a short, direct, present-tense summary of what the user is doing — like a commit-message subject line. NEVER start the summary with \"User\", \"User is\", \"User wants\", \"User asked\", \"User requested\", or \"User typed\". Examples: \"Fixing peon model detection\" not \"User is fixing peon model detection\". \"Reviewing PR feedback\" not \"User wants to review PR feedback\". Keep it under 8 words.";
+If a line starting with '[User input]:' is present, it is what the user just typed to the AI coding tool. Use it to derive a short, direct, present-tense summary of what the user is doing — like a commit-message subject line. NEVER start the summary with \"User\", \"User is\", \"User wants\", \"User asked\", \"User requested\", or \"User typed\". Examples: \"Fixing peon model detection\" not \"User is fixing peon model detection\". \"Reviewing PR feedback\" not \"User wants to review PR feedback\". Keep it under 8 words. The summary must name the concrete task topic, never a generic instruction such as \"continuing current task execution\". Preserve every explicit PR number from the user input (for example, \"PR #249\" or \"pull request #249\").";
 
 const VALID_STATUSES: &[&str] = &[
     "waiting_for_input",
@@ -1072,6 +1135,22 @@ mod tests {
         assert!(!is_descriptive_input("8080"));
         assert!(!is_descriptive_input("1234"));
         assert!(!is_descriptive_input("....!!"));
+    }
+
+    #[test]
+    fn input_label_requires_each_explicit_pr_number() {
+        assert!(is_usable_input_label(
+            "Monitoring PR #249",
+            "keep watching PR #249"
+        ));
+        assert!(!is_usable_input_label(
+            "Monitoring pull request",
+            "keep watching PR #249"
+        ));
+        assert!(!is_usable_input_label(
+            "Instructing system to continue current task execution",
+            "keep watching PR #249",
+        ));
     }
 
     #[test]
