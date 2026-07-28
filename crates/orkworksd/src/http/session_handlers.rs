@@ -872,9 +872,9 @@ pub(crate) async fn create_session(
 
     let git_ctx = git::detect(&PathBuf::from(&cwd));
     let now = iso_now();
-    let info = SessionInfo {
+    let mut info = SessionInfo {
         id: id.clone(),
-        label: format!("Session {}", &id[..8]),
+        label: crate::session_types::placeholder_label(&id),
         harness_id: resolved_launch.session_harness_id.clone(),
         model_provider_id: resolved_launch.provider_id.clone(),
         model_id: resolved_launch.model.clone(),
@@ -946,6 +946,25 @@ pub(crate) async fn create_session(
                 tokio::time::Instant::now(),
             )
         });
+    // The initial prompt is written straight to the PTY (bypassing the
+    // keystroke-based label seeding in terminal_runtime.rs), so it never gets
+    // a chance at seeding the label there. Seed it here instead: the
+    // synchronous fallback below (so the title is never blank) plus Peon's
+    // topic-inference queue for the real, LLM-phrased topic (ADR 0029).
+    if let Some(prompt) = initial_prompt.as_deref() {
+        let label_line: String = prompt.chars().take(100).collect();
+        if peon::is_descriptive_input(&label_line) {
+            info.label = label_line.clone();
+            state
+                .peon
+                .label_hint
+                .write()
+                .unwrap()
+                .insert(id.clone(), label_line);
+            state.peon.label_pending.write().unwrap().insert(id.clone());
+        }
+    }
+
     let (runtime, control_rx) = crate::runtime::session_runtime::SessionRuntime::live(
         crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
         crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
@@ -3117,6 +3136,78 @@ mod tests {
                 .status(),
             axum::http::StatusCode::OK
         );
+    }
+
+    #[tokio::test]
+    async fn creation_with_descriptive_initial_prompt_queues_topic_inference() {
+        // The initial prompt bypasses terminal_runtime's keystroke-based label
+        // seeding entirely (it's written straight to the PTY), so session
+        // creation must seed the synchronous fallback and queue Peon's
+        // InputLabel pass (ADR 0029) rather than leaving the label stuck on
+        // its placeholder.
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let response = create_session(
+            State(state.clone()),
+            Json(CreateSessionRequest {
+                harness_id: Some("generic-shell".into()),
+                model: None,
+                initial_prompt: Some("fix the login redirect bug".into()),
+            }),
+        )
+        .await
+        .into_response();
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        let created_id = body["id"].as_str().unwrap().to_owned();
+        assert_eq!(body["label"], "fix the login redirect bug");
+
+        assert_eq!(
+            state.peon.label_hint.read().unwrap().get(&created_id),
+            Some(&"fix the login redirect bug".to_string())
+        );
+        assert!(state.peon.label_pending.read().unwrap().contains(&created_id));
+
+        let meta = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(&created_id)
+            .unwrap();
+        assert_eq!(meta.label, "fix the login redirect bug");
+    }
+
+    #[tokio::test]
+    async fn creation_with_non_descriptive_initial_prompt_does_not_queue_topic_inference() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let response = create_session(
+            State(state.clone()),
+            Json(CreateSessionRequest {
+                harness_id: Some("generic-shell".into()),
+                model: None,
+                initial_prompt: Some("y".into()),
+            }),
+        )
+        .await
+        .into_response();
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let created_id = serde_json::from_slice::<serde_json::Value>(&bytes).unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+
+        assert!(state.peon.label_hint.read().unwrap().get(&created_id).is_none());
+        assert!(!state.peon.label_pending.read().unwrap().contains(&created_id));
     }
 
     #[tokio::test]

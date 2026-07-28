@@ -1566,7 +1566,7 @@ mod tests {
     }
 
     #[test]
-    fn terminal_input_without_observed_status_records_label_and_marks_working() {
+    fn terminal_input_without_observed_status_marks_working_without_churning_seeded_label() {
         let dir = tempfile::tempdir().unwrap();
         let session_id = "terminal-input-without-observed-status";
         let state = test_state_with_runtime_session(session_id);
@@ -1602,7 +1602,9 @@ mod tests {
 
         let sessions = state.sessions.lock().unwrap();
         let handle = &sessions[session_id];
-        assert_eq!(handle.info.label, line);
+        // The label was already seeded ("Runtime Test" is not the creation
+        // placeholder) — further input must not churn it (ADR 0029).
+        assert_eq!(handle.info.label, "Runtime Test");
         assert_eq!(handle.info.attention.as_deref(), Some("working"));
         assert_eq!(handle.info.observed_status.as_deref(), Some("working"));
         drop(sessions);
@@ -1627,7 +1629,7 @@ mod tests {
             .metadata
             .read_session(session_id)
             .unwrap();
-        assert_eq!(meta.label, line);
+        assert_eq!(meta.label, "Runtime Test");
         assert_eq!(meta.last_user_input.as_deref(), Some(line));
         assert_eq!(meta.attention.as_deref(), Some("working"));
         assert_eq!(meta.observed_status.as_deref(), Some("working"));

@@ -212,6 +212,7 @@ Electron + React/TypeScript frontend (`apps/desktop/`) communicates with a Rust 
 - ADR 0024: Raw terminal replay is bounded to the newest 1,000 lines and 1 MiB; durable summary checkpoints live in the event log.
 - ADR 0025: Session-plan handoff uses a sidecar-scoped secret and Electron main-process path revalidation; the renderer never receives filesystem paths.
 - ADR 0026: Harness capabilities resolve from one immutable registry; integration mutations require Electron-main confirmation and sidecar-only authority.
+- ADR 0029: Session `label` (title) is a one-shot Peon-authored topic, decoupled from the turn-by-turn `summary`/checkpoint log; it is not part of the ADR 0005 metadata-source precedence system.
 
 **Rust module layout** (`crates/orkworksd/src/`):
 - `metadata.rs` — `SessionMetadata` and the on-disk metadata store (source of truth for session state)
@@ -241,7 +242,7 @@ See [`docs/agents/domain-entities.md`](docs/agents/domain-entities.md) for the c
 - Priority: user > agent > peon > backend_inference > process > unknown > debug
 - Peon reads terminal output, writes inferred metadata, never types into terminals
 - Detached runtimes continue draining terminal output, persisting history, and feeding Peon while `orkworksd` stays alive; losing the renderer terminal attachment alone must not end the session
-- Backend-only `GET /sessions/:id/summary-log` exposes checkpoints in append order as timestamp, summary, source, and nullable confidence; missing data returns `{ "entries": [] }`. There is no renderer/preload consumer.
+- `GET /sessions/:id/summary-log` exposes checkpoints in append order as timestamp, summary, source, and nullable confidence; missing data returns `{ "entries": [] }`. Rendered in the session detail panel as "Task history," distinct from the session's `label` (title), which is a stable, one-shot Peon-authored topic rather than this turn-by-turn activity log (ADR 0029).
 - Taskmaster consumes normalized metadata and proposes cross-session transitions; v1 requires explicit user approval for every action
 
 ## Key conventions from specs

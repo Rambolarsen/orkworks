@@ -34,6 +34,7 @@ orkworks/
 - Raw terminal replay is bounded to the newest 1,000 lines and 1 MiB; dead sessions display that saved output read-only, while accepted session summaries are retained as durable checkpoints (see [ADR 0024](docs/adr/0024-bounded-terminal-replay-durable-summary-checkpoints.md))
 - Session plans are opened only through an authenticated Electron-main-process handoff; the renderer receives availability, never a filesystem path (see [ADR 0025](docs/adr/0025-authenticated-session-plan-handoff.md))
 - Harness capabilities and workspace integration status resolve from one immutable registry; mutations require Electron-main confirmation and never expose mutation authority to the renderer or child processes (see [ADR 0026](docs/adr/0026-resolved-harness-capability-registry.md))
+- Session `label` (title) is a one-shot Peon-authored topic, decoupled from the turn-by-turn summary/checkpoint log (see [ADR 0029](docs/adr/0029-session-label-topic-vs-activity-summary.md))
 - Taskmaster consumes Peon reports and workspace context to propose the next session or user action
 - PTY handles only text I/O; voice (native harness) bypasses PTY entirely
 
@@ -54,7 +55,7 @@ All metadata lives under `~/.orkworks/` (see [ADR 0018](docs/adr/0018-global-met
 - Current session records expose the canonical `creating → alive → stopping → dead` lifecycle. Only alive sessions have attention: `working`, `idle`, `needs_you`, `blocked`, `failed`, or `capped`.
 - Peon reads terminal output, writes inferred metadata, never types into terminals
 - Harnesses can write deterministic attention signals at `agent` priority via `POST /sessions/:id/attention`; generic workspace integration installation is explicit and user-confirmed only ([ADR 0026](docs/adr/0026-resolved-harness-capability-registry.md))
-- The backend-only `GET /sessions/:id/summary-log` returns checkpoints in append order as `{entries: [{timestamp, summary, source, confidence}]}`; `confidence` is nullable and missing data returns `{entries: []}`. No renderer or preload consumer exists yet.
+- `GET /sessions/:id/summary-log` returns checkpoints in append order as `{entries: [{timestamp, summary, source, confidence}]}`; `confidence` is nullable and missing data returns `{entries: []}`. Rendered in the session detail panel as "Task history" — distinct from the session's `label` (title), which is a stable, one-shot Peon-authored topic rather than this turn-by-turn activity log (see [ADR 0029](docs/adr/0029-session-label-topic-vs-activity-summary.md))
 - Taskmaster proposes cross-session transitions; every v1 transition requires explicit user approval
 
 ## Setup
