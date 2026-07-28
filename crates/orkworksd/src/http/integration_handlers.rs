@@ -57,6 +57,84 @@ fn integration_error_response(error: IntegrationError) -> axum::response::Respon
     (status, Json(ErrorResponse { error: message })).into_response()
 }
 
+async fn with_revalidated_integration_target<R>(
+    state: &Arc<AppState>,
+    harness_id: &str,
+    action: impl FnOnce(
+        &ResolvedHarness,
+        &crate::WorkspaceState,
+        Option<&crate::harness::integration::DetectedTool>,
+    ) -> R,
+) -> Result<R, axum::response::Response> {
+    let workspace_path_at_start = {
+        let ws_guard = state.workspace.lock().unwrap();
+        let Some(ws) = ws_guard.as_ref() else {
+            return Err(integration_error_response(IntegrationError::NoWorkspace));
+        };
+        ws.path.clone()
+    };
+
+    let harness: ResolvedHarness = {
+        let registry = state
+            .harness_catalog
+            .read()
+            .expect("harness catalog lock poisoned");
+        let Some(harness) = registry.get(harness_id) else {
+            return Err((
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    error: format!("unknown harness id \"{harness_id}\""),
+                }),
+            )
+                .into_response());
+        };
+        harness.clone()
+    };
+
+    let detected_tool = crate::harness::detect::resolve_tool_gate(
+        &state.integration_probe_cache,
+        &harness.definition.id,
+        &harness.launch_command(),
+        harness.definition.min_version.as_ref(),
+    )
+    .await;
+
+    {
+        let registry = state
+            .harness_catalog
+            .read()
+            .expect("harness catalog lock poisoned");
+        match registry.get(harness_id) {
+            Some(current) if current.definition == harness.definition => {}
+            _ => {
+                return Err((
+                    StatusCode::CONFLICT,
+                    Json(ErrorResponse {
+                        error: "harness definition changed during this request; retry".into(),
+                    }),
+                )
+                    .into_response());
+            }
+        }
+    }
+
+    let ws_guard = state.workspace.lock().unwrap();
+    let Some(ref ws) = *ws_guard else {
+        return Err(integration_error_response(IntegrationError::NoWorkspace));
+    };
+    if ws.path != workspace_path_at_start {
+        return Err((
+            StatusCode::CONFLICT,
+            Json(ErrorResponse {
+                error: "workspace changed during this request; retry".into(),
+            }),
+        )
+            .into_response());
+    }
+
+    Ok(action(&harness, ws, detected_tool.as_ref()))
+}
+
 async fn run_integration_action(
     state: &Arc<AppState>,
     harness_id: &str,
@@ -807,6 +885,143 @@ mod tests {
         // background task past its own scope.
         let slow_response = slow_request.await.unwrap();
         assert_eq!(slow_response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn with_revalidated_integration_target_rejects_workspace_switch() {
+        use crate::harness::definition::{HarnessPatch, VersionRequirement};
+        use crate::test_support::{make_test_executable, swap_workspace, FakePath};
+
+        let dir = tempfile::tempdir().unwrap();
+        init_git_workspace_with_copilot_settings_ignored(dir.path());
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        let state = test_app_state_with_workspace(dir.path());
+
+        state
+            .harness_store
+            .mutate(&state.harness_catalog, |document| {
+                document.overrides.insert(
+                    "copilot".to_string(),
+                    HarnessPatch {
+                        min_version: Some(Some(VersionRequirement { min: (0, 0, 1) })),
+                        ..Default::default()
+                    },
+                );
+                Ok(())
+            })
+            .unwrap();
+
+        let fake_bin_dir = tempfile::tempdir().unwrap();
+        let bin_name = if cfg!(windows) {
+            "copilot.exe"
+        } else {
+            "copilot"
+        };
+        let bin = fake_bin_dir.path().join(bin_name);
+        std::fs::write(&bin, "#!/bin/sh\nexec sleep 30\n").unwrap();
+        make_test_executable(&bin);
+        let _fake_path = FakePath::prepend(fake_bin_dir.path());
+
+        let slow_state = state.clone();
+        let request = tokio::spawn(async move {
+            with_revalidated_integration_target(&slow_state, "copilot", |_h, _ws, _detected| {
+                StatusCode::OK
+            })
+            .await
+        });
+
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        let other_dir = tempfile::tempdir().unwrap();
+        swap_workspace(&state, other_dir.path());
+
+        let result = request.await.unwrap();
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().status(), StatusCode::CONFLICT);
+    }
+
+    #[tokio::test]
+    async fn with_revalidated_integration_target_rejects_harness_definition_change() {
+        use crate::harness::definition::{HarnessPatch, VersionRequirement};
+        use crate::test_support::{make_test_executable, FakePath};
+
+        let dir = tempfile::tempdir().unwrap();
+        init_git_workspace_with_copilot_settings_ignored(dir.path());
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        let state = test_app_state_with_workspace(dir.path());
+
+        state
+            .harness_store
+            .mutate(&state.harness_catalog, |document| {
+                document.overrides.insert(
+                    "copilot".to_string(),
+                    HarnessPatch {
+                        min_version: Some(Some(VersionRequirement { min: (0, 0, 1) })),
+                        ..Default::default()
+                    },
+                );
+                Ok(())
+            })
+            .unwrap();
+
+        let fake_bin_dir = tempfile::tempdir().unwrap();
+        let bin_name = if cfg!(windows) {
+            "copilot.exe"
+        } else {
+            "copilot"
+        };
+        let bin = fake_bin_dir.path().join(bin_name);
+        std::fs::write(&bin, "#!/bin/sh\nexec sleep 30\n").unwrap();
+        make_test_executable(&bin);
+        let _fake_path = FakePath::prepend(fake_bin_dir.path());
+
+        let slow_state = state.clone();
+        let request = tokio::spawn(async move {
+            with_revalidated_integration_target(&slow_state, "copilot", |_h, _ws, _detected| {
+                StatusCode::OK
+            })
+            .await
+        });
+
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        let mut changed_document = crate::harness::definition::HarnessUserDocument::default();
+        changed_document.overrides.insert(
+            "copilot".to_string(),
+            HarnessPatch {
+                min_version: Some(Some(VersionRequirement { min: (99, 0, 0) })),
+                ..Default::default()
+            },
+        );
+        let builtins = crate::harness::definition::BuiltinDocument::parse(
+            crate::harness::definition::EMBEDDED_BUILTINS,
+        )
+        .unwrap();
+        let changed_registry =
+            crate::harness::registry::resolve_document(&builtins, &changed_document).unwrap();
+        *state
+            .harness_catalog
+            .write()
+            .expect("harness catalog lock poisoned") = std::sync::Arc::new(changed_registry);
+
+        let result = request.await.unwrap();
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().status(), StatusCode::CONFLICT);
+    }
+
+    #[tokio::test]
+    async fn with_revalidated_integration_target_returns_harness_and_probe_data() {
+        let dir = tempfile::tempdir().unwrap();
+        init_git_workspace_with_claude_settings_ignored(dir.path());
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        let state = test_app_state_with_workspace(dir.path());
+
+        let result = with_revalidated_integration_target(&state, "claude-code", |h, _ws, _tool| {
+            h.definition.id.clone()
+        })
+        .await;
+        assert_eq!(result.unwrap(), "claude-code");
     }
 
     #[tokio::test]
