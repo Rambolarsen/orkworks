@@ -337,7 +337,7 @@ mod tests {
     use crate::metadata;
     use crate::test_support::*;
     use std::collections::{HashMap, HashSet};
-    use std::sync::atomic::AtomicU16;
+    use std::sync::atomic::{AtomicU16, AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex, RwLock};
 
     #[test]
@@ -807,6 +807,7 @@ mod tests {
         std::fs::create_dir_all(orkworks.join("events")).unwrap();
         let id = "label-pr-number-rejected".to_string();
         let fallback_label = "keep watching PR #249";
+        let call_counter = Arc::new(AtomicUsize::new(0));
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
@@ -851,9 +852,11 @@ mod tests {
                         override_state: None,
                     }],
                 },
-                vec![providers::FakeProvider::new("opencode").stdout(
-                    r#"{"status":"working","summary":"Monitoring pull request","confidence":0.85}"#,
-                )],
+                vec![providers::FakeProvider::new("opencode")
+                    .stdout(
+                        r#"{"status":"working","summary":"Monitoring pull request","confidence":0.85}"#,
+                    )
+                    .with_counter(call_counter.clone())],
             ),
         });
         let (kill_tx, _) = tokio::sync::watch::channel(false);
@@ -906,7 +909,18 @@ mod tests {
         state.peon.label_pending.write().unwrap().insert(id.clone());
 
         let task = tokio::spawn(peon_loop(state.clone()));
-        tokio::time::sleep(std::time::Duration::from_millis(2300)).await;
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                if call_counter.load(Ordering::SeqCst) == 1
+                    && !state.peon.in_flight.read().unwrap().contains(&id)
+                {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("input label inference should complete");
         task.abort();
 
         assert_eq!(
