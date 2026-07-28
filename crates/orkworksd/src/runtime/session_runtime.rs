@@ -1145,14 +1145,14 @@ mod tests {
     }
 
     #[test]
-    fn terminal_input_immediately_marks_live_session_working_without_pending_signal() {
+    fn submitted_terminal_input_immediately_marks_live_session_working_without_pending_signal() {
         let session_id = "terminal-input-work-signal";
         let state = test_state_with_runtime_session(session_id);
 
-        assert!(
-            crate::runtime::terminal_runtime::record_terminal_input(&state, session_id, "fix")
-                .is_none()
-        );
+        assert!(crate::runtime::terminal_runtime::record_terminal_input(
+            &state, session_id, "fix\r"
+        )
+        .is_some());
         let sessions = state.sessions.lock().unwrap();
         let handle = &sessions[session_id];
         assert_eq!(handle.info.attention.as_deref(), Some("working"));
@@ -1247,18 +1247,17 @@ mod tests {
     }
 
     #[test]
-    fn single_key_does_not_arm_when_needs_you_is_peon_sourced() {
+    fn bare_keystroke_preserves_peon_sourced_needs_you() {
         let session_id = "single-key-not-for-peon-needs-you";
         let state = test_state_with_runtime_session(session_id);
 
-        // Peon scraped the terminal and inferred needs_you; the metadata source
-        // is "peon", not "agent" — the narrow-scope gate must exclude it so
-        // shell-mode sessions where the terminal echoes each keystroke don't
-        // false-positive.
+        // A Peon-inferred prompt must remain visible while the user is still
+        // composing input.
         {
             let mut sessions = state.sessions.lock().unwrap();
             let handle = sessions.get_mut(session_id).unwrap();
             handle.info.attention = Some("needs_you".into());
+            handle.info.observed_status = Some("waiting_for_input".into());
             handle.info.metadata_source = Some("peon".into());
         }
 
@@ -1268,14 +1267,22 @@ mod tests {
         );
 
         let sessions = state.sessions.lock().unwrap();
+        assert_eq!(
+            sessions[session_id].info.attention.as_deref(),
+            Some("needs_you")
+        );
+        assert_eq!(
+            sessions[session_id].info.observed_status.as_deref(),
+            Some("waiting_for_input")
+        );
         assert!(
             sessions[session_id].pending_work_signal.is_none(),
-            "Peon-sourced needs_you must not arm via the single-key path"
+            "bare input must not create an output-gated working transition"
         );
     }
 
     #[test]
-    fn single_key_does_not_arm_when_active_work_hook_is_true() {
+    fn bare_keystroke_preserves_hook_sourced_needs_you() {
         let session_id = "single-key-not-for-capable-hook";
         let state = test_state_with_runtime_session(session_id);
 
@@ -1284,6 +1291,7 @@ mod tests {
             let handle = sessions.get_mut(session_id).unwrap();
             handle.active_work_hook = true;
             handle.info.attention = Some("needs_you".into());
+            handle.info.observed_status = Some("waiting_for_input".into());
             handle.info.metadata_source = Some("agent".into());
         }
 
@@ -1293,14 +1301,22 @@ mod tests {
         );
 
         let sessions = state.sessions.lock().unwrap();
+        assert_eq!(
+            sessions[session_id].info.attention.as_deref(),
+            Some("needs_you")
+        );
+        assert_eq!(
+            sessions[session_id].info.observed_status.as_deref(),
+            Some("waiting_for_input")
+        );
         assert!(
             sessions[session_id].pending_work_signal.is_none(),
-            "capable-hook sessions must not arm via the single-key path (hook-driven only)"
+            "bare input must not create an output-gated working transition"
         );
     }
 
     #[tokio::test]
-    async fn single_key_at_hook_sourced_needs_you_is_working_before_visible_output() {
+    async fn submitted_input_at_hook_sourced_needs_you_is_working_before_visible_output() {
         let dir = tempfile::tempdir().unwrap();
         let session_id = "single-key-e2e-promote";
         let state = test_state_with_runtime_session(session_id);
@@ -1341,11 +1357,11 @@ mod tests {
             ws.as_ref().unwrap().metadata.write_session(&meta);
         }
 
-        // Accepted input is sufficient evidence of resumed work; no PTY output
-        // is needed to clear the prompt.
+        // An accepted submitted line is sufficient evidence of resumed work;
+        // no PTY output is needed to clear the prompt.
         assert!(
-            crate::runtime::terminal_runtime::record_terminal_input(&state, session_id, "y")
-                .is_none()
+            crate::runtime::terminal_runtime::record_terminal_input(&state, session_id, "y\r")
+                .is_some()
         );
 
         {
@@ -1725,7 +1741,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn partial_hookless_terminal_input_immediately_promotes_memory_and_metadata() {
+    async fn partial_hookless_terminal_input_does_not_promote_before_submission() {
         let dir = tempfile::tempdir().unwrap();
         let session_id = "runtime-hookless-working";
         let state = test_state_with_runtime_session(session_id);
@@ -1824,8 +1840,8 @@ mod tests {
                 .info
                 .observed_status
                 .as_deref(),
-            Some("working"),
-            "accepted partial terminal input immediately marks the session working"
+            None,
+            "accepted partial terminal input must not mark the session working before Enter"
         );
 
         assert!(crate::runtime::terminal_runtime::record_terminal_input(
