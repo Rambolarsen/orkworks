@@ -10,9 +10,11 @@ This is limited to the `InputLabel` Peon inference path. It does not add label e
 
 ## Design
 
-The Peon prompt will distinguish its normal terminal-output summary from a topic generated for `[User input]`. For input labels, it must name the requested task or artifact in a concise present-tense phrase, preserving an explicit PR number. It must not describe the control interaction or the coding tool, such as “instructing system”, “continuing task execution”, or “user asked”.
+The Peon prompt will distinguish its normal terminal-output summary from a topic generated for `[User input]`. For input labels, it must name the requested task or artifact in a concise present-tense phrase, preserving an explicit PR number. It must not describe the control interaction or the coding tool, such as “instructing system”, “continuing task execution”, or “user asked”. Normal terminal-output inference remains unchanged.
 
-The sidecar will independently reject inferred labels that are blank or consist of those generic control phrases. A rejected inference leaves the immediately-seeded typed-input label in place. This is a defensive fallback for an LLM response that does not follow the prompt; it does not attempt to synthesize a replacement label.
+The sidecar will independently validate inferred input labels before replacing the synchronous fallback. It rejects blank labels and a normalized, case-insensitive label that either starts with `instructing system`, `instructing the system`, `instructing agent`, or `instructing the agent`, or contains `current task execution`. Normalization lowercases and collapses non-alphanumeric separators to one space. These narrow rules reject the observed failure without suppressing task names that happen to mention an instruction.
+
+The validator also extracts every explicit pull-request reference in the input (`PR #<digits>` or `pull request #<digits>`, case-insensitive). When one or more are present, an inferred replacement must contain each corresponding `#<digits>`; otherwise it is rejected. A rejected inference leaves the immediately-seeded, raw typed-input label in place. This is a defensive fallback for an LLM response that does not follow the prompt; it does not attempt to synthesize a replacement label.
 
 Examples:
 
@@ -22,7 +24,7 @@ Examples:
 
 ## Testing
 
-Unit tests will pin the prompt’s PR-aware label instruction and the deterministic rejection of generic meta-instruction labels. The existing runtime test will prove that a rejected inference preserves the fallback label in memory and persisted metadata.
+Unit tests will pin the prompt’s PR-aware label instruction plus table-test the validator’s normalization, generic-label rejection, and PR-number-preservation invariant. A workspace-backed runtime test will prove that a rejected label which drops `#249` preserves the fallback in both live `SessionInfo` and persisted `SessionMetadata`.
 
 ## Error handling
 
