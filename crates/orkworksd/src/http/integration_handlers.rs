@@ -92,8 +92,6 @@ async fn with_revalidated_integration_target<R>(
     };
 
     let detected_tool = crate::harness::detect::resolve_tool_gate(
-        &state.integration_probe_cache,
-        &harness.definition.id,
         &harness.launch_command(),
         harness.definition.min_version.as_ref(),
     )
