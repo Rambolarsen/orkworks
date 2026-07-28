@@ -56,6 +56,7 @@ function SessionDetailPanel({ sessions, activeSessionId, onResumeSession, onAppl
   useEffect(() => {
     if (!active) return;
     let nextRefresh = nextRelativeTimeRefreshMs(active.peonLastInference, now);
+    nextRefresh = minDelay(nextRefresh, nextRelativeTimeRefreshMs(active.lastActivityAt, now));
     nextRefresh = minDelay(nextRefresh, nextRelativeTimeRefreshMs(active.created_at, now));
     if (nextRefresh === null) return;
     const timeout = window.setTimeout(() => setNow(new Date()), nextRefresh);
@@ -125,7 +126,7 @@ function SessionDetailPanel({ sessions, activeSessionId, onResumeSession, onAppl
             <StatusIndicator tone={tone} label={attentionLabel(attn)} />
             {badgeText}
           </span>
-          <span className="detail-situation-time">{relativeTime(active.peonLastInference, now) || relativeTime(active.created_at, now)}</span>
+          <span className="detail-situation-time">{relativeTime(active.lastActivityAt, now) || relativeTime(active.created_at, now)}</span>
         </div>
         <div className="detail-headline">{headline}</div>
         {tail && (

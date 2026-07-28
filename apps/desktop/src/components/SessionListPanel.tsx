@@ -10,9 +10,10 @@ import {
   attentionLabel,
   attentionTone,
   isLoudTone,
+  lastActivity,
+  lastActivityTimestamp,
   minDelay,
   nextRelativeTimeRefreshMs,
-  relativeTime,
 } from "../labels";
 import EmptyState from "./EmptyState";
 import StatusIndicator from "./StatusIndicator";
@@ -29,14 +30,6 @@ interface SessionListPanelProps {
   onForgetSession: (id: string) => void;
   onFocusTerminal: () => void;
   onOpenWorkspace: () => void;
-}
-
-function lastActivity(s: SessionInfo, now: Date): string {
-  return relativeTime(s.lastActivityAt ?? s.peonLastInference, now) || relativeTime(s.created_at, now);
-}
-
-function lastActivityTimestamp(s: SessionInfo): string | undefined {
-  return s.lastActivityAt ?? s.peonLastInference ?? s.created_at;
 }
 
 function SessionListPanel({

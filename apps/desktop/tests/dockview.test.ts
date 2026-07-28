@@ -302,8 +302,11 @@ test("session rows derive tone from sessionAttentionStatus, no component-local l
 });
 
 test("SessionListPanel displays canonical session activity when present", () => {
+  // lastActivity/lastActivityTimestamp moved to labels.ts (shared with
+  // SessionDetailPanel) so they're unit-testable without a JSX-parsing
+  // runtime; see labels.test.ts for behavioral coverage.
   const source = readFileSync(
-    new URL("../src/components/SessionListPanel.tsx", import.meta.url),
+    new URL("../src/labels.ts", import.meta.url),
     "utf8",
   );
 
