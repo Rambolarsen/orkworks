@@ -67,11 +67,12 @@ impl VersionProbeCache {
         } else {
             negative_ttl
         };
-        let expires_at = now + ttl;
+        let completed_at = Instant::now();
+        let expires_at = completed_at + ttl;
 
         if self.generation.load(Ordering::SeqCst) == generation {
             let mut entries = self.entries.lock().unwrap();
-            prune_entries(&mut entries, generation, now);
+            prune_entries(&mut entries, generation, completed_at);
             entries.insert(
                 key,
                 VersionProbeCacheEntry {
@@ -227,6 +228,48 @@ mod tests {
         assert_eq!(first, None);
         assert_eq!(second, None);
         assert_eq!(third.as_deref(), Some("copilot-cli 1.2.3"));
+    }
+
+    #[tokio::test]
+    async fn starts_negative_ttl_after_the_probe_completes() {
+        let cache = VersionProbeCache::new();
+        let calls = Arc::new(AtomicUsize::new(0));
+
+        let first = cache
+            .probe_or_get(
+                key(),
+                Instant::now(),
+                Duration::from_secs(30),
+                Duration::from_millis(10),
+                {
+                    let calls = calls.clone();
+                    move || async move {
+                        calls.fetch_add(1, Ordering::SeqCst);
+                        tokio::time::sleep(Duration::from_millis(20)).await;
+                        None
+                    }
+                },
+            )
+            .await;
+        let second = cache
+            .probe_or_get(
+                key(),
+                Instant::now(),
+                Duration::from_secs(30),
+                Duration::from_millis(10),
+                {
+                    let calls = calls.clone();
+                    move || async move {
+                        calls.fetch_add(1, Ordering::SeqCst);
+                        Some("ignored".into())
+                    }
+                },
+            )
+            .await;
+
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(first, None);
+        assert_eq!(second, None);
     }
 
     #[tokio::test]
