@@ -6,7 +6,7 @@ Prevent ordinary terminal keystrokes from marking a session as `working`, while 
 
 ## Scope
 
-The sidecar currently treats accepted bare input as enough evidence to transition a session to `working` for harnesses without an active-work hook. Remove that exception. Every accepted input frame will still update input bookkeeping, labels, and idle-timer boundaries; only a frame containing an Enter line terminator outside bracketed paste may perform the process-sourced working transition.
+The sidecar currently treats accepted bare input as enough evidence to transition a session to `working` for harnesses without an active-work hook. Remove that exception. Every accepted input frame will still update input bookkeeping and idle-timer boundaries; completed lines retain the existing label and last-user-input updates. Only a frame containing an Enter line terminator outside bracketed paste may perform the process-sourced working transition.
 
 An empty Enter remains a submission: it can accept a harness prompt's default response and therefore may mark the session as `working`.
 
@@ -26,4 +26,6 @@ Rejected or dropped input continues to have no metadata effects. Bracketed-paste
 
 ## Testing
 
-Add a regression test proving a bare keystroke leaves an idle, no-active-hook session idle while advancing the accepted-input bookkeeping. Retain or add coverage that an accepted Enter transition still changes the same session to `working`, including an empty Enter.
+Add a regression test proving a bare keystroke leaves an idle, no-active-hook session idle in both the live handle and persisted metadata while advancing `input_generation`, `accepted_input_at`, `min_peon_output_revision`, and the Peon idle baseline. Retain or add coverage that an accepted Enter transition still changes the same session to `working`, including an empty Enter.
+
+Replace legacy assertions that a bare keystroke enters `working` with the new unchanged-status assertion. In `terminal_runtime.rs`, revise the single-key prompt-transition test and make the first input in the already-working bookkeeping test newline-terminated. In `session_runtime.rs`, update the direct terminal-input and hook-sourced needs-you tests to submit a newline-terminated input and rename them to reflect submission rather than a single key.
