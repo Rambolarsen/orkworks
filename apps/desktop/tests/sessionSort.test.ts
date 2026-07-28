@@ -56,6 +56,15 @@ test("sortSessions ranks actionable alive sessions before working, idle, and dea
   assert.deepEqual(ordered.map((item) => item.id), ["needs-you", "failed", "working", "idle", "dead"]);
 });
 
+test("sortSessions breaks attention ties by most recent activity, not label", () => {
+  const stale = { ...session("4Seems the branch", "alive", "idle"), lastActivityAt: "2026-07-28T08:00:00.000Z" };
+  const recent = { ...session("keep going", "alive", "idle"), lastActivityAt: "2026-07-28T21:00:00.000Z" };
+
+  const ordered = sortSessions([stale, recent]);
+
+  assert.deepEqual(ordered.map((item) => item.id), ["keep going", "4Seems the branch"]);
+});
+
 test("mergeSessionsById keeps one row when a creation response repeats a polled session", () => {
   const existing = session("existing", "alive");
   const polledNew = session("new", "alive");
