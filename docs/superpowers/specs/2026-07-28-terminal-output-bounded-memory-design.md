@@ -22,7 +22,7 @@ Unreadable terminal files continue to yield no replay output and no trim mutatio
 
 ## Testing
 
-Add metadata-store tests using a file with many short lines and a small requested tail. The tests verify that reads return the correct newest lines and trimming writes only the bounded tail while retaining byte-budget behavior. Existing terminal-output limit tests remain unchanged and must pass.
+Add metadata-store tests using a file with many short lines and a small requested tail. The tests verify that reads return the correct newest lines, use sequential buffered scanning with a deque capped at `max_lines`, and leave an oversized dormant file byte-for-byte unchanged. Trim tests verify that rewriting keeps only the bounded tail while preserving the separate 1 MiB read budget and 768 KiB trim target. Existing terminal-output limit tests remain unchanged and must pass.
 
 ## Constraints
 
