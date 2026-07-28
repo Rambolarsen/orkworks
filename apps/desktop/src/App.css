@@ -676,6 +676,10 @@ html, body, #root {
   justify-content: flex-end;
   gap: 0;
   flex-shrink: 0;
+  /* Fixed so the kill (×) vs forget (trash) glyph — whichever the
+     lifecycle renders, or neither for creating/stopping — never shifts
+     the tool icon/timestamp column that sits to its left. */
+  width: 20px;
 }
 
 .session-row-label {
