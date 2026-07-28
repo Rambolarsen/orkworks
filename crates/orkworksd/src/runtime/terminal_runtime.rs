@@ -1208,6 +1208,9 @@ mod tests {
             .write()
             .unwrap()
             .insert(session_id.to_string(), stale);
+        let prior_generation = state.sessions.lock().unwrap()[session_id]
+            .runtime
+            .input_generation;
 
         assert_eq!(record_terminal_input(&state, session_id, "y"), None);
 
@@ -1215,7 +1218,7 @@ mod tests {
         let handle = &sessions[session_id];
         assert_eq!(handle.info.attention.as_deref(), Some("idle"));
         assert_eq!(handle.info.observed_status.as_deref(), Some("idle"));
-        assert_eq!(handle.runtime.input_generation, 1);
+        assert_eq!(handle.runtime.input_generation, prior_generation + 1);
         assert!(handle.runtime.accepted_input_at.is_some());
         assert_eq!(handle.runtime.min_peon_output_revision, 7);
         drop(sessions);
