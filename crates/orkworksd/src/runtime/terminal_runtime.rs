@@ -408,23 +408,12 @@ fn record_terminal_input_impl(
 fn is_placeholder_label(label: &str, id: &str) -> bool {
     label == crate::session_types::placeholder_label(id)
 }
-
-/// A bare keystroke (no completed line yet) is only strong enough evidence of
-/// resumed work when the harness has no active work hook — which is the real
-/// source of truth for it instead — and the current prompt isn't Peon's own
-/// guess. An ordinary shell session echoes every keystroke, so a lone key
-/// there can't be told apart from someone still typing a longer command.
-fn bare_keystroke_is_trusted(active_work_hook: bool, metadata_source: Option<&str>) -> bool {
-    !active_work_hook && metadata_source != Some("peon")
-}
-
 /// Caller contract, not enforced here: only call this for a non-empty frame
 /// whose delivery to the PTY was actually accepted. `line_completed` is
-/// whether this frame finished a submitted line (`\r`/`\n` seen) — that's
-/// definitive submission evidence and always commits the working transition.
-/// Short of that, see `bare_keystroke_is_trusted`. Every accepted frame still
-/// advances the invalidation boundary and idle baseline below, whether or not
-/// it commits.
+/// whether this frame finished a submitted line (`\r`/`\n` seen outside
+/// bracketed paste). Only submitted input commits the working transition.
+/// Every accepted frame still advances the invalidation boundary and idle
+/// baseline below, whether or not it commits.
 fn mark_committed_input_working(
     state: &Arc<AppState>,
     id: &str,
@@ -447,23 +436,7 @@ fn mark_committed_input_working(
         && handle.info.detected_question.is_none()
         && handle.info.suggested_options.is_none()
         && handle.pending_work_signal.is_none();
-    // Skip the disambiguation (and its disk read below) entirely once the
-    // session is already working — that path takes the bookkeeping-only
-    // branch below regardless of commit_working, so steady-state typing
-    // must not pay for a filesystem read on every keystroke.
-    let commit_working = !already_working
-        && (line_completed
-            || (!handle.active_work_hook && {
-                // Peon persists its inferred metadata_source straight to disk and
-                // never mirrors it back into the live handle (only `label` gets
-                // synced there), so the persisted record — not `handle.info` — is
-                // the only place a "peon"-sourced prompt is actually visible.
-                let source = match ws_guard.as_ref() {
-                    Some(ws) => ws.metadata.read_session(id).map(|m| m.metadata_source),
-                    None => handle.info.metadata_source.clone(),
-                };
-                bare_keystroke_is_trusted(handle.active_work_hook, source.as_deref())
-            }));
+    let commit_working = !already_working && line_completed;
     let Some(next_generation) = handle.runtime.input_generation.checked_add(1) else {
         tracing::warn!(session_id = %id, "input generation overflow");
         return;
@@ -1200,13 +1173,74 @@ mod tests {
     }
 
     #[test]
-    fn committed_single_key_immediately_clears_prompt_to_working() {
-        let session_id = "committed-single-key";
+    fn bare_keystroke_preserves_idle_session_status_while_refreshing_bookkeeping() {
+        let session_id = "bare-keystroke-idle";
         let (state, _dir) = prompted_session_state(session_id);
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut(session_id).unwrap();
+            handle.info.attention = Some("idle".into());
+            handle.info.observed_status = Some("idle".into());
+            handle.info.needs_user_input = None;
+            handle.info.detected_question = None;
+            handle.info.suggested_options = None;
+            handle.runtime.peon_output_revision = 7;
+        }
+        {
+            let ws = state.workspace.lock().unwrap();
+            let mut meta = ws
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(session_id)
+                .unwrap();
+            meta.attention = Some("idle".into());
+            meta.observed_status = Some("idle".into());
+            meta.needs_user_input = None;
+            meta.detected_question = None;
+            meta.suggested_options = None;
+            ws.as_ref().unwrap().metadata.write_session(&meta);
+        }
+        let stale = tokio::time::Instant::now() - std::time::Duration::from_secs(600);
+        state
+            .peon
+            .last_output
+            .write()
+            .unwrap()
+            .insert(session_id.to_string(), stale);
 
         assert_eq!(record_terminal_input(&state, session_id, "y"), None);
 
-        assert_prompt_is_cleared_as_working(&state, session_id);
+        let sessions = state.sessions.lock().unwrap();
+        let handle = &sessions[session_id];
+        assert_eq!(handle.info.attention.as_deref(), Some("idle"));
+        assert_eq!(handle.info.observed_status.as_deref(), Some("idle"));
+        assert_eq!(handle.runtime.input_generation, 1);
+        assert!(handle.runtime.accepted_input_at.is_some());
+        assert_eq!(handle.runtime.min_peon_output_revision, 7);
+        drop(sessions);
+        assert!(
+            *state
+                .peon
+                .last_output
+                .read()
+                .unwrap()
+                .get(session_id)
+                .unwrap()
+                > stale,
+            "accepted bare input must refresh the idle baseline"
+        );
+        let meta = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(session_id)
+            .unwrap();
+        assert_eq!(meta.attention.as_deref(), Some("idle"));
+        assert_eq!(meta.observed_status.as_deref(), Some("idle"));
     }
 
     #[test]
@@ -1283,36 +1317,15 @@ mod tests {
     }
 
     #[test]
-    fn committed_single_key_leaves_disk_only_peon_sourced_prompt_for_the_next_poll() {
-        // Mirrors production: Peon persists metadata_source to disk only,
-        // never into the live handle (only `label` is synced there). The
-        // gate must consult the persisted record, or this exclusion never
-        // actually fires against real data.
-        let session_id = "committed-peon-disk-only";
+    fn bare_keystroke_leaves_prompt_for_the_next_poll() {
+        let session_id = "bare-keystroke-prompt";
         let (state, _dir) = prompted_session_state(session_id);
-        // In-memory metadata_source stays "agent" (from prompted_session_state)
-        // — production never rewrites it to "peon".
-        {
-            let ws = state.workspace.lock().unwrap();
-            let mut meta = ws
-                .as_ref()
-                .unwrap()
-                .metadata
-                .read_session(session_id)
-                .unwrap();
-            meta.metadata_source = "peon".into();
-            ws.as_ref().unwrap().metadata.write_session(&meta);
-        }
 
         assert_eq!(record_terminal_input(&state, session_id, "y"), None);
 
         let info = state.sessions.lock().unwrap()[session_id].info.clone();
         assert_eq!(info.attention.as_deref(), Some("needs_you"));
-        assert_eq!(
-            info.metadata_source.as_deref(),
-            Some("agent"),
-            "in-memory metadata_source is untouched by this path; only the disk record carries \"peon\""
-        );
+        assert_eq!(info.observed_status.as_deref(), Some("waiting_for_input"));
     }
 
     #[test]
@@ -1333,7 +1346,7 @@ mod tests {
             .get(session_id)
             .unwrap();
 
-        record_terminal_input(&state, session_id, "y");
+        record_terminal_input(&state, session_id, "y\r");
 
         let refreshed = *state
             .peon
@@ -1354,7 +1367,7 @@ mod tests {
         let session_id = "already-working-skip";
         let (state, _dir) = prompted_session_state(session_id);
         // First input performs the real transition to working.
-        record_terminal_input(&state, session_id, "y");
+        record_terminal_input(&state, session_id, "y\r");
         assert_prompt_is_cleared_as_working(&state, session_id);
         {
             let mut sessions = state.sessions.lock().unwrap();
