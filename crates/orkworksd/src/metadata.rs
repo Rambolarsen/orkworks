@@ -3328,6 +3328,48 @@ mod tests {
     }
 
     #[test]
+    fn terminal_output_read_keeps_oversized_dormant_file_unchanged() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let path = store.terminal_output_path("dormant-session");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let payload = "x".repeat(1_024);
+        let original = (0..1_500)
+            .map(|index| format!("line-{index}-{payload}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+            + "\n";
+        fs::write(&path, &original).unwrap();
+
+        let replay = store.read_terminal_output("dormant-session", 3);
+
+        assert_eq!(
+            replay,
+            vec![
+                format!("line-1497-{payload}"),
+                format!("line-1498-{payload}"),
+                format!("line-1499-{payload}"),
+            ],
+        );
+        assert_eq!(fs::read_to_string(path).unwrap(), original);
+    }
+
+    #[test]
+    fn terminal_output_tail_keeps_only_newest_lines_before_byte_trimming() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("history.terminal");
+        fs::write(&path, "zero\none\ntwo\nthree\nfour\n").unwrap();
+
+        let tail = read_terminal_output_tail(&path, 3, 1_024).unwrap();
+
+        assert!(tail.discarded);
+        assert_eq!(
+            tail.lines.into_iter().collect::<Vec<_>>(),
+            vec!["two", "three", "four"],
+        );
+    }
+
+    #[test]
     fn terminal_output_retain_start_prefers_byte_budget_over_line_count() {
         // Large records (as produced by the 64 KiB partial-persist cap) must
         // trim on byte budget even when well under the line-count limit.
