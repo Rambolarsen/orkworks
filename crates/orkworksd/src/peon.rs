@@ -336,6 +336,31 @@ fn explicit_pr_numbers(text: &str) -> Vec<String> {
     numbers
 }
 
+fn referenced_pr_numbers(text: &str) -> Vec<String> {
+    let bytes = text.as_bytes();
+    let mut numbers = Vec::new();
+    let mut index = 0;
+
+    while index < bytes.len() {
+        if bytes[index] != b'#' {
+            index += 1;
+            continue;
+        }
+
+        let digits_start = index + 1;
+        let mut digits_end = digits_start;
+        while digits_end < bytes.len() && bytes[digits_end].is_ascii_digit() {
+            digits_end += 1;
+        }
+        if digits_end > digits_start {
+            numbers.push(text[digits_start..digits_end].to_string());
+        }
+        index = digits_end.max(digits_start);
+    }
+
+    numbers
+}
+
 fn normalize_generic_instruction(label: &str) -> String {
     label
         .chars()
@@ -370,7 +395,7 @@ pub fn is_usable_input_label(label: &str, input_hint: &str) -> bool {
         && !normalized.contains("current task execution")
         && explicit_pr_numbers(input_hint)
             .iter()
-            .all(|number| explicit_pr_numbers(label).contains(number))
+            .all(|number| referenced_pr_numbers(label).contains(number))
 }
 
 /// Detects usage limit in a raw text blob (for TUI apps that use cursor positioning, not newlines).
@@ -1145,6 +1170,7 @@ mod tests {
     fn input_label_validator_rejects_generic_instruction_forms() {
         let cases = [
             ("Monitoring PR #249", "keep watching PR #249", true),
+            ("Monitoring #249", "keep watching PR #249", true),
             ("Monitoring pull request", "keep watching PR #249", false),
             ("Instructing system to review PR #249", "review PR #249", false),
             (
