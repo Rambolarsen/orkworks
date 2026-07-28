@@ -1376,12 +1376,19 @@ impl MetadataStore {
         // chatter (TUI redraws, spinner frames), so it can conclude the same
         // situation repeatedly. Only bump `last_activity` when the inference
         // actually changes the observed situation — otherwise an idle session
-        // whose TUI keeps repainting would show "just now" forever.
+        // whose TUI keeps repainting would show "just now" forever. The fields
+        // compared here are exactly the ones that drive the situation hero
+        // (situationHeadline/situationTail in labels.ts).
         let situation_before = (
             meta.observed_status.clone(),
             meta.work_phase.clone(),
             meta.summary.clone(),
             meta.next_action.clone(),
+            meta.detected_question.clone(),
+            meta.blocker_description.clone(),
+            meta.suggested_options.clone(),
+            meta.failed_command.clone(),
+            meta.failed_test.clone(),
         );
 
         meta.observed_status = inf.observed_status.clone().or(meta.observed_status);
@@ -1434,6 +1441,11 @@ impl MetadataStore {
             meta.work_phase.clone(),
             meta.summary.clone(),
             meta.next_action.clone(),
+            meta.detected_question.clone(),
+            meta.blocker_description.clone(),
+            meta.suggested_options.clone(),
+            meta.failed_command.clone(),
+            meta.failed_test.clone(),
         );
         if situation_after != situation_before {
             meta.last_activity = timestamp.to_string();
@@ -1832,6 +1844,51 @@ mod tests {
             .unwrap();
         let after_third = store.read_session(id).unwrap();
         assert_eq!(after_third.last_activity, "t3");
+    }
+
+    #[test]
+    fn merge_peon_inference_bumps_last_activity_when_only_the_detected_question_changes() {
+        // observed_status/summary/next_action can stay identical while a fresh
+        // question appears — that's still a change to the situation hero
+        // (situationHeadline prefers detectedQuestion first), so it must count
+        // as activity even though the other fields didn't move.
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let id = "peon-new-question";
+        store.write_session(&test_metadata(id));
+
+        let inf = crate::peon::PeonInference {
+            observed_status: Some("waiting_for_input".into()),
+            phase: None,
+            summary: Some("Same summary".into()),
+            next_action: None,
+            needs_user_input: Some(true),
+            detected_question: Some("Proceed with A or B?".into()),
+            suggested_options: Some(vec!["A".into(), "B".into()]),
+            blocker_description: None,
+            failed_command: None,
+            failed_test: None,
+            capacity_hints: None,
+            confidence: 0.8,
+            detected_harness: None,
+            detected_model: None,
+            harness_session_id: None,
+        };
+        store.merge_peon_inference(id, &inf, "t1", None).unwrap();
+        assert_eq!(store.read_session(id).unwrap().last_activity, "t1");
+
+        let inf2 = crate::peon::PeonInference {
+            detected_question: Some("Proceed with C or D?".into()),
+            suggested_options: Some(vec!["C".into(), "D".into()]),
+            ..inf
+        };
+        store.merge_peon_inference(id, &inf2, "t2", None).unwrap();
+        let updated = store.read_session(id).unwrap();
+        assert_eq!(
+            updated.last_activity, "t2",
+            "a new detected question is a real situation change even when status/summary repeat"
+        );
+        assert_eq!(updated.detected_question.as_deref(), Some("Proceed with C or D?"));
     }
 
     #[cfg(unix)]
