@@ -1372,6 +1372,18 @@ impl MetadataStore {
             }
             return Ok(());
         }
+        // Peon reruns on any new PTY output, including non-substantive terminal
+        // chatter (TUI redraws, spinner frames), so it can conclude the same
+        // situation repeatedly. Only bump `last_activity` when the inference
+        // actually changes the observed situation — otherwise an idle session
+        // whose TUI keeps repainting would show "just now" forever.
+        let situation_before = (
+            meta.observed_status.clone(),
+            meta.work_phase.clone(),
+            meta.summary.clone(),
+            meta.next_action.clone(),
+        );
+
         meta.observed_status = inf.observed_status.clone().or(meta.observed_status);
         if meta.lifecycle == "alive" {
             meta.attention = canonical_attention(meta.observed_status.as_deref());
@@ -1417,7 +1429,15 @@ impl MetadataStore {
             }
         }
 
-        meta.last_activity = timestamp.to_string();
+        let situation_after = (
+            meta.observed_status.clone(),
+            meta.work_phase.clone(),
+            meta.summary.clone(),
+            meta.next_action.clone(),
+        );
+        if situation_after != situation_before {
+            meta.last_activity = timestamp.to_string();
+        }
         meta.peon_last_inference = Some(timestamp.to_string());
         meta.metadata_source = "peon".into();
         meta.metadata_confidence = inf.confidence;
@@ -1774,6 +1794,44 @@ mod tests {
         assert_eq!(checkpoints[0].confidence, Some(0.81));
         assert_eq!(checkpoints[1].confidence, Some(0.83));
         assert_eq!(checkpoints[2].confidence, Some(0.84));
+    }
+
+    #[test]
+    fn merge_peon_inference_does_not_bump_last_activity_when_situation_is_unchanged() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let id = "peon-unchanged-situation";
+        store.write_session(&test_metadata(id));
+
+        store
+            .merge_peon_inference(id, &peon_inference_with_summary(Some("Same"), 0.8), "t1", None)
+            .unwrap();
+        let after_first = store.read_session(id).unwrap();
+        assert_eq!(after_first.last_activity, "t1");
+        assert_eq!(after_first.peon_last_inference.as_deref(), Some("t1"));
+
+        // Peon reruns (e.g. on non-substantive TUI redraw output) and reaches
+        // the same conclusion. This must not count as new activity.
+        store
+            .merge_peon_inference(id, &peon_inference_with_summary(Some("Same"), 0.9), "t2", None)
+            .unwrap();
+        let after_second = store.read_session(id).unwrap();
+        assert_eq!(
+            after_second.last_activity, "t1",
+            "last_activity should not advance when the inference produced no new signal"
+        );
+        assert_eq!(
+            after_second.peon_last_inference.as_deref(),
+            Some("t2"),
+            "peon_last_inference should still record that Peon looked again"
+        );
+
+        // A genuinely new conclusion still advances last_activity.
+        store
+            .merge_peon_inference(id, &peon_inference_with_summary(Some("Different"), 0.9), "t3", None)
+            .unwrap();
+        let after_third = store.read_session(id).unwrap();
+        assert_eq!(after_third.last_activity, "t3");
     }
 
     #[cfg(unix)]

@@ -199,6 +199,19 @@ export function nextRelativeTimeRefreshMs(
   return delayUntil(t + (nextDisplaySecond - 0.5) * SECOND_MS, nowMs);
 }
 
+// lastActivityAt only advances when the backend observes a genuine change in
+// session situation; peonLastInference advances on every Peon tick, including
+// ones that reach the same conclusion (e.g. non-substantive TUI redraw output),
+// so it takes priority but peonLastInference remains a fallback for sessions
+// predating this field.
+export function lastActivity(s: SessionInfo, now: Date = new Date()): string {
+  return relativeTime(s.lastActivityAt ?? s.peonLastInference, now) || relativeTime(s.created_at, now);
+}
+
+export function lastActivityTimestamp(s: SessionInfo): string | undefined {
+  return s.lastActivityAt ?? s.peonLastInference ?? s.created_at;
+}
+
 /** Distilled "what's going on" sentence for the Detail panel's situation hero. */
 export function situationHeadline(session: SessionInfo): string {
   return (

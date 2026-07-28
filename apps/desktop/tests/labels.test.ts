@@ -6,6 +6,8 @@ import {
   attentionLabel,
   attentionTone,
   detailActionZone,
+  lastActivity,
+  lastActivityTimestamp,
   lifecyclePhaseLabel,
   memoryStateLabel,
   nextRelativeTimeRefreshMs,
@@ -124,6 +126,25 @@ test("relativeTime buckets recent timestamps into human-readable spans", () => {
   assert.equal(relativeTime("2026-06-17T12:00:00Z", now), "2d ago");
   assert.equal(relativeTime(undefined, now), "");
   assert.equal(relativeTime("not-a-date", now), "");
+});
+
+test("lastActivity prefers lastActivityAt over peonLastInference", () => {
+  const now = new Date("2026-06-19T13:00:00Z");
+  // peonLastInference advances on every Peon tick even without real session
+  // activity, so it must not drive the displayed "last updated" time.
+  const session = baseSession({
+    peonLastInference: "2026-06-19T12:59:55Z",
+    lastActivityAt: "2026-06-19T12:00:00Z",
+  });
+  assert.equal(lastActivity(session, now), "1h ago");
+  assert.equal(lastActivityTimestamp(session), "2026-06-19T12:00:00Z");
+});
+
+test("lastActivity falls back to created_at when lastActivityAt is missing", () => {
+  const now = new Date("2026-06-19T12:00:05Z");
+  const session = baseSession({ created_at: "2026-06-19T12:00:00Z" });
+  assert.equal(lastActivity(session, now), "just now");
+  assert.equal(lastActivityTimestamp(session), "2026-06-19T12:00:00Z");
 });
 
 test("nextRelativeTimeRefreshMs wakes only when relativeTime()'s bucket edge is reached", () => {
