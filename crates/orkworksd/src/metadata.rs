@@ -1,6 +1,6 @@
 use crate::harness::{ResumeMemory, ResumeState, ResumeStrategy};
 use serde::{Deserialize, Deserializer, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -1527,46 +1527,67 @@ impl MetadataStore {
 
     pub fn read_terminal_output(&self, id: &str, max_lines: usize) -> Vec<String> {
         let path = self.terminal_output_path(id);
-        let data = match fs::read_to_string(&path) {
-            Ok(d) => d,
-            Err(_) => return Vec::new(),
-        };
-        let all: Vec<&str> = data.lines().collect();
-        let start = terminal_output_retain_start(&all, max_lines, TERMINAL_OUTPUT_MAX_BYTES);
-        all[start..].iter().map(|s| s.to_string()).collect()
+        read_terminal_output_tail(&path, max_lines, TERMINAL_OUTPUT_MAX_BYTES)
+            .map(|tail| tail.lines.into_iter().collect())
+            .unwrap_or_default()
     }
 
     pub fn trim_terminal_output(&self, id: &str, max_lines: usize) {
         let path = self.terminal_output_path(id);
-        let data = match fs::read_to_string(&path) {
-            Ok(d) => d,
-            Err(_) => return,
+        let Ok(tail) =
+            read_terminal_output_tail(&path, max_lines, TERMINAL_OUTPUT_TRIM_TARGET_BYTES)
+        else {
+            return;
         };
-        let all: Vec<&str> = data.lines().collect();
-        let start =
-            terminal_output_retain_start(&all, max_lines, TERMINAL_OUTPUT_TRIM_TARGET_BYTES);
-        if start == 0 {
+        if !tail.discarded {
             return;
         }
-        match fs::write(&path, all[start..].join("\n") + "\n") {
+        let content = tail.lines.into_iter().collect::<Vec<_>>().join("\n") + "\n";
+        match fs::write(&path, content) {
             Ok(_) => {}
             Err(e) => warn!("failed to trim terminal output for {id}: {e}"),
         }
     }
 }
 
-/// Index of the first line to keep, applying the line-count limit first and
-/// then dropping further from the front (oldest) until the retained lines
-/// also fit the byte budget. Trims whole lines only, so retained content
-/// stays valid UTF-8 and replayable.
-fn terminal_output_retain_start(all: &[&str], max_lines: usize, max_bytes: u64) -> usize {
-    let mut start = all.len().saturating_sub(max_lines);
-    let mut kept_bytes: u64 = all[start..].iter().map(|line| line.len() as u64 + 1).sum();
-    while kept_bytes > max_bytes && start < all.len() {
-        kept_bytes -= all[start].len() as u64 + 1;
-        start += 1;
+struct TerminalOutputTail {
+    lines: VecDeque<String>,
+    discarded: bool,
+}
+
+fn read_terminal_output_tail(
+    path: &Path,
+    max_lines: usize,
+    max_bytes: u64,
+) -> std::io::Result<TerminalOutputTail> {
+    let file = fs::File::open(path)?;
+    let mut lines: VecDeque<String> = VecDeque::new();
+    let mut retained_bytes = 0_u64;
+    let mut discarded = false;
+
+    for line in BufReader::new(file).lines() {
+        let line = line?;
+        if max_lines == 0 {
+            discarded = true;
+            continue;
+        }
+        if lines.len() == max_lines {
+            let removed = lines.pop_front().expect("non-empty at line limit");
+            retained_bytes -= removed.len() as u64 + 1;
+            discarded = true;
+        }
+        retained_bytes += line.len() as u64 + 1;
+        lines.push_back(line);
     }
-    start
+    while retained_bytes > max_bytes {
+        let Some(removed) = lines.pop_front() else {
+            break;
+        };
+        retained_bytes -= removed.len() as u64 + 1;
+        discarded = true;
+    }
+
+    Ok(TerminalOutputTail { lines, discarded })
 }
 
 fn terminal_output_exceeds_line_limit(path: &Path, max_lines: usize) -> bool {
@@ -3328,30 +3349,81 @@ mod tests {
     }
 
     #[test]
-    fn terminal_output_retain_start_prefers_byte_budget_over_line_count() {
+    fn terminal_output_read_keeps_oversized_dormant_file_unchanged() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let path = store.terminal_output_path("dormant-session");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let payload = "x".repeat(1_024);
+        let original = (0..1_500)
+            .map(|index| format!("line-{index}-{payload}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+            + "\n";
+        fs::write(&path, &original).unwrap();
+
+        let replay = store.read_terminal_output("dormant-session", 3);
+
+        assert_eq!(
+            replay,
+            vec![
+                format!("line-1497-{payload}"),
+                format!("line-1498-{payload}"),
+                format!("line-1499-{payload}"),
+            ],
+        );
+        assert_eq!(fs::read_to_string(path).unwrap(), original);
+    }
+
+    #[test]
+    fn terminal_output_tail_keeps_only_newest_lines_before_byte_trimming() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("history.terminal");
+        fs::write(&path, "zero\none\ntwo\nthree\nfour\n").unwrap();
+
+        let tail = read_terminal_output_tail(&path, 3, 1_024).unwrap();
+
+        assert!(tail.discarded);
+        assert_eq!(
+            tail.lines.into_iter().collect::<Vec<_>>(),
+            vec!["two", "three", "four"],
+        );
+    }
+
+    #[test]
+    fn terminal_output_tail_prefers_byte_budget_over_line_count() {
         // Large records (as produced by the 64 KiB partial-persist cap) must
         // trim on byte budget even when well under the line-count limit.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("history.terminal");
         let big = "x".repeat(1024);
-        let all: Vec<&str> = vec![big.as_str(); 20];
+        fs::write(
+            &path,
+            (0..20).map(|_| big.as_str()).collect::<Vec<_>>().join("\n") + "\n",
+        )
+        .unwrap();
 
-        let start = terminal_output_retain_start(&all, 10_000, 10 * 1024);
+        let tail = read_terminal_output_tail(&path, 10_000, 10 * 1024).unwrap();
         assert!(
-            start > 0,
+            tail.discarded,
             "byte budget should trim even though line count is far under max_lines"
         );
-        let kept_bytes: u64 = all[start..].iter().map(|l| l.len() as u64 + 1).sum();
+        let kept_bytes: u64 = tail.lines.iter().map(|l| l.len() as u64 + 1).sum();
         assert!(kept_bytes <= 10 * 1024);
     }
 
     #[test]
-    fn terminal_output_retain_start_keeps_everything_under_both_budgets() {
-        let all: Vec<&str> = vec!["short"; 5];
-        let start = terminal_output_retain_start(
-            &all,
-            TERMINAL_OUTPUT_MAX_LINES,
-            TERMINAL_OUTPUT_MAX_BYTES,
-        );
-        assert_eq!(start, 0);
+    fn terminal_output_tail_keeps_everything_under_both_budgets() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("history.terminal");
+        fs::write(&path, "short\nshort\nshort\nshort\nshort\n").unwrap();
+
+        let tail =
+            read_terminal_output_tail(&path, TERMINAL_OUTPUT_MAX_LINES, TERMINAL_OUTPUT_MAX_BYTES)
+                .unwrap();
+
+        assert!(!tail.discarded);
+        assert_eq!(tail.lines.len(), 5);
     }
 
     #[test]
