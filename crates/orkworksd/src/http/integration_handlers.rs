@@ -143,125 +143,49 @@ async fn run_integration_action(
         &IntegrationContext<'_>,
     ) -> Result<crate::harness::integration::IntegrationStatus, IntegrationError>,
 ) -> axum::response::Response {
-    // Captured before the async probe below (and the lock dropped
-    // immediately) so a concurrent workspace switch or harness-definition
-    // edit during the probe's up-to-3s window can be *detected* afterward
-    // rather than silently acted on — see the re-checks below the probe.
-    // This also preserves today's exact error-priority order: a request
-    // against a missing workspace reports NoWorkspace even if harness_id is
-    // also unknown.
-    let workspace_path_at_start = {
-        let ws_guard = state.workspace.lock().unwrap();
-        let Some(ws) = ws_guard.as_ref() else {
-            return integration_error_response(IntegrationError::NoWorkspace);
-        };
-        ws.path.clone()
-    };
-
-    let harness: ResolvedHarness = {
-        let registry = state
-            .harness_catalog
-            .read()
-            .expect("harness catalog lock poisoned");
-        let Some(harness) = registry.get(harness_id) else {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse {
-                    error: format!("unknown harness id \"{harness_id}\""),
-                }),
-            )
-                .into_response();
-        };
-        harness.clone()
-    };
-
-    // No lock guard is held from here through the `.await` below — both
-    // guards above are `!Send`, and the workspace mutex must not be held
-    // for the probe's full timeout, which other workspace-touching requests
-    // would otherwise queue behind.
-    let detected_tool = crate::harness::detect::resolve_tool_gate(
-        &state.integration_probe_cache,
-        &harness.definition.id,
-        &harness.launch_command(),
-        harness.definition.min_version.as_ref(),
-    )
-    .await;
-
-    // Re-validate both pieces of state captured before the probe. A
-    // concurrent harness-definition edit or workspace switch landing during
-    // the probe's window must not let this request silently proceed against
-    // a target different from the one it started against; the harness clone
-    // above and the workspace path captured above would otherwise go stale
-    // without either lock ever objecting.
-    {
-        let registry = state
-            .harness_catalog
-            .read()
-            .expect("harness catalog lock poisoned");
-        match registry.get(harness_id) {
-            Some(current) if current.definition == harness.definition => {}
-            _ => {
+    match with_revalidated_integration_target(state, harness_id, |harness, ws, detected_tool| {
+        let reporter_assets = match reporter_assets() {
+            Ok(resolver) => resolver,
+            Err(error) => {
                 return (
-                    StatusCode::CONFLICT,
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse { error }),
+                )
+                    .into_response();
+            }
+        };
+
+        let orkworks_root = match dirs::home_dir() {
+            Some(home) => home.join(".orkworks"),
+            None => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
                     Json(ErrorResponse {
-                        error: "harness definition changed during this request; retry".into(),
+                        error: "couldn't resolve home directory".into(),
                     }),
                 )
                     .into_response();
             }
+        };
+
+        let ctx = IntegrationContext {
+            workspace: &ws.path,
+            workspace_metadata: Some(&ws.metadata),
+            orkworks_root: &orkworks_root,
+            enabled: true,
+            detected_tool,
+            reporter_assets: &reporter_assets,
+        };
+
+        match action(harness, &ctx) {
+            Ok(status) => Json(status).into_response(),
+            Err(error) => integration_error_response(error),
         }
-    }
-
-    let ws_guard = state.workspace.lock().unwrap();
-    let Some(ref ws) = *ws_guard else {
-        return integration_error_response(IntegrationError::NoWorkspace);
-    };
-    if ws.path != workspace_path_at_start {
-        return (
-            StatusCode::CONFLICT,
-            Json(ErrorResponse {
-                error: "workspace changed during this request; retry".into(),
-            }),
-        )
-            .into_response();
-    }
-
-    let reporter_assets = match reporter_assets() {
-        Ok(resolver) => resolver,
-        Err(error) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse { error }),
-            )
-                .into_response();
-        }
-    };
-
-    let orkworks_root = match dirs::home_dir() {
-        Some(home) => home.join(".orkworks"),
-        None => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "couldn't resolve home directory".into(),
-                }),
-            )
-                .into_response();
-        }
-    };
-
-    let ctx = IntegrationContext {
-        workspace: &ws.path,
-        workspace_metadata: Some(&ws.metadata),
-        orkworks_root: &orkworks_root,
-        enabled: true,
-        detected_tool: detected_tool.as_ref(),
-        reporter_assets: &reporter_assets,
-    };
-
-    match action(&harness, &ctx) {
-        Ok(status) => Json(status).into_response(),
-        Err(error) => integration_error_response(error),
+    })
+    .await
+    {
+        Ok(response) => response,
+        Err(response) => response,
     }
 }
 
@@ -1080,6 +1004,11 @@ mod tests {
             "a request whose workspace changed mid-flight must be rejected, not silently \
              completed against the new workspace"
         );
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let payload: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(payload["error"], "workspace changed during this request; retry");
     }
 
     #[tokio::test]
@@ -1162,6 +1091,14 @@ mod tests {
             StatusCode::CONFLICT,
             "a request whose harness definition changed mid-flight must be rejected, not \
              silently completed against the stale pre-patch definition"
+        );
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let payload: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(
+            payload["error"],
+            "harness definition changed during this request; retry"
         );
     }
 
