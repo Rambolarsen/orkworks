@@ -1172,13 +1172,21 @@ mod tests {
             ("Monitoring PR #249", "keep watching PR #249", true),
             ("Monitoring #249", "keep watching PR #249", true),
             ("Monitoring pull request", "keep watching PR #249", false),
-            ("Instructing system to review PR #249", "review PR #249", false),
+            (
+                "Instructing system to review PR #249",
+                "review PR #249",
+                false,
+            ),
             (
                 "Instructing the system to review PR #249",
                 "review PR #249",
                 false,
             ),
-            ("Instructing agent to review PR #249", "review PR #249", false),
+            (
+                "Instructing agent to review PR #249",
+                "review PR #249",
+                false,
+            ),
             (
                 "Instructing the agent to review PR #249",
                 "review PR #249",
@@ -1192,7 +1200,11 @@ mod tests {
         ];
 
         for (label, input_hint, expected) in cases {
-            assert_eq!(is_usable_input_label(label, input_hint), expected, "{label}");
+            assert_eq!(
+                is_usable_input_label(label, input_hint),
+                expected,
+                "{label}"
+            );
         }
     }
 

@@ -610,8 +610,9 @@ mod tests {
                         override_state: None,
                     }],
                 },
-                vec![providers::FakeProvider::new("opencode")
-                    .stdout(r#"{"status":"working","summary":"Persisted topic","confidence":0.85}"#)],
+                vec![providers::FakeProvider::new("opencode").stdout(
+                    r#"{"status":"working","summary":"Persisted topic","confidence":0.85}"#,
+                )],
             ),
         });
         let (kill_tx, _) = tokio::sync::watch::channel(false);
@@ -672,7 +673,12 @@ mod tests {
             "Persisted topic"
         );
         let ws_guard = state.workspace.lock().unwrap();
-        let meta = ws_guard.as_ref().unwrap().metadata.read_session(&id).unwrap();
+        let meta = ws_guard
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(&id)
+            .unwrap();
         assert_eq!(meta.label, "Persisted topic");
     }
 
@@ -793,7 +799,12 @@ mod tests {
             "fallback from typed input"
         );
         let ws_guard = state.workspace.lock().unwrap();
-        let meta = ws_guard.as_ref().unwrap().metadata.read_session(&id).unwrap();
+        let meta = ws_guard
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(&id)
+            .unwrap();
         assert_eq!(meta.label, "fallback from typed input");
     }
 
