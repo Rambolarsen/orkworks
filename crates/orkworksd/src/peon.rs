@@ -355,15 +355,19 @@ fn normalize_generic_instruction(label: &str) -> String {
 /// Returns whether an input-triggered label names the task and retains all PR
 /// numbers explicitly mentioned in the submitted input.
 pub fn is_usable_input_label(label: &str, input_hint: &str) -> bool {
-    const GENERIC_INSTRUCTIONS: &[&str] = &[
-        "instructing system to continue current task execution",
-        "continue current task execution",
-        "continuing current task execution",
+    const GENERIC_PREFIXES: &[&str] = &[
+        "instructing system",
+        "instructing the system",
+        "instructing agent",
+        "instructing the agent",
     ];
 
     let normalized = normalize_generic_instruction(label);
     !normalized.is_empty()
-        && !GENERIC_INSTRUCTIONS.contains(&normalized.as_str())
+        && !GENERIC_PREFIXES
+            .iter()
+            .any(|prefix| normalized.starts_with(prefix))
+        && !normalized.contains("current task execution")
         && explicit_pr_numbers(input_hint)
             .iter()
             .all(|number| explicit_pr_numbers(label).contains(number))
@@ -1138,19 +1142,32 @@ mod tests {
     }
 
     #[test]
-    fn input_label_requires_each_explicit_pr_number() {
-        assert!(is_usable_input_label(
-            "Monitoring PR #249",
-            "keep watching PR #249"
-        ));
-        assert!(!is_usable_input_label(
-            "Monitoring pull request",
-            "keep watching PR #249"
-        ));
-        assert!(!is_usable_input_label(
-            "Instructing system to continue current task execution",
-            "keep watching PR #249",
-        ));
+    fn input_label_validator_rejects_generic_instruction_forms() {
+        let cases = [
+            ("Monitoring PR #249", "keep watching PR #249", true),
+            ("Monitoring pull request", "keep watching PR #249", false),
+            ("Instructing system to review PR #249", "review PR #249", false),
+            (
+                "Instructing the system to review PR #249",
+                "review PR #249",
+                false,
+            ),
+            ("Instructing agent to review PR #249", "review PR #249", false),
+            (
+                "Instructing the agent to review PR #249",
+                "review PR #249",
+                false,
+            ),
+            (
+                "Reviewing PR #249 during current task execution",
+                "review PR #249",
+                false,
+            ),
+        ];
+
+        for (label, input_hint, expected) in cases {
+            assert_eq!(is_usable_input_label(label, input_hint), expected, "{label}");
+        }
     }
 
     #[test]
