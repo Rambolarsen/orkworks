@@ -1,4 +1,5 @@
 import type { SessionInfo } from "./api.ts";
+import { lastActivityTimestamp } from "./labels.ts";
 
 const ATTENTION_PRIORITY: Record<string, number> = {
   needs_you: 0,
@@ -36,6 +37,9 @@ export function sortSessions(list: SessionInfo[]): SessionInfo[] {
     const pa = ATTENTION_PRIORITY[sessionAttentionStatus(a)] ?? 99;
     const pb = ATTENTION_PRIORITY[sessionAttentionStatus(b)] ?? 99;
     if (pa !== pb) return pa - pb;
+    const ta = Date.parse(lastActivityTimestamp(a) ?? "");
+    const tb = Date.parse(lastActivityTimestamp(b) ?? "");
+    if (!Number.isNaN(ta) && !Number.isNaN(tb) && ta !== tb) return tb - ta;
     return a.label.localeCompare(b.label);
   });
 }
