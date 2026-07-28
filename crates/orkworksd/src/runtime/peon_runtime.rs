@@ -817,7 +817,13 @@ mod tests {
         std::fs::create_dir_all(orkworks.join("sessions")).unwrap();
         std::fs::create_dir_all(orkworks.join("events")).unwrap();
         let id = "label-pr-number-rejected".to_string();
-        let fallback_label = "keep watching PR #249";
+        // PR #249 is beyond the display fallback. A number-dropping model
+        // response must therefore leave the bounded fallback untouched.
+        let input_hint = format!(
+            "keep watching {}PR #249",
+            "important changes ".repeat(6)
+        );
+        let fallback_label: String = input_hint.chars().take(100).collect();
         let call_counter = Arc::new(AtomicUsize::new(0));
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
@@ -876,7 +882,7 @@ mod tests {
             crate::SessionHandle {
                 info: test_session_info(
                     id.clone(),
-                    fallback_label,
+                    &fallback_label,
                     dir.path().display().to_string(),
                     "running",
                     "now",
@@ -904,7 +910,7 @@ mod tests {
             let ws = ws_guard.as_ref().unwrap();
             ws.metadata.write_session(&test_session_metadata(
                 &id,
-                fallback_label,
+                &fallback_label,
                 dir.path().display().to_string(),
                 "running",
                 "now",
@@ -916,7 +922,7 @@ mod tests {
             .label_hint
             .write()
             .unwrap()
-            .insert(id.clone(), fallback_label.into());
+            .insert(id.clone(), input_hint);
         state.peon.label_pending.write().unwrap().insert(id.clone());
 
         let task = tokio::spawn(peon_loop(state.clone()));

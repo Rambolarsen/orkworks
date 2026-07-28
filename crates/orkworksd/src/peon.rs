@@ -313,6 +313,10 @@ fn explicit_pr_numbers(text: &str) -> Vec<String> {
     let mut index = 0;
 
     while index < bytes.len() {
+        if index > 0 && bytes[index - 1].is_ascii_alphanumeric() {
+            index += 1;
+            continue;
+        }
         let prefix_len = if bytes[index..].starts_with(b"pr #") {
             4
         } else if bytes[index..].starts_with(b"pull request #") {
@@ -496,7 +500,7 @@ Available fields:
 - detectedModel: model identifier visible in the terminal output (e.g. \"claude-sonnet-4-5\", \"gpt-4o\"), or omit if not detectable
 - harnessSessionId: the harness's internal session identifier visible in terminal output (e.g. a UUID, session hex string, or ID shown in a \"resume\" or \"continue\" prompt), or omit if not detectable
 
-If a line starting with '[User input]:' is present, it is what the user just typed to the AI coding tool. Use it to derive a short, direct, present-tense summary of what the user is doing — like a commit-message subject line. NEVER start the summary with \"User\", \"User is\", \"User wants\", \"User asked\", \"User requested\", or \"User typed\". Examples: \"Fixing peon model detection\" not \"User is fixing peon model detection\". \"Reviewing PR feedback\" not \"User wants to review PR feedback\". Keep it under 8 words. The summary must name the concrete task topic, never a generic instruction such as \"continuing current task execution\". Preserve every explicit PR number from the user input (for example, \"PR #249\" or \"pull request #249\").";
+If a line starting with '[User input]:' is present, it is what the user just typed to the AI coding tool. Use it to derive a short, direct, present-tense summary of what the user is doing — like a commit-message subject line. NEVER start the summary with \"User\", \"User is\", \"User wants\", \"User asked\", \"User requested\", or \"User typed\". Examples: \"Fixing peon model detection\" not \"User is fixing peon model detection\". \"Reviewing PR feedback\" not \"User wants to review PR feedback\". Keep it under 8 words. The summary must name the concrete task topic, never a generic instruction or control narration such as \"instructing the agent\" or \"continuing current task execution\". Preserve every explicit PR number from the user input (for example, \"PR #249\" or \"pull request #249\").";
 
 const VALID_STATUSES: &[&str] = &[
     "waiting_for_input",
@@ -1206,6 +1210,36 @@ mod tests {
                 "{label}"
             );
         }
+    }
+
+    #[test]
+    fn input_label_contract_preserves_explicit_prs_and_rejects_generic_controls() {
+        // The prompt instructs the provider to retain every explicit PR
+        // reference and avoid generic control-language labels. Validation
+        // enforces the same contract even across punctuation and casing.
+        assert!(SYSTEM_PROMPT.contains("Preserve every explicit PR number"));
+        assert!(SYSTEM_PROMPT.contains("generic instruction or control narration"));
+
+        assert!(!is_usable_input_label(
+            "INSTRUCTING—the AGENT: review PR #249",
+            "review PR #249",
+        ));
+        assert_eq!(
+            explicit_pr_numbers("APR #249: update docs"),
+            Vec::<String>::new()
+        );
+        assert!(is_usable_input_label(
+            "Reviewing PR #249",
+            "APR #249: update docs",
+        ));
+        assert!(!is_usable_input_label(
+            "Reviewing PR #249",
+            "review PR #249 and pull request #250",
+        ));
+        assert!(is_usable_input_label(
+            "Reviewing PR #249 and PR #250",
+            "review PR #249 and pull request #250",
+        ));
     }
 
     #[test]

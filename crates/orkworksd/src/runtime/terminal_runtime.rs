@@ -396,7 +396,7 @@ fn record_terminal_input_impl(
             .label_hint
             .write()
             .unwrap()
-            .insert(id.to_string(), label_line);
+            .insert(id.to_string(), line);
         state.peon.label_pending.write().unwrap().insert(id.to_string());
     }
 
@@ -1645,6 +1645,43 @@ mod tests {
             Some(&"fix the login redirect bug".to_string())
         );
         assert!(state.peon.label_pending.read().unwrap().contains(session_id));
+    }
+
+    #[test]
+    fn terminal_input_keeps_full_hint_when_pr_is_after_display_limit() {
+        let session_id = "long-terminal-input";
+        let (state, _dir) = prompted_session_state(session_id);
+        let placeholder = crate::session_types::placeholder_label(session_id);
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            sessions.get_mut(session_id).unwrap().info.label = placeholder.clone();
+        }
+        {
+            let ws = state.workspace.lock().unwrap();
+            let mut meta = ws.as_ref().unwrap().metadata.read_session(session_id).unwrap();
+            meta.label = placeholder;
+            ws.as_ref().unwrap().metadata.write_session(&meta);
+        }
+        let input = format!("review {} PR #249", "important changes ".repeat(6));
+        let display: String = input.chars().take(100).collect();
+
+        record_terminal_input(&state, session_id, &format!("{input}\r"));
+
+        let meta = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(session_id)
+            .unwrap();
+        assert_eq!(meta.label, display);
+        assert_eq!(meta.last_user_input.as_deref(), Some(display.as_str()));
+        assert_eq!(
+            state.peon.label_hint.read().unwrap().get(session_id),
+            Some(&input)
+        );
     }
 
     #[test]
