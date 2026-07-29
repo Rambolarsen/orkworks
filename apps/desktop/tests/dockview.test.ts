@@ -310,8 +310,8 @@ test("SessionListPanel displays canonical session activity when present", () => 
     "utf8",
   );
 
-  assert.match(source, /return relativeTime\(s\.lastActivityAt \?\? s\.peonLastInference, now\)/);
-  assert.match(source, /return s\.lastActivityAt \?\? s\.peonLastInference \?\? s\.created_at/);
+  assert.match(source, /return relativeTime\(lastActivityTimestamp\(s\), now\)/);
+  assert.match(source, /const candidates = \[s\.lastOutputAt, s\.lastActivityAt\]/);
 });
 
 test("StatusIndicator renders completed unread results as accessible dots", () => {

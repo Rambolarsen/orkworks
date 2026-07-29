@@ -40,6 +40,8 @@ pub(crate) struct SessionInfo {
     pub(crate) created_at: String,
     #[serde(rename = "lastActivityAt", skip_serializing_if = "Option::is_none")]
     pub(crate) last_activity_at: Option<String>,
+    #[serde(rename = "lastOutputAt", skip_serializing_if = "Option::is_none")]
+    pub(crate) last_output_at: Option<String>,
     #[serde(rename = "finalObservedStatus")]
     pub(crate) final_observed_status: Option<String>,
     #[serde(rename = "observedStatus")]
@@ -153,6 +155,7 @@ mod tests {
             cwd: cwd.into(),
             created_at: created_at.clone(),
             last_activity_at: Some(created_at),
+            last_output_at: None,
             final_observed_status: None,
             observed_status: None,
             summary: None,
@@ -247,6 +250,17 @@ mod tests {
 
         let json = serde_json::to_string(&info).unwrap();
         assert!(json.contains("\"capacityCheckPending\":true"));
+    }
+
+    #[test]
+    fn session_info_serializes_last_output_at() {
+        let info = SessionInfo {
+            last_output_at: Some("2026-07-29T10:00:00Z".into()),
+            ..test_session_info("test", "Test", "/tmp", "running", "now")
+        };
+
+        let json = serde_json::to_string(&info).unwrap();
+        assert!(json.contains("\"lastOutputAt\":\"2026-07-29T10:00:00Z\""));
     }
 
     #[test]

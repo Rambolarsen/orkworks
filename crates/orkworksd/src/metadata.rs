@@ -174,6 +174,8 @@ pub struct SessionMetadata {
     pub created_at: String,
     #[serde(rename = "lastActivity")]
     pub last_activity: String,
+    #[serde(rename = "lastOutputAt", skip_serializing_if = "Option::is_none")]
+    pub last_output_at: Option<String>,
     #[serde(rename = "metadataSource")]
     pub metadata_source: String,
     #[serde(rename = "metadataConfidence")]
@@ -535,6 +537,7 @@ pub(crate) fn assert_session_metadata_serializes_connectivity_terminal_outcome_a
         provider_state: None,
         created_at: "2026-06-28T09:00:00Z".into(),
         last_activity: "2026-06-28T09:05:00Z".into(),
+        last_output_at: Some("2026-06-28T09:06:00Z".into()),
         metadata_source: "process".into(),
         metadata_confidence: 1.0,
         repo_root: None,
@@ -555,6 +558,7 @@ pub(crate) fn assert_session_metadata_serializes_connectivity_terminal_outcome_a
     assert_eq!(raw["connectivity"], "offline");
     assert_eq!(raw["terminalOutcome"], "ended");
     assert_eq!(raw["lastActivity"], "2026-06-28T09:05:00Z");
+    assert_eq!(raw["lastOutputAt"], "2026-06-28T09:06:00Z");
 }
 
 #[cfg(test)]
@@ -1681,6 +1685,7 @@ mod tests {
             provider_state: None,
             created_at: "now".into(),
             last_activity: "now".into(),
+        last_output_at: None,
             metadata_source: "process".into(),
             metadata_confidence: 1.0,
             repo_root: Some("/tmp".into()),
@@ -2147,6 +2152,7 @@ mod tests {
             provider_state: None,
             created_at: "now".into(),
             last_activity: "now".into(),
+        last_output_at: None,
             metadata_source: "process".into(),
             metadata_confidence: 1.0,
             repo_root: None,
@@ -2292,6 +2298,7 @@ mod tests {
             provider_state: None,
             created_at: "now".into(),
             last_activity: "now".into(),
+        last_output_at: None,
             metadata_source: "process".into(),
             metadata_confidence: 1.0,
             repo_root: None,
@@ -2648,6 +2655,7 @@ mod tests {
             provider_state: None,
             created_at: "now".into(),
             last_activity: "now".into(),
+        last_output_at: None,
             metadata_source: "process".into(),
             metadata_confidence: 1.0,
             repo_root: None,

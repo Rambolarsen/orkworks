@@ -57,6 +57,7 @@ export interface SessionInfo {
   cwd: string;
   created_at: string;
   lastActivityAt?: string;
+  lastOutputAt?: string;
   finalObservedStatus?: string | null;
   observedStatus?: string;
   summary?: string;

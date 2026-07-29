@@ -35,7 +35,7 @@ File: `crates/orkworksd/src/metadata.rs`
 - `observed_status: Option<String>` plus `ending_observed_status_snapshot` / `final_observed_status_snapshot` (`ObservedStatusSnapshotMetadata { value, source, confidence, observed_at }`)
 - `summary`, `next_action`, `needs_user_input`, `detected_question`, `suggested_options`, `blocker_description`, `failed_command`, `failed_test`, `capacity_hints`, `peon_last_inference` — Peon-inferred fields
 - `provider_id`, `provider_label`, `provider_model`, `provider_state`
-- `created_at`, `last_activity`, `metadata_source`, `metadata_confidence`
+- `created_at`, `last_activity`, `last_output_at`, `metadata_source`, `metadata_confidence` — `last_activity` records meaningful situation changes; `last_output_at` records the latest non-empty PTY frame and is coalesced before persistence.
 - `repo_root`, `branch`, `dirty`, `changed_files`, `is_worktree` — Git context
 - `resume`, `resume_options`, `resumed_from`, `harness_session_id_source/confidence/captured_at`
 - `last_user_input`

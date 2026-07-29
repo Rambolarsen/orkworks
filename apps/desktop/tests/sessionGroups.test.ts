@@ -38,6 +38,17 @@ test("groupForSession uses today's last activity for a session created yesterday
   assert.equal(groupForSession(resumed, now), "today");
 });
 
+test("groupForSession uses the newest output timestamp when it is newer than activity", () => {
+  const now = new Date(2026, 5, 28, 18, 0);
+  const resumed = {
+    ...session("a", new Date(2026, 5, 20, 20, 0).toISOString()),
+    lastActivityAt: new Date(2026, 5, 21, 9, 0).toISOString(),
+    lastOutputAt: new Date(2026, 5, 28, 9, 0).toISOString(),
+  };
+
+  assert.equal(groupForSession(resumed, now), "today");
+});
+
 test("groupForSession falls back to a Peon observation when activity is unavailable", () => {
   const now = new Date(2026, 5, 28, 18, 0);
   const observed = {

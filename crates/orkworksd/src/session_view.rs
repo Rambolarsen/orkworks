@@ -122,6 +122,9 @@ pub(crate) fn merge_live_session_info(
             .map(|m| m.last_activity.clone())
             .or(info.last_activity_at)
             .or_else(|| Some(info.created_at)),
+        last_output_at: info
+            .last_output_at
+            .or_else(|| meta.and_then(|m| m.last_output_at.clone())),
         final_observed_status: meta
             .and_then(|m| {
                 m.final_observed_status_snapshot
@@ -274,6 +277,7 @@ mod tests {
             cwd: cwd.into(),
             created_at: created_at.clone(),
             last_activity_at: Some(created_at),
+            last_output_at: None,
             final_observed_status: None,
             observed_status: None,
             summary: None,
@@ -316,6 +320,7 @@ mod tests {
             connectivity: Some("offline".into()),
             terminal_outcome: Some("ended".into()),
             last_activity_at: Some("2026-06-28T09:05:00Z".into()),
+            last_output_at: Some("2026-06-28T09:06:00Z".into()),
             resume_options: vec![metadata::ResumeOption {
                 strategy: harness::ResumeStrategy::Exact,
                 label: "Resume exact session".into(),
@@ -340,6 +345,10 @@ mod tests {
         assert_eq!(
             merged.last_activity_at.as_deref(),
             Some("2026-06-28T09:05:00Z")
+        );
+        assert_eq!(
+            merged.last_output_at.as_deref(),
+            Some("2026-06-28T09:06:00Z")
         );
         assert_eq!(merged.resume_options.len(), 3);
         assert!(!merged.resume_options[0].available);
@@ -441,6 +450,7 @@ mod tests {
             provider_state: None,
             created_at: "2026-06-28T09:00:00Z".into(),
             last_activity: "2026-06-28T09:05:00Z".into(),
+        last_output_at: None,
             metadata_source: "process".into(),
             metadata_confidence: 1.0,
             repo_root: Some("/tmp/project".into()),

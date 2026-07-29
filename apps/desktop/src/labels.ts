@@ -220,11 +220,21 @@ export function nextRelativeTimeDeadlineMs(
 // so it takes priority but peonLastInference remains a fallback for sessions
 // predating this field.
 export function lastActivity(s: SessionInfo, now: Date = new Date()): string {
-  return relativeTime(s.lastActivityAt ?? s.peonLastInference, now) || relativeTime(s.created_at, now);
+  return relativeTime(lastActivityTimestamp(s), now);
 }
 
 export function lastActivityTimestamp(s: SessionInfo): string | undefined {
-  return s.lastActivityAt ?? s.peonLastInference ?? s.created_at;
+  const candidates = [s.lastOutputAt, s.lastActivityAt]
+    .map((timestamp) => ({ timestamp, milliseconds: timestamp ? Date.parse(timestamp) : Number.NaN }))
+    .filter((candidate) => !Number.isNaN(candidate.milliseconds));
+  if (candidates.length > 0) {
+    return candidates.reduce((latest, candidate) =>
+      candidate.milliseconds > latest.milliseconds ? candidate : latest,
+    ).timestamp;
+  }
+  return [s.peonLastInference, s.created_at].find(
+    (timestamp) => timestamp && !Number.isNaN(Date.parse(timestamp)),
+  );
 }
 
 /** Distilled "what's going on" sentence for the Detail panel's situation hero. */
