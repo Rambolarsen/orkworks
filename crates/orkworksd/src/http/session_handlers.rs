@@ -553,20 +553,6 @@ pub(crate) async fn report_attention(
         return axum::http::StatusCode::BAD_REQUEST.into_response();
     };
 
-    // Record the harness's self-reported cwd (issue #241 / ADR 0032)
-    // whenever one accompanies this report, independent of whether the
-    // attention status itself turns out to be stale below — the two are
-    // orthogonal, and an empty string is treated as "nothing reported"
-    // rather than clearing a previously-known value.
-    if let Some(cwd) = req.cwd.as_deref().filter(|c| !c.is_empty()) {
-        state
-            .peon
-            .reported_cwd
-            .write()
-            .unwrap()
-            .insert(id.clone(), cwd.to_string());
-    }
-
     if observed_at.is_some_and(|timestamp| {
         state
             .sessions
@@ -577,6 +563,22 @@ pub(crate) async fn report_attention(
             .is_some_and(|accepted_at| timestamp <= accepted_at)
     }) {
         return axum::http::StatusCode::OK.into_response();
+    }
+
+    // Record the harness's self-reported cwd (issue #241 / ADR 0032) whenever
+    // one accompanies this report. Gated behind the same staleness check as
+    // the attention status above — a delayed/superseded hook event carries an
+    // equally stale cwd, and since this is the top-priority tier in
+    // resolve_effective_cwds, a stale write here can't be corrected by the
+    // more-accurate live probe underneath it. An empty string is treated as
+    // "nothing reported" rather than clearing a previously-known value.
+    if let Some(cwd) = req.cwd.as_deref().filter(|c| !c.is_empty()) {
+        state
+            .peon
+            .reported_cwd
+            .write()
+            .unwrap()
+            .insert(id.clone(), cwd.to_string());
     }
 
     let now = iso_now();
@@ -1662,9 +1664,7 @@ pub(crate) async fn forget_session(
     drop(ws_guard);
 
     state.sessions.lock().unwrap().remove(&id);
-    state.peon.last_output.write().unwrap().remove(&id);
-    state.peon.last_inference.write().unwrap().remove(&id);
-    state.session_pids.lock().unwrap().remove(&id);
+    crate::runtime::session_runtime::clear_ended_session_tracking(&state, &id);
 
     axum::http::StatusCode::OK.into_response()
 }

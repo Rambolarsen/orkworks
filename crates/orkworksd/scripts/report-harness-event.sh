@@ -22,18 +22,24 @@ done
 observed_at="$(python3 -c 'from datetime import datetime, timezone; print(datetime.now(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z"))')"
 payload="$(cat || true)"
 
-# Claude Code's hook JSON includes a "cwd" field (its own current working
-# directory) on every event, alongside "session_id" below. Forwarding it
-# lets the sidecar track where the agent is actually working, not just
-# where its process was launched (issue #241).
+# Claude Code's hook JSON includes both "cwd" (its own current working
+# directory — issue #241) and "session_id" on every event; extract both from
+# one parse of the same payload rather than spawning python3 twice.
 reported_cwd=""
+claude_session_id=""
 case "$marker" in
   *:claude-code)
-    reported_cwd="$(
+    # Single line delimited by the ASCII unit separator (0x1F), not two
+    # lines: `mapfile`/`readarray` are bash 4+ only and macOS ships bash 3.2
+    # by default. A whitespace delimiter (tab/space) would silently strip a
+    # leading empty field via `read`'s IFS-whitespace-collapsing behavior
+    # (e.g. an absent cwd would shift session_id into the cwd variable) — 0x1F
+    # is non-whitespace, so `read` preserves empty fields correctly.
+    claude_fields="$(
       printf '%s' "$payload" |
-        python3 -c 'import json,sys; data=json.load(sys.stdin); print(data.get("cwd") or "")' 2>/dev/null ||
-        true
-    )"
+        python3 -c 'import json,sys; data=json.load(sys.stdin); print("%s\x1f%s" % (data.get("cwd") or "", data.get("session_id") or ""))' 2>/dev/null
+    )" || true
+    IFS=$'\x1f' read -r reported_cwd claude_session_id <<< "$claude_fields"
     ;;
 esac
 
@@ -53,11 +59,6 @@ fi
 
 case "$marker" in
   *:claude-code)
-    claude_session_id="$(
-      printf '%s' "$payload" |
-        python3 -c 'import json,sys; data=json.load(sys.stdin); print(data.get("session_id") or "")' 2>/dev/null ||
-        true
-    )"
     if [ -n "${ORKWORKS_SESSION_ID:-}" ] && [ -n "${ORKWORKS_PORT:-}" ] && [ -n "$claude_session_id" ]; then
       escaped_session_id=$(printf '%s' "$claude_session_id" | sed 's/[\\"]/\\&/g')
       session_payload=$(printf '{"harnessSessionId":"%s","source":"claude_hook","confidence":0.98}' "$escaped_session_id")

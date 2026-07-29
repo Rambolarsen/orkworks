@@ -5,21 +5,28 @@ use crate::metadata;
 use crate::session_types::{MemoryState, SessionInfo};
 use std::collections::HashMap;
 
-/// Resolves each session's effective cwd: its live PTY-process cwd when a
-/// tracked pid resolves one (issue #241), else its frozen launch-time `cwd`.
-/// Shared by `enrich_sessions_with_git_context` and `detect_conflicts` so
-/// git-context enrichment and collision warnings agree on where a session
-/// actually is right now.
+/// Resolves each session's effective cwd (issue #241) via a 3-tier priority
+/// chain: the harness's own self-reported cwd (ADR 0032) when available,
+/// else its live PTY-process cwd when a tracked pid resolves one (ADR 0031),
+/// else its frozen launch-time `cwd`. Shared by `enrich_sessions_with_git_context`
+/// and `detect_conflicts` so git-context enrichment and collision warnings
+/// agree on where a session actually is right now.
 pub(crate) fn resolve_effective_cwds(
     sessions: &[SessionInfo],
     reported_cwds: &HashMap<String, String>,
     session_pids: &HashMap<String, u32>,
     live_cwds: impl FnOnce(&[u32]) -> HashMap<u32, String>,
 ) -> HashMap<String, String> {
-    // One batched probe covering every tracked pid, not one probe per
-    // session — a poll over N sessions costs one OS process-table scan
-    // instead of N.
-    let pids: Vec<u32> = session_pids.values().copied().collect();
+    // One batched probe covering only pids whose session lacks a
+    // higher-priority reported cwd — not one probe per session, and not
+    // wasted work for sessions the pid-probe result would be discarded for
+    // anyway (e.g. a workspace of all-Claude-Code sessions, which all
+    // self-report).
+    let pids: Vec<u32> = sessions
+        .iter()
+        .filter(|s| !reported_cwds.contains_key(&s.id))
+        .filter_map(|s| session_pids.get(&s.id).copied())
+        .collect();
     let resolved = live_cwds(&pids);
     sessions
         .iter()
@@ -45,10 +52,25 @@ pub(crate) fn resolve_effective_cwds(
 }
 
 fn best_effort_canonicalize(cwd: &str) -> String {
-    std::fs::canonicalize(cwd)
+    match std::fs::canonicalize(cwd)
         .ok()
         .and_then(|p| p.into_os_string().into_string().ok())
-        .unwrap_or_else(|| cwd.to_string())
+    {
+        Some(path) => strip_windows_verbatim_prefix(path),
+        None => cwd.to_string(),
+    }
+}
+
+/// `std::fs::canonicalize` on Windows returns a verbatim/extended-length
+/// path (e.g. `\\?\C:\repo`), which external tools consuming this value
+/// right after (notably `git2`/libgit2 for repository discovery) can fail
+/// to handle. Strip the prefix when present so canonicalized paths stay
+/// compatible with tools expecting normal Windows paths. A no-op elsewhere:
+/// non-Windows canonicalized paths never carry this prefix.
+fn strip_windows_verbatim_prefix(path: String) -> String {
+    path.strip_prefix(r"\\?\")
+        .map(str::to_string)
+        .unwrap_or(path)
 }
 
 pub(crate) fn detect_conflicts(
@@ -633,6 +655,22 @@ mod tests {
     }
 
     #[test]
+    fn strip_windows_verbatim_prefix_removes_the_prefix_when_present() {
+        assert_eq!(
+            strip_windows_verbatim_prefix(r"\\?\C:\repo\worktree".to_string()),
+            r"C:\repo\worktree"
+        );
+    }
+
+    #[test]
+    fn strip_windows_verbatim_prefix_is_a_noop_for_unix_paths() {
+        assert_eq!(
+            strip_windows_verbatim_prefix("/private/tmp/repo".to_string()),
+            "/private/tmp/repo"
+        );
+    }
+
+    #[test]
     fn resolve_effective_cwds_prefers_live_cwd_and_falls_back_to_launch_cwd() {
         let sessions = vec![
             test_session_info("tracked", "Tracked", "/launch", "running", "now"),
@@ -696,7 +734,11 @@ mod tests {
             ("pid-only".to_string(), 2),
         ]);
 
-        let resolved = resolve_effective_cwds(&sessions, &reported_cwds, &session_pids, |_| {
+        let resolved = resolve_effective_cwds(&sessions, &reported_cwds, &session_pids, |pids| {
+            // Efficiency: "reported"'s pid (1) already has a higher-priority
+            // reported cwd, so it must not even be probed — only "pid-only"'s
+            // pid (2) should reach the batched probe.
+            assert_eq!(pids, &[2]);
             HashMap::from([
                 (1, "/pid-probed-but-overridden".to_string()),
                 (2, "/pid-probed".to_string()),
