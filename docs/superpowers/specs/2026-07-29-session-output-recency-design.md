@@ -18,13 +18,21 @@ session appear inactive for hours.
 ## Design
 
 Add a persisted `lastOutputAt` timestamp to session metadata and the session
-API. Update it whenever the sidecar receives non-empty PTY output for a live
-session. It represents observed terminal recency only; it does not change
-Peon's summary, attention, event checkpoints, or metadata-source priority.
+API. Update the live session value whenever the sidecar receives non-empty PTY
+bytes, including a frame that has not yet completed a newline. It represents
+observed terminal recency only; it does not change Peon's summary, attention,
+event checkpoints, or metadata-source priority.
+
+The live value is immediately available to the API. Durable session-JSON
+writes are coalesced to a bounded interval so chatty TUIs do not cause one
+atomic metadata rewrite per PTY frame; the runtime flushes the latest pending
+value before it finalizes an exited session. After a restart, the most recent
+coalesced value remains available.
 
 The session list's “last active” label, recency ordering, and day grouping will
-prefer `lastOutputAt`, then retain the current fallback order of
-`lastActivityAt`, `peonLastInference`, and creation time. The detail panel
+select the newest valid value of `lastOutputAt` and `lastActivityAt`, then
+retain the current fallback order of `peonLastInference` and creation time.
+This preserves a later meaningful transition such as a terminal exit. The detail panel
 continues to use `lastActivityAt` because its task-history refresh follows
 meaningful summary checkpoints, not raw output.
 
@@ -39,12 +47,16 @@ the existing fallbacks.
 - No additional dependencies or IPC boundary imports; the Electron and
   renderer copies of the API contract remain independently owned.
 - Terminal output remains bounded by the existing replay limits.
+- Update `docs/agents/domain-entities.md` for the new persisted metadata field
+  and `docs/agents/architecture.md` for its API and recency semantics.
 
 ## Verification
 
-- Backend regression tests prove that receiving PTY output persists and
-  exposes `lastOutputAt` without changing `lastActivityAt`.
-- Frontend tests prove list labels, ordering, and grouping prefer
-  `lastOutputAt`, while meaningful-activity fallbacks remain intact.
+- Backend regression tests prove that non-empty PTY output, including output
+  without a newline, immediately exposes `lastOutputAt` without changing
+  `lastActivityAt`; they also pin coalesced persistence and the exit flush.
+- Frontend tests prove list labels, ordering, and grouping select the newest
+  valid output/activity timestamp while meaningful-activity fallbacks remain
+  intact.
 - Run the affected Rust and desktop suites, TypeScript check, documentation
   currency check, worktree currency check, and lightweight review.
