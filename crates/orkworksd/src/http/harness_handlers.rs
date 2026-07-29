@@ -68,10 +68,15 @@ pub(crate) async fn create_harness(
     })
     .await;
     match result {
-        Ok(Ok(registry)) => registry
-            .get(&id)
-            .map(|harness| (StatusCode::CREATED, Json(harness.definition.clone())).into_response())
-            .unwrap_or_else(|| internal_error("created harness was not resolved")),
+        Ok(Ok(registry)) => {
+            state.bump_harness_probe_generation();
+            registry
+                .get(&id)
+                .map(|harness| {
+                    (StatusCode::CREATED, Json(harness.definition.clone())).into_response()
+                })
+                .unwrap_or_else(|| internal_error("created harness was not resolved"))
+        }
         Ok(Err(error)) => store_error(error),
         Err(_) => internal_error("harness update task failed"),
     }
@@ -129,10 +134,13 @@ pub(crate) async fn update_harness(
     })
     .await;
     match result {
-        Ok(Ok(registry)) => registry
-            .get(&id)
-            .map(|harness| Json(harness.definition.clone()).into_response())
-            .unwrap_or_else(|| internal_error("updated harness was not resolved")),
+        Ok(Ok(registry)) => {
+            state.bump_harness_probe_generation();
+            registry
+                .get(&id)
+                .map(|harness| Json(harness.definition.clone()).into_response())
+                .unwrap_or_else(|| internal_error("updated harness was not resolved"))
+        }
         Ok(Err(error)) => store_error(error),
         Err(_) => internal_error("harness update task failed"),
     }
@@ -187,7 +195,10 @@ pub(crate) async fn delete_harness(
     })
     .await;
     match result {
-        Ok(Ok(_)) => StatusCode::NO_CONTENT.into_response(),
+        Ok(Ok(_)) => {
+            state.bump_harness_probe_generation();
+            StatusCode::NO_CONTENT.into_response()
+        }
         Ok(Err(error)) => store_error(error),
         Err(_) => internal_error("harness update task failed"),
     }
