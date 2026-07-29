@@ -65,6 +65,17 @@ test("sortSessions breaks attention ties by most recent activity, not label", ()
   assert.deepEqual(ordered.map((item) => item.id), ["keep going", "4Seems the branch"]);
 });
 
+test("sortSessions uses recent output when it is newer than meaningful activity", () => {
+  const stale = { ...session("stale", "alive", "idle"), lastActivityAt: "2026-07-28T21:00:00.000Z" };
+  const recentOutput = {
+    ...session("recent-output", "alive", "idle"),
+    lastActivityAt: "2026-07-28T08:00:00.000Z",
+    lastOutputAt: "2026-07-28T22:00:00.000Z",
+  };
+
+  assert.deepEqual(sortSessions([stale, recentOutput]).map((item) => item.id), ["recent-output", "stale"]);
+});
+
 test("mergeSessionsById keeps one row when a creation response repeats a polled session", () => {
   const existing = session("existing", "alive");
   const polledNew = session("new", "alive");

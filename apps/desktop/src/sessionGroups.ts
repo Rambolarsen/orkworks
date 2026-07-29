@@ -1,5 +1,5 @@
 import type { SessionInfo } from "./api";
-import { DAY_MS, delayUntil } from "./labels.ts";
+import { DAY_MS, delayUntil, lastActivityTimestamp } from "./labels.ts";
 
 export type GroupKey = "today" | "week" | "earlier";
 
@@ -10,13 +10,7 @@ export const GROUP_LABELS: Record<GroupKey, string> = {
 };
 
 function groupingTimeFor(s: SessionInfo): Date {
-  const lastActivity = s.lastActivityAt ? new Date(s.lastActivityAt) : undefined;
-  if (lastActivity && !Number.isNaN(lastActivity.getTime())) return lastActivity;
-
-  const peonLastInference = s.peonLastInference ? new Date(s.peonLastInference) : undefined;
-  return peonLastInference && !Number.isNaN(peonLastInference.getTime())
-    ? peonLastInference
-    : new Date(s.created_at);
+  return new Date(lastActivityTimestamp(s) ?? s.created_at);
 }
 
 export function groupForSession(s: SessionInfo, now: Date): GroupKey {

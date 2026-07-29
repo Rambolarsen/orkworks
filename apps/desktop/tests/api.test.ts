@@ -65,7 +65,7 @@ test("SessionInfo type accepts canonical terminology fields", () => {
   assert.equal(session.modelId, "deepseek/deepseek-reasoner");
 });
 
-test("SessionInfo type accepts connectivity, terminalOutcome, resumeOptions, and lastActivityAt", () => {
+test("SessionInfo type accepts connectivity, terminalOutcome, resumeOptions, and activity timestamps", () => {
   const session: SessionInfo = {
     id: "offline-test",
     label: "Offline Test",
@@ -75,6 +75,7 @@ test("SessionInfo type accepts connectivity, terminalOutcome, resumeOptions, and
     cwd: "/tmp/project",
     created_at: "2026-06-28T09:00:00Z",
     lastActivityAt: "2026-06-28T09:05:00Z",
+    lastOutputAt: "2026-06-28T09:06:00Z",
     memoryState: "resumable",
     resumeStrategy: "exact",
     resumeOptions: [
@@ -97,6 +98,7 @@ test("SessionInfo type accepts connectivity, terminalOutcome, resumeOptions, and
   assert.equal(session.connectivity, "offline");
   assert.equal(session.terminalOutcome, "ended");
   assert.equal(session.lastActivityAt, "2026-06-28T09:05:00Z");
+  assert.equal(session.lastOutputAt, "2026-06-28T09:06:00Z");
   assert.equal(session.resumeOptions[1].available, false);
 });
 
