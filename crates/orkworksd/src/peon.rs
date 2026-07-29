@@ -306,6 +306,104 @@ pub fn is_descriptive_input(line: &str) -> bool {
         && trimmed.chars().any(char::is_alphabetic)
 }
 
+fn explicit_pr_numbers(text: &str) -> Vec<String> {
+    let lower = text.to_ascii_lowercase();
+    let bytes = lower.as_bytes();
+    let mut numbers = Vec::new();
+    let mut index = 0;
+
+    while index < bytes.len() {
+        if index > 0 && bytes[index - 1].is_ascii_alphanumeric() {
+            index += 1;
+            continue;
+        }
+        let prefix_len = if bytes[index..].starts_with(b"pr #") {
+            4
+        } else if bytes[index..].starts_with(b"pull request #") {
+            14
+        } else {
+            index += 1;
+            continue;
+        };
+
+        let digits_start = index + prefix_len;
+        let mut digits_end = digits_start;
+        while digits_end < bytes.len() && bytes[digits_end].is_ascii_digit() {
+            digits_end += 1;
+        }
+        if digits_end > digits_start {
+            numbers.push(lower[digits_start..digits_end].to_string());
+        }
+        index = digits_end.max(index + prefix_len);
+    }
+
+    numbers
+}
+
+fn referenced_pr_numbers(text: &str) -> Vec<String> {
+    let bytes = text.as_bytes();
+    let mut numbers = Vec::new();
+    let mut index = 0;
+
+    while index < bytes.len() {
+        if bytes[index] != b'#' {
+            index += 1;
+            continue;
+        }
+
+        let digits_start = index + 1;
+        let mut digits_end = digits_start;
+        while digits_end < bytes.len() && bytes[digits_end].is_ascii_digit() {
+            digits_end += 1;
+        }
+        if digits_end > digits_start {
+            numbers.push(text[digits_start..digits_end].to_string());
+        }
+        index = digits_end.max(digits_start);
+    }
+
+    numbers
+}
+
+fn normalize_generic_instruction(label: &str) -> String {
+    label
+        .chars()
+        .map(|character| {
+            if character.is_alphanumeric() {
+                character
+            } else {
+                ' '
+            }
+        })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_ascii_lowercase()
+}
+
+/// Returns whether an input-triggered label names the task and retains all PR
+/// numbers explicitly mentioned in the submitted input.
+pub fn is_usable_input_label(label: &str, input_hint: &str) -> bool {
+    const GENERIC_PREFIXES: &[&str] = &[
+        "instructing system",
+        "instructing the system",
+        "instructing agent",
+        "instructing the agent",
+    ];
+
+    let normalized = normalize_generic_instruction(label);
+    let candidate_pr_numbers = referenced_pr_numbers(label);
+    !normalized.is_empty()
+        && !GENERIC_PREFIXES
+            .iter()
+            .any(|prefix| normalized.starts_with(prefix))
+        && !normalized.contains("current task execution")
+        && explicit_pr_numbers(input_hint)
+            .iter()
+            .all(|number| candidate_pr_numbers.contains(number))
+}
+
 /// Detects usage limit in a raw text blob (for TUI apps that use cursor positioning, not newlines).
 pub fn detect_usage_limit_raw<S: AsRef<str>>(patterns: &[S], text: &str) -> bool {
     if patterns.is_empty() {
@@ -404,7 +502,7 @@ Available fields:
 - detectedModel: model identifier visible in the terminal output (e.g. \"claude-sonnet-4-5\", \"gpt-4o\"), or omit if not detectable
 - harnessSessionId: the harness's internal session identifier visible in terminal output (e.g. a UUID, session hex string, or ID shown in a \"resume\" or \"continue\" prompt), or omit if not detectable
 
-If a line starting with '[User input]:' is present, it is what the user just typed to the AI coding tool. Use it to derive a short, direct, present-tense summary of what the user is doing — like a commit-message subject line. NEVER start the summary with \"User\", \"User is\", \"User wants\", \"User asked\", \"User requested\", or \"User typed\". Examples: \"Fixing peon model detection\" not \"User is fixing peon model detection\". \"Reviewing PR feedback\" not \"User wants to review PR feedback\". Keep it under 8 words.";
+If a line starting with '[User input]:' is present, it is what the user just typed to the AI coding tool. Use it to derive a short, direct, present-tense summary of what the user is doing — like a commit-message subject line. NEVER start the summary with \"User\", \"User is\", \"User wants\", \"User asked\", \"User requested\", or \"User typed\". Examples: \"Fixing peon model detection\" not \"User is fixing peon model detection\". \"Reviewing PR feedback\" not \"User wants to review PR feedback\". Keep it under 8 words. The summary must name the concrete task topic, never a generic instruction or control narration such as \"instructing the agent\" or \"continuing current task execution\". Preserve every explicit PR number from the user input (for example, \"PR #249\" or \"pull request #249\").";
 
 const VALID_STATUSES: &[&str] = &[
     "waiting_for_input",
@@ -590,6 +688,10 @@ pub fn build_prompt(output: &[String]) -> String {
         .map(|l| l.as_str())
         .collect::<Vec<_>>()
         .join("\n");
+    let required_pr_references = explicit_pr_numbers(&output_text)
+        .into_iter()
+        .map(|number| format!("#{number}"))
+        .collect::<Vec<_>>();
 
     let truncated: String = if output_text.len() > 4096 {
         output_text.chars().take(4096).collect()
@@ -597,7 +699,11 @@ pub fn build_prompt(output: &[String]) -> String {
         output_text
     };
 
-    format!("{SYSTEM_PROMPT}\n\nTerminal output:\n```\n{truncated}\n```")
+    let required_pr_references = (!required_pr_references.is_empty())
+        .then(|| format!("\nRequired PR references: {}", required_pr_references.join(", ")))
+        .unwrap_or_default();
+
+    format!("{SYSTEM_PROMPT}\n\nTerminal output:\n```\n{truncated}\n```{required_pr_references}")
 }
 
 #[cfg(test)]
@@ -1072,6 +1178,88 @@ mod tests {
         assert!(!is_descriptive_input("8080"));
         assert!(!is_descriptive_input("1234"));
         assert!(!is_descriptive_input("....!!"));
+    }
+
+    #[test]
+    fn input_label_validator_rejects_generic_instruction_forms() {
+        let cases = [
+            ("Monitoring PR #249", "keep watching PR #249", true),
+            ("Monitoring #249", "keep watching PR #249", true),
+            ("Monitoring pull request", "keep watching PR #249", false),
+            (
+                "Instructing system to review PR #249",
+                "review PR #249",
+                false,
+            ),
+            (
+                "Instructing the system to review PR #249",
+                "review PR #249",
+                false,
+            ),
+            (
+                "Instructing agent to review PR #249",
+                "review PR #249",
+                false,
+            ),
+            (
+                "Instructing the agent to review PR #249",
+                "review PR #249",
+                false,
+            ),
+            (
+                "Reviewing PR #249 during current task execution",
+                "review PR #249",
+                false,
+            ),
+        ];
+
+        for (label, input_hint, expected) in cases {
+            assert_eq!(
+                is_usable_input_label(label, input_hint),
+                expected,
+                "{label}"
+            );
+        }
+    }
+
+    #[test]
+    fn input_label_contract_preserves_explicit_prs_and_rejects_generic_controls() {
+        // The prompt instructs the provider to retain every explicit PR
+        // reference and avoid generic control-language labels. Validation
+        // enforces the same contract even across punctuation and casing.
+        assert!(SYSTEM_PROMPT.contains("Preserve every explicit PR number"));
+        assert!(SYSTEM_PROMPT.contains("generic instruction or control narration"));
+
+        assert!(!is_usable_input_label(
+            "INSTRUCTING—the AGENT: review PR #249",
+            "review PR #249",
+        ));
+        assert_eq!(
+            explicit_pr_numbers("APR #249: update docs"),
+            Vec::<String>::new()
+        );
+        assert!(is_usable_input_label(
+            "Reviewing PR #249",
+            "APR #249: update docs",
+        ));
+        assert!(!is_usable_input_label(
+            "Reviewing PR #249",
+            "review PR #249 and pull request #250",
+        ));
+        assert!(is_usable_input_label(
+            "Reviewing PR #249 and PR #250",
+            "review PR #249 and pull request #250",
+        ));
+        assert!(is_usable_input_label("修复登录重定向", "fix the login redirect"));
+    }
+
+    #[test]
+    fn build_prompt_retains_pr_references_after_terminal_output_truncation() {
+        let long_input = format!("[User input]: {} PR #249", "x".repeat(4097));
+
+        let prompt = build_prompt(&[long_input]);
+
+        assert!(prompt.contains("Required PR references: #249"));
     }
 
     #[test]

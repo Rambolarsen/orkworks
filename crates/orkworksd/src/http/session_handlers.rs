@@ -961,7 +961,7 @@ pub(crate) async fn create_session(
                 .label_hint
                 .write()
                 .unwrap()
-                .insert(id.clone(), label_line);
+                .insert(id.clone(), prompt.to_string());
             state.peon.label_pending.write().unwrap().insert(id.clone());
         }
     }
@@ -3182,6 +3182,38 @@ mod tests {
             .read_session(&created_id)
             .unwrap();
         assert_eq!(meta.label, "fix the login redirect bug");
+    }
+
+    #[tokio::test]
+    async fn creation_keeps_full_initial_hint_when_pr_is_after_display_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let prompt = format!("review {} PR #249", "important changes ".repeat(6));
+        let display: String = prompt.chars().take(100).collect();
+        let response = create_session(
+            State(state.clone()),
+            Json(CreateSessionRequest {
+                harness_id: Some("generic-shell".into()),
+                model: None,
+                initial_prompt: Some(prompt.clone()),
+            }),
+        )
+        .await
+        .into_response();
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let body: serde_json::Value = serde_json::from_slice(
+            &axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        let created_id = body["id"].as_str().unwrap();
+
+        assert_eq!(body["label"], display);
+        assert_eq!(
+            state.peon.label_hint.read().unwrap().get(created_id),
+            Some(&prompt)
+        );
     }
 
     #[tokio::test]
