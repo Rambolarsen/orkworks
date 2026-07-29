@@ -199,6 +199,16 @@ export function nextRelativeTimeRefreshMs(
   return delayUntil(t + (nextDisplaySecond - 0.5) * SECOND_MS, nowMs);
 }
 
+/** Keeps an existing relative-time timeout when a rerender would schedule the same or later deadline. */
+export function shouldRetainRelativeTimeRefresh(
+  currentDeadlineMs: number | null,
+  nextDelayMs: number | null,
+  nowMs: number,
+): boolean {
+  if (currentDeadlineMs === null || nextDelayMs === null) return false;
+  return currentDeadlineMs <= nowMs + nextDelayMs;
+}
+
 // lastActivityAt only advances when the backend observes a genuine change in
 // session situation; peonLastInference advances on every Peon tick, including
 // ones that reach the same conclusion (e.g. non-substantive TUI redraw output),

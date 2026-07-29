@@ -16,6 +16,7 @@ import {
   resumeChoices,
   situationHeadline,
   situationTail,
+  shouldRetainRelativeTimeRefresh,
   sourceLabel,
   sourceWithConfidence,
   VOCAB,
@@ -176,6 +177,16 @@ test("nextRelativeTimeRefreshMs ignores missing or invalid timestamps", () => {
   const now = new Date("2026-06-19T12:00:00Z");
   assert.equal(nextRelativeTimeRefreshMs(undefined, now), null);
   assert.equal(nextRelativeTimeRefreshMs("not-a-date", now), null);
+});
+
+test("shouldRetainRelativeTimeRefresh keeps the existing timeout across unrelated rerenders", () => {
+  const nowMs = new Date("2026-06-19T12:00:00Z").getTime();
+
+  // A 2s polling rerender should keep the timer that is already due at 9.5s.
+  assert.equal(shouldRetainRelativeTimeRefresh(nowMs + 9_500, 7_500, nowMs + 2_000), true);
+
+  // A genuinely sooner deadline still preempts the existing timer.
+  assert.equal(shouldRetainRelativeTimeRefresh(nowMs + 9_500, 500, nowMs + 2_000), false);
 });
 
 test("situationHeadline falls back through question, blocker, summary, next action", () => {

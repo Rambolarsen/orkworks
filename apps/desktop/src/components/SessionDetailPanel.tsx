@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { GitBranch } from "lucide-react";
 import { getSummaryLog } from "../api";
@@ -21,6 +21,7 @@ import {
   workPhaseLabel,
 } from "../labels";
 import { pushToast } from "../feedback";
+import { useStableRelativeTimeNow } from "../useStableRelativeTimeNow";
 import DetailField from "./DetailField";
 import EmptyState from "./EmptyState";
 import SourceBadge from "./SourceBadge";
@@ -38,12 +39,18 @@ interface SessionDetailPanelProps {
 }
 
 function SessionDetailPanel({ sessions, activeSessionId, onResumeSession, onApplyDebugAttention, showDebugMetadata }: SessionDetailPanelProps) {
-  const [now, setNow] = useState(() => new Date());
   const [debugAttention, setDebugAttention] = useState<SessionAttention>("working");
   const [debugMessage, setDebugMessage] = useState("");
   const [summaryLog, setSummaryLog] = useState<SummaryLogEntry[]>([]);
   const [summaryLogSessionId, setSummaryLogSessionId] = useState<string | null>(null);
   const active = sessions.find((s) => s.id === activeSessionId);
+  const now = useStableRelativeTimeNow(useCallback((currentNow: Date) => {
+    if (!active) return null;
+    let nextRefresh = nextRelativeTimeRefreshMs(active.peonLastInference, currentNow);
+    nextRefresh = minDelay(nextRefresh, nextRelativeTimeRefreshMs(active.lastActivityAt, currentNow));
+    nextRefresh = minDelay(nextRefresh, nextRelativeTimeRefreshMs(active.created_at, currentNow));
+    return nextRefresh;
+  }, [active?.id, active?.peonLastInference, active?.lastActivityAt, active?.created_at]));
 
   // Reset synchronously (during render, not in an effect) so a session
   // switch never paints the previous session's task history under the new
@@ -52,16 +59,6 @@ function SessionDetailPanel({ sessions, activeSessionId, onResumeSession, onAppl
     setSummaryLogSessionId(active.id);
     setSummaryLog([]);
   }
-
-  useEffect(() => {
-    if (!active) return;
-    let nextRefresh = nextRelativeTimeRefreshMs(active.peonLastInference, now);
-    nextRefresh = minDelay(nextRefresh, nextRelativeTimeRefreshMs(active.lastActivityAt, now));
-    nextRefresh = minDelay(nextRefresh, nextRelativeTimeRefreshMs(active.created_at, now));
-    if (nextRefresh === null) return;
-    const timeout = window.setTimeout(() => setNow(new Date()), nextRefresh);
-    return () => window.clearTimeout(timeout);
-  }, [active, now]);
 
   useEffect(() => {
     if (!active) return;
