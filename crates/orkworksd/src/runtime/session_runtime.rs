@@ -291,12 +291,27 @@ enum DriverEvent {
     WaitError(String),
 }
 
+fn should_persist_output_recency(existing: Option<&str>, incoming: &str) -> bool {
+    let Some(existing) = existing else {
+        return true;
+    };
+    let Ok(existing) = DateTime::parse_from_rfc3339(existing) else {
+        return true;
+    };
+    let Ok(incoming) = DateTime::parse_from_rfc3339(incoming) else {
+        return true;
+    };
+    incoming >= existing
+}
+
 fn persist_output_recency(state: &Arc<AppState>, id: &str, timestamp: String) {
     let ws_guard = state.workspace.lock().unwrap();
     if let Some(ref ws) = *ws_guard {
         if let Some(mut meta) = ws.metadata.read_session(id) {
-            meta.last_output_at = Some(timestamp);
-            ws.metadata.write_session(&meta);
+            if should_persist_output_recency(meta.last_output_at.as_deref(), &timestamp) {
+                meta.last_output_at = Some(timestamp);
+                ws.metadata.write_session(&meta);
+            }
         }
     }
 }
@@ -1016,6 +1031,18 @@ mod tests {
             Some(std::time::Duration::from_secs(4))
         );
         assert_eq!(runtime.flush_output_recency(), Some(second));
+    }
+
+    #[test]
+    fn output_recency_persistence_never_replaces_a_newer_timestamp() {
+        assert!(!should_persist_output_recency(
+            Some("2026-07-29T10:00:01Z"),
+            "2026-07-29T10:00:00Z",
+        ));
+        assert!(should_persist_output_recency(
+            Some("2026-07-29T10:00:00Z"),
+            "2026-07-29T10:00:01Z",
+        ));
     }
 
     #[test]
