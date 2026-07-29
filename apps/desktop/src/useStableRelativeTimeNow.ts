@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { shouldRetainRelativeTimeRefresh } from "./labels";
+import { nextRelativeTimeDeadlineMs } from "./labels";
 
 export function useStableRelativeTimeNow(
   computeNextRefresh: (now: Date) => number | null,
@@ -20,7 +20,11 @@ export function useStableRelativeTimeNow(
       return;
     }
 
-    if (shouldRetainRelativeTimeRefresh(deadlineRef.current, nextRefresh, now.getTime())) {
+    const nextDeadline = nextRelativeTimeDeadlineMs(deadlineRef.current, nextRefresh, now.getTime());
+    if (nextDeadline === deadlineRef.current) {
+      return;
+    }
+    if (nextDeadline === null) {
       return;
     }
 
@@ -28,12 +32,12 @@ export function useStableRelativeTimeNow(
       window.clearTimeout(timerRef.current);
     }
 
-    deadlineRef.current = now.getTime() + nextRefresh;
+    deadlineRef.current = nextDeadline;
     timerRef.current = window.setTimeout(() => {
       timerRef.current = null;
       deadlineRef.current = null;
       setNow(new Date());
-    }, nextRefresh);
+    }, nextDeadline - now.getTime());
   }, [computeNextRefresh, now]);
 
   useEffect(() => () => {
