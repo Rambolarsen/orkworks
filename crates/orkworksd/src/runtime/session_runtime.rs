@@ -21,6 +21,7 @@ const MAX_PARTIAL_PERSIST_BYTES: usize = 64 * 1024;
 const INITIAL_RESIZE_GRACE: std::time::Duration = std::time::Duration::from_millis(150);
 const STARTUP_ATTENTION_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
 const WORK_SIGNAL_WINDOW: std::time::Duration = std::time::Duration::from_secs(10);
+const OUTPUT_RECENCY_PERSIST_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
 
 #[derive(Debug)]
 pub(crate) struct PendingWorkSignal {
@@ -185,6 +186,8 @@ pub(crate) struct SessionRuntime {
     pub(crate) accepted_input_at: Option<DateTime<Utc>>,
     pub(crate) peon_output_revision: u64,
     pub(crate) min_peon_output_revision: u64,
+    last_output_persisted_at: Option<tokio::time::Instant>,
+    pending_output_at: Option<String>,
 }
 
 impl SessionRuntime {
@@ -204,6 +207,8 @@ impl SessionRuntime {
                 accepted_input_at: None,
                 peon_output_revision: 0,
                 min_peon_output_revision: 0,
+                last_output_persisted_at: None,
+                pending_output_at: None,
             },
             control_rx,
         )
@@ -225,6 +230,8 @@ impl SessionRuntime {
             accepted_input_at: None,
             peon_output_revision: 0,
             min_peon_output_revision: 0,
+            last_output_persisted_at: None,
+            pending_output_at: None,
         }
     }
 
@@ -242,12 +249,54 @@ impl SessionRuntime {
     pub(crate) fn last_size(&self) -> (u16, u16) {
         (self.last_rows, self.last_cols)
     }
+
+    fn record_output_recency(
+        &mut self,
+        timestamp: String,
+        now: tokio::time::Instant,
+    ) -> Option<String> {
+        self.pending_output_at = Some(timestamp);
+        let due = self
+            .last_output_persisted_at
+            .map(|previous| now.duration_since(previous) >= OUTPUT_RECENCY_PERSIST_INTERVAL)
+            .unwrap_or(true);
+        due.then(|| {
+            self.last_output_persisted_at = Some(now);
+            self.pending_output_at.take().expect("pending output timestamp set above")
+        })
+    }
+
+    fn flush_output_recency(&mut self) -> Option<String> {
+        self.pending_output_at.take()
+    }
 }
 
 enum DriverEvent {
     Output(Vec<u8>),
     Exited,
     WaitError(String),
+}
+
+fn persist_output_recency(state: &Arc<AppState>, id: &str, timestamp: String) {
+    let ws_guard = state.workspace.lock().unwrap();
+    if let Some(ref ws) = *ws_guard {
+        if let Some(mut meta) = ws.metadata.read_session(id) {
+            meta.last_output_at = Some(timestamp);
+            ws.metadata.write_session(&meta);
+        }
+    }
+}
+
+fn flush_output_recency(state: &Arc<AppState>, id: &str) {
+    let timestamp = state
+        .sessions
+        .lock()
+        .unwrap()
+        .get_mut(id)
+        .and_then(|handle| handle.runtime.flush_output_recency());
+    if let Some(timestamp) = timestamp {
+        persist_output_recency(state, id, timestamp);
+    }
 }
 
 fn make_driver_event_channel() -> (mpsc::Sender<DriverEvent>, mpsc::Receiver<DriverEvent>) {
@@ -669,11 +718,18 @@ pub(crate) async fn start_session_runtime(
                             persist_buffer.extend_from_slice(&data);
                             let stripped = peon::strip_ansi(&String::from_utf8_lossy(&data));
                             let raw_persist_lines = drain_persist_records(&mut persist_buffer);
+                            let output_at = crate::workspace_runtime::iso_now();
+                            let output_persist_at = tokio::time::Instant::now();
 
                             let mut promoted_working = false;
+                            let mut output_recency_to_persist = None;
                             {
                                 let mut sessions = driver_state.sessions.lock().unwrap();
                                 if let Some(handle) = sessions.get_mut(&driver_id) {
+                                    handle.info.last_output_at = Some(output_at.clone());
+                                    output_recency_to_persist = handle
+                                        .runtime
+                                        .record_output_recency(output_at, output_persist_at);
                                     for raw in &raw_persist_lines {
                                         let trimmed = raw.trim();
                                         if !trimmed.is_empty() {
@@ -708,6 +764,10 @@ pub(crate) async fn start_session_runtime(
                                     let cursor = handle.runtime.replay.push(data.clone());
                                     let _ = handle.runtime.output_tx.send(RuntimeEvent::Output { cursor, chunk: data.clone() });
                                 }
+                            }
+
+                            if let Some(timestamp) = output_recency_to_persist {
+                                persist_output_recency(&driver_state, &driver_id, timestamp);
                             }
 
                             if driver_state.peon.config.enabled {
@@ -746,6 +806,8 @@ pub(crate) async fn start_session_runtime(
                                 final_persist_batches
                                     .push_back(vec![String::from_utf8_lossy(&persist_buffer).into_owned()]);
                             }
+
+                            flush_output_recency(&driver_state, &driver_id);
 
                             driver_state.peon.last_output.write().unwrap().remove(&driver_id);
                             driver_state.peon.last_inference.write().unwrap().remove(&driver_id);
@@ -792,6 +854,7 @@ pub(crate) async fn start_session_runtime(
                                 final_persist_batches
                                     .push_back(vec![String::from_utf8_lossy(&persist_buffer).into_owned()]);
                             }
+                            flush_output_recency(&driver_state, &driver_id);
                             driver_state.peon.last_output.write().unwrap().remove(&driver_id);
                             driver_state.peon.last_inference.write().unwrap().remove(&driver_id);
                             driver_state.peon.input_buf.write().unwrap().remove(&driver_id);
@@ -899,6 +962,24 @@ mod tests {
         let runtime = SessionRuntime::detached_test();
         assert!(runtime.attached_generation().is_none());
         assert_eq!(runtime.last_size(), (24, 80));
+    }
+
+    #[test]
+    fn output_recency_updates_live_state_and_coalesces_persistence() {
+        let mut runtime = SessionRuntime::detached_test();
+        let first = "2026-07-29T10:00:00Z".to_string();
+        let second = "2026-07-29T10:00:01Z".to_string();
+        let start = tokio::time::Instant::now();
+
+        assert_eq!(
+            runtime.record_output_recency(first.clone(), start),
+            Some(first.clone())
+        );
+        assert_eq!(
+            runtime.record_output_recency(second.clone(), start + std::time::Duration::from_secs(1)),
+            None
+        );
+        assert_eq!(runtime.flush_output_recency(), Some(second));
     }
 
     #[test]
