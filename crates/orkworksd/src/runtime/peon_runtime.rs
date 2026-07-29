@@ -360,6 +360,7 @@ mod tests {
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
                 input_buf: RwLock::new(HashMap::new()),
+                reported_cwd: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig {
                     harness: "unused".into(),
                     harness_args: vec![],
@@ -461,6 +462,7 @@ mod tests {
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
                 input_buf: RwLock::new(HashMap::new()),
+                reported_cwd: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig {
                     harness: "unused".into(),
                     harness_args: vec![],
@@ -582,6 +584,7 @@ mod tests {
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
                 input_buf: RwLock::new(HashMap::new()),
+                reported_cwd: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig {
                     harness: "unused".into(),
                     harness_args: vec![],
@@ -710,6 +713,7 @@ mod tests {
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
                 input_buf: RwLock::new(HashMap::new()),
+                reported_cwd: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig {
                     harness: "unused".into(),
                     harness_args: vec![],
@@ -844,6 +848,7 @@ mod tests {
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
                 input_buf: RwLock::new(HashMap::new()),
+                reported_cwd: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig {
                     harness: "unused".into(),
                     harness_args: vec![],
@@ -992,6 +997,7 @@ mod tests {
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
                 input_buf: RwLock::new(HashMap::new()),
+                reported_cwd: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig::from_env(),
             },
             harness_catalog: crate::test_support::test_harness_components().0,
@@ -1174,6 +1180,7 @@ mod tests {
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
                 input_buf: RwLock::new(HashMap::new()),
+                reported_cwd: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig::from_env(),
             },
             harness_catalog: crate::test_support::test_harness_components().0,
@@ -1279,6 +1286,7 @@ mod tests {
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
                 input_buf: RwLock::new(HashMap::new()),
+                reported_cwd: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig {
                     harness: dir.path().join("missing-harness").display().to_string(),
                     harness_args: vec!["--print".into()],
@@ -1384,6 +1392,7 @@ mod tests {
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
                 input_buf: RwLock::new(HashMap::new()),
+                reported_cwd: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig {
                     harness: dir.path().join("missing-harness").display().to_string(),
                     harness_args: vec!["--print".into()],
@@ -1486,6 +1495,7 @@ mod tests {
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
                 input_buf: RwLock::new(HashMap::new()),
+                reported_cwd: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig {
                     harness: dir.path().join("missing-harness").display().to_string(),
                     harness_args: vec!["--print".into()],
@@ -1651,6 +1661,7 @@ mod tests {
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
                 input_buf: RwLock::new(HashMap::new()),
+                reported_cwd: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig {
                     harness: dir.path().join("missing-harness").display().to_string(),
                     harness_args: vec!["--print".into()],
@@ -1828,6 +1839,7 @@ mod tests {
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
                 input_buf: RwLock::new(HashMap::new()),
+                reported_cwd: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig {
                     harness: dir.path().join("missing-harness").display().to_string(),
                     harness_args: vec!["--print".into()],
@@ -1987,6 +1999,7 @@ mod tests {
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
                 input_buf: RwLock::new(HashMap::new()),
+                reported_cwd: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig {
                     harness: dir.path().join("missing-harness").display().to_string(),
                     harness_args: vec!["--print".into()],
@@ -2144,6 +2157,7 @@ mod tests {
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
                 input_buf: RwLock::new(HashMap::new()),
+                reported_cwd: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig {
                     harness: dir.path().join("missing-harness").display().to_string(),
                     harness_args: vec!["--print".into()],
@@ -2306,6 +2320,7 @@ mod tests {
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
                 input_buf: RwLock::new(HashMap::new()),
+                reported_cwd: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig {
                     harness: dir.path().join("missing-harness").display().to_string(),
                     harness_args: vec!["--print".into()],
@@ -2467,6 +2482,7 @@ mod tests {
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
                 input_buf: RwLock::new(HashMap::new()),
+                reported_cwd: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig::from_env(),
             },
             harness_catalog: crate::test_support::test_harness_components().0,
@@ -2630,6 +2646,7 @@ mod tests {
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
                 input_buf: RwLock::new(HashMap::new()),
+                reported_cwd: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig {
                     harness: dir.path().join("missing-harness").display().to_string(),
                     harness_args: vec![],

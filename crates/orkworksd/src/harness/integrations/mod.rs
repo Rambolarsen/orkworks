@@ -445,6 +445,46 @@ mod tests {
     }
 
     #[test]
+    fn report_harness_event_forwards_reported_cwd_for_claude_marker() {
+        let script = include_str!("../../../scripts/report-harness-event.sh");
+        assert!(script.contains("data.get(\"cwd\")"));
+        assert!(script.contains("payload[\"cwd\"] = cwd"));
+    }
+
+    #[test]
+    fn report_harness_event_runs_and_forwards_cwd_from_a_real_claude_payload() {
+        use std::io::Write;
+        use std::process::{Command, Stdio};
+
+        let script_path = concat!(env!("CARGO_MANIFEST_DIR"), "/scripts/report-harness-event.sh");
+        let mut child = Command::new("bash")
+            .arg("-x")
+            .arg(script_path)
+            .arg("--marker")
+            .arg("orkworks:harness-integration:v2:claude-code")
+            .env("ORKWORKS_SESSION_ID", "test-session")
+            .env("ORKWORKS_PORT", "1") // unroutable; curl fails fast, harmless (`|| true`)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("spawn report-harness-event.sh");
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(br#"{"session_id":"abc123","cwd":"/tmp/some/worktree"}"#)
+            .unwrap();
+        let output = child.wait_with_output().expect("script should run to completion");
+        assert!(output.status.success(), "script exited non-zero: {output:?}");
+        let trace = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            trace.contains(r#""cwd": "/tmp/some/worktree""#),
+            "expected the cwd from stdin to appear in the constructed attention payload; trace:\n{trace}"
+        );
+    }
+
+    #[test]
     fn report_harness_event_ps1_always_posts_generic_attention() {
         let script = include_str!("../../../scripts/report-harness-event.ps1");
         assert!(script.contains("ORKWORKS_SESSION_ID"));

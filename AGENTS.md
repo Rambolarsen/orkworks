@@ -215,6 +215,7 @@ Electron + React/TypeScript frontend (`apps/desktop/`) communicates with a Rust 
 - ADR 0028: Harness version-probe results are cached with bounded TTLs and generation-aware invalidation, preserving the integration action's post-probe identity revalidation.
 - ADR 0029: Session `label` (title) is a one-shot Peon-authored topic, decoupled from the turn-by-turn `summary`/checkpoint log; it is not part of the ADR 0005 metadata-source precedence system.
 - ADR 0031: Session git-context fields (`repo_root`/`branch`/`dirty`/etc.) reflect each session's live PTY-process cwd, probed cross-platform via the `sysinfo` crate, not just its frozen launch-time cwd.
+- ADR 0032: For Claude Code sessions, the harness's own self-reported cwd (forwarded from its hook JSON payload) takes priority over ADR 0031's pid probe, since command-template harnesses run as the PTY child directly and track "current directory" as internal state rather than calling `chdir()` on themselves.
 
 **Rust module layout** (`crates/orkworksd/src/`):
 - `metadata.rs` — `SessionMetadata` and the on-disk metadata store (source of truth for session state)

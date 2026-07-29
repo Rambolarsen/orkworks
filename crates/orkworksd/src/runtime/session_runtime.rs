@@ -553,6 +553,7 @@ pub(crate) fn clear_ended_session_tracking(state: &AppState, id: &str) {
     state.peon.last_output.write().unwrap().remove(id);
     state.peon.last_inference.write().unwrap().remove(id);
     state.peon.input_buf.write().unwrap().remove(id);
+    state.peon.reported_cwd.write().unwrap().remove(id);
     state.session_pids.lock().unwrap().remove(id);
 }
 
@@ -998,6 +999,7 @@ mod tests {
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
                 input_buf: RwLock::new(HashMap::new()),
+                reported_cwd: RwLock::new(HashMap::new()),
                 config: crate::peon::PeonConfig::from_env(),
             },
             harness_catalog: crate::test_support::test_harness_components().0,

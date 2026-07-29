@@ -12,6 +12,7 @@ use std::collections::HashMap;
 /// actually is right now.
 pub(crate) fn resolve_effective_cwds(
     sessions: &[SessionInfo],
+    reported_cwds: &HashMap<String, String>,
     session_pids: &HashMap<String, u32>,
     live_cwds: impl FnOnce(&[u32]) -> HashMap<u32, String>,
 ) -> HashMap<String, String> {
@@ -23,16 +24,21 @@ pub(crate) fn resolve_effective_cwds(
     sessions
         .iter()
         .map(|s| {
-            let cwd = session_pids
-                .get(&s.id)
-                .and_then(|pid| resolved.get(pid))
-                .cloned()
-                .unwrap_or_else(|| s.cwd.clone());
-            // Canonicalize both the live-resolved and launch-cwd-fallback
-            // paths the same way, so e.g. a live-resolved macOS
-            // /private/tmp/x and an unresolved launch cwd /tmp/x for the
-            // *same* directory compare equal instead of grouping/counting
-            // as two different locations.
+            // Priority: the harness's own self-reported cwd (ADR 0032,
+            // authoritative when available — currently Claude Code only) >
+            // the pid-probed live cwd (ADR 0031, works for bare shell
+            // sessions) > the frozen launch-time cwd.
+            let cwd = reported_cwds.get(&s.id).cloned().unwrap_or_else(|| {
+                session_pids
+                    .get(&s.id)
+                    .and_then(|pid| resolved.get(pid))
+                    .cloned()
+                    .unwrap_or_else(|| s.cwd.clone())
+            });
+            // Canonicalize every source the same way, so e.g. a live-
+            // resolved macOS /private/tmp/x and an unresolved launch cwd
+            // /tmp/x for the *same* directory compare equal instead of
+            // grouping/counting as two different locations.
             (s.id.clone(), best_effort_canonicalize(&cwd))
         })
         .collect()
@@ -634,7 +640,7 @@ mod tests {
         ];
         let session_pids: HashMap<String, u32> = HashMap::from([("tracked".to_string(), 99)]);
 
-        let resolved = resolve_effective_cwds(&sessions, &session_pids, |pids| {
+        let resolved = resolve_effective_cwds(&sessions, &HashMap::new(), &session_pids, |pids| {
             assert_eq!(pids, &[99]);
             HashMap::from([(99, "/live".to_string())])
         });
@@ -664,7 +670,7 @@ mod tests {
         let real_dir_str = real_dir.path().display().to_string();
         let session_pids: HashMap<String, u32> = HashMap::from([("live".to_string(), 1)]);
 
-        let resolved = resolve_effective_cwds(&sessions, &session_pids, |_| {
+        let resolved = resolve_effective_cwds(&sessions, &HashMap::new(), &session_pids, |_| {
             HashMap::from([(1, real_dir_str.clone())])
         });
 
@@ -672,6 +678,40 @@ mod tests {
         // fell back to the symlinked launch cwd. Both should canonicalize to
         // the same real path.
         assert_eq!(resolved.get("live"), resolved.get("stale"));
+    }
+
+    #[test]
+    fn resolve_effective_cwds_prefers_harness_reported_cwd_over_pid_probe_and_launch_cwd() {
+        let sessions = vec![
+            test_session_info("reported", "Reported", "/launch", "running", "now"),
+            test_session_info("pid-only", "PidOnly", "/launch", "running", "now"),
+            test_session_info("neither", "Neither", "/launch", "running", "now"),
+        ];
+        let reported_cwds: HashMap<String, String> =
+            HashMap::from([("reported".to_string(), "/harness-reported".to_string())]);
+        // "reported" also has a tracked pid that would resolve to a
+        // different directory — the harness-reported value must win anyway.
+        let session_pids: HashMap<String, u32> = HashMap::from([
+            ("reported".to_string(), 1),
+            ("pid-only".to_string(), 2),
+        ]);
+
+        let resolved = resolve_effective_cwds(&sessions, &reported_cwds, &session_pids, |_| {
+            HashMap::from([
+                (1, "/pid-probed-but-overridden".to_string()),
+                (2, "/pid-probed".to_string()),
+            ])
+        });
+
+        assert_eq!(
+            resolved.get("reported").map(String::as_str),
+            Some("/harness-reported")
+        );
+        assert_eq!(
+            resolved.get("pid-only").map(String::as_str),
+            Some("/pid-probed")
+        );
+        assert_eq!(resolved.get("neither").map(String::as_str), Some("/launch"));
     }
 
     #[test]

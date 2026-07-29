@@ -55,6 +55,12 @@ pub(crate) struct AttentionReportRequest {
     pub(crate) plan_path: metadata::PlanPathUpdate,
     #[serde(rename = "observedAt", default)]
     pub(crate) observed_at: Option<String>,
+    /// The harness's own logical working directory, when it reports one
+    /// (currently Claude Code only, forwarded from its hook JSON payload).
+    /// Authoritative over the pid-probed/launch-time cwd fallbacks — see
+    /// ADR 0032.
+    #[serde(default)]
+    pub(crate) cwd: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -546,6 +552,20 @@ pub(crate) async fn report_attention(
     let Some(status) = normalize_hook_attention_status(&req.status, supports_active_work) else {
         return axum::http::StatusCode::BAD_REQUEST.into_response();
     };
+
+    // Record the harness's self-reported cwd (issue #241 / ADR 0032)
+    // whenever one accompanies this report, independent of whether the
+    // attention status itself turns out to be stale below — the two are
+    // orthogonal, and an empty string is treated as "nothing reported"
+    // rather than clearing a previously-known value.
+    if let Some(cwd) = req.cwd.as_deref().filter(|c| !c.is_empty()) {
+        state
+            .peon
+            .reported_cwd
+            .write()
+            .unwrap()
+            .insert(id.clone(), cwd.to_string());
+    }
 
     if observed_at.is_some_and(|timestamp| {
         state
@@ -1563,7 +1583,13 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
         .update_session_capping(harness_capped, harness_reset_hint, provider_checking);
 
     let session_pids = state.session_pids.lock().unwrap().clone();
-    let effective_cwds = resolve_effective_cwds(&infos, &session_pids, crate::procfs::live_cwds);
+    let reported_cwds = state.peon.reported_cwd.read().unwrap().clone();
+    let effective_cwds = resolve_effective_cwds(
+        &infos,
+        &reported_cwds,
+        &session_pids,
+        crate::procfs::live_cwds,
+    );
     enrich_sessions_with_git_context(&mut infos, &effective_cwds, git::detect);
 
     let conflict_warnings = detect_conflicts(&infos, &effective_cwds);
@@ -2274,6 +2300,7 @@ mod tests {
                 message: None,
                 plan_path: Default::default(),
                 observed_at: None,
+                cwd: None,
             }),
         )
         .await
@@ -2294,6 +2321,7 @@ mod tests {
                 message: None,
                 plan_path: Default::default(),
                 observed_at: Some("not-a-timestamp".into()),
+                cwd: None,
             }),
         )
         .await
@@ -2314,6 +2342,7 @@ mod tests {
                 message: None,
                 plan_path: Default::default(),
                 observed_at: None,
+                cwd: None,
             }),
         )
         .await
@@ -2393,6 +2422,7 @@ mod tests {
                 message: None,
                 plan_path: Default::default(),
                 observed_at: None,
+                cwd: None,
             }),
         )
         .await
@@ -2411,6 +2441,102 @@ mod tests {
             Some("waiting_for_input")
         );
         assert_eq!(updated.metadata_source, "agent");
+    }
+
+    #[tokio::test]
+    async fn report_attention_stores_reported_cwd_when_present() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        {
+            let ws = state.workspace.lock().unwrap();
+            ws.as_ref().unwrap().metadata.write_session(
+                &crate::test_support::test_session_metadata(
+                    "cwd-report",
+                    "CwdReport",
+                    dir.path().display().to_string(),
+                    "running",
+                    "now",
+                    "now",
+                ),
+            );
+        }
+
+        let response = report_attention(
+            State(state.clone()),
+            Path("cwd-report".into()),
+            Json(AttentionReportRequest {
+                status: "waiting_for_input".into(),
+                message: None,
+                plan_path: Default::default(),
+                observed_at: None,
+                cwd: Some("/harness-reported/worktree".into()),
+            }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        assert_eq!(
+            state
+                .peon
+                .reported_cwd
+                .read()
+                .unwrap()
+                .get("cwd-report")
+                .map(String::as_str),
+            Some("/harness-reported/worktree")
+        );
+    }
+
+    #[tokio::test]
+    async fn report_attention_does_not_clobber_reported_cwd_when_absent() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        {
+            let ws = state.workspace.lock().unwrap();
+            ws.as_ref().unwrap().metadata.write_session(
+                &crate::test_support::test_session_metadata(
+                    "cwd-sticky",
+                    "CwdSticky",
+                    dir.path().display().to_string(),
+                    "running",
+                    "now",
+                    "now",
+                ),
+            );
+        }
+        state
+            .peon
+            .reported_cwd
+            .write()
+            .unwrap()
+            .insert("cwd-sticky".into(), "/previously-reported".into());
+
+        let response = report_attention(
+            State(state.clone()),
+            Path("cwd-sticky".into()),
+            Json(AttentionReportRequest {
+                status: "waiting_for_input".into(),
+                message: None,
+                plan_path: Default::default(),
+                observed_at: None,
+                cwd: None,
+            }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        assert_eq!(
+            state
+                .peon
+                .reported_cwd
+                .read()
+                .unwrap()
+                .get("cwd-sticky")
+                .map(String::as_str),
+            Some("/previously-reported")
+        );
     }
 
     #[tokio::test]
@@ -2459,6 +2585,7 @@ mod tests {
                 message: Some("old prompt".into()),
                 plan_path: Default::default(),
                 observed_at: Some("2026-07-21T08:00:00.000000Z".into()),
+                cwd: None,
             }),
         )
         .await
@@ -2522,6 +2649,7 @@ mod tests {
                     message: Some("Waiting".into()),
                     plan_path: Default::default(),
                     observed_at: None,
+                    cwd: None,
                 }),
             )
             .await
@@ -2806,6 +2934,7 @@ mod tests {
                 message: None,
                 plan_path: Default::default(),
                 observed_at: None,
+                cwd: None,
             }),
         )
         .await
@@ -3205,6 +3334,7 @@ mod tests {
                 message: None,
                 plan_path: Default::default(),
                 observed_at: None,
+                cwd: None,
             }),
         )
         .await
@@ -3352,6 +3482,7 @@ mod tests {
                 message: None,
                 plan_path: Default::default(),
                 observed_at: None,
+                cwd: None,
             }),
         )
         .await
@@ -3398,6 +3529,7 @@ mod tests {
                 message: None,
                 plan_path: Default::default(),
                 observed_at: None,
+                cwd: None,
             }),
         )
         .await
@@ -3449,6 +3581,7 @@ mod tests {
                 message: None,
                 plan_path: Default::default(),
                 observed_at: None,
+                cwd: None,
             }),
         )
         .await
@@ -3499,6 +3632,7 @@ mod tests {
                 message: None,
                 plan_path: Default::default(),
                 observed_at: None,
+                cwd: None,
             }),
         )
         .await
@@ -3546,6 +3680,7 @@ mod tests {
                 message: None,
                 plan_path: Default::default(),
                 observed_at: None,
+                cwd: None,
             }),
         )
         .await
@@ -3685,6 +3820,7 @@ mod tests {
                 label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
                 label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
                 input_buf: std::sync::RwLock::new(std::collections::HashMap::new()),
+                reported_cwd: std::sync::RwLock::new(std::collections::HashMap::new()),
                 config: peon::PeonConfig::from_env(),
             },
             harness_catalog: crate::test_support::test_harness_components().0,
@@ -4008,6 +4144,7 @@ mod tests {
                 label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
                 label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
                 input_buf: std::sync::RwLock::new(std::collections::HashMap::new()),
+                reported_cwd: std::sync::RwLock::new(std::collections::HashMap::new()),
                 config: peon::PeonConfig::from_env(),
             },
             harness_catalog: crate::test_support::test_harness_components().0,
@@ -4098,6 +4235,7 @@ mod tests {
                 label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
                 label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
                 input_buf: std::sync::RwLock::new(std::collections::HashMap::new()),
+                reported_cwd: std::sync::RwLock::new(std::collections::HashMap::new()),
                 config: peon::PeonConfig::from_env(),
             },
             harness_catalog: crate::test_support::test_harness_components().0,
@@ -4190,6 +4328,7 @@ mod tests {
                 label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
                 label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
                 input_buf: std::sync::RwLock::new(std::collections::HashMap::new()),
+                reported_cwd: std::sync::RwLock::new(std::collections::HashMap::new()),
                 config: peon::PeonConfig::from_env(),
             },
             harness_catalog: crate::test_support::test_harness_components().0,
@@ -4264,6 +4403,7 @@ mod tests {
                 label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
                 label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
                 input_buf: std::sync::RwLock::new(std::collections::HashMap::new()),
+                reported_cwd: std::sync::RwLock::new(std::collections::HashMap::new()),
                 config: peon::PeonConfig::from_env(),
             },
             harness_catalog: crate::test_support::test_harness_components().0,
@@ -4755,6 +4895,7 @@ mod tests {
                 label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
                 label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
                 input_buf: std::sync::RwLock::new(std::collections::HashMap::new()),
+                reported_cwd: std::sync::RwLock::new(std::collections::HashMap::new()),
                 config: peon::PeonConfig::from_env(),
             },
             harness_catalog: crate::test_support::test_harness_components().0,
