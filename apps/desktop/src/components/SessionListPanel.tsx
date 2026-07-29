@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef } from "react";
 import { Trash2 } from "lucide-react";
 import type { SessionInfo, WorkspaceInfo } from "../api";
 import type { HarnessConfig } from "../harnessTypes";
@@ -15,6 +15,7 @@ import {
   minDelay,
   nextRelativeTimeRefreshMs,
 } from "../labels";
+import { useStableRelativeTimeNow } from "../useStableRelativeTimeNow";
 import EmptyState from "./EmptyState";
 import StatusIndicator from "./StatusIndicator";
 import HarnessIcon from "./HarnessIcon";
@@ -53,17 +54,13 @@ function SessionListPanel({
     el?.scrollIntoView({ block: "nearest" });
   }, [activeSessionId]);
 
-  const [now, setNow] = useState(() => new Date());
-  useEffect(() => {
-    // Re-render only when a visible relative-time label or group boundary can change.
-    let nextRefresh = nextSessionGroupRefreshMs(sessions, now);
+  const now = useStableRelativeTimeNow(useCallback((currentNow: Date) => {
+    let nextRefresh = nextSessionGroupRefreshMs(sessions, currentNow);
     for (const session of sessions) {
-      nextRefresh = minDelay(nextRefresh, nextRelativeTimeRefreshMs(lastActivityTimestamp(session), now));
+      nextRefresh = minDelay(nextRefresh, nextRelativeTimeRefreshMs(lastActivityTimestamp(session), currentNow));
     }
-    if (nextRefresh === null) return;
-    const timeout = window.setTimeout(() => setNow(new Date()), nextRefresh);
-    return () => window.clearTimeout(timeout);
-  }, [sessions, now]);
+    return nextRefresh;
+  }, [sessions]));
 
   const grouped = useMemo(() => groupSessions(sessions, now), [sessions, now]);
 

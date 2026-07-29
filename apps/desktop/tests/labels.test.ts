@@ -11,6 +11,7 @@ import {
   lifecyclePhaseLabel,
   memoryStateLabel,
   nextRelativeTimeRefreshMs,
+  nextRelativeTimeDeadlineMs,
   relativeTime,
   resumeActionLabel,
   resumeChoices,
@@ -176,6 +177,20 @@ test("nextRelativeTimeRefreshMs ignores missing or invalid timestamps", () => {
   const now = new Date("2026-06-19T12:00:00Z");
   assert.equal(nextRelativeTimeRefreshMs(undefined, now), null);
   assert.equal(nextRelativeTimeRefreshMs("not-a-date", now), null);
+});
+
+test("nextRelativeTimeDeadlineMs keeps the existing deadline across unrelated rerenders", () => {
+  const nowMs = new Date("2026-06-19T12:00:00Z").getTime();
+
+  // A 2s polling rerender should keep the timer that is already due at 9.5s.
+  assert.equal(nextRelativeTimeDeadlineMs(nowMs + 9_500, 7_500, nowMs + 2_000), nowMs + 9_500);
+
+  // A genuinely sooner deadline still preempts the existing timer.
+  assert.equal(nextRelativeTimeDeadlineMs(nowMs + 9_500, 500, nowMs + 2_000), nowMs + 2_500);
+
+  // Missing state still behaves like a fresh schedule.
+  assert.equal(nextRelativeTimeDeadlineMs(null, 9_500, nowMs), nowMs + 9_500);
+  assert.equal(nextRelativeTimeDeadlineMs(nowMs + 9_500, null, nowMs), null);
 });
 
 test("situationHeadline falls back through question, blocker, summary, next action", () => {

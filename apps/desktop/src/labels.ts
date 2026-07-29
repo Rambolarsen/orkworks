@@ -199,6 +199,21 @@ export function nextRelativeTimeRefreshMs(
   return delayUntil(t + (nextDisplaySecond - 0.5) * SECOND_MS, nowMs);
 }
 
+/**
+ * Keeps the earlier relative-time deadline across rerenders so unrelated
+ * session polls do not reset "just now" back to zero.
+ */
+export function nextRelativeTimeDeadlineMs(
+  currentDeadlineMs: number | null,
+  nextDelayMs: number | null,
+  nowMs: number,
+): number | null {
+  if (nextDelayMs === null) return null;
+  const nextDeadlineMs = nowMs + nextDelayMs;
+  if (currentDeadlineMs !== null && currentDeadlineMs <= nextDeadlineMs) return currentDeadlineMs;
+  return nextDeadlineMs;
+}
+
 // lastActivityAt only advances when the backend observes a genuine change in
 // session situation; peonLastInference advances on every Peon tick, including
 // ones that reach the same conclusion (e.g. non-substantive TUI redraw output),
