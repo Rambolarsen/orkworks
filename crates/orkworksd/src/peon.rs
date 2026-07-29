@@ -392,6 +392,7 @@ pub fn is_usable_input_label(label: &str, input_hint: &str) -> bool {
     ];
 
     let normalized = normalize_generic_instruction(label);
+    let candidate_pr_numbers = referenced_pr_numbers(label);
     !normalized.is_empty()
         && !GENERIC_PREFIXES
             .iter()
@@ -399,7 +400,7 @@ pub fn is_usable_input_label(label: &str, input_hint: &str) -> bool {
         && !normalized.contains("current task execution")
         && explicit_pr_numbers(input_hint)
             .iter()
-            .all(|number| referenced_pr_numbers(label).contains(number))
+            .all(|number| candidate_pr_numbers.contains(number))
 }
 
 /// Detects usage limit in a raw text blob (for TUI apps that use cursor positioning, not newlines).
