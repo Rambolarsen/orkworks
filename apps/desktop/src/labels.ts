@@ -232,7 +232,9 @@ export function lastActivityTimestamp(s: SessionInfo): string | undefined {
       candidate.milliseconds > latest.milliseconds ? candidate : latest,
     ).timestamp;
   }
-  return s.peonLastInference ?? s.created_at;
+  return [s.peonLastInference, s.created_at].find(
+    (timestamp) => timestamp && !Number.isNaN(Date.parse(timestamp)),
+  );
 }
 
 /** Distilled "what's going on" sentence for the Detail panel's situation hero. */

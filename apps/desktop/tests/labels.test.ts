@@ -152,6 +152,14 @@ test("lastActivity falls back to created_at when lastActivityAt is missing", () 
   assert.equal(lastActivityTimestamp(session), "2026-06-19T12:00:00Z");
 });
 
+test("lastActivity ignores invalid fallback timestamps", () => {
+  const session = baseSession({
+    created_at: "2026-06-19T12:00:00Z",
+    peonLastInference: "not-a-date",
+  });
+  assert.equal(lastActivityTimestamp(session), "2026-06-19T12:00:00Z");
+});
+
 test("nextRelativeTimeRefreshMs wakes only when relativeTime()'s bucket edge is reached", () => {
   const now = new Date("2026-06-19T12:00:00Z");
 

@@ -291,14 +291,18 @@ enum DriverEvent {
     WaitError(String),
 }
 
+fn output_recency_timestamp(data: &[u8], timestamp: String) -> Option<String> {
+    (!data.is_empty()).then_some(timestamp)
+}
+
 fn should_persist_output_recency(existing: Option<&str>, incoming: &str) -> bool {
+    let Ok(incoming) = DateTime::parse_from_rfc3339(incoming) else {
+        return false;
+    };
     let Some(existing) = existing else {
         return true;
     };
     let Ok(existing) = DateTime::parse_from_rfc3339(existing) else {
-        return true;
-    };
-    let Ok(incoming) = DateTime::parse_from_rfc3339(incoming) else {
         return true;
     };
     incoming >= existing
@@ -749,8 +753,10 @@ pub(crate) async fn start_session_runtime(
                             persist_buffer.extend_from_slice(&data);
                             let stripped = peon::strip_ansi(&String::from_utf8_lossy(&data));
                             let raw_persist_lines = drain_persist_records(&mut persist_buffer);
-                            let output_at = crate::workspace_runtime::iso_now();
-                            let output_persist_at = tokio::time::Instant::now();
+                            let output_at = output_recency_timestamp(
+                                &data,
+                                crate::workspace_runtime::iso_now(),
+                            );
 
                             let mut promoted_working = false;
                             let mut output_recency_to_persist = None;
@@ -758,13 +764,16 @@ pub(crate) async fn start_session_runtime(
                             {
                                 let mut sessions = driver_state.sessions.lock().unwrap();
                                 if let Some(handle) = sessions.get_mut(&driver_id) {
-                                    handle.info.last_output_at = Some(output_at.clone());
-                                    output_recency_to_persist = handle
-                                        .runtime
-                                        .record_output_recency(output_at, output_persist_at);
-                                    output_flush_delay = handle
-                                        .runtime
-                                        .schedule_output_recency_flush(output_persist_at);
+                                    if let Some(output_at) = output_at {
+                                        let output_persist_at = tokio::time::Instant::now();
+                                        handle.info.last_output_at = Some(output_at.clone());
+                                        output_recency_to_persist = handle
+                                            .runtime
+                                            .record_output_recency(output_at, output_persist_at);
+                                        output_flush_delay = handle
+                                            .runtime
+                                            .schedule_output_recency_flush(output_persist_at);
+                                    }
                                     for raw in &raw_persist_lines {
                                         let trimmed = raw.trim();
                                         if !trimmed.is_empty() {
@@ -1043,6 +1052,20 @@ mod tests {
             Some("2026-07-29T10:00:00Z"),
             "2026-07-29T10:00:01Z",
         ));
+        assert!(!should_persist_output_recency(
+            Some("2026-07-29T10:00:00Z"),
+            "not-a-timestamp",
+        ));
+    }
+
+    #[test]
+    fn output_recency_ignores_empty_driver_frames() {
+        let timestamp = "2026-07-29T10:00:00Z".to_string();
+        assert_eq!(output_recency_timestamp(&[], timestamp.clone()), None);
+        assert_eq!(
+            output_recency_timestamp(b"progress", timestamp.clone()),
+            Some(timestamp),
+        );
     }
 
     #[test]
