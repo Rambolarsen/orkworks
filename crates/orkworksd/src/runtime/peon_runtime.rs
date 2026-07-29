@@ -831,6 +831,7 @@ mod tests {
         let call_counter = Arc::new(AtomicUsize::new(0));
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
