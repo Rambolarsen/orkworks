@@ -351,6 +351,7 @@ mod tests {
         let id = "label-only".to_string();
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(None),
             peon: crate::PeonState {
                 last_output: RwLock::new(HashMap::new()),
@@ -451,6 +452,7 @@ mod tests {
         let id = "label-survives-in-flight".to_string();
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(None),
             peon: crate::PeonState {
                 last_output: RwLock::new(HashMap::new()),
@@ -567,6 +569,7 @@ mod tests {
         let id = "label-persist".to_string();
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
@@ -694,6 +697,7 @@ mod tests {
         let id = "label-blank-rejected".to_string();
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
@@ -974,6 +978,7 @@ mod tests {
 
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
@@ -1155,6 +1160,7 @@ mod tests {
 
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
@@ -1259,6 +1265,7 @@ mod tests {
 
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
@@ -1367,6 +1374,7 @@ mod tests {
 
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(None),
             peon: crate::PeonState {
                 last_output: RwLock::new(HashMap::new()),
@@ -1464,6 +1472,7 @@ mod tests {
 
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
@@ -1628,6 +1637,7 @@ mod tests {
 
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
@@ -1804,6 +1814,7 @@ mod tests {
 
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
@@ -1962,6 +1973,7 @@ mod tests {
 
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
@@ -2118,6 +2130,7 @@ mod tests {
 
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
@@ -2279,6 +2292,7 @@ mod tests {
 
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
@@ -2439,6 +2453,7 @@ mod tests {
 
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
@@ -2605,6 +2620,7 @@ mod tests {
 
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(None), // no workspace → persist is always skipped
             peon: crate::PeonState {
                 last_output: RwLock::new(HashMap::new()),

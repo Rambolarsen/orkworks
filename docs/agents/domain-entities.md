@@ -36,7 +36,7 @@ File: `crates/orkworksd/src/metadata.rs`
 - `summary`, `next_action`, `needs_user_input`, `detected_question`, `suggested_options`, `blocker_description`, `failed_command`, `failed_test`, `capacity_hints`, `peon_last_inference` — Peon-inferred fields
 - `provider_id`, `provider_label`, `provider_model`, `provider_state`
 - `created_at`, `last_activity`, `last_output_at`, `metadata_source`, `metadata_confidence` — `last_activity` records meaningful situation changes; `last_output_at` records the latest non-empty PTY frame and is coalesced before persistence.
-- `repo_root`, `branch`, `dirty`, `changed_files`, `is_worktree` — Git context
+- `repo_root`, `branch`, `dirty`, `changed_files`, `is_worktree` — Git context. On each `GET /sessions` poll these reflect the session's *live* PTY-process cwd (resolved via a cross-platform pid probe, `procfs::live_cwds`, backed by the `sysinfo` crate — Linux/macOS/Windows alike; see ADR 0031), not just the cwd the session launched with — so a session that `cd`s or `git worktree add`s mid-session shows its current location. Falls back to the session's frozen launch-time `cwd` if the probe fails (process gone, permission denied) or no pid was tracked.
 - `resume`, `resume_options`, `resumed_from`, `harness_session_id_source/confidence/captured_at`
 - `last_user_input`
 

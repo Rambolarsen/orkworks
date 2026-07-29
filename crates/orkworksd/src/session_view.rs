@@ -5,11 +5,40 @@ use crate::metadata;
 use crate::session_types::{MemoryState, SessionInfo};
 use std::collections::HashMap;
 
-pub(crate) fn detect_conflicts(sessions: &[SessionInfo]) -> Vec<(String, String)> {
+/// Resolves each session's effective cwd: its live PTY-process cwd when a
+/// tracked pid resolves one (issue #241), else its frozen launch-time `cwd`.
+/// Shared by `enrich_sessions_with_git_context` and `detect_conflicts` so
+/// git-context enrichment and collision warnings agree on where a session
+/// actually is right now.
+pub(crate) fn resolve_effective_cwds(
+    sessions: &[SessionInfo],
+    session_pids: &HashMap<String, u32>,
+    mut live_cwd: impl FnMut(u32) -> Option<String>,
+) -> HashMap<String, String> {
+    sessions
+        .iter()
+        .map(|s| {
+            let cwd = session_pids
+                .get(&s.id)
+                .and_then(|&pid| live_cwd(pid))
+                .unwrap_or_else(|| s.cwd.clone());
+            (s.id.clone(), cwd)
+        })
+        .collect()
+}
+
+pub(crate) fn detect_conflicts(
+    sessions: &[SessionInfo],
+    effective_cwds: &HashMap<String, String>,
+) -> Vec<(String, String)> {
     let mut cwd_groups: HashMap<&str, Vec<&SessionInfo>> = HashMap::new();
     for s in sessions {
         if s.status == "running" || s.status == "creating" {
-            cwd_groups.entry(&s.cwd).or_default().push(s);
+            let cwd = effective_cwds
+                .get(&s.id)
+                .map(|c| c.as_str())
+                .unwrap_or(&s.cwd);
+            cwd_groups.entry(cwd).or_default().push(s);
         }
     }
     let mut warnings = Vec::new();
@@ -517,7 +546,7 @@ mod tests {
                 ..test_session_info("b", "B", "/repo", "running", "now")
             },
         ];
-        let warnings = detect_conflicts(&sessions);
+        let warnings = detect_conflicts(&sessions, &HashMap::new());
         assert_eq!(warnings.len(), 2);
         assert!(warnings.iter().any(|(id, _)| id == "a"));
         assert!(warnings.iter().any(|(id, _)| id == "b"));
@@ -538,7 +567,7 @@ mod tests {
                 ..test_session_info("b", "B", "/repo", "running", "now")
             },
         ];
-        let warnings = detect_conflicts(&sessions);
+        let warnings = detect_conflicts(&sessions, &HashMap::new());
         assert!(warnings.is_empty());
     }
 
@@ -554,8 +583,48 @@ mod tests {
                 ..test_session_info("b", "B", "/repo", "running", "now")
             },
         ];
-        let warnings = detect_conflicts(&sessions);
+        let warnings = detect_conflicts(&sessions, &HashMap::new());
         assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn detect_conflicts_does_not_group_sessions_that_have_moved_to_different_live_cwds() {
+        let sessions = vec![
+            SessionInfo {
+                dirty: Some(true),
+                ..test_session_info("a", "A", "/repo", "running", "now")
+            },
+            SessionInfo {
+                dirty: Some(true),
+                ..test_session_info("b", "B", "/repo", "running", "now")
+            },
+        ];
+        // Both launched in "/repo", but "b" has since moved to its own worktree.
+        let effective_cwds: HashMap<String, String> =
+            HashMap::from([("b".to_string(), "/repo-worktree".to_string())]);
+
+        let warnings = detect_conflicts(&sessions, &effective_cwds);
+
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn resolve_effective_cwds_prefers_live_cwd_and_falls_back_to_launch_cwd() {
+        let sessions = vec![
+            test_session_info("tracked", "Tracked", "/launch", "running", "now"),
+            test_session_info("untracked", "Untracked", "/launch", "running", "now"),
+        ];
+        let session_pids: HashMap<String, u32> = HashMap::from([("tracked".to_string(), 99)]);
+
+        let resolved = resolve_effective_cwds(&sessions, &session_pids, |pid| {
+            (pid == 99).then(|| "/live".to_string())
+        });
+
+        assert_eq!(resolved.get("tracked").map(String::as_str), Some("/live"));
+        assert_eq!(
+            resolved.get("untracked").map(String::as_str),
+            Some("/launch")
+        );
     }
 
     #[test]

@@ -214,6 +214,7 @@ Electron + React/TypeScript frontend (`apps/desktop/`) communicates with a Rust 
 - ADR 0026: Harness capabilities resolve from one immutable registry; integration mutations require Electron-main confirmation and sidecar-only authority.
 - ADR 0028: Harness version-probe results are cached with bounded TTLs and generation-aware invalidation, preserving the integration action's post-probe identity revalidation.
 - ADR 0029: Session `label` (title) is a one-shot Peon-authored topic, decoupled from the turn-by-turn `summary`/checkpoint log; it is not part of the ADR 0005 metadata-source precedence system.
+- ADR 0031: Session git-context fields (`repo_root`/`branch`/`dirty`/etc.) reflect each session's live PTY-process cwd, probed cross-platform via the `sysinfo` crate, not just its frozen launch-time cwd.
 
 **Rust module layout** (`crates/orkworksd/src/`):
 - `metadata.rs` — `SessionMetadata` and the on-disk metadata store (source of truth for session state)
