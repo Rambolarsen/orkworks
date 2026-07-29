@@ -543,6 +543,19 @@ async fn capture_startup_runtime_state(
     (initial_size, pending_commands)
 }
 
+/// Clears per-session in-memory side tables once a session's PTY process is
+/// gone (naturally exited, wait-errored, or failed to finish setup). The pid
+/// removal in particular matters: once the process is gone its pid could be
+/// reused by an unrelated OS process, so a stale entry left behind risks a
+/// future live-cwd probe (issue #241) attributing a stranger's cwd to this
+/// session.
+pub(crate) fn clear_ended_session_tracking(state: &AppState, id: &str) {
+    state.peon.last_output.write().unwrap().remove(id);
+    state.peon.last_inference.write().unwrap().remove(id);
+    state.peon.input_buf.write().unwrap().remove(id);
+    state.session_pids.lock().unwrap().remove(id);
+}
+
 pub(crate) async fn start_session_runtime(
     state: Arc<AppState>,
     id: String,
@@ -596,6 +609,7 @@ pub(crate) async fn start_session_runtime(
         Err(error) => {
             let _ = child.kill();
             let _ = child.wait();
+            state.session_pids.lock().unwrap().remove(&id);
             return Err(error.to_string());
         }
     };
@@ -604,6 +618,7 @@ pub(crate) async fn start_session_runtime(
         Err(error) => {
             let _ = child.kill();
             let _ = child.wait();
+            state.session_pids.lock().unwrap().remove(&id);
             return Err(error.to_string());
         }
     };
@@ -871,14 +886,7 @@ pub(crate) async fn start_session_runtime(
 
                             flush_output_recency(&driver_state, &driver_id).await;
 
-                            driver_state.peon.last_output.write().unwrap().remove(&driver_id);
-                            driver_state.peon.last_inference.write().unwrap().remove(&driver_id);
-                            driver_state.peon.input_buf.write().unwrap().remove(&driver_id);
-                            // The pid is no longer this session's process and could be
-                            // reused by an unrelated OS process; stop tracking it so a
-                            // future live-cwd probe can't attribute a stranger's cwd to
-                            // this (now ended/errored) session.
-                            driver_state.session_pids.lock().unwrap().remove(&driver_id);
+                            clear_ended_session_tracking(&driver_state, &driver_id);
 
                             {
                                 let mut sessions = driver_state.sessions.lock().unwrap();
@@ -922,14 +930,7 @@ pub(crate) async fn start_session_runtime(
                                     .push_back(vec![String::from_utf8_lossy(&persist_buffer).into_owned()]);
                             }
                             flush_output_recency(&driver_state, &driver_id).await;
-                            driver_state.peon.last_output.write().unwrap().remove(&driver_id);
-                            driver_state.peon.last_inference.write().unwrap().remove(&driver_id);
-                            driver_state.peon.input_buf.write().unwrap().remove(&driver_id);
-                            // The pid is no longer this session's process and could be
-                            // reused by an unrelated OS process; stop tracking it so a
-                            // future live-cwd probe can't attribute a stranger's cwd to
-                            // this (now ended/errored) session.
-                            driver_state.session_pids.lock().unwrap().remove(&driver_id);
+                            clear_ended_session_tracking(&driver_state, &driver_id);
                             {
                                 let mut sessions = driver_state.sessions.lock().unwrap();
                                 if let Some(handle) = sessions.get_mut(&driver_id) {
@@ -2287,8 +2288,9 @@ mod tests {
 
         // Real end-to-end proof (issue #241): the captured pid resolves, via the
         // actual sysinfo-backed probe, to the real cwd the child was spawned in.
-        let resolved =
-            crate::procfs::live_cwd(pid).expect("live_cwd should resolve the running child");
+        let resolved = crate::procfs::live_cwds(&[pid])
+            .remove(&pid)
+            .expect("live_cwds should resolve the running child");
         let resolved_path = std::path::PathBuf::from(resolved);
         let expected = dir
             .path()

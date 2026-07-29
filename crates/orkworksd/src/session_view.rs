@@ -13,18 +13,36 @@ use std::collections::HashMap;
 pub(crate) fn resolve_effective_cwds(
     sessions: &[SessionInfo],
     session_pids: &HashMap<String, u32>,
-    mut live_cwd: impl FnMut(u32) -> Option<String>,
+    live_cwds: impl FnOnce(&[u32]) -> HashMap<u32, String>,
 ) -> HashMap<String, String> {
+    // One batched probe covering every tracked pid, not one probe per
+    // session — a poll over N sessions costs one OS process-table scan
+    // instead of N.
+    let pids: Vec<u32> = session_pids.values().copied().collect();
+    let resolved = live_cwds(&pids);
     sessions
         .iter()
         .map(|s| {
             let cwd = session_pids
                 .get(&s.id)
-                .and_then(|&pid| live_cwd(pid))
+                .and_then(|pid| resolved.get(pid))
+                .cloned()
                 .unwrap_or_else(|| s.cwd.clone());
-            (s.id.clone(), cwd)
+            // Canonicalize both the live-resolved and launch-cwd-fallback
+            // paths the same way, so e.g. a live-resolved macOS
+            // /private/tmp/x and an unresolved launch cwd /tmp/x for the
+            // *same* directory compare equal instead of grouping/counting
+            // as two different locations.
+            (s.id.clone(), best_effort_canonicalize(&cwd))
         })
         .collect()
+}
+
+fn best_effort_canonicalize(cwd: &str) -> String {
+    std::fs::canonicalize(cwd)
+        .ok()
+        .and_then(|p| p.into_os_string().into_string().ok())
+        .unwrap_or_else(|| cwd.to_string())
 }
 
 pub(crate) fn detect_conflicts(
@@ -616,15 +634,44 @@ mod tests {
         ];
         let session_pids: HashMap<String, u32> = HashMap::from([("tracked".to_string(), 99)]);
 
-        let resolved = resolve_effective_cwds(&sessions, &session_pids, |pid| {
-            (pid == 99).then(|| "/live".to_string())
+        let resolved = resolve_effective_cwds(&sessions, &session_pids, |pids| {
+            assert_eq!(pids, &[99]);
+            HashMap::from([(99, "/live".to_string())])
         });
 
+        // Neither "/live" nor "/launch" exist on disk in this test, so
+        // canonicalization falls back to the raw string for both.
         assert_eq!(resolved.get("tracked").map(String::as_str), Some("/live"));
         assert_eq!(
             resolved.get("untracked").map(String::as_str),
             Some("/launch")
         );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn resolve_effective_cwds_normalizes_symlinked_paths_so_they_compare_equal() {
+        let real_dir = tempfile::tempdir().unwrap();
+        let link_dir = tempfile::tempdir().unwrap();
+        let link_path = link_dir.path().join("alias");
+        std::os::unix::fs::symlink(real_dir.path(), &link_path).unwrap();
+
+        let launch_cwd = link_path.display().to_string();
+        let sessions = vec![
+            test_session_info("live", "Live", &launch_cwd, "running", "now"),
+            test_session_info("stale", "Stale", &launch_cwd, "running", "now"),
+        ];
+        let real_dir_str = real_dir.path().display().to_string();
+        let session_pids: HashMap<String, u32> = HashMap::from([("live".to_string(), 1)]);
+
+        let resolved = resolve_effective_cwds(&sessions, &session_pids, |_| {
+            HashMap::from([(1, real_dir_str.clone())])
+        });
+
+        // "live" resolved via the (already-canonical) probe result; "stale"
+        // fell back to the symlinked launch cwd. Both should canonicalize to
+        // the same real path.
+        assert_eq!(resolved.get("live"), resolved.get("stale"));
     }
 
     #[test]

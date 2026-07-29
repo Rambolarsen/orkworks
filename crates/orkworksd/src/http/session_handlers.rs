@@ -1563,7 +1563,7 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
         .update_session_capping(harness_capped, harness_reset_hint, provider_checking);
 
     let session_pids = state.session_pids.lock().unwrap().clone();
-    let effective_cwds = resolve_effective_cwds(&infos, &session_pids, crate::procfs::live_cwd);
+    let effective_cwds = resolve_effective_cwds(&infos, &session_pids, crate::procfs::live_cwds);
     enrich_sessions_with_git_context(&mut infos, &effective_cwds, git::detect);
 
     let conflict_warnings = detect_conflicts(&infos, &effective_cwds);
@@ -1591,10 +1591,7 @@ pub(crate) async fn delete_session(
         }
         None => return axum::http::StatusCode::NOT_FOUND,
     }
-    state.peon.last_output.write().unwrap().remove(&id);
-    state.peon.last_inference.write().unwrap().remove(&id);
-    state.peon.input_buf.write().unwrap().remove(&id);
-    state.session_pids.lock().unwrap().remove(&id);
+    crate::runtime::session_runtime::clear_ended_session_tracking(&state, &id);
     axum::http::StatusCode::OK
 }
 
