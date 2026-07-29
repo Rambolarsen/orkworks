@@ -188,6 +188,7 @@ pub(crate) struct SessionRuntime {
     pub(crate) min_peon_output_revision: u64,
     last_output_persisted_at: Option<tokio::time::Instant>,
     pending_output_at: Option<String>,
+    output_flush_scheduled: bool,
 }
 
 impl SessionRuntime {
@@ -209,6 +210,7 @@ impl SessionRuntime {
                 min_peon_output_revision: 0,
                 last_output_persisted_at: None,
                 pending_output_at: None,
+                output_flush_scheduled: false,
             },
             control_rx,
         )
@@ -232,6 +234,7 @@ impl SessionRuntime {
             min_peon_output_revision: 0,
             last_output_persisted_at: None,
             pending_output_at: None,
+            output_flush_scheduled: false,
         }
     }
 
@@ -267,7 +270,18 @@ impl SessionRuntime {
     }
 
     fn flush_output_recency(&mut self) -> Option<String> {
+        self.output_flush_scheduled = false;
         self.pending_output_at.take()
+    }
+
+    fn schedule_output_recency_flush(&mut self, now: tokio::time::Instant) -> Option<std::time::Duration> {
+        if self.pending_output_at.is_none() || self.output_flush_scheduled {
+            return None;
+        }
+        self.output_flush_scheduled = true;
+        let due_at = self.last_output_persisted_at.expect("pending output has a prior persistence")
+            + OUTPUT_RECENCY_PERSIST_INTERVAL;
+        Some(due_at.saturating_duration_since(now))
     }
 }
 
@@ -287,7 +301,7 @@ fn persist_output_recency(state: &Arc<AppState>, id: &str, timestamp: String) {
     }
 }
 
-fn flush_output_recency(state: &Arc<AppState>, id: &str) {
+async fn flush_output_recency(state: &Arc<AppState>, id: &str) {
     let timestamp = state
         .sessions
         .lock()
@@ -295,7 +309,9 @@ fn flush_output_recency(state: &Arc<AppState>, id: &str) {
         .get_mut(id)
         .and_then(|handle| handle.runtime.flush_output_recency());
     if let Some(timestamp) = timestamp {
-        persist_output_recency(state, id, timestamp);
+        let state = state.clone();
+        let id = id.to_string();
+        let _ = tokio::task::spawn_blocking(move || persist_output_recency(&state, &id, timestamp)).await;
     }
 }
 
@@ -723,6 +739,7 @@ pub(crate) async fn start_session_runtime(
 
                             let mut promoted_working = false;
                             let mut output_recency_to_persist = None;
+                            let mut output_flush_delay = None;
                             {
                                 let mut sessions = driver_state.sessions.lock().unwrap();
                                 if let Some(handle) = sessions.get_mut(&driver_id) {
@@ -730,6 +747,9 @@ pub(crate) async fn start_session_runtime(
                                     output_recency_to_persist = handle
                                         .runtime
                                         .record_output_recency(output_at, output_persist_at);
+                                    output_flush_delay = handle
+                                        .runtime
+                                        .schedule_output_recency_flush(output_persist_at);
                                     for raw in &raw_persist_lines {
                                         let trimmed = raw.trim();
                                         if !trimmed.is_empty() {
@@ -767,7 +787,19 @@ pub(crate) async fn start_session_runtime(
                             }
 
                             if let Some(timestamp) = output_recency_to_persist {
-                                persist_output_recency(&driver_state, &driver_id, timestamp);
+                                let state = driver_state.clone();
+                                let id = driver_id.clone();
+                                tokio::task::spawn_blocking(move || {
+                                    persist_output_recency(&state, &id, timestamp)
+                                });
+                            }
+                            if let Some(delay) = output_flush_delay {
+                                let state = driver_state.clone();
+                                let id = driver_id.clone();
+                                tokio::spawn(async move {
+                                    tokio::time::sleep(delay).await;
+                                    flush_output_recency(&state, &id).await;
+                                });
                             }
 
                             if driver_state.peon.config.enabled {
@@ -807,7 +839,7 @@ pub(crate) async fn start_session_runtime(
                                     .push_back(vec![String::from_utf8_lossy(&persist_buffer).into_owned()]);
                             }
 
-                            flush_output_recency(&driver_state, &driver_id);
+                            flush_output_recency(&driver_state, &driver_id).await;
 
                             driver_state.peon.last_output.write().unwrap().remove(&driver_id);
                             driver_state.peon.last_inference.write().unwrap().remove(&driver_id);
@@ -854,7 +886,7 @@ pub(crate) async fn start_session_runtime(
                                 final_persist_batches
                                     .push_back(vec![String::from_utf8_lossy(&persist_buffer).into_owned()]);
                             }
-                            flush_output_recency(&driver_state, &driver_id);
+                            flush_output_recency(&driver_state, &driver_id).await;
                             driver_state.peon.last_output.write().unwrap().remove(&driver_id);
                             driver_state.peon.last_inference.write().unwrap().remove(&driver_id);
                             driver_state.peon.input_buf.write().unwrap().remove(&driver_id);
@@ -978,6 +1010,10 @@ mod tests {
         assert_eq!(
             runtime.record_output_recency(second.clone(), start + std::time::Duration::from_secs(1)),
             None
+        );
+        assert_eq!(
+            runtime.schedule_output_recency_flush(start + std::time::Duration::from_secs(1)),
+            Some(std::time::Duration::from_secs(4))
         );
         assert_eq!(runtime.flush_output_recency(), Some(second));
     }
