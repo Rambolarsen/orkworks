@@ -369,8 +369,8 @@ fn normalize_generic_instruction(label: &str) -> String {
     label
         .chars()
         .map(|character| {
-            if character.is_ascii_alphanumeric() {
-                character.to_ascii_lowercase()
+            if character.is_alphanumeric() {
+                character
             } else {
                 ' '
             }
@@ -379,6 +379,7 @@ fn normalize_generic_instruction(label: &str) -> String {
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
+        .to_ascii_lowercase()
 }
 
 /// Returns whether an input-triggered label names the task and retains all PR
@@ -687,6 +688,10 @@ pub fn build_prompt(output: &[String]) -> String {
         .map(|l| l.as_str())
         .collect::<Vec<_>>()
         .join("\n");
+    let required_pr_references = explicit_pr_numbers(&output_text)
+        .into_iter()
+        .map(|number| format!("#{number}"))
+        .collect::<Vec<_>>();
 
     let truncated: String = if output_text.len() > 4096 {
         output_text.chars().take(4096).collect()
@@ -694,7 +699,11 @@ pub fn build_prompt(output: &[String]) -> String {
         output_text
     };
 
-    format!("{SYSTEM_PROMPT}\n\nTerminal output:\n```\n{truncated}\n```")
+    let required_pr_references = (!required_pr_references.is_empty())
+        .then(|| format!("\nRequired PR references: {}", required_pr_references.join(", ")))
+        .unwrap_or_default();
+
+    format!("{SYSTEM_PROMPT}\n\nTerminal output:\n```\n{truncated}\n```{required_pr_references}")
 }
 
 #[cfg(test)]
@@ -1241,6 +1250,16 @@ mod tests {
             "Reviewing PR #249 and PR #250",
             "review PR #249 and pull request #250",
         ));
+        assert!(is_usable_input_label("修复登录重定向", "fix the login redirect"));
+    }
+
+    #[test]
+    fn build_prompt_retains_pr_references_after_terminal_output_truncation() {
+        let long_input = format!("[User input]: {} PR #249", "x".repeat(4097));
+
+        let prompt = build_prompt(&[long_input]);
+
+        assert!(prompt.contains("Required PR references: #249"));
     }
 
     #[test]
