@@ -159,6 +159,23 @@ opencode /Users/froomiebot/workspace/orkworks
 | [thedotmack/claude-mem](https://github.com/thedotmack/claude-mem) | Persistent memory for Claude |
 | [leonardomso/rust-skills](https://github.com/leonardomso/rust-skills) | Rust coding rules for work under `crates/` |
 
+## MCP servers
+
+This repo manages project-scoped MCP server configuration through `apm.yml`, not by hand-editing per-client config files.
+
+Current MCP server:
+
+- `oraios/serena`
+
+To materialize the client-specific config, run:
+
+```bash
+cd /Users/froomiebot/workspace/orkworks
+apm install
+```
+
+`serena` runs through `uvx`, so `uv` must be installed locally.
+
 ## Repo skills
 
 The `skills/` directory contains repo-level agent skills that are committed with the project. These follow the [Agent Skills standard](https://agentskills.io/specification) — each skill is a directory with a `SKILL.md` file (YAML frontmatter + markdown body).

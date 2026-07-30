@@ -22,6 +22,16 @@ dependencies:
         - grilling
         - improve-codebase-architecture
   mcp:
-    - oraios/serena
+    - name: serena
+      registry: false
+      transport: stdio
+      command: uvx
+      args:
+        - --from
+        - git+https://github.com/oraios/serena
+        - serena
+        - start-mcp-server
+        - --context
+        - ide
 includes: auto
 scripts: {}
