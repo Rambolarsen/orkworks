@@ -351,6 +351,7 @@ mod tests {
         let id = "label-only".to_string();
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(None),
             peon: crate::PeonState {
                 last_output: RwLock::new(HashMap::new()),
@@ -359,6 +360,7 @@ mod tests {
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
                 input_buf: RwLock::new(HashMap::new()),
+                reported_cwd: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig {
                     harness: "unused".into(),
                     harness_args: vec![],
@@ -451,6 +453,7 @@ mod tests {
         let id = "label-survives-in-flight".to_string();
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(None),
             peon: crate::PeonState {
                 last_output: RwLock::new(HashMap::new()),
@@ -459,6 +462,7 @@ mod tests {
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
                 input_buf: RwLock::new(HashMap::new()),
+                reported_cwd: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig {
                     harness: "unused".into(),
                     harness_args: vec![],
@@ -567,6 +571,7 @@ mod tests {
         let id = "label-persist".to_string();
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
@@ -579,6 +584,7 @@ mod tests {
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
                 input_buf: RwLock::new(HashMap::new()),
+                reported_cwd: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig {
                     harness: "unused".into(),
                     harness_args: vec![],
@@ -694,6 +700,7 @@ mod tests {
         let id = "label-blank-rejected".to_string();
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
@@ -706,6 +713,7 @@ mod tests {
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
                 input_buf: RwLock::new(HashMap::new()),
+                reported_cwd: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig {
                     harness: "unused".into(),
                     harness_args: vec![],
@@ -827,6 +835,7 @@ mod tests {
         let call_counter = Arc::new(AtomicUsize::new(0));
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
@@ -839,6 +848,7 @@ mod tests {
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
                 input_buf: RwLock::new(HashMap::new()),
+                reported_cwd: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig {
                     harness: "unused".into(),
                     harness_args: vec![],
@@ -974,6 +984,7 @@ mod tests {
 
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
@@ -986,6 +997,7 @@ mod tests {
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
                 input_buf: RwLock::new(HashMap::new()),
+                reported_cwd: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig::from_env(),
             },
             harness_catalog: crate::test_support::test_harness_components().0,
@@ -1155,6 +1167,7 @@ mod tests {
 
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
@@ -1167,6 +1180,7 @@ mod tests {
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
                 input_buf: RwLock::new(HashMap::new()),
+                reported_cwd: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig::from_env(),
             },
             harness_catalog: crate::test_support::test_harness_components().0,
@@ -1259,6 +1273,7 @@ mod tests {
 
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
@@ -1271,6 +1286,7 @@ mod tests {
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
                 input_buf: RwLock::new(HashMap::new()),
+                reported_cwd: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig {
                     harness: dir.path().join("missing-harness").display().to_string(),
                     harness_args: vec!["--print".into()],
@@ -1367,6 +1383,7 @@ mod tests {
 
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(None),
             peon: crate::PeonState {
                 last_output: RwLock::new(HashMap::new()),
@@ -1375,6 +1392,7 @@ mod tests {
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
                 input_buf: RwLock::new(HashMap::new()),
+                reported_cwd: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig {
                     harness: dir.path().join("missing-harness").display().to_string(),
                     harness_args: vec!["--print".into()],
@@ -1464,6 +1482,7 @@ mod tests {
 
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
@@ -1476,6 +1495,7 @@ mod tests {
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
                 input_buf: RwLock::new(HashMap::new()),
+                reported_cwd: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig {
                     harness: dir.path().join("missing-harness").display().to_string(),
                     harness_args: vec!["--print".into()],
@@ -1628,6 +1648,7 @@ mod tests {
 
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
@@ -1640,6 +1661,7 @@ mod tests {
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
                 input_buf: RwLock::new(HashMap::new()),
+                reported_cwd: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig {
                     harness: dir.path().join("missing-harness").display().to_string(),
                     harness_args: vec!["--print".into()],
@@ -1804,6 +1826,7 @@ mod tests {
 
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
@@ -1816,6 +1839,7 @@ mod tests {
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
                 input_buf: RwLock::new(HashMap::new()),
+                reported_cwd: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig {
                     harness: dir.path().join("missing-harness").display().to_string(),
                     harness_args: vec!["--print".into()],
@@ -1962,6 +1986,7 @@ mod tests {
 
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
@@ -1974,6 +1999,7 @@ mod tests {
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
                 input_buf: RwLock::new(HashMap::new()),
+                reported_cwd: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig {
                     harness: dir.path().join("missing-harness").display().to_string(),
                     harness_args: vec!["--print".into()],
@@ -2118,6 +2144,7 @@ mod tests {
 
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
@@ -2130,6 +2157,7 @@ mod tests {
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
                 input_buf: RwLock::new(HashMap::new()),
+                reported_cwd: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig {
                     harness: dir.path().join("missing-harness").display().to_string(),
                     harness_args: vec!["--print".into()],
@@ -2279,6 +2307,7 @@ mod tests {
 
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
@@ -2291,6 +2320,7 @@ mod tests {
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
                 input_buf: RwLock::new(HashMap::new()),
+                reported_cwd: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig {
                     harness: dir.path().join("missing-harness").display().to_string(),
                     harness_args: vec!["--print".into()],
@@ -2439,6 +2469,7 @@ mod tests {
 
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
@@ -2451,6 +2482,7 @@ mod tests {
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
                 input_buf: RwLock::new(HashMap::new()),
+                reported_cwd: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig::from_env(),
             },
             harness_catalog: crate::test_support::test_harness_components().0,
@@ -2605,6 +2637,7 @@ mod tests {
 
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(None), // no workspace → persist is always skipped
             peon: crate::PeonState {
                 last_output: RwLock::new(HashMap::new()),
@@ -2613,6 +2646,7 @@ mod tests {
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
                 input_buf: RwLock::new(HashMap::new()),
+                reported_cwd: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig {
                     harness: dir.path().join("missing-harness").display().to_string(),
                     harness_args: vec![],

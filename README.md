@@ -36,6 +36,7 @@ orkworks/
 - Harness capabilities and workspace integration status resolve from one immutable registry; mutations require Electron-main confirmation and never expose mutation authority to the renderer or child processes (see [ADR 0026](docs/adr/0026-resolved-harness-capability-registry.md))
 - Harness version-probe results use bounded TTL caching with generation-aware invalidation; integration actions still revalidate identity after a probe (see [ADR 0028](docs/adr/0028-generation-aware-harness-version-probe-cache.md))
 - Session `label` (title) is a one-shot Peon-authored topic, decoupled from the turn-by-turn summary/checkpoint log (see [ADR 0029](docs/adr/0029-session-label-topic-vs-activity-summary.md))
+- Session git-context fields (`repo_root`/`branch`/`dirty`/etc.) reflect each session's live cwd, prioritizing the harness's own self-reported cwd (Claude Code, via its hook payload) over a cross-platform pid probe (`sysinfo`), over the frozen launch-time cwd — a session that `cd`s or `git worktree add`s mid-session no longer shows a stale location (see [ADR 0031](docs/adr/0031-live-session-cwd-via-sysinfo-probe.md), [ADR 0032](docs/adr/0032-harness-reported-cwd-via-hook-payload.md))
 - Taskmaster consumes Peon reports and workspace context to propose the next session or user action
 - PTY handles only text I/O; voice (native harness) bypasses PTY entirely
 

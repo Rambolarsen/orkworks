@@ -543,6 +543,20 @@ async fn capture_startup_runtime_state(
     (initial_size, pending_commands)
 }
 
+/// Clears per-session in-memory side tables once a session's PTY process is
+/// gone (naturally exited, wait-errored, or failed to finish setup). The pid
+/// removal in particular matters: once the process is gone its pid could be
+/// reused by an unrelated OS process, so a stale entry left behind risks a
+/// future live-cwd probe (issue #241) attributing a stranger's cwd to this
+/// session.
+pub(crate) fn clear_ended_session_tracking(state: &AppState, id: &str) {
+    state.peon.last_output.write().unwrap().remove(id);
+    state.peon.last_inference.write().unwrap().remove(id);
+    state.peon.input_buf.write().unwrap().remove(id);
+    state.peon.reported_cwd.write().unwrap().remove(id);
+    state.session_pids.lock().unwrap().remove(id);
+}
+
 pub(crate) async fn start_session_runtime(
     state: Arc<AppState>,
     id: String,
@@ -580,6 +594,12 @@ pub(crate) async fn start_session_runtime(
     }
 
     let mut child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
+    // Captured before `child` moves into the wait task below; used to probe
+    // the process's live cwd (issue #241) rather than trusting the frozen
+    // launch-time cwd forever.
+    if let Some(pid) = child.process_id() {
+        state.session_pids.lock().unwrap().insert(id.clone(), pid);
+    }
     let startup_grace_ends_at = tokio::time::Instant::now() + STARTUP_ATTENTION_GRACE;
     // The PTY has spawned, so the lifecycle is alive before either background
     // task can observe and classify its first output chunk.
@@ -590,6 +610,7 @@ pub(crate) async fn start_session_runtime(
         Err(error) => {
             let _ = child.kill();
             let _ = child.wait();
+            state.session_pids.lock().unwrap().remove(&id);
             return Err(error.to_string());
         }
     };
@@ -598,6 +619,7 @@ pub(crate) async fn start_session_runtime(
         Err(error) => {
             let _ = child.kill();
             let _ = child.wait();
+            state.session_pids.lock().unwrap().remove(&id);
             return Err(error.to_string());
         }
     };
@@ -865,9 +887,7 @@ pub(crate) async fn start_session_runtime(
 
                             flush_output_recency(&driver_state, &driver_id).await;
 
-                            driver_state.peon.last_output.write().unwrap().remove(&driver_id);
-                            driver_state.peon.last_inference.write().unwrap().remove(&driver_id);
-                            driver_state.peon.input_buf.write().unwrap().remove(&driver_id);
+                            clear_ended_session_tracking(&driver_state, &driver_id);
 
                             {
                                 let mut sessions = driver_state.sessions.lock().unwrap();
@@ -911,9 +931,7 @@ pub(crate) async fn start_session_runtime(
                                     .push_back(vec![String::from_utf8_lossy(&persist_buffer).into_owned()]);
                             }
                             flush_output_recency(&driver_state, &driver_id).await;
-                            driver_state.peon.last_output.write().unwrap().remove(&driver_id);
-                            driver_state.peon.last_inference.write().unwrap().remove(&driver_id);
-                            driver_state.peon.input_buf.write().unwrap().remove(&driver_id);
+                            clear_ended_session_tracking(&driver_state, &driver_id);
                             {
                                 let mut sessions = driver_state.sessions.lock().unwrap();
                                 if let Some(handle) = sessions.get_mut(&driver_id) {
@@ -972,6 +990,7 @@ mod tests {
     fn test_state_with_runtime_session(id: &str) -> Arc<crate::AppState> {
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(None),
             peon: crate::PeonState {
                 last_output: RwLock::new(HashMap::new()),
@@ -980,6 +999,7 @@ mod tests {
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
                 input_buf: RwLock::new(HashMap::new()),
+                reported_cwd: RwLock::new(HashMap::new()),
                 config: crate::peon::PeonConfig::from_env(),
             },
             harness_catalog: crate::test_support::test_harness_components().0,
@@ -2214,6 +2234,93 @@ mod tests {
 
         let size = std::fs::read_to_string(&output_path).unwrap();
         assert_eq!(size.trim(), "40 120");
+    }
+
+    #[tokio::test]
+    async fn session_pid_is_captured_and_probes_the_real_process_cwd_then_clears_on_exit() {
+        let dir = tempfile::tempdir().unwrap();
+        let session_id = "runtime-live-cwd";
+        let state = test_state_with_runtime_session(session_id);
+
+        let (runtime, control_rx) =
+            SessionRuntime::live(DEFAULT_TERMINAL_ROWS, DEFAULT_TERMINAL_COLS);
+        let output_tx = runtime.output_tx.clone();
+
+        let command = harness::CommandSpec {
+            program: "/bin/sh".into(),
+            args: vec!["-lc".into(), "sleep 0.3".into()],
+            cwd: dir.path().display().to_string(),
+        };
+
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut(session_id).unwrap();
+            handle.runtime = runtime;
+        }
+
+        let (_kill_tx, kill_rx) = tokio::sync::watch::channel(false);
+        let runtime_task = tokio::spawn(start_session_runtime(
+            state.clone(),
+            session_id.to_string(),
+            command,
+            None,
+            control_rx,
+            output_tx,
+            kill_rx,
+            PtySize {
+                rows: DEFAULT_TERMINAL_ROWS,
+                cols: DEFAULT_TERMINAL_COLS,
+                pixel_width: 0,
+                pixel_height: 0,
+            },
+        ));
+
+        // Spawn happens asynchronously inside the task; poll for the pid to land.
+        let pid = {
+            let mut found = None;
+            for _ in 0..50 {
+                if let Some(&pid) = state.session_pids.lock().unwrap().get(session_id) {
+                    found = Some(pid);
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+            found.expect("session_pids should contain the spawned child's pid")
+        };
+
+        // Real end-to-end proof (issue #241): the captured pid resolves, via the
+        // actual sysinfo-backed probe, to the real cwd the child was spawned in.
+        let resolved = crate::procfs::live_cwds(&[pid])
+            .remove(&pid)
+            .expect("live_cwds should resolve the running child");
+        let resolved_path = std::path::PathBuf::from(resolved);
+        let expected = dir
+            .path()
+            .canonicalize()
+            .unwrap_or_else(|_| dir.path().to_path_buf());
+        assert_eq!(
+            resolved_path.canonicalize().unwrap_or(resolved_path),
+            expected
+        );
+
+        runtime_task.await.unwrap().unwrap();
+
+        // start_session_runtime's own future resolves once initial setup
+        // succeeds, not once the child has exited (matches the established
+        // pattern in early_resize_after_start_sets_initial_pty_size_before_spawn
+        // above); poll for the async exit-driven cleanup to land.
+        let mut still_tracked = true;
+        for _ in 0..100 {
+            if !state.session_pids.lock().unwrap().contains_key(session_id) {
+                still_tracked = false;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert!(
+            !still_tracked,
+            "session_pids entry should be cleared once the process has exited"
+        );
     }
 
     #[tokio::test]

@@ -5,11 +5,86 @@ use crate::metadata;
 use crate::session_types::{MemoryState, SessionInfo};
 use std::collections::HashMap;
 
-pub(crate) fn detect_conflicts(sessions: &[SessionInfo]) -> Vec<(String, String)> {
+/// Resolves each session's effective cwd (issue #241) via a 3-tier priority
+/// chain: the harness's own self-reported cwd (ADR 0032) when available,
+/// else its live PTY-process cwd when a tracked pid resolves one (ADR 0031),
+/// else its frozen launch-time `cwd`. Shared by `enrich_sessions_with_git_context`
+/// and `detect_conflicts` so git-context enrichment and collision warnings
+/// agree on where a session actually is right now.
+pub(crate) fn resolve_effective_cwds(
+    sessions: &[SessionInfo],
+    reported_cwds: &HashMap<String, String>,
+    session_pids: &HashMap<String, u32>,
+    live_cwds: impl FnOnce(&[u32]) -> HashMap<u32, String>,
+) -> HashMap<String, String> {
+    // One batched probe covering only pids whose session lacks a
+    // higher-priority reported cwd — not one probe per session, and not
+    // wasted work for sessions the pid-probe result would be discarded for
+    // anyway (e.g. a workspace of all-Claude-Code sessions, which all
+    // self-report).
+    let pids: Vec<u32> = sessions
+        .iter()
+        .filter(|s| !reported_cwds.contains_key(&s.id))
+        .filter_map(|s| session_pids.get(&s.id).copied())
+        .collect();
+    let resolved = live_cwds(&pids);
+    sessions
+        .iter()
+        .map(|s| {
+            // Priority: the harness's own self-reported cwd (ADR 0032,
+            // authoritative when available — currently Claude Code only) >
+            // the pid-probed live cwd (ADR 0031, works for bare shell
+            // sessions) > the frozen launch-time cwd.
+            let cwd = reported_cwds.get(&s.id).cloned().unwrap_or_else(|| {
+                session_pids
+                    .get(&s.id)
+                    .and_then(|pid| resolved.get(pid))
+                    .cloned()
+                    .unwrap_or_else(|| s.cwd.clone())
+            });
+            // Canonicalize every source the same way, so e.g. a live-
+            // resolved macOS /private/tmp/x and an unresolved launch cwd
+            // /tmp/x for the *same* directory compare equal instead of
+            // grouping/counting as two different locations.
+            (s.id.clone(), best_effort_canonicalize(&cwd))
+        })
+        .collect()
+}
+
+fn best_effort_canonicalize(cwd: &str) -> String {
+    match std::fs::canonicalize(cwd)
+        .ok()
+        .and_then(|p| p.into_os_string().into_string().ok())
+    {
+        Some(path) => strip_windows_verbatim_prefix(path),
+        None => cwd.to_string(),
+    }
+}
+
+/// `std::fs::canonicalize` on Windows returns a verbatim/extended-length
+/// path (e.g. `\\?\C:\repo`), which external tools consuming this value
+/// right after (notably `git2`/libgit2 for repository discovery) can fail
+/// to handle. Strip the prefix when present so canonicalized paths stay
+/// compatible with tools expecting normal Windows paths. A no-op elsewhere:
+/// non-Windows canonicalized paths never carry this prefix.
+fn strip_windows_verbatim_prefix(path: String) -> String {
+    path.strip_prefix(r"\\?\")
+        .map(str::to_string)
+        .unwrap_or(path)
+}
+
+pub(crate) fn detect_conflicts(
+    sessions: &[SessionInfo],
+    effective_cwds: &HashMap<String, String>,
+) -> Vec<(String, String)> {
     let mut cwd_groups: HashMap<&str, Vec<&SessionInfo>> = HashMap::new();
     for s in sessions {
         if s.status == "running" || s.status == "creating" {
-            cwd_groups.entry(&s.cwd).or_default().push(s);
+            let cwd = effective_cwds
+                .get(&s.id)
+                .map(|c| c.as_str())
+                .unwrap_or(&s.cwd);
+            cwd_groups.entry(cwd).or_default().push(s);
         }
     }
     let mut warnings = Vec::new();
@@ -517,7 +592,7 @@ mod tests {
                 ..test_session_info("b", "B", "/repo", "running", "now")
             },
         ];
-        let warnings = detect_conflicts(&sessions);
+        let warnings = detect_conflicts(&sessions, &HashMap::new());
         assert_eq!(warnings.len(), 2);
         assert!(warnings.iter().any(|(id, _)| id == "a"));
         assert!(warnings.iter().any(|(id, _)| id == "b"));
@@ -538,7 +613,7 @@ mod tests {
                 ..test_session_info("b", "B", "/repo", "running", "now")
             },
         ];
-        let warnings = detect_conflicts(&sessions);
+        let warnings = detect_conflicts(&sessions, &HashMap::new());
         assert!(warnings.is_empty());
     }
 
@@ -554,8 +629,131 @@ mod tests {
                 ..test_session_info("b", "B", "/repo", "running", "now")
             },
         ];
-        let warnings = detect_conflicts(&sessions);
+        let warnings = detect_conflicts(&sessions, &HashMap::new());
         assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn detect_conflicts_does_not_group_sessions_that_have_moved_to_different_live_cwds() {
+        let sessions = vec![
+            SessionInfo {
+                dirty: Some(true),
+                ..test_session_info("a", "A", "/repo", "running", "now")
+            },
+            SessionInfo {
+                dirty: Some(true),
+                ..test_session_info("b", "B", "/repo", "running", "now")
+            },
+        ];
+        // Both launched in "/repo", but "b" has since moved to its own worktree.
+        let effective_cwds: HashMap<String, String> =
+            HashMap::from([("b".to_string(), "/repo-worktree".to_string())]);
+
+        let warnings = detect_conflicts(&sessions, &effective_cwds);
+
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn strip_windows_verbatim_prefix_removes_the_prefix_when_present() {
+        assert_eq!(
+            strip_windows_verbatim_prefix(r"\\?\C:\repo\worktree".to_string()),
+            r"C:\repo\worktree"
+        );
+    }
+
+    #[test]
+    fn strip_windows_verbatim_prefix_is_a_noop_for_unix_paths() {
+        assert_eq!(
+            strip_windows_verbatim_prefix("/private/tmp/repo".to_string()),
+            "/private/tmp/repo"
+        );
+    }
+
+    #[test]
+    fn resolve_effective_cwds_prefers_live_cwd_and_falls_back_to_launch_cwd() {
+        let sessions = vec![
+            test_session_info("tracked", "Tracked", "/launch", "running", "now"),
+            test_session_info("untracked", "Untracked", "/launch", "running", "now"),
+        ];
+        let session_pids: HashMap<String, u32> = HashMap::from([("tracked".to_string(), 99)]);
+
+        let resolved = resolve_effective_cwds(&sessions, &HashMap::new(), &session_pids, |pids| {
+            assert_eq!(pids, &[99]);
+            HashMap::from([(99, "/live".to_string())])
+        });
+
+        // Neither "/live" nor "/launch" exist on disk in this test, so
+        // canonicalization falls back to the raw string for both.
+        assert_eq!(resolved.get("tracked").map(String::as_str), Some("/live"));
+        assert_eq!(
+            resolved.get("untracked").map(String::as_str),
+            Some("/launch")
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn resolve_effective_cwds_normalizes_symlinked_paths_so_they_compare_equal() {
+        let real_dir = tempfile::tempdir().unwrap();
+        let link_dir = tempfile::tempdir().unwrap();
+        let link_path = link_dir.path().join("alias");
+        std::os::unix::fs::symlink(real_dir.path(), &link_path).unwrap();
+
+        let launch_cwd = link_path.display().to_string();
+        let sessions = vec![
+            test_session_info("live", "Live", &launch_cwd, "running", "now"),
+            test_session_info("stale", "Stale", &launch_cwd, "running", "now"),
+        ];
+        let real_dir_str = real_dir.path().display().to_string();
+        let session_pids: HashMap<String, u32> = HashMap::from([("live".to_string(), 1)]);
+
+        let resolved = resolve_effective_cwds(&sessions, &HashMap::new(), &session_pids, |_| {
+            HashMap::from([(1, real_dir_str.clone())])
+        });
+
+        // "live" resolved via the (already-canonical) probe result; "stale"
+        // fell back to the symlinked launch cwd. Both should canonicalize to
+        // the same real path.
+        assert_eq!(resolved.get("live"), resolved.get("stale"));
+    }
+
+    #[test]
+    fn resolve_effective_cwds_prefers_harness_reported_cwd_over_pid_probe_and_launch_cwd() {
+        let sessions = vec![
+            test_session_info("reported", "Reported", "/launch", "running", "now"),
+            test_session_info("pid-only", "PidOnly", "/launch", "running", "now"),
+            test_session_info("neither", "Neither", "/launch", "running", "now"),
+        ];
+        let reported_cwds: HashMap<String, String> =
+            HashMap::from([("reported".to_string(), "/harness-reported".to_string())]);
+        // "reported" also has a tracked pid that would resolve to a
+        // different directory — the harness-reported value must win anyway.
+        let session_pids: HashMap<String, u32> = HashMap::from([
+            ("reported".to_string(), 1),
+            ("pid-only".to_string(), 2),
+        ]);
+
+        let resolved = resolve_effective_cwds(&sessions, &reported_cwds, &session_pids, |pids| {
+            // Efficiency: "reported"'s pid (1) already has a higher-priority
+            // reported cwd, so it must not even be probed — only "pid-only"'s
+            // pid (2) should reach the batched probe.
+            assert_eq!(pids, &[2]);
+            HashMap::from([
+                (1, "/pid-probed-but-overridden".to_string()),
+                (2, "/pid-probed".to_string()),
+            ])
+        });
+
+        assert_eq!(
+            resolved.get("reported").map(String::as_str),
+            Some("/harness-reported")
+        );
+        assert_eq!(
+            resolved.get("pid-only").map(String::as_str),
+            Some("/pid-probed")
+        );
+        assert_eq!(resolved.get("neither").map(String::as_str), Some("/launch"));
     }
 
     #[test]

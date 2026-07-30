@@ -38,3 +38,5 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 | [0028](./0028-generation-aware-harness-version-probe-cache.md) | Generation-aware harness version probe cache | accepted |
 | [0029](./0029-session-label-topic-vs-activity-summary.md) | Session label is a one-shot Peon-authored topic, decoupled from the turn-by-turn summary | accepted |
 | [0030](./0030-integration-lock-check-await-helper.md) | Integration lock-check-drop-await-relock helper | accepted |
+| [0031](./0031-live-session-cwd-via-sysinfo-probe.md) | Live session cwd via cross-platform sysinfo probe | accepted |
+| [0032](./0032-harness-reported-cwd-via-hook-payload.md) | Harness-reported cwd via existing hook payload | accepted |

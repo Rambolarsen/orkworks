@@ -18,6 +18,7 @@ mod metadata;
 mod migration;
 mod peon;
 mod plan_handoff;
+mod procfs;
 mod providers;
 mod runtime;
 mod session_types;
@@ -91,6 +92,10 @@ struct PeonState {
     // otherwise glue together into one garbled label the next time a real line
     // is submitted.
     input_buf: StdRwLock<HashMap<String, String>>,
+    // The harness's own logical cwd, when it reports one via its hook (issue
+    // #241 / ADR 0032) — authoritative over the pid-probed/launch-time cwd
+    // fallbacks. Currently only populated for Claude Code sessions.
+    reported_cwd: StdRwLock<HashMap<String, String>>,
     config: peon::PeonConfig,
 }
 
@@ -104,6 +109,10 @@ struct RetentionConfig {
 
 struct AppState {
     sessions: Mutex<HashMap<String, SessionHandle>>,
+    // OS pid of each session's PTY child, captured at spawn. Used to probe
+    // the process's live cwd (issue #241) instead of trusting the frozen
+    // launch-time cwd forever.
+    session_pids: Mutex<HashMap<String, u32>>,
     workspace: Mutex<Option<WorkspaceState>>,
     peon: PeonState,
     providers: providers::ProviderManager,
@@ -147,6 +156,7 @@ async fn main() {
 
     let state = Arc::new(AppState {
         sessions: Mutex::new(HashMap::new()),
+        session_pids: Mutex::new(HashMap::new()),
         workspace: Mutex::new(None),
         peon: PeonState {
             last_output: StdRwLock::new(HashMap::new()),
@@ -155,6 +165,7 @@ async fn main() {
             label_hint: StdRwLock::new(HashMap::new()),
             label_pending: StdRwLock::new(HashSet::new()),
             input_buf: StdRwLock::new(HashMap::new()),
+            reported_cwd: StdRwLock::new(HashMap::new()),
             config: peon::PeonConfig::from_env(),
         },
         providers,
@@ -354,6 +365,7 @@ pub(crate) mod test_support {
         let (harness_catalog, harness_store) = test_harness_components();
         Arc::new(AppState {
             sessions: Mutex::new(HashMap::new()),
+            session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(WorkspaceState {
                 path: path.to_path_buf(),
                 metadata: metadata::MetadataStore::new(&metadata_root),
@@ -366,6 +378,7 @@ pub(crate) mod test_support {
                 label_hint: StdRwLock::new(HashMap::new()),
                 label_pending: StdRwLock::new(HashSet::new()),
                 input_buf: StdRwLock::new(HashMap::new()),
+                reported_cwd: StdRwLock::new(HashMap::new()),
                 config: peon::PeonConfig::from_env(),
             },
             harness_catalog: harness_catalog.clone(),
@@ -687,6 +700,7 @@ mod tests {
     fn session_registry_create_and_list() {
         let state = Arc::new(AppState {
             sessions: Mutex::new(HashMap::new()),
+            session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(None),
             peon: PeonState {
                 last_output: StdRwLock::new(HashMap::new()),
@@ -695,6 +709,7 @@ mod tests {
                 label_hint: StdRwLock::new(HashMap::new()),
                 label_pending: StdRwLock::new(HashSet::new()),
                 input_buf: StdRwLock::new(HashMap::new()),
+                reported_cwd: StdRwLock::new(HashMap::new()),
                 config: peon::PeonConfig::from_env(),
             },
             harness_catalog: test_harness_components().0,

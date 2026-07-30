@@ -3,7 +3,7 @@ use crate::plan_handoff::resolve_openable_plan;
 use crate::session_types::{MemoryState, SessionInfo};
 use crate::session_view::{
     connectivity_for_status, derive_memory_state, detect_conflicts, merge_live_session_info,
-    session_recommendation, terminal_outcome_for_status,
+    resolve_effective_cwds, session_recommendation, terminal_outcome_for_status,
 };
 use crate::workspace_runtime::{iso_now, orkworks_global_dir, parse_hook_observed_at};
 use crate::{
@@ -55,6 +55,12 @@ pub(crate) struct AttentionReportRequest {
     pub(crate) plan_path: metadata::PlanPathUpdate,
     #[serde(rename = "observedAt", default)]
     pub(crate) observed_at: Option<String>,
+    /// The harness's own logical working directory, when it reports one
+    /// (currently Claude Code only, forwarded from its hook JSON payload).
+    /// Authoritative over the pid-probed/launch-time cwd fallbacks — see
+    /// ADR 0032.
+    #[serde(default)]
+    pub(crate) cwd: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -557,6 +563,22 @@ pub(crate) async fn report_attention(
             .is_some_and(|accepted_at| timestamp <= accepted_at)
     }) {
         return axum::http::StatusCode::OK.into_response();
+    }
+
+    // Record the harness's self-reported cwd (issue #241 / ADR 0032) whenever
+    // one accompanies this report. Gated behind the same staleness check as
+    // the attention status above — a delayed/superseded hook event carries an
+    // equally stale cwd, and since this is the top-priority tier in
+    // resolve_effective_cwds, a stale write here can't be corrected by the
+    // more-accurate live probe underneath it. An empty string is treated as
+    // "nothing reported" rather than clearing a previously-known value.
+    if let Some(cwd) = req.cwd.as_deref().filter(|c| !c.is_empty()) {
+        state
+            .peon
+            .reported_cwd
+            .write()
+            .unwrap()
+            .insert(id.clone(), cwd.to_string());
     }
 
     let now = iso_now();
@@ -1118,27 +1140,40 @@ pub(crate) async fn create_session(
     Json(info).into_response()
 }
 
-fn enrich_sessions_with_git_context<F>(infos: &mut [SessionInfo], mut detect_git: F)
-where
+fn enrich_sessions_with_git_context<F>(
+    infos: &mut [SessionInfo],
+    effective_cwds: &HashMap<String, String>,
+    mut detect_git: F,
+) where
     F: FnMut(&std::path::Path) -> git::GitContext,
 {
+    // `effective_cwds` prefers each session's live PTY-process cwd (issue
+    // #241 — an agent that `cd`s or `git worktree add`s mid-session
+    // shouldn't be shown frozen at its launch location forever), falling
+    // back to the launch-time `info.cwd` when there's no tracked pid or the
+    // probe fails. See `session_view::resolve_effective_cwds`.
+    let cwd_for = |info: &SessionInfo| -> String {
+        effective_cwds
+            .get(&info.id)
+            .cloned()
+            .unwrap_or_else(|| info.cwd.clone())
+    };
+
     let mut cwd_counts: HashMap<String, usize> = HashMap::new();
     for info in infos.iter() {
         if info.status == "running" || info.status == "creating" {
-            *cwd_counts.entry(info.cwd.clone()).or_default() += 1;
+            *cwd_counts.entry(cwd_for(info)).or_default() += 1;
         }
     }
 
     let mut contexts: HashMap<String, git::GitContext> = HashMap::new();
-    for info in infos {
-        if !contexts.contains_key(&info.cwd) {
-            contexts.insert(
-                info.cwd.clone(),
-                detect_git(std::path::Path::new(&info.cwd)),
-            );
+    for info in infos.iter_mut() {
+        let cwd = cwd_for(info);
+        if !contexts.contains_key(&cwd) {
+            contexts.insert(cwd.clone(), detect_git(std::path::Path::new(&cwd)));
         }
-        let ctx = &contexts[&info.cwd];
-        let count = cwd_counts.get(&info.cwd).copied().unwrap_or(1);
+        let ctx = &contexts[&cwd];
+        let count = cwd_counts.get(&cwd).copied().unwrap_or(1);
         info.recommendation = session_recommendation(ctx, count);
         info.repo_root = ctx.repo_root.clone();
         info.branch = ctx.branch.clone();
@@ -1549,9 +1584,17 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
         .providers
         .update_session_capping(harness_capped, harness_reset_hint, provider_checking);
 
-    enrich_sessions_with_git_context(&mut infos, git::detect);
+    let session_pids = state.session_pids.lock().unwrap().clone();
+    let reported_cwds = state.peon.reported_cwd.read().unwrap().clone();
+    let effective_cwds = resolve_effective_cwds(
+        &infos,
+        &reported_cwds,
+        &session_pids,
+        crate::procfs::live_cwds,
+    );
+    enrich_sessions_with_git_context(&mut infos, &effective_cwds, git::detect);
 
-    let conflict_warnings = detect_conflicts(&infos);
+    let conflict_warnings = detect_conflicts(&infos, &effective_cwds);
     for info in &mut infos {
         info.conflict_warning = conflict_warnings
             .iter()
@@ -1576,9 +1619,7 @@ pub(crate) async fn delete_session(
         }
         None => return axum::http::StatusCode::NOT_FOUND,
     }
-    state.peon.last_output.write().unwrap().remove(&id);
-    state.peon.last_inference.write().unwrap().remove(&id);
-    state.peon.input_buf.write().unwrap().remove(&id);
+    crate::runtime::session_runtime::clear_ended_session_tracking(&state, &id);
     axum::http::StatusCode::OK
 }
 
@@ -1623,8 +1664,7 @@ pub(crate) async fn forget_session(
     drop(ws_guard);
 
     state.sessions.lock().unwrap().remove(&id);
-    state.peon.last_output.write().unwrap().remove(&id);
-    state.peon.last_inference.write().unwrap().remove(&id);
+    crate::runtime::session_runtime::clear_ended_session_tracking(&state, &id);
 
     axum::http::StatusCode::OK.into_response()
 }
@@ -1646,7 +1686,7 @@ mod tests {
         ];
         let mut calls: HashMap<String, usize> = HashMap::new();
 
-        enrich_sessions_with_git_context(&mut infos, |cwd| {
+        enrich_sessions_with_git_context(&mut infos, &HashMap::new(), |cwd| {
             *calls.entry(cwd.display().to_string()).or_default() += 1;
             git::GitContext {
                 repo_root: Some(format!("{}/repo", cwd.display())),
@@ -1669,6 +1709,65 @@ mod tests {
         assert_eq!(infos[1].changed_files, Some(2));
         assert_eq!(infos[2].is_worktree, Some(true));
         assert!(infos[0].recommendation.is_some());
+    }
+
+    #[test]
+    fn session_git_context_uses_supplied_effective_cwd_over_launch_cwd() {
+        let launch_cwd = "/workspace/launched-here";
+        let mut infos = vec![
+            test_session_info("moved", "Moved", launch_cwd, "running", "now"),
+            test_session_info("stayed", "Stayed", launch_cwd, "running", "now"),
+        ];
+        // "moved" resolved to a live cwd distinct from its launch cwd (e.g. via
+        // `resolve_effective_cwds`); "stayed" has no entry, so it should fall
+        // back to its launch cwd.
+        let effective_cwds: HashMap<String, String> =
+            HashMap::from([("moved".to_string(), "/workspace/worktree".to_string())]);
+        let mut detect_calls: Vec<String> = Vec::new();
+
+        enrich_sessions_with_git_context(&mut infos, &effective_cwds, |cwd| {
+            detect_calls.push(cwd.display().to_string());
+            git::GitContext {
+                repo_root: Some(format!("{}/repo", cwd.display())),
+                branch: Some(format!("branch-for-{}", cwd.display())),
+                dirty: false,
+                changed_files: 0,
+                is_worktree: false,
+            }
+        });
+
+        assert_eq!(
+            infos[0].branch.as_deref(),
+            Some("branch-for-/workspace/worktree")
+        );
+        assert_eq!(
+            infos[1].branch.as_deref(),
+            Some(format!("branch-for-{launch_cwd}").as_str())
+        );
+        assert!(detect_calls.contains(&"/workspace/worktree".to_string()));
+        assert!(detect_calls.contains(&launch_cwd.to_string()));
+    }
+
+    #[test]
+    fn session_git_context_falls_back_to_launch_cwd_when_not_in_effective_cwds() {
+        let launch_cwd = "/workspace/no-entry-tracked";
+        let mut infos = vec![test_session_info(
+            "untracked",
+            "Untracked",
+            launch_cwd,
+            "running",
+            "now",
+        )];
+
+        enrich_sessions_with_git_context(&mut infos, &HashMap::new(), |cwd| git::GitContext {
+            repo_root: Some(cwd.display().to_string()),
+            branch: None,
+            dirty: false,
+            changed_files: 0,
+            is_worktree: false,
+        });
+
+        assert_eq!(infos[0].repo_root.as_deref(), Some(launch_cwd));
     }
 
     fn attention_test_handle(id: &str, cwd: &std::path::Path) -> SessionHandle {
@@ -2201,6 +2300,7 @@ mod tests {
                 message: None,
                 plan_path: Default::default(),
                 observed_at: None,
+                cwd: None,
             }),
         )
         .await
@@ -2221,6 +2321,7 @@ mod tests {
                 message: None,
                 plan_path: Default::default(),
                 observed_at: Some("not-a-timestamp".into()),
+                cwd: None,
             }),
         )
         .await
@@ -2241,6 +2342,7 @@ mod tests {
                 message: None,
                 plan_path: Default::default(),
                 observed_at: None,
+                cwd: None,
             }),
         )
         .await
@@ -2320,6 +2422,7 @@ mod tests {
                 message: None,
                 plan_path: Default::default(),
                 observed_at: None,
+                cwd: None,
             }),
         )
         .await
@@ -2338,6 +2441,102 @@ mod tests {
             Some("waiting_for_input")
         );
         assert_eq!(updated.metadata_source, "agent");
+    }
+
+    #[tokio::test]
+    async fn report_attention_stores_reported_cwd_when_present() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        {
+            let ws = state.workspace.lock().unwrap();
+            ws.as_ref().unwrap().metadata.write_session(
+                &crate::test_support::test_session_metadata(
+                    "cwd-report",
+                    "CwdReport",
+                    dir.path().display().to_string(),
+                    "running",
+                    "now",
+                    "now",
+                ),
+            );
+        }
+
+        let response = report_attention(
+            State(state.clone()),
+            Path("cwd-report".into()),
+            Json(AttentionReportRequest {
+                status: "waiting_for_input".into(),
+                message: None,
+                plan_path: Default::default(),
+                observed_at: None,
+                cwd: Some("/harness-reported/worktree".into()),
+            }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        assert_eq!(
+            state
+                .peon
+                .reported_cwd
+                .read()
+                .unwrap()
+                .get("cwd-report")
+                .map(String::as_str),
+            Some("/harness-reported/worktree")
+        );
+    }
+
+    #[tokio::test]
+    async fn report_attention_does_not_clobber_reported_cwd_when_absent() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        {
+            let ws = state.workspace.lock().unwrap();
+            ws.as_ref().unwrap().metadata.write_session(
+                &crate::test_support::test_session_metadata(
+                    "cwd-sticky",
+                    "CwdSticky",
+                    dir.path().display().to_string(),
+                    "running",
+                    "now",
+                    "now",
+                ),
+            );
+        }
+        state
+            .peon
+            .reported_cwd
+            .write()
+            .unwrap()
+            .insert("cwd-sticky".into(), "/previously-reported".into());
+
+        let response = report_attention(
+            State(state.clone()),
+            Path("cwd-sticky".into()),
+            Json(AttentionReportRequest {
+                status: "waiting_for_input".into(),
+                message: None,
+                plan_path: Default::default(),
+                observed_at: None,
+                cwd: None,
+            }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        assert_eq!(
+            state
+                .peon
+                .reported_cwd
+                .read()
+                .unwrap()
+                .get("cwd-sticky")
+                .map(String::as_str),
+            Some("/previously-reported")
+        );
     }
 
     #[tokio::test]
@@ -2386,6 +2585,7 @@ mod tests {
                 message: Some("old prompt".into()),
                 plan_path: Default::default(),
                 observed_at: Some("2026-07-21T08:00:00.000000Z".into()),
+                cwd: None,
             }),
         )
         .await
@@ -2449,6 +2649,7 @@ mod tests {
                     message: Some("Waiting".into()),
                     plan_path: Default::default(),
                     observed_at: None,
+                    cwd: None,
                 }),
             )
             .await
@@ -2733,6 +2934,7 @@ mod tests {
                 message: None,
                 plan_path: Default::default(),
                 observed_at: None,
+                cwd: None,
             }),
         )
         .await
@@ -3132,6 +3334,7 @@ mod tests {
                 message: None,
                 plan_path: Default::default(),
                 observed_at: None,
+                cwd: None,
             }),
         )
         .await
@@ -3279,6 +3482,7 @@ mod tests {
                 message: None,
                 plan_path: Default::default(),
                 observed_at: None,
+                cwd: None,
             }),
         )
         .await
@@ -3325,6 +3529,7 @@ mod tests {
                 message: None,
                 plan_path: Default::default(),
                 observed_at: None,
+                cwd: None,
             }),
         )
         .await
@@ -3376,6 +3581,7 @@ mod tests {
                 message: None,
                 plan_path: Default::default(),
                 observed_at: None,
+                cwd: None,
             }),
         )
         .await
@@ -3426,6 +3632,7 @@ mod tests {
                 message: None,
                 plan_path: Default::default(),
                 observed_at: None,
+                cwd: None,
             }),
         )
         .await
@@ -3473,6 +3680,7 @@ mod tests {
                 message: None,
                 plan_path: Default::default(),
                 observed_at: None,
+                cwd: None,
             }),
         )
         .await
@@ -3599,6 +3807,7 @@ mod tests {
         let orkworks = dir.path().join(".orkworks");
         let state = Arc::new(crate::AppState {
             sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
+            session_pids: std::sync::Mutex::new(std::collections::HashMap::new()),
             workspace: std::sync::Mutex::new(Some(WorkspaceState {
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
@@ -3611,6 +3820,7 @@ mod tests {
                 label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
                 label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
                 input_buf: std::sync::RwLock::new(std::collections::HashMap::new()),
+                reported_cwd: std::sync::RwLock::new(std::collections::HashMap::new()),
                 config: peon::PeonConfig::from_env(),
             },
             harness_catalog: crate::test_support::test_harness_components().0,
@@ -3925,6 +4135,7 @@ mod tests {
     async fn list_sessions_uses_live_session_contract_fields_without_metadata() {
         let state = Arc::new(crate::AppState {
             sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
+            session_pids: std::sync::Mutex::new(std::collections::HashMap::new()),
             workspace: std::sync::Mutex::new(None),
             peon: crate::PeonState {
                 last_output: std::sync::RwLock::new(std::collections::HashMap::new()),
@@ -3933,6 +4144,7 @@ mod tests {
                 label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
                 label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
                 input_buf: std::sync::RwLock::new(std::collections::HashMap::new()),
+                reported_cwd: std::sync::RwLock::new(std::collections::HashMap::new()),
                 config: peon::PeonConfig::from_env(),
             },
             harness_catalog: crate::test_support::test_harness_components().0,
@@ -4014,6 +4226,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let state = Arc::new(crate::AppState {
             sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
+            session_pids: std::sync::Mutex::new(std::collections::HashMap::new()),
             workspace: std::sync::Mutex::new(None),
             peon: crate::PeonState {
                 last_output: std::sync::RwLock::new(std::collections::HashMap::new()),
@@ -4022,6 +4235,7 @@ mod tests {
                 label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
                 label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
                 input_buf: std::sync::RwLock::new(std::collections::HashMap::new()),
+                reported_cwd: std::sync::RwLock::new(std::collections::HashMap::new()),
                 config: peon::PeonConfig::from_env(),
             },
             harness_catalog: crate::test_support::test_harness_components().0,
@@ -4105,6 +4319,7 @@ mod tests {
         };
         let state = Arc::new(crate::AppState {
             sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
+            session_pids: std::sync::Mutex::new(std::collections::HashMap::new()),
             workspace: std::sync::Mutex::new(None),
             peon: crate::PeonState {
                 last_output: std::sync::RwLock::new(std::collections::HashMap::new()),
@@ -4113,6 +4328,7 @@ mod tests {
                 label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
                 label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
                 input_buf: std::sync::RwLock::new(std::collections::HashMap::new()),
+                reported_cwd: std::sync::RwLock::new(std::collections::HashMap::new()),
                 config: peon::PeonConfig::from_env(),
             },
             harness_catalog: crate::test_support::test_harness_components().0,
@@ -4178,6 +4394,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let state = Arc::new(crate::AppState {
             sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
+            session_pids: std::sync::Mutex::new(std::collections::HashMap::new()),
             workspace: std::sync::Mutex::new(None),
             peon: crate::PeonState {
                 last_output: std::sync::RwLock::new(std::collections::HashMap::new()),
@@ -4186,6 +4403,7 @@ mod tests {
                 label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
                 label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
                 input_buf: std::sync::RwLock::new(std::collections::HashMap::new()),
+                reported_cwd: std::sync::RwLock::new(std::collections::HashMap::new()),
                 config: peon::PeonConfig::from_env(),
             },
             harness_catalog: crate::test_support::test_harness_components().0,
@@ -4664,6 +4882,7 @@ mod tests {
         let orkworks = dir.path().join(".orkworks");
         let state = Arc::new(crate::AppState {
             sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
+            session_pids: std::sync::Mutex::new(std::collections::HashMap::new()),
             workspace: std::sync::Mutex::new(Some(WorkspaceState {
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
@@ -4676,6 +4895,7 @@ mod tests {
                 label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
                 label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
                 input_buf: std::sync::RwLock::new(std::collections::HashMap::new()),
+                reported_cwd: std::sync::RwLock::new(std::collections::HashMap::new()),
                 config: peon::PeonConfig::from_env(),
             },
             harness_catalog: crate::test_support::test_harness_components().0,
