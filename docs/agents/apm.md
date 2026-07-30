@@ -11,6 +11,9 @@ Dependencies are managed by [APM](https://github.com/anthropics/apm) at the repo
 | `.codex/` | Codex hooks, including the committed Stop-hook JSON wrapper |
 | `.github/hooks/` | Copilot hooks |
 | `.opencode/` | OpenCode target |
+| `.mcp.json` | Claude Code MCP server config |
+| `.vscode/mcp.json` | VS Code MCP server config |
+| `.codex/config.toml` | Codex MCP server config (gitignored, local-only) |
 
 Codex's repo-local Stop hook is a two-step setup: `.codex/hooks/doc-check.sh` remains the doc-diff detector, and `.codex/hooks/doc-check-stop.sh` wraps that output into valid Stop-hook JSON so Codex can surface the message without rejecting the hook output.
 
@@ -51,6 +54,12 @@ Ponytail also ships its own `AGENTS.md` — if cross-referenced from this repo's
 - `improve-codebase-architecture` — scans for deepening opportunities, presents them as a visual HTML report, then hands off to `grilling` for the one picked
 - `codebase-design` — shared deep-module vocabulary (module, interface, seam, adapter, leverage, locality) the above skill designs against
 - `grilling` — one-question-at-a-time decision-tree interview, used to walk a chosen deepening candidate to a shared understanding before implementation
+
+## MCP servers
+
+MCP servers are declared in `apm.yml` under `dependencies.mcp` and materialized per-client by `apm install` — not by hand-editing `.mcp.json`, `.vscode/mcp.json`, `.codex/config.toml` (gitignored, local-only), or `opencode.json`'s `mcp` key directly.
+
+- `oraios/serena` — code-intelligence MCP server, launched via `uvx` (`uv` must be installed locally).
 
 ## Repo-level skills
 

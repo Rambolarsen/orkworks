@@ -272,6 +272,14 @@ Agent dependencies (Superpowers, Ponytail, Claude Mem, rust-skills) are managed 
 
 See [`docs/agents/apm.md`](docs/agents/apm.md) for the full plugin list, generated path layout, and OpenCode configuration.
 
+## MCP configuration
+
+Project-scoped MCP servers are declared in `apm.yml` under `dependencies.mcp`.
+
+- Do not hand-maintain parallel MCP definitions for Copilot, Claude, Codex, or OpenCode when APM can generate them.
+- After changing `dependencies.mcp`, run `apm install` to refresh the project config files.
+- Keep secrets out of committed files. `serena` runs through `uvx`, so `uv` must be installed locally.
+
 ## Repo-level skills
 
 The `skills/` directory contains committed repo skills (`starting-work`, `cutting-release`, `writing-skills`, `clean-ddd-hexagonal`, `adding-harness`, `surfacing-blind-spots`, `auditing-test-honesty`, `walking-failure-paths`, `grooming-the-board`, `auditing-signal-vs-noise`). Each is a directory with a `SKILL.md` following the [Agent Skills standard](https://agentskills.io/specification). Use `skills/adding-harness/` before adding or changing a harness adapter; it forces the launch/resume/session-ID/voice/capacity checklist for the harness. Use `skills/surfacing-blind-spots/` when closing out a session or when asked to generate quality-improvement tasks; it turns investigated uncertainties and project blind spots into scoped issues.
