@@ -170,7 +170,7 @@ Current MCP server:
 To materialize the client-specific config, run:
 
 ```bash
-cd /Users/froomiebot/workspace/orkworks
+# from the repo root
 apm install
 ```
 
