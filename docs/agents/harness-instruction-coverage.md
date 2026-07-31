@@ -19,3 +19,16 @@ The current baseline deliberately records none of those unverified facts.
 Do not move a rule out of root `AGENTS.md` until all four rows have validated
 all three promotion artifacts. Cross-boundary constraints remain root-owned
 even after a future scoped-instruction promotion.
+
+## Probe log
+
+2026-07-31 — An isolated temporary Git repository used root `AGENTS.md` with
+`ROOT-TOKEN` and `nested/AGENTS.md` with `NESTED-TOKEN`; each harness was asked
+to return the instruction token without tools.
+
+| Harness | Outcome | Consequence |
+| --- | --- | --- |
+| Codex 0.146.0 | Returned `NESTED-TOKEN` from `nested/`. | Native nested `AGENTS.md` delivery is observed, but no production scoped file has been selected or validated. |
+| OpenCode | Returned `ROOT-TOKEN` from `nested/`. | Do not rely on nested `AGENTS.md` auto-discovery; a future scoped design must validate a different documented mechanism. |
+| Claude | Completed without a captured response in both text and JSON output modes. | Inconclusive; repeat with a harness-visible transcript before promotion. |
+| Copilot CLI 1.0.75 | Stopped before the prompt because no authentication information was available. | Authenticate the CLI, then run the same probe. |
