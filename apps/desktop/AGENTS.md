@@ -4,7 +4,7 @@ Read the root [`AGENTS.md`](../../AGENTS.md) first. These instructions apply bef
 
 ## Package manager and validation
 
-Use **pnpm** for all Node.js package management. Do not use npm or yarn for project package-management tasks.
+The root [`AGENTS.md`](../../AGENTS.md) owns the repository-wide pnpm-only rule.
 
 ```bash
 # Install pnpm if missing

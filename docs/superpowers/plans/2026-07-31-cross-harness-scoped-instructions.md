@@ -36,7 +36,7 @@
 
 - [ ] **Step 1: Extract scoped instructions without duplication**
 
-Create `apps/desktop/AGENTS.md` with the desktop package manager and validation commands, the Electron/renderer import boundary, duplicated IPC-contract ownership, and desktop-specific architecture/documentation references. Create `crates/orkworksd/AGENTS.md` with Rust-sidecar module-layout guidance, Rust validation commands, and links back to root metadata-protocol constraints and agent docs. Move—not copy—those local details out of root `AGENTS.md`.
+Create `apps/desktop/AGENTS.md` with desktop validation commands, the Electron/renderer import boundary, duplicated IPC-contract ownership, and desktop-specific architecture/documentation references. Keep the repository-wide pnpm-only rule at root because `docs/` is also a Node workspace. Create `crates/orkworksd/AGENTS.md` with Rust-sidecar module-layout guidance, Rust validation commands, and links back to root metadata-protocol constraints and agent docs. Move—not copy—only subsystem-local details out of root `AGENTS.md`.
 
 - [ ] **Step 2: Turn the root file into the router**
 
@@ -48,7 +48,7 @@ Create one `.claude/rules/*.md` file per subsystem with only YAML `paths` frontm
 
 - [ ] **Step 4: Record the production targets**
 
-Update `docs/agents/harness-instruction-coverage.md` with the exact scoped-file paths and observed mechanism for Codex, Copilot, Claude, and OpenCode's root-router fallback. Update `README.md` only with the root-to-scoped instruction map needed to keep the repository entry point current.
+Update `docs/agents/harness-instruction-coverage.md` with the exact scoped-file paths and observed mechanism for Codex, Copilot, Claude, and OpenCode's root-router fallback. Retain production-shaped, read-only results for both scoped files: the desktop type-check command and the Rust `SessionMetadata` owner. Update `README.md` only with the root-to-scoped instruction map needed to keep the repository entry point current.
 
 - [ ] **Step 5: Verify**
 

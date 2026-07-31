@@ -8,6 +8,10 @@ Local-first mission control for AI coding sessions. Peons observe individual ses
 
 APM project bootstrapped — agent skills, hooks, and plugins are installed via [APM](https://github.com/anthropics/apm) at the repo root. M1 (Electron app shell + Rust sidecar scaffold) is implemented. Subsequent milestones are tracked as GitHub issues.
 
+## Package manager
+
+Use **pnpm** for all Node.js package-management tasks in this repository, including `apps/desktop/` and `docs/`. Do not use npm or yarn.
+
 ## CI routing
 
 GitHub Actions now has four distinct workflow classes:
@@ -21,7 +25,7 @@ PR CI is path-routed: desktop changes run desktop validation, Rust changes run R
 
 ## Containerized dev environment (optional)
 
-A Podman/OCI toolchain container (`Containerfile` + `compose.yaml` at the repo root) can build, type-check, lint, and test both `apps/desktop` and `crates/orkworksd` without a host Node/Rust/Electron install. It is an **alternative** to the native pnpm flow above, never a replacement — the native host workflow and the release pipeline (`.github/workflows/release.yml`) are unchanged. Toolchain versions are pinned in `rust-toolchain.toml`, `.nvmrc`, and the `packageManager` field so the container and host agree. GUI runs stay on the native flow (issue #80 Tier 2).
+A Podman/OCI toolchain container (`Containerfile` + `compose.yaml` at the repo root) can build, type-check, lint, and test both `apps/desktop` and `crates/orkworksd` without a host Node/Rust/Electron install. It is an **alternative** to the native pnpm workflow in [`apps/desktop/AGENTS.md`](apps/desktop/AGENTS.md), never a replacement — the native host workflow and the release pipeline (`.github/workflows/release.yml`) are unchanged. Toolchain versions are pinned in `rust-toolchain.toml`, `.nvmrc`, and the `packageManager` field so the container and host agree. GUI runs stay on the native flow (issue #80 Tier 2).
 
 Substitute `docker compose` for `podman compose` if you use Docker.
 
