@@ -84,7 +84,7 @@ function App() {
       const baseUrl = await window.orkworks.getBackendUrl();
       const list = await listSessions(baseUrl);
       pruneTerminals(new Set(list.filter((session) => session.lifecycle !== "dead").map((session) => session.id)));
-      setSessions(mergeSessionsById([], list));
+      setSessions((previous) => mergeSessionsById(previous, list));
     } catch {
       // Silent: polled every 2s; transient failures are reflected by the
       // backendStatus badge, not by spamming toasts.

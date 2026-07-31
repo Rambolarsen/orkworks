@@ -83,6 +83,28 @@ test("mergeSessionsById keeps one row when a creation response repeats a polled 
 
   const merged = mergeSessionsById([existing, polledNew], [createdNew]);
 
-  assert.deepEqual(merged.map((item) => item.id), ["new", "existing"]);
+  assert.deepEqual(merged.map((item) => item.id), ["existing", "new"]);
   assert.strictEqual(merged.find((item) => item.id === "new"), createdNew);
+});
+
+test("mergeSessionsById promotes fresh activity only after the top session is quiet for one minute", () => {
+  const top = { ...session("top", "alive"), lastOutputAt: "2026-07-31T12:00:30.000Z" };
+  const updated = { ...session("updated", "alive"), lastOutputAt: "2026-07-31T12:01:00.000Z" };
+
+  assert.deepEqual(
+    mergeSessionsById(
+      [top, updated],
+      [{ ...updated, lastOutputAt: "2026-07-31T12:01:01.000Z" }],
+      new Date("2026-07-31T12:01:01.000Z"),
+    ).map((item) => item.id),
+    ["top", "updated"],
+  );
+  assert.deepEqual(
+    mergeSessionsById(
+      [{ ...top, lastOutputAt: "2026-07-31T12:00:01.000Z" }, updated],
+      [{ ...updated, lastOutputAt: "2026-07-31T12:01:01.000Z" }],
+      new Date("2026-07-31T12:01:01.000Z"),
+    ).map((item) => item.id),
+    ["updated", "top"],
+  );
 });
