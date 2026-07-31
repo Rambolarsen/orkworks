@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { loadTerminalReplay } from "../src/terminalReplay.ts";
+import { loadTerminalReplay, writeTerminalReplay } from "../src/terminalReplay.ts";
 import { renderTerminalPresentation } from "../src/terminalPresentation.ts";
 
 test("dead session routing invokes replay instead of interactive terminal creation", () => {
@@ -66,6 +66,20 @@ test("writes raw replay records without adding a line ending", async () => {
 
   assert.equal(result, "loaded");
   assert.deepEqual(written, ["write:one\r\n"]);
+});
+
+test("replay fallback writes raw records and preserves legacy line behavior", () => {
+  const written: string[] = [];
+
+  writeTerminalReplay(
+    {
+      write: (text: string) => written.push(`write:${text}`),
+      writeln: (line: string) => written.push(`writeln:${line}`),
+    },
+    [{ text: "one", delimiter: "\r\n" }, "one"],
+  );
+
+  assert.deepEqual(written, ["write:one\r\n", "writeln:one"]);
 });
 
 test("does not write a replay response after selection changes", async () => {

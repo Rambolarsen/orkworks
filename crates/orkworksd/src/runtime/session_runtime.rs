@@ -2413,6 +2413,80 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn session_exit_persists_and_replays_unterminated_output_suffix() {
+        let dir = tempfile::tempdir().unwrap();
+        let session_id = "runtime-exit-persists-suffix";
+        let state = test_state_with_runtime_session(session_id);
+        let metadata_root = dir.path().join(".orkworks-test");
+        *state.workspace.lock().unwrap() = Some(crate::WorkspaceState {
+            path: dir.path().to_path_buf(),
+            metadata: crate::metadata::MetadataStore::new(&metadata_root),
+            watcher: crate::watcher::MetadataWatcher::start(&metadata_root.join("sessions")),
+        });
+        let replay_store = crate::metadata::MetadataStore::new(&metadata_root);
+
+        let (runtime, control_rx) =
+            SessionRuntime::live(DEFAULT_TERMINAL_ROWS, DEFAULT_TERMINAL_COLS);
+        let output_tx = runtime.output_tx.clone();
+        let mut events = output_tx.subscribe();
+        let command = harness::CommandSpec {
+            program: "/bin/sh".into(),
+            args: vec!["-lc".into(), "printf 'one\\ntwo\\nthree'".into()],
+            cwd: dir.path().display().to_string(),
+        };
+
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            sessions.get_mut(session_id).unwrap().runtime = runtime;
+        }
+
+        let (_kill_tx, kill_rx) = tokio::sync::watch::channel(false);
+        tokio::spawn(start_session_runtime(
+            state,
+            session_id.to_string(),
+            command,
+            None,
+            control_rx,
+            output_tx,
+            kill_rx,
+            PtySize {
+                rows: DEFAULT_TERMINAL_ROWS,
+                cols: DEFAULT_TERMINAL_COLS,
+                pixel_width: 0,
+                pixel_height: 0,
+            },
+        ));
+
+        tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                match events.recv().await {
+                    Ok(RuntimeEvent::Ended { .. }) => break,
+                    Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(error) => panic!("unexpected runtime event error: {error}"),
+                }
+            }
+        })
+        .await
+        .expect("ended event should be emitted for the completed command");
+
+        let replay = tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                let replay = replay_store.read_terminal_output(session_id, 10);
+                if replay.iter().any(|record| record.text() == "three") {
+                    break replay;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("persisted replay should contain the final unterminated suffix");
+
+        assert!(replay.iter().any(|record| {
+            record == &crate::metadata::TerminalOutputRecord::raw("three", "")
+        }));
+    }
+
+    #[tokio::test]
     async fn backpressure_flooding_runtime_still_exits_promptly_on_kill() {
         let dir = tempfile::tempdir().unwrap();
         let session_id = "runtime-flood";
