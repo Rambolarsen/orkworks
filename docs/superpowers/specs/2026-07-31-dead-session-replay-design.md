@@ -13,7 +13,7 @@ Keep archived terminal output readable by replaying the PTY delimiters exactly i
 
 ## Design
 
-The sidecar changes only the on-disk representation for new records: collision-detectable versioned JSONL records preserve their delimiter while legacy lines remain plain text. The terminal-output endpoint returns a discriminated record shape. Both dead-session replay and the live terminal's WebSocket-close fallback write raw records without adding delimiters and continue to use `writeln()` for legacy strings. No terminal emulation, snapshot format, migration, or dependency is added.
+The sidecar changes only the on-disk representation for new records: a file-level marker selects collision-detectable versioned JSONL records that preserve their delimiter, while an unmarked file remains legacy plain text. The terminal-output endpoint returns a discriminated record shape. Both dead-session replay and the live terminal's WebSocket-close fallback write raw records without adding delimiters and continue to use `writeln()` for legacy strings. No terminal emulation, snapshot format, migration, or dependency is added.
 
 ## Error handling
 

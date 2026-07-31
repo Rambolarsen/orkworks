@@ -20,6 +20,7 @@ pub const TERMINAL_OUTPUT_MAX_BYTES: u64 = 1 * 1024 * 1024;
 const TERMINAL_OUTPUT_TRIM_TARGET_BYTES: u64 = TERMINAL_OUTPUT_MAX_BYTES * 3 / 4;
 const TERMINAL_OUTPUT_TRIM_TARGET_LINES: usize = TERMINAL_OUTPUT_MAX_LINES * 3 / 4;
 const TERMINAL_OUTPUT_RECORD_PREFIX: char = '\u{001e}';
+const TERMINAL_OUTPUT_FILE_MARKER: &str = "\u{001e}orkworks-terminal-v1";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(untagged)]
@@ -72,16 +73,24 @@ struct StoredTerminalOutputRecord {
     delimiter: String,
 }
 
+#[derive(Serialize)]
+struct StoredTerminalOutputRecordRef<'a> {
+    v: u8,
+    text: &'a str,
+    delimiter: &'a str,
+}
+
 fn encode_terminal_output_record(record: &TerminalOutputRecord) -> String {
-    let TerminalOutputRecord::Raw { text, delimiter } = record else {
-        unreachable!("only raw records are persisted in the new terminal format");
+    let (text, delimiter) = match record {
+        TerminalOutputRecord::Legacy(text) => (text.as_str(), ""),
+        TerminalOutputRecord::Raw { text, delimiter } => (text.as_str(), delimiter.as_str()),
     };
     format!(
         "{TERMINAL_OUTPUT_RECORD_PREFIX}{}",
-        serde_json::to_string(&StoredTerminalOutputRecord {
+        serde_json::to_string(&StoredTerminalOutputRecordRef {
             v: 1,
-            text: text.clone(),
-            delimiter: delimiter.clone(),
+            text,
+            delimiter,
         })
         .expect("terminal output records serialize")
     )
@@ -1595,6 +1604,8 @@ impl MetadataStore {
             return;
         }
         let path = self.terminal_output_path(id);
+        let existing_len = fs::metadata(&path).map(|meta| meta.len()).unwrap_or(0);
+        let versioned = existing_len > 0 && terminal_output_is_versioned(&path);
         let mut file = match fs::OpenOptions::new().create(true).append(true).open(&path) {
             Ok(f) => f,
             Err(e) => {
@@ -1602,8 +1613,21 @@ impl MetadataStore {
                 return;
             }
         };
+        if existing_len == 0 {
+            if file
+                .write_all(format!("{TERMINAL_OUTPUT_FILE_MARKER}\n").as_bytes())
+                .is_err()
+            {
+                warn!("failed to write terminal output marker for {id}");
+                return;
+            }
+        }
         for record in records {
-            let encoded = encode_terminal_output_record(record);
+            let encoded = if versioned || existing_len == 0 {
+                encode_terminal_output_record(record)
+            } else {
+                record.text().to_string()
+            };
             if let Err(e) = file
                 .write_all(encoded.as_bytes())
                 .and_then(|_| file.write_all(b"\n"))
@@ -1617,7 +1641,12 @@ impl MetadataStore {
         // records; lines are counted with a bounded streaming read.
         let len_hint = file.metadata().map(|m| m.len()).unwrap_or(0);
         drop(file);
-        if len_hint > TERMINAL_OUTPUT_MAX_BYTES
+        let content_len_hint = if versioned || existing_len == 0 {
+            len_hint.saturating_sub(format!("{TERMINAL_OUTPUT_FILE_MARKER}\n").len() as u64)
+        } else {
+            len_hint
+        };
+        if content_len_hint > TERMINAL_OUTPUT_MAX_BYTES
             || terminal_output_exceeds_line_limit(&path, TERMINAL_OUTPUT_MAX_LINES)
         {
             let _ = self.trim_terminal_output(id, TERMINAL_OUTPUT_TRIM_TARGET_LINES);
@@ -1628,9 +1657,16 @@ impl MetadataStore {
         let path = self.terminal_output_path(id);
         read_terminal_output_tail(&path, max_lines, TERMINAL_OUTPUT_MAX_BYTES)
             .map(|tail| {
+                let versioned = tail.versioned;
                 tail.lines
                     .into_iter()
-                    .map(|line| decode_terminal_output_record(&line))
+                    .map(|line| {
+                        if versioned {
+                            decode_terminal_output_record(&line)
+                        } else {
+                            TerminalOutputRecord::legacy(line)
+                        }
+                    })
                     .collect()
             })
             .unwrap_or_default()
@@ -1646,7 +1682,12 @@ impl MetadataStore {
         if !tail.discarded {
             return;
         }
-        let content = tail.physical.into_iter().flatten().collect::<Vec<_>>();
+        let content = tail
+            .marker
+            .into_iter()
+            .chain(tail.physical)
+            .flatten()
+            .collect::<Vec<_>>();
         match fs::write(&path, content) {
             Ok(_) => {}
             Err(e) => warn!("failed to trim terminal output for {id}: {e}"),
@@ -1657,6 +1698,8 @@ impl MetadataStore {
 struct TerminalOutputTail {
     lines: VecDeque<String>,
     physical: VecDeque<Vec<u8>>,
+    marker: Option<Vec<u8>>,
+    versioned: bool,
     discarded: bool,
 }
 
@@ -1672,10 +1715,21 @@ fn read_terminal_output_tail(
 
     let mut reader = BufReader::new(file);
     let mut physical: VecDeque<Vec<u8>> = VecDeque::new();
+    let mut marker = None;
+    let mut versioned = false;
+    let mut first = true;
     loop {
         let mut bytes = Vec::new();
         if reader.read_until(b'\n', &mut bytes)? == 0 {
             break;
+        }
+        if first {
+            first = false;
+            if bytes == format!("{TERMINAL_OUTPUT_FILE_MARKER}\n").as_bytes() {
+                marker = Some(bytes);
+                versioned = true;
+                continue;
+            }
         }
         let line =
             String::from_utf8_lossy(bytes.strip_suffix(b"\n").unwrap_or(&bytes)).into_owned();
@@ -1705,8 +1759,20 @@ fn read_terminal_output_tail(
     Ok(TerminalOutputTail {
         lines,
         physical,
+        marker,
+        versioned,
         discarded,
     })
+}
+
+fn terminal_output_is_versioned(path: &Path) -> bool {
+    let Ok(file) = fs::File::open(path) else {
+        return false;
+    };
+    let mut first = Vec::new();
+    BufReader::new(file)
+        .read_until(b'\n', &mut first)
+        .is_ok_and(|_| first == format!("{TERMINAL_OUTPUT_FILE_MARKER}\n").as_bytes())
 }
 
 fn terminal_output_exceeds_line_limit(path: &Path, max_lines: usize) -> bool {
@@ -1715,7 +1781,12 @@ fn terminal_output_exceeds_line_limit(path: &Path, max_lines: usize) -> bool {
     };
     let mut reader = BufReader::new(file);
     let mut line = Vec::new();
-    for _ in 0..=max_lines {
+    let count = match reader.read_until(b'\n', &mut line) {
+        Ok(0) | Err(_) => return false,
+        Ok(_) if line == format!("{TERMINAL_OUTPUT_FILE_MARKER}\n").as_bytes() => 0,
+        Ok(_) => 1,
+    };
+    for _ in count..=max_lines {
         line.clear();
         match reader.read_until(b'\n', &mut line) {
             Ok(0) => return false,
@@ -3487,6 +3558,63 @@ mod tests {
     }
 
     #[test]
+    fn terminal_output_keeps_prefixed_json_in_legacy_history_verbatim() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let path = store.terminal_output_path("legacy-prefix");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let legacy = format!(
+            "{TERMINAL_OUTPUT_RECORD_PREFIX}{}",
+            serde_json::to_string(&StoredTerminalOutputRecord {
+                v: 1,
+                text: "command output".into(),
+                delimiter: "\n".into(),
+            })
+            .unwrap(),
+        );
+        fs::write(&path, format!("{legacy}\n")).unwrap();
+
+        assert_eq!(
+            store.read_terminal_output("legacy-prefix", 10),
+            vec![TerminalOutputRecord::legacy(legacy)],
+        );
+    }
+
+    #[test]
+    fn terminal_output_persists_legacy_records_without_panicking() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        store.append_terminal_output_records(
+            "legacy-record",
+            &[TerminalOutputRecord::legacy("legacy record")],
+        );
+
+        assert_eq!(
+            store.read_terminal_output("legacy-record", 10),
+            vec![TerminalOutputRecord::raw("legacy record", "")],
+        );
+    }
+
+    #[test]
+    fn terminal_output_marker_does_not_consume_byte_budget() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let probe = TerminalOutputRecord::raw("", "");
+        let text = "x".repeat(
+            TERMINAL_OUTPUT_MAX_BYTES as usize - encode_terminal_output_record(&probe).len() - 1,
+        );
+        store.append_terminal_output_records(
+            "byte-boundary",
+            &[TerminalOutputRecord::raw(&text, "")],
+        );
+
+        assert_eq!(
+            store.read_terminal_output("byte-boundary", 1),
+            vec![TerminalOutputRecord::raw(text, "")],
+        );
+    }
+
+    #[test]
     fn terminal_output_empty_session_returns_empty() {
         let dir = tempfile::tempdir().unwrap();
         let store = MetadataStore::new(dir.path());
@@ -3587,8 +3715,9 @@ mod tests {
         assert!(fs::metadata(&path).unwrap().len() < TERMINAL_OUTPUT_MAX_BYTES);
         let persisted = fs::read_to_string(path).unwrap();
         let persisted: Vec<&str> = persisted.lines().collect();
-        assert_eq!(persisted.len(), TERMINAL_OUTPUT_MAX_LINES * 3 / 4);
-        assert!(persisted.first().unwrap().contains("line-251"));
+        assert_eq!(persisted.len(), TERMINAL_OUTPUT_MAX_LINES * 3 / 4 + 1);
+        assert_eq!(persisted.first(), Some(&TERMINAL_OUTPUT_FILE_MARKER));
+        assert!(persisted.get(1).unwrap().contains("line-251"));
         assert!(persisted.last().unwrap().contains("line-1000"));
     }
 

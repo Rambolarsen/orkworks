@@ -4,7 +4,7 @@
 
 **Goal:** Preserve terminal record delimiters so dead-session replay does not inject cursor-moving CRLF bytes.
 
-**Architecture:** New terminal history uses collision-detectable versioned JSONL records that store text and its original `LF`, `CRLF`, or empty terminator. The sidecar returns raw records for that format and legacy strings for historic files; both renderer replay paths use `write()` only for raw records and retain `writeln()` for legacy output.
+**Architecture:** New terminal history uses a file-level marker and collision-detectable versioned JSONL records that store text and its original `LF`, `CRLF`, or empty terminator. The sidecar returns raw records for that format and legacy strings for historic files; both renderer replay paths use `write()` only for raw records and retain `writeln()` for legacy output.
 
 **Tech Stack:** Rust, serde JSON, Axum, React/TypeScript, xterm.js, Node test runner.
 
