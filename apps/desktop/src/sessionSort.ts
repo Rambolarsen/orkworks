@@ -49,10 +49,12 @@ export function mergeSessionsById(
   incoming: readonly SessionInfo[],
   now = new Date(),
 ): SessionInfo[] {
+  if (existing.length === 0) return sortSessions([...incoming]);
+
   const updates = new Map(incoming.map((session) => [session.id, session]));
   const existingIds = new Set(existing.map((session) => session.id));
   const sessions = [
-    ...existing.map((session) => updates.get(session.id) ?? session),
+    ...existing.filter((session) => updates.has(session.id)).map((session) => updates.get(session.id)!),
     ...[...updates.values()].filter((session) => !existingIds.has(session.id)),
   ];
   const alive = sessions.filter((session) => session.lifecycle === "alive");

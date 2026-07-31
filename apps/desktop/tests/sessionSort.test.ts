@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import {
   mergeSessionsById,
@@ -76,15 +77,35 @@ test("sortSessions uses recent output when it is newer than meaningful activity"
   assert.deepEqual(sortSessions([stale, recentOutput]).map((item) => item.id), ["recent-output", "stale"]);
 });
 
-test("mergeSessionsById keeps one row when a creation response repeats a polled session", () => {
+test("mergeSessionsById drops existing rows absent from an authoritative polling snapshot", () => {
   const existing = session("existing", "alive");
   const polledNew = session("new", "alive");
   const createdNew = { ...polledNew, label: "created-new" };
 
   const merged = mergeSessionsById([existing, polledNew], [createdNew]);
 
-  assert.deepEqual(merged.map((item) => item.id), ["existing", "new"]);
+  assert.deepEqual(merged.map((item) => item.id), ["new"]);
   assert.strictEqual(merged.find((item) => item.id === "new"), createdNew);
+});
+
+test("mergeSessionsById drops every existing row when the polling snapshot is empty", () => {
+  assert.deepEqual(mergeSessionsById([session("forgotten", "dead")], []), []);
+});
+
+test("mergeSessionsById sorts an initial polling snapshot deterministically", () => {
+  const incoming = [
+    session("dead", "dead"),
+    session("idle", "alive", "idle"),
+    session("needs-you", "alive", "needs_you"),
+  ];
+
+  assert.deepEqual(mergeSessionsById([], incoming), sortSessions(incoming));
+});
+
+test("App combines a creation response with the current snapshot before merging", () => {
+  const source = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /setSessions\(\(prev\) => mergeSessionsById\(prev, \[\.\.\.prev, session\]\)\);/);
 });
 
 test("mergeSessionsById promotes fresh activity only after the top session is quiet for one minute", () => {
@@ -94,7 +115,7 @@ test("mergeSessionsById promotes fresh activity only after the top session is qu
   assert.deepEqual(
     mergeSessionsById(
       [top, updated],
-      [{ ...updated, lastOutputAt: "2026-07-31T12:01:01.000Z" }],
+      [top, { ...updated, lastOutputAt: "2026-07-31T12:01:01.000Z" }],
       new Date("2026-07-31T12:01:01.000Z"),
     ).map((item) => item.id),
     ["top", "updated"],
@@ -102,7 +123,7 @@ test("mergeSessionsById promotes fresh activity only after the top session is qu
   assert.deepEqual(
     mergeSessionsById(
       [{ ...top, lastOutputAt: "2026-07-31T12:00:01.000Z" }, updated],
-      [{ ...updated, lastOutputAt: "2026-07-31T12:01:01.000Z" }],
+      [{ ...top, lastOutputAt: "2026-07-31T12:00:01.000Z" }, { ...updated, lastOutputAt: "2026-07-31T12:01:01.000Z" }],
       new Date("2026-07-31T12:01:01.000Z"),
     ).map((item) => item.id),
     ["updated", "top"],

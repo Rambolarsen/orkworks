@@ -178,7 +178,7 @@ function App() {
     try {
       const baseUrl = await window.orkworks.getBackendUrl();
       const session = await createSession(baseUrl, opts);
-      setSessions((prev) => mergeSessionsById(prev, [session]));
+      setSessions((prev) => mergeSessionsById(prev, [...prev, session]));
       setActiveSessionId(session.id);
 
       const api = dockviewApiRef.current;
