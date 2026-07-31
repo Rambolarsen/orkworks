@@ -16,15 +16,15 @@ log.
 ## Production probe log
 
 2026-07-31 — Read-only probes against the canonical production files, not test
-fixtures. Desktop prompts requested the scoped TypeScript command; Rust prompts
-requested the scoped owner of `SessionMetadata`.
+fixtures. Prompts use facts absent from root `AGENTS.md`: the desktop IPC
+contract ownership rule and the Rust `providers.rs` responsibility.
 
 | Harness | Desktop result | Rust result |
 | --- | --- | --- |
-| Claude | After reading `apps/desktop/package.json`, returned `npx tsc --noEmit`. | After reading `crates/orkworksd/src/metadata.rs`, returned `metadata.rs`. |
-| Codex 0.146.0 | From `apps/desktop/`, returned `npx tsc --noEmit` without tools. | From `crates/orkworksd/`, returned `metadata.rs` without tools. |
-| Copilot CLI 1.0.75 | From `apps/desktop/`, returned `npx tsc --noEmit` without tools. | From `crates/orkworksd/`, returned `crates/orkworksd/src/metadata.rs` without tools. |
-| OpenCode | From root, read `apps/desktop/AGENTS.md` through the router and returned `npx tsc --noEmit`. | From root, read `crates/orkworksd/AGENTS.md` through the router and returned `metadata.rs`. |
+| Claude | After reading `apps/desktop/package.json`, returned that shared IPC types are independently defined in both directories and both copies are updated together. | After reading `crates/orkworksd/Cargo.toml`, returned `providers.rs`. |
+| Codex 0.146.0 | From `apps/desktop/`, returned that shared IPC types are independently defined in `electron/` and `src/`, with both copies updated together, without tools. | From `crates/orkworksd/`, returned `providers.rs` without tools. |
+| Copilot CLI 1.0.75 | From `apps/desktop/`, identified `apps/desktop/AGENTS.md` and returned the independently-defined, jointly-updated IPC-type rule without tools. | From `crates/orkworksd/`, returned `providers.rs` without tools. |
+| OpenCode | From root, read `apps/desktop/AGENTS.md` through the router and returned the independently-defined, jointly-updated IPC-type rule. | From root, read `crates/orkworksd/AGENTS.md` through the router and returned `providers.rs`. |
 
 ## Fixture probe log
 
