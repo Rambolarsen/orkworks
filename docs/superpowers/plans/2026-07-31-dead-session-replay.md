@@ -4,13 +4,13 @@
 
 **Goal:** Preserve terminal record delimiters so dead-session replay does not inject cursor-moving CRLF bytes.
 
-**Architecture:** New terminal history uses a small versioned, newline-delimited record format that stores text and its original `LF` or `CRLF` terminator. The sidecar returns raw records for that format and legacy strings for historic files; the renderer uses `write()` only for raw records and retains `writeln()` for legacy output.
+**Architecture:** New terminal history uses collision-detectable versioned JSONL records that store text and its original `LF`, `CRLF`, or empty terminator. The sidecar returns raw records for that format and legacy strings for historic files; both renderer replay paths use `write()` only for raw records and retain `writeln()` for legacy output.
 
 **Tech Stack:** Rust, serde JSON, Axum, React/TypeScript, xterm.js, Node test runner.
 
 ## Global Constraints
 
-- Retain original LF versus CRLF delimiters for newly persisted terminal output.
+- Retain original LF, CRLF, or empty delimiters for newly persisted terminal output.
 - Replay raw records with xterm `write()` without adding line endings.
 - Existing `.terminal` files remain readable through the legacy `writeln()` path.
 - Do not add dependencies, migrate old files, or change the 1,000-line/1 MiB retention contract.
@@ -27,6 +27,7 @@
 - Modify: `crates/orkworksd/src/runtime/terminal_http.rs` tests near `get_terminal_output_reads_persisted_terminal_history_for_dead_session`
 - Modify: `apps/desktop/src/api.ts:201-208`
 - Modify: `apps/desktop/src/terminalReplay.ts:1-23`
+- Modify: `apps/desktop/src/terminalStore.ts:180-189`
 - Modify: `apps/desktop/tests/terminalReplay.test.ts`
 
 **Interfaces:**
@@ -35,7 +36,7 @@
 
 - [ ] **Step 1: Write focused failing tests**
 
-Add a Rust test that drains `"one\\r\\ntwo\\n"` into two records retaining `"\\r\\n"` and `"\\n"`; add a metadata/API test that a new-format history returns raw records while a manually written legacy file returns strings. Add a TypeScript test that raw records call `write("one\\r\\n")` and legacy strings call `writeln("one")`.
+Add a Rust test that drains `"one\\r\\ntwo\\nthree"` into records retaining `"\\r\\n"`, `"\\n"`, and `""`; add a metadata/API test that a new-format history returns raw records while a manually written legacy file returns strings. Add TypeScript tests that raw records call `write("one\\r\\n")` in both replay paths and legacy strings call `writeln("one")`.
 
 - [ ] **Step 2: Run the focused tests to verify they fail**
 
@@ -45,7 +46,7 @@ Expected: the new delimiter/raw-replay assertions fail because the current imple
 
 - [ ] **Step 3: Implement the minimum compatible format and replay path**
 
-Make `drain_persist_records` return text-plus-terminator records. Persist new records in a versioned serialized line format, preserving the existing bounded trim behavior. Detect old unversioned files and return their entries as legacy strings. Serialize raw records through `TerminalOutputResponse`; update the API type and call `ReplayTerminal.write()` for raw data while preserving `writeln()` for strings.
+Make `drain_persist_records` return text-plus-terminator records. Persist new records as RS-prefixed versioned JSONL while preserving the existing bounded trim behavior and encoded records during rewrites. Detect old, malformed, or unknown records and return their entries as legacy strings. Serialize raw records through `TerminalOutputResponse`; update the API type and make `terminalReplay.ts` and `terminalStore.ts` call `write()` for raw data while preserving `writeln()` for strings.
 
 - [ ] **Step 4: Run focused tests and type-check**
 
@@ -56,6 +57,6 @@ Expected: all commands exit 0.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/orkworksd/src/runtime/session_runtime.rs crates/orkworksd/src/metadata.rs crates/orkworksd/src/runtime/terminal_http.rs apps/desktop/src/api.ts apps/desktop/src/terminalReplay.ts apps/desktop/tests/terminalReplay.test.ts
+git add crates/orkworksd/src/runtime/session_runtime.rs crates/orkworksd/src/metadata.rs crates/orkworksd/src/runtime/terminal_http.rs apps/desktop/src/api.ts apps/desktop/src/terminalReplay.ts apps/desktop/src/terminalStore.ts apps/desktop/tests/terminalReplay.test.ts
 git commit -m "fix: preserve dead-session terminal replay delimiters"
 ```
