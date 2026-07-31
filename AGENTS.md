@@ -10,7 +10,9 @@ APM project bootstrapped — agent skills, hooks, and plugins are installed via 
 
 ## Package manager
 
-Use **pnpm** for all Node.js package management. Do not use npm or yarn for project package management tasks.
+Use **pnpm** for all Node.js package-management tasks in this repository, including `apps/desktop/` and `docs/`. Do not use npm or yarn.
+
+## CI routing
 
 GitHub Actions now has four distinct workflow classes:
 
@@ -21,44 +23,9 @@ GitHub Actions now has four distinct workflow classes:
 
 PR CI is path-routed: desktop changes run desktop validation, Rust changes run Rust tests, and non-code PRs receive a lightweight passing no-op check.
 
-```bash
-# Install pnpm if missing
-corepack enable
-corepack prepare pnpm@latest --activate
-
-# Install deps
-cd apps/desktop && pnpm install
-
-# Run dev (Vite + Electron, auto-launches Rust sidecar)
-cd apps/desktop && pnpm dev
-
-# Build Electron app
-cd apps/desktop && pnpm build
-
-# Package a host-arch release artifact locally
-cd apps/desktop && pnpm package:release
-
-# Build Rust sidecar
-cd apps/desktop && pnpm build:rust
-# or directly:
-cargo build --manifest-path crates/orkworksd/Cargo.toml
-
-# TypeScript type-check
-cd apps/desktop && npx tsc --noEmit
-
-# Run frontend tests (Node built-in test runner)
-cd apps/desktop && node --experimental-strip-types --test tests/*.test.ts tests/*.test.mjs
-
-# Run a single test file
-cd apps/desktop && node --experimental-strip-types --test tests/api.test.ts
-
-# Run Rust tests
-cargo test --manifest-path crates/orkworksd/Cargo.toml
-```
-
 ## Containerized dev environment (optional)
 
-A Podman/OCI toolchain container (`Containerfile` + `compose.yaml` at the repo root) can build, type-check, lint, and test both `apps/desktop` and `crates/orkworksd` without a host Node/Rust/Electron install. It is an **alternative** to the native pnpm flow above, never a replacement — the native host workflow and the release pipeline (`.github/workflows/release.yml`) are unchanged. Toolchain versions are pinned in `rust-toolchain.toml`, `.nvmrc`, and the `packageManager` field so the container and host agree. GUI runs stay on the native flow (issue #80 Tier 2).
+A Podman/OCI toolchain container (`Containerfile` + `compose.yaml` at the repo root) can build, type-check, lint, and test both `apps/desktop` and `crates/orkworksd` without a host Node/Rust/Electron install. It is an **alternative** to the native pnpm workflow in [`apps/desktop/AGENTS.md`](apps/desktop/AGENTS.md), never a replacement — the native host workflow and the release pipeline (`.github/workflows/release.yml`) are unchanged. Toolchain versions are pinned in `rust-toolchain.toml`, `.nvmrc`, and the `packageManager` field so the container and host agree. GUI runs stay on the native flow (issue #80 Tier 2).
 
 Substitute `docker compose` for `podman compose` if you use Docker.
 
@@ -124,13 +91,21 @@ Agents doing development work in this repo must use the installed Superpowers sk
 
 These workflow requirements constrain how agents work in this repository. They do not expand OrkWorks product scope or override the MVP non-goals.
 
+## Instruction scoping
+
+`AGENTS.md` is the repository entry point and routing contract. Before changing a subsystem, read its canonical instructions:
+
+| Scope | Required instructions |
+| ---- | ---- |
+| Desktop app (`apps/desktop/`) | [`apps/desktop/AGENTS.md`](apps/desktop/AGENTS.md) |
+| Rust sidecar (`crates/orkworksd/`) | [`crates/orkworksd/AGENTS.md`](crates/orkworksd/AGENTS.md) |
+| Cross-component work | Both scoped files |
+
+Codex and Copilot load the nested `AGENTS.md` files. Claude loads path-scoped rules that import the same canonical files. OpenCode must follow this root router and read the applicable file on demand; do not use `opencode.json`'s session-wide `instructions` list for this split. See [Harness instruction coverage](docs/agents/harness-instruction-coverage.md) for the configured-target delivery record.
+
 ### electron/ and src/ are hard boundaries
 
-`apps/desktop/electron/` (Electron main process) and `apps/desktop/src/` (renderer) must never import from each other. They are compiled by separate TypeScript configs with separate `rootDir` settings — a cross-boundary import either produces stray compiled artifacts or forces a `rootDir` change. Either symptom means the design is wrong, not the config.
-
-IPC contract types shared across the boundary must be defined independently in both directories. Duplication is intentional: each side owns its copy. If you need to change a shared type, update both.
-
-Do not change `rootDir` in `tsconfig.node.json` or `tsconfig.json` to accommodate a new import. A required `rootDir` change is a signal to reconsider the import, not to adjust the config.
+The Electron-main and renderer boundary is a global architectural invariant. Its implementation rules live in [`apps/desktop/AGENTS.md`](apps/desktop/AGENTS.md); read them before changing desktop code.
 
 ### OpenCode requirement
 
@@ -217,19 +192,7 @@ Electron + React/TypeScript frontend (`apps/desktop/`) communicates with a Rust 
 - ADR 0031: Session git-context fields (`repo_root`/`branch`/`dirty`/etc.) reflect each session's live PTY-process cwd, probed cross-platform via the `sysinfo` crate, not just its frozen launch-time cwd.
 - ADR 0032: For Claude Code sessions, the harness's own self-reported cwd (forwarded from its hook JSON payload) takes priority over ADR 0031's pid probe, since command-template harnesses run as the PTY child directly and track "current directory" as internal state rather than calling `chdir()` on themselves.
 
-**Rust module layout** (`crates/orkworksd/src/`):
-- `metadata.rs` — `SessionMetadata` and the on-disk metadata store (source of truth for session state)
-- `session_types.rs`, `session_view.rs` — session-facing types and view/projection helpers
-- `harness.rs` and its `definition`, `registry`, and `store` submodules — versioned harness definitions, sparse overrides, resolved immutable capability snapshots, and persistence
-- `providers.rs` — model provider registry, fallback, and capacity state
-- `peon.rs` — terminal-output observation and label/status inference
-- `git.rs`, `watcher.rs`, `migration.rs`, `workspace_runtime.rs` — Git context detection, metadata file watching, on-disk migrations, workspace bootstrap
-- `http/` — thin HTTP handler submodules (session, harness, provider, retention, attention hook) delegating to `AppState`
-- `runtime/` — background tasks: terminal/PTY runtime (`SessionRuntime`, PTY lifecycle), Peon observation loop, retention cleanup
-- `main.rs` — Axum router, `AppState`/`SessionHandle` struct definitions, startup
-
 See [`docs/agents/architecture.md`](docs/agents/architecture.md) for the full inter-component breakdown (port discovery, preload bridge, API data flow, Rust modules, panel layout).
-See [`docs/agents/domain-entities.md`](docs/agents/domain-entities.md) for the current session state model: `SessionMetadata` fields, session status vocabulary, and terminology boundaries.
 
 ## Metadata protocol
 
