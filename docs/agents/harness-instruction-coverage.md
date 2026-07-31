@@ -30,5 +30,5 @@ to return the instruction token without tools.
 | --- | --- | --- |
 | Codex 0.146.0 | Returned `NESTED-TOKEN` from `nested/`. | Native nested `AGENTS.md` delivery is observed, but no production scoped file has been selected or validated. |
 | OpenCode | Returned `ROOT-TOKEN` from `nested/`. | Do not rely on nested `AGENTS.md` auto-discovery; a future scoped design must validate a different documented mechanism. |
-| Claude | Completed without a captured response in both text and JSON output modes. | Inconclusive; repeat with a harness-visible transcript before promotion. |
-| Copilot CLI 1.0.75 | Stopped before the prompt because no authentication information was available. | Authenticate the CLI, then run the same probe. |
+| Claude | Reported that the token was absent from its actual instructions. | Nested delivery was not observed; validate a Claude-native scoped mechanism before promotion. |
+| Copilot CLI 1.0.75 | Returned `NESTED-TOKEN` from `nested/` after GitHub device login. | Native nested `AGENTS.md` delivery is observed, but no production scoped file has been selected or validated. |
