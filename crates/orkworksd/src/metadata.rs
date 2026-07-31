@@ -1693,6 +1693,41 @@ impl MetadataStore {
             Err(e) => warn!("failed to trim terminal output for {id}: {e}"),
         }
     }
+
+    fn terminal_size_path(&self, id: &str) -> PathBuf {
+        self.events_dir().join(format!("{}.terminal-size", id))
+    }
+
+    /// Records the PTY's last known size for a session, once, at the moment
+    /// it reaches a terminal status. This is the only write path — resize
+    /// events during a live session are not persisted, since replay only
+    /// ever needs the final size.
+    pub fn write_terminal_size(&self, id: &str, cols: u16, rows: u16) {
+        if let Err(e) = fs::create_dir_all(&self.events_dir()) {
+            warn!("failed to create events dir for terminal size: {e}");
+            return;
+        }
+        let path = self.terminal_size_path(id);
+        if let Err(e) = fs::write(&path, format!("{cols}x{rows}")) {
+            warn!("failed to write terminal size for {id}: {e}");
+        }
+    }
+
+    /// Reads back the size written by `write_terminal_size`. Returns `None`
+    /// for sessions with no recorded size (legacy sessions from before this
+    /// existed) and for any malformed or zero-valued content, so callers can
+    /// treat both cases identically as "size unknown".
+    pub fn read_terminal_size(&self, id: &str) -> Option<(u16, u16)> {
+        let path = self.terminal_size_path(id);
+        let content = fs::read_to_string(&path).ok()?;
+        let (cols_str, rows_str) = content.trim().split_once('x')?;
+        let cols: u16 = cols_str.parse().ok()?;
+        let rows: u16 = rows_str.parse().ok()?;
+        if cols == 0 || rows == 0 {
+            return None;
+        }
+        Some((cols, rows))
+    }
 }
 
 struct TerminalOutputTail {
@@ -3684,6 +3719,35 @@ mod tests {
         );
         let kept_bytes: u64 = tail.lines.iter().map(|l| l.len() as u64 + 1).sum();
         assert!(kept_bytes <= 10 * 1024);
+    }
+
+    #[test]
+    fn terminal_size_round_trips_through_write_and_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+
+        assert_eq!(store.read_terminal_size("no-size-yet"), None);
+
+        store.write_terminal_size("sized-session", 120, 40);
+
+        assert_eq!(store.read_terminal_size("sized-session"), Some((120, 40)));
+    }
+
+    #[test]
+    fn terminal_size_treats_malformed_or_zero_content_as_absent() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let path = store.terminal_size_path("malformed-session");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+
+        fs::write(&path, "not-a-size").unwrap();
+        assert_eq!(store.read_terminal_size("malformed-session"), None);
+
+        fs::write(&path, "0x40").unwrap();
+        assert_eq!(store.read_terminal_size("malformed-session"), None);
+
+        fs::write(&path, "120x0").unwrap();
+        assert_eq!(store.read_terminal_size("malformed-session"), None);
     }
 
     #[test]
