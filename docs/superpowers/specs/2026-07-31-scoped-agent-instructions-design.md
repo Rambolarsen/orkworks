@@ -10,16 +10,19 @@ The root `AGENTS.md` is the repository's authoritative entry point, but it curre
 
 ## Design
 
-Keep `AGENTS.md` as the authoritative, discoverable repository entry point for every configured harness. It retains universal rules and all cross-boundary invariants: product scope and specs, issue/PR workflow, skill requirements, documentation currency checks, terminology, Electron/renderer boundaries, and metadata-protocol constraints.
+Keep `AGENTS.md` as the concise, authoritative entry point for every configured harness. It retains universal rules and cross-component invariants: product scope and specs, issue/PR workflow, skill requirements, documentation currency checks, terminology, Electron/renderer boundaries, and metadata-protocol constraints.
 
 Do not move a rule from the root file until its delivery is verified for every configured harness. The initial validation record documents the current root entry points and an evidence status; it does not claim a native path-scoping mechanism or exact scoped file. Before any future rule move, extend each target's record with the proposed native mechanism, exact local file, and successful probe evidence showing an agent receives the rule for a task in that path. A root link is not sufficient evidence of delivery.
 
-The initial change therefore adds the [harness-instruction coverage record](../../agents/harness-instruction-coverage.md) and makes this promotion rule explicit in `AGENTS.md`. It keeps the existing instructions at root. A later, evidence-backed change may add scoped files and move only implementation-local detail:
+The [harness-instruction coverage record](../../agents/harness-instruction-coverage.md) now establishes the delivery mechanisms needed for a scoped split:
 
-- `apps/desktop/AGENTS.md` may own desktop-local validation commands and implementation conventions.
-- `crates/orkworksd/AGENTS.md` may own Rust-local validation commands and module layout.
+- Codex and Copilot load nested `AGENTS.md` files.
+- Claude loads path-scoped `.claude/rules/*.md` rules when it reads a matching file.
+- OpenCode follows the root router, which explicitly directs it to read the relevant scoped `AGENTS.md` on demand; its `instructions` list is session-wide and is not used for this split.
 
-Cross-cutting contracts remain at root. Any future root directory map must name both scoped files and require cross-cutting work to read both.
+This change creates `apps/desktop/AGENTS.md` and `crates/orkworksd/AGENTS.md` as the canonical home for local commands and implementation conventions. The root file names both and requires agents to read the applicable file before changing that subsystem. Claude path rules import the canonical scoped files rather than duplicate them.
+
+Cross-cutting contracts remain at root. Work spanning both subsystems must read both scoped files.
 
 ## Non-goals
 
@@ -29,10 +32,10 @@ Cross-cutting contracts remain at root. Any future root directory map must name 
 
 ## Validation
 
-- Confirm the baseline coverage record accounts for Claude, Codex, Copilot, and OpenCode, including their current entry point and an evidence status. Before a promotion, confirm the extended record includes the proposed native scoping mechanism, exact local file, and successful probe evidence for every target.
-- Check that the root remains sufficient for root-level and cross-cutting work, including its protocol and Electron/renderer constraints.
+- Confirm each harness reaches the relevant canonical scoped file through its documented or observed mechanism.
+- Check that the root remains sufficient for root-level and cross-cutting work, including its protocol and Electron/renderer constraints, and that it routes subsystem work to the right file.
 - Run the existing documentation and worktree currency checks.
 
 ## Rollback
 
-Revert the coverage-record and root-policy additions if they prove misleading. Do not move instructions to scoped files until coverage is established; if a later move causes missed rules, restore the affected rules to root.
+Restore a moved rule to root if a supported harness misses it, and retain the coverage record as the debugging evidence.
