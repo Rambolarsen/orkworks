@@ -4,7 +4,7 @@ import type { SessionInfo, WorkspaceInfo } from "../api";
 import type { HarnessConfig } from "../harnessTypes";
 import { sessionAttentionStatus } from "../sessionSort";
 import { harnessDisplayName, sessionCodingTool } from "../sessionProviderContext";
-import { groupSessions, nextSessionGroupRefreshMs } from "../sessionGroups";
+import { groupSessionList, nextSessionGroupRefreshMs } from "../sessionGroups";
 import {
   VOCAB,
   attentionLabel,
@@ -62,7 +62,7 @@ function SessionListPanel({
     return nextRefresh;
   }, [sessions]));
 
-  const grouped = useMemo(() => groupSessions(sessions, now), [sessions, now]);
+  const grouped = useMemo(() => groupSessionList(sessions, now), [sessions, now]);
 
   const orderedSessions = useMemo(
     () => grouped.flatMap((g) => g.items),

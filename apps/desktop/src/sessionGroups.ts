@@ -2,6 +2,7 @@ import type { SessionInfo } from "./api";
 import { DAY_MS, delayUntil, lastActivityTimestamp } from "./labels.ts";
 
 export type GroupKey = "today" | "week" | "earlier";
+export type SessionListGroupKey = "active" | GroupKey;
 
 export const GROUP_LABELS: Record<GroupKey, string> = {
   today: "Today",
@@ -27,7 +28,7 @@ export function groupForSession(s: SessionInfo, now: Date): GroupKey {
 }
 
 export interface SessionGroup {
-  key: GroupKey;
+  key: SessionListGroupKey;
   label: string;
   items: SessionInfo[];
 }
@@ -44,6 +45,15 @@ export function groupSessions(sessions: SessionInfo[], now: Date): SessionGroup[
   return (["today", "week", "earlier"] as GroupKey[])
     .filter((k) => buckets[k].length > 0)
     .map((k) => ({ key: k, label: GROUP_LABELS[k], items: buckets[k] }));
+}
+
+export function groupSessionList(sessions: SessionInfo[], now: Date): SessionGroup[] {
+  const active = sessions.filter((session) => session.lifecycle !== "dead");
+  const dead = sessions.filter((session) => session.lifecycle === "dead");
+  return [
+    ...(active.length > 0 ? [{ key: "active" as const, label: "Active", items: active }] : []),
+    ...groupSessions(dead, now),
+  ];
 }
 
 export function nextSessionGroupRefreshMs(

@@ -1,19 +1,19 @@
 # Task 2 report
 
-Implemented deterministic fallback work signaling for hookless harnesses.
+Implemented the session-list visual-order fix.
 
-- Added the ten-second `PendingWorkSignal` state machine with split-echo, ANSI-only, and expiry coverage.
-- Submitted non-empty terminal lines arm fallback only where no active-work hook is registered; partial input only remains label-buffer input.
-- PTY output now promotes `working` only after qualifying non-echo output and persists that same promotion; terminal typing no longer schedules Peon output inference.
-- `cargo test --manifest-path crates/orkworksd/Cargo.toml` passed: 291 tests.
+- Added `groupSessionList`, which places all sessions whose lifecycle is not `dead` in a leading `Active` group while retaining their supplied order exactly.
+- Dead sessions continue through unchanged `groupSessions` today/week/earlier grouping after that group.
+- Updated `SessionListPanel` to use the new list-specific grouping helper.
+- Added behavioral coverage for live-row input ordering across dates and for a current-day dead row following an earlier live row.
 
-Note: the pending signal is owned by `SessionRuntime`, which is owned by `SessionHandle`, avoiding a broad initialization change across every existing `SessionHandle` fixture.
+## TDD evidence
 
-## Reviewer follow-up
+Red: `node --experimental-strip-types --test tests/sessionGroups.test.ts` failed before implementation because `groupSessionList` was not exported from `src/sessionGroups.ts`.
 
-- Moved `pending_work_signal` onto `SessionHandle` and initialized every production path and test fixture.
-- Control/ANSI-only output now returns before echo consumption, preserving the submitted echo across redraw sequences.
-- Added real PTY terminal input/output coverage for partial input, hook-capable fail-closed behavior, and hookless promotion in both `SessionInfo` and persisted metadata.
-- Verification: `cargo test --manifest-path crates/orkworksd/Cargo.toml runtime::session_runtime::tests` — 22 passed.
+Green: the same focused command passed after the implementation: 15 tests passed, 0 failed.
 
-Formatting note: `cargo fmt --check` reports pre-existing formatting differences across the crate, including files outside this change; no mass formatting was applied.
+## Verification
+
+- `node --experimental-strip-types --test tests/*.test.ts tests/*.test.mjs` passed: 249 tests passed, 0 failed.
+- `pnpm exec tsc --noEmit` remains blocked by this worktree's missing desktop dependencies (`react`, `dockview-react`, `lucide-react`, and xterm packages); the failure is environmental and includes no grouping-helper-specific error.
