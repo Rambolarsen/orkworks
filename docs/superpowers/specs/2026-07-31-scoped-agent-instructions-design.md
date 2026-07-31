@@ -12,7 +12,7 @@ The root `AGENTS.md` is the repository's authoritative entry point, but it curre
 
 Keep `AGENTS.md` as the authoritative, discoverable repository entry point for every configured harness. It retains universal rules and all cross-boundary invariants: product scope and specs, issue/PR workflow, skill requirements, documentation currency checks, terminology, Electron/renderer boundaries, and metadata-protocol constraints.
 
-Do not move a rule from the root file until its delivery is verified for every configured harness. The validation record must identify each target's native path-scoping mechanism, the exact file it loads, and a probe that shows an agent receives the rule for a task in that path. A root link is not sufficient evidence of delivery.
+Do not move a rule from the root file until its delivery is verified for every configured harness. The initial validation record documents the current root entry points and an evidence status; it does not claim a native path-scoping mechanism or exact scoped file. Before any future rule move, extend each target's record with the proposed native mechanism, exact local file, and successful probe evidence showing an agent receives the rule for a task in that path. A root link is not sufficient evidence of delivery.
 
 The initial change therefore adds the [harness-instruction coverage record](../../agents/harness-instruction-coverage.md) and makes this promotion rule explicit in `AGENTS.md`. It keeps the existing instructions at root. A later, evidence-backed change may add scoped files and move only implementation-local detail:
 
@@ -29,7 +29,7 @@ Cross-cutting contracts remain at root. Any future root directory map must name 
 
 ## Validation
 
-- Confirm the coverage record accounts for Claude, Codex, Copilot, and OpenCode, including their native scoping mechanism and an evidence status.
+- Confirm the baseline coverage record accounts for Claude, Codex, Copilot, and OpenCode, including their current entry point and an evidence status. Before a promotion, confirm the extended record includes the proposed native scoping mechanism, exact local file, and successful probe evidence for every target.
 - Check that the root remains sufficient for root-level and cross-cutting work, including its protocol and Electron/renderer constraints.
 - Run the existing documentation and worktree currency checks.
 
