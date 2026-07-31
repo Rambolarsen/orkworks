@@ -126,7 +126,7 @@ These workflow requirements constrain how agents work in this repository. They d
 
 ## Instruction scoping
 
-See [Harness instruction coverage](docs/agents/harness-instruction-coverage.md) for the configured-target delivery record. Root `AGENTS.md` remains the complete fallback: do not move any rule from it until every configured target has validated scoped-instruction delivery evidence. Cross-boundary constraints remain root-owned.
+See [Harness instruction coverage](docs/agents/harness-instruction-coverage.md) for the configured-target delivery record. Root `AGENTS.md` remains the complete fallback: do not move any rule from it until evidence for every configured target records its native scoped-instruction mechanism, exact local file, and a successful retained probe showing the rule was received. Cross-boundary constraints remain root-owned.
 
 ### electron/ and src/ are hard boundaries
 

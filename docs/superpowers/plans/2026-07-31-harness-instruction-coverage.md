@@ -23,19 +23,19 @@
 - Create: `docs/agents/harness-instruction-coverage.md`
 - Modify: `AGENTS.md`
 - Modify: `docs/superpowers/specs/2026-07-31-scoped-agent-instructions-design.md`
-- Test: documentation review via `rg`, `git diff --check`, `.claude/hooks/doc-check.sh`, and `.claude/hooks/worktree-check.sh`
+- Test: documentation review via `rg`, `git diff --check`, `rtk pnpm --dir docs docs:build`, `.claude/hooks/doc-check.sh`, and `.claude/hooks/worktree-check.sh`
 
 **Interfaces:**
-- Consumes: `apm.yml` targets and the current root instruction entry points (`AGENTS.md`, `CLAUDE.md`, `.github/copilot-instructions.md`, `opencode.json`).
+- Consumes: `apm.yml` targets and the current root instruction entry points (`AGENTS.md` for Codex and OpenCode, `CLAUDE.md`, and `.github/copilot-instructions.md`).
 - Produces: One table defining the required proof before a rule may leave root `AGENTS.md`.
 
 - [ ] **Step 1: Add the coverage record**
 
-Create `docs/agents/harness-instruction-coverage.md` with one row each for Claude, Codex, Copilot, and OpenCode. Record the current entry point, mark nested/path-scoped delivery as `unverified` unless this repository has direct evidence, and define a manual probe: give the harness a path-local task whose answer depends on a unique local instruction, then retain the transcript or PR evidence.
+Create `docs/agents/harness-instruction-coverage.md` with one row each for Claude, Codex, Copilot, and OpenCode. Record the current entry point and separately require the native scoped-instruction mechanism, exact scoped file, and retained successful probe evidence before promotion. Mark each unknown field as `unverified`/to-be-established unless this repository has direct evidence; do not invent a mechanism or file. The probe gives the harness a path-local task whose answer depends on a unique local instruction and retains the transcript or PR evidence.
 
 - [ ] **Step 2: Add the root promotion rule**
 
-Add a brief `Instruction scoping` section to `AGENTS.md` that links the coverage record, preserves root completeness as the fallback, and prohibits moving a rule from root until every configured target has validated delivery.
+Add a brief `Instruction scoping` section to `AGENTS.md` that links the coverage record, preserves root completeness as the fallback, and prohibits moving a rule from root until every configured target has recorded a native scoped-instruction mechanism, exact local file, and successful retained probe.
 
 - [ ] **Step 3: Align the approved design**
 
@@ -48,11 +48,12 @@ Run:
 ```bash
 rg -n 'Claude|Codex|Copilot|OpenCode|unverified|AGENTS.md' docs/agents/harness-instruction-coverage.md AGENTS.md
 git diff --check
+rtk pnpm --dir docs docs:build
 bash .claude/hooks/doc-check.sh
 bash .claude/hooks/worktree-check.sh
 ```
 
-Expected: all four configured harnesses and the root fallback rule are present; the diff has no whitespace errors; both repository checks exit successfully.
+Expected: all four configured harnesses, all three promotion artifacts, and the root fallback rule are present; the docs build has no broken links; the diff has no whitespace errors; both repository checks exit successfully.
 
 - [ ] **Step 5: Commit**
 
