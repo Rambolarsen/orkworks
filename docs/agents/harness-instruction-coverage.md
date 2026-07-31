@@ -30,5 +30,10 @@ to return the instruction token without tools.
 | --- | --- | --- |
 | Codex 0.146.0 | Returned `NESTED-TOKEN` from `nested/`. | Native nested `AGENTS.md` delivery is observed, but no production scoped file has been selected or validated. |
 | OpenCode | Returned `ROOT-TOKEN` from `nested/`. | Do not rely on nested `AGENTS.md` auto-discovery; a future scoped design must validate a different documented mechanism. |
-| Claude | Reported that the token was absent from its actual instructions. | Nested delivery was not observed; validate a Claude-native scoped mechanism before promotion. |
+| Claude | A `.claude/rules/` file with `paths: ["nested/**"]` returned `CLAUDE-RULE-TOKEN` after Claude read `nested/probe.txt`. | Claude-native path-scoped rules are observed, but no production rule file has been selected or validated. |
 | Copilot CLI 1.0.75 | Returned `NESTED-TOKEN` from `nested/` after GitHub device login. | Native nested `AGENTS.md` delivery is observed, but no production scoped file has been selected or validated. |
+
+2026-07-31 — OpenCode's documented `opencode.json` `instructions` list was
+also tested in isolation and loaded an explicit `nested/AGENTS.md` file. This
+is session-wide inclusion, not path-conditional loading: do not use it to
+remove root rules as a context-reduction strategy.
