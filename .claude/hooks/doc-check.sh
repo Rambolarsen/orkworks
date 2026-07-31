@@ -1,15 +1,25 @@
 #!/usr/bin/env bash
-# Runs at end of each Claude Code session.
-# Checks whether doc files need updating based on what changed.
+# Runs at end of each Claude Code session (Stop hook), and as a non-blocking
+# pr-ci.yml step. Checks whether doc files need updating based on what changed.
+#
+# Usage: doc-check.sh [<git-diff-range>]
+#   No args: working tree + staged changes vs HEAD (Stop-hook mode).
+#   With a range, e.g. "origin/main...HEAD": committed-history diff (CI mode).
 
-CHANGED=$(git diff --name-only HEAD 2>/dev/null; git diff --cached --name-only 2>/dev/null) || exit 0
+RANGE="$1"
+if [ -n "$RANGE" ]; then
+  CHANGED=$(git diff --name-only "$RANGE" 2>/dev/null) || exit 0
+else
+  CHANGED=$(git diff --name-only HEAD 2>/dev/null; git diff --cached --name-only 2>/dev/null) || exit 0
+fi
 [ -z "$CHANGED" ] && exit 0
 
 needs=()
 
 # docs/agents/architecture.md — new routes, new Rust modules, IPC boundary, API client, or deps
-NEW_RUST=$(git diff --name-status HEAD 2>/dev/null | grep -E '^A.*crates/orkworksd/src/' | wc -l)
-NEW_ROUTES=$(git diff HEAD -- crates/orkworksd/src/main.rs 2>/dev/null | grep -cE '^\+.*\.route\(')
+DIFF_TARGET="${RANGE:-HEAD}"
+NEW_RUST=$(git diff --name-status "$DIFF_TARGET" 2>/dev/null | grep -E '^A.*crates/orkworksd/src/' | wc -l)
+NEW_ROUTES=$(git diff "$DIFF_TARGET" -- crates/orkworksd/src/main.rs 2>/dev/null | grep -cE '^\+.*\.route\(')
 if echo "$CHANGED" | grep -qE 'apps/desktop/src/api\.ts|apps/desktop/electron/(main|preload)|apps/desktop/package\.json|Cargo\.toml' \
     || [ "$NEW_RUST" -gt 0 ] || [ "$NEW_ROUTES" -gt 0 ]; then
   echo "$CHANGED" | grep -q 'docs/agents/architecture\.md' || \
