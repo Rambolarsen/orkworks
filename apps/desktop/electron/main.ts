@@ -12,6 +12,7 @@ import { pushProviderSettings } from "./providerSettingsSync";
 import type { ProviderSettings } from "./providerTypes";
 import { buildMenuTemplate } from "./menuTemplate";
 import { openSessionPlan } from "./planOpener";
+import { configureExternalLinks } from "./externalLinks";
 
 app.setName("OrkWorks");
 
@@ -130,6 +131,8 @@ function createWindow(): void {
       preload: path.join(__dirname, "preload.js"),
     },
   });
+
+  configureExternalLinks(mainWindow.webContents, shell.openExternal, process.env.VITE_DEV_SERVER_URL);
 
   if (process.env.VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
