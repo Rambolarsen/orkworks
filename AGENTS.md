@@ -124,6 +124,10 @@ Agents doing development work in this repo must use the installed Superpowers sk
 
 These workflow requirements constrain how agents work in this repository. They do not expand OrkWorks product scope or override the MVP non-goals.
 
+## Instruction scoping
+
+See [Harness instruction coverage](docs/agents/harness-instruction-coverage.md) for the configured-target delivery record. Root `AGENTS.md` remains the complete fallback: do not move any rule from it until every configured target has validated scoped-instruction delivery evidence. Cross-boundary constraints remain root-owned.
+
 ### electron/ and src/ are hard boundaries
 
 `apps/desktop/electron/` (Electron main process) and `apps/desktop/src/` (renderer) must never import from each other. They are compiled by separate TypeScript configs with separate `rootDir` settings — a cross-boundary import either produces stray compiled artifacts or forces a `rootDir` change. Either symptom means the design is wrong, not the config.
