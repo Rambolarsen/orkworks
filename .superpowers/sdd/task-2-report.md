@@ -15,5 +15,5 @@ Green: the same focused command passed after the implementation: 15 tests passed
 
 ## Verification
 
-- `node --experimental-strip-types --test tests/*.test.ts tests/*.test.mjs` passed: 249 tests passed, 0 failed.
+- `node --experimental-strip-types --test tests/*.test.ts tests/*.test.mjs` passed with no failures.
 - `pnpm exec tsc --noEmit` remains blocked by this worktree's missing desktop dependencies (`react`, `dockview-react`, `lucide-react`, and xterm packages); the failure is environmental and includes no grouping-helper-specific error.

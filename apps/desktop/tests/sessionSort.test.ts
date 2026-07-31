@@ -105,7 +105,7 @@ test("mergeSessionsById sorts an initial polling snapshot deterministically", ()
 test("App combines a creation response with the current snapshot before merging", () => {
   const source = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /setSessions\(\(prev\) => mergeSessionsById\(prev, \[\.\.\.prev, session\]\)\);/);
+  assert.match(source, /setSessions\(\s*\(?\s*(\w+)\s*\)?\s*=>\s*mergeSessionsById\(\s*\1\s*,\s*\[\s*\.\.\.\1\s*,\s*session\s*\]\s*\)\s*\);/);
 });
 
 test("mergeSessionsById does not promote a session that just became alive", () => {
