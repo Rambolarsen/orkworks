@@ -132,7 +132,7 @@ function createWindow(): void {
     },
   });
 
-  configureExternalLinks(mainWindow.webContents, shell.openExternal);
+  configureExternalLinks(mainWindow.webContents, shell.openExternal, process.env.VITE_DEV_SERVER_URL);
 
   if (process.env.VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);

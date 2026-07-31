@@ -20,6 +20,20 @@ test("opens web URLs externally and blocks Electron navigation", async () => {
   assert.deepEqual(opened, ["https://example.test/docs", "http://example.test/"]);
 });
 
+test("allows same-origin Vite reloads to remain in Electron", () => {
+  let navigate!: (event: { preventDefault(): void }, url: string) => void;
+  const opened: string[] = [];
+  configureExternalLinks({
+    setWindowOpenHandler() {},
+    on(event, next) { assert.equal(event, "will-navigate"); navigate = next as typeof navigate; },
+  } as never, (url) => { opened.push(url); }, "http://localhost:5173/");
+
+  const prevented: string[] = [];
+  navigate({ preventDefault() { prevented.push("yes"); } }, "http://localhost:5173/");
+  assert.deepEqual(prevented, []);
+  assert.deepEqual(opened, []);
+});
+
 test("denies malformed popup URLs without delegating them", () => {
   let popup!: (details: { url: string }) => { action: "deny" };
   const opened: string[] = [];
