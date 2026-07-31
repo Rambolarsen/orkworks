@@ -9,7 +9,7 @@ The root [`AGENTS.md`](../../AGENTS.md) owns the repository-wide pnpm-only rule.
 ```bash
 # Install pnpm if missing
 corepack enable
-corepack prepare pnpm@latest --activate
+corepack prepare pnpm@11.9.0 --activate
 
 # Install dependencies
 pnpm install

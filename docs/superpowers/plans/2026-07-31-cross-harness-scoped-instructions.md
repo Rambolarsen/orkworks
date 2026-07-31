@@ -48,7 +48,7 @@ Create one `.claude/rules/*.md` file per subsystem with only YAML `paths` frontm
 
 - [ ] **Step 4: Record the production targets**
 
-Update `docs/agents/harness-instruction-coverage.md` with the exact scoped-file paths and observed mechanism for Codex, Copilot, Claude, and OpenCode's root-router fallback. Retain production-shaped, read-only results for both scoped files: the desktop type-check command and the Rust `SessionMetadata` owner. Update `README.md` only with the root-to-scoped instruction map needed to keep the repository entry point current.
+Update `docs/agents/harness-instruction-coverage.md` with the exact scoped-file paths and observed mechanism for Codex, Copilot, Claude, and OpenCode's root-router fallback. Retain production-shaped, read-only results for both scoped files: the desktop type-check command and the Rust `providers.rs` responsibility. Update `README.md` only with the root-to-scoped instruction map needed to keep the repository entry point current.
 
 - [ ] **Step 5: Verify**
 
