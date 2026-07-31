@@ -338,7 +338,10 @@ fn make_driver_event_channel() -> (mpsc::Sender<DriverEvent>, mpsc::Receiver<Dri
     mpsc::channel(DRIVER_EVENT_BUFFER_CAPACITY)
 }
 
-fn make_persist_channel() -> (mpsc::Sender<Vec<String>>, mpsc::Receiver<Vec<String>>) {
+fn make_persist_channel() -> (
+    mpsc::Sender<Vec<crate::metadata::TerminalOutputRecord>>,
+    mpsc::Receiver<Vec<crate::metadata::TerminalOutputRecord>>,
+) {
     mpsc::channel(PERSIST_QUEUE_CAPACITY)
 }
 
@@ -364,22 +367,28 @@ fn partial_persist_flush_end(buffer: &[u8]) -> usize {
     }
 }
 
-fn drain_persist_records(buffer: &mut Vec<u8>) -> Vec<String> {
+fn drain_persist_records(buffer: &mut Vec<u8>) -> Vec<crate::metadata::TerminalOutputRecord> {
     let mut records = Vec::new();
 
     while let Some(nl) = buffer.iter().position(|&byte| byte == b'\n') {
         let line: Vec<u8> = buffer.drain(..=nl).collect();
-        let end = if line.ends_with(b"\r\n") {
-            line.len() - 2
+        let (end, delimiter) = if line.ends_with(b"\r\n") {
+            (line.len() - 2, "\r\n")
         } else {
-            line.len() - 1
+            (line.len() - 1, "\n")
         };
-        records.push(String::from_utf8_lossy(&line[..end]).into_owned());
+        records.push(crate::metadata::TerminalOutputRecord::raw(
+            String::from_utf8_lossy(&line[..end]).into_owned(),
+            delimiter,
+        ));
     }
 
     while buffer.len() > MAX_PARTIAL_PERSIST_BYTES {
         let flush_end = partial_persist_flush_end(buffer);
-        records.push(String::from_utf8_lossy(&buffer[..flush_end]).into_owned());
+        records.push(crate::metadata::TerminalOutputRecord::raw(
+            String::from_utf8_lossy(&buffer[..flush_end]).into_owned(),
+            "",
+        ));
         buffer.drain(..flush_end);
     }
 
@@ -671,7 +680,7 @@ pub(crate) async fn start_session_runtime(
             let _ = tokio::task::spawn_blocking(move || {
                 let ws_guard = st.workspace.lock().unwrap();
                 if let Some(ref ws) = *ws_guard {
-                    ws.metadata.append_terminal_output_lines(&i, &lines);
+                    ws.metadata.append_terminal_output_records(&i, &lines);
                 }
             })
             .await;
@@ -685,7 +694,8 @@ pub(crate) async fn start_session_runtime(
     tokio::spawn(async move {
         let mut writer = writer;
         let mut persist_buffer: Vec<u8> = Vec::new();
-        let mut pending_persist_batches: VecDeque<Vec<String>> = VecDeque::new();
+        let mut pending_persist_batches: VecDeque<Vec<crate::metadata::TerminalOutputRecord>> =
+            VecDeque::new();
         let mut kill_requested = false;
 
         if let Some(prompt) = initial_prompt {
@@ -797,7 +807,7 @@ pub(crate) async fn start_session_runtime(
                                             .schedule_output_recency_flush(output_persist_at);
                                     }
                                     for raw in &raw_persist_lines {
-                                        let trimmed = raw.trim();
+                                        let trimmed = raw.text().trim();
                                         if !trimmed.is_empty() {
                                             handle.runtime.peon_output_revision =
                                                 handle.output_buffer.push(trimmed.to_string());
@@ -882,7 +892,10 @@ pub(crate) async fn start_session_runtime(
                             let mut final_persist_batches = pending_persist_batches;
                             if !persist_buffer.is_empty() {
                                 final_persist_batches
-                                    .push_back(vec![String::from_utf8_lossy(&persist_buffer).into_owned()]);
+                                    .push_back(vec![crate::metadata::TerminalOutputRecord::raw(
+                                        String::from_utf8_lossy(&persist_buffer).into_owned(),
+                                        "",
+                                    )]);
                             }
 
                             flush_output_recency(&driver_state, &driver_id).await;
@@ -928,7 +941,10 @@ pub(crate) async fn start_session_runtime(
                             let mut final_persist_batches = pending_persist_batches;
                             if !persist_buffer.is_empty() {
                                 final_persist_batches
-                                    .push_back(vec![String::from_utf8_lossy(&persist_buffer).into_owned()]);
+                                    .push_back(vec![crate::metadata::TerminalOutputRecord::raw(
+                                        String::from_utf8_lossy(&persist_buffer).into_owned(),
+                                        "",
+                                    )]);
                             }
                             flush_output_recency(&driver_state, &driver_id).await;
                             clear_ended_session_tracking(&driver_state, &driver_id);
@@ -2520,13 +2536,16 @@ mod tests {
 
     #[test]
     fn persist_records_keep_newline_delimited_output_unchanged() {
-        let mut buffer = b"first\nsecond\r\npartial".to_vec();
+        let mut buffer = b"one\r\ntwo\nthree".to_vec();
 
         assert_eq!(
             drain_persist_records(&mut buffer),
-            vec!["first".to_string(), "second".to_string()],
+            vec![
+                crate::metadata::TerminalOutputRecord::raw("one", "\r\n"),
+                crate::metadata::TerminalOutputRecord::raw("two", "\n"),
+            ],
         );
-        assert_eq!(buffer, b"partial");
+        assert_eq!(buffer, b"three");
     }
 
     #[test]
@@ -2536,8 +2555,14 @@ mod tests {
         assert_eq!(
             drain_persist_records(&mut buffer),
             vec![
-                "x".repeat(MAX_PARTIAL_PERSIST_BYTES),
-                "x".repeat(MAX_PARTIAL_PERSIST_BYTES),
+                crate::metadata::TerminalOutputRecord::raw(
+                    "x".repeat(MAX_PARTIAL_PERSIST_BYTES),
+                    "",
+                ),
+                crate::metadata::TerminalOutputRecord::raw(
+                    "x".repeat(MAX_PARTIAL_PERSIST_BYTES),
+                    "",
+                ),
             ],
         );
         assert_eq!(buffer, vec![b'x'; 5]);

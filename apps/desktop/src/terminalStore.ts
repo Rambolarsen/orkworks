@@ -4,6 +4,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { terminalPtySize } from "./terminalSize";
 import { orkworksTerminalTheme } from "./terminalTheme";
 import { getTerminalOutput } from "./api";
+import { writeTerminalReplay } from "./terminalReplay";
 import {
   parseTerminalControlMessage,
   shouldReplayTerminalOutputOnClose,
@@ -182,8 +183,8 @@ export function ensureTerminal(id: string, baseUrl: string): TerminalHandle {
         receivedData,
       })
     ) {
-      getTerminalOutput(baseUrl, id).then((lines) => {
-        for (const line of lines) term.writeln(line);
+      getTerminalOutput(baseUrl, id).then((records) => {
+        writeTerminalReplay(term, records);
       }).catch(() => {
         /* silently ignore fetch failures */
       });

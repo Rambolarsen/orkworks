@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 #[derive(Serialize)]
 pub(crate) struct TerminalOutputResponse {
-    pub(crate) lines: Vec<String>,
+    pub(crate) lines: Vec<metadata::TerminalOutputRecord>,
 }
 
 #[derive(Serialize)]
@@ -144,9 +144,9 @@ mod tests {
         {
             let ws_guard = state.workspace.lock().unwrap();
             let ws = ws_guard.as_ref().unwrap();
-            ws.metadata.append_terminal_output_lines(
+            ws.metadata.append_terminal_output_records(
                 &session_id,
-                &["first line".into(), "second line".into()],
+                &[metadata::TerminalOutputRecord::raw("first line", "\r\n")],
             );
         }
 
@@ -161,8 +161,26 @@ mod tests {
         let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(
             payload["lines"],
-            serde_json::json!(["first line", "second line"])
+            serde_json::json!([{"text": "first line", "delimiter": "\r\n"}])
         );
+    }
+
+    #[tokio::test]
+    async fn get_terminal_output_returns_legacy_strings_for_legacy_history() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let session_id = "legacy-dead-session".to_string();
+        {
+            let ws_guard = state.workspace.lock().unwrap();
+            let store = &ws_guard.as_ref().unwrap().metadata;
+            let path = store.events_dir().join(format!("{session_id}.terminal"));
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, "legacy line\n").unwrap();
+        }
+
+        let payload =
+            response_json(get_terminal_output(State(state), Path(session_id)).await).await;
+        assert_eq!(payload["lines"], serde_json::json!(["legacy line"]));
     }
 
     #[tokio::test]
