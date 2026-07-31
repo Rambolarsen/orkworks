@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  groupSessionList,
   groupForSession,
   groupSessions,
   nextSessionGroupRefreshMs,
@@ -96,6 +97,33 @@ test("groupSessions omits empty buckets and orders today, week, earlier", () => 
   assert.deepEqual(groups.map((g) => g.label), ["Today", "Earlier"]);
   assert.deepEqual(groups[0].items.map((s) => s.id), ["today-1"]);
   assert.deepEqual(groups[1].items.map((s) => s.id), ["old-1"]);
+});
+
+test("groupSessionList keeps live rows in supplied order across activity dates", () => {
+  const now = new Date(2026, 5, 28, 18, 0);
+  const sessions = [
+    { ...session("older-live", new Date(2026, 5, 1, 9, 0).toISOString()), lifecycle: "alive" as const },
+    { ...session("today-live", new Date(2026, 5, 28, 9, 0).toISOString()), lifecycle: "alive" as const },
+  ];
+
+  const groups = groupSessionList(sessions, now);
+
+  assert.deepEqual(groups.map((group) => group.key), ["active"]);
+  assert.equal(groups[0].label, "Active");
+  assert.deepEqual(groups[0].items.map((item) => item.id), ["older-live", "today-live"]);
+});
+
+test("groupSessionList places a dead session with today's activity after an earlier live session", () => {
+  const now = new Date(2026, 5, 28, 18, 0);
+  const sessions = [
+    { ...session("older-live", new Date(2026, 5, 1, 9, 0).toISOString()), lifecycle: "alive" as const },
+    { ...session("today-dead", new Date(2026, 5, 28, 9, 0).toISOString()), lifecycle: "dead" as const },
+  ];
+
+  const groups = groupSessionList(sessions, now);
+
+  assert.deepEqual(groups.map((group) => group.key), ["active", "today"]);
+  assert.deepEqual(groups.flatMap((group) => group.items).map((item) => item.id), ["older-live", "today-dead"]);
 });
 
 test("nextSessionGroupRefreshMs waits until midnight for today sessions", () => {

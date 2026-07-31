@@ -84,7 +84,7 @@ function App() {
       const baseUrl = await window.orkworks.getBackendUrl();
       const list = await listSessions(baseUrl);
       pruneTerminals(new Set(list.filter((session) => session.lifecycle !== "dead").map((session) => session.id)));
-      setSessions(mergeSessionsById([], list));
+      setSessions((previous) => mergeSessionsById(previous, list));
     } catch {
       // Silent: polled every 2s; transient failures are reflected by the
       // backendStatus badge, not by spamming toasts.
@@ -178,7 +178,7 @@ function App() {
     try {
       const baseUrl = await window.orkworks.getBackendUrl();
       const session = await createSession(baseUrl, opts);
-      setSessions((prev) => mergeSessionsById(prev, [session]));
+      setSessions((prev) => mergeSessionsById(prev, [...prev, session]));
       setActiveSessionId(session.id);
 
       const api = dockviewApiRef.current;

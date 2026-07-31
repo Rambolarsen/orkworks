@@ -47,10 +47,56 @@ export function sortSessions(list: SessionInfo[]): SessionInfo[] {
 export function mergeSessionsById(
   existing: readonly SessionInfo[],
   incoming: readonly SessionInfo[],
+  now = new Date(),
 ): SessionInfo[] {
-  const sessions = new Map(existing.map((session) => [session.id, session]));
-  for (const session of incoming) {
-    sessions.set(session.id, session);
+  if (existing.length === 0) return sortSessions([...incoming]);
+
+  const updates = new Map(incoming.map((session) => [session.id, session]));
+  const existingIds = new Set(existing.map((session) => session.id));
+  const sessions = [
+    ...existing.filter((session) => updates.has(session.id)).map((session) => updates.get(session.id)!),
+    ...[...updates.values()].filter((session) => !existingIds.has(session.id)),
+  ];
+  const alive = sessions.filter((session) => session.lifecycle === "alive");
+  const nonAlive = sessions.filter((session) => session.lifecycle !== "alive");
+  const top = alive[0];
+
+  if (top && isAtLeastOneMinuteOld(top, now)) {
+    const promoted = newestUpdatedAliveSession(alive, existing, updates);
+    if (promoted && promoted.id !== top.id) {
+      return [promoted, ...alive.filter((session) => session.id !== promoted.id), ...nonAlive];
+    }
   }
-  return sortSessions([...sessions.values()]);
+
+  return [...alive, ...nonAlive];
+}
+
+function isAtLeastOneMinuteOld(session: SessionInfo, now: Date): boolean {
+  const timestamp = Date.parse(lastActivityTimestamp(session) ?? "");
+  return !Number.isNaN(timestamp) && now.getTime() - timestamp >= 60_000;
+}
+
+function newestUpdatedAliveSession(
+  alive: readonly SessionInfo[],
+  existing: readonly SessionInfo[],
+  updates: ReadonlyMap<string, SessionInfo>,
+): SessionInfo | undefined {
+  const previousById = new Map(existing.map((session) => [session.id, session]));
+  return alive.reduce<SessionInfo | undefined>((newest, session) => {
+    const previous = previousById.get(session.id);
+    const updated = updates.get(session.id);
+    const timestamp = Date.parse(lastActivityTimestamp(session) ?? "");
+    const previousTimestamp = Date.parse(lastActivityTimestamp(previous ?? session) ?? "");
+    if (
+      !updated ||
+      previous?.lifecycle !== "alive" ||
+      Number.isNaN(timestamp) ||
+      Number.isNaN(previousTimestamp) ||
+      timestamp <= previousTimestamp ||
+      (newest && timestamp <= Date.parse(lastActivityTimestamp(newest) ?? ""))
+    ) {
+      return newest;
+    }
+    return session;
+  }, undefined);
 }
