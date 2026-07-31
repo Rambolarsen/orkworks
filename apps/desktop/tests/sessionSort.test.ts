@@ -108,6 +108,21 @@ test("App combines a creation response with the current snapshot before merging"
   assert.match(source, /setSessions\(\(prev\) => mergeSessionsById\(prev, \[\.\.\.prev, session\]\)\);/);
 });
 
+test("mergeSessionsById does not promote a session that just became alive", () => {
+  const top = { ...session("top", "alive"), lastOutputAt: "2026-07-31T12:00:01.000Z" };
+  const starting = { ...session("starting", "creating"), lastOutputAt: "2026-07-31T12:00:00.000Z" };
+  const now = new Date("2026-07-31T12:01:01.000Z");
+
+  assert.deepEqual(
+    mergeSessionsById(
+      [top, starting],
+      [top, { ...starting, lifecycle: "alive", lastOutputAt: "2026-07-31T12:01:01.000Z" }],
+      now,
+    ).map((item) => item.id),
+    ["top", "starting"],
+  );
+});
+
 test("mergeSessionsById promotes fresh activity only after the top session is quiet for one minute", () => {
   const top = { ...session("top", "alive"), lastOutputAt: "2026-07-31T12:00:30.000Z" };
   const updated = { ...session("updated", "alive"), lastOutputAt: "2026-07-31T12:01:00.000Z" };

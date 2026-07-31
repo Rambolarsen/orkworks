@@ -89,6 +89,7 @@ function newestUpdatedAliveSession(
     const previousTimestamp = Date.parse(lastActivityTimestamp(previous ?? session) ?? "");
     if (
       !updated ||
+      previous?.lifecycle !== "alive" ||
       Number.isNaN(timestamp) ||
       Number.isNaN(previousTimestamp) ||
       timestamp <= previousTimestamp ||
