@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { loadTerminalReplay } from "../src/terminalReplay.ts";
+import { loadTerminalReplay, writeTerminalReplay } from "../src/terminalReplay.ts";
 import { renderTerminalPresentation } from "../src/terminalPresentation.ts";
 
 test("dead session routing invokes replay instead of interactive terminal creation", () => {
@@ -41,13 +41,45 @@ test("writes persisted replay when the request remains current", async () => {
     () => true,
     () => {
       factories += 1;
-      return { writeln: (line: string) => written.push(line) };
+      return {
+        write: (text: string) => written.push(`write:${text}`),
+        writeln: (line: string) => written.push(`writeln:${line}`),
+      };
     },
   );
 
   assert.equal(result, "loaded");
   assert.equal(factories, 1);
-  assert.deepEqual(written, ["first", "second"]);
+  assert.deepEqual(written, ["writeln:first", "writeln:second"]);
+});
+
+test("writes raw replay records without adding a line ending", async () => {
+  const written: string[] = [];
+  const result = await loadTerminalReplay(
+    async () => [{ text: "one", delimiter: "\r\n" }],
+    () => true,
+    () => ({
+      write: (text: string) => written.push(`write:${text}`),
+      writeln: (line: string) => written.push(`writeln:${line}`),
+    }),
+  );
+
+  assert.equal(result, "loaded");
+  assert.deepEqual(written, ["write:one\r\n"]);
+});
+
+test("replay fallback writes raw records and preserves legacy line behavior", () => {
+  const written: string[] = [];
+
+  writeTerminalReplay(
+    {
+      write: (text: string) => written.push(`write:${text}`),
+      writeln: (line: string) => written.push(`writeln:${line}`),
+    },
+    [{ text: "one", delimiter: "\r\n" }, "one"],
+  );
+
+  assert.deepEqual(written, ["write:one\r\n", "writeln:one"]);
 });
 
 test("does not write a replay response after selection changes", async () => {
@@ -58,7 +90,10 @@ test("does not write a replay response after selection changes", async () => {
   let current = true;
   const result = loadTerminalReplay(() => pending, () => current, () => {
     factories += 1;
-    return { writeln: (line: string) => written.push(line) };
+    return {
+      write: (text: string) => written.push(`write:${text}`),
+      writeln: (line: string) => written.push(`writeln:${line}`),
+    };
   });
 
   current = false;
@@ -74,7 +109,10 @@ test("reports empty and failed replay without writing", async () => {
   let factories = 0;
   const create = () => {
     factories += 1;
-    return { writeln: (line: string) => written.push(line) };
+    return {
+      write: (text: string) => written.push(`write:${text}`),
+      writeln: (line: string) => written.push(`writeln:${line}`),
+    };
   };
   assert.equal(await loadTerminalReplay(async () => [], () => true, create), "empty");
   assert.equal(await loadTerminalReplay(async () => { throw new Error("offline"); }, () => true, create), "error");

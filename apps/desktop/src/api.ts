@@ -198,10 +198,12 @@ export async function applyDebugAttention(
   if (!resp.ok) throw new Error(`apply debug attention failed: ${resp.status}`);
 }
 
+export type TerminalOutputRecord = string | { text: string; delimiter: string };
+
 export async function getTerminalOutput(
   baseUrl: string,
   id: string,
-): Promise<string[]> {
+): Promise<TerminalOutputRecord[]> {
   const resp = await fetch(`${baseUrl}/sessions/${id}/terminal-output`);
   if (!resp.ok) throw new Error(`get terminal output failed: ${resp.status}`);
   const data = await resp.json();
