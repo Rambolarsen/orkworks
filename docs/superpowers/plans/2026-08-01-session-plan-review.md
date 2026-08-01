@@ -26,9 +26,10 @@
 - Modify: `crates/orkworksd/src/runtime/terminal_runtime.rs`
 - Test: `crates/orkworksd/src/plan_handoff.rs`, `crates/orkworksd/src/http/session_handlers.rs`
 
-- [ ] Write failing tests for control-character rejection, content returned only for a valid stored artifact, missing/dead session rejection, bad secret rejection, and one fixed prompt submitted to the target PTY.
+- [ ] Write failing tests for terminal-output fallback association (without replacing a harness path), control-character rejection, content returned only for a valid stored artifact, missing/dead session rejection, and bad secret rejection on **both** endpoints.
 - [ ] Run `rtk cargo test --manifest-path crates/orkworksd/Cargo.toml plan` and observe the new tests fail.
-- [ ] Add `GET /sessions/:id/plan-content` returning `{content}` only after `resolve_openable_plan` validates the stored relative path. Add authenticated `POST /sessions/:id/request-plan-review`, whose handler validates the live session and artifact, constructs the fixed prompt internally, sends exactly one terminal input action ending in Enter, and appends a user-approved handoff event.
+- [ ] Detect and validate a printed `docs/superpowers/plans/*.md` or `specs/*.md` path while terminal output is persisted; store it only when no harness path is present. Add authenticated `GET /sessions/:id/plan-content` returning `{content}` only after `resolve_openable_plan` validates the stored relative path. Add authenticated `POST /sessions/:id/request-plan-review`, whose handler validates the live session and artifact and constructs the fixed prompt internally.
+- [ ] Extract the existing accepted-input bookkeeping into one shared terminal-runtime submit function. Both the WebSocket and review handler use it; it records Peon side effects and appends the audit event only after PTY acceptance.
 - [ ] Register both routes and run the focused tests, then `rtk cargo test --manifest-path crates/orkworksd/Cargo.toml`.
 
 ### Task 2: Deliver the action through Electron main
@@ -41,7 +42,7 @@
 
 - [ ] Write failing tests that require the review IPC to accept only a non-empty session ID and forward the sidecar secret without returning a path or prompt.
 - [ ] Run `rtk node --experimental-strip-types --test tests/planOpener.test.ts` from `apps/desktop` and observe failure.
-- [ ] Replace OS-only `openPlan` with `getPlanContent(sessionId)` and `requestPlanReview(sessionId)` bridges. Electron main calls the content endpoint for the former and authenticated POST for the latter; neither shell-opening nor arbitrary text is retained.
+- [ ] Replace `electron/planOpener.ts` with path-free content/review helpers and replace OS-only `openPlan` with `getPlanContent(sessionId)` and `requestPlanReview(sessionId)` bridges. Electron main calls both secret-authenticated endpoints; neither shell-opening nor arbitrary text is retained.
 - [ ] Run the focused test and `rtk npx tsc --noEmit` from `apps/desktop`.
 
 ### Task 3: Add the Details card and reusable Review tab
@@ -55,9 +56,9 @@
 - Modify: `apps/desktop/src/styles.css`
 - Test: `apps/desktop/tests/dockview.test.ts`
 
-- [ ] Write failing tests that require `review` to share Terminal's Dockview group and the Details card to render for every `hasOpenablePlan` session, not only `needs_you`.
+- [ ] Write behavioral tests in `labels.test.ts` that require a review card for every `hasOpenablePlan` session and hide only the send action for non-live sessions. Add Dockview tests requiring `review` to share Terminal's group and to be get-or-added when absent from a restored layout.
 - [ ] Run the focused test and observe failure.
-- [ ] Add a Review panel that asks main for the selected session's content and renders plain text (`white-space: pre-wrap`). Register it in the Terminal group using Dockview's tab placement. Pass an `onReviewPlan` callback to Details; its card uses status-sensitive copy and offers Review plan plus Ask this agent to review for a live session.
+- [ ] Add a Review panel that clears stale content on session change, asks main for the selected session's content, and renders plain text (`white-space: pre-wrap`). `onReviewPlan` get-or-adds the one `review` panel with `{ referencePanel: "terminal", direction: "within" }`, then activates it. Pass the callback to Details; its card uses status-sensitive copy and offers Review plan plus Ask this agent to review for a live session.
 - [ ] Wire the review handoff button to the path-free preload method, show a toast on failure, and run focused tests plus `rtk npx tsc --noEmit`.
 
 ### Task 4: Regression and documentation verification
