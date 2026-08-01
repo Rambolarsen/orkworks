@@ -623,6 +623,7 @@ pub(crate) async fn report_attention(
             &now,
             "agent",
             1.0,
+            observed_at_for_commit,
         ) {
             Some(result) => Ok(result),
             None => Err(axum::http::StatusCode::CONFLICT),
@@ -1566,7 +1567,12 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
                 }
                 if info.at_usage_limit == Some(true) {
                     if !handle.at_usage_limit_latched {
-                        handle.runtime.usage_limit_latched_at = Some(chrono::Utc::now());
+                        handle.runtime.usage_limit_latched_at = handle
+                            .info
+                            .last_output_at
+                            .as_deref()
+                            .and_then(|raw| chrono::DateTime::parse_from_rfc3339(raw).ok())
+                            .map(|timestamp| timestamp.with_timezone(&chrono::Utc));
                     }
                     handle.at_usage_limit_latched = true;
                 }
@@ -2675,6 +2681,26 @@ mod tests {
                 .map(String::as_str),
             Some("y")
         );
+    }
+
+    #[tokio::test]
+    async fn report_attention_ignores_an_out_of_order_hook_event() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let id = "attention-hook-order";
+        let mut handle = attention_test_handle(id, dir.path());
+        handle.active_work_hook = true;
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+        let ws = state.workspace.lock().unwrap();
+        let mut meta = test_session_metadata(id, "Known", dir.path().display().to_string(), "running", "now", "now");
+        meta.lifecycle = "alive".into();
+        ws.as_ref().unwrap().metadata.write_session(&meta);
+        drop(ws);
+        for (status, observed_at) in [("waiting_for_input", "2026-08-01T08:00:02.000000Z"), ("working", "2026-08-01T08:00:01.000000Z")] {
+            let response = report_attention(State(state.clone()), Path(id.into()), Json(AttentionReportRequest { status: status.into(), message: None, plan_path: Default::default(), observed_at: Some(observed_at.into()), cwd: None })).await.into_response();
+            assert_eq!(response.status(), axum::http::StatusCode::OK);
+        }
+        assert_eq!(state.sessions.lock().unwrap()[id].info.observed_status.as_deref(), Some("waiting_for_input"));
     }
 
     #[tokio::test]
