@@ -404,6 +404,56 @@ pub fn is_usable_input_label(label: &str, input_hint: &str) -> bool {
             .all(|number| candidate_pr_numbers.contains(number))
 }
 
+/// Returns the only Peon summary eligible for the live work headline and
+/// durable task history. Terminal state alone is not work evidence.
+pub fn work_history_summary(output: &[String], inference_summary: Option<&str>) -> Option<String> {
+    if let Some(summary) = command_outcome_summary(output) {
+        return Some(summary);
+    }
+
+    output
+        .iter()
+        .rev()
+        .find_map(|line| line.strip_prefix("[User input]:").map(str::trim))
+        .filter(|input| is_descriptive_input(input))
+        .and_then(|input| inference_summary.filter(|summary| is_usable_input_label(summary, input)))
+        .map(normalize_summary)
+}
+
+fn command_outcome_summary(output: &[String]) -> Option<String> {
+    let output = output
+        .iter()
+        .map(|line| strip_ansi(line).to_ascii_lowercase())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let test = ["cargo test", "pnpm test", "npm test"]
+        .iter()
+        .any(|command| output.contains(command));
+    if test {
+        if output.contains("test result: failed") || output.contains("tests failed") {
+            return Some("Tests failed".into());
+        }
+        if output.contains("test result: ok") || output.contains("tests passed") {
+            return Some("Tests passed".into());
+        }
+    }
+
+    let build = ["cargo build", "pnpm build", "npm run build"]
+        .iter()
+        .any(|command| output.contains(command));
+    if build {
+        if output.contains("could not compile") || output.contains("build failed") {
+            return Some("Build failed".into());
+        }
+        if output.contains("finished `") || output.contains("build completed") {
+            return Some("Build passed".into());
+        }
+    }
+
+    None
+}
+
 /// Detects usage limit in a raw text blob (for TUI apps that use cursor positioning, not newlines).
 pub fn detect_usage_limit_raw<S: AsRef<str>>(patterns: &[S], text: &str) -> bool {
     if patterns.is_empty() {
@@ -488,7 +538,7 @@ You are a terminal output analyzer. Analyze the following terminal session outpu
 Available fields:
 - observedStatus: one of \"waiting_for_input\", \"blocked\", \"failed\", \"done\", \"stale\", \"working\", \"idle\"
 - phase: short description of current work phase
-- summary: one-line summary of what's happening
+- summary: one-line summary of concrete work only. Omit it unless the output contains a descriptive '[User input]:' instruction or a matching test/build command and result. Never summarize terminal redraws, ANSI escape codes, spinners, loading, or connection state.
 - nextAction: suggested next step
 - needsUserInput: boolean, true if the terminal is prompting for user input
 - detectedQuestion: the question the user needs to answer
@@ -938,6 +988,33 @@ mod tests {
         assert!(inf.phase.is_none());
         assert_eq!(inf.harness_session_id.as_deref(), Some("sess-abc123"));
         assert_eq!(inf.detected_harness.as_deref(), Some("claude-code"));
+    }
+
+    #[test]
+    fn work_history_summary_accepts_a_descriptive_user_task() {
+        let output = vec!["[User input]: fix task history noise".into()];
+        assert_eq!(
+            work_history_summary(&output, Some("Fixing task history noise")),
+            Some("Fixing task history noise".into())
+        );
+    }
+
+    #[test]
+    fn work_history_summary_uses_canonical_test_outcomes() {
+        let output = vec!["$ cargo test".into(), "test result: ok. 42 passed".into()];
+        assert_eq!(
+            work_history_summary(&output, Some("Terminal is healthy")),
+            Some("Tests passed".into())
+        );
+    }
+
+    #[test]
+    fn work_history_summary_rejects_terminal_state_guesses() {
+        let output = vec!["\u{1b}[2K⠋ loading".into()];
+        assert_eq!(
+            work_history_summary(&output, Some("Session is loading")),
+            None
+        );
     }
 
     #[test]
