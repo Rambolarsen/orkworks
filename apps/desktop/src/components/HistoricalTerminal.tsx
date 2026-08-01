@@ -29,8 +29,7 @@ export default function HistoricalTerminal({ sessionId }: { sessionId: string })
             disableStdin: true,
             cursorBlink: false,
             scrollback: 2000,
-            cols,
-            rows,
+            ...(hasFixedSize ? { cols, rows } : {}),
           });
           if (!container) return terminal;
           terminal.open(container);
