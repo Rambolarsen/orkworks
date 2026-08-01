@@ -188,6 +188,12 @@ The `skills/` directory contains repo-level agent skills that are committed with
 | [adding-harness](skills/adding-harness/SKILL.md) | Checklist for adding or changing a harness adapter (launch, resume, session ID capture, voice, capacity) |
 | [writing-skills](skills/writing-skills/SKILL.md) | TDD-based skill creation following the Agent Skills standard |
 | [clean-ddd-hexagonal](skills/clean-ddd-hexagonal/SKILL.md) | Clean Architecture + DDD + Hexagonal patterns, language-agnostic |
+| [surfacing-blind-spots](skills/surfacing-blind-spots/SKILL.md) | Turns investigated uncertainties and project blind spots into scoped issues |
+| [auditing-test-honesty](skills/auditing-test-honesty/SKILL.md) | Audits whether tests actually pin the behavior their names claim |
+| [walking-failure-paths](skills/walking-failure-paths/SKILL.md) | Traces external failures (files, processes, ports) through code to the user-visible outcome |
+| [grooming-the-board](skills/grooming-the-board/SKILL.md) | Sweeps for board/code/spec drift — duplicates, done-but-open issues, stranded branches, doc drift |
+| [auditing-signal-vs-noise](skills/auditing-signal-vs-noise/SKILL.md) | Audits UI truthfulness of situational-awareness surfaces against their metadata sources |
+| [consulting-the-brain](skills/consulting-the-brain/SKILL.md) | Routes agent-readiness analysis/improvement work through the owner's external "brain" knowledge repo |
 
 ## Issue board
 

@@ -21,7 +21,7 @@ GitHub Actions now has four distinct workflow classes:
 - `.github/workflows/docs.yml` builds the VitePress docs site and deploys it to GitHub Pages on doc-path pushes to `main`
 - `.github/workflows/quality-audit.yml` for the weekly scheduled quality audit — rotates through the audit skills in `skills/` (one per week, so each fires roughly monthly) and files scoped issues per those skills' guardrails; requires the `CLAUDE_CODE_OAUTH_TOKEN` repo secret (subscription auth via `claude setup-token`; an `ANTHROPIC_API_KEY` swap is documented in the workflow header)
 
-PR CI is path-routed: desktop changes run desktop validation, Rust changes run Rust tests, and non-code PRs receive a lightweight passing no-op check.
+PR CI is path-routed: desktop changes run desktop validation, Rust changes run Rust tests, and non-code PRs receive a lightweight passing no-op check. `pr-ci.yml` also runs a `doc-drift` job on every PR — the same drift checks as `.claude/hooks/doc-check.sh` (see "Doc currency check" below), run against the PR's diff and surfaced in the Actions run summary. It is intentionally excluded from required status checks and can never block a merge; it exists so the doc-drift nudge also reaches non-Claude-Code harnesses that don't trigger the Stop hook.
 
 ## Containerized dev environment (optional)
 
@@ -247,7 +247,7 @@ Project-scoped MCP servers are declared in `apm.yml` under `dependencies.mcp`.
 
 ## Repo-level skills
 
-The `skills/` directory contains committed repo skills (`starting-work`, `cutting-release`, `writing-skills`, `clean-ddd-hexagonal`, `adding-harness`, `surfacing-blind-spots`, `auditing-test-honesty`, `walking-failure-paths`, `grooming-the-board`, `auditing-signal-vs-noise`). Each is a directory with a `SKILL.md` following the [Agent Skills standard](https://agentskills.io/specification). Use `skills/adding-harness/` before adding or changing a harness adapter; it forces the launch/resume/session-ID/voice/capacity checklist for the harness. Use `skills/surfacing-blind-spots/` when closing out a session or when asked to generate quality-improvement tasks; it turns investigated uncertainties and project blind spots into scoped issues.
+The `skills/` directory contains committed repo skills (`starting-work`, `cutting-release`, `writing-skills`, `clean-ddd-hexagonal`, `adding-harness`, `surfacing-blind-spots`, `auditing-test-honesty`, `walking-failure-paths`, `grooming-the-board`, `auditing-signal-vs-noise`, `consulting-the-brain`). Each is a directory with a `SKILL.md` following the [Agent Skills standard](https://agentskills.io/specification). Use `skills/adding-harness/` before adding or changing a harness adapter; it forces the launch/resume/session-ID/voice/capacity checklist for the harness. Use `skills/surfacing-blind-spots/` when closing out a session or when asked to generate quality-improvement tasks; it turns investigated uncertainties and project blind spots into scoped issues. Use `skills/consulting-the-brain/` when asked to analyze, verify, or improve OrkWorks' own agentic workflow using the owner's external "brain" knowledge repo (`Rambolarsen/brain`, viewer at rambolarsen.github.io/brain).
 
 Five of these are **audit skills** that generate quality-improvement work: `surfacing-blind-spots` (uncertainties and blind spots), `auditing-test-honesty` (tests that don't pin what they claim), `walking-failure-paths` (behavior under external failure), `grooming-the-board` (board/code/spec drift), and `auditing-signal-vs-noise` (UI truthfulness). They share the guardrail filter and issue format defined in `skills/surfacing-blind-spots/`. The weekly `quality-audit.yml` workflow rotates through them; they can also be run ad hoc.
 
@@ -259,7 +259,7 @@ Before ending any session, run:
 bash .claude/hooks/doc-check.sh
 ```
 
-This checks git diff against known triggers and lists any doc files that likely need updating. Address all flagged files before closing. Claude Code runs this automatically via a Stop hook; all other agents must run it manually as part of `verification-before-completion`.
+This checks git diff against known triggers and lists any doc files that likely need updating. Address all flagged files before closing. Claude Code runs this automatically via a Stop hook; all other agents must run it manually as part of `verification-before-completion`. The same script also runs non-blocking in CI as `pr-ci.yml`'s `doc-drift` job (see "CI routing" above) against the PR's diff, as a backstop for harnesses that don't trigger the Stop hook — that CI signal doesn't replace running it locally, since it only surfaces after a PR is opened.
 
 ## Worktree currency check
 

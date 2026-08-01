@@ -95,3 +95,18 @@ jobs:
     steps:
       - name: Explain skip
         run: echo "No desktop or Rust changes detected; skipping code validation."
+
+  doc-drift:
+    name: Doc drift check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for doc drift
+        run: |
+          OUTPUT=$(bash .claude/hooks/doc-check.sh "origin/${GITHUB_BASE_REF}...HEAD")
+          if [ -n "$OUTPUT" ]; then
+            echo "$OUTPUT" | tee -a "$GITHUB_STEP_SUMMARY" || true
+          fi

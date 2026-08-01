@@ -6,6 +6,7 @@ import { getTerminalOutput } from "../api";
 import { loadTerminalReplay } from "../terminalReplay";
 import { computeReplayScale, availableContentBox } from "../terminalReplayScale";
 import { orkworksTerminalTheme } from "../terminalTheme";
+import { terminalLinkHandler } from "../terminalLinks";
 import EmptyState from "./EmptyState";
 
 export default function HistoricalTerminal({ sessionId }: { sessionId: string }) {
@@ -29,6 +30,7 @@ export default function HistoricalTerminal({ sessionId }: { sessionId: string })
             disableStdin: true,
             cursorBlink: false,
             scrollback: 2000,
+            linkHandler: terminalLinkHandler(window.orkworks.openExternalLink),
             ...(hasFixedSize ? { cols, rows } : {}),
           });
           if (!container) return terminal;

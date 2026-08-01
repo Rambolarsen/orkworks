@@ -5,6 +5,7 @@ import { terminalPtySize } from "./terminalSize";
 import { orkworksTerminalTheme } from "./terminalTheme";
 import { getTerminalOutput } from "./api";
 import { writeTerminalReplay } from "./terminalReplay";
+import { terminalLinkHandler } from "./terminalLinks";
 import {
   parseTerminalControlMessage,
   shouldReplayTerminalOutputOnClose,
@@ -57,6 +58,7 @@ export function ensureTerminal(id: string, baseUrl: string): TerminalHandle {
     scrollSensitivity: 3,
     fastScrollSensitivity: 10,
     overviewRuler: { width: 8 },
+    linkHandler: terminalLinkHandler(window.orkworks.openExternalLink),
   });
 
   const fitAddon = new FitAddon();

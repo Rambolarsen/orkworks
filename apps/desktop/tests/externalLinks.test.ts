@@ -1,6 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { configureExternalLinks } from "../electron/externalLinks.ts";
+import { configureExternalLinks, openExternalLink } from "../electron/externalLinks.ts";
+
+test("rejects non-string external-link IPC values", async () => {
+  const opened: string[] = [];
+  openExternalLink(null, async (url) => { opened.push(url); });
+  openExternalLink({ url: "https://example.test" }, async (url) => { opened.push(url); });
+  openExternalLink("file:///private/secret", async (url) => { opened.push(url); });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(opened, []);
+});
 
 test("opens web URLs externally and blocks Electron navigation", async () => {
   let popup!: (details: { url: string }) => { action: "deny" };
