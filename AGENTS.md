@@ -21,7 +21,7 @@ GitHub Actions now has four distinct workflow classes:
 - `.github/workflows/docs.yml` builds the VitePress docs site and deploys it to GitHub Pages on doc-path pushes to `main`
 - `.github/workflows/quality-audit.yml` for the weekly scheduled quality audit — rotates through the audit skills in `skills/` (one per week, so each fires roughly monthly) and files scoped issues per those skills' guardrails; requires the `CLAUDE_CODE_OAUTH_TOKEN` repo secret (subscription auth via `claude setup-token`; an `ANTHROPIC_API_KEY` swap is documented in the workflow header)
 
-PR CI is path-routed: desktop changes run desktop validation, Rust changes run Rust tests, and non-code PRs receive a lightweight passing no-op check.
+PR CI is path-routed: desktop changes run desktop validation, Rust changes run Rust tests, and non-code PRs receive a lightweight passing no-op check. `pr-ci.yml` also runs a `doc-drift` job on every PR — the same drift checks as `.claude/hooks/doc-check.sh` (see "Doc currency check" below), run against the PR's diff and surfaced in the Actions run summary. It is intentionally excluded from required status checks and can never block a merge; it exists so the doc-drift nudge also reaches non-Claude-Code harnesses that don't trigger the Stop hook.
 
 ## Containerized dev environment (optional)
 
@@ -257,7 +257,7 @@ Before ending any session, run:
 bash .claude/hooks/doc-check.sh
 ```
 
-This checks git diff against known triggers and lists any doc files that likely need updating. Address all flagged files before closing. Claude Code runs this automatically via a Stop hook; all other agents must run it manually as part of `verification-before-completion`.
+This checks git diff against known triggers and lists any doc files that likely need updating. Address all flagged files before closing. Claude Code runs this automatically via a Stop hook; all other agents must run it manually as part of `verification-before-completion`. The same script also runs non-blocking in CI as `pr-ci.yml`'s `doc-drift` job (see "CI routing" above) against the PR's diff, as a backstop for harnesses that don't trigger the Stop hook — that CI signal doesn't replace running it locally, since it only surfaces after a PR is opened.
 
 ## Worktree currency check
 
