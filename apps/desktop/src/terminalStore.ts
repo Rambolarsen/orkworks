@@ -183,8 +183,8 @@ export function ensureTerminal(id: string, baseUrl: string): TerminalHandle {
         receivedData,
       })
     ) {
-      getTerminalOutput(baseUrl, id).then((records) => {
-        writeTerminalReplay(term, records);
+      getTerminalOutput(baseUrl, id).then((payload) => {
+        writeTerminalReplay(term, payload.lines);
       }).catch(() => {
         /* silently ignore fetch failures */
       });
