@@ -8,7 +8,13 @@
 
 RANGE="$1"
 if [ -n "$RANGE" ]; then
-  CHANGED=$(git diff --name-only "$RANGE" 2>/dev/null) || exit 0
+  if ! CHANGED=$(git diff --name-only "$RANGE" 2>/dev/null); then
+    # Range mode (CI): a nonzero exit means the range couldn't be resolved
+    # (shallow clone, missing base ref, typo). Surface a warning on stdout so
+    # the pr-ci.yml job summary records the skip instead of looking green.
+    echo "[doc-check] warning: could not resolve diff range '$RANGE'; skipping drift check."
+    exit 0
+  fi
 else
   CHANGED=$(git diff --name-only HEAD 2>/dev/null; git diff --cached --name-only 2>/dev/null) || exit 0
 fi
