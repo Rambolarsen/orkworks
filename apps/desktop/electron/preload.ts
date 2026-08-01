@@ -26,6 +26,7 @@ contextBridge.exposeInMainWorld("orkworks", {
   clearHarnessCommandOverride: (harnessId: string): Promise<unknown> =>
     ipcRenderer.invoke("clear-harness-command-override", harnessId),
   openPlan: (sessionId: string): Promise<void> => ipcRenderer.invoke("open-plan", sessionId),
+  openExternalLink: (url: string): Promise<void> => ipcRenderer.invoke("open-external-link", url),
   setHotkeyCaptureActive: (active: boolean) => {
     ipcRenderer.send("orkworks:hotkey-capture-active", active);
   },

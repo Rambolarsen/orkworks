@@ -11,6 +11,10 @@ export function openWebLink(url: string, openExternal: Shell["openExternal"]): v
   }
 }
 
+export function openExternalLink(url: unknown, openExternal: Shell["openExternal"]): void {
+  if (typeof url === "string") openWebLink(url, openExternal);
+}
+
 function isAllowedNavigation(url: string, allowedOrigin?: string): boolean {
   try {
     return allowedOrigin !== undefined && new URL(url).origin === new URL(allowedOrigin).origin;
