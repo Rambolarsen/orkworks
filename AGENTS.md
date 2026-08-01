@@ -191,6 +191,7 @@ Electron + React/TypeScript frontend (`apps/desktop/`) communicates with a Rust 
 - ADR 0029: Session `label` (title) is a one-shot Peon-authored topic, decoupled from the turn-by-turn `summary`/checkpoint log; it is not part of the ADR 0005 metadata-source precedence system.
 - ADR 0031: Session git-context fields (`repo_root`/`branch`/`dirty`/etc.) reflect each session's live PTY-process cwd, probed cross-platform via the `sysinfo` crate, not just its frozen launch-time cwd.
 - ADR 0032: For Claude Code sessions, the harness's own self-reported cwd (forwarded from its hook JSON payload) takes priority over ADR 0031's pid probe, since command-template harnesses run as the PTY child directly and track "current directory" as internal state rather than calling `chdir()` on themselves.
+- ADR 0033: Dead-session terminal replay renders at the PTY's recorded `cols × rows` persisted in a per-session `.terminal-size` sidecar (cleared on resume), served as optional `cols`/`rows` on the terminal-output endpoint; legacy and unknown-size sessions keep fit-to-container replay.
 
 See [`docs/agents/architecture.md`](docs/agents/architecture.md) for the full inter-component breakdown (port discovery, preload bridge, API data flow, Rust modules, panel layout).
 

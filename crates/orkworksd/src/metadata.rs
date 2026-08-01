@@ -1734,6 +1734,21 @@ impl MetadataStore {
         }
         Some((cols, rows))
     }
+
+    /// Removes the recorded terminal-size sidecar for a session, if present.
+    /// Used by `resume_session` so a daemon crash before the resumed runtime
+    /// reaches another terminal-status transition falls back to the
+    /// documented fit-to-container replay instead of replaying the new run's
+    /// output against the prior run's grid. Idempotent: a missing file is not
+    /// an error. Only the `.terminal-size` file is removed — `.terminal` and
+    /// `.ndjson` are untouched (use `delete_events` for full event cleanup).
+    pub fn clear_terminal_size(&self, id: &str) {
+        if let Err(e) = fs::remove_file(self.terminal_size_path(id)) {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                warn!("failed to clear terminal size for {id}: {e}");
+            }
+        }
+    }
 }
 
 struct TerminalOutputTail {
@@ -3754,6 +3769,33 @@ mod tests {
 
         fs::write(&path, "120x0").unwrap();
         assert_eq!(store.read_terminal_size("malformed-session"), None);
+    }
+
+    #[test]
+    fn clear_terminal_size_removes_only_the_size_sidecar_and_is_idempotent() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        store.append_terminal_output_lines(
+            "clear-test",
+            &["line kept after size clear".into()],
+        );
+        store.write_terminal_size("clear-test", 120, 40);
+        let terminal_path = store.terminal_output_path("clear-test");
+        assert!(terminal_path.exists());
+        assert_eq!(store.read_terminal_size("clear-test"), Some((120, 40)));
+
+        store.clear_terminal_size("clear-test");
+
+        assert_eq!(store.read_terminal_size("clear-test"), None);
+        // The terminal-output sidecar is untouched — only the size is cleared.
+        assert!(terminal_path.exists());
+
+        // Idempotent: clearing again (file already gone) is not an error and
+        // does not touch the terminal output.
+        store.clear_terminal_size("clear-test");
+        store.clear_terminal_size("never-recorded");
+        assert!(terminal_path.exists());
+        assert_eq!(store.read_terminal_size("clear-test"), None);
     }
 
     #[test]

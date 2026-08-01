@@ -4,7 +4,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { getTerminalOutput } from "../api";
 import { loadTerminalReplay } from "../terminalReplay";
-import { computeReplayScale } from "../terminalReplayScale";
+import { computeReplayScale, availableContentBox } from "../terminalReplayScale";
 import { orkworksTerminalTheme } from "../terminalTheme";
 import EmptyState from "./EmptyState";
 
@@ -44,25 +44,54 @@ export default function HistoricalTerminal({ sessionId }: { sessionId: string })
             const screenEl = container.querySelector<HTMLElement>(".xterm-screen");
             if (xtermEl && screenEl) {
               let natural: { width: number; height: number } | null = null;
+
+              // Scale against the container's content box, not padding-inclusive
+              // clientWidth/clientHeight — xterm lives inside `.terminal-container`'s
+              // padding, so the padding-inclusive dimensions would overshoot the scale
+              // and `overflow: hidden` would clip the right and bottom edges. The
+              // padding math lives in the pure `availableContentBox` helper so it can
+              // be unit tested without mounting xterm.
+              const readContentBox = () => {
+                const cs = window.getComputedStyle(container);
+                const padding = {
+                  top: parseFloat(cs.paddingTop) || 0,
+                  right: parseFloat(cs.paddingRight) || 0,
+                  bottom: parseFloat(cs.paddingBottom) || 0,
+                  left: parseFloat(cs.paddingLeft) || 0,
+                };
+                return availableContentBox(
+                  { width: container.clientWidth, height: container.clientHeight },
+                  padding,
+                );
+              };
+
               const applyScale = () => {
                 if (!natural) return;
-                const scale = computeReplayScale(natural, {
-                  width: container.clientWidth,
-                  height: container.clientHeight,
-                });
+                const scale = computeReplayScale(natural, readContentBox());
                 xtermEl.style.transform = `scale(${scale})`;
                 xtermEl.style.transformOrigin = "top left";
               };
-              const renderDisposable = terminal.onRender(() => {
+
+              const measure = () => {
                 if (natural) return;
                 const rect = screenEl.getBoundingClientRect();
+                // Skip zero-sized measurements (panel hidden or not yet measured) and
+                // retry on the next render / container resize. Caching zero would freeze
+                // the replay with a 0-px xterm and dispose the render listener, so it
+                // would never recover when the panel becomes visible.
+                if (rect.width <= 0 || rect.height <= 0) return;
                 natural = { width: rect.width, height: rect.height };
                 xtermEl.style.width = `${rect.width}px`;
                 xtermEl.style.height = `${rect.height}px`;
                 renderDisposable.dispose();
                 applyScale();
+              };
+
+              const renderDisposable = terminal.onRender(measure);
+              observer = new ResizeObserver(() => {
+                measure();
+                applyScale();
               });
-              observer = new ResizeObserver(applyScale);
               observer.observe(container);
             }
           } else {
