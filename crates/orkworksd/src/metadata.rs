@@ -1046,6 +1046,7 @@ impl MetadataStore {
     pub fn delete_events(&self, id: &str) -> std::io::Result<()> {
         let ndjson_path = self.events_dir().join(format!("{}.ndjson", id));
         let terminal_path = self.terminal_output_path(id);
+        let terminal_size_path = self.terminal_size_path(id);
 
         if let Err(e) = fs::remove_file(&ndjson_path) {
             if e.kind() != std::io::ErrorKind::NotFound {
@@ -1053,6 +1054,11 @@ impl MetadataStore {
             }
         }
         if let Err(e) = fs::remove_file(&terminal_path) {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                return Err(e);
+            }
+        }
+        if let Err(e) = fs::remove_file(&terminal_size_path) {
             if e.kind() != std::io::ErrorKind::NotFound {
                 return Err(e);
             }
@@ -3878,22 +3884,28 @@ mod tests {
             },
         );
         store.append_terminal_output_lines("del-test", &["line 1".into(), "line 2".into()]);
+        store.write_terminal_size("del-test", 120, 40);
 
         let ndjson_path = store.events_dir().join("del-test.ndjson");
         let terminal_path = store.events_dir().join("del-test.terminal");
         assert!(ndjson_path.exists());
         assert!(terminal_path.exists());
+        assert_eq!(store.read_terminal_size("del-test"), Some((120, 40)));
 
         store.delete_events("del-test").unwrap();
 
         assert!(!ndjson_path.exists());
         assert!(!terminal_path.exists());
+        assert_eq!(store.read_terminal_size("del-test"), None);
     }
 
     #[test]
     fn delete_events_is_idempotent() {
         let dir = tempfile::tempdir().unwrap();
         let store = MetadataStore::new(dir.path());
+        store.write_terminal_size("del-test-idempotent", 100, 30);
+        assert!(store.delete_events("del-test-idempotent").is_ok());
+        assert!(store.delete_events("del-test-idempotent").is_ok());
         assert!(store.delete_events("nonexistent").is_ok());
     }
 
