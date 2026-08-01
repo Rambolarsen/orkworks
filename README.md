@@ -47,6 +47,7 @@ All metadata lives under `~/.orkworks/` (see [ADR 0018](docs/adr/0018-global-met
 - `~/.orkworks/workspaces/<hash>/sessions/<id>.json` — session state
 - `~/.orkworks/workspaces/<hash>/events/<id>.ndjson` — append-only event log with durable, exact consecutive-deduplicated summary checkpoints and accepted provenance
 - `~/.orkworks/workspaces/<hash>/events/<id>.terminal` — recent raw terminal replay, bounded on append to the newest 1,000 lines and 1 MiB; existing oversized dormant files remain unchanged until their next append
+- `~/.orkworks/workspaces/<hash>/events/<id>.terminal-size` — the PTY's `cols`x`rows` at the moment a session reaches a terminal status (`killed`/`ended`/`error`), written once; used to render dead-session terminal replay at its recorded size instead of the current panel width. Absent for sessions that ended before this file existed, and for sessions whose in-memory runtime handle was already gone at the terminal-status transition — both cases fall back to fit-to-container replay. See [ADR 0033](docs/adr/0033-recorded-terminal-replay-size-sidecar.md).
 - `~/.orkworks/workspaces/<hash>/capacity/<id>.json` — capacity per model/harness
 - `~/.orkworks/workspaces/<hash>/recommendations/<id>.json` — Taskmaster recommendation state and history
 - `~/.orkworks/workspaces/<hash>/workspace.json` — workspace memory, including the last active session

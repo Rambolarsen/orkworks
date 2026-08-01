@@ -203,11 +203,11 @@ export type TerminalOutputRecord = string | { text: string; delimiter: string };
 export async function getTerminalOutput(
   baseUrl: string,
   id: string,
-): Promise<TerminalOutputRecord[]> {
+): Promise<{ lines: TerminalOutputRecord[]; cols?: number; rows?: number }> {
   const resp = await fetch(`${baseUrl}/sessions/${id}/terminal-output`);
   if (!resp.ok) throw new Error(`get terminal output failed: ${resp.status}`);
   const data = await resp.json();
-  return data.lines ?? [];
+  return { lines: data.lines ?? [], cols: data.cols, rows: data.rows };
 }
 
 export interface SummaryLogEntry {

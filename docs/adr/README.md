@@ -40,3 +40,4 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 | [0030](./0030-integration-lock-check-await-helper.md) | Integration lock-check-drop-await-relock helper | accepted |
 | [0031](./0031-live-session-cwd-via-sysinfo-probe.md) | Live session cwd via cross-platform sysinfo probe | accepted |
 | [0032](./0032-harness-reported-cwd-via-hook-payload.md) | Harness-reported cwd via existing hook payload | accepted |
+| [0033](./0033-recorded-terminal-replay-size-sidecar.md) | Recorded terminal-replay grid via per-session `.terminal-size` sidecar | accepted |

@@ -538,7 +538,7 @@ pub(crate) fn make_pty_system() -> ConPtySystem {
 /// the transition was applied — callers schedule finalization only on `true`.
 pub(crate) fn set_session_status(state: &Arc<AppState>, id: &str, status: &str) -> bool {
     let is_terminal = matches!(status, "killed" | "ended" | "error");
-    let (handle_decision, session_resume, entered_running, entered_terminal) = {
+    let (handle_decision, session_resume, entered_running, entered_terminal, terminal_size) = {
         let mut sessions = state.sessions.lock().unwrap();
         if let Some(handle) = sessions.get_mut(id) {
             let entered_running =
@@ -573,14 +573,17 @@ pub(crate) fn set_session_status(state: &Arc<AppState>, id: &str, status: &str) 
             if is_terminal {
                 handle.info.observed_status = None;
             }
+            let terminal_size =
+                is_terminal.then(|| (handle.runtime.last_cols, handle.runtime.last_rows));
             (
                 Some(true),
                 (handle.info.resume.clone(), handle.info.resumed_from.clone()),
                 entered_running,
                 is_terminal,
+                terminal_size,
             )
         } else {
-            (None, (None, None), false, false)
+            (None, (None, None), false, false, None)
         }
     };
     if entered_terminal {
@@ -598,6 +601,9 @@ pub(crate) fn set_session_status(state: &Arc<AppState>, id: &str, status: &str) 
     let mut applied = handle_decision.unwrap_or(false);
     let ws_guard = state.workspace.lock().unwrap();
     if let Some(ref ws) = *ws_guard {
+        if let Some((cols, rows)) = terminal_size {
+            ws.metadata.write_terminal_size(id, cols, rows);
+        }
         if let Some(mut meta) = ws.metadata.read_session(id) {
             // With no in-memory handle, the persisted lifecycle is the guard authority.
             if handle_decision.is_none()
@@ -2058,6 +2064,53 @@ mod tests {
             .clone();
         assert_eq!(ended.status, "running");
         assert_eq!(ended.lifecycle_phase, "ending");
+    }
+
+    #[test]
+    fn set_session_status_persists_terminal_size_on_terminal_transition() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let id = "sized-session".to_string();
+
+        {
+            let ws_guard = state.workspace.lock().unwrap();
+            let ws = ws_guard.as_ref().unwrap();
+            ws.metadata.write_session(&test_session_metadata(
+                &id,
+                "Sized",
+                dir.path().display().to_string(),
+                "running",
+                "t0",
+                "t0",
+            ));
+        }
+
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        state.sessions.lock().unwrap().insert(
+            id.clone(),
+            crate::SessionHandle {
+                info: test_session_info(id.clone(), "Sized", "/tmp", "running", "t0"),
+                kill_tx,
+                output_buffer: crate::peon::RingBuffer::new(200),
+                scan_buf: String::new(),
+                pending_work_signal: None,
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(40, 120),
+                terminal_attached: false,
+                at_usage_limit_latched: false,
+                capacity_check_pending: false,
+                output_lines_seen: 0,
+                scan_bytes_seen: 0,
+                resume_scan_origin: None,
+                pending_capacity_visible_once: false,
+                active_work_hook: false,
+            },
+        );
+
+        set_session_status(&state, &id, "ended");
+
+        let ws_guard = state.workspace.lock().unwrap();
+        let ws = ws_guard.as_ref().unwrap();
+        assert_eq!(ws.metadata.read_terminal_size(&id), Some((120, 40)));
     }
 
     #[test]

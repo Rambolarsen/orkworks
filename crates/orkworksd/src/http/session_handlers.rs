@@ -394,6 +394,13 @@ pub(crate) async fn resume_session(
     {
         let ws_guard = state.workspace.lock().unwrap();
         if let Some(ref ws) = *ws_guard {
+            // Drop any recorded terminal-size sidecar from the prior run before the
+            // resumed runtime starts. If the daemon exits before the resumed run
+            // reaches another terminal-status transition there is no in-memory
+            // handle to overwrite the size, so leaving the prior grid in place
+            // would replay the new run's output against a stale grid. Clearing
+            // falls back to documented fit-to-container replay for that case.
+            ws.metadata.clear_terminal_size(&id);
             if let Some(mut stored_meta) = ws.metadata.read_session(&id) {
                 stored_meta.status = "creating".to_string();
                 stored_meta.lifecycle_phase = "creating".to_string();
