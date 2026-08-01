@@ -1,6 +1,6 @@
 # Review Queue — Spec
 
-Status: proposed
+Status: superseded by `specs/session-plan-review.md`
 Date: 2026-06-18
 
 ## Motivation

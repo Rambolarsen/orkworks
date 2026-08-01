@@ -74,7 +74,7 @@ OrkWorks should not own by default:
 - stashing
 - cleanup of branches/worktrees
 - task decomposition
-- automatic terminal input
+- automatic terminal input, except the explicit user-approved session-plan review prompt defined in `specs/session-plan-review.md`
 - automatic command approval
 
 Workflow actions may be added later as explicit opt-in conveniences, but they are not part of the initial MVP.
