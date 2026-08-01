@@ -5,6 +5,7 @@ import "@xterm/xterm/css/xterm.css";
 import { getTerminalOutput } from "../api";
 import { loadTerminalReplay } from "../terminalReplay";
 import { orkworksTerminalTheme } from "../terminalTheme";
+import { terminalLinkHandler } from "../terminalLinks";
 import EmptyState from "./EmptyState";
 
 export default function HistoricalTerminal({ sessionId }: { sessionId: string }) {
@@ -21,7 +22,13 @@ export default function HistoricalTerminal({ sessionId }: { sessionId: string })
         () => getTerminalOutput(baseUrl, sessionId),
         () => current,
         () => {
-          terminal = new Terminal({ theme: orkworksTerminalTheme, disableStdin: true, cursorBlink: false, scrollback: 2000 });
+          terminal = new Terminal({
+            theme: orkworksTerminalTheme,
+            disableStdin: true,
+            cursorBlink: false,
+            scrollback: 2000,
+            linkHandler: terminalLinkHandler(window.orkworks.openExternalLink),
+          });
           const fitAddon = new FitAddon();
           terminal.loadAddon(fitAddon);
           if (containerRef.current) {

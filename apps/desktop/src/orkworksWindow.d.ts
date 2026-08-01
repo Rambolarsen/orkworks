@@ -31,6 +31,7 @@ declare global {
         harnessId: string,
       ) => Promise<{ ok: true } | { ok: false; error: string }>;
       openPlan: (sessionId: string) => Promise<void>;
+      openExternalLink: (url: string) => Promise<void>;
       setHotkeyCaptureActive: (active: boolean) => void;
       onMenuCommand: (callback: (data: { action: string; panelId?: string }) => void) => () => void;
       notifyPanelVisibility: (panelId: string, visible: boolean) => void;

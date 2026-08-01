@@ -12,7 +12,7 @@ import { pushProviderSettings } from "./providerSettingsSync";
 import type { ProviderSettings } from "./providerTypes";
 import { buildMenuTemplate } from "./menuTemplate";
 import { openSessionPlan } from "./planOpener";
-import { configureExternalLinks } from "./externalLinks";
+import { configureExternalLinks, openExternalLink } from "./externalLinks";
 
 app.setName("OrkWorks");
 
@@ -172,6 +172,10 @@ app.whenReady().then(() => {
   ipcMain.handle("get-backend-url", async () => {
     const port = await portPromise;
     return `http://127.0.0.1:${port}`;
+  });
+
+  ipcMain.handle("open-external-link", (_event, url: unknown) => {
+    openExternalLink(url, shell.openExternal);
   });
 
   ipcMain.handle("get-layout", async () => {
