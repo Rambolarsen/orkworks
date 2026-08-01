@@ -638,6 +638,12 @@ pub(crate) async fn report_attention(
         }
     };
 
+    if result == metadata::AttentionMergeResult::Accepted && status == "working" {
+        if let Some(observed_at) = observed_at {
+            clear_claude_capacity_after_working(&state, &id, observed_at);
+        }
+    }
+
     if result == metadata::AttentionMergeResult::Accepted {
         let mut bufs = state.peon.input_buf.write().unwrap();
         if bufs
@@ -658,6 +664,39 @@ pub(crate) async fn report_attention(
         // harness hook its notification landed when it didn't.
         metadata::AttentionMergeResult::PersistFailed => {
             axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+fn clear_claude_capacity_after_working(
+    state: &Arc<AppState>,
+    id: &str,
+    observed_at: chrono::DateTime<chrono::Utc>,
+) {
+    let mut sessions = state.sessions.lock().unwrap();
+    let Some(harness_id) = sessions
+        .get(id)
+        .and_then(|handle| handle.info.harness_id.as_deref())
+        .map(str::to_owned)
+        .filter(|harness_id| *harness_id == "claude-code")
+    else {
+        return;
+    };
+    if sessions.values().any(|handle| {
+        handle.info.harness_id.as_deref() == Some(harness_id.as_str())
+            && handle.at_usage_limit_latched
+            && handle
+                .runtime
+                .usage_limit_latched_at
+                .is_some_and(|latched_at| latched_at > observed_at)
+    }) {
+        return;
+    }
+    for handle in sessions.values_mut() {
+        if handle.info.harness_id.as_deref() == Some(harness_id.as_str()) {
+            handle.at_usage_limit_latched = false;
+            handle.runtime.usage_limit_latched_at = None;
+            handle.resume_scan_origin = Some((handle.output_lines_seen, handle.scan_bytes_seen));
         }
     }
 }
@@ -1251,6 +1290,12 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
         .iter()
         .map(|(info, _, _, _, _, _, _, _, _)| info.id.clone())
         .collect();
+    let capacity_snapshots: HashMap<String, (bool, Option<(u64, u64)>, u64, u64)> = live_sessions
+        .iter()
+        .map(|(info, _, _, latched, _, lines, bytes, origin, _)| {
+            (info.id.clone(), (*latched, *origin, *lines, *bytes))
+        })
+        .collect();
 
     let peon_times = state.peon.last_inference.read().unwrap();
     let mut pending_transitions: Vec<(String, bool, bool)> = Vec::new();
@@ -1509,7 +1554,20 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
         let mut sessions = state.sessions.lock().unwrap();
         for info in &infos {
             if let Some(handle) = sessions.get_mut(&info.id) {
+                let Some((latched, origin, lines, bytes)) = capacity_snapshots.get(&info.id) else {
+                    continue;
+                };
+                if handle.at_usage_limit_latched != *latched
+                    || handle.resume_scan_origin != *origin
+                    || handle.output_lines_seen != *lines
+                    || handle.scan_bytes_seen != *bytes
+                {
+                    continue;
+                }
                 if info.at_usage_limit == Some(true) {
+                    if !handle.at_usage_limit_latched {
+                        handle.runtime.usage_limit_latched_at = Some(chrono::Utc::now());
+                    }
                     handle.at_usage_limit_latched = true;
                 }
                 if let Some(origin) = capped_clear_baselines.get(&info.id) {
@@ -2617,6 +2675,148 @@ mod tests {
                 .map(String::as_str),
             Some("y")
         );
+    }
+
+    #[tokio::test]
+    async fn claude_working_hook_clears_shared_stale_capacity_latches() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let source_id = "claude-working-source";
+        {
+            let ws = state.workspace.lock().unwrap();
+            let mut meta = test_session_metadata(
+                source_id,
+                "Claude source",
+                dir.path().display().to_string(),
+                "running",
+                "now",
+                "now",
+            );
+            meta.harness = "claude-code".into();
+            meta.lifecycle = "alive".into();
+            meta.lifecycle_phase = "active".into();
+            ws.as_ref().unwrap().metadata.write_session(&meta);
+        }
+        for (id, lines, bytes) in [(source_id, 7, 11), ("claude-working-peer", 3, 5)] {
+            let mut handle = attention_test_handle(id, dir.path());
+            handle.active_work_hook = true;
+            handle.info.harness_id = Some("claude-code".into());
+            handle.info.harness = Some("claude-code".into());
+            handle.info.last_output_at = Some("2026-08-01T08:00:00.000000Z".into());
+            handle.at_usage_limit_latched = true;
+            handle.output_lines_seen = lines;
+            handle.scan_bytes_seen = bytes;
+            state.sessions.lock().unwrap().insert(id.into(), handle);
+        }
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .get_mut("claude-working-peer")
+            .unwrap()
+            .info
+            .last_output_at = Some("2026-08-01T08:00:02.000000Z".into());
+
+        let response = report_attention(
+            State(state.clone()),
+            Path(source_id.into()),
+            Json(AttentionReportRequest {
+                status: "working".into(),
+                message: None,
+                plan_path: Default::default(),
+                observed_at: Some("2026-08-01T08:00:01.000000Z".into()),
+                cwd: None,
+            }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let sessions = state.sessions.lock().unwrap();
+        assert!(!sessions[source_id].at_usage_limit_latched);
+        assert_eq!(sessions[source_id].resume_scan_origin, Some((7, 11)));
+        assert!(!sessions["claude-working-peer"].at_usage_limit_latched);
+        assert_eq!(
+            sessions["claude-working-peer"].resume_scan_origin,
+            Some((3, 5))
+        );
+        drop(sessions);
+
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            sessions.get_mut(source_id).unwrap().at_usage_limit_latched = true;
+            let peer = sessions.get_mut("claude-working-peer").unwrap();
+            peer.at_usage_limit_latched = false;
+            peer.runtime.usage_limit_latched_at = Some(
+                crate::workspace_runtime::parse_hook_observed_at("2026-08-01T08:00:05.000000Z")
+                    .unwrap(),
+            );
+        }
+        let response = report_attention(
+            State(state.clone()),
+            Path(source_id.into()),
+            Json(AttentionReportRequest {
+                status: "working".into(),
+                message: None,
+                plan_path: Default::default(),
+                observed_at: Some("2026-08-01T08:00:04.000000Z".into()),
+                cwd: None,
+            }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        assert!(!state.sessions.lock().unwrap()[source_id].at_usage_limit_latched);
+    }
+
+    #[tokio::test]
+    async fn claude_working_hook_does_not_clear_a_newer_capacity_signal() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let id = "claude-working-after-cap";
+        {
+            let ws = state.workspace.lock().unwrap();
+            let mut meta = test_session_metadata(
+                id,
+                "Claude source",
+                dir.path().display().to_string(),
+                "running",
+                "now",
+                "now",
+            );
+            meta.harness = "claude-code".into();
+            meta.lifecycle = "alive".into();
+            meta.lifecycle_phase = "active".into();
+            ws.as_ref().unwrap().metadata.write_session(&meta);
+        }
+        let mut handle = attention_test_handle(id, dir.path());
+        handle.active_work_hook = true;
+        handle.info.harness_id = Some("claude-code".into());
+        handle.info.harness = Some("claude-code".into());
+        handle.at_usage_limit_latched = true;
+        handle.runtime.usage_limit_latched_at = Some(
+            crate::workspace_runtime::parse_hook_observed_at("2026-08-01T08:00:02.000000Z")
+                .unwrap(),
+        );
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+
+        let response = report_attention(
+            State(state.clone()),
+            Path(id.into()),
+            Json(AttentionReportRequest {
+                status: "working".into(),
+                message: None,
+                plan_path: Default::default(),
+                observed_at: Some("2026-08-01T08:00:01.000000Z".into()),
+                cwd: None,
+            }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        assert!(state.sessions.lock().unwrap()[id].at_usage_limit_latched);
     }
 
     #[tokio::test(flavor = "current_thread")]
