@@ -10,7 +10,7 @@ The observer-only MVP prevented every form of automatic terminal input. A user r
 
 ## Decision
 
-Permit exactly one user-initiated terminal write: the Details-panel review action. Electron main authenticates it with the sidecar secret. The renderer submits only the session ID; the sidecar validates the session's persisted workspace-relative Markdown path, constructs the fixed review prompt itself, writes it once to a live PTY, and records an event. No generic terminal-write API exists.
+Permit exactly one user-initiated terminal write: the Details-panel review action. Electron main authenticates it with the sidecar secret. The renderer submits only the session ID; the sidecar canonicalizes and contains the persisted workspace-relative Markdown path, rejects control characters, constructs the fixed review prompt itself, writes it once to a live PTY, and records an event. No generic terminal-write API exists.
 
 ## Consequences
 

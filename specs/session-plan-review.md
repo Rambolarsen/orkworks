@@ -9,7 +9,7 @@ OrkWorks should let a user read and explicitly request review of a plan or speci
 
 ## Design
 
-- A session may have one associated workspace-relative Markdown artifact. A harness-reported `planPath` remains authoritative; as a fallback, OrkWorks recognizes a valid path printed in terminal output below `docs/superpowers/plans/` or `specs/`.
+- A session may have one associated workspace-relative Markdown artifact. A harness-reported `planPath` remains authoritative; as a fallback, OrkWorks recognizes a valid path printed in terminal output below `docs/superpowers/plans/` or `specs/`. Every path is canonicalized, contained within the workspace, Markdown-only, and rejected when it contains a control character.
 - The selected session's Details panel shows a card whenever the associated artifact remains readable. It says **Plan ready for review** when the session needs the user and **Plan available** otherwise.
 - **Review plan** selects a single reusable Review tab beside Terminal and renders that artifact. It never creates a document tab per file.
 - **Ask this agent to review** is available only for a live selected session. The user click is the explicit approval: Electron main calls a sidecar endpoint authenticated with its per-sidecar secret; the sidecar revalidates the stored path and writes one fixed review prompt plus Enter to that session's PTY.
@@ -19,7 +19,7 @@ OrkWorks should let a user read and explicitly request review of a plan or speci
 
 The sidecar constructs one fixed prompt using the validated workspace-relative path:
 
-`Please review the plan at <path>. Check it for missing requirements, risky assumptions, and unclear steps, then report your findings.`
+`Please review the plan or specification at <path>. Check it for missing requirements, risky assumptions, and unclear steps, then report your findings.`
 
 ## Non-goals
 
