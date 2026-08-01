@@ -4,6 +4,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { getTerminalOutput } from "../api";
 import { loadTerminalReplay } from "../terminalReplay";
+import { computeReplayScale } from "../terminalReplayScale";
 import { orkworksTerminalTheme } from "../terminalTheme";
 import EmptyState from "./EmptyState";
 
@@ -20,18 +21,62 @@ export default function HistoricalTerminal({ sessionId }: { sessionId: string })
       .then((baseUrl) => loadTerminalReplay(
         () => getTerminalOutput(baseUrl, sessionId),
         () => current,
-        () => {
-          terminal = new Terminal({ theme: orkworksTerminalTheme, disableStdin: true, cursorBlink: false, scrollback: 2000 });
-          const fitAddon = new FitAddon();
-          terminal.loadAddon(fitAddon);
-          if (containerRef.current) {
-            terminal.open(containerRef.current);
+        ({ cols, rows }) => {
+          const container = containerRef.current;
+          const hasFixedSize = Boolean(cols && rows);
+          terminal = new Terminal({
+            theme: orkworksTerminalTheme,
+            disableStdin: true,
+            cursorBlink: false,
+            scrollback: 2000,
+            cols,
+            rows,
+          });
+          if (!container) return terminal;
+          terminal.open(container);
+
+          if (hasFixedSize) {
+            // Recorded size known: render at the exact recorded grid (no reflow), then
+            // shrink the whole grid with a CSS transform to fit the panel. Everything
+            // inside xterm's `.xterm` root is absolutely positioned, so `.xterm` has no
+            // natural size of its own — `.xterm-screen` is what xterm sizes in pixels to
+            // match cols/rows, so that's what we measure and then stamp onto `.xterm`.
+            const xtermEl = container.querySelector<HTMLElement>(".xterm");
+            const screenEl = container.querySelector<HTMLElement>(".xterm-screen");
+            if (xtermEl && screenEl) {
+              let natural: { width: number; height: number } | null = null;
+              const applyScale = () => {
+                if (!natural) return;
+                const scale = computeReplayScale(natural, {
+                  width: container.clientWidth,
+                  height: container.clientHeight,
+                });
+                xtermEl.style.transform = `scale(${scale})`;
+                xtermEl.style.transformOrigin = "top left";
+              };
+              const renderDisposable = terminal.onRender(() => {
+                if (natural) return;
+                const rect = screenEl.getBoundingClientRect();
+                natural = { width: rect.width, height: rect.height };
+                xtermEl.style.width = `${rect.width}px`;
+                xtermEl.style.height = `${rect.height}px`;
+                renderDisposable.dispose();
+                applyScale();
+              });
+              observer = new ResizeObserver(applyScale);
+              observer.observe(container);
+            }
+          } else {
+            // Legacy sessions with no recorded size: unchanged fit-to-container behavior.
+            const fitAddon = new FitAddon();
+            terminal.loadAddon(fitAddon);
             try { fitAddon.fit(); } catch { /* container not measured yet */ }
             observer = new ResizeObserver(() => {
               try { fitAddon.fit(); } catch { /* container not measured yet */ }
             });
-            observer.observe(containerRef.current);
+            observer.observe(container);
           }
+
           return terminal;
         },
       ))
