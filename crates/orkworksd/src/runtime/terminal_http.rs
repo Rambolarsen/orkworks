@@ -14,6 +14,10 @@ use std::sync::Arc;
 #[derive(Serialize)]
 pub(crate) struct TerminalOutputResponse {
     pub(crate) lines: Vec<metadata::TerminalOutputRecord>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) cols: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) rows: Option<u16>,
 }
 
 #[derive(Serialize)]
@@ -35,21 +39,27 @@ pub(crate) async fn get_terminal_output(
 ) -> impl IntoResponse {
     let state_clone = state.clone();
     let id_clone = id.clone();
-    let lines = tokio::task::spawn_blocking(move || {
+    let (lines, size) = tokio::task::spawn_blocking(move || {
         let ws_guard = state_clone.workspace.lock().unwrap();
         match &*ws_guard {
-            Some(ws) => ws
-                .metadata
-                .read_terminal_output(&id_clone, metadata::TERMINAL_OUTPUT_MAX_LINES),
-            None => Vec::new(),
+            Some(ws) => (
+                ws.metadata
+                    .read_terminal_output(&id_clone, metadata::TERMINAL_OUTPUT_MAX_LINES),
+                ws.metadata.read_terminal_size(&id_clone),
+            ),
+            None => (Vec::new(), None),
         }
     })
     .await
     .unwrap_or_else(|error| {
         tracing::error!(%error, "terminal-output metadata task failed");
-        Vec::new()
+        (Vec::new(), None)
     });
-    Json(TerminalOutputResponse { lines })
+    Json(TerminalOutputResponse {
+        lines,
+        cols: size.map(|(cols, _)| cols),
+        rows: size.map(|(_, rows)| rows),
+    })
 }
 
 pub(crate) async fn get_summary_log(
@@ -163,6 +173,51 @@ mod tests {
             payload["lines"],
             serde_json::json!([{"text": "first line", "delimiter": "\r\n"}])
         );
+    }
+
+    #[tokio::test]
+    async fn get_terminal_output_includes_recorded_size_when_present() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let session_id = "sized-session".to_string();
+
+        {
+            let ws_guard = state.workspace.lock().unwrap();
+            let ws = ws_guard.as_ref().unwrap();
+            ws.metadata.append_terminal_output_records(
+                &session_id,
+                &[metadata::TerminalOutputRecord::raw("line", "\r\n")],
+            );
+            ws.metadata.write_terminal_size(&session_id, 120, 40);
+        }
+
+        let payload =
+            response_json(get_terminal_output(State(state), Path(session_id)).await).await;
+
+        assert_eq!(payload["cols"], serde_json::json!(120));
+        assert_eq!(payload["rows"], serde_json::json!(40));
+    }
+
+    #[tokio::test]
+    async fn get_terminal_output_omits_size_when_not_recorded() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let session_id = "unsized-session".to_string();
+
+        {
+            let ws_guard = state.workspace.lock().unwrap();
+            let ws = ws_guard.as_ref().unwrap();
+            ws.metadata.append_terminal_output_records(
+                &session_id,
+                &[metadata::TerminalOutputRecord::raw("line", "\r\n")],
+            );
+        }
+
+        let payload =
+            response_json(get_terminal_output(State(state), Path(session_id)).await).await;
+
+        assert!(payload.get("cols").is_none());
+        assert!(payload.get("rows").is_none());
     }
 
     #[tokio::test]
