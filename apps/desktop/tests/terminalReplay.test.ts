@@ -37,7 +37,7 @@ test("writes persisted replay when the request remains current", async () => {
   const written: string[] = [];
   let factories = 0;
   const result = await loadTerminalReplay(
-    async () => ["first", "second"],
+    async () => ({ lines: ["first", "second"] }),
     () => true,
     () => {
       factories += 1;
@@ -56,7 +56,7 @@ test("writes persisted replay when the request remains current", async () => {
 test("writes raw replay records without adding a line ending", async () => {
   const written: string[] = [];
   const result = await loadTerminalReplay(
-    async () => [{ text: "one", delimiter: "\r\n" }],
+    async () => ({ lines: [{ text: "one", delimiter: "\r\n" }] }),
     () => true,
     () => ({
       write: (text: string) => written.push(`write:${text}`),
@@ -82,9 +82,27 @@ test("replay fallback writes raw records and preserves legacy line behavior", ()
   assert.deepEqual(written, ["write:one\r\n", "writeln:one"]);
 });
 
+test("passes the recorded size through to the terminal factory", async () => {
+  const sizes: Array<{ cols?: number; rows?: number }> = [];
+  const result = await loadTerminalReplay(
+    async () => ({ lines: ["one"], cols: 120, rows: 40 }),
+    () => true,
+    (size) => {
+      sizes.push(size);
+      return {
+        write: () => {},
+        writeln: () => {},
+      };
+    },
+  );
+
+  assert.equal(result, "loaded");
+  assert.deepEqual(sizes, [{ cols: 120, rows: 40 }]);
+});
+
 test("does not write a replay response after selection changes", async () => {
-  let resolve!: (lines: string[]) => void;
-  const pending = new Promise<string[]>((done) => { resolve = done; });
+  let resolve!: (payload: { lines: string[] }) => void;
+  const pending = new Promise<{ lines: string[] }>((done) => { resolve = done; });
   const written: string[] = [];
   let factories = 0;
   let current = true;
@@ -97,7 +115,7 @@ test("does not write a replay response after selection changes", async () => {
   });
 
   current = false;
-  resolve(["stale"]);
+  resolve({ lines: ["stale"] });
 
   assert.equal(await result, "stale");
   assert.equal(factories, 0);
@@ -114,7 +132,7 @@ test("reports empty and failed replay without writing", async () => {
       writeln: (line: string) => written.push(`writeln:${line}`),
     };
   };
-  assert.equal(await loadTerminalReplay(async () => [], () => true, create), "empty");
+  assert.equal(await loadTerminalReplay(async () => ({ lines: [] }), () => true, create), "empty");
   assert.equal(await loadTerminalReplay(async () => { throw new Error("offline"); }, () => true, create), "error");
   assert.equal(factories, 0);
   assert.deepEqual(written, []);

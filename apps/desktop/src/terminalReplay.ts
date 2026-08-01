@@ -15,16 +15,16 @@ export function writeTerminalReplay(terminal: ReplayTerminal, records: TerminalR
 }
 
 export async function loadTerminalReplay(
-  read: () => Promise<TerminalReplayRecord[]>,
+  read: () => Promise<{ lines: TerminalReplayRecord[]; cols?: number; rows?: number }>,
   isCurrent: () => boolean,
-  createTerminal: () => ReplayTerminal,
+  createTerminal: (size: { cols?: number; rows?: number }) => ReplayTerminal,
 ): Promise<TerminalReplayResult> {
   try {
-    const records = await read();
+    const payload = await read();
     if (!isCurrent()) return "stale";
-    if (records.length === 0) return "empty";
-    const terminal = createTerminal();
-    writeTerminalReplay(terminal, records);
+    if (payload.lines.length === 0) return "empty";
+    const terminal = createTerminal({ cols: payload.cols, rows: payload.rows });
+    writeTerminalReplay(terminal, payload.lines);
     return "loaded";
   } catch {
     return isCurrent() ? "error" : "stale";
