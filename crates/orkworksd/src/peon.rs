@@ -407,51 +407,58 @@ pub fn is_usable_input_label(label: &str, input_hint: &str) -> bool {
 /// Returns the only Peon summary eligible for the live work headline and
 /// durable task history. Terminal state alone is not work evidence.
 pub fn work_history_summary(output: &[String], inference_summary: Option<&str>) -> Option<String> {
-    if let Some(summary) = command_outcome_summary(output) {
-        return Some(summary);
-    }
-
-    output
+    if let Some(summary) = output
         .iter()
         .rev()
         .find_map(|line| line.strip_prefix("[User input]:").map(str::trim))
         .filter(|input| is_descriptive_input(input))
         .and_then(|input| inference_summary.filter(|summary| is_usable_input_label(summary, input)))
         .map(normalize_summary)
+    {
+        return Some(summary);
+    }
+
+    command_outcome_summary(output)
 }
 
 fn command_outcome_summary(output: &[String]) -> Option<String> {
-    let output = output
-        .iter()
-        .map(|line| strip_ansi(line).to_ascii_lowercase())
-        .collect::<Vec<_>>()
-        .join("\n");
+    let mut command = None;
+    let mut outcome = None;
+    for line in output {
+        let line = strip_ansi(line).to_ascii_lowercase();
+        if ["cargo test", "pnpm test", "npm test"]
+            .iter()
+            .any(|command| line.contains(command))
+        {
+            command = Some("test");
+        } else if ["cargo build", "pnpm build", "npm run build"]
+            .iter()
+            .any(|command| line.contains(command))
+        {
+            command = Some("build");
+        }
 
-    let test = ["cargo test", "pnpm test", "npm test"]
-        .iter()
-        .any(|command| output.contains(command));
-    if test {
-        if output.contains("test result: failed") || output.contains("tests failed") {
-            return Some("Tests failed".into());
-        }
-        if output.contains("test result: ok") || output.contains("tests passed") {
-            return Some("Tests passed".into());
-        }
+        outcome = match command {
+            Some("test") if line.contains("test result: failed") || line.contains("tests failed") => {
+                command = None;
+                Some("Tests failed".into())
+            }
+            Some("test") if line.contains("test result: ok") || line.contains("tests passed") => {
+                command = None;
+                Some("Tests passed".into())
+            }
+            Some("build") if line.contains("could not compile") || line.contains("build failed") => {
+                command = None;
+                Some("Build failed".into())
+            }
+            Some("build") if line.contains("finished `") || line.contains("build completed") => {
+                command = None;
+                Some("Build passed".into())
+            }
+            _ => outcome,
+        };
     }
-
-    let build = ["cargo build", "pnpm build", "npm run build"]
-        .iter()
-        .any(|command| output.contains(command));
-    if build {
-        if output.contains("could not compile") || output.contains("build failed") {
-            return Some("Build failed".into());
-        }
-        if output.contains("finished `") || output.contains("build completed") {
-            return Some("Build passed".into());
-        }
-    }
-
-    None
+    outcome
 }
 
 /// Detects usage limit in a raw text blob (for TUI apps that use cursor positioning, not newlines).
@@ -1004,6 +1011,33 @@ mod tests {
         let output = vec!["$ cargo test".into(), "test result: ok. 42 passed".into()];
         assert_eq!(
             work_history_summary(&output, Some("Terminal is healthy")),
+            Some("Tests passed".into())
+        );
+    }
+
+    #[test]
+    fn work_history_summary_prefers_the_latest_user_task() {
+        let output = vec![
+            "$ cargo test".into(),
+            "test result: ok. 42 passed".into(),
+            "[User input]: fix task history noise".into(),
+        ];
+        assert_eq!(
+            work_history_summary(&output, Some("Fixing task history noise")),
+            Some("Fixing task history noise".into())
+        );
+    }
+
+    #[test]
+    fn work_history_summary_uses_the_latest_command_outcome() {
+        let output = vec![
+            "$ cargo test".into(),
+            "test result: FAILED. 1 failed".into(),
+            "$ cargo test".into(),
+            "test result: ok. 42 passed".into(),
+        ];
+        assert_eq!(
+            work_history_summary(&output, None),
             Some("Tests passed".into())
         );
     }
