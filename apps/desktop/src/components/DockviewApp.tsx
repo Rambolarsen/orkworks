@@ -15,6 +15,7 @@ import SessionDetailPanel from "./SessionDetailPanel";
 import TerminalPanel from "./TerminalPanel";
 import CapacityPanel from "./CapacityPanel";
 import RecommendationsPanel from "./RecommendationsPanel";
+import ReviewPanel from "./ReviewPanel";
 
 interface DockviewAppData {
   backendStatus: string;
@@ -33,6 +34,7 @@ interface DockviewAppData {
   onApplyDebugAttention: (id: string, attention: SessionAttention, message?: string) => void;
   onFocusTerminal: () => void;
   onOpenWorkspace: () => void;
+  onReviewPlan: () => void;
   dockviewApiRef: React.MutableRefObject<DockviewApi | null>;
 }
 
@@ -87,6 +89,7 @@ function DetailPanel() {
       activeSessionId={ctx.activeSessionId}
       onResumeSession={ctx.onResumeSession}
       onApplyDebugAttention={ctx.onApplyDebugAttention}
+      onReviewPlan={ctx.onReviewPlan}
       showDebugMetadata={ctx.debugSettings.showSessionIds}
     />
   );
@@ -97,6 +100,7 @@ function TermPanel() {
   const session = ctx.sessions.find((s) => s.id === ctx.activeSessionId) ?? null;
   return <TerminalPanel key={`${session?.id ?? 'none'}-${ctx.resumeTick}`} backendStatus={ctx.backendStatus} session={session} />;
 }
+function ReviewTab() { const ctx = useContext(DockviewContext); return <ReviewPanel sessionId={ctx.activeSessionId} />; }
 
 function CapPanel() {
   return <CapacityPanel />;
@@ -112,12 +116,13 @@ const COMPONENTS = {
   terminal: TermPanel,
   capacity: CapPanel,
   recommendations: RecPanel,
+  review: ReviewTab,
 };
 
 export interface PanelDefault {
   component: string;
   title: string;
-  position?: { referencePanel: string; direction: "below" | "right" | "left" | "above" };
+  position?: { referencePanel: string; direction?: "below" | "right" | "left" | "above" | "within" };
 }
 
 export const PANEL_DEFAULTS: Record<string, PanelDefault> = {
@@ -126,6 +131,7 @@ export const PANEL_DEFAULTS: Record<string, PanelDefault> = {
   detail:          { component: "detail", title: "Detail", position: { referencePanel: "sessions", direction: "below" } },
   capacity:        { component: "capacity", title: "Capacity", position: { referencePanel: "terminal", direction: "right" } },
   recommendations: { component: "recommendations", title: "Recommendations", position: { referencePanel: "capacity", direction: "below" } },
+  review:          { component: "review", title: "Review", position: { referencePanel: "terminal" } },
 };
 
 /** Single source of truth for first-launch / Reset Layout. Capacity and

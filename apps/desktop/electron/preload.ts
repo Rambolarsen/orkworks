@@ -25,8 +25,9 @@ contextBridge.exposeInMainWorld("orkworks", {
     ipcRenderer.invoke("set-harness-command-override", harnessId, commandPath),
   clearHarnessCommandOverride: (harnessId: string): Promise<unknown> =>
     ipcRenderer.invoke("clear-harness-command-override", harnessId),
-  openPlan: (sessionId: string): Promise<void> => ipcRenderer.invoke("open-plan", sessionId),
   openExternalLink: (url: string): Promise<void> => ipcRenderer.invoke("open-external-link", url),
+  getPlanContent: (sessionId: string): Promise<string> => ipcRenderer.invoke("get-plan-content", sessionId),
+  requestPlanReview: (sessionId: string): Promise<void> => ipcRenderer.invoke("request-plan-review", sessionId),
   setHotkeyCaptureActive: (active: boolean) => {
     ipcRenderer.send("orkworks:hotkey-capture-active", active);
   },

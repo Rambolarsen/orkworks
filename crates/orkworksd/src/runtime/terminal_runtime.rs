@@ -322,6 +322,20 @@ fn record_peon_input_side_effects(
     let _ = record_terminal_input_impl(state, id, data, Some(is_sensitive), Some(output_boundary));
 }
 
+/// Submits a sidecar-owned, user-approved prompt through the same accepted-input
+/// bookkeeping used by the terminal transport.
+pub(crate) async fn submit_approved_input(state: &Arc<AppState>, id: &str, data: String) -> Result<(), ()> {
+    let (is_sensitive, output_boundary) = snapshot_input_context(state, id);
+    let result = crate::runtime::session_runtime::send_runtime_input(state, id, data.clone()).await;
+    record_input_after_delivery(
+        state,
+        id,
+        Some(&(data, is_sensitive, output_boundary)),
+        &result,
+    );
+    result
+}
+
 /// Test-only convenience wrapper that live-checks sensitivity against the
 /// current output buffer, bypassing the snapshot-before-dispatch that
 /// production callers must use (see `record_peon_input_side_effects`) since

@@ -1,9 +1,25 @@
 use std::path::{Path, PathBuf};
 
+/// Returns the first Markdown path printed by an agent that is in one of the
+/// narrow plan locations OrkWorks recognizes. Validation against the actual
+/// workspace happens before the value is persisted or served.
+pub(crate) fn printed_plan_path(output: &str) -> Option<String> {
+    output.split_whitespace().find_map(|word| {
+        let path = word.trim_matches(|ch: char| matches!(ch, '`' | '\'' | '"' | '(' | ')' | '[' | ']' | '{' | '}' | ',' | '.' | ':'));
+        (path.starts_with("docs/superpowers/plans/") || path.starts_with("specs/"))
+            .then_some(path)
+            .filter(|path| path.ends_with(".md") && !path.chars().any(char::is_control))
+            .map(str::to_owned)
+    })
+}
+
 pub(crate) fn resolve_openable_plan(
     workspace_root: &Path,
     relative_path: &str,
 ) -> Result<PathBuf, String> {
+    if relative_path.chars().any(char::is_control) {
+        return Err("plan path must not contain control characters".into());
+    }
     let relative = Path::new(relative_path);
     if relative.is_absolute() {
         return Err("plan path must be workspace-relative".into());
@@ -28,7 +44,7 @@ pub(crate) fn resolve_openable_plan(
 
 #[cfg(test)]
 mod tests {
-    use super::resolve_openable_plan;
+    use super::{printed_plan_path, resolve_openable_plan};
     use std::fs;
 
     #[test]
@@ -36,6 +52,8 @@ mod tests {
         let workspace = tempfile::tempdir().unwrap();
         fs::create_dir(workspace.path().join("docs")).unwrap();
         fs::write(workspace.path().join("docs/plan.MD"), "# plan").unwrap();
+        fs::create_dir(workspace.path().join("docs\nignored")).unwrap();
+        fs::write(workspace.path().join("docs\nignored/plan.MD"), "# injected").unwrap();
         fs::write(workspace.path().join("docs/notes.txt"), "notes").unwrap();
 
         assert!(resolve_openable_plan(workspace.path(), "docs/plan.MD").is_ok());
@@ -48,6 +66,26 @@ mod tests {
         assert!(resolve_openable_plan(workspace.path(), "docs/missing.md").is_err());
         assert!(resolve_openable_plan(workspace.path(), "docs/notes.txt").is_err());
         assert!(resolve_openable_plan(workspace.path(), "docs").is_err());
+        assert!(resolve_openable_plan(workspace.path(), "docs\nignored/plan.MD").is_err());
+    }
+
+    #[test]
+    fn finds_a_printed_plan_under_an_allowed_root() {
+        assert_eq!(
+            printed_plan_path("Plan written to `docs/superpowers/plans/session-review.md`."),
+            Some("docs/superpowers/plans/session-review.md".into())
+        );
+        assert_eq!(
+            printed_plan_path("See specs/session-plan-review.md before continuing."),
+            Some("specs/session-plan-review.md".into())
+        );
+    }
+
+    #[test]
+    fn ignores_printed_markdown_outside_plan_roots() {
+        assert_eq!(printed_plan_path("Read docs/readme.md"), None);
+        assert_eq!(printed_plan_path("Read ../specs/escape.md"), None);
+        assert_eq!(printed_plan_path("Read docs/superpowers/plans/not-a-plan.txt"), None);
     }
 
     #[cfg(unix)]

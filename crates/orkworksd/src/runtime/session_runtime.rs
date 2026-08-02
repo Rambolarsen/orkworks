@@ -2,7 +2,7 @@ use crate::runtime::terminal_runtime::{
     make_pty_system, schedule_session_ending_finalization, session_env_overrides,
     set_session_status, should_forward_terminal_env, terminal_env_overrides,
 };
-use crate::{harness, metadata, peon, AppState};
+use crate::{harness, metadata, peon, plan_handoff, AppState};
 use chrono::{DateTime, Utc};
 use portable_pty::{CommandBuilder, PtySize, PtySystem};
 use std::collections::VecDeque;
@@ -868,6 +868,26 @@ pub(crate) async fn start_session_runtime(
                                 driver_state.peon.last_output.write().unwrap()
                                     .insert(driver_id.clone(), tokio::time::Instant::now());
                                 driver_state.peon.last_inference.write().unwrap().remove(&driver_id);
+                            }
+
+                            // Harness reports remain authoritative. This is only a
+                            // fallback for agents that print a conventional plan path
+                            // without sending an explicit planPath report.
+                            if let Some(plan_path) = raw_persist_lines
+                                .iter()
+                                .find_map(|line| plan_handoff::printed_plan_path(line.text()))
+                            {
+                                let ws_guard = driver_state.workspace.lock().unwrap();
+                                if let Some(ref ws) = *ws_guard {
+                                    if plan_handoff::resolve_openable_plan(&ws.path, &plan_path).is_ok() {
+                                        if let Some(mut meta) = ws.metadata.read_session(&driver_id) {
+                                            if meta.plan_path.is_none() {
+                                                meta.plan_path = Some(plan_path);
+                                                ws.metadata.write_session(&meta);
+                                            }
+                                        }
+                                    }
+                                }
                             }
 
                             {

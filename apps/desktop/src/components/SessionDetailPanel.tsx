@@ -35,10 +35,11 @@ interface SessionDetailPanelProps {
   activeSessionId: string | null;
   onResumeSession: (id: string) => void;
   onApplyDebugAttention: (id: string, attention: SessionAttention, message?: string) => void;
+  onReviewPlan: () => void;
   showDebugMetadata: boolean;
 }
 
-function SessionDetailPanel({ sessions, activeSessionId, onResumeSession, onApplyDebugAttention, showDebugMetadata }: SessionDetailPanelProps) {
+function SessionDetailPanel({ sessions, activeSessionId, onResumeSession, onApplyDebugAttention, showDebugMetadata, onReviewPlan }: SessionDetailPanelProps) {
   const [debugAttention, setDebugAttention] = useState<SessionAttention>("working");
   const [debugMessage, setDebugMessage] = useState("");
   const [summaryLog, setSummaryLog] = useState<SummaryLogEntry[]>([]);
@@ -139,6 +140,16 @@ function SessionDetailPanel({ sessions, activeSessionId, onResumeSession, onAppl
         <div className="detail-actions">
           {active.recommendation && <div className="recommendation-text">{active.recommendation}</div>}
 
+          {active.hasOpenablePlan && (
+            <div className="detail-button-row">
+              <span className="detail-cue" data-attention={tone}>
+                {tone === "needs-you" ? "Plan ready for review" : "Plan available"}
+              </span>
+              <button className="detail-button detail-button--primary" type="button" onClick={onReviewPlan}>Review plan</button>
+              {active.lifecycle === "alive" && <button className="detail-button" type="button" onClick={() => void window.orkworks.requestPlanReview(active.id).catch((error: unknown) => pushToast("error", error instanceof Error ? error.message : "Couldn't request review."))}>Ask this agent to review</button>}
+            </div>
+          )}
+
           {actionZone.kind === "cue" && (
             <div className="detail-cue" data-attention={tone}>
               <span className="detail-cue-arrow">&rarr;</span>
@@ -167,13 +178,11 @@ function SessionDetailPanel({ sessions, activeSessionId, onResumeSession, onAppl
             </div>
           )}
 
-          {actionZone.kind === "plan" && (
+          {actionZone.kind === "plan" && !active.hasOpenablePlan && (
             <button
               className="detail-button detail-button--primary"
               type="button"
-              onClick={() => void window.orkworks.openPlan(active.id).catch((error: unknown) => {
-                pushToast("error", error instanceof Error ? error.message : "Couldn't open plan.");
-              })}
+              onClick={onReviewPlan}
             >
               Open plan
             </button>
