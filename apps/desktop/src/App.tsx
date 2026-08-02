@@ -245,6 +245,16 @@ function App() {
     getTerminal(activeSessionId)?.terminal.focus();
   }, [activeSessionId]);
 
+  const handleReviewPlan = useCallback(() => {
+    const api = dockviewApiRef.current;
+    if (!api) return;
+    const panel = api.getPanel("review") ?? api.addPanel({
+      id: "review", component: "review", title: "Review",
+      position: { referencePanel: "terminal" },
+    });
+    panel?.api.setActive();
+  }, []);
+
   const handleResumeSession = useCallback(async (id: string) => {
     try {
       disposeTerminal(id);
@@ -347,12 +357,15 @@ function App() {
                 sessionsHiddenLayoutRef.current = null;
               }
             }
-            const options: { id: string; component: string; position?: { referencePanel: string; direction: "below" | "right" | "left" | "above" } } = {
+            const options: { id: string; component: string; position?: { referencePanel: string; direction?: "below" | "right" | "left" | "above" } } = {
               id: def.component,
               component: def.component,
             };
             if (def.position && api.getPanel(def.position.referencePanel)) {
-              options.position = { referencePanel: def.position.referencePanel, direction: def.position.direction };
+              const direction = def.position.direction;
+              options.position = direction && direction !== "within"
+                ? { referencePanel: def.position.referencePanel, direction }
+                : { referencePanel: def.position.referencePanel };
             }
             api.addPanel(options);
             focusList();
@@ -375,12 +388,15 @@ function App() {
         if (existing) {
           existing.api.close();
         } else {
-          const options: { id: string; component: string; position?: { referencePanel: string; direction: "below" | "right" | "left" | "above" } } = {
+          const options: { id: string; component: string; position?: { referencePanel: string; direction?: "below" | "right" | "left" | "above" } } = {
             id: def.component,
             component: def.component,
           };
           if (def.position && api.getPanel(def.position.referencePanel)) {
-            options.position = { referencePanel: def.position.referencePanel, direction: def.position.direction };
+            const direction = def.position.direction;
+            options.position = direction && direction !== "within"
+              ? { referencePanel: def.position.referencePanel, direction }
+              : { referencePanel: def.position.referencePanel };
           }
           api.addPanel(options)?.api.setActive();
         }
@@ -453,6 +469,7 @@ function App() {
         onApplyDebugAttention={handleApplyDebugAttention}
         onFocusTerminal={handleFocusTerminal}
         onOpenWorkspace={handleOpenWorkspace}
+        onReviewPlan={handleReviewPlan}
         dockviewApiRef={dockviewApiRef}
       />
       {newSessionDialogOpen && (

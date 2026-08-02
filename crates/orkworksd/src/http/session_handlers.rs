@@ -83,25 +83,32 @@ pub(crate) struct WorkspaceResponse {
 }
 
 #[derive(Serialize)]
-pub(crate) struct OpenPlanResponse {
-    pub(crate) path: String,
+pub(crate) struct PlanContentResponse {
+    pub(crate) content: String,
 }
 
-pub(crate) async fn open_session_plan(
+fn authorize_plan_request(headers: &HeaderMap) -> Result<(), axum::http::StatusCode> {
+    let Ok(token) = std::env::var("ORKWORKS_OPEN_PLAN_TOKEN") else {
+        return Err(axum::http::StatusCode::SERVICE_UNAVAILABLE);
+    };
+    if token.is_empty() {
+        return Err(axum::http::StatusCode::SERVICE_UNAVAILABLE);
+    }
+    (Some(token.as_str())
+        == headers
+            .get("x-orkworks-open-plan-token")
+            .and_then(|value| value.to_str().ok()))
+        .then_some(())
+        .ok_or(axum::http::StatusCode::UNAUTHORIZED)
+}
+
+pub(crate) async fn get_session_plan_content(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    let Ok(token) = std::env::var("ORKWORKS_OPEN_PLAN_TOKEN") else {
-        return axum::http::StatusCode::SERVICE_UNAVAILABLE.into_response();
-    };
-    if token.is_empty()
-        || Some(token.as_str())
-            != headers
-                .get("x-orkworks-open-plan-token")
-                .and_then(|value| value.to_str().ok())
-    {
-        return axum::http::StatusCode::UNAUTHORIZED.into_response();
+    if let Err(status) = authorize_plan_request(&headers) {
+        return status.into_response();
     }
     let (workspace_root, plan_path) = {
         let workspace = state.workspace.lock().unwrap();
@@ -116,13 +123,41 @@ pub(crate) async fn open_session_plan(
         };
         (workspace.path.clone(), plan_path)
     };
-
-    match resolve_openable_plan(&workspace_root, &plan_path) {
-        Ok(path) => Json(OpenPlanResponse {
-            path: path.display().to_string(),
-        })
-        .into_response(),
+    match resolve_openable_plan(&workspace_root, &plan_path)
+        .and_then(|path| std::fs::read_to_string(path).map_err(|error| error.to_string()))
+    {
+        Ok(content) => Json(PlanContentResponse { content }).into_response(),
         Err(_) => axum::http::StatusCode::CONFLICT.into_response(),
+    }
+}
+
+pub(crate) async fn request_session_plan_review(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if let Err(status) = authorize_plan_request(&headers) { return status.into_response(); }
+    let relative = {
+        let workspace = state.workspace.lock().unwrap();
+        let Some(workspace) = workspace.as_ref() else { return axum::http::StatusCode::CONFLICT.into_response(); };
+        let Some(meta) = workspace.metadata.read_session(&id) else { return axum::http::StatusCode::NOT_FOUND.into_response(); };
+        if meta.lifecycle != "alive" { return axum::http::StatusCode::CONFLICT.into_response(); }
+        let Some(path) = meta.plan_path else { return axum::http::StatusCode::CONFLICT.into_response(); };
+        if resolve_openable_plan(&workspace.path, &path).is_err() { return axum::http::StatusCode::CONFLICT.into_response(); }
+        path
+    };
+    let prompt = format!("Please review the plan or specification at {relative}. Check it for missing requirements, risky assumptions, and unclear steps, then report your findings.\r");
+    match crate::runtime::terminal_runtime::submit_approved_input(&state, &id, prompt).await {
+        Ok(()) => {
+            if let Some(workspace) = state.workspace.lock().unwrap().as_ref() {
+                workspace.metadata.append_event(&id, &metadata::Event {
+                    event_type: "plan_review_requested".into(), timestamp: iso_now(), status: "working".into(),
+                    observed_status: Some("working".into()), confidence: None, summary: Some("User requested plan review.".into()), source: Some("user".into()),
+                });
+            }
+            axum::http::StatusCode::NO_CONTENT.into_response()
+        }
+        Err(()) => axum::http::StatusCode::CONFLICT.into_response(),
     }
 }
 
@@ -1745,6 +1780,8 @@ mod tests {
     use super::*;
     use crate::runtime::terminal_runtime::set_session_status;
     use crate::test_support::*;
+
+    static PLAN_TOKEN_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     #[test]
     fn session_git_context_is_resolved_once_per_unique_cwd() {
@@ -5390,7 +5427,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn open_session_plan_returns_a_freshly_validated_canonical_path() {
+    async fn plan_content_requires_a_valid_plan_and_sidecar_token() {
+        let _token_lock = PLAN_TOKEN_TEST_LOCK.lock().unwrap();
         let workspace = tempfile::tempdir().unwrap();
         std::fs::create_dir(workspace.path().join("docs")).unwrap();
         let plan = workspace.path().join("docs/plan.md");
@@ -5417,11 +5455,84 @@ mod tests {
         std::env::set_var("ORKWORKS_OPEN_PLAN_TOKEN", "test-token");
         let mut headers = HeaderMap::new();
         headers.insert("x-orkworks-open-plan-token", "test-token".parse().unwrap());
-        let response = open_session_plan(State(state), Path("plan-session".into()), headers)
+        let response = get_session_plan_content(State(state), Path("plan-session".into()), headers)
             .await
             .into_response();
         std::env::remove_var("ORKWORKS_OPEN_PLAN_TOKEN");
 
         assert_eq!(response.status(), axum::http::StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn plan_endpoints_reject_a_missing_sidecar_token() {
+        let _token_lock = PLAN_TOKEN_TEST_LOCK.lock().unwrap();
+        let workspace = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(workspace.path());
+        std::env::set_var("ORKWORKS_OPEN_PLAN_TOKEN", "test-token");
+
+        let content = get_session_plan_content(
+            State(state.clone()),
+            Path("missing".into()),
+            HeaderMap::new(),
+        )
+        .await
+        .into_response();
+        let review = request_session_plan_review(
+            State(state),
+            Path("missing".into()),
+            HeaderMap::new(),
+        )
+        .await
+        .into_response();
+        std::env::remove_var("ORKWORKS_OPEN_PLAN_TOKEN");
+
+        assert_eq!(content.status(), axum::http::StatusCode::UNAUTHORIZED);
+        assert_eq!(review.status(), axum::http::StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn plan_review_submits_the_fixed_prompt_before_recording_the_event() {
+        let _token_lock = PLAN_TOKEN_TEST_LOCK.lock().unwrap();
+        let workspace = tempfile::tempdir().unwrap();
+        std::fs::create_dir(workspace.path().join("specs")).unwrap();
+        std::fs::write(workspace.path().join("specs/plan.md"), "# plan").unwrap();
+        let state = test_app_state_with_workspace(workspace.path());
+        let mut metadata = test_session_metadata(
+            "plan-session", "Plan session", workspace.path().display().to_string(), "running", "now", "now",
+        );
+        metadata.lifecycle_phase = "active".into();
+        metadata.lifecycle = "alive".into();
+        metadata.plan_path = Some("specs/plan.md".into());
+        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&metadata);
+
+        let mut handle = attention_test_handle("plan-session", workspace.path());
+        let (runtime, mut control_rx) = crate::runtime::session_runtime::SessionRuntime::live(24, 80);
+        handle.runtime = runtime;
+        state.sessions.lock().unwrap().insert("plan-session".into(), handle);
+
+        std::env::set_var("ORKWORKS_OPEN_PLAN_TOKEN", "test-token");
+        let mut headers = HeaderMap::new();
+        headers.insert("x-orkworks-open-plan-token", "test-token".parse().unwrap());
+        let mut request = tokio::spawn(request_session_plan_review(
+            State(state.clone()),
+            Path("plan-session".into()),
+            headers,
+        ));
+        let crate::runtime::session_runtime::RuntimeCommand::Input { data, accepted } =
+            (tokio::select! {
+                command = control_rx.recv() => command.unwrap(),
+                response = &mut request => panic!("review request returned {} before reaching the PTY", response.unwrap().into_response().status()),
+            })
+        else {
+            panic!("expected terminal input")
+        };
+        assert_eq!(data, "Please review the plan or specification at specs/plan.md. Check it for missing requirements, risky assumptions, and unclear steps, then report your findings.\r");
+        accepted.unwrap().send(Ok(())).unwrap();
+        let response = request.await.unwrap().into_response();
+        std::env::remove_var("ORKWORKS_OPEN_PLAN_TOKEN");
+
+        assert_eq!(response.status(), axum::http::StatusCode::NO_CONTENT);
+        let events = state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_events("plan-session");
+        assert!(events.iter().any(|event| event.event_type == "plan_review_requested"));
     }
 }

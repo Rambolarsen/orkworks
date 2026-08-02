@@ -32,7 +32,7 @@ orkworks/
 - Lifecycle transitions remain metadata-driven; the previously unwired domain aggregate was removed, with a future typed state-machine tracked in [issue #181](https://github.com/Rambolarsen/orkworks/issues/181) (see [ADR 0021](docs/adr/0021-session-lifecycle-phases.md)).
 - PTY lifetime is owned by the Rust sidecar session runtime rather than by a renderer WebSocket; active work survives terminal detach while `orkworksd` stays alive (see [ADR 0022](docs/adr/0022-session-runtime-owned-pty-lifetime.md))
 - Raw terminal replay is bounded to the newest 1,000 lines and 1 MiB; dead sessions display that saved output read-only, while accepted session summaries are retained as durable checkpoints (see [ADR 0024](docs/adr/0024-bounded-terminal-replay-durable-summary-checkpoints.md))
-- Session plans are opened only through an authenticated Electron-main-process handoff; the renderer receives availability, never a filesystem path (see [ADR 0025](docs/adr/0025-authenticated-session-plan-handoff.md))
+- Session plans/specs appear in a reusable Review tab; the renderer receives availability and document content, never a filesystem path. The sole terminal-input exception is a user-clicked, fixed review prompt (see [ADR 0025](docs/adr/0025-authenticated-session-plan-handoff.md), [ADR 0034](docs/adr/0034-user-approved-session-review-prompt.md))
 - Harness capabilities and workspace integration status resolve from one immutable registry; mutations require Electron-main confirmation and never expose mutation authority to the renderer or child processes (see [ADR 0026](docs/adr/0026-resolved-harness-capability-registry.md))
 - Harness version-probe results use bounded TTL caching with generation-aware invalidation; integration actions still revalidate identity after a probe (see [ADR 0028](docs/adr/0028-generation-aware-harness-version-probe-cache.md))
 - Session `label` (title) is a one-shot Peon-authored topic, decoupled from the turn-by-turn summary/checkpoint log (see [ADR 0029](docs/adr/0029-session-label-topic-vs-activity-summary.md))
@@ -56,7 +56,7 @@ All metadata lives under `~/.orkworks/` (see [ADR 0018](docs/adr/0018-global-met
 - `~/.orkworks/hook-scripts/` — stable copies of harness reporter scripts, so installed hooks survive app updates and packaging path changes
 - Priority: user > agent > peon > backend_inference > process > unknown > debug (see [ADR 0005](docs/adr/0005-metadata-source-priority.md))
 - Current session records expose the canonical `creating → alive → stopping → dead` lifecycle. Only alive sessions have attention: `working`, `idle`, `needs_you`, `blocked`, `failed`, or `capped`.
-- Peon reads terminal output, writes inferred metadata, never types into terminals
+- Peon reads terminal output and writes inferred metadata; the only terminal-write exception is the explicit user-approved session-plan review prompt ([ADR 0034](docs/adr/0034-user-approved-session-review-prompt.md))
 - Harnesses can write deterministic attention signals at `agent` priority via `POST /sessions/:id/attention`; generic workspace integration installation is explicit and user-confirmed only ([ADR 0026](docs/adr/0026-resolved-harness-capability-registry.md))
 - `GET /sessions/:id/summary-log` returns checkpoints in append order as `{entries: [{timestamp, summary, source, confidence}]}`; `confidence` is nullable and missing data returns `{entries: []}`. Rendered in the session detail panel as "Task history" — distinct from the session's `label` (title), which is a stable, one-shot Peon-authored topic rather than this turn-by-turn activity log (see [ADR 0029](docs/adr/0029-session-label-topic-vs-activity-summary.md))
 - Taskmaster proposes cross-session transitions; every v1 transition requires explicit user approval
@@ -223,5 +223,6 @@ Session metadata and session API payloads now accept canonical `harnessId`, `mod
 - `specs/orkworks-mvp.md` — full product scope, architecture, milestones, non-goals
 - `specs/native-harness-voice-support.md` — voice support design
 - `specs/release-pipeline.md` — alpha desktop packaging and GitHub Releases workflow
-- `specs/review-queue.md` — repo-local review inbox for plan/spec artifacts
+- `specs/review-queue.md` — superseded repo-local review inbox proposal
+- `specs/session-plan-review.md` — selected-session plan/spec review and explicit review prompt handoff
 - `specs/taskmaster.md` — cross-session coordination and next-step recommendations

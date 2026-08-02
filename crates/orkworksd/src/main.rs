@@ -42,7 +42,7 @@ use crate::http::provider_handlers::{
 use crate::http::retention_handlers::set_retention;
 use crate::http::session_handlers::{
     apply_debug_attention, create_session, delete_session, forget_session, list_sessions,
-    open_session_plan, report_attention, report_harness_session, resume_session,
+get_session_plan_content, request_session_plan_review, report_attention, report_harness_session, resume_session,
     set_active_harnesses, set_active_session, set_workspace,
 };
 use crate::runtime::peon_runtime::peon_loop;
@@ -232,7 +232,8 @@ async fn main() {
         )
         .route("/sessions/:id/attention", post(report_attention))
         .route("/sessions/:id/debug-injection", post(apply_debug_attention))
-        .route("/sessions/:id/open-plan", post(open_session_plan))
+        .route("/sessions/:id/plan-content", get(get_session_plan_content))
+        .route("/sessions/:id/request-plan-review", post(request_session_plan_review))
         .route("/settings/retention", post(set_retention))
         .route("/harnesses", get(list_harnesses).post(create_harness))
         .route("/harnesses/:id", put(update_harness).delete(delete_harness))
@@ -583,7 +584,8 @@ mod tests {
             )
             .route("/sessions/:id/attention", post(report_attention))
             .route("/sessions/:id/debug-injection", post(apply_debug_attention))
-            .route("/sessions/:id/open-plan", post(open_session_plan))
+            .route("/sessions/:id/plan-content", get(get_session_plan_content))
+            .route("/sessions/:id/request-plan-review", post(request_session_plan_review))
             .route("/settings/retention", post(set_retention))
             .route("/harnesses", get(list_harnesses).post(create_harness))
             .route("/harnesses/:id", put(update_harness).delete(delete_harness))

@@ -11,7 +11,7 @@ import { DEFAULT_HOTKEYS, DEFAULT_RETENTION, normalizeDebugSettings, normalizePr
 import { pushProviderSettings } from "./providerSettingsSync";
 import type { ProviderSettings } from "./providerTypes";
 import { buildMenuTemplate } from "./menuTemplate";
-import { openSessionPlan } from "./planOpener";
+import { getSessionPlanContent, requestSessionPlanReview } from "./planOpener";
 import { configureExternalLinks, openExternalLink } from "./externalLinks";
 
 app.setName("OrkWorks");
@@ -334,11 +334,15 @@ app.whenReady().then(() => {
     return { labels: {} };
   });
 
-  ipcMain.handle("open-plan", async (_event, sessionId: unknown) => {
+  ipcMain.handle("get-plan-content", async (_event, sessionId: unknown) => {
     if (typeof sessionId !== "string" || !sessionId) throw new Error("Invalid session ID.");
     const port = await portPromise;
-    if (!workspacePath) throw new Error("Open a workspace first.");
-    await openSessionPlan(`http://127.0.0.1:${port}`, sessionId, openPlanToken, workspacePath, fetch, (filePath) => shell.openPath(filePath));
+    return getSessionPlanContent(`http://127.0.0.1:${port}`, sessionId, openPlanToken, fetch);
+  });
+  ipcMain.handle("request-plan-review", async (_event, sessionId: unknown) => {
+    if (typeof sessionId !== "string" || !sessionId) throw new Error("Invalid session ID.");
+    const port = await portPromise;
+    await requestSessionPlanReview(`http://127.0.0.1:${port}`, sessionId, openPlanToken, fetch);
   });
 
   const integrationActionLabels: Record<"status" | "install" | "uninstall", string> = {
