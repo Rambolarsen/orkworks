@@ -5457,6 +5457,32 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn plan_endpoints_reject_a_missing_sidecar_token() {
+        let workspace = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(workspace.path());
+        std::env::set_var("ORKWORKS_OPEN_PLAN_TOKEN", "test-token");
+
+        let content = get_session_plan_content(
+            State(state.clone()),
+            Path("missing".into()),
+            HeaderMap::new(),
+        )
+        .await
+        .into_response();
+        let review = request_session_plan_review(
+            State(state),
+            Path("missing".into()),
+            HeaderMap::new(),
+        )
+        .await
+        .into_response();
+        std::env::remove_var("ORKWORKS_OPEN_PLAN_TOKEN");
+
+        assert_eq!(content.status(), axum::http::StatusCode::UNAUTHORIZED);
+        assert_eq!(review.status(), axum::http::StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
     async fn plan_review_submits_the_fixed_prompt_before_recording_the_event() {
         let workspace = tempfile::tempdir().unwrap();
         std::fs::create_dir(workspace.path().join("specs")).unwrap();
@@ -5465,6 +5491,7 @@ mod tests {
         let mut metadata = test_session_metadata(
             "plan-session", "Plan session", workspace.path().display().to_string(), "running", "now", "now",
         );
+        metadata.lifecycle_phase = "active".into();
         metadata.lifecycle = "alive".into();
         metadata.plan_path = Some("specs/plan.md".into());
         state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&metadata);
@@ -5477,8 +5504,19 @@ mod tests {
         std::env::set_var("ORKWORKS_OPEN_PLAN_TOKEN", "test-token");
         let mut headers = HeaderMap::new();
         headers.insert("x-orkworks-open-plan-token", "test-token".parse().unwrap());
-        let request = tokio::spawn(request_session_plan_review(State(state.clone()), Path("plan-session".into()), headers));
-        let crate::runtime::session_runtime::RuntimeCommand::Input { data, accepted } = control_rx.recv().await.unwrap() else { panic!("expected terminal input") };
+        let mut request = tokio::spawn(request_session_plan_review(
+            State(state.clone()),
+            Path("plan-session".into()),
+            headers,
+        ));
+        let crate::runtime::session_runtime::RuntimeCommand::Input { data, accepted } =
+            (tokio::select! {
+                command = control_rx.recv() => command.unwrap(),
+                response = &mut request => panic!("review request returned {} before reaching the PTY", response.unwrap().into_response().status()),
+            })
+        else {
+            panic!("expected terminal input")
+        };
         assert_eq!(data, "Please review the plan or specification at specs/plan.md. Check it for missing requirements, risky assumptions, and unclear steps, then report your findings.\r");
         accepted.unwrap().send(Ok(())).unwrap();
         let response = request.await.unwrap().into_response();

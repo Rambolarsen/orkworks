@@ -58,7 +58,7 @@
 
 - [ ] Write behavioral tests in `labels.test.ts` that require a review card for every `hasOpenablePlan` session and hide only the send action for non-live sessions. Add Dockview tests requiring `review` to share Terminal's group and to be get-or-added when absent from a restored layout.
 - [ ] Run the focused test and observe failure.
-- [ ] Add a Review panel that clears stale content on session change, asks main for the selected session's content, and renders plain text (`white-space: pre-wrap`). `onReviewPlan` get-or-adds the one `review` panel with `{ referencePanel: "terminal", direction: "within" }`, then activates it. Pass the callback to Details; its card uses status-sensitive copy and offers Review plan plus Ask this agent to review for a live session.
+- [ ] Add a Review panel that clears stale content on session change, asks main for the selected session's content, and renders plain text (`white-space: pre-wrap`). `onReviewPlan` get-or-adds the one `review` panel with `{ referencePanel: "terminal" }`, which Dockview places in Terminal's tab group, then activates it. Pass the callback to Details; its card uses status-sensitive copy and offers Review plan plus Ask this agent to review for a live session.
 - [ ] Wire the review handoff button to the path-free preload method, show a toast on failure, and run focused tests plus `rtk npx tsc --noEmit`.
 
 ### Task 4: Regression and documentation verification

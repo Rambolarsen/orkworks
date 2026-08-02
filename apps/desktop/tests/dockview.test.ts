@@ -65,6 +65,16 @@ test("DockviewApp keeps all five panel ids registered (View menu hotkeys depend 
   }
 });
 
+test("Review is a reusable Terminal-group tab, including after a restored layout omitted it", () => {
+  const dockview = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
+  const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+
+  assert.match(dockview, /review:\s*ReviewTab/);
+  assert.match(dockview, /review:\s*\{ component: "review", title: "Review", position: \{ referencePanel: "terminal" \} \}/);
+  assert.match(app, /api\.getPanel\("review"\) \?\? api\.addPanel\(/);
+  assert.match(app, /position: \{ referencePanel: "terminal" \}/);
+});
+
 test("DockviewApp default layout opens sessions/detail/terminal only (Capacity & Recommendations closed until they carry signal)", () => {
   const source = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
 
@@ -226,7 +236,7 @@ test("SessionDetailPanel surfaces lifecycle, work phase, and frozen final attent
   assert.match(source, /finalObservedStatus/);
 });
 
-test("SessionDetailPanel's action zone renders at most one move, via the shared detailActionZone derivation", () => {
+test("SessionDetailPanel keeps its existing action zone and adds plan review for every readable plan", () => {
   const source = readFileSync(new URL("../src/components/SessionDetailPanel.tsx", import.meta.url), "utf8");
 
   assert.match(source, /import\s*\{[^}]*detailActionZone[^}]*\}\s*from\s*"\.\.\/labels"/);
@@ -234,7 +244,13 @@ test("SessionDetailPanel's action zone renders at most one move, via the shared 
   assert.match(source, /actionZone\.kind === "buttons"/);
   assert.match(source, /actionZone\.kind === "resume"/);
   assert.match(source, /actionZone\.kind === "plan"/);
-  assert.match(source, /window\.orkworks\.openPlan\(active\.id\)/);
+  assert.match(source, /active\.hasOpenablePlan/);
+  assert.match(source, /Plan ready for review/);
+  assert.match(source, /Plan available/);
+  assert.match(source, /Review plan/);
+  assert.match(source, /Ask this agent to review/);
+  assert.match(source, /window\.orkworks\.requestPlanReview\(active\.id\)/);
+  assert.doesNotMatch(source, /window\.orkworks\.openPlan/);
   assert.match(source, /<ResumeChooser\b/);
   // "Nothing at all" for a live session with no pending question — no disabled resume button left behind.
   assert.doesNotMatch(source, /session-resume-button/);
