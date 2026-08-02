@@ -135,6 +135,61 @@ the helper to a shared scope, both sites should call it.
 > conjunction, and the echo-prefix treatment below are otherwise unchanged
 > from this design.
 
+> **Implementation note (issue #273, Codex review-fix pass):** two more
+> deviations from the original design landed in code at the same review-fix
+> step:
+>
+> 1. **Output-gated promotion now uses `ProcessTransition::CommittedWorking`.**
+>    The original output-handler promotion in `session_runtime.rs` manually
+>    set `observed_status` and `attention` only, leaving `metadata_source`,
+>    `metadata_confidence`, and the question fields (`needs_user_input` /
+>    `detected_question` / `suggested_options`) intact on both the live
+>    handle and the persisted metadata. That left the answered prompt's
+>    question metadata live after promotion, and the live handle continued
+>    to report `metadata_source = "agent"` while its attention read
+>    `working` — an incoherence surfaced once #273 hooked the hook-sourced
+>    single-key path onto this promotion. The fix routes the promotion
+>    through `apply_process_transition_to_handle` /
+>    `apply_process_transition_to_meta` with
+>    `ProcessTransition::CommittedWorking`, identical to the Enter-terminated
+>    `mark_committed_input_working` path. Codex P2 review comment #1.
+> 2. **Hook reports clear the armed signal.** The original design (see the
+>    edge case two sections below) claimed a "second hook report" was benign
+>    and required no special handling. That reasoning assumed visible PTY
+>    output always intersperses between consecutive hook reports, consuming
+>    the armed signal first. Codex P2 review comment #4 traced a reachable
+>    counterexample (chain that produces no intervening visible output);
+>    `apply_attention_signal` now clears `pending_work_signal` on every
+>    accepted attention report so a stale signal cannot override a fresh
+>    hook-sourced `needs_you`, preserving agent-over-process priority.
+>
+> Two further Codex P2 review comments were evaluated and **deferred as
+> pre-existing limitations** rather than addressed in this PR:
+>
+> - **Arm-before-output race** (Codex P2 #2): the work signal is armed
+>   inside `record_input_after_delivery`, which runs after the runtime's
+>   `RuntimeCommand::Input` ack is sent, so a fast visible output chunk
+>   could in principle be processed before the arming runs. The same race
+>   window applies to the existing initial-prompt arming path
+>   (`session_handlers.rs:972`), and the recovery — the next visible
+>   output within the 10-second signal window — is the same. A proper
+>   fix would move arming into the runtime task before the PTY write, a
+>   non-trivial refactor that crosses the driver/WS-task ownership
+>   boundary. Out of scope for #273; tracked as a follow-up if it
+>   surfaces in practice.
+> - **Startup-grace consumption without promotion** (Codex P2 #3):
+>   `consume_pending_work_signal` clears the slot when it qualifies, but
+>   `should_infer_working` independently rejects the promotion while
+>   `startup_grace_ends_at` is in the future. If the only qualifying
+>   visible output arrives within the two-second grace, the signal is
+>   cleared and the session sticks on `needs_you` until more output
+>   arrives. This is the existing behavior pinned by
+>   `output_within_startup_grace_is_replayed_without_marking_attention_working`
+>   for the Enter-terminated initial-prompt arm too — also unchanged by
+>   #273. A fix would require consume to skip clearing when
+>   `should_infer_working` will reject, which is a deeper change to the
+>   gate ordering. Out of scope for #273; tracked as a follow-up.
+
 ### Gates
 
 The arming fires only when all of the following hold:
@@ -299,13 +354,19 @@ model's first visible output ──────> consume_pending_work_signal →
   is therefore sufficient to exclude password prompts. No additional
   `is_sensitive` check is needed in the new block; documenting for completeness.
 - **Second hook report arrives while the signal is armed:** `report_attention`
-  does not touch `pending_work_signal` (`session_handlers.rs:471–494`), so an
-  already-armed signal persists across a fresh `needs_you` re-write from the
-  hook. Behavior is benign: the signal still fires on the next visible output
-  chunk, which would promote to `working` (correct if the user has now
-  answered). If the user hasn't answered (a stale/retry hook report), the
-  10-second window bounds the armed signal and it expires. No special handling
-  needed.
+  clears `pending_work_signal` on every accepted attention report (see the
+  Implementation note below — added by issue #273's review-fix pass). The
+  prior version of this section claimed the case was benign on the
+  assumption that visible PTY output always intersperses between consecutive
+  hook reports, consuming the armed signal before the next hook fires.
+  That assumption does not hold for hook retries or for rapid chained
+  prompts with no intervening visible output: a stale armed signal coupled
+  with later output within its 10-second window would spuriously promote
+  the session to `working`, overriding the newer hook-sourced `needs_you`
+  and violating agent-over-process priority. Clearing the signal on every
+  accepted `apply_attention_signal` closes that window — the next promotion
+  then requires fresh evidence (a new single-key answer at the new prompt's
+  state, or a fresh initial-prompt arm at session start).
 - **Terminal re-attach / detach:** `record_terminal_input` is only called from
   `record_peon_input_side_effects` for *accepted* WebSocket input (see the
   dispatch sites in the WS read loop). While detached, no keystrokes arrive, so

@@ -123,6 +123,23 @@ pub(crate) fn apply_attention_signal(
             if let Some(observed_at) = observed_at {
                 handle.runtime.last_hook_attention_at = Some(observed_at);
             }
+            // A fresh accepted attention report supersedes any
+            // `pending_work_signal` previously armed by single-key
+            // acceptance of an earlier hook-sourced `needs_you` (#273). The
+            // 2026-07-17 design called this case "benign" on the assumption
+            // that visible PTY output intersperses between consecutive
+            // prompts, consuming the armed signal before the next hook
+            // fires. That assumption does not hold in pathological chains
+            // (a hook retry or a rapid chained prompt with no intervening
+            // visible output), where a stale armed signal could spuriously
+            // promote the session to `working` off output that arrives in
+            // its 10-second window — overriding the newer hook-sourced
+            // `needs_you` and violating the agent-over-process priority.
+            // Clearing the signal on every accepted hook report closes that
+            // window: the next promotion requires fresh evidence (a new
+            // single-key answer in the new prompt's state, or a fresh
+            // initial-prompt arm at session start).
+            handle.pending_work_signal = None;
         }
     }
     Some(result)
@@ -318,6 +335,88 @@ mod tests {
         assert_eq!(meta.metadata_source, "process");
         assert_eq!(meta.metadata_confidence, 1.0);
         assert_eq!(meta.needs_user_input, None);
+    }
+
+    #[test]
+    fn apply_attention_signal_clears_pending_work_signal_on_accepted_report() {
+        // Codex P2 #4 regression test: arming `pending_work_signal` on a
+        // single-key answer is only safe if the armed slot is invalidated
+        // when a fresh hook report arrives and wins the priority merge. The
+        // 2026-07-17 design assumed this case was benign because visible
+        // PTY output intersperses between consecutive hooks and consumes
+        // the signal first. That assumption does not hold for hook retries
+        // or rapid chained prompts with no intervening visible output, in
+        // which case a stale armed signal could spuriously promote the
+        // session to `working` off later output and override the newer
+        // hook-sourced `needs_you`, violating agent-over-process priority.
+        // The fix is to clear `pending_work_signal` on every Accepted
+        // `apply_attention_signal` result.
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(dir.path());
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .insert("s1".into(), test_handle("s1"));
+        {
+            let ws = state.workspace.lock().unwrap();
+            ws.as_ref()
+                .unwrap()
+                .metadata
+                .write_session(&alive_meta("s1"));
+        }
+
+        // Pre-condition: simulate a hook-sourced needs_you + a single-key
+        // answer that armed the work signal (mirror of
+        // `bare_keystroke_arms_work_signal_for_hookless_agent_sourced_needs_you`).
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut("s1").unwrap();
+            handle.info.attention = Some("needs_you".into());
+            handle.info.observed_status = Some("waiting_for_input".into());
+            handle.info.metadata_source = Some("agent".into());
+            handle.pending_work_signal =
+                Some(crate::runtime::session_runtime::arm_pending_work_signal(
+                    "y",
+                    tokio::time::Instant::now(),
+                ));
+        }
+        {
+            let sessions = state.sessions.lock().unwrap();
+            assert!(
+                sessions["s1"].pending_work_signal.is_some(),
+                "pre-condition: the armed signal is in place before the second hook report"
+            );
+        }
+
+        // Second hook POST arrives (retry, or a chained prompt with no
+        // intervening visible output): waiting_for_input, agent source,
+        // fresh observed_at. merge_agent_attention_signal_with_plan accepts
+        // it (agent over process, same-or-newer timestamp).
+        let result = apply_attention_signal(
+            &state,
+            "s1",
+            "waiting_for_input",
+            None,
+            &PlanPathUpdate::Unchanged,
+            "2026-01-01T00:00:00Z",
+            "agent",
+            1.0,
+            None,
+        );
+
+        assert_eq!(result, Some(metadata::AttentionMergeResult::Accepted));
+        let sessions = state.sessions.lock().unwrap();
+        assert!(
+            sessions["s1"].pending_work_signal.is_none(),
+            "an accepted attention report must clear pending_work_signal so \
+             later output cannot spuriously promote over the fresh hook state"
+        );
+        assert_eq!(
+            sessions["s1"].info.attention.as_deref(),
+            Some("needs_you"),
+            "the fresh hook state remains needs_you and is not overridden by spurious working"
+        );
     }
 
     #[test]

@@ -358,8 +358,13 @@ fn record_terminal_input_impl(
         // OSC color, bracketed-paste markers) — those consume printable
         // bytes from the raw frame but never modify `buf`, so checking
         // the raw frame's printability would falsely arm on every arrow key.
+        // Only snapshot when `buf_grew` is true: control-only and Enter
+        // frames never reach the arming block (its guard short-circuits on
+        // `buf_grew`), so cloning the buffer for them would waste an
+        // allocation on the input hot path.
         let grew = buf.len() > len_before;
-        (line, completed, buf.clone(), grew)
+        let snapshot = if grew { Some(buf.clone()) } else { None };
+        (line, completed, snapshot, grew)
     };
 
     if !data.is_empty() {
@@ -392,18 +397,22 @@ fn record_terminal_input_impl(
     // bracketed-paste markers all parse as control sequences and do not
     // grow `buf`, so they cannot arm the signal even though their raw
     // frames contain ASCII-letter final bytes.
-    if buf_grew && !in_progress_buf.is_empty() {
-        let mut sessions = state.sessions.lock().unwrap();
-        if let Some(handle) = sessions.get_mut(id) {
-            if !handle.active_work_hook
-                && handle.info.attention.as_deref() == Some("needs_you")
-                && handle.info.metadata_source.as_deref() == Some("agent")
-            {
-                handle.pending_work_signal =
-                    Some(crate::runtime::session_runtime::arm_pending_work_signal(
-                        &in_progress_buf,
-                        tokio::time::Instant::now(),
-                    ));
+    if buf_grew {
+        if let Some(in_progress_buf) = in_progress_buf.as_deref() {
+            if !in_progress_buf.is_empty() {
+                let mut sessions = state.sessions.lock().unwrap();
+                if let Some(handle) = sessions.get_mut(id) {
+                    if !handle.active_work_hook
+                        && handle.info.attention.as_deref() == Some("needs_you")
+                        && handle.info.metadata_source.as_deref() == Some("agent")
+                    {
+                        handle.pending_work_signal =
+                            Some(crate::runtime::session_runtime::arm_pending_work_signal(
+                                in_progress_buf,
+                                tokio::time::Instant::now(),
+                            ));
+                    }
+                }
             }
         }
     }
