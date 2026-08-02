@@ -20,7 +20,7 @@ export default function ReviewPanel({ sessionId }: { sessionId: string | null })
   }, [load]);
 
   if (!sessionId) return <EmptyState message="Select a session with a plan to review it." />;
-  if (content === null) return <EmptyState message="Loading plan…" />;
   if (error) return <EmptyState message="This plan is no longer available." action={{ label: "Retry", onClick: load }} />;
+  if (content === null) return <EmptyState message="Loading plan…" />;
   return <pre className="review-plan-content">{content}</pre>;
 }

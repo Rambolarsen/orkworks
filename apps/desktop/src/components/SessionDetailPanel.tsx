@@ -42,6 +42,7 @@ interface SessionDetailPanelProps {
 function SessionDetailPanel({ sessions, activeSessionId, onResumeSession, onApplyDebugAttention, showDebugMetadata, onReviewPlan }: SessionDetailPanelProps) {
   const [debugAttention, setDebugAttention] = useState<SessionAttention>("working");
   const [debugMessage, setDebugMessage] = useState("");
+  const [reviewingSessionId, setReviewingSessionId] = useState<string | null>(null);
   const [summaryLog, setSummaryLog] = useState<SummaryLogEntry[]>([]);
   const [summaryLogSessionId, setSummaryLogSessionId] = useState<string | null>(null);
   const active = sessions.find((s) => s.id === activeSessionId);
@@ -136,7 +137,7 @@ function SessionDetailPanel({ sessions, activeSessionId, onResumeSession, onAppl
       </div>
 
       {/* Surface 2 — action zone: the one app-only move, never a duplicate of the terminal. */}
-      {(active.recommendation || actionZone.kind !== "none") && (
+      {(active.recommendation || actionZone.kind !== "none" || active.hasOpenablePlan) && (
         <div className="detail-actions">
           {active.recommendation && <div className="recommendation-text">{active.recommendation}</div>}
 
@@ -146,7 +147,13 @@ function SessionDetailPanel({ sessions, activeSessionId, onResumeSession, onAppl
                 {tone === "needs-you" ? "Plan ready for review" : "Plan available"}
               </span>
               <button className="detail-button detail-button--primary" type="button" onClick={onReviewPlan}>Review plan</button>
-              {active.lifecycle === "alive" && <button className="detail-button" type="button" onClick={() => void window.orkworks.requestPlanReview(active.id).catch((error: unknown) => pushToast("error", error instanceof Error ? error.message : "Couldn't request review."))}>Ask this agent to review</button>}
+              {active.lifecycle === "alive" && <button className="detail-button" type="button" disabled={reviewingSessionId === active.id} onClick={() => {
+                if (reviewingSessionId === active.id) return;
+                setReviewingSessionId(active.id);
+                void window.orkworks.requestPlanReview(active.id)
+                  .catch((error: unknown) => pushToast("error", error instanceof Error ? error.message : "Couldn't request review."))
+                  .finally(() => setReviewingSessionId((id) => id === active.id ? null : id));
+              }}>{reviewingSessionId === active.id ? "Requesting review…" : "Ask this agent to review"}</button>}
             </div>
           )}
 

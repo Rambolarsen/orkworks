@@ -75,6 +75,19 @@ test("Review is a reusable Terminal-group tab, including after a restored layout
   assert.match(app, /position: \{ referencePanel: "terminal" \}/);
 });
 
+test("A readable plan keeps the Details review card visible even without another action", () => {
+  const source = readFileSync(new URL("../src/components/SessionDetailPanel.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /active\.recommendation \|\| actionZone\.kind !== "none" \|\| active\.hasOpenablePlan/);
+});
+
+test("ReviewPanel exposes retry after a content request fails", () => {
+  const source = readFileSync(new URL("../src/components/ReviewPanel.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /if \(error\) return <EmptyState message="This plan is no longer available\."/);
+  assert.match(source, /action=\{\{ label: "Retry", onClick: load \}\}/);
+});
+
 test("DockviewApp default layout opens sessions/detail/terminal only (Capacity & Recommendations closed until they carry signal)", () => {
   const source = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
 

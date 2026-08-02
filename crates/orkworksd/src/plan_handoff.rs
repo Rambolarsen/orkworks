@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 /// Returns the first Markdown path printed by an agent that is in one of the
 /// narrow plan locations OrkWorks recognizes. Validation against the actual
@@ -6,6 +6,12 @@ use std::path::{Path, PathBuf};
 pub(crate) fn printed_plan_path(output: &str) -> Option<String> {
     output.split_whitespace().find_map(|word| {
         let path = word.trim_matches(|ch: char| matches!(ch, '`' | '\'' | '"' | '(' | ')' | '[' | ']' | '{' | '}' | ',' | '.' | ':'));
+        if Path::new(path)
+            .components()
+            .any(|component| matches!(component, Component::ParentDir | Component::RootDir | Component::Prefix(_)))
+        {
+            return None;
+        }
         (path.starts_with("docs/superpowers/plans/") || path.starts_with("specs/"))
             .then_some(path)
             .filter(|path| path.ends_with(".md") && !path.chars().any(char::is_control))
@@ -86,6 +92,8 @@ mod tests {
         assert_eq!(printed_plan_path("Read docs/readme.md"), None);
         assert_eq!(printed_plan_path("Read ../specs/escape.md"), None);
         assert_eq!(printed_plan_path("Read docs/superpowers/plans/not-a-plan.txt"), None);
+        assert_eq!(printed_plan_path("Read specs/../README.md"), None);
+        assert_eq!(printed_plan_path("Read docs/superpowers/plans/../../README.md"), None);
     }
 
     #[cfg(unix)]
