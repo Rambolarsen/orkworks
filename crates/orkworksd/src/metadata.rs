@@ -1432,12 +1432,35 @@ impl MetadataStore {
     /// Returns `Err` when the merged metadata could not be persisted, so the
     /// caller does not treat the inference as landed (e.g. updating in-memory
     /// state to match a write that never happened).
+    pub fn merge_peon_inference_with_history(
+        &self,
+        id: &str,
+        inf: &crate::peon::PeonInference,
+        timestamp: &str,
+        provider: Option<&crate::providers::ProviderObservation>,
+        history_summary: Option<&str>,
+    ) -> std::io::Result<()> {
+        self.merge_peon_inference_inner(id, inf, timestamp, provider, history_summary)
+    }
+
+    #[cfg(test)]
     pub fn merge_peon_inference(
         &self,
         id: &str,
         inf: &crate::peon::PeonInference,
         timestamp: &str,
         provider: Option<&crate::providers::ProviderObservation>,
+    ) -> std::io::Result<()> {
+        self.merge_peon_inference_inner(id, inf, timestamp, provider, inf.summary.as_deref())
+    }
+
+    fn merge_peon_inference_inner(
+        &self,
+        id: &str,
+        inf: &crate::peon::PeonInference,
+        timestamp: &str,
+        provider: Option<&crate::providers::ProviderObservation>,
+        history_summary: Option<&str>,
     ) -> std::io::Result<()> {
         let mut meta = match self.read_session(id) {
             Some(m) => m,
@@ -1496,7 +1519,7 @@ impl MetadataStore {
         }
         // `label` is a one-shot topic, not the turn-by-turn activity summary —
         // it must not be clobbered here (ADR 0029).
-        meta.summary = inf.summary.clone().or(meta.summary);
+        meta.summary = history_summary.map(str::to_string).or(meta.summary);
         meta.next_action = inf.next_action.clone().or(meta.next_action);
         meta.needs_user_input = inf.needs_user_input.or(meta.needs_user_input);
         // Normalize: treat empty-string question as absent (LLM may emit "" instead of null).
@@ -1559,7 +1582,7 @@ impl MetadataStore {
 
         self.try_write_session(&meta)?;
 
-        let checkpoint = self.summary_checkpoint(id, inf.summary.as_deref());
+        let checkpoint = self.summary_checkpoint(id, history_summary);
         let checkpoint_source = checkpoint.as_ref().map(|_| "peon".to_string());
 
         let event = Event {
@@ -2018,6 +2041,25 @@ mod tests {
         assert_eq!(checkpoints[0].confidence, Some(0.81));
         assert_eq!(checkpoints[1].confidence, Some(0.83));
         assert_eq!(checkpoints[2].confidence, Some(0.84));
+    }
+
+    #[test]
+    fn merge_peon_inference_uses_only_the_classified_history_summary() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        store.write_session(&test_metadata("grounded-summary"));
+        let inference = peon_inference_with_summary(Some("Session appears stuck"), 0.7);
+
+        store
+            .merge_peon_inference_with_history("grounded-summary", &inference, "t1", None, None)
+            .unwrap();
+
+        let meta = store.read_session("grounded-summary").unwrap();
+        assert_eq!(meta.summary, None);
+        assert!(store
+            .read_events("grounded-summary")
+            .iter()
+            .all(|event| event.summary.is_none()));
     }
 
     #[test]

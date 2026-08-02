@@ -17,7 +17,7 @@ live summary and its durable checkpoint.
 Eligible entries are limited to:
 
 - A descriptive `[User input]:` task instruction, summarized by Peon.
-- A recognizable `cargo`, `pnpm`, or `npm` test, build, or format command with
+- A recognizable `cargo`, `pnpm`, or `npm` test or build command with
   a corresponding success or failure result. These use a fixed summary such as
   `Tests passed` or `Build failed`.
 

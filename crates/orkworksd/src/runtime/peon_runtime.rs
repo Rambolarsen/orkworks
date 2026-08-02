@@ -195,6 +195,8 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                     if active_work_hook && inf.observed_status.as_deref() == Some("working") {
                         inf.observed_status = None;
                     }
+                    let history_summary =
+                        peon::work_history_summary(&output_snapshot, inf.summary.as_deref());
                     // Collect label update while holding the input-boundary lock.
                     label_update = {
                         if let Some(ref ws) = *ws_guard {
@@ -209,15 +211,18 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                                 })
                                 .unwrap_or((true, false));
                             if should_write {
-                                match ws.metadata.merge_peon_inference(
+                                match ws.metadata.merge_peon_inference_with_history(
                                     &id,
                                     &inf,
                                     &now_iso,
                                     provider_result.observation.as_ref(),
+                                    history_summary.as_deref(),
                                 ) {
                                     Ok(()) => {
                                         inference_persisted = true;
-                                        inf.summary.as_ref().map(|s| s.chars().take(100).collect())
+                                        history_summary
+                                            .as_ref()
+                                            .map(|s| s.chars().take(100).collect())
                                     }
                                     Err(error) => {
                                         tracing::warn!(session_id = %id, %error, "peon: inference not persisted");
@@ -1143,7 +1148,7 @@ mod tests {
                         // Verify metadata was updated correctly
                         assert_eq!(meta.status, "running");
                         assert_eq!(meta.observed_status, Some("working".into()));
-                        assert_eq!(meta.summary, Some("test".into()));
+                        assert_eq!(meta.summary, Some("Tests passed".into()));
                         assert_eq!(meta.peon_last_inference.is_some(), true);
                         assert_eq!(meta.metadata_source, "peon");
                         assert!((meta.metadata_confidence - 0.85).abs() < 0.001);

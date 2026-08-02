@@ -71,7 +71,7 @@ pub fn work_history_summary(output: &[String], inference_summary: Option<&str>) 
 }
 ```
 
-Implement `command_outcome_summary` as a private helper that recognizes only a `cargo`/`pnpm`/`npm` test, build, or format command and its matching success/failure marker in the same output window. Return fixed labels (`Tests passed`, `Tests failed`, `Build passed`, `Build failed`, `Formatting passed`, or `Formatting failed`); otherwise return `None`. Update `SYSTEM_PROMPT` to direct the model to omit `summary` unless it sees the same evidence.
+Implement `command_outcome_summary` as a private helper that recognizes only a `cargo`/`pnpm`/`npm` test or build command and its matching success/failure marker in the same output window. Return fixed labels (`Tests passed`, `Tests failed`, `Build passed`, or `Build failed`); otherwise return `None`. Update `SYSTEM_PROMPT` to direct the model to omit `summary` unless it sees the same evidence.
 
 - [ ] **Step 4: Run the targeted tests to verify they pass**
 
