@@ -1075,7 +1075,7 @@ mod tests {
                 pending_capacity_visible_once: false,
                 active_work_hook: false,
             };
-            handle.output_buffer.push("running cargo test...".into());
+            handle.output_buffer.push("$ cargo test".into());
             handle
                 .output_buffer
                 .push("test result: ok. 5 passed; 0 failed;".into());
