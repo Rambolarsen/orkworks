@@ -121,10 +121,21 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                     .providers
                     .run_inference(providers::PeonScope::Session, &output_snapshot);
                 if matches!(mode, InferenceMode::InputLabel) {
-                    if let Some(label) = provider_result
-                        .inference
-                        .and_then(|inference| inference.summary)
-                        .map(|summary| summary.chars().take(100).collect::<String>())
+                    if let Some(inference) = provider_result.inference {
+                        let history_summary =
+                            peon::work_history_summary(&output_snapshot, inference.summary.as_deref());
+                        if let Some(ref ws) = *state_clone.workspace.lock().unwrap() {
+                            let _ = ws.metadata.merge_peon_inference_with_history(
+                                &id,
+                                &inference,
+                                &iso_now(),
+                                provider_result.observation.as_ref(),
+                                history_summary.as_deref(),
+                            );
+                        }
+                        if let Some(label) = inference
+                            .summary
+                            .map(|summary| summary.chars().take(100).collect::<String>())
                         .filter(|label| !label.trim().is_empty())
                         .filter(|label| {
                             hint.as_deref()
@@ -144,6 +155,7 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                                 ws.metadata.write_session(&meta);
                             }
                         }
+                    }
                     }
                     state_clone.peon.in_flight.write().unwrap().remove(&id);
                     return;
