@@ -689,6 +689,26 @@ mod tests {
     }
 
     #[test]
+    fn codex_exact_resume_builds_resume_subcommand() {
+        let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
+        let registry = resolve_document(&builtins, &HarnessUserDocument::default()).unwrap();
+        let harness = registry.get("codex").unwrap();
+
+        let resume = harness
+            .build_resume(
+                crate::harness::ResumeStrategy::Exact,
+                "/repo",
+                Some("ses_1"),
+                None,
+                None,
+            )
+            .unwrap();
+
+        assert_eq!(resume.program, "codex");
+        assert_eq!(resume.args, ["resume", "ses_1"]);
+    }
+
+    #[test]
     fn builtin_launch_without_model_drops_model_flag_and_capacity_is_declarative() {
         let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
         let registry = resolve_document(&builtins, &HarnessUserDocument::default()).unwrap();
