@@ -118,6 +118,23 @@ helper in `session_runtime.rs:43`. The helper is private to `session_runtime`,
 so the inline is structurally necessary here; if a future refactor promotes
 the helper to a shared scope, both sites should call it.
 
+> **Implementation note (issue #273):** the production predicate is
+> `buf_grew` — `buf.len() > len_before` measured inside `collect_input_line`'s
+> write lock — rather than the raw-frame `has_printable` above. The raw-frame
+> predicate has a false positive on ANSI sequences such as `\x1b[A` (the
+> up-arrow key): the raw frame contains the printable bytes `[` and `A` even
+> though `collect_input_line` consumes the whole sequence as a CSI control
+> sequence without touching `buf`. With `has_printable`, an up-arrow edit
+> after a prior `"y"` keystroke would re-arm the signal on the unchanged
+> `"y"` buffer (the existing `ansi_arrow_key_does_not_arm_work_signal_after_single_key_input`
+> regression test in `session_runtime.rs` pins this). `buf_grew` is true
+> iff this frame actually pushed at least one new char into `input_buf`,
+> which only happens for non-control, non-Enter bytes outside bracketed
+> paste, so it tracks the spec's intent ("a printable keystroke") without
+> admitting CSI/OSC/bracketed-paste final bytes. The arm body, the gate
+> conjunction, and the echo-prefix treatment below are otherwise unchanged
+> from this design.
+
 ### Gates
 
 The arming fires only when all of the following hold:
@@ -247,7 +264,9 @@ model's first visible output ──────> consume_pending_work_signal →
   the parent spec requires.
 - **Backspace mid-typing (`\x7f`):** `collect_input_line` calls `buf.pop()` at
   `terminal_runtime.rs:187`, shrinking the in-progress line. Backspace is a
-  control char so the new arming block's `has_printable` check is false — no
+  control char so the raw-frame predicate would be false; under the
+  production `buf_grew` implementation (see the Implementation note above),
+  `buf.len()` shrinks below `len_before`, so `buf_grew` is also false — no
   re-arm on the backspace itself. The armed `pending_work_signal.remaining_echo`
   therefore holds the pre-backspace prefix until the next printable keystroke
   re-arms with the shorter prefix. The stale-prefix window is bounded by the
