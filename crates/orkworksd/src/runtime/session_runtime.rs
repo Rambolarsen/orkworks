@@ -881,7 +881,9 @@ pub(crate) async fn start_session_runtime(
                                 if let Some(ref ws) = *ws_guard {
                                     if plan_handoff::resolve_openable_plan(&ws.path, &plan_path).is_ok() {
                                         if let Some(mut meta) = ws.metadata.read_session(&driver_id) {
-                                            if meta.plan_path.is_none() {
+                                            if meta.plan_path.is_none()
+                                                && !ws.metadata.plan_path_is_explicitly_cleared(&driver_id)
+                                            {
                                                 meta.plan_path = Some(plan_path);
                                                 ws.metadata.write_session(&meta);
                                             }

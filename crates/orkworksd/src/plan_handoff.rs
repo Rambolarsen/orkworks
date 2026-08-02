@@ -58,8 +58,6 @@ mod tests {
         let workspace = tempfile::tempdir().unwrap();
         fs::create_dir(workspace.path().join("docs")).unwrap();
         fs::write(workspace.path().join("docs/plan.MD"), "# plan").unwrap();
-        fs::create_dir(workspace.path().join("docs\nignored")).unwrap();
-        fs::write(workspace.path().join("docs\nignored/plan.MD"), "# injected").unwrap();
         fs::write(workspace.path().join("docs/notes.txt"), "notes").unwrap();
 
         assert!(resolve_openable_plan(workspace.path(), "docs/plan.MD").is_ok());

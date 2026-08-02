@@ -357,12 +357,15 @@ function App() {
                 sessionsHiddenLayoutRef.current = null;
               }
             }
-            const options: { id: string; component: string; position?: { referencePanel: string; direction: "below" | "right" | "left" | "above" } } = {
+            const options: { id: string; component: string; position?: { referencePanel: string; direction?: "below" | "right" | "left" | "above" } } = {
               id: def.component,
               component: def.component,
             };
             if (def.position && api.getPanel(def.position.referencePanel)) {
-              options.position = { referencePanel: def.position.referencePanel, direction: def.position.direction === "within" ? "right" : def.position.direction ?? "right" };
+              const direction = def.position.direction;
+              options.position = direction && direction !== "within"
+                ? { referencePanel: def.position.referencePanel, direction }
+                : { referencePanel: def.position.referencePanel };
             }
             api.addPanel(options);
             focusList();
@@ -385,12 +388,15 @@ function App() {
         if (existing) {
           existing.api.close();
         } else {
-          const options: { id: string; component: string; position?: { referencePanel: string; direction: "below" | "right" | "left" | "above" } } = {
+          const options: { id: string; component: string; position?: { referencePanel: string; direction?: "below" | "right" | "left" | "above" } } = {
             id: def.component,
             component: def.component,
           };
           if (def.position && api.getPanel(def.position.referencePanel)) {
-            options.position = { referencePanel: def.position.referencePanel, direction: def.position.direction === "within" ? "right" : def.position.direction ?? "right" };
+            const direction = def.position.direction;
+            options.position = direction && direction !== "within"
+              ? { referencePanel: def.position.referencePanel, direction }
+              : { referencePanel: def.position.referencePanel };
           }
           api.addPanel(options)?.api.setActive();
         }

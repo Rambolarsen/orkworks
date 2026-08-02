@@ -1415,7 +1415,12 @@ impl MetadataStore {
         let checkpoint_source = checkpoint.as_ref().map(|_| source.to_string());
 
         let event = Event {
-            event_type: "session.attention_reported".into(),
+            event_type: match plan_path {
+                PlanPathUpdate::Clear => "session.plan_path_cleared",
+                PlanPathUpdate::Set(_) => "session.plan_path_set",
+                PlanPathUpdate::Unchanged => "session.attention_reported",
+            }
+            .into(),
             timestamp: timestamp.to_string(),
             status: meta.status.clone(),
             observed_status: Some(status.to_string()),
@@ -1433,6 +1438,20 @@ impl MetadataStore {
         }
 
         AttentionMergeResult::Accepted
+    }
+
+    /// A harness clear is authoritative until it next reports a path. This
+    /// prevents terminal-output fallback from immediately restoring it.
+    pub fn plan_path_is_explicitly_cleared(&self, id: &str) -> bool {
+        self.read_events(id)
+            .into_iter()
+            .rev()
+            .find_map(|event| match event.event_type.as_str() {
+                "session.plan_path_cleared" => Some(true),
+                "session.plan_path_set" => Some(false),
+                _ => None,
+            })
+            .unwrap_or(false)
     }
 
     /// Returns `Err` when the merged metadata could not be persisted, so the

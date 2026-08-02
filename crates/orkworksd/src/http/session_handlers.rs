@@ -87,15 +87,19 @@ pub(crate) struct PlanContentResponse {
     pub(crate) content: String,
 }
 
-fn authorize_plan_request(headers: &HeaderMap) -> bool {
+fn authorize_plan_request(headers: &HeaderMap) -> Result<(), axum::http::StatusCode> {
     let Ok(token) = std::env::var("ORKWORKS_OPEN_PLAN_TOKEN") else {
-        return false;
+        return Err(axum::http::StatusCode::SERVICE_UNAVAILABLE);
     };
-    !token.is_empty()
-        && Some(token.as_str())
-            == headers
-                .get("x-orkworks-open-plan-token")
-                .and_then(|value| value.to_str().ok())
+    if token.is_empty() {
+        return Err(axum::http::StatusCode::SERVICE_UNAVAILABLE);
+    }
+    (Some(token.as_str())
+        == headers
+            .get("x-orkworks-open-plan-token")
+            .and_then(|value| value.to_str().ok()))
+        .then_some(())
+        .ok_or(axum::http::StatusCode::UNAUTHORIZED)
 }
 
 pub(crate) async fn get_session_plan_content(
@@ -103,8 +107,8 @@ pub(crate) async fn get_session_plan_content(
     Path(id): Path<String>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    if !authorize_plan_request(&headers) {
-        return axum::http::StatusCode::UNAUTHORIZED.into_response();
+    if let Err(status) = authorize_plan_request(&headers) {
+        return status.into_response();
     }
     let (workspace_root, plan_path) = {
         let workspace = state.workspace.lock().unwrap();
@@ -132,7 +136,7 @@ pub(crate) async fn request_session_plan_review(
     Path(id): Path<String>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    if !authorize_plan_request(&headers) { return axum::http::StatusCode::UNAUTHORIZED.into_response(); }
+    if let Err(status) = authorize_plan_request(&headers) { return status.into_response(); }
     let relative = {
         let workspace = state.workspace.lock().unwrap();
         let Some(workspace) = workspace.as_ref() else { return axum::http::StatusCode::CONFLICT.into_response(); };
@@ -1776,6 +1780,8 @@ mod tests {
     use super::*;
     use crate::runtime::terminal_runtime::set_session_status;
     use crate::test_support::*;
+
+    static PLAN_TOKEN_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     #[test]
     fn session_git_context_is_resolved_once_per_unique_cwd() {
@@ -5422,6 +5428,7 @@ mod tests {
 
     #[tokio::test]
     async fn plan_content_requires_a_valid_plan_and_sidecar_token() {
+        let _token_lock = PLAN_TOKEN_TEST_LOCK.lock().unwrap();
         let workspace = tempfile::tempdir().unwrap();
         std::fs::create_dir(workspace.path().join("docs")).unwrap();
         let plan = workspace.path().join("docs/plan.md");
@@ -5458,6 +5465,7 @@ mod tests {
 
     #[tokio::test]
     async fn plan_endpoints_reject_a_missing_sidecar_token() {
+        let _token_lock = PLAN_TOKEN_TEST_LOCK.lock().unwrap();
         let workspace = tempfile::tempdir().unwrap();
         let state = test_app_state_with_workspace(workspace.path());
         std::env::set_var("ORKWORKS_OPEN_PLAN_TOKEN", "test-token");
@@ -5484,6 +5492,7 @@ mod tests {
 
     #[tokio::test]
     async fn plan_review_submits_the_fixed_prompt_before_recording_the_event() {
+        let _token_lock = PLAN_TOKEN_TEST_LOCK.lock().unwrap();
         let workspace = tempfile::tempdir().unwrap();
         std::fs::create_dir(workspace.path().join("specs")).unwrap();
         std::fs::write(workspace.path().join("specs/plan.md"), "# plan").unwrap();
