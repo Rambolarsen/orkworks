@@ -426,20 +426,21 @@ fn command_outcome_summary(output: &[String]) -> Option<String> {
     let mut outcome = None;
     for line in output {
         let line = strip_ansi(line).to_ascii_lowercase();
-        if ["cargo test", "pnpm test", "npm test"]
+        let command_line = line.trim_start_matches(['$', '>', ' ']).trim_start();
+        if ["cargo test", "pnpm test", "pnpm run test", "npm test"]
             .iter()
-            .any(|command| line.contains(command))
+            .any(|command| command_line.starts_with(command))
         {
             command = Some("test");
         } else if ["cargo build", "pnpm build", "npm run build"]
             .iter()
-            .any(|command| line.contains(command))
+            .any(|command| command_line.starts_with(command))
         {
             command = Some("build");
         }
 
         outcome = match command {
-            Some("test") if line.contains("test result: failed") || line.contains("tests failed") => {
+            Some("test") if line.contains("test result: failed") || line.contains("tests failed") || line.contains("could not compile") => {
                 command = None;
                 Some("Tests failed".into())
             }
@@ -451,7 +452,7 @@ fn command_outcome_summary(output: &[String]) -> Option<String> {
                 command = None;
                 Some("Build failed".into())
             }
-            Some("build") if line.contains("finished `") || line.contains("build completed") => {
+            Some("build") if line.contains("finished ") || line.contains("build completed") => {
                 command = None;
                 Some("Build passed".into())
             }

@@ -94,7 +94,7 @@ git commit -m "fix: ground Peon work summaries"
 
 **Interfaces:**
 - Consumes: `peon::work_history_summary(&output_snapshot, inf.summary.as_deref()) -> Option<String>`.
-- Changes: `MetadataStore::merge_peon_inference` receives `history_summary: Option<&str>` after `provider`.
+- Changes: `MetadataStore::merge_peon_inference_with_history` receives `history_summary: Option<&str>` after `provider`.
 - Produces: Peon history/checkpoints and `SessionMetadata.summary` only from `history_summary`.
 
 - [ ] **Step 1: Write the failing metadata test**
@@ -107,7 +107,7 @@ fn merge_peon_inference_uses_only_the_classified_history_summary() {
     store.write_session(&test_metadata("grounded-summary"));
     let inference = peon_inference_with_summary(Some("Session appears stuck"), 0.7);
 
-    store.merge_peon_inference("grounded-summary", &inference, "t1", None, None).unwrap();
+    store.merge_peon_inference_with_history("grounded-summary", &inference, "t1", None, None).unwrap();
 
     let meta = store.read_session("grounded-summary").unwrap();
     assert_eq!(meta.summary, None);
@@ -126,7 +126,7 @@ Expected: FAIL because the raw inference summary is currently persisted.
 ```rust
 // runtime/peon_runtime.rs, immediately before merge
 let history_summary = peon::work_history_summary(&output_snapshot, inf.summary.as_deref());
-ws.metadata.merge_peon_inference(&id, &inf, &now_iso, provider_result.observation.as_ref(), history_summary.as_deref())
+ws.metadata.merge_peon_inference_with_history(&id, &inf, &now_iso, provider_result.observation.as_ref(), history_summary.as_deref())
 
 // metadata.rs
 meta.summary = history_summary.map(str::to_string).or(meta.summary);
