@@ -121,10 +121,21 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                     .providers
                     .run_inference(providers::PeonScope::Session, &output_snapshot);
                 if matches!(mode, InferenceMode::InputLabel) {
-                    if let Some(label) = provider_result
-                        .inference
-                        .and_then(|inference| inference.summary)
-                        .map(|summary| summary.chars().take(100).collect::<String>())
+                    if let Some(inference) = provider_result.inference {
+                        let history_summary =
+                            peon::work_history_summary(&output_snapshot, inference.summary.as_deref());
+                        if let Some(ref ws) = *state_clone.workspace.lock().unwrap() {
+                            let _ = ws.metadata.merge_peon_inference_with_history(
+                                &id,
+                                &inference,
+                                &iso_now(),
+                                provider_result.observation.as_ref(),
+                                history_summary.as_deref(),
+                            );
+                        }
+                        if let Some(label) = inference
+                            .summary
+                            .map(|summary| summary.chars().take(100).collect::<String>())
                         .filter(|label| !label.trim().is_empty())
                         .filter(|label| {
                             hint.as_deref()
@@ -144,6 +155,7 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                                 ws.metadata.write_session(&meta);
                             }
                         }
+                    }
                     }
                     state_clone.peon.in_flight.write().unwrap().remove(&id);
                     return;
@@ -195,6 +207,8 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                     if active_work_hook && inf.observed_status.as_deref() == Some("working") {
                         inf.observed_status = None;
                     }
+                    let history_summary =
+                        peon::work_history_summary(&output_snapshot, inf.summary.as_deref());
                     // Collect label update while holding the input-boundary lock.
                     label_update = {
                         if let Some(ref ws) = *ws_guard {
@@ -209,15 +223,18 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                                 })
                                 .unwrap_or((true, false));
                             if should_write {
-                                match ws.metadata.merge_peon_inference(
+                                match ws.metadata.merge_peon_inference_with_history(
                                     &id,
                                     &inf,
                                     &now_iso,
                                     provider_result.observation.as_ref(),
+                                    history_summary.as_deref(),
                                 ) {
                                     Ok(()) => {
                                         inference_persisted = true;
-                                        inf.summary.as_ref().map(|s| s.chars().take(100).collect())
+                                        history_summary
+                                            .as_ref()
+                                            .map(|s| s.chars().take(100).collect())
                                     }
                                     Err(error) => {
                                         tracing::warn!(session_id = %id, %error, "peon: inference not persisted");
@@ -1058,7 +1075,7 @@ mod tests {
                 pending_capacity_visible_once: false,
                 active_work_hook: false,
             };
-            handle.output_buffer.push("running cargo test...".into());
+            handle.output_buffer.push("$ cargo test".into());
             handle
                 .output_buffer
                 .push("test result: ok. 5 passed; 0 failed;".into());
@@ -1143,7 +1160,7 @@ mod tests {
                         // Verify metadata was updated correctly
                         assert_eq!(meta.status, "running");
                         assert_eq!(meta.observed_status, Some("working".into()));
-                        assert_eq!(meta.summary, Some("test".into()));
+                        assert_eq!(meta.summary, Some("Tests passed".into()));
                         assert_eq!(meta.peon_last_inference.is_some(), true);
                         assert_eq!(meta.metadata_source, "peon");
                         assert!((meta.metadata_confidence - 0.85).abs() < 0.001);
