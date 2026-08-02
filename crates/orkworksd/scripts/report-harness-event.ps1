@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
-    [string]$Marker = ""
+    [string]$Marker = "",
+    [string]$Status = "waiting_for_input"
 )
 
 $observedAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.ffffffZ")
@@ -44,7 +45,7 @@ if ($Marker -clike "*:claude-code") {
 # 5 seconds here.
 if ($sessionId -and $port) {
     try {
-        $attention = @{ status = "waiting_for_input"; observedAt = $observedAt }
+        $attention = @{ status = $Status; observedAt = $observedAt }
         if ($reportedCwd) {
             $attention["cwd"] = $reportedCwd
         }

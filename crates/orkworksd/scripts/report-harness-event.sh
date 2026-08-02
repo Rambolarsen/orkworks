@@ -2,6 +2,7 @@
 set -u
 
 marker=""
+status="waiting_for_input"
 while [ $# -gt 0 ]; do
   case "$1" in
     --marker)
@@ -10,6 +11,14 @@ while [ $# -gt 0 ]; do
         shift 2
       else
         # No value follows; drop the flag alone so the loop still terminates.
+        shift 1
+      fi
+      ;;
+    --status)
+      if [ $# -ge 2 ]; then
+        status="$2"
+        shift 2
+      else
         shift 1
       fi
       ;;
@@ -46,12 +55,12 @@ esac
 if [ -n "${ORKWORKS_SESSION_ID:-}" ] && [ -n "${ORKWORKS_PORT:-}" ]; then
   attention_payload="$(python3 -c '
 import json, sys
-payload = {"status":"waiting_for_input", "observedAt":sys.argv[1]}
-cwd = sys.argv[2]
+payload = {"status":sys.argv[1], "observedAt":sys.argv[2]}
+cwd = sys.argv[3]
 if cwd:
     payload["cwd"] = cwd
 print(json.dumps(payload))
-' "$observed_at" "$reported_cwd")"
+' "$status" "$observed_at" "$reported_cwd")"
   curl -sS --max-time 5 --connect-timeout 2 -X POST "http://127.0.0.1:$ORKWORKS_PORT/sessions/$ORKWORKS_SESSION_ID/attention" \
     -H "Content-Type: application/json" \
     -d "$attention_payload" >/dev/null || true

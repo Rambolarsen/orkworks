@@ -117,7 +117,7 @@ export default function HarnessIntegrationSection({ harnessId, harnessName, harn
       )}
       {integration?.ok && integration.status.registration === "installed" && (
         <>
-          <span className="settings-config-status settings-config-status--ok">✓ Notification hook installed</span>
+          <span className="settings-config-status settings-config-status--ok">✓ Attention hooks installed</span>
           <button type="button" onClick={uninstallIntegrationHandler} disabled={integrationBusy}>
             {integrationBusy ? "Removing…" : "Uninstall"}
           </button>
@@ -129,12 +129,11 @@ export default function HarnessIntegrationSection({ harnessId, harnessName, harn
           <>
             {integration.status.confirmation && (
               <p className="settings-section-copy">
-                Installing will add a Notification hook to{" "}
+                Installing will add attention hooks to{" "}
                 {integration.status.confirmation.relativePaths.join(", ")} in this
                 workspace ({integration.status.confirmation.coverageSummary}).
                 {integration.status.confirmation.executableCodeWarning && (
-                  <> This hook runs an OrkWorks-installed script whenever {harnessName}
-                  waits for input.</>
+                  <> OrkWorks reports when {harnessName} waits for input and begins a tool action.</>
                 )}
               </p>
             )}

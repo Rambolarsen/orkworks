@@ -94,6 +94,8 @@ test("HarnessIntegrationSection offers the attention hook install affordance", (
   assert.match(source, /installHarnessIntegration/);
   assert.match(source, /uninstallHarnessIntegration/);
   assert.match(source, /Install attention hook/);
+  assert.match(source, /Attention hooks installed/);
+  assert.match(source, /begins a tool action/);
 });
 
 test("ProviderSettingsSection keeps model provider editing simplified", () => {

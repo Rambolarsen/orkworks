@@ -410,12 +410,14 @@ mod tests {
     use crate::metadata::MetadataStore;
 
     #[test]
-    fn report_harness_event_always_posts_generic_attention() {
+    fn report_harness_event_defaults_to_waiting_attention_and_accepts_a_status_override() {
         let script = include_str!("../../../scripts/report-harness-event.sh");
         assert!(script.contains("ORKWORKS_SESSION_ID"));
         assert!(script.contains("ORKWORKS_PORT"));
         assert!(script.contains("/sessions/$ORKWORKS_SESSION_ID/attention"));
-        assert!(script.contains("\"status\":\"waiting_for_input\""));
+        assert!(script.contains("status=\"waiting_for_input\""));
+        assert!(script.contains("--status"));
+        assert!(script.contains("\"status\":sys.argv[1]"));
     }
 
     #[test]

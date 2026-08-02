@@ -4,6 +4,7 @@
 use crate::metadata::{self, canonical_attention, PlanPathUpdate};
 use crate::session_types::SessionInfo;
 use crate::AppState;
+use chrono::{DateTime, Utc};
 use std::sync::Arc;
 
 /// Applies an externally-reported (or debug-injected) status observation to
@@ -101,15 +102,27 @@ pub(crate) fn apply_attention_signal(
     timestamp: &str,
     source: &str,
     confidence: f64,
+    observed_at: Option<DateTime<Utc>>,
 ) -> Option<metadata::AttentionMergeResult> {
     let ws_guard = state.workspace.lock().unwrap();
     let ws = ws_guard.as_ref()?;
+    let mut sessions = state.sessions.lock().unwrap();
+    if observed_at.is_some_and(|timestamp| {
+        sessions
+            .get(id)
+            .is_some_and(|handle| handle.runtime.last_hook_attention_at.is_some_and(|previous| timestamp <= previous))
+    }) {
+        return Some(metadata::AttentionMergeResult::Ignored);
+    }
     let result = ws.metadata.merge_agent_attention_signal_with_plan(
         id, status, message, plan_path, timestamp, source, confidence,
     );
     if result == metadata::AttentionMergeResult::Accepted {
-        if let Some(handle) = state.sessions.lock().unwrap().get_mut(id) {
+        if let Some(handle) = sessions.get_mut(id) {
             apply_live_attention_fields(&mut handle.info, status, message, source, confidence);
+            if let Some(observed_at) = observed_at {
+                handle.runtime.last_hook_attention_at = Some(observed_at);
+            }
         }
     }
     Some(result)
@@ -333,6 +346,7 @@ mod tests {
             "2026-01-01T00:00:00Z",
             "agent",
             1.0,
+            None,
         );
 
         assert_eq!(result, Some(metadata::AttentionMergeResult::Accepted));
@@ -367,6 +381,7 @@ mod tests {
             "2026-01-01T00:00:00Z",
             "agent",
             1.0,
+            None,
         );
 
         assert_eq!(result, None);
@@ -469,6 +484,7 @@ mod tests {
                     "t",
                     "agent",
                     1.0,
+                    None,
                 )
             })
         };
@@ -486,6 +502,7 @@ mod tests {
                     "t",
                     "agent",
                     1.0,
+                    None,
                 )
             })
         };
