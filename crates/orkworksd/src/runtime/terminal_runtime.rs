@@ -356,10 +356,29 @@ fn record_terminal_input_impl(
         mark_usage_limit_recheck_on_input(state, id);
     }
 
-    let (collected_line, line_completed) = {
+    let (collected_line, line_completed, in_progress_buf, buf_grew) = {
         let mut bufs = state.peon.input_buf.write().unwrap();
         let buf = bufs.entry(id.to_string()).or_default();
-        collect_input_line(buf, data)
+        let len_before = buf.len();
+        let (line, completed) = collect_input_line(buf, data);
+        // Snapshot the post-mutation buffer under the same write lock, so the
+        // single-key arming site below can echo-gate against the typed-so-far
+        // line without re-acquiring the input_buf lock. Empty after Enter
+        // (`collect_input_line` clears `buf` on a line terminator) — that's
+        // how the single-key path avoids double-arming the Enter that the
+        // existing committed-line path will handle. `buf_grew` distinguishes
+        // a frame that actually pushed a new printable char (arm candidate)
+        // from one that was parsed as pure control sequences (ESC[A arrow,
+        // OSC color, bracketed-paste markers) — those consume printable
+        // bytes from the raw frame but never modify `buf`, so checking
+        // the raw frame's printability would falsely arm on every arrow key.
+        // Only snapshot when `buf_grew` is true: control-only and Enter
+        // frames never reach the arming block (its guard short-circuits on
+        // `buf_grew`), so cloning the buffer for them would waste an
+        // allocation on the input hot path.
+        let grew = buf.len() > len_before;
+        let snapshot = if grew { Some(buf.clone()) } else { None };
+        (line, completed, snapshot, grew)
     };
 
     if !data.is_empty() {
@@ -369,6 +388,47 @@ fn record_terminal_input_impl(
         // nothing typed yet (a very common case: accepting a prompt's
         // default answer), which must still count as a submitted line here.
         mark_committed_input_working(state, id, output_boundary, line_completed);
+    }
+
+    // Narrow single-key work-signal arming (#273, restoring the #179 fix that
+    // 31f9b4e reverted). Claude Code's Notification hook POSTs
+    // `needs_you` with `metadata_source = "agent"`, and its prompts take
+    // single keystrokes (y/n/1/2/3) with no Enter. A bare printable key in
+    // that exact state is sufficient evidence of resumed work to arm
+    // `pending_work_signal`; the next qualifying visible PTY output then
+    // promotes attention to `working`. The gate is deliberately narrow so
+    // the shell-session false-positive that motivated `31f9b4e` cannot
+    // recur: shell sessions never have hook-sourced `needs_you` with
+    // `metadata_source = "agent"` (they're `process` or `None`), and
+    // capable-hook harnesses are excluded because their own event is the
+    // source of truth for work start. Re-arm on each subsequent printable
+    // keystroke so the echo prefix tracks the typed-so-far line, keeping
+    // the 10-second window fresh while the user is still composing.
+    // `buf_grew` is the printable-char predicate: it is true iff this frame
+    // pushed at least one new char into `input_buf`, which only happens for
+    // non-control, non-Enter bytes outside bracketed paste (see
+    // `collect_input_line`). ANSI arrow keys, OSC color codes, and
+    // bracketed-paste markers all parse as control sequences and do not
+    // grow `buf`, so they cannot arm the signal even though their raw
+    // frames contain ASCII-letter final bytes.
+    if buf_grew {
+        if let Some(in_progress_buf) = in_progress_buf.as_deref() {
+            if !in_progress_buf.is_empty() {
+                let mut sessions = state.sessions.lock().unwrap();
+                if let Some(handle) = sessions.get_mut(id) {
+                    if !handle.active_work_hook
+                        && handle.info.attention.as_deref() == Some("needs_you")
+                        && handle.info.metadata_source.as_deref() == Some("agent")
+                    {
+                        handle.pending_work_signal =
+                            Some(crate::runtime::session_runtime::arm_pending_work_signal(
+                                in_progress_buf,
+                                tokio::time::Instant::now(),
+                            ));
+                    }
+                }
+            }
+        }
     }
 
     let line = collected_line?;
