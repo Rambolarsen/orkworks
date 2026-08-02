@@ -791,6 +791,23 @@ mod tests {
     }
 
     #[test]
+    fn memory_state_marks_codex_session_as_resumable_via_latest_repo_without_captured_id() {
+        let harness = harness("codex");
+        let resume = harness::ResumeMemory {
+            state: harness::ResumeState::Available,
+            preferred_strategy: harness::ResumeStrategy::None,
+            harness_session_id: None,
+            latest_fallback: true,
+            last_seen_at: None,
+        };
+
+        let (memory_state, strategy) = derive_memory_state(false, Some(&resume), Some(&harness));
+
+        assert_eq!(memory_state, MemoryState::Resumable);
+        assert_eq!(strategy, harness::ResumeStrategy::LatestRepo);
+    }
+
+    #[test]
     fn memory_state_marks_active_session_as_live() {
         let harness = harness("generic-shell");
 
