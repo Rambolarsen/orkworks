@@ -774,6 +774,23 @@ mod tests {
     }
 
     #[test]
+    fn memory_state_marks_codex_session_as_resumable_when_exact_id_captured() {
+        let harness = harness("codex");
+        let resume = harness::ResumeMemory {
+            state: harness::ResumeState::Available,
+            preferred_strategy: harness::ResumeStrategy::Exact,
+            harness_session_id: Some("sess-1".into()),
+            latest_fallback: true,
+            last_seen_at: None,
+        };
+
+        let (memory_state, strategy) = derive_memory_state(false, Some(&resume), Some(&harness));
+
+        assert_eq!(memory_state, MemoryState::Resumable);
+        assert_eq!(strategy, harness::ResumeStrategy::Exact);
+    }
+
+    #[test]
     fn memory_state_marks_active_session_as_live() {
         let harness = harness("generic-shell");
 
