@@ -2128,7 +2128,7 @@ mod tests {
             detected_model: None,
             harness_session_id: None,
         };
-        store.merge_peon_inference(id, &inf, "t1", None).unwrap();
+        store.merge_peon_inference_with_history(id, &inf, "t1", None, None).unwrap();
         assert_eq!(store.read_session(id).unwrap().last_activity, "t1");
 
         let inf2 = crate::peon::PeonInference {
@@ -2136,7 +2136,7 @@ mod tests {
             suggested_options: Some(vec!["C".into(), "D".into()]),
             ..inf
         };
-        store.merge_peon_inference(id, &inf2, "t2", None).unwrap();
+        store.merge_peon_inference_with_history(id, &inf2, "t2", None, None).unwrap();
         let updated = store.read_session(id).unwrap();
         assert_eq!(
             updated.last_activity, "t2",
