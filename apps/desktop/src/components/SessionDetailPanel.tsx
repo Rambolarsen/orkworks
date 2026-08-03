@@ -168,8 +168,9 @@ function SessionDetailPanel({ sessions, activeSessionId, onResumeSession, onAppl
                   <span className="resume-option-icon"><MessageCircle size={14} aria-hidden="true" /></span>
                   <span className="resume-option-body">
                     <span className="resume-option-label">
-                      {reviewingSessionId === active.id ? "Requesting review…" : "Ask this agent to review"}
+                      {reviewingSessionId === active.id ? "Requesting review…" : "Request independent review"}
                     </span>
+                    <span className="resume-option-sub">Asks a separate subagent to check it, when the tooling supports one</span>
                   </span>
                 </button>
               )}
