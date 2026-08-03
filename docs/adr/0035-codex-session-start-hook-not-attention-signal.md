@@ -32,6 +32,26 @@ Codex also requires a one-time `/hooks` approval inside the tool (hash-pinned
 trust) before an installed hook definition actually executes — installing
 the config file is not the same as it being active.
 
+`.codex/hooks.json` nests every event under a top-level `hooks` object —
+`{"hooks": {"SessionStart": [...], ...}}` — confirmed against this repo's own
+committed file (APM's `ponytail` skill installs `Stop`/`sessionStart`/
+`userPromptSubmitted` hooks there). An initial implementation read and wrote
+a root-level `SessionStart` key instead; Codex would have silently ignored
+it while OrkWorks reported it as installed. Caught during PR review (both
+GitHub Copilot's and ChatGPT's automated reviewers independently flagged it
+against the real file) before merge, not after.
+
+That same real file also surfaces an unresolved tension: it's git-tracked,
+not gitignored, because APM's shared hooks legitimately need to be
+versioned for the whole team. Codex has no separate local-only config file
+the way Claude Code's `settings.local.json` is local by convention — so the
+`require_local_or_ignored_untracked` safety rule this framework applies to
+every JSON-hook target correctly *refuses* to install in a repo shaped like
+this one, rather than writing a machine-specific reporter-script path into
+a file every teammate shares. That refusal is safe (no corruption), but it
+also means the integration is a no-op in exactly the repo it was built and
+tested in. Not resolved here — see Consequences.
+
 ## Decision
 
 - Add `crates/orkworksd/src/harness/integrations/codex.rs` as a real
@@ -50,19 +70,48 @@ the config file is not the same as it being active.
   check derived from the same marker match that identifies the harness.
 - Because Codex's hook schema has no dedicated marker/name field (unlike
   Claude's `args` array or Gemini's `name` key), ownership is recognized by
-  extracting the `orkworks:harness-integration:` marker value embedded in
-  the hook's single shell-interpreted `command` string, then comparing it
+  extracting the `orkworks:harness-integration:` marker value embedded, as
+  a whole `--marker '<value>'`/`-Marker '<value>'` flag argument, in the
+  hook's single shell-interpreted `command` string, then comparing it
   exactly — the same "different marker → `Ambiguous`, not `Drifted`" safety
   invariant `claude.rs`/`gemini.rs` already enforce, adapted to a
-  substring-extraction rather than a discrete-field read.
+  structural-substring extraction rather than a discrete-field read.
+  Requiring the flag structure (not just the marker text anywhere in the
+  string) keeps an unrelated command that merely mentions the marker from
+  being misidentified as ours. The exactness check also verifies the
+  group's outer `matcher` is absent — `merge()` never sets one, so a group
+  edited to add one (narrowing which sources fire) reads as `Drifted`, not
+  `Installed`.
 - Grant Codex the `NativeSessionId` capability in the harness capability
   registry, now that a deterministic (not Peon-fuzzy) capture source exists.
+- Codex is the first `JsonHookHandler` whose confirmation copy must not
+  claim the generic "OrkWorks reports when this tool waits for input"
+  warning — `base_status`'s `executable_code_warning`/coverage-summary
+  fields, previously hardcoded `true`/`"Limited harness notifications"` for
+  every handler, are now conditioned on `harness_id != "codex"` (same
+  marker-string-special-case pattern as the reporter script, same
+  issue #271 follow-up). The Settings UI (`HarnessIntegrationSection.tsx`)
+  mirrors this with its own `isAttentionSignal` check, and separately
+  surfaces `activation === "needs_trust"` as a distinct "installed but not
+  yet approved" state instead of the same success copy every other
+  integration's `installed` registration gets.
 
 ## Consequences
 
 - Codex sessions get exact resume once a user approves the hook inside
   Codex once — same reliability tier as Claude Code, not Peon's 0.50-capped
   guess.
+- **Unresolved**: project-level `.codex/hooks.json` is not always the
+  "local, safe to write a machine-specific path into" target the other
+  JSON-hook integrations rely on being local by convention — this repo's
+  own file is git-tracked. In such repos the integration correctly reports
+  an error rather than corrupting the shared file, but that also means it
+  never activates there. Whether the right fix is a global
+  `~/.codex/hooks.json` target instead (bigger blast radius, one install
+  covers every repo, breaks the per-repo ownership model every other
+  integration uses), detecting and appending safely to a shared file some
+  other way, or something else, is an open question for a follow-up rather
+  than decided here.
 - The "is this event an attention signal" distinction now lives as a
   string match on the marker inside two script files, not as a declared
   property on `ToolHookContract` or anywhere in the capability model. This

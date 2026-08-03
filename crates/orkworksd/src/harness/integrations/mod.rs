@@ -128,6 +128,18 @@ impl JsonHookHandler {
         activation: IntegrationActivation,
         diagnostics: Vec<IntegrationDiagnostic>,
     ) -> IntegrationStatus {
+        // Every JsonHookHandler except Codex hooks a genuine "needs input"
+        // event and reports it via the generic attention endpoint (ADR
+        // 0034) — Codex's SessionStart hook only ever reports a session ID.
+        // A per-handler marker-string special case, not a framework field,
+        // for the same reason the reporter script branches on the marker
+        // rather than a declared contract property (see issue #271).
+        let is_attention_signal = self.contract.harness_id != "codex";
+        let coverage_summary = if is_attention_signal {
+            "Limited harness notifications"
+        } else {
+            "Native session ID capture"
+        };
         IntegrationStatus {
             harness_id: self.contract.harness_id.into(),
             enabled: ctx.enabled,
@@ -140,9 +152,9 @@ impl JsonHookHandler {
             confirmation: IntegrationConfirmation::new(
                 self.contract.tool_name,
                 ctx.workspace,
-                "Limited harness notifications",
+                coverage_summary,
                 &[Path::new(self.contract.relative_path)],
-                true,
+                is_attention_signal,
             )
             .ok(),
         }
@@ -754,6 +766,52 @@ mod tests {
                 case.name
             );
         }
+    }
+
+    #[test]
+    fn codex_confirmation_does_not_claim_the_generic_attention_warning() {
+        // base_status hardcodes executable_code_warning: true and a
+        // "Limited harness notifications" summary for every JsonHookHandler —
+        // accurate for Claude/Gemini/Copilot, which all report when the
+        // agent waits for input, but false for Codex, whose SessionStart
+        // hook only ever reports a session ID (ADR 0034).
+        let workspace = tempfile::tempdir().unwrap();
+        git2::Repository::init(workspace.path()).unwrap();
+        fs::write(workspace.path().join(".gitignore"), ".codex/hooks.json\n").unwrap();
+        let assets = tempfile::tempdir().unwrap();
+        fs::write(
+            assets.path().join(ReporterPlatform::Posix.asset_name()),
+            "#!/bin/sh\n",
+        )
+        .unwrap();
+        fs::write(
+            assets
+                .path()
+                .join(ReporterPlatform::WindowsPowerShell.asset_name()),
+            "# noop\n",
+        )
+        .unwrap();
+        let stable = tempfile::tempdir().unwrap();
+        let reporter = ReporterAssetResolver {
+            source_dir: assets.path().to_path_buf(),
+            stable_dir: stable.path().join("hook-scripts"),
+        };
+        let context = IntegrationContext {
+            workspace: workspace.path(),
+            workspace_metadata: None,
+            orkworks_root: stable.path(),
+            enabled: true,
+            detected_tool: None,
+            reporter_assets: &reporter,
+        };
+
+        let codex_status = handler(&IntegrationBinding::Codex).status(&context).unwrap();
+        let codex_confirmation = codex_status.confirmation.expect("codex confirmation");
+        assert!(!codex_confirmation.executable_code_warning);
+
+        let claude_status = handler(&IntegrationBinding::Claude).status(&context).unwrap();
+        let claude_confirmation = claude_status.confirmation.expect("claude confirmation");
+        assert!(claude_confirmation.executable_code_warning);
     }
 
     #[test]

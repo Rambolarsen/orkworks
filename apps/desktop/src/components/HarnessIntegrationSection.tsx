@@ -15,6 +15,13 @@ interface HarnessIntegrationSectionProps {
   harness: HarnessConfig | undefined;
 }
 
+// TODO(#271): derive this from a backend-declared event-semantics field on
+// the integration status instead of a per-harness special case here — Codex
+// is the only integration today whose hook doesn't mean "needs input".
+function isAttentionSignal(harnessId: string): boolean {
+  return harnessId !== "codex";
+}
+
 export default function HarnessIntegrationSection({ harnessId, harnessName, harness }: HarnessIntegrationSectionProps) {
   const launchCommand = harness?.launch.kind === "command-template" ? harness.launch.command : null;
   const hasCustomPath = launchCommand !== null && looksAbsolute(launchCommand);
@@ -117,7 +124,15 @@ export default function HarnessIntegrationSection({ harnessId, harnessName, harn
       )}
       {integration?.ok && integration.status.registration === "installed" && (
         <>
-          <span className="settings-config-status settings-config-status--ok">✓ Attention hooks installed</span>
+          {integration.status.activation === "needs_trust" ? (
+            <span className="settings-config-status">
+              Installed — approve the hook inside {harnessName} (run /hooks) to activate it
+            </span>
+          ) : (
+            <span className="settings-config-status settings-config-status--ok">
+              {isAttentionSignal(harnessId) ? "✓ Attention hooks installed" : "✓ Session capture hook installed"}
+            </span>
+          )}
           <button type="button" onClick={uninstallIntegrationHandler} disabled={integrationBusy}>
             {integrationBusy ? "Removing…" : "Uninstall"}
           </button>
@@ -129,7 +144,7 @@ export default function HarnessIntegrationSection({ harnessId, harnessName, harn
           <>
             {integration.status.confirmation && (
               <p className="settings-section-copy">
-                Installing will add attention hooks to{" "}
+                Installing will add {isAttentionSignal(harnessId) ? "attention hooks" : "a session capture hook"} to{" "}
                 {integration.status.confirmation.relativePaths.join(", ")} in this
                 workspace ({integration.status.confirmation.coverageSummary}).
                 {integration.status.confirmation.executableCodeWarning && (
@@ -142,7 +157,9 @@ export default function HarnessIntegrationSection({ harnessId, harnessName, harn
                 ? "Installing…"
                 : integration.status.registration === "drifted"
                   ? "Reinstall"
-                  : "Install attention hook"}
+                  : isAttentionSignal(harnessId)
+                    ? "Install attention hook"
+                    : "Install session capture hook"}
             </button>
           </>
         )}

@@ -16,7 +16,8 @@ $port = $env:ORKWORKS_PORT
 # directory) on every event, alongside "session_id" below. Forwarding it
 # lets the sidecar track where the agent is actually working, not just
 # where its process was launched (issue #241). Codex's SessionStart payload
-# only carries "session_id". $sessionSource doubles as the harness-session
+# carries other fields too (cwd, hook_event_name, source, ...) but we only
+# extract "session_id" from it. $sessionSource doubles as the harness-session
 # "source" field below and as the marker for "this event isn't a needs-input
 # signal" further down — one extraction point instead of matching $Marker a
 # second and third time.

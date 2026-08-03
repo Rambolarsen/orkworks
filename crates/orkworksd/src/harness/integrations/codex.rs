@@ -12,15 +12,27 @@ const MARKER: &str = "orkworks:harness-integration:v2:codex";
 // Claude's args array or Gemini's "name" key) — ownership is recognized by
 // extracting the marker value from inside the single shell-interpreted
 // "command" string produced by `reporter_invocation`, which always embeds
-// `--marker '<value>'`. Markers we generate are fixed literals with no
-// embedded quotes, so reading up to the closing `'` recovers the exact value.
+// the marker as the quoted value of a `--marker`/`-Marker` flag (POSIX vs
+// PowerShell). Requiring that exact flag structure — not just the marker
+// text appearing anywhere in the string — keeps an unrelated command that
+// merely mentions the marker (e.g. in an echo or comment) from being
+// misidentified as ours.
 const MARKER_PREFIX: &str = "orkworks:harness-integration:";
+const MARKER_FLAGS: [&str; 2] = ["--marker '", "-Marker '"];
 
 fn extract_marker(command: &str) -> Option<&str> {
-    let start = command.find(MARKER_PREFIX)?;
-    let rest = &command[start..];
-    let end = rest.find('\'').unwrap_or(rest.len());
-    Some(&rest[..end])
+    for flag in MARKER_FLAGS {
+        let Some(pos) = command.find(flag) else {
+            continue;
+        };
+        let rest = &command[pos + flag.len()..];
+        if !rest.starts_with(MARKER_PREFIX) {
+            continue;
+        }
+        let end = rest.find('\'').unwrap_or(rest.len());
+        return Some(&rest[..end]);
+    }
+    None
 }
 
 pub(crate) static HANDLER: JsonHookHandler = JsonHookHandler::new(
@@ -42,11 +54,16 @@ pub(crate) static HANDLER: JsonHookHandler = JsonHookHandler::new(
 );
 
 fn groups(document: &Map<String, Value>) -> Result<Vec<Value>, IntegrationError> {
-    let Some(hooks) = document.get("SessionStart") else {
+    let Some(hooks) = document.get("hooks") else {
         return Ok(vec![]);
     };
-    hooks.as_array().cloned().ok_or_else(|| {
-        IntegrationError::InvalidConfig("Codex SessionStart hooks must be an array.".into())
+    let hooks = hooks
+        .as_object()
+        .ok_or_else(|| IntegrationError::InvalidConfig("Codex hooks must be an object.".into()))?;
+    hooks.get("SessionStart").map_or(Ok(vec![]), |value| {
+        value.as_array().cloned().ok_or_else(|| {
+            IntegrationError::InvalidConfig("Codex SessionStart hooks must be an array.".into())
+        })
     })
 }
 
@@ -67,7 +84,13 @@ fn marker_state(group: &Value, reporter: Option<&Path>) -> FragmentState {
         }
         let exact = reporter.is_some_and(|path| {
             let invocation = reporter_invocation(path, MARKER);
-            hook.get("type").and_then(Value::as_str) == Some("command")
+            // merge() never sets an outer "matcher" — it intentionally
+            // matches every SessionStart source. A group edited to add one
+            // (e.g. narrowing to "resume") stops firing on startup/clear/
+            // compact even though the inner command is untouched, so that
+            // must not read as Installed.
+            group.get("matcher").is_none()
+                && hook.get("type").and_then(Value::as_str) == Some("command")
                 && command == invocation.shell_command.as_str()
         });
         if found.is_some() {
@@ -106,7 +129,12 @@ fn merge(document: &mut Map<String, Value>, reporter: &Path) -> Result<(), Integ
     if remove(document)? == FragmentState::Ambiguous {
         return Err(IntegrationError::OwnershipAmbiguous);
     }
-    let session_start = document
+    let hooks = document
+        .entry("hooks")
+        .or_insert_with(|| json!({}))
+        .as_object_mut()
+        .ok_or_else(|| IntegrationError::InvalidConfig("Codex hooks must be an object.".into()))?;
+    let session_start = hooks
         .entry("SessionStart")
         .or_insert_with(|| json!([]))
         .as_array_mut()
@@ -134,7 +162,11 @@ fn remove(document: &mut Map<String, Value>) -> Result<FragmentState, Integratio
     if count > 1 {
         return Ok(FragmentState::Ambiguous);
     }
-    let session_start = document
+    let hooks = document
+        .get_mut("hooks")
+        .and_then(Value::as_object_mut)
+        .expect("validated hooks object");
+    let session_start = hooks
         .get_mut("SessionStart")
         .and_then(Value::as_array_mut)
         .expect("validated SessionStart array");
@@ -163,5 +195,70 @@ mod tests {
         let reporter = Path::new("/path/to/report-harness-event.sh");
 
         assert_eq!(marker_state(&group, Some(reporter)), FragmentState::Ambiguous);
+    }
+
+    #[test]
+    fn merge_writes_session_start_nested_under_hooks_object_matching_the_real_codex_schema() {
+        // The real .codex/hooks.json committed in this repo (installed by
+        // APM's ponytail plugin) nests every event, including SessionStart,
+        // under a top-level "hooks" object — the same shape claude.rs and
+        // gemini.rs already use for their own events. A prior version of
+        // this handler read/wrote a root-level "SessionStart" key instead,
+        // which Codex silently ignores.
+        let mut document = Map::new();
+        document.insert(
+            "hooks".into(),
+            json!({
+                "Stop": [{"hooks": [{"type": "command", "command": "some-other-hook.sh"}]}]
+            }),
+        );
+        let reporter = Path::new("/path/to/report-harness-event.sh");
+
+        merge(&mut document, reporter).unwrap();
+
+        let hooks = document
+            .get("hooks")
+            .and_then(Value::as_object)
+            .expect("hooks object");
+        assert!(
+            hooks.contains_key("Stop"),
+            "must preserve the existing Stop hook group"
+        );
+        let session_start = hooks
+            .get("SessionStart")
+            .and_then(Value::as_array)
+            .expect("SessionStart must be nested under hooks");
+        assert_eq!(session_start.len(), 1);
+        assert!(
+            document.get("SessionStart").is_none(),
+            "must not also write a stray root-level SessionStart key"
+        );
+    }
+
+    #[test]
+    fn extract_marker_ignores_the_marker_text_appearing_outside_the_marker_flag() {
+        // A user's unrelated command that merely mentions the marker string
+        // (e.g. in an echo or a comment) must not be claimed as ours.
+        let command = "echo 'see orkworks:harness-integration:v2:codex in the docs'";
+        assert_eq!(extract_marker(command), None);
+    }
+
+    #[test]
+    fn marker_state_reports_drifted_when_a_matcher_narrows_which_sources_fire() {
+        // merge() never sets "matcher" (it intentionally matches every
+        // source). A group edited to add one, e.g. "matcher":"resume", no
+        // longer fires on startup/clear/compact even though the inner
+        // command is byte-for-byte what we generate — it must not be
+        // reported Installed.
+        let reporter = Path::new("/path/to/report-harness-event.sh");
+        let invocation = reporter_invocation(reporter, MARKER);
+        let group = json!({
+            "matcher": "resume",
+            "hooks": [
+                {"type": "command", "command": invocation.shell_command}
+            ]
+        });
+
+        assert_eq!(marker_state(&group, Some(reporter)), FragmentState::Drifted);
     }
 }

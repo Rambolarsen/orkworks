@@ -33,7 +33,9 @@ payload="$(cat || true)"
 # Claude Code's hook JSON includes both "cwd" (its own current working
 # directory — issue #241) and "session_id" on every event; extract both from
 # one parse of the same payload rather than spawning python3 twice. Codex's
-# SessionStart payload only carries "session_id". `session_source` doubles as
+# SessionStart payload carries other fields too (cwd, hook_event_name,
+# source, ...) but we only extract "session_id" from it. `session_source`
+# doubles as
 # the harness-session "source" field below and as the marker for "this event
 # isn't a needs-input signal" further down — one extraction point instead of
 # matching "$marker" a second and third time.
