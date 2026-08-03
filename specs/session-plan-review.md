@@ -17,9 +17,9 @@ OrkWorks should let a user read and explicitly request review of a plan or speci
 
 ## Prompt
 
-The sidecar constructs one fixed prompt using the validated workspace-relative path:
+The sidecar constructs one fixed prompt using the validated workspace-relative path. It asks the live session's agent to delegate to a separate review subagent rather than reviewing its own plan — the same author reviewing their own spec defeats the point of an independent check, and this stays within the existing same-session PTY handoff rather than starting a second OrkWorks session (see Non-goals):
 
-`Please review the plan or specification at <path>. Check it for missing requirements, risky assumptions, and unclear steps, then report your findings.`
+`Please spawn a separate review subagent — not the agent that wrote it — to review the plan or specification at <path>. Have it check for missing requirements, risky assumptions, and unclear steps, then report its findings.`
 
 ## Non-goals
 

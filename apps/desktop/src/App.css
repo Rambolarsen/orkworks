@@ -1139,8 +1139,9 @@ html, body, #root {
 .resume-option:last-child { border-bottom: none; }
 .resume-option:hover { background: var(--surface-3); }
 
-.resume-option--recommended { background: color-mix(in srgb, var(--accent) 9%, var(--surface-2)); }
-.resume-option--recommended:hover { background: color-mix(in srgb, var(--accent) 14%, var(--surface-2)); }
+/* Blue (same as the needs-you attention color), not the lime accent — lime already means "the harness is working." */
+.resume-option--recommended { background: color-mix(in srgb, var(--attention-needs-you) 9%, var(--surface-2)); }
+.resume-option--recommended:hover { background: color-mix(in srgb, var(--attention-needs-you) 14%, var(--surface-2)); }
 
 .resume-option--unavailable {
   cursor: not-allowed;
@@ -1157,7 +1158,7 @@ html, body, #root {
   color: var(--text-muted);
 }
 
-.resume-option--recommended .resume-option-icon { color: var(--accent); }
+.resume-option--recommended .resume-option-icon { color: var(--attention-needs-you); }
 .resume-option--unavailable .resume-option-icon { color: var(--text-faint); }
 
 .resume-option-body {
@@ -1185,7 +1186,7 @@ html, body, #root {
   font-weight: 600;
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;
-  color: var(--accent);
+  color: var(--attention-needs-you);
 }
 
 /* Surface 3 — facts (demoted): everything the row and terminal don't already say. */
