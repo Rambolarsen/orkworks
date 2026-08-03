@@ -8,11 +8,14 @@ changing its terminal output or recorded geometry.
 ## Design
 
 `HistoricalTerminal` keeps using the recorded `cols` and `rows` whenever the
-terminal-output endpoint supplies both values. Above the replay, it renders a
-small informational cue: `Recorded at {cols} × {rows}`.
+terminal-output endpoint supplies both values. After a non-empty replay has
+loaded, it renders a small informational cue: `Recorded at {cols} × {rows}`.
+The cue is a sibling immediately above `.terminal-container`, never an overlay
+or child of it, so the terminal scale calculation continues to measure the
+unchanged container content box.
 
-The cue is absent for legacy sessions that have no recorded size. It has no
-controls and does not persist UI state.
+The cue is absent for legacy, empty, and error replays. It has no controls and
+does not persist UI state.
 
 ## Boundaries
 
