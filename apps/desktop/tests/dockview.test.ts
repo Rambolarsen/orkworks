@@ -57,6 +57,15 @@ test("HistoricalTerminal loads output without opening an interactive terminal tr
   assert.doesNotMatch(source, /ensureTerminal/);
 });
 
+test("HistoricalTerminal labels only the current successful fixed-grid replay", () => {
+  const source = readFileSync(new URL("../src/components/HistoricalTerminal.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /Recorded at \{replay\.size\.cols\} × \{replay\.size\.rows\}/);
+  assert.match(source, /replay\.sessionId === sessionId && replay\.state === "loaded" && replay\.size/);
+  assert.match(source, /setReplay\(\{ sessionId, state: result, size: result === "loaded" \? loadedSize : null \}\)/);
+  assert.match(source, /<div className="terminal-shell">\s*\{replay\.sessionId/);
+});
+
 test("DockviewApp keeps all five panel ids registered (View menu hotkeys depend on it)", () => {
   const source = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
 

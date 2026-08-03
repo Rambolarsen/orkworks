@@ -9,14 +9,23 @@ import { orkworksTerminalTheme } from "../terminalTheme";
 import { terminalLinkHandler } from "../terminalLinks";
 import EmptyState from "./EmptyState";
 
+type ReplayState = "loading" | "empty" | "error" | "loaded";
+
 export default function HistoricalTerminal({ sessionId }: { sessionId: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [state, setState] = useState<"loading" | "empty" | "error" | "loaded">("loading");
+  const [replay, setReplay] = useState<{
+    sessionId: string;
+    state: ReplayState;
+    size: { cols: number; rows: number } | null;
+  }>({ sessionId, state: "loading", size: null });
 
   useEffect(() => {
     let current = true;
     let terminal: Terminal | null = null;
     let observer: ResizeObserver | null = null;
+    let loadedSize: { cols: number; rows: number } | null = null;
+
+    setReplay({ sessionId, state: "loading", size: null });
 
     void window.orkworks.getBackendUrl()
       .then((baseUrl) => loadTerminalReplay(
@@ -24,7 +33,8 @@ export default function HistoricalTerminal({ sessionId }: { sessionId: string })
         () => current,
         ({ cols, rows }) => {
           const container = containerRef.current;
-          const hasFixedSize = Boolean(cols && rows);
+          const hasFixedSize = cols !== undefined && rows !== undefined;
+          if (hasFixedSize) loadedSize = { cols, rows };
           terminal = new Terminal({
             theme: orkworksTerminalTheme,
             disableStdin: true,
@@ -112,10 +122,10 @@ export default function HistoricalTerminal({ sessionId }: { sessionId: string })
       ))
       .then((result) => {
         if (!current || result === "stale") return;
-        setState(result);
+        setReplay({ sessionId, state: result, size: result === "loaded" ? loadedSize : null });
       })
       .catch(() => {
-        if (current) setState("error");
+        if (current) setReplay({ sessionId, state: "error", size: null });
       });
 
     return () => {
@@ -125,7 +135,15 @@ export default function HistoricalTerminal({ sessionId }: { sessionId: string })
     };
   }, [sessionId]);
 
+  const state = replay.sessionId === sessionId ? replay.state : "loading";
   if (state === "empty") return <EmptyState message="No saved terminal output for this session." />;
   if (state === "error") return <EmptyState message="Saved terminal output is unavailable." />;
-  return <div className="terminal-shell"><div ref={containerRef} className="terminal-container" aria-label={state === "loading" ? "Loading saved terminal output" : "Saved terminal output"} /></div>;
+  return (
+    <div className="terminal-shell">
+      {replay.sessionId === sessionId && replay.state === "loaded" && replay.size && (
+        <div className="historical-terminal-size">Recorded at {replay.size.cols} × {replay.size.rows}</div>
+      )}
+      <div ref={containerRef} className="terminal-container" aria-label={state === "loading" ? "Loading saved terminal output" : "Saved terminal output"} />
+    </div>
+  );
 }
