@@ -776,8 +776,24 @@ mod tests {
         // agent waits for input, but false for Codex, whose SessionStart
         // hook only ever reports a session ID (ADR 0034).
         let workspace = tempfile::tempdir().unwrap();
-        git2::Repository::init(workspace.path()).unwrap();
-        fs::write(workspace.path().join(".gitignore"), ".codex/hooks.json\n").unwrap();
+        let repo = git2::Repository::init(workspace.path()).unwrap();
+        // Same guard as error_status_surfaces_the_specific_integration_error_message
+        // above: libgit2 consults the real machine's global excludes file
+        // regardless of HOME, so a developer machine with a personal
+        // **/.claude/settings.local.json exclude rule would silently route
+        // Claude's status() through the non-error path for the wrong
+        // reason (or vice versa in a clean CI environment) unless pinned.
+        let empty_excludes = workspace.path().join("empty-global-excludes");
+        fs::write(&empty_excludes, "").unwrap();
+        repo.config()
+            .unwrap()
+            .set_str("core.excludesFile", empty_excludes.to_str().unwrap())
+            .unwrap();
+        fs::write(
+            workspace.path().join(".gitignore"),
+            ".codex/hooks.json\n.claude/settings.local.json\n",
+        )
+        .unwrap();
         let assets = tempfile::tempdir().unwrap();
         fs::write(
             assets.path().join(ReporterPlatform::Posix.asset_name()),
