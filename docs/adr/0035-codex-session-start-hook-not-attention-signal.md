@@ -111,7 +111,8 @@ tested in. Not resolved here — see Consequences.
   covers every repo, breaks the per-repo ownership model every other
   integration uses), detecting and appending safely to a shared file some
   other way, or something else, is an open question for a follow-up rather
-  than decided here.
+  than decided here — tracked as
+  [issue #276](https://github.com/Rambolarsen/orkworks/issues/276).
 - The "is this event an attention signal" distinction now lives as a
   string match on the marker inside two script files, not as a declared
   property on `ToolHookContract` or anywhere in the capability model. This
