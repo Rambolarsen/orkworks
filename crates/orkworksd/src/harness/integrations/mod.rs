@@ -426,7 +426,32 @@ mod tests {
         assert!(script.contains("claude-code"));
         assert!(script.contains("session_id"));
         assert!(script.contains("/sessions/$ORKWORKS_SESSION_ID/harness-session"));
-        assert!(script.contains("\"source\":\"claude_hook\""));
+        assert!(script.contains("claude_hook"));
+    }
+
+    #[test]
+    fn report_harness_event_captures_codex_session_id_only_for_codex_marker() {
+        let script = include_str!("../../../scripts/report-harness-event.sh");
+        assert!(script.contains(":codex"));
+        assert!(script.contains("/sessions/$ORKWORKS_SESSION_ID/harness-session"));
+        assert!(script.contains("codex_hook"));
+    }
+
+    #[test]
+    fn report_harness_event_skips_generic_attention_for_codex_marker() {
+        // SessionStart (what Codex's marker is installed on) fires at session
+        // start/resume/clear/compact, not when Codex needs input — unlike
+        // every other marker here, which hooks a genuine "needs input" event.
+        // Posting the generic waiting_for_input attention update for codex
+        // would mislabel every freshly launched session.
+        let trace = run_report_harness_event_sh_trace(
+            "orkworks:harness-integration:v2:codex",
+            r#"{"session_id":"thr_123","cwd":"/tmp","hook_event_name":"SessionStart","source":"startup"}"#,
+        );
+        assert!(
+            !trace.contains("attention_payload="),
+            "codex marker must not post generic attention; trace:\n{trace}"
+        );
     }
 
     #[test]
@@ -526,6 +551,18 @@ mod tests {
     }
 
     #[test]
+    fn report_harness_event_runs_and_forwards_session_id_from_a_real_codex_session_start_payload() {
+        let trace = run_report_harness_event_sh_trace(
+            "orkworks:harness-integration:v2:codex",
+            r#"{"session_id":"thr_123","cwd":"/tmp/some/worktree","hook_event_name":"SessionStart","source":"startup"}"#,
+        );
+        assert!(
+            trace.contains(r#"{"harnessSessionId":"thr_123","source":"codex_hook","confidence":0.98}"#),
+            "expected codex session_id to be forwarded; trace:\n{trace}"
+        );
+    }
+
+    #[test]
     fn report_harness_event_ps1_always_posts_generic_attention() {
         let script = include_str!("../../../scripts/report-harness-event.ps1");
         assert!(script.contains("ORKWORKS_SESSION_ID"));
@@ -541,6 +578,14 @@ mod tests {
         assert!(script.contains("session_id"));
         assert!(script.contains("/sessions/$sessionId/harness-session"));
         assert!(script.contains("claude_hook"));
+    }
+
+    #[test]
+    fn report_harness_event_ps1_captures_codex_session_id_only_for_codex_marker() {
+        let script = include_str!("../../../scripts/report-harness-event.ps1");
+        assert!(script.contains(":codex"));
+        assert!(script.contains("/sessions/$sessionId/harness-session"));
+        assert!(script.contains("codex_hook"));
     }
 
     #[test]
@@ -596,7 +641,7 @@ mod tests {
         target: &'static str,
     }
 
-    fn json_cases() -> [Case; 3] {
+    fn json_cases() -> [Case; 4] {
         [
             Case {
                 name: "claude",
@@ -612,6 +657,11 @@ mod tests {
                 name: "copilot",
                 binding: IntegrationBinding::Copilot,
                 target: ".github/copilot/settings.local.json",
+            },
+            Case {
+                name: "codex",
+                binding: IntegrationBinding::Codex,
+                target: ".codex/hooks.json",
             },
         ]
     }
@@ -851,7 +901,7 @@ mod tests {
 
     #[test]
     fn unsupported_bindings_do_not_touch_workspace_files() {
-        for binding in [IntegrationBinding::Codex, IntegrationBinding::OpenCode] {
+        for binding in [IntegrationBinding::OpenCode] {
             let workspace = tempfile::tempdir().unwrap();
             let assets = tempfile::tempdir().unwrap();
             let stable = tempfile::tempdir().unwrap();

@@ -250,6 +250,11 @@ mod tests {
         .unwrap();
     }
 
+    fn init_git_workspace_with_codex_hooks_ignored(workspace: &std::path::Path) {
+        git2::Repository::init(workspace).unwrap();
+        std::fs::write(workspace.join(".gitignore"), ".codex/hooks.json\n").unwrap();
+    }
+
     // Pins the packaged-vs-dev fallback that used to be covered by
     // hook_handlers.rs's resolve_claude_hook_script_path_* tests (deleted
     // along with that file) — this is the same AppImage/packaging-sensitive
@@ -311,6 +316,30 @@ mod tests {
         assert_eq!(install_response.status(), StatusCode::OK);
 
         let status_response = get_integration_status(State(state), AxumPath("claude-code".into()))
+            .await
+            .into_response();
+        let bytes = axum::body::to_bytes(status_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["registration"], "installed");
+    }
+
+    #[tokio::test]
+    async fn codex_install_then_status_reports_installed_via_http() {
+        let dir = tempfile::tempdir().unwrap();
+        init_git_workspace_with_codex_hooks_ignored(dir.path());
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        let state = test_app_state_with_workspace(dir.path());
+
+        let install_response =
+            install_integration(State(state.clone()), AxumPath("codex".into()))
+                .await
+                .into_response();
+        assert_eq!(install_response.status(), StatusCode::OK);
+
+        let status_response = get_integration_status(State(state), AxumPath("codex".into()))
             .await
             .into_response();
         let bytes = axum::body::to_bytes(status_response.into_body(), usize::MAX)
