@@ -1,21 +1,42 @@
 use std::path::{Component, Path, PathBuf};
 
+/// Verbs that indicate a line is reporting a file the agent just wrote,
+/// rather than merely mentioning or quoting an existing path (e.g. a `grep`
+/// hit, an error message, or prose referencing someone else's plan).
+const WRITE_SIGNALS: [&str; 12] = [
+    "wrote", "write", "writes", "writing", "written", "created", "create",
+    "creates", "creating", "saved", "save", "saves",
+];
+
+fn has_write_signal(line: &str) -> bool {
+    line.split(|ch: char| !ch.is_ascii_alphanumeric())
+        .any(|word| WRITE_SIGNALS.contains(&word.to_ascii_lowercase().as_str()))
+}
+
 /// Returns the first Markdown path printed by an agent that is in one of the
-/// narrow plan locations OrkWorks recognizes. Validation against the actual
-/// workspace happens before the value is persisted or served.
+/// narrow plan locations OrkWorks recognizes, on a line that also reports
+/// having written the file. Validation against the actual workspace happens
+/// before the value is persisted or served.
 pub(crate) fn printed_plan_path(output: &str) -> Option<String> {
-    output.split_whitespace().find_map(|word| {
-        let path = word.trim_matches(|ch: char| matches!(ch, '`' | '\'' | '"' | '(' | ')' | '[' | ']' | '{' | '}' | ',' | '.' | ':'));
-        if Path::new(path)
-            .components()
-            .any(|component| matches!(component, Component::ParentDir | Component::RootDir | Component::Prefix(_)))
-        {
+    output.lines().find_map(|line| {
+        if !has_write_signal(line) {
             return None;
         }
-        (path.starts_with("docs/superpowers/plans/") || path.starts_with("specs/"))
-            .then_some(path)
-            .filter(|path| path.ends_with(".md") && !path.chars().any(char::is_control))
-            .map(str::to_owned)
+        line.split_whitespace().find_map(|word| {
+            let path = word.trim_matches(|ch: char| matches!(ch, '`' | '\'' | '"' | '(' | ')' | '[' | ']' | '{' | '}' | ',' | '.' | ':'));
+            if Path::new(path)
+                .components()
+                .any(|component| matches!(component, Component::ParentDir | Component::RootDir | Component::Prefix(_)))
+            {
+                return None;
+            }
+            (path.starts_with("docs/superpowers/plans/")
+                || path.starts_with("docs/superpowers/specs/")
+                || path.starts_with("specs/"))
+                .then_some(path)
+                .filter(|path| path.ends_with(".md") && !path.chars().any(char::is_control))
+                .map(str::to_owned)
+        })
     })
 }
 
@@ -80,8 +101,33 @@ mod tests {
             Some("docs/superpowers/plans/session-review.md".into())
         );
         assert_eq!(
+            printed_plan_path("Wrote docs/superpowers/plans/session-review.md"),
+            Some("docs/superpowers/plans/session-review.md".into())
+        );
+        assert_eq!(
+            printed_plan_path("Created specs/new-feature.md"),
+            Some("specs/new-feature.md".into())
+        );
+        assert_eq!(
+            printed_plan_path(
+                "Spec written and committed: docs/superpowers/specs/2026-08-03-recorded-terminal-size-cue-design.md."
+            ),
+            Some("docs/superpowers/specs/2026-08-03-recorded-terminal-size-cue-design.md".into())
+        );
+    }
+
+    #[test]
+    fn ignores_an_incidental_mention_with_no_write_signal() {
+        // A session reading or referencing someone else's plan/spec must not
+        // be mistaken for having authored it (the root cause of a real false
+        // positive: OrkWorks itself discussing specs/session-plan-review.md).
+        assert_eq!(
             printed_plan_path("See specs/session-plan-review.md before continuing."),
-            Some("specs/session-plan-review.md".into())
+            None
+        );
+        assert_eq!(
+            printed_plan_path("grep hit: docs/superpowers/plans/unrelated.md:12:some text"),
+            None
         );
     }
 
