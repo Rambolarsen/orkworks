@@ -30,7 +30,9 @@ pub(crate) fn printed_plan_path(output: &str) -> Option<String> {
             {
                 return None;
             }
-            (path.starts_with("docs/superpowers/plans/") || path.starts_with("specs/"))
+            (path.starts_with("docs/superpowers/plans/")
+                || path.starts_with("docs/superpowers/specs/")
+                || path.starts_with("specs/"))
                 .then_some(path)
                 .filter(|path| path.ends_with(".md") && !path.chars().any(char::is_control))
                 .map(str::to_owned)
@@ -105,6 +107,12 @@ mod tests {
         assert_eq!(
             printed_plan_path("Created specs/new-feature.md"),
             Some("specs/new-feature.md".into())
+        );
+        assert_eq!(
+            printed_plan_path(
+                "Spec written and committed: docs/superpowers/specs/2026-08-03-recorded-terminal-size-cue-design.md."
+            ),
+            Some("docs/superpowers/specs/2026-08-03-recorded-terminal-size-cue-design.md".into())
         );
     }
 
