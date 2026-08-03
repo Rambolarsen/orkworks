@@ -193,6 +193,7 @@ Electron + React/TypeScript frontend (`apps/desktop/`) communicates with a Rust 
 - ADR 0031: Session git-context fields (`repo_root`/`branch`/`dirty`/etc.) reflect each session's live PTY-process cwd, probed cross-platform via the `sysinfo` crate, not just its frozen launch-time cwd.
 - ADR 0032: For Claude Code sessions, the harness's own self-reported cwd (forwarded from its hook JSON payload) takes priority over ADR 0031's pid probe, since command-template harnesses run as the PTY child directly and track "current directory" as internal state rather than calling `chdir()` on themselves.
 - ADR 0033: Dead-session terminal replay renders at the PTY's recorded `cols × rows` persisted in a per-session `.terminal-size` sidecar (cleared on resume), served as optional `cols`/`rows` on the terminal-output endpoint; legacy and unknown-size sessions keep fit-to-container replay.
+- ADR 0035: Codex's `SessionStart` hook (`.codex/hooks.json`) captures `harness_session_id` at `agent`-tier confidence via the existing `JsonHookHandler`/reporter-script framework; unlike every other integration's hooked event, `SessionStart` is not a "needs input" signal, so the shared reporter script skips its generic attention POST specifically for Codex's marker.
 
 See [`docs/agents/architecture.md`](docs/agents/architecture.md) for the full inter-component breakdown (port discovery, preload bridge, API data flow, Rust modules, panel layout).
 

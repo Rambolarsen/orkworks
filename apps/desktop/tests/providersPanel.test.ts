@@ -88,6 +88,16 @@ test("SettingsModal mounts a per-harness attention hook install affordance when 
   assert.match(source, /<HarnessIntegrationSection/);
 });
 
+test("SettingsModal exposes Codex's hook integration through the same Settings path", () => {
+  // A working backend integration is unreachable if this allowlist omits
+  // the harness id — HarnessIntegrationSection never mounts for it.
+  const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
+  const match = source.match(/const INTEGRATION_HARNESS_IDS = (\[[^\]]*\]);/);
+  assert.ok(match, "expected to find the INTEGRATION_HARNESS_IDS declaration");
+  const ids = JSON.parse(match[1].replace(/'/g, '"'));
+  assert.ok(ids.includes("codex"), `expected "codex" in ${match[1]}`);
+});
+
 test("HarnessIntegrationSection offers the attention hook install affordance", () => {
   const source = readFileSync(new URL("../src/components/HarnessIntegrationSection.tsx", import.meta.url), "utf8");
   assert.match(source, /getHarnessIntegrationStatus/);
@@ -96,6 +106,18 @@ test("HarnessIntegrationSection offers the attention hook install affordance", (
   assert.match(source, /Install attention hook/);
   assert.match(source, /Attention hooks installed/);
   assert.match(source, /begins a tool action/);
+});
+
+test("HarnessIntegrationSection distinguishes non-attention integrations and unapproved installs", () => {
+  const source = readFileSync(new URL("../src/components/HarnessIntegrationSection.tsx", import.meta.url), "utf8");
+  // Codex's SessionStart hook only reports a session ID (ADR 0034) — the
+  // "attention hook"/"waits for input" copy must not be the only wording,
+  // and "installed" must not read as "active" while activation is
+  // needs_trust (Codex requires a one-time in-tool /hooks approval).
+  assert.match(source, /isAttentionSignal/);
+  assert.match(source, /Session capture hook installed/);
+  assert.match(source, /needs_trust/);
+  assert.match(source, /approve the hook inside/);
 });
 
 test("ProviderSettingsSection keeps model provider editing simplified", () => {

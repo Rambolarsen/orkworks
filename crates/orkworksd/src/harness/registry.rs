@@ -375,19 +375,18 @@ fn capability_names(definition: &HarnessDefinition) -> BTreeSet<CapabilityName> 
         names.insert(CapabilityName::Voice);
     }
     if let Some(binding) = &definition.session_signals {
-        // Keep this aligned with the evidence register. Task 7 may only add a
-        // signal after its exact payload fixture is implemented.
+        // Keep this aligned with the evidence register.
         match binding {
             super::definition::SessionSignalBinding::Claude
             | super::definition::SessionSignalBinding::Gemini
-            | super::definition::SessionSignalBinding::Copilot => {
+            | super::definition::SessionSignalBinding::Copilot
+            | super::definition::SessionSignalBinding::Codex => {
                 names.insert(CapabilityName::NativeSessionId);
             }
             super::definition::SessionSignalBinding::Aider => {
                 names.insert(CapabilityName::Attention);
             }
-            super::definition::SessionSignalBinding::Codex
-            | super::definition::SessionSignalBinding::OpenCode => {}
+            super::definition::SessionSignalBinding::OpenCode => {}
         }
     }
     if definition.integration.is_some() {
@@ -626,7 +625,7 @@ mod tests {
         let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
         let registry = resolve_document(&builtins, &HarnessUserDocument::default()).unwrap();
         let codex = &registry.get("codex").unwrap().effective_capabilities;
-        assert!(!codex.contains(&CapabilityName::NativeSessionId));
+        assert!(codex.contains(&CapabilityName::NativeSessionId));
         assert!(!codex.contains(&CapabilityName::Attention));
         assert!(!codex.contains(&CapabilityName::Lifecycle));
         let aider = &registry.get("aider").unwrap().effective_capabilities;

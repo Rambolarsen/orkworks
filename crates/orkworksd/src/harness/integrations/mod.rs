@@ -128,6 +128,18 @@ impl JsonHookHandler {
         activation: IntegrationActivation,
         diagnostics: Vec<IntegrationDiagnostic>,
     ) -> IntegrationStatus {
+        // Every JsonHookHandler except Codex hooks a genuine "needs input"
+        // event and reports it via the generic attention endpoint (ADR
+        // 0034) — Codex's SessionStart hook only ever reports a session ID.
+        // A per-handler marker-string special case, not a framework field,
+        // for the same reason the reporter script branches on the marker
+        // rather than a declared contract property (see issue #271).
+        let is_attention_signal = self.contract.harness_id != "codex";
+        let coverage_summary = if is_attention_signal {
+            "Limited harness notifications"
+        } else {
+            "Native session ID capture"
+        };
         IntegrationStatus {
             harness_id: self.contract.harness_id.into(),
             enabled: ctx.enabled,
@@ -140,9 +152,9 @@ impl JsonHookHandler {
             confirmation: IntegrationConfirmation::new(
                 self.contract.tool_name,
                 ctx.workspace,
-                "Limited harness notifications",
+                coverage_summary,
                 &[Path::new(self.contract.relative_path)],
-                true,
+                is_attention_signal,
             )
             .ok(),
         }
@@ -426,7 +438,32 @@ mod tests {
         assert!(script.contains("claude-code"));
         assert!(script.contains("session_id"));
         assert!(script.contains("/sessions/$ORKWORKS_SESSION_ID/harness-session"));
-        assert!(script.contains("\"source\":\"claude_hook\""));
+        assert!(script.contains("claude_hook"));
+    }
+
+    #[test]
+    fn report_harness_event_captures_codex_session_id_only_for_codex_marker() {
+        let script = include_str!("../../../scripts/report-harness-event.sh");
+        assert!(script.contains(":codex"));
+        assert!(script.contains("/sessions/$ORKWORKS_SESSION_ID/harness-session"));
+        assert!(script.contains("codex_hook"));
+    }
+
+    #[test]
+    fn report_harness_event_skips_generic_attention_for_codex_marker() {
+        // SessionStart (what Codex's marker is installed on) fires at session
+        // start/resume/clear/compact, not when Codex needs input — unlike
+        // every other marker here, which hooks a genuine "needs input" event.
+        // Posting the generic waiting_for_input attention update for codex
+        // would mislabel every freshly launched session.
+        let trace = run_report_harness_event_sh_trace(
+            "orkworks:harness-integration:v2:codex",
+            r#"{"session_id":"thr_123","cwd":"/tmp","hook_event_name":"SessionStart","source":"startup"}"#,
+        );
+        assert!(
+            !trace.contains("attention_payload="),
+            "codex marker must not post generic attention; trace:\n{trace}"
+        );
     }
 
     #[test]
@@ -526,6 +563,18 @@ mod tests {
     }
 
     #[test]
+    fn report_harness_event_runs_and_forwards_session_id_from_a_real_codex_session_start_payload() {
+        let trace = run_report_harness_event_sh_trace(
+            "orkworks:harness-integration:v2:codex",
+            r#"{"session_id":"thr_123","cwd":"/tmp/some/worktree","hook_event_name":"SessionStart","source":"startup"}"#,
+        );
+        assert!(
+            trace.contains(r#"{"harnessSessionId":"thr_123","source":"codex_hook","confidence":0.98}"#),
+            "expected codex session_id to be forwarded; trace:\n{trace}"
+        );
+    }
+
+    #[test]
     fn report_harness_event_ps1_always_posts_generic_attention() {
         let script = include_str!("../../../scripts/report-harness-event.ps1");
         assert!(script.contains("ORKWORKS_SESSION_ID"));
@@ -541,6 +590,14 @@ mod tests {
         assert!(script.contains("session_id"));
         assert!(script.contains("/sessions/$sessionId/harness-session"));
         assert!(script.contains("claude_hook"));
+    }
+
+    #[test]
+    fn report_harness_event_ps1_captures_codex_session_id_only_for_codex_marker() {
+        let script = include_str!("../../../scripts/report-harness-event.ps1");
+        assert!(script.contains(":codex"));
+        assert!(script.contains("/sessions/$sessionId/harness-session"));
+        assert!(script.contains("codex_hook"));
     }
 
     #[test]
@@ -596,7 +653,7 @@ mod tests {
         target: &'static str,
     }
 
-    fn json_cases() -> [Case; 3] {
+    fn json_cases() -> [Case; 4] {
         [
             Case {
                 name: "claude",
@@ -612,6 +669,11 @@ mod tests {
                 name: "copilot",
                 binding: IntegrationBinding::Copilot,
                 target: ".github/copilot/settings.local.json",
+            },
+            Case {
+                name: "codex",
+                binding: IntegrationBinding::Codex,
+                target: ".codex/hooks.json",
             },
         ]
     }
@@ -704,6 +766,68 @@ mod tests {
                 case.name
             );
         }
+    }
+
+    #[test]
+    fn codex_confirmation_does_not_claim_the_generic_attention_warning() {
+        // base_status hardcodes executable_code_warning: true and a
+        // "Limited harness notifications" summary for every JsonHookHandler —
+        // accurate for Claude/Gemini/Copilot, which all report when the
+        // agent waits for input, but false for Codex, whose SessionStart
+        // hook only ever reports a session ID (ADR 0034).
+        let workspace = tempfile::tempdir().unwrap();
+        let repo = git2::Repository::init(workspace.path()).unwrap();
+        // Same guard as error_status_surfaces_the_specific_integration_error_message
+        // above: libgit2 consults the real machine's global excludes file
+        // regardless of HOME, so a developer machine with a personal
+        // **/.claude/settings.local.json exclude rule would silently route
+        // Claude's status() through the non-error path for the wrong
+        // reason (or vice versa in a clean CI environment) unless pinned.
+        let empty_excludes = workspace.path().join("empty-global-excludes");
+        fs::write(&empty_excludes, "").unwrap();
+        repo.config()
+            .unwrap()
+            .set_str("core.excludesFile", empty_excludes.to_str().unwrap())
+            .unwrap();
+        fs::write(
+            workspace.path().join(".gitignore"),
+            ".codex/hooks.json\n.claude/settings.local.json\n",
+        )
+        .unwrap();
+        let assets = tempfile::tempdir().unwrap();
+        fs::write(
+            assets.path().join(ReporterPlatform::Posix.asset_name()),
+            "#!/bin/sh\n",
+        )
+        .unwrap();
+        fs::write(
+            assets
+                .path()
+                .join(ReporterPlatform::WindowsPowerShell.asset_name()),
+            "# noop\n",
+        )
+        .unwrap();
+        let stable = tempfile::tempdir().unwrap();
+        let reporter = ReporterAssetResolver {
+            source_dir: assets.path().to_path_buf(),
+            stable_dir: stable.path().join("hook-scripts"),
+        };
+        let context = IntegrationContext {
+            workspace: workspace.path(),
+            workspace_metadata: None,
+            orkworks_root: stable.path(),
+            enabled: true,
+            detected_tool: None,
+            reporter_assets: &reporter,
+        };
+
+        let codex_status = handler(&IntegrationBinding::Codex).status(&context).unwrap();
+        let codex_confirmation = codex_status.confirmation.expect("codex confirmation");
+        assert!(!codex_confirmation.executable_code_warning);
+
+        let claude_status = handler(&IntegrationBinding::Claude).status(&context).unwrap();
+        let claude_confirmation = claude_status.confirmation.expect("claude confirmation");
+        assert!(claude_confirmation.executable_code_warning);
     }
 
     #[test]
@@ -851,7 +975,7 @@ mod tests {
 
     #[test]
     fn unsupported_bindings_do_not_touch_workspace_files() {
-        for binding in [IntegrationBinding::Codex, IntegrationBinding::OpenCode] {
+        for binding in [IntegrationBinding::OpenCode] {
             let workspace = tempfile::tempdir().unwrap();
             let assets = tempfile::tempdir().unwrap();
             let stable = tempfile::tempdir().unwrap();

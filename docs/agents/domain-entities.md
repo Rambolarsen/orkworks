@@ -40,7 +40,7 @@ File: `crates/orkworksd/src/metadata.rs`
   1. **Harness-reported cwd** (ADR 0032) — the harness's own logical working directory, forwarded from its hook JSON payload (currently Claude Code only, via `report-harness-event.sh`/`.ps1` → `POST /sessions/:id/attention`'s optional `cwd` field → `PeonState.reported_cwd`). Authoritative when present, since command-template harnesses (Claude Code, Codex, OpenCode, Aider) run as the PTY child directly and track "current directory" as their own internal state rather than calling `chdir()` on themselves — so the pid probe below can't see it.
   2. **Pid-probed live cwd** (ADR 0031) — the PTY child process's actual OS-level cwd, resolved via a cross-platform batched probe (`procfs::live_cwds`, backed by the `sysinfo` crate — Linux/macOS/Windows alike). Correctly tracks bare shell sessions (where the PTY child *is* the shell a `cd` mutates) but not harness sessions without hook support.
   3. **Frozen launch-time `cwd`** — the fallback when neither of the above is available.
-  Aider, Codex, and OpenCode sessions currently only get tiers 2–3 (no working hook-install mechanism yet for cwd reporting; tracked separately as issues #103/#104).
+  Aider, Codex, and OpenCode sessions currently only get tiers 2–3 — Codex's `SessionStart` hook (`.codex/hooks.json`) captures `harness_session_id` but does not report `cwd`; Aider and OpenCode have no working hook-install mechanism at all yet (tracked separately as issues #103/#104).
 - `resume`, `resume_options`, `resumed_from`, `harness_session_id_source/confidence/captured_at`
 - `last_user_input`
 
