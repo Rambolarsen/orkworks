@@ -64,6 +64,11 @@ test("HistoricalTerminal labels only the current successful fixed-grid replay", 
   assert.match(source, /replay\.sessionId === sessionId && replay\.state === "loaded" && replay\.size/);
   assert.match(source, /setReplay\(\{ sessionId, state: result, size: result === "loaded" \? loadedSize : null \}\)/);
   assert.match(source, /<div className="terminal-shell">\s*\{replay\.sessionId/);
+  // The cue inserts on the loading→loaded transition. Without `key="terminal"`, React
+  // reconciles positionally and repurposes the terminal-container DOM node as the cue,
+  // dropping the imperatively-mounted xterm output. Pin this regression.
+  assert.match(source, /<div key="terminal" ref=\{containerRef\}/);
+  assert.match(source, /<div key="cue" className="historical-terminal-size"/);
 });
 
 test("DockviewApp keeps all five panel ids registered (View menu hotkeys depend on it)", () => {

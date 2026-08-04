@@ -138,12 +138,17 @@ export default function HistoricalTerminal({ sessionId }: { sessionId: string })
   const state = replay.sessionId === sessionId ? replay.state : "loading";
   if (state === "empty") return <EmptyState message="No saved terminal output for this session." />;
   if (state === "error") return <EmptyState message="Saved terminal output is unavailable." />;
+  // Key the cue and the terminal container so React's positional reconciliation cannot
+  // repurpose the imperatively-mounted xterm node when the cue div inserts on the
+  // loading→loaded transition. Without `key="terminal"`, the terminal-container DOM
+  // node would swap className to `historical-terminal-size` mid-replay, losing the
+  // mounted xterm output, and the ref would migrate to a fresh empty container.
   return (
     <div className="terminal-shell">
       {replay.sessionId === sessionId && replay.state === "loaded" && replay.size && (
-        <div className="historical-terminal-size">Recorded at {replay.size.cols} × {replay.size.rows}</div>
+        <div key="cue" className="historical-terminal-size">Recorded at {replay.size.cols} × {replay.size.rows}</div>
       )}
-      <div ref={containerRef} className="terminal-container" aria-label={state === "loading" ? "Loading saved terminal output" : "Saved terminal output"} />
+      <div key="terminal" ref={containerRef} className="terminal-container" aria-label={state === "loading" ? "Loading saved terminal output" : "Saved terminal output"} />
     </div>
   );
 }
