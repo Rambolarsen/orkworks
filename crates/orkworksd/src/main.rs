@@ -42,7 +42,7 @@ use crate::http::provider_handlers::{
 use crate::http::retention_handlers::set_retention;
 use crate::http::session_handlers::{
     apply_debug_attention, create_session, delete_session, forget_session, list_sessions,
-get_session_plan_content, request_session_plan_review, report_attention, report_harness_session, resume_session,
+get_session_plan_content, request_session_plan_review, report_attention, report_harness_session, report_session_plan_path, resume_session,
     set_active_harnesses, set_active_session, set_workspace,
 };
 use crate::runtime::peon_runtime::peon_loop;
@@ -583,6 +583,7 @@ mod tests {
                 post(report_harness_session),
             )
             .route("/sessions/:id/attention", post(report_attention))
+            .route("/sessions/:id/plan-path", post(report_session_plan_path))
             .route("/sessions/:id/debug-injection", post(apply_debug_attention))
             .route("/sessions/:id/plan-content", get(get_session_plan_content))
             .route("/sessions/:id/request-plan-review", post(request_session_plan_review))
