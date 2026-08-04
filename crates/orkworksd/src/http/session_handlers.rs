@@ -146,7 +146,7 @@ pub(crate) async fn request_session_plan_review(
         if resolve_openable_plan(&workspace.path, &path).is_err() { return axum::http::StatusCode::CONFLICT.into_response(); }
         path
     };
-    let prompt = format!("Please review the plan or specification at {relative}. Check it for missing requirements, risky assumptions, and unclear steps, then report your findings.\r");
+    let prompt = format!("Please review the plan or specification at {relative}. If your tooling can spawn a separate review subagent, delegate the review to it instead of reviewing your own work; otherwise review it yourself. Check for missing requirements, risky assumptions, and unclear steps, then report the findings.\r");
     match crate::runtime::terminal_runtime::submit_approved_input(&state, &id, prompt).await {
         Ok(()) => {
             if let Some(workspace) = state.workspace.lock().unwrap().as_ref() {
@@ -5526,7 +5526,7 @@ mod tests {
         else {
             panic!("expected terminal input")
         };
-        assert_eq!(data, "Please review the plan or specification at specs/plan.md. Check it for missing requirements, risky assumptions, and unclear steps, then report your findings.\r");
+        assert_eq!(data, "Please review the plan or specification at specs/plan.md. If your tooling can spawn a separate review subagent, delegate the review to it instead of reviewing your own work; otherwise review it yourself. Check for missing requirements, risky assumptions, and unclear steps, then report the findings.\r");
         accepted.unwrap().send(Ok(())).unwrap();
         let response = request.await.unwrap().into_response();
         std::env::remove_var("ORKWORKS_OPEN_PLAN_TOKEN");

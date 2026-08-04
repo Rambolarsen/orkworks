@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import { GitBranch } from "lucide-react";
+import { FileText, GitBranch, MessageCircle } from "lucide-react";
 import { getSummaryLog } from "../api";
 import type { SessionAttention, SessionInfo, SummaryLogEntry } from "../api";
 import { sessionProviderContext } from "../sessionProviderContext";
@@ -142,18 +142,38 @@ function SessionDetailPanel({ sessions, activeSessionId, onResumeSession, onAppl
           {active.recommendation && <div className="recommendation-text">{active.recommendation}</div>}
 
           {active.hasOpenablePlan && (
-            <div className="detail-button-row">
-              <span className="detail-cue" data-attention={tone}>
+            <div className="resume-chooser">
+              <div className="resume-chooser-title">
                 {tone === "needs-you" ? "Plan ready for review" : "Plan available"}
-              </span>
-              <button className="detail-button detail-button--primary" type="button" onClick={onReviewPlan}>Review plan</button>
-              {active.lifecycle === "alive" && <button className="detail-button" type="button" disabled={reviewingSessionId === active.id} onClick={() => {
-                if (reviewingSessionId === active.id) return;
-                setReviewingSessionId(active.id);
-                void window.orkworks.requestPlanReview(active.id)
-                  .catch((error: unknown) => pushToast("error", error instanceof Error ? error.message : "Couldn't request review."))
-                  .finally(() => setReviewingSessionId((id) => id === active.id ? null : id));
-              }}>{reviewingSessionId === active.id ? "Requesting review…" : "Ask this agent to review"}</button>}
+              </div>
+              <button type="button" className="resume-option resume-option--recommended" onClick={onReviewPlan}>
+                <span className="resume-option-icon"><FileText size={14} aria-hidden="true" /></span>
+                <span className="resume-option-body">
+                  <span className="resume-option-label">Review plan</span>
+                </span>
+              </button>
+              {active.lifecycle === "alive" && (
+                <button
+                  type="button"
+                  className={`resume-option${reviewingSessionId === active.id ? " resume-option--unavailable" : ""}`}
+                  disabled={reviewingSessionId === active.id}
+                  onClick={() => {
+                    if (reviewingSessionId === active.id) return;
+                    setReviewingSessionId(active.id);
+                    void window.orkworks.requestPlanReview(active.id)
+                      .catch((error: unknown) => pushToast("error", error instanceof Error ? error.message : "Couldn't request review."))
+                      .finally(() => setReviewingSessionId((id) => id === active.id ? null : id));
+                  }}
+                >
+                  <span className="resume-option-icon"><MessageCircle size={14} aria-hidden="true" /></span>
+                  <span className="resume-option-body">
+                    <span className="resume-option-label">
+                      {reviewingSessionId === active.id ? "Requesting review…" : "Request independent review"}
+                    </span>
+                    <span className="resume-option-sub">Asks a separate subagent to check it, when the tooling supports one</span>
+                  </span>
+                </button>
+              )}
             </div>
           )}
 

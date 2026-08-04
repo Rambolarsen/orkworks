@@ -261,7 +261,7 @@ test("SessionDetailPanel keeps its existing action zone and adds plan review for
   assert.match(source, /Plan ready for review/);
   assert.match(source, /Plan available/);
   assert.match(source, /Review plan/);
-  assert.match(source, /Ask this agent to review/);
+  assert.match(source, /Request independent review/);
   assert.match(source, /window\.orkworks\.requestPlanReview\(active\.id\)/);
   assert.doesNotMatch(source, /window\.orkworks\.openPlan/);
   assert.match(source, /<ResumeChooser\b/);
