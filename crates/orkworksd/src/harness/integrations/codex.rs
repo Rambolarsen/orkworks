@@ -3,7 +3,8 @@ use std::path::Path;
 use serde_json::{json, Map, Value};
 
 use super::{
-    reconcile_current, reporter_invocation, FragmentState, JsonHookHandler, ToolHookContract,
+    portable_reporter_invocation, reconcile_current, FragmentState, JsonHookHandler,
+    ReporterInvocation, ToolHookContract,
 };
 use crate::harness::integration::{IntegrationActivation, IntegrationCoverage, IntegrationError};
 
@@ -67,7 +68,7 @@ fn groups(document: &Map<String, Value>) -> Result<Vec<Value>, IntegrationError>
     })
 }
 
-fn marker_state(group: &Value, reporter: Option<&Path>) -> FragmentState {
+fn marker_state(group: &Value, expected: Option<&ReporterInvocation>) -> FragmentState {
     let Some(hooks) = group.get("hooks").and_then(Value::as_array) else {
         return FragmentState::Absent;
     };
@@ -82,8 +83,7 @@ fn marker_state(group: &Value, reporter: Option<&Path>) -> FragmentState {
         if marker != MARKER || hooks.len() != 1 {
             return FragmentState::Ambiguous;
         }
-        let exact = reporter.is_some_and(|path| {
-            let invocation = reporter_invocation(path, MARKER);
+        let exact = expected.is_some_and(|invocation| {
             // merge() never sets an outer "matcher" — it intentionally
             // matches every SessionStart source. A group edited to add one
             // (e.g. narrowing to "resume") stops firing on startup/clear/
@@ -109,9 +109,10 @@ fn probe(
     document: &Map<String, Value>,
     reporter: &Path,
 ) -> Result<FragmentState, IntegrationError> {
+    let invocation = portable_reporter_invocation(reporter, MARKER)?;
     let mut state = FragmentState::Absent;
     for group in groups(document)? {
-        let next = marker_state(&group, Some(reporter));
+        let next = marker_state(&group, Some(&invocation));
         if state != FragmentState::Absent && next != FragmentState::Absent {
             return Ok(FragmentState::Ambiguous);
         }
@@ -141,7 +142,7 @@ fn merge(document: &mut Map<String, Value>, reporter: &Path) -> Result<(), Integ
         .ok_or_else(|| {
             IntegrationError::InvalidConfig("Codex SessionStart hooks must be an array.".into())
         })?;
-    let invocation = reporter_invocation(reporter, MARKER);
+    let invocation = portable_reporter_invocation(reporter, MARKER)?;
     session_start.push(json!({"hooks":[{"type":"command","command":invocation.shell_command}]}));
     Ok(())
 }
@@ -177,6 +178,11 @@ fn remove(document: &mut Map<String, Value>) -> Result<FragmentState, Integratio
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::FakeHome;
+
+    fn reporter_path(home: &std::path::Path) -> std::path::PathBuf {
+        home.join(".orkworks/hook-scripts/report-harness-event.sh")
+    }
 
     #[test]
     fn marker_state_treats_a_foreign_harness_marker_as_ambiguous_not_drifted() {
@@ -184,6 +190,8 @@ mod tests {
         // copy-pasted by mistake) must never be treated as codex's own
         // fragment with a stale invocation — that would make install/
         // uninstall silently overwrite or delete a different harness's hook.
+        // The ambiguity check runs before the exact-match check, so a
+        // placeholder invocation is fine here — its content is never read.
         let group = json!({
             "hooks": [
                 {
@@ -192,9 +200,16 @@ mod tests {
                 }
             ]
         });
-        let reporter = Path::new("/path/to/report-harness-event.sh");
+        let invocation = ReporterInvocation {
+            program: String::new(),
+            args: vec![],
+            shell_command: String::new(),
+        };
 
-        assert_eq!(marker_state(&group, Some(reporter)), FragmentState::Ambiguous);
+        assert_eq!(
+            marker_state(&group, Some(&invocation)),
+            FragmentState::Ambiguous
+        );
     }
 
     #[test]
@@ -212,9 +227,10 @@ mod tests {
                 "Stop": [{"hooks": [{"type": "command", "command": "some-other-hook.sh"}]}]
             }),
         );
-        let reporter = Path::new("/path/to/report-harness-event.sh");
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
 
-        merge(&mut document, reporter).unwrap();
+        merge(&mut document, &reporter_path(home.path())).unwrap();
 
         let hooks = document
             .get("hooks")
@@ -250,8 +266,10 @@ mod tests {
         // longer fires on startup/clear/compact even though the inner
         // command is byte-for-byte what we generate — it must not be
         // reported Installed.
-        let reporter = Path::new("/path/to/report-harness-event.sh");
-        let invocation = reporter_invocation(reporter, MARKER);
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        let invocation =
+            portable_reporter_invocation(&reporter_path(home.path()), MARKER).unwrap();
         let group = json!({
             "matcher": "resume",
             "hooks": [
@@ -259,6 +277,69 @@ mod tests {
             ]
         });
 
-        assert_eq!(marker_state(&group, Some(reporter)), FragmentState::Drifted);
+        assert_eq!(
+            marker_state(&group, Some(&invocation)),
+            FragmentState::Drifted
+        );
+    }
+
+    #[test]
+    fn merge_writes_a_home_relative_command_not_an_absolute_path() {
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        let mut document = Map::new();
+
+        merge(&mut document, &reporter_path(home.path())).unwrap();
+
+        let command = document["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert!(
+            command.starts_with("\"$HOME/"),
+            "expected a $HOME-relative command, got: {command}"
+        );
+        assert!(
+            !command.contains(home.path().to_str().unwrap()),
+            "command must not embed the real (machine-specific) home directory: {command}"
+        );
+    }
+
+    #[test]
+    fn probe_reports_installed_after_merge_and_drifted_for_a_pre_portable_absolute_path_fragment()
+    {
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        let mut document = Map::new();
+        merge(&mut document, &reporter_path(home.path())).unwrap();
+        assert_eq!(
+            probe(&document, &reporter_path(home.path())).unwrap(),
+            FragmentState::Installed
+        );
+
+        // Simulates a fragment written by a pre-fix OrkWorks version, which
+        // embedded the resolved absolute path instead of a $HOME-relative
+        // one — must read as Drifted (triggering reconciliation on the next
+        // install), never silently as Installed.
+        let mut stale = Map::new();
+        stale.insert(
+            "hooks".into(),
+            json!({
+                "SessionStart": [{
+                    "hooks": [{
+                        "type": "command",
+                        "command": format!(
+                            "{} --marker '{}'",
+                            reporter_path(home.path()).display(),
+                            MARKER
+                        )
+                    }]
+                }]
+            }),
+        );
+        assert_eq!(
+            probe(&stale, &reporter_path(home.path())).unwrap(),
+            FragmentState::Drifted
+        );
     }
 }
