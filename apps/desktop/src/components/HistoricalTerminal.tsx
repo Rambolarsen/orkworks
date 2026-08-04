@@ -33,6 +33,8 @@ export default function HistoricalTerminal({ sessionId }: { sessionId: string })
         () => current,
         ({ cols, rows }) => {
           const container = containerRef.current;
+          // Sidecar omits cols/rows when either is 0 or absent (ADR 0033); the
+          // undefined check (not a truthy check) is safe because 0×0 never reaches here.
           const hasFixedSize = cols !== undefined && rows !== undefined;
           if (hasFixedSize) loadedSize = { cols, rows };
           terminal = new Terminal({
