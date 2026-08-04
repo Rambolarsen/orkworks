@@ -449,6 +449,10 @@ pub(crate) fn portable_reporter_invocation(
     let portable = portable_reporter_path(reporter)?;
     let path_str = portable.to_string_lossy().into_owned();
     Ok(ReporterInvocation {
+        // program/args are unexpanded ("$HOME/..." is only meaningful once
+        // shell-interpreted) — codex.rs only ever reads shell_command.
+        // Do not spawn program/args directly the way claude.rs does with
+        // its own (always-absolute) reporter_invocation.
         program: path_str.clone(),
         args: vec!["--marker".into(), marker.into()],
         shell_command: format!("\"{path_str}\" --marker {}", shell_quote(marker)),

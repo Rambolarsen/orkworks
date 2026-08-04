@@ -3,10 +3,25 @@ use std::path::Path;
 use serde_json::{json, Map, Value};
 
 use super::{
-    portable_reporter_invocation, reconcile_current, FragmentState, JsonHookHandler,
-    ReporterInvocation, ToolHookContract,
+    portable_reporter_invocation, reconcile_current, reporter_invocation, FragmentState,
+    JsonHookHandler, ReporterInvocation, ReporterPlatform, ToolHookContract,
 };
 use crate::harness::integration::{IntegrationActivation, IntegrationCoverage, IntegrationError};
+
+/// `portable_reporter_invocation` is POSIX-only (ADR 0036) — Windows keeps
+/// the standard, resolved-absolute-path invocation, matching `load()`'s own
+/// platform check for which safety gate applies. Without this branch,
+/// `probe`/`merge` would write a POSIX-shaped `$HOME`-relative command on
+/// Windows even in the untracked-and-ignored case that worked before this
+/// change, breaking Windows Codex installs entirely rather than just
+/// falling back for the tracked case.
+fn platform_invocation(reporter: &Path) -> Result<ReporterInvocation, IntegrationError> {
+    if ReporterPlatform::current() == ReporterPlatform::Posix {
+        portable_reporter_invocation(reporter, MARKER)
+    } else {
+        Ok(reporter_invocation(reporter, MARKER))
+    }
+}
 
 const MARKER: &str = "orkworks:harness-integration:v2:codex";
 // Codex's hook definitions have no dedicated "name"/marker field (unlike
@@ -109,7 +124,7 @@ fn probe(
     document: &Map<String, Value>,
     reporter: &Path,
 ) -> Result<FragmentState, IntegrationError> {
-    let invocation = portable_reporter_invocation(reporter, MARKER)?;
+    let invocation = platform_invocation(reporter)?;
     let mut state = FragmentState::Absent;
     for group in groups(document)? {
         let next = marker_state(&group, Some(&invocation));
@@ -142,7 +157,7 @@ fn merge(document: &mut Map<String, Value>, reporter: &Path) -> Result<(), Integ
         .ok_or_else(|| {
             IntegrationError::InvalidConfig("Codex SessionStart hooks must be an array.".into())
         })?;
-    let invocation = portable_reporter_invocation(reporter, MARKER)?;
+    let invocation = platform_invocation(reporter)?;
     session_start.push(json!({"hooks":[{"type":"command","command":invocation.shell_command}]}));
     Ok(())
 }
