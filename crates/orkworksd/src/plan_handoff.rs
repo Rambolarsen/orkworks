@@ -69,9 +69,41 @@ pub(crate) fn resolve_openable_plan(
     Ok(candidate)
 }
 
+pub(crate) fn normalize_reported_plan_path(
+    workspace_root: &Path,
+    reported_path: &str,
+) -> Result<String, String> {
+    if reported_path.chars().any(char::is_control) {
+        return Err("plan path must not contain control characters".into());
+    }
+    let workspace = workspace_root
+        .canonicalize()
+        .map_err(|error| error.to_string())?;
+    let candidate = Path::new(reported_path)
+        .canonicalize()
+        .map_err(|error| error.to_string())?;
+    let relative = candidate
+        .strip_prefix(&workspace)
+        .map_err(|_| "plan path is outside the workspace".to_string())?;
+    if !candidate.is_file()
+        || !candidate
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("md"))
+        || !(relative.starts_with("docs/superpowers/plans")
+            || relative.starts_with("docs/superpowers/specs")
+            || relative.starts_with("specs"))
+    {
+        return Err("plan path is not a supported plan or specification".into());
+    }
+    relative
+        .to_str()
+        .map(str::to_owned)
+        .ok_or_else(|| "plan path is not valid UTF-8".into())
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{printed_plan_path, resolve_openable_plan};
+    use super::{normalize_reported_plan_path, printed_plan_path, resolve_openable_plan};
     use std::fs;
 
     #[test]
@@ -92,6 +124,20 @@ mod tests {
         assert!(resolve_openable_plan(workspace.path(), "docs/notes.txt").is_err());
         assert!(resolve_openable_plan(workspace.path(), "docs").is_err());
         assert!(resolve_openable_plan(workspace.path(), "docs\nignored/plan.MD").is_err());
+    }
+
+    #[test]
+    fn normalizes_a_hook_reported_absolute_plan_path() {
+        let workspace = tempfile::tempdir().unwrap();
+        let plan_dir = workspace.path().join("docs/superpowers/plans");
+        fs::create_dir_all(&plan_dir).unwrap();
+        let plan = plan_dir.join("session.md");
+        fs::write(&plan, "# plan").unwrap();
+
+        assert_eq!(
+            normalize_reported_plan_path(workspace.path(), plan.to_str().unwrap()).unwrap(),
+            "docs/superpowers/plans/session.md"
+        );
     }
 
     #[test]
