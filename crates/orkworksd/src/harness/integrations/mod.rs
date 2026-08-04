@@ -1016,6 +1016,120 @@ mod tests {
     }
 
     #[test]
+    fn codex_install_activates_alongside_pre_existing_tracked_apm_hook_groups() {
+        let workspace = tempfile::tempdir().unwrap();
+        let repo = git2::Repository::init(workspace.path()).unwrap();
+        fs::create_dir(workspace.path().join(".codex")).unwrap();
+        // Shape mirrors this repo's real, APM-managed .codex/hooks.json:
+        // Stop/sessionStart/userPromptSubmitted/SessionStart/UserPromptSubmit
+        // groups tagged _apm_source: "ponytail", none touching OrkWorks'
+        // marker. install() must add its own SessionStart group without
+        // disturbing any of these.
+        let existing = serde_json::json!({
+            "hooks": {
+                "Stop": [{
+                    "hooks": [{
+                        "type": "command",
+                        "command": "ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd); bash \"$ROOT/.codex/hooks/doc-check-stop.sh\""
+                    }]
+                }],
+                "sessionStart": [{
+                    "type": "command",
+                    "bash": "node \".codex/hooks/ponytail/hooks/ponytail-activate.js\"",
+                    "powershell": "node \".codex/hooks/ponytail/hooks/ponytail-activate.js\"",
+                    "timeoutSec": 5,
+                    "_apm_source": "ponytail"
+                }],
+                "userPromptSubmitted": [{
+                    "type": "command",
+                    "bash": "node \".codex/hooks/ponytail/hooks/ponytail-mode-tracker.js\"",
+                    "powershell": "node \".codex/hooks/ponytail/hooks/ponytail-mode-tracker.js\"",
+                    "timeoutSec": 5,
+                    "_apm_source": "ponytail"
+                }],
+                "SessionStart": [{
+                    "matcher": "startup|resume|clear|compact",
+                    "hooks": [{
+                        "type": "command",
+                        "command": "command -v node >/dev/null 2>&1 && node \".codex/hooks/ponytail/hooks/ponytail-activate.js\" || exit 0",
+                        "timeout": 5,
+                        "statusMessage": "Loading ponytail mode..."
+                    }],
+                    "_apm_source": "ponytail"
+                }],
+                "UserPromptSubmit": [{
+                    "hooks": [{
+                        "type": "command",
+                        "command": "command -v node >/dev/null 2>&1 && node \".codex/hooks/ponytail/hooks/ponytail-mode-tracker.js\" || exit 0",
+                        "timeout": 5,
+                        "statusMessage": "Tracking ponytail mode..."
+                    }],
+                    "_apm_source": "ponytail"
+                }]
+            }
+        });
+        fs::write(
+            workspace.path().join(".codex/hooks.json"),
+            serde_json::to_vec_pretty(&existing).unwrap(),
+        )
+        .unwrap();
+        let mut index = repo.index().unwrap();
+        index.add_path(Path::new(".codex/hooks.json")).unwrap();
+        index.write().unwrap();
+
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        let assets = tempfile::tempdir().unwrap();
+        fs::write(
+            assets.path().join(ReporterPlatform::Posix.asset_name()),
+            "#!/bin/sh\n",
+        )
+        .unwrap();
+        let reporter = ReporterAssetResolver {
+            source_dir: assets.path().to_path_buf(),
+            stable_dir: home.path().join(".orkworks").join("hook-scripts"),
+        };
+        let context = IntegrationContext {
+            workspace: workspace.path(),
+            workspace_metadata: None,
+            orkworks_root: home.path(),
+            enabled: true,
+            detected_tool: None,
+            reporter_assets: &reporter,
+        };
+
+        let status = handler(&IntegrationBinding::Codex).install(&context);
+        let persisted: Value =
+            serde_json::from_slice(&fs::read(workspace.path().join(".codex/hooks.json")).unwrap())
+                .unwrap();
+
+        assert_eq!(
+            status.unwrap().registration,
+            IntegrationRegistration::Installed
+        );
+        let hooks = persisted["hooks"].as_object().unwrap();
+        assert!(hooks.contains_key("Stop"), "must preserve APM's Stop hook");
+        assert!(
+            hooks.contains_key("sessionStart"),
+            "must preserve APM's lowercase sessionStart hook"
+        );
+        assert!(
+            hooks.contains_key("userPromptSubmitted"),
+            "must preserve APM's userPromptSubmitted hook"
+        );
+        assert!(
+            hooks.contains_key("UserPromptSubmit"),
+            "must preserve APM's UserPromptSubmit hook"
+        );
+        let session_start = hooks["SessionStart"].as_array().unwrap();
+        assert_eq!(
+            session_start.len(),
+            2,
+            "must add its own SessionStart group alongside APM's existing one, not replace it"
+        );
+    }
+
+    #[test]
     fn error_status_surfaces_the_specific_integration_error_message() {
         // libgit2's ignore resolution consults the real machine's global
         // excludes file regardless of the HOME env var (it isn't resolved
