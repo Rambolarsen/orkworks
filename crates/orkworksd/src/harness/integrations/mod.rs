@@ -437,11 +437,11 @@ pub(crate) fn portable_reporter_path(reporter: &Path) -> Result<PathBuf, Integra
 /// but the path segment is `$HOME`-relative and double-quoted instead of
 /// single-quoted (`shell_quote` always single-quotes, and single-quoted
 /// strings don't expand `$HOME` in POSIX shells). Double-quoting is safe
-/// here specifically because the path segment is always a fixed,
-/// OrkWorks-authored suffix under `$HOME` — never user input, and never
-/// containing a `"` or `$` — the same never-untrusted-input guarantee
-/// `shell_quote` gives the marker argument, which stays single-quoted and
-/// unchanged.
+/// here specifically because everything after the one intentional `$HOME`
+/// expansion is a fixed, OrkWorks-authored suffix — never user input, and
+/// never containing a `"` or an unintended second `$` — the same
+/// never-untrusted-input guarantee `shell_quote` gives the marker argument,
+/// which stays single-quoted and unchanged.
 pub(crate) fn portable_reporter_invocation(
     reporter: &Path,
     marker: &str,
@@ -897,6 +897,11 @@ mod tests {
         assert!(claude_confirmation.executable_code_warning);
     }
 
+    // Codex only accepts a tracked target on POSIX (ADR 0036) — on Windows
+    // load() keeps the standard, stricter safety check, so these four
+    // tracked-file tests would fail there. PR CI is ubuntu-latest only
+    // today, but gate for correctness rather than relying on that.
+    #[cfg(unix)]
     #[test]
     fn codex_install_succeeds_against_a_git_tracked_hooks_json() {
         let workspace = tempfile::tempdir().unwrap();
@@ -971,6 +976,7 @@ mod tests {
         assert_eq!(status.diagnostics[0].code, "not_ignored_target");
     }
 
+    #[cfg(unix)]
     #[test]
     fn codex_install_produces_byte_identical_content_regardless_of_which_machine_installed_it() {
         fn install_from_home(home_dir: &Path) -> Vec<u8> {
@@ -1019,6 +1025,110 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn codex_install_reconciles_the_local_reporter_script_for_a_teammates_pulled_fragment() {
+        // Simulates a teammate pulling a tracked .codex/hooks.json that
+        // already carries Alice's committed, byte-identical OrkWorks
+        // fragment — Bob's machine has never reconciled its own copy of
+        // the reporter script. probe()/status() must not silently claim
+        // Installed for a hook that can't actually run here; install()
+        // must actually reconcile the missing script rather than
+        // early-returning on a false "already Installed".
+        let workspace = tempfile::tempdir().unwrap();
+        let repo = git2::Repository::init(workspace.path()).unwrap();
+        fs::create_dir(workspace.path().join(".codex")).unwrap();
+        // Alice installs while the file is still untracked-and-ignored (the
+        // ordinary solo-user path); it's tracked afterward to simulate
+        // someone committing it despite the ignore rule, matching this
+        // repo's own real .codex/.gitignore whitelist pattern.
+        fs::write(
+            workspace.path().join(".gitignore"),
+            ".codex/hooks.json\n",
+        )
+        .unwrap();
+
+        let alice_home = tempfile::tempdir().unwrap();
+        let alice_assets = tempfile::tempdir().unwrap();
+        fs::write(
+            alice_assets.path().join(ReporterPlatform::Posix.asset_name()),
+            "#!/bin/sh\n",
+        )
+        .unwrap();
+        {
+            let _fake_home = FakeHome::set(alice_home.path());
+            let reporter = ReporterAssetResolver {
+                source_dir: alice_assets.path().to_path_buf(),
+                stable_dir: alice_home.path().join(".orkworks").join("hook-scripts"),
+            };
+            let context = IntegrationContext {
+                workspace: workspace.path(),
+                workspace_metadata: None,
+                orkworks_root: alice_home.path(),
+                enabled: true,
+                detected_tool: None,
+                reporter_assets: &reporter,
+            };
+            handler(&IntegrationBinding::Codex)
+                .install(&context)
+                .unwrap();
+        }
+        let mut index = repo.index().unwrap();
+        index.add_path(Path::new(".codex/hooks.json")).unwrap();
+        index.write().unwrap();
+
+        // Bob: a different home directory that has never run install/
+        // reconcile for Codex, opening the same (now-tracked) workspace.
+        let bob_home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(bob_home.path());
+        let bob_assets = tempfile::tempdir().unwrap();
+        fs::write(
+            bob_assets.path().join(ReporterPlatform::Posix.asset_name()),
+            "#!/bin/sh\n",
+        )
+        .unwrap();
+        let bob_reporter = ReporterAssetResolver {
+            source_dir: bob_assets.path().to_path_buf(),
+            stable_dir: bob_home.path().join(".orkworks").join("hook-scripts"),
+        };
+        let bob_context = IntegrationContext {
+            workspace: workspace.path(),
+            workspace_metadata: None,
+            orkworks_root: bob_home.path(),
+            enabled: true,
+            detected_tool: None,
+            reporter_assets: &bob_reporter,
+        };
+        let bob_reporter_script = bob_home
+            .path()
+            .join(".orkworks")
+            .join("hook-scripts")
+            .join(ReporterPlatform::Posix.asset_name());
+        assert!(
+            !bob_reporter_script.exists(),
+            "precondition: Bob's machine has never reconciled the reporter script"
+        );
+
+        let status_before = handler(&IntegrationBinding::Codex)
+            .status(&bob_context)
+            .unwrap();
+        assert_ne!(
+            status_before.registration,
+            IntegrationRegistration::Installed,
+            "must not report Installed while Bob's own reporter script doesn't exist yet"
+        );
+
+        let status_after = handler(&IntegrationBinding::Codex)
+            .install(&bob_context)
+            .unwrap();
+        assert_eq!(status_after.registration, IntegrationRegistration::Installed);
+        assert!(
+            bob_reporter_script.exists(),
+            "install() must reconcile Bob's local reporter script copy"
+        );
+    }
+
+    #[cfg(unix)]
     #[test]
     fn codex_install_activates_alongside_pre_existing_tracked_apm_hook_groups() {
         let workspace = tempfile::tempdir().unwrap();

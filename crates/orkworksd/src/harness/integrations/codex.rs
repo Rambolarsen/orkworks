@@ -125,9 +125,27 @@ fn probe(
     reporter: &Path,
 ) -> Result<FragmentState, IntegrationError> {
     let invocation = platform_invocation(reporter)?;
+    // A committed fragment can already byte-match this machine's expected
+    // command — that's the whole point of the portable rewrite (ADR 0036),
+    // since a teammate's tracked .codex/hooks.json can carry a fragment
+    // this machine never wrote. But `install()` only reconciles the local
+    // reporter-script copy on its Absent/Drifted branch (JsonHookHandler::
+    // install, integrations/mod.rs) — it never runs for an already-
+    // Installed probe. Before Codex could accept a tracked target, that
+    // branch was unreachable on a fresh machine (the target could never be
+    // pre-populated), so this gap was latent. Requiring the local reporter
+    // script to actually exist before calling a text match "exact" keeps a
+    // fresh teammate's probe at Drifted instead of a false Installed, so
+    // install() reconciles the missing script instead of leaving a hook
+    // that reports installed but can never run.
+    let expected = if reporter.try_exists().unwrap_or(false) {
+        Some(&invocation)
+    } else {
+        None
+    };
     let mut state = FragmentState::Absent;
     for group in groups(document)? {
-        let next = marker_state(&group, Some(&invocation));
+        let next = marker_state(&group, expected);
         if state != FragmentState::Absent && next != FragmentState::Absent {
             return Ok(FragmentState::Ambiguous);
         }
@@ -298,6 +316,11 @@ mod tests {
         );
     }
 
+    // These three tests exercise merge()/probe() through platform_invocation,
+    // which is POSIX-only by design (ADR 0036) — on Windows it takes the
+    // reporter_invocation branch instead, producing a powershell.exe/-File
+    // command these assertions don't expect.
+    #[cfg(unix)]
     #[test]
     fn merge_writes_a_home_relative_command_not_an_absolute_path() {
         let home = tempfile::tempdir().unwrap();
@@ -320,17 +343,18 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn probe_reports_installed_after_merge_and_drifted_for_a_pre_portable_absolute_path_fragment()
     {
         let home = tempfile::tempdir().unwrap();
         let _fake_home = FakeHome::set(home.path());
+        let script = reporter_path(home.path());
+        std::fs::create_dir_all(script.parent().unwrap()).unwrap();
+        std::fs::write(&script, "#!/bin/sh\n").unwrap();
         let mut document = Map::new();
-        merge(&mut document, &reporter_path(home.path())).unwrap();
-        assert_eq!(
-            probe(&document, &reporter_path(home.path())).unwrap(),
-            FragmentState::Installed
-        );
+        merge(&mut document, &script).unwrap();
+        assert_eq!(probe(&document, &script).unwrap(), FragmentState::Installed);
 
         // Simulates a fragment written by a pre-fix OrkWorks version, which
         // embedded the resolved absolute path instead of a $HOME-relative
@@ -354,6 +378,29 @@ mod tests {
         );
         assert_eq!(
             probe(&stale, &reporter_path(home.path())).unwrap(),
+            FragmentState::Drifted
+        );
+    }
+
+    #[test]
+    fn probe_reports_drifted_not_installed_when_the_local_reporter_script_is_missing() {
+        // A teammate's tracked .codex/hooks.json can already carry a
+        // byte-identical, committed OrkWorks fragment (that's the whole
+        // point of the portable rewrite) on a machine that has never
+        // reconciled its own copy of the reporter script — reconcile only
+        // runs from install()'s Absent/Drifted branch. If probe() called
+        // this Installed anyway, the UI would show "installed" for a hook
+        // that can never actually run, with no install-time trigger left
+        // to fix it. Building the document via merge() (rather than a
+        // second FakeHome-scoped tempdir) keeps the command text real
+        // without ever writing the reporter script to disk.
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        let mut document = Map::new();
+        merge(&mut document, &reporter_path(home.path())).unwrap();
+
+        assert_eq!(
+            probe(&document, &reporter_path(home.path())).unwrap(),
             FragmentState::Drifted
         );
     }
