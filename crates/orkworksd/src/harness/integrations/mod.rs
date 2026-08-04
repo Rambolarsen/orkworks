@@ -399,6 +399,50 @@ pub(crate) fn reporter_invocation(path: &Path, marker: &str) -> ReporterInvocati
     reporter_invocation_for_platform(ReporterPlatform::current(), path, marker)
 }
 
+/// Rewrites an absolute reporter-script path into a `$HOME`-relative shell
+/// expression, so the resulting hook command is byte-identical no matter
+/// whose machine generated it. Required before Codex's reporter invocation
+/// is safe to persist into a git-tracked, team-shared `.codex/hooks.json` —
+/// Codex has no local-only hooks file the way Claude's `settings.local.json`
+/// is local by convention (ADR 0035, ADR 0036). POSIX only; Codex on
+/// Windows keeps writing a resolved absolute path (see ADR 0036).
+pub(crate) fn portable_reporter_path(reporter: &Path) -> Result<PathBuf, IntegrationError> {
+    let home = dirs::home_dir().ok_or_else(|| {
+        IntegrationError::InvalidConfig(
+            "Could not resolve a home directory to build a portable Codex hook command.".into(),
+        )
+    })?;
+    let suffix = reporter.strip_prefix(&home).map_err(|_| {
+        IntegrationError::InvalidConfig(format!(
+            "Codex reporter script {} is not under the home directory; cannot build a portable hook command.",
+            reporter.display()
+        ))
+    })?;
+    Ok(Path::new("$HOME").join(suffix))
+}
+
+/// POSIX-only portable counterpart to `reporter_invocation`. Same shape,
+/// but the path segment is `$HOME`-relative and double-quoted instead of
+/// single-quoted (`shell_quote` always single-quotes, and single-quoted
+/// strings don't expand `$HOME` in POSIX shells). Double-quoting is safe
+/// here specifically because the path segment is always a fixed,
+/// OrkWorks-authored suffix under `$HOME` — never user input, and never
+/// containing a `"` or `$` — the same never-untrusted-input guarantee
+/// `shell_quote` gives the marker argument, which stays single-quoted and
+/// unchanged.
+pub(crate) fn portable_reporter_invocation(
+    reporter: &Path,
+    marker: &str,
+) -> Result<ReporterInvocation, IntegrationError> {
+    let portable = portable_reporter_path(reporter)?;
+    let path_str = portable.to_string_lossy().into_owned();
+    Ok(ReporterInvocation {
+        program: path_str.clone(),
+        args: vec!["--marker".into(), marker.into()],
+        shell_command: format!("\"{path_str}\" --marker {}", shell_quote(marker)),
+    })
+}
+
 fn shell_quote(value: &str) -> String {
     // Close the quoted string, emit a literal quote via the standard
     // close-escape-reopen idiom (`'\''`), then reopen — NOT `'\"'\"'`, which
@@ -420,6 +464,7 @@ mod tests {
         IntegrationContext, IntegrationOwnership, IntegrationRegistration, ReporterAssetResolver,
     };
     use crate::metadata::MetadataStore;
+    use crate::test_support::FakeHome;
 
     #[test]
     fn report_harness_event_defaults_to_waiting_attention_and_accepts_a_status_override() {
@@ -1213,6 +1258,71 @@ mod tests {
                 .ownership,
             IntegrationOwnership::None
         );
+    }
+
+    #[test]
+    fn portable_reporter_path_rewrites_the_resolved_path_as_home_relative() {
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+
+        let reporter = home
+            .path()
+            .join(".orkworks/hook-scripts/report-harness-event.sh");
+        let result = portable_reporter_path(&reporter);
+
+        assert_eq!(
+            result.unwrap(),
+            Path::new("$HOME/.orkworks/hook-scripts/report-harness-event.sh")
+        );
+    }
+
+    #[test]
+    fn portable_reporter_path_errors_when_reporter_is_not_under_home() {
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+
+        let outside = tempfile::tempdir().unwrap();
+        let reporter = outside.path().join("report-harness-event.sh");
+        let result = portable_reporter_path(&reporter);
+
+        assert!(matches!(result, Err(IntegrationError::InvalidConfig(_))));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn portable_reporter_invocation_expands_home_and_actually_invokes_the_script() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        let script_dir = home.path().join(".orkworks").join("hook-scripts");
+        fs::create_dir_all(&script_dir).unwrap();
+        let script = script_dir.join("report-harness-event.sh");
+        let marker_file = home.path().join("invoked");
+        fs::write(
+            &script,
+            format!("#!/bin/sh\ntouch '{}'\n", marker_file.display()),
+        )
+        .unwrap();
+        let mut perms = fs::metadata(&script).unwrap().permissions();
+        perms.set_mode(perms.mode() | 0o111);
+        fs::set_permissions(&script, perms).unwrap();
+
+        let invocation =
+            portable_reporter_invocation(&script, "orkworks:harness-integration:v2:codex")
+                .unwrap();
+        let status = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(&invocation.shell_command)
+            .status()
+            .expect("sh must be available to run the portable command");
+
+        assert!(
+            status.success(),
+            "portable shell_command failed: {}",
+            invocation.shell_command
+        );
+        assert!(marker_file.exists(), "reporter script was not invoked");
     }
 
     #[test]
