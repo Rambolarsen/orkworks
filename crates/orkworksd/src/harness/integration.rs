@@ -246,6 +246,39 @@ mod tests {
         ignored.require_local_or_ignored_untracked().unwrap();
     }
 
+    #[test]
+    fn git_safety_tracked_or_ignored_accepts_a_tracked_target_but_still_rejects_unignored_untracked(
+    ) {
+        let workspace = tempfile::tempdir().unwrap();
+        let repository = git2::Repository::init(workspace.path()).unwrap();
+        fs::create_dir(workspace.path().join(".codex")).unwrap();
+        let relative = Path::new(".codex/hooks.json");
+        let path = workspace.path().join(relative);
+        fs::write(&path, "{}").unwrap();
+        let mut index = repository.index().unwrap();
+        index.add_path(relative).unwrap();
+        index.write().unwrap();
+
+        // Unlike require_local_or_ignored_untracked, a tracked target is
+        // now accepted — this is the whole point of the relaxation.
+        let tracked = ValidatedWorkspaceTarget::new(workspace.path(), relative).unwrap();
+        tracked.require_tracked_or_ignored_untracked().unwrap();
+
+        // An untracked-and-unignored target is still refused, exactly as
+        // for every other integration — the relaxation only widens the
+        // tracked case, nothing else.
+        index.remove_path(relative).unwrap();
+        index.write().unwrap();
+        let unignored = ValidatedWorkspaceTarget::new(workspace.path(), relative).unwrap();
+        assert_eq!(
+            unignored
+                .require_tracked_or_ignored_untracked()
+                .unwrap_err()
+                .code(),
+            "not_ignored_target"
+        );
+    }
+
     #[cfg(unix)]
     #[test]
     fn transaction_rejects_a_workspace_identity_change_before_replace() {
@@ -683,6 +716,22 @@ impl ValidatedWorkspaceTarget {
     }
 
     pub(crate) fn require_local_or_ignored_untracked(&self) -> Result<(), IntegrationError> {
+        self.require_confined_git_target(false)
+    }
+
+    /// Codex-only relaxation: unlike Claude/Gemini/Copilot, Codex has no
+    /// separate local-only hooks file, so a git-tracked `.codex/hooks.json`
+    /// is an expected APM-managed-repo shape, not a misconfiguration (ADR
+    /// 0036, issue #276). Safe only because the caller must write a
+    /// `$HOME`-relative, machine-independent command
+    /// (`portable_reporter_invocation`) rather than an absolute per-machine
+    /// path. An untracked-and-unignored target is still refused, exactly as
+    /// for every other integration — only the tracked case widens.
+    pub(crate) fn require_tracked_or_ignored_untracked(&self) -> Result<(), IntegrationError> {
+        self.require_confined_git_target(true)
+    }
+
+    fn require_confined_git_target(&self, allow_tracked: bool) -> Result<(), IntegrationError> {
         self.revalidate()?;
         let repository = git2::Repository::discover(&self.identity.canonical_root).map_err(|_| {
             IntegrationError::UnsafeTarget {
@@ -705,7 +754,11 @@ impl ValidatedWorkspaceTarget {
         let index = repository
             .index()
             .map_err(|error| IntegrationError::InvalidConfig(error.message().into()))?;
-        if index.get_path(&self.relative, 0).is_some() {
+        let tracked = index.get_path(&self.relative, 0).is_some();
+        if tracked {
+            if allow_tracked {
+                return Ok(());
+            }
             return Err(IntegrationError::UnsafeTarget {
                 code: "tracked_target",
                 message: "Integration configuration is tracked by Git and will not be edited automatically.".into(),
