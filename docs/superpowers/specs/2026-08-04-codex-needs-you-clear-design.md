@@ -10,4 +10,4 @@ Input-label inference may update the session label only. It must not merge statu
 
 ## Verification
 
-Add a regression test that simulates an accepted input followed by label inference returning `waiting_for_input`; the session must remain `working` while its label updates.
+Add a workspace-backed regression test that simulates an accepted input followed by label inference returning `waiting_for_input`; both the live session and persisted metadata must remain `working` while its label updates.
