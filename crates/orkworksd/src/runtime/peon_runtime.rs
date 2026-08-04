@@ -122,17 +122,6 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                     .run_inference(providers::PeonScope::Session, &output_snapshot);
                 if matches!(mode, InferenceMode::InputLabel) {
                     if let Some(inference) = provider_result.inference {
-                        let history_summary =
-                            peon::work_history_summary(&output_snapshot, inference.summary.as_deref());
-                        if let Some(ref ws) = *state_clone.workspace.lock().unwrap() {
-                            let _ = ws.metadata.merge_peon_inference_with_history(
-                                &id,
-                                &inference,
-                                &iso_now(),
-                                provider_result.observation.as_ref(),
-                                history_summary.as_deref(),
-                            );
-                        }
                         if let Some(label) = inference
                             .summary
                             .map(|summary| summary.chars().take(100).collect::<String>())
@@ -578,7 +567,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn input_label_inference_persists_label_to_metadata() {
+    async fn input_label_inference_preserves_committed_working_attention() {
         // A restart/reload must not lose the Peon-authored topic (ADR 0029) —
         // the live SessionInfo update alone isn't durable.
         let dir = tempfile::tempdir().unwrap();
@@ -634,21 +623,25 @@ mod tests {
                     }],
                 },
                 vec![providers::FakeProvider::new("opencode").stdout(
-                    r#"{"status":"working","summary":"Persisted topic","confidence":0.85}"#,
+                    r#"{"status":"waiting_for_input","summary":"Persisted topic","confidence":0.85}"#,
                 )],
             ),
         });
         let (kill_tx, _) = tokio::sync::watch::channel(false);
+        let mut info = test_session_info(
+            id.clone(),
+            "Session labelpe",
+            dir.path().display().to_string(),
+            "running",
+            "now",
+        );
+        info.observed_status = Some("working".into());
+        info.attention = Some("working".into());
+        info.metadata_source = Some("process".into());
         state.sessions.lock().unwrap().insert(
             id.clone(),
             crate::SessionHandle {
-                info: test_session_info(
-                    id.clone(),
-                    "Session labelpe",
-                    dir.path().display().to_string(),
-                    "running",
-                    "now",
-                ),
+                info,
                 kill_tx,
                 output_buffer: peon::RingBuffer::new(200),
                 scan_buf: String::new(),
@@ -670,14 +663,20 @@ mod tests {
         {
             let ws_guard = state.workspace.lock().unwrap();
             let ws = ws_guard.as_ref().unwrap();
-            ws.metadata.write_session(&test_session_metadata(
+            let mut meta = test_session_metadata(
                 &id,
                 "Session labelpe",
                 dir.path().display().to_string(),
                 "running",
                 "now",
                 "now",
-            ));
+            );
+            meta.lifecycle = "alive".into();
+            meta.lifecycle_phase = "active".into();
+            meta.observed_status = Some("working".into());
+            meta.attention = Some("working".into());
+            meta.metadata_source = "process".into();
+            ws.metadata.write_session(&meta);
         }
         state
             .peon
@@ -691,10 +690,9 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(2300)).await;
         task.abort();
 
-        assert_eq!(
-            state.sessions.lock().unwrap()[&id].info.label,
-            "Persisted topic"
-        );
+        let info = state.sessions.lock().unwrap()[&id].info.clone();
+        assert_eq!(info.label, "Persisted topic");
+        assert_eq!(info.attention.as_deref(), Some("working"));
         let ws_guard = state.workspace.lock().unwrap();
         let meta = ws_guard
             .as_ref()
@@ -703,6 +701,8 @@ mod tests {
             .read_session(&id)
             .unwrap();
         assert_eq!(meta.label, "Persisted topic");
+        assert_eq!(meta.observed_status.as_deref(), Some("working"));
+        assert_eq!(meta.attention.as_deref(), Some("working"));
     }
 
     #[tokio::test]
