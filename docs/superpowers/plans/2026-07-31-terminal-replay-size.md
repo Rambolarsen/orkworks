@@ -4,7 +4,7 @@
 
 **Goal:** Stop dead-session terminal replay from mid-word-splitting lines by recording the PTY's size at the moment a session dies and replaying at that exact size (scaled visually to fit the panel), instead of re-wrapping to today's panel width.
 
-**Architecture:** The sidecar persists the last known PTY `cols`/`rows` to a small sidecar file (`<id>.terminal-size`, next to the existing `<id>.terminal` file) the moment a session transitions to `killed`/`ended`/`error`, and serves it alongside the existing terminal-output replay payload. The desktop app's `HistoricalTerminal` component constructs xterm at that fixed size (no reflow) and applies a CSS `transform: scale()` to fit the panel. Sessions with no recorded size (legacy, pre-fix) keep today's fit-to-container behavior unchanged.
+**Architecture:** The sidecar persists the last known PTY `cols`/`rows` to a small sidecar file (`<id>.terminal-size`, next to the existing `<id>.terminal` file) the moment a session transitions to `killed`/`ended`/`error`, and serves it alongside the existing terminal-output replay payload. The desktop app's `HistoricalTerminal` component constructs xterm at that fixed size (no reflow) and applies a CSS `transform: scale()` to fit the panel. Sessions with no recorded size (legacy, pre-fix) keep today's fit-to-container behavior unchanged. `MetadataStore` exposes a third method, `clear_terminal_size`, called by `resume_session` before the resumed runtime starts so a daemon crash before the new run reaches a terminal transition falls back to fit-to-container replay instead of serving the prior run's grid. The existing `delete_events` retention path is extended to remove the `.terminal-size` file alongside `.terminal` and `.ndjson`, so forgotten and retention-pruned sessions leave no orphaned `.terminal-size` artifact. Pagination-aware scaling (container's content box, not padding-inclusive `clientWidth`/`clientHeight`) and zero-measurement retry behavior in the renderer satisfy ADR 0033's "content box" and retry-on-zero requirements.
 
 **Tech Stack:** Rust (axum, serde) sidecar in `crates/orkworksd`; TypeScript/React + xterm.js in `apps/desktop`.
 
@@ -168,24 +168,157 @@ Replace it with (adding three new methods before the closing `}`):
         }
         Some((cols, rows))
     }
+
+    /// Removes the recorded terminal-size sidecar for a session, if present.
+    /// Used by `resume_session` so a daemon crash before the resumed runtime
+    /// reaches another terminal-status transition falls back to the
+    /// documented fit-to-container replay instead of replaying the new run's
+    /// output against the prior run's grid. Idempotent: a missing file is not
+    /// an error. Only the `.terminal-size` file is removed — `.terminal` and
+    /// `.ndjson` are untouched (use `delete_events` for full event cleanup).
+    pub fn clear_terminal_size(&self, id: &str) {
+        if let Err(e) = fs::remove_file(self.terminal_size_path(id)) {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                warn!("failed to clear terminal size for {id}: {e}");
+            }
+        }
+    }
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [ ] **Step 4: Extend `delete_events` to remove the `.terminal-size` sidecar**
+
+Still in `crates/orkworksd/src/metadata.rs`, find the current `delete_events` definition (in the same `impl MetadataStore` block, currently around lines 1046-1068):
+
+```rust
+    pub fn delete_events(&self, id: &str) -> std::io::Result<()> {
+        let ndjson_path = self.events_dir().join(format!("{}.ndjson", id));
+        let terminal_path = self.terminal_output_path(id);
+
+        if let Err(e) = fs::remove_file(&ndjson_path) {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                return Err(e);
+            }
+        }
+        if let Err(e) = fs::remove_file(&terminal_path) {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                return Err(e);
+            }
+        }
+        self.summary_checkpoints.lock().unwrap().remove(id);
+        Ok(())
+    }
+```
+
+Replace it with (adding the `terminal_size_path` removal with the same `NotFound`-tolerant pattern as the other two artifacts — required by ADR 0033:69-71 so retention leaves no orphaned `.terminal-size` for forgotten/pruned sessions):
+
+```rust
+    pub fn delete_events(&self, id: &str) -> std::io::Result<()> {
+        let ndjson_path = self.events_dir().join(format!("{}.ndjson", id));
+        let terminal_path = self.terminal_output_path(id);
+        let terminal_size_path = self.terminal_size_path(id);
+
+        if let Err(e) = fs::remove_file(&ndjson_path) {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                return Err(e);
+            }
+        }
+        if let Err(e) = fs::remove_file(&terminal_path) {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                return Err(e);
+            }
+        }
+        if let Err(e) = fs::remove_file(&terminal_size_path) {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                return Err(e);
+            }
+        }
+        self.summary_checkpoints.lock().unwrap().remove(id);
+        Ok(())
+    }
+```
+
+(`terminal_size_path` is the private helper added in Step 3, so it is in scope from the same `impl` block.)
+
+- [ ] **Step 5: Run the tests to verify they pass**
 
 Run: `cargo test --manifest-path crates/orkworksd/Cargo.toml terminal_size_`
 Expected: both `terminal_size_round_trips_through_write_and_read` and `terminal_size_treats_malformed_or_zero_content_as_absent` PASS.
 
-- [ ] **Step 5: Run the full Rust suite to check for regressions**
+- [ ] **Step 6: Run the full Rust suite to check for regressions**
 
 Run: `cargo test --manifest-path crates/orkworksd/Cargo.toml`
-Expected: all tests PASS (no regressions from the new methods, which are additive-only).
+Expected: all tests PASS (no regressions from the new methods, which are additive-only; the `delete_events` change is a new `remove_file` line that surfaces only as an additional `NotFound`-tolerated removal, which the existing `delete_events_is_idempotent` test confirms is safe).
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add crates/orkworksd/src/metadata.rs
 git commit -m "feat: add terminal-size sidecar to MetadataStore"
+```
+
+---
+
+### Task 1.5: Tests for `clear_terminal_size` and `delete_events` sidecar removal
+
+**Files:**
+- Modify: `crates/orkworksd/src/metadata.rs` (insert new tests near the Task 1 tests, before `terminal_output_tail_keeps_everything_under_both_budgets`)
+
+**Interfaces:**
+- Consumes: `MetadataStore::clear_terminal_size` and `MetadataStore::delete_events` from Task 1.
+- Produces: behavior-pinning regression tests. Without these, the ADR 0033 "removed by the existing `delete_events` retention path" claim is unverified and a future accidental removal of the `terminal_size_path` line in `delete_events` would silently leak orphaned sidecars unnoticed.
+
+- [ ] **Step 1: Write the failing tests**
+
+In `crates/orkworksd/src/metadata.rs`, find the `terminal_size_treats_malformed_or_zero_content_as_absent` test added in Task 1 Step 1, and insert these two tests immediately after it:
+
+```rust
+    #[test]
+    fn clear_terminal_size_removes_only_the_size_sidecar_and_is_idempotent() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+
+        store.write_terminal_size("sized-session", 120, 40);
+        assert_eq!(store.read_terminal_size("sized-session"), Some((120, 40)));
+
+        store.clear_terminal_size("sized-session");
+        assert_eq!(store.read_terminal_size("sized-session"), None);
+
+        // Idempotent: clearing an already-absent sidecar is a no-op, not an error.
+        store.clear_terminal_size("sized-session");
+        assert_eq!(store.read_terminal_size("sized-session"), None);
+    }
+
+    #[test]
+    fn delete_events_also_removes_the_terminal_size_sidecar() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+
+        store.write_terminal_size("del-test", 100, 30);
+        assert_eq!(store.read_terminal_size("del-test"), Some((100, 30)));
+
+        store.delete_events("del-test").unwrap();
+
+        assert_eq!(store.read_terminal_size("del-test"), None);
+        // Sanity: `.clear_terminal_size` having been called by `delete_events`
+        // returns `None`, but the sidecar file must also be physically gone
+        // (not just zeroed or malformed) so it doesn't leak on disk.
+        assert!(!store.terminal_size_path("del-test").exists());
+    }
+```
+
+(These reference `terminal_size_path`, the private helper from Task 1, which is in the same `impl MetadataStore` scope — Rust's privacy rules let tests in the same module read private functions. `delete_events_is_idempotent` and `delete_events_removes_ndjson_and_terminal` are higher up in the same `#[cfg(test)] mod tests` block and stay unchanged; this test adds the third-artifact coverage the plan's original Task 1 lacked.)
+
+- [ ] **Step 2: Run the tests to verify they pass**
+
+Run: `cargo test --manifest-path crates/orkworksd/Cargo.toml terminal_size delete_events_also_removes`
+Expected: all four tests pass (`terminal_size_round_trips_through_write_and_read`, `terminal_size_treats_malformed_or_zero_content_as_absent`, `clear_terminal_size_removes_only_the_size_sidecar_and_is_idempotent`, `delete_events_also_removes_the_terminal_size_sidecar`).
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add crates/orkworksd/src/metadata.rs
+git commit -m "test: pin clear_terminal_size and delete_events sidecar removal invariants"
 ```
 
 ---
@@ -426,6 +559,117 @@ Expected: all tests PASS, including the existing `set_session_status_updates_reg
 ```bash
 git add crates/orkworksd/src/runtime/terminal_runtime.rs
 git commit -m "feat: persist recorded terminal size when a session ends"
+```
+
+---
+
+### Task 2.5: `resume_session` clears the sidecar before relaunch
+
+**Files:**
+- Modify: `crates/orkworksd/src/http/session_handlers.rs:318-…` (the `resume_session` function body)
+- Modify: `crates/orkworksd/src/http/session_handlers.rs` (new test in the existing `#[cfg(test)] mod tests` block)
+
+**Interfaces:**
+- Consumes: `MetadataStore::clear_terminal_size` from Task 1.
+- Produces: `resume_session` drops the `.terminal-size` sidecar from the prior run before the resumed runtime starts, satisfying ADR 0033:41-46. Without this, a daemon crash before the new run reaches another terminal-status transition leaves the prior run's grid in place, and replay wraps the new run's output against a stale grid instead of falling back to fit-to-container.
+
+**Context:** the cleaned-up call site sits inside `resume_session` in a `let ws_guard = state.workspace.lock().unwrap(); if let Some(ref ws) = *ws_guard { … read_session … write_session … }` block (currently around lines 473-498). The clear must run *before* the resumed runtime starts (rather than on eventual session shutdown) because the failure mode it guards is "daemon never reaches a clean shutdown for this run at all."
+
+- [ ] **Step 1: Write the failing test**
+
+In `crates/orkworksd/src/http/session_handlers.rs`, inside `#[cfg(test)] mod tests`, near the existing `resume_session_rejects_attached_live_handle` and `resume_session_rejects_detached_live_handle` tests (currently around lines 2214 and 2329), insert the following new test. (Reuse the same builder pattern those tests use; assume a helper `make_state_with_session_for_resume(id)` that sets up an `AppState` with a workspace-backed `MetadataStore`, writes a `SessionMetadata` for `id` with status `ended` and a `SessionHandle` whose `runtime` is `SessionRuntime::detached(40, 120)` so `last_cols=120, last_rows=40` — copy the construction from the nearest existing resume test verbatim, then add the sidecar write.)
+
+```rust
+    #[tokio::test]
+    async fn resume_session_clears_prior_terminal_size_sidecar_before_relaunch() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = <copy the AppState construction from resume_session_rejects_detached_live_handle>;
+        let id = "resume-and-clear".to_string();
+
+        {
+            let ws_guard = state.workspace.lock().unwrap();
+            let ws = ws_guard.as_ref().unwrap();
+            // Simulate the prior run having reached a terminal transition: a
+            // .terminal-size sidecar exists from that run.
+            ws.metadata.write_terminal_size(&id, 200, 50);
+            assert_eq!(ws.metadata.read_terminal_size(&id), Some((200, 50)));
+        }
+
+        // Drive resume_session end-to-end through the axum handler.
+        let response = resume_session(State(state.clone()), Path(id.clone()))
+            .await
+            .expect("resume accepted");
+
+        // The sidecar must be absent on return, before the new run has had any
+        // chance to write its own. (If this assertion fails, the clear is
+        // missing or runs after the runtime start — the failure mode ADR 0033
+        // explicitly guards against.)
+        let ws_guard = state.workspace.lock().unwrap();
+        let ws = ws_guard.as_ref().unwrap();
+        assert_eq!(
+            ws.metadata.read_terminal_size(&id),
+            None,
+            "resume_session must clear the prior run's terminal-size sidecar before relaunch"
+        );
+
+        // And the HTTP response itself must still succeed (this is not an error
+        // path — clearing is a side effect of a successful resume).
+        assert!(response.status().is_success() || response.status().is_client_error() == false,
+            "resume_session should return a success status, got {}", response.status());
+    }
+```
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+Run: `cargo test --manifest-path crates/orkworksd/Cargo.toml resume_session_clears_prior_terminal_size_sidecar_before_relaunch`
+Expected: FAIL — `assertion failed: left == Some((200, 50)), right == None` (resume_session does not yet clear the sidecar).
+
+- [ ] **Step 3: Insert the clear call into `resume_session`**
+
+In `crates/orkworksd/src/http/session_handlers.rs`, find the workspace-write block inside `resume_session`:
+
+```rust
+    {
+        let ws_guard = state.workspace.lock().unwrap();
+        if let Some(ref ws) = *ws_guard {
+            if let Some(mut stored_meta) = ws.metadata.read_session(&id) {
+                stored_meta.status = "creating".to_string();
+```
+
+Insert the `clear_terminal_size` call as the **first** statement inside `if let Some(ref ws) = *ws_guard {`, before the `read_session` call:
+
+```rust
+    {
+        let ws_guard = state.workspace.lock().unwrap();
+        if let Some(ref ws) = *ws_guard {
+            // Drop any recorded terminal-size sidecar from the prior run before the
+            // resumed runtime starts. If the daemon exits before the resumed run
+            // reaches another terminal-status transition there is no in-memory
+            // handle to overwrite the size, so leaving the prior grid in place
+            // would replay the new run's output against a stale grid. Clearing
+            // falls back to documented fit-to-container replay for that case.
+            ws.metadata.clear_terminal_size(&id);
+            if let Some(mut stored_meta) = ws.metadata.read_session(&id) {
+                stored_meta.status = "creating".to_string();
+```
+
+Leave the rest of the `stored_meta` mutation and `ws.metadata.write_session(&stored_meta)` block untouched.
+
+- [ ] **Step 4: Run the test to verify it passes**
+
+Run: `cargo test --manifest-path crates/orkworksd/Cargo.toml resume_session_clears_prior_terminal_size_sidecar_before_relaunch`
+Expected: PASS.
+
+- [ ] **Step 5: Run the full Rust suite to check for regressions**
+
+Run: `cargo test --manifest-path crates/orkworksd/Cargo.toml`
+Expected: all tests PASS, including `resume_session_rejects_attached_live_handle` and `resume_session_rejects_detached_live_handle` (the clear runs inside the already-held workspace lock, so it adds no new lock-order or contention surface).
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add crates/orkworksd/src/http/session_handlers.rs
+git commit -m "fix: clear terminal-size sidecar on resume_session (#0033)"
 ```
 
 ---
@@ -950,23 +1194,25 @@ git commit -m "fix: match getTerminalOutput's new return shape in reconnect repl
 
 ---
 
-### Task 7: `terminalReplayScale.ts` — pure scale-factor function
+### Task 7: `terminalReplayScale.ts` — pure scale-factor function plus content-box helper
 
 **Files:**
 - Create: `apps/desktop/src/terminalReplayScale.ts`
 - Create: `apps/desktop/tests/terminalReplayScale.test.ts`
 
 **Interfaces:**
-- Produces: `computeReplayScale(natural: { width: number; height: number }, available: { width: number; height: number }): number` — consumed by Task 8 (`HistoricalTerminal.tsx`).
+- Produces:
+  - `computeReplayScale(natural: { width: number; height: number }, available: { width: number; height: number }): number` — consumed by Task 8.
+  - `availableContentBox(client: { width: number; height: number }, padding: { top: number; right: number; bottom: number; left: number }): { width: number; height: number }` — consumed by Task 8 to convert the container's padding-inclusive `clientWidth`/`clientHeight` to its content box (required by ADR 0033:52-54 "content box, not padding-inclusive"; without this, scaling shrinks to the padding-inclusive size and `overflow: hidden` clips the right and bottom edges of the gridded replay).
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Write the failing tests**
 
 Create `apps/desktop/tests/terminalReplayScale.test.ts`:
 
 ```ts
 import test from "node:test";
 import assert from "node:assert/strict";
-import { computeReplayScale } from "../src/terminalReplayScale.ts";
+import { computeReplayScale, availableContentBox } from "../src/terminalReplayScale.ts";
 
 test("scales down when the panel is narrower than the recorded width", () => {
   const scale = computeReplayScale({ width: 1200, height: 400 }, { width: 600, height: 400 });
@@ -992,6 +1238,30 @@ test("returns 1 for a zero or negative natural size instead of dividing by zero"
   assert.equal(computeReplayScale({ width: 0, height: 400 }, { width: 600, height: 400 }), 1);
   assert.equal(computeReplayScale({ width: 800, height: 0 }, { width: 600, height: 400 }), 1);
 });
+
+test("availableContentBox subtracts padding from the client dimensions", () => {
+  const out = availableContentBox(
+    { width: 1000, height: 600 },
+    { top: 8, right: 16, bottom: 4, left: 8 },
+  );
+  assert.deepEqual(out, { width: 1000 - 16 - 8, height: 600 - 8 - 4 });
+});
+
+test("availableContentBox clamps at zero so a 0-height panel doesn't go negative", () => {
+  const out = availableContentBox(
+    { width: 100, height: 10 },
+    { top: 50, right: 0, bottom: 50, left: 0 },
+  );
+  assert.deepEqual(out, { width: 100, height: 0 });
+});
+
+test("availableContentBox tolerates negative padding inputs by treating them as zero", () => {
+  const out = availableContentBox(
+    { width: 1000, height: 600 },
+    { top: -4, right: -8, bottom: -4, left: -8 },
+  );
+  assert.deepEqual(out, { width: 1000, height: 600 });
+});
 ```
 
 - [ ] **Step 2: Run the test to verify it fails**
@@ -1011,32 +1281,50 @@ export function computeReplayScale(
   if (natural.width <= 0 || natural.height <= 0) return 1;
   return Math.min(1, available.width / natural.width, available.height / natural.height);
 }
+
+export function availableContentBox(
+  client: { width: number; height: number },
+  padding: { top: number; right: number; bottom: number; left: number },
+): { width: number; height: number } {
+  const horizontal = Math.max(0, padding.left) + Math.max(0, padding.right);
+  const vertical = Math.max(0, padding.top) + Math.max(0, padding.bottom);
+  return {
+    width: Math.max(0, client.width - horizontal),
+    height: Math.max(0, client.height - vertical),
+  };
+}
 ```
 
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `cd apps/desktop && node --experimental-strip-types --test tests/terminalReplayScale.test.ts`
-Expected: all 5 tests PASS.
+Expected: all 8 tests PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add apps/desktop/src/terminalReplayScale.ts apps/desktop/tests/terminalReplayScale.test.ts
-git commit -m "feat: add pure replay scale-factor calculation"
+git commit -m "feat: add pure replay scale and content-box helpers"
 ```
 
 ---
 
-### Task 8: `HistoricalTerminal.tsx` — render at recorded size, scaled to fit
+### Task 8: `HistoricalTerminal.tsx` — render at recorded size, scaled to fit (with zero-measurement retry)
 
 **Files:**
 - Modify: `apps/desktop/src/components/HistoricalTerminal.tsx` (whole file, 57 lines)
+- Modify: `apps/desktop/tests/dockview.test.ts` (add a source-pattern test pinning the retry behavior, since DOM/xterm rendering is not unit-mounted in this codebase — see Step 3)
 
 **Interfaces:**
-- Consumes: `loadTerminalReplay` (Task 5), `getTerminalOutput` (Task 4), `computeReplayScale` (Task 7).
+- Consumes: `loadTerminalReplay` (Task 5), `getTerminalOutput` (Task 4), `computeReplayScale` and `availableContentBox` (Task 7).
 - Produces: no change to this component's own props (`{ sessionId: string }`) or exported default — this is the terminal leaf of the chain, nothing downstream depends on new interfaces here.
 
-This task has no new automated test of its own (DOM/xterm rendering isn't unit-tested in this codebase — `tests/dockview.test.ts` only asserts on the file's *source text*, not its runtime behavior). Verification is: (a) the existing source-text assertions in `tests/dockview.test.ts` still pass unmodified, (b) `tsc --noEmit` is clean, (c) a manual smoke check in Task 9.
+**ADR-driven requirements this task honors:**
+
+- ADR 0033:47-57 — the renderer (1) constructs xterm with the recorded `cols`/`rows` only when present (no explicit `undefined` passed), (2) caches `.xterm-screen`'s `getBoundingClientRect()` on first xterm `onRender` *with a positive measurement*, (3) **retries the measurement on later renders and resizes when both dimensions are not yet positive**, and only then disposes the render listener.
+- ADR 0033:52-54 — the scale is computed against the container's **content box** (subtracting the live `paddingTop/Right/Bottom/Left` `getComputedStyle` values via `availableContentBox`), not the padding-inclusive `clientWidth`/`clientHeight`. Padding-inclusive would overshoot the scale and `overflow: hidden` would clip the right and bottom edges of the gridded replay.
+
+A runtime-mounted DOM/xterm test is out of scope for this plan (no test harness mounts xterm yet); Step 3 adds a source-pattern test that pins the retry invariant*statements* must both exist in the file, the render-listener disposal must be gated by a positive-measurement check, and the scale must flow through `availableContentBox`). It cannot catch every behavior bug, but it fails loudly if the retry contract regresses to the unconditional-cache version.
 
 - [ ] **Step 1: Confirm the source-text constraints this file must keep satisfying**
 
@@ -1054,7 +1342,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { getTerminalOutput } from "../api";
 import { loadTerminalReplay } from "../terminalReplay";
-import { computeReplayScale } from "../terminalReplayScale";
+import { computeReplayScale, availableContentBox } from "../terminalReplayScale";
 import { orkworksTerminalTheme } from "../terminalTheme";
 import EmptyState from "./EmptyState";
 
@@ -1073,14 +1361,15 @@ export default function HistoricalTerminal({ sessionId }: { sessionId: string })
         () => current,
         ({ cols, rows }) => {
           const container = containerRef.current;
-          const hasFixedSize = Boolean(cols && rows);
+          // Sidecar omits cols/rows when either is 0 or absent (ADR 0033); the
+          // undefined check (not a truthy check) is safe because 0×0 never reaches here.
+          const hasFixedSize = cols !== undefined && rows !== undefined;
           terminal = new Terminal({
             theme: orkworksTerminalTheme,
             disableStdin: true,
             cursorBlink: false,
             scrollback: 2000,
-            cols,
-            rows,
+            ...(hasFixedSize ? { cols, rows } : {}),
           });
           if (!container) return terminal;
           terminal.open(container);
@@ -1095,25 +1384,54 @@ export default function HistoricalTerminal({ sessionId }: { sessionId: string })
             const screenEl = container.querySelector<HTMLElement>(".xterm-screen");
             if (xtermEl && screenEl) {
               let natural: { width: number; height: number } | null = null;
+
+              // Scale against the container's content box, not padding-inclusive
+              // clientWidth/clientHeight — xterm lives inside `.terminal-container`'s
+              // padding, so the padding-inclusive dimensions would overshoot the scale
+              // and `overflow: hidden` would clip the right and bottom edges. The
+              // padding math lives in the pure `availableContentBox` helper so it can
+              // be unit tested without mounting xterm.
+              const readContentBox = () => {
+                const cs = window.getComputedStyle(container);
+                const padding = {
+                  top: parseFloat(cs.paddingTop) || 0,
+                  right: parseFloat(cs.paddingRight) || 0,
+                  bottom: parseFloat(cs.paddingBottom) || 0,
+                  left: parseFloat(cs.paddingLeft) || 0,
+                };
+                return availableContentBox(
+                  { width: container.clientWidth, height: container.clientHeight },
+                  padding,
+                );
+              };
+
               const applyScale = () => {
                 if (!natural) return;
-                const scale = computeReplayScale(natural, {
-                  width: container.clientWidth,
-                  height: container.clientHeight,
-                });
+                const scale = computeReplayScale(natural, readContentBox());
                 xtermEl.style.transform = `scale(${scale})`;
                 xtermEl.style.transformOrigin = "top left";
               };
-              const renderDisposable = terminal.onRender(() => {
+
+              const measure = () => {
                 if (natural) return;
                 const rect = screenEl.getBoundingClientRect();
+                // Skip zero-sized measurements (panel hidden or not yet measured) and
+                // retry on the next render / container resize. Caching zero would freeze
+                // the replay with a 0-px xterm and dispose the render listener, so it
+                // would never recover when the panel becomes visible. ADR 0033:54-57.
+                if (rect.width <= 0 || rect.height <= 0) return;
                 natural = { width: rect.width, height: rect.height };
                 xtermEl.style.width = `${rect.width}px`;
                 xtermEl.style.height = `${rect.height}px`;
                 renderDisposable.dispose();
                 applyScale();
+              };
+
+              const renderDisposable = terminal.onRender(measure);
+              observer = new ResizeObserver(() => {
+                measure();
+                applyScale();
               });
-              observer = new ResizeObserver(applyScale);
               observer.observe(container);
             }
           } else {
@@ -1151,25 +1469,75 @@ export default function HistoricalTerminal({ sessionId }: { sessionId: string })
 }
 ```
 
-- [ ] **Step 3: Re-run the source-text test**
+- [ ] **Step 3: Add a source-pattern test pinning the retry and content-box invariants**
+
+In `apps/desktop/tests/dockview.test.ts`, append a new test that reads the file's source text (matching the existing pattern in that file) and asserts the retry-and-content-box contract is structurally present:
+
+```ts
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+
+const historicalSource = readFileSync(
+  new URL("../src/components/HistoricalTerminal.tsx", import.meta.url),
+  "utf8",
+);
+
+test("HistoricalTerminal retries zero measurements before caching and disposing the render listener", () => {
+  // The retry guard must mention both dimensions being non-positive.
+  assert.match(
+    historicalSource,
+    /rect\.width\s*<=\s*0\s*\|\|\s*rect\.height\s*<=\s*0/,
+    "the measure() block must skip zero-sized getBoundingClientRect() and return early, leaving `natural` null so the next render/resize retries (ADR 0033:54-57)",
+  );
+  // And the render-listener disposal must be gated by a non-null `natural`, not called unconditionally on first onRender.
+  assert.match(
+    historicalSource,
+    /if\s*\(\s*natural\s*\)\s*return[\s\S]*?renderDisposable\.dispose\(\)/,
+    "renderDisposable.dispose() must run only after a positive measurement, not on the first render",
+  );
+});
+
+test("HistoricalTerminal computes replay scale against the container content box, not padding-inclusive clientWidth", () => {
+  assert.match(
+    historicalSource,
+    /availableContentBox\(/,
+    "the applyScale path must route container dimensions through availableContentBox to satisfy ADR 0033:52-54",
+  );
+  assert.match(
+    historicalSource,
+    /getComputedStyle\(container\)/,
+    "padding to availableContentBox must come from the live computed style, not a hardcoded constant",
+  );
+});
+
+test("HistoricalTerminal only passes cols/rows to Terminal when a fixed size was recorded", () => {
+  assert.match(
+    historicalSource,
+    /hasFixedSize\s*\?\s*\{\s*cols,\s*rows\s*\}\s*:\s*\{\}/,
+    "the cols/rows spread must be conditional on hasFixedSize; passing explicit undefined regresses the legacy path (PR #262 commit 89bd870)",
+  );
+});
+```
+
+- [ ] **Step 4: Re-run the source-text tests**
 
 Run: `cd apps/desktop && node --experimental-strip-types --test tests/dockview.test.ts`
-Expected: PASS (same as Step 1 — confirms the rewrite kept the required literal call shapes and didn't introduce `WebSocket`/`ensureTerminal`).
+Expected: all tests PASS — the existing "loads output without opening an interactive terminal transport" assertion still holds (the file still contains `getTerminalOutput(baseUrl, sessionId)` and `loadTerminalReplay` and does not contain `WebSocket`/`ensureTerminal`), and the three new source-pattern tests pass against the new file.
 
-- [ ] **Step 4: Type-check**
+- [ ] **Step 5: Type-check**
 
 Run: `cd apps/desktop && npx tsc --noEmit`
 Expected: no errors anywhere in the project — this closes out the type errors seeded in Task 4.
 
-- [ ] **Step 5: Run the full TypeScript test suite**
+- [ ] **Step 6: Run the full TypeScript test suite**
 
 Run: `cd apps/desktop && node --experimental-strip-types --test tests/*.test.ts tests/*.test.mjs`
 Expected: all tests PASS.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add apps/desktop/src/components/HistoricalTerminal.tsx
+git add apps/desktop/src/components/HistoricalTerminal.tsx apps/desktop/tests/dockview.test.ts
 git commit -m "feat: render dead-session replay at recorded size, scaled to fit"
 ```
 
@@ -1223,7 +1591,15 @@ Expected: both succeed.
 
 - [ ] **Step 5: Manual smoke check**
 
-Run `pnpm dev` from `apps/desktop/` (auto-launches the sidecar). Start a session, widen the app window so the terminal panel is wide, run a command that produces a long line (e.g. `printf 'a%.0s' {1..200}; echo`), then end the session (kill it from the UI). Narrow the app window so the detail panel is much narrower than it was when recorded, and open the ended session's terminal replay. Confirm the long line renders as one unbroken (shrunk) line instead of being character-split across multiple lines. Then repeat with a session that predates this change if one exists (or accept a freshly-created session before this build as the "legacy" case is no longer reproducible after this change ships) to confirm the fit-to-container fallback still renders without errors.
+Run `pnpm dev` from `apps/desktop/` (auto-launches the sidecar). This step exercises three behaviors the source-pattern tests in Task 8 Step 3 cannot catch by construction:
+
+1. **Scaled fixed-size replay** (primary goal — ADR 0033 word-split fix): start a session, widen the app window so the terminal panel is wide, run `printf 'a%.0s' {1..200}; echo`, kill the session from the UI. Narrow the app window so the detail panel is much narrower than it was at record time, and open the ended session's terminal replay. Confirm the long line renders as one unbroken shrunk line instead of being character-split across multiple lines. Confirm the right and bottom edges of the long line are not clipped inside the container's padding (this is what `availableContentBox` guards against; if the right edge is clipped, the padding subtraction is broken).
+
+2. **Zero-measurement retry** (ADR 0033:54-57): end a session, then without selecting it, hide the Terminal panel via its View menu toggle, then select the dead session so its replay loads into a zero-sized container. Re-show the Terminal panel. Confirm the replay still renders correctly (the natural-size cache waited for a non-zero `getBoundingClientRect()` rather than freezing at 0×0). Without the retry guard this path leaves the historical terminal blank until next reload.
+
+3. **`resume_session` clear hook** (ADR 0033:41-46): kill a session that has a recorded `.terminal-size`, then resume it from the Sessions panel, then kill it again *without* it reaching a new terminal transition is uncommon — practical equivalent: confirm the resumed session's replay, if viewed before it next reaches a terminal transition *had the daemon been killed by hand*, would not show the prior run's grid. The reliable deterministic piece to verify here is just: the sidecar registry test from Task 1.5 passes (it is the contract that backs this smoke); the smoke just confirms resume still works end-to-end without throwing.
+
+Then repeat test 1 with a session that predates this change if one exists (or accept a freshly-created session before this build as the "legacy" case is no longer reproducible after this change ships) to confirm the fit-to-container fallback still renders without errors.
 
 - [ ] **Step 6: Run the repo's doc-currency and worktree-currency checks**
 
@@ -1238,6 +1614,14 @@ Expected: `doc-check.sh` reports no further flagged files beyond the `AGENTS.md`
 
 ## Self-Review Notes
 
-- **Spec coverage:** every bullet in the design doc's Scope section maps to a task — persistence (Task 1-2), serving (Task 3), fixed-size + scaled rendering (Task 7-8), legacy fallback preserved unchanged (Task 8's `else` branch, verified by Task 8 Step 3's re-run of the source-text test), no `SessionMetadata` fields added (confirmed by Task 1 using a sidecar file), no new dependencies (none introduced anywhere in this plan).
+- **Spec coverage (ADR 0033):** every bullet in the ADR Decision section maps to a task:
+  - persist on terminal transition (ADR:23-27) → Task 2
+  - `MetadataStore::write_terminal_size` / `read_terminal_size` / `clear_terminal_size` (ADR:28-31) → Task 1 + Task 1.5 covers all three methods' behavior pins
+  - include in `GET /sessions/:id/terminal-output` with `skip_serializing_if` (ADR:32-35) → Task 3
+  - stored outside `SessionMetadata` (ADR:36-40) → Task 1 sidecar file (confirmed by no `SessionMetadata` field edit anywhere in the plan)
+  - `resume_session` clears sidecar before relaunch (ADR:41-46) → Task 2.5
+  - renderer: fixed `cols`/`rows`, content-box scaling, zero-measurement retry (ADR:47-57) → Task 8
+  - legacy fallback unchanged (ADR:58-59) → Task 8 `else` branch (verified by source-pattern tests in Task 8 Step 3 plus Task 7 scale helper tests)
+  - retained by `delete_events` (ADR:69-71) → Task 1 Step 4 + Task 1.5 Step 1 regression test
 - **Placeholder scan:** no TBD/TODO markers; every step shows complete, exact code.
-- **Type consistency:** `read_terminal_size`/`write_terminal_size` use `(cols: u16, rows: u16)` parameter order and `Option<(u16, u16)>` return order consistently across Tasks 1-3; `{ lines, cols, rows }` shape is consistent across Tasks 3-8 (Rust JSON field names `cols`/`rows` match the TS `data.cols`/`data.rows` access in Task 4 with no renaming needed, both already lowercase single words).
+- **Type consistency:** `read_terminal_size`/`write_terminal_size` use `(cols: u16, rows: u16)` parameter order and `Option<(u16, u16)>` return order consistently across Tasks 1-3; `clear_terminal_size` is parameterless-on-id and idempotent (Tasks 1, 1.5, 2.5); `{ lines, cols, rows }` shape is consistent across Tasks 3-8 (Rust JSON field names `cols`/`rows` match the TS `data.cols`/`data.rows` access in Task 4 with no renaming needed, both already lowercase single words). Task 7's `availableContentBox` is consumed in Task 8 via that exact name.
