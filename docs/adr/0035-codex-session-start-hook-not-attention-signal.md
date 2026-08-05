@@ -122,4 +122,4 @@ tested in. Not resolved here — see Consequences.
   now rather than refactoring already-shipped, tested handlers as a side
   effect of adding Codex; tracked as the same follow-up (issue #271).
 - Plan/spec paths use a separate Claude Code `PostToolUse` signal rather than
-  treating Codex's patch text as a file-path contract; see ADR 0036.
+  treating Codex's patch text as a file-path contract; see ADR 0037.

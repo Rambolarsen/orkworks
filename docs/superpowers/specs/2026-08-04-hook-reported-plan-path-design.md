@@ -44,5 +44,5 @@ file-write payload is available.
 - The sidecar accepts a valid hook path, rejects absolute/escaping/control/
   non-Markdown/symlink paths after normalization, and keeps attention intact.
 - Hook-first and fallback-first arrival orders both retain the hook path.
-- Add ADR 0036 plus its index entry, update ADR 0035's cross-reference, the
+- Add ADR 0037 plus its index entry, update ADR 0035's cross-reference, the
   plan-review spec, and the harness-contract register.

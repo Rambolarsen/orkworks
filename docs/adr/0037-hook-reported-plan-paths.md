@@ -29,4 +29,5 @@ Claude plan associations become deterministic without widening the renderer or
 terminal-input authority. POSIX and PowerShell reporters remain thin transport;
 Rust owns path validation once. This extends the marker-specific hook semantics
 noted in ADR 0035 and deliberately does not generalize `ToolHookContract`; that
-broader concern remains issue #271.
+broader concern remains issue #271. Renumbered from 0036 to 0037 after ADR 0036
+(`codex-hooks-portable-reporter-path`) landed on `main` first.
