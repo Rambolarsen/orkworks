@@ -17,6 +17,7 @@ pub(crate) static HANDLER: JsonHookHandler = JsonHookHandler::new(
         ownership_marker: MARKER,
         coverage: IntegrationCoverage::Limited,
         activation: IntegrationActivation::Unknown,
+        reports_plan_path: false,
     },
     probe,
     merge,

@@ -49,13 +49,24 @@
 - Consumes: Claude `PostToolUse` `Write|Edit` payload with `tool_input.file_path`.
 - Produces: one bounded `POST /sessions/:id/plan-path`; no attention update.
 
-- [ ] Write failing tests for the installed `PostToolUse` matcher, probe/remove symmetry, and a real reporter trace containing the path-only URL but no generic attention request.
-- [ ] Run `cargo test --manifest-path crates/orkworksd/Cargo.toml report_harness_event --lib`; expect failure because the hook and path request are absent.
-- [ ] Add the owned synchronous `PostToolUse` `Write|Edit` hook with a `--plan-path` reporter mode. In both scripts, extract only Claude's raw `tool_input.file_path`, post it with existing request timeouts, and skip attention in that mode.
-- [ ] Re-run the focused test; expect pass.
-- [ ] Update `specs/session-plan-review.md` and `docs/agents/harness-integration-contracts.md`, then commit with `git commit -m "feat(claude): report written plan paths"`.
+- [x] Write failing tests for the installed `PostToolUse` matcher, probe/remove symmetry, and a real reporter trace containing the path-only URL but no generic attention request.
+- [x] Run `cargo test --manifest-path crates/orkworksd/Cargo.toml report_harness_event --lib`; expect failure because the hook and path request are absent.
+- [x] Add the owned synchronous `PostToolUse` `Write|Edit` hook with a `--plan-path` reporter mode. In both scripts, extract only Claude's raw `tool_input.file_path`, post it with existing request timeouts, and skip attention in that mode.
+- [x] Re-run the focused test; expect pass.
+- [x] Update `specs/session-plan-review.md` and `docs/agents/harness-integration-contracts.md`, then commit with `git commit -m "feat(claude): report written plan paths"`.
 
 ### Task 3: Verify the complete change
 
-- [ ] Run `cargo test --manifest-path crates/orkworksd/Cargo.toml`; expect pass.
-- [ ] Run `bash .claude/hooks/doc-check.sh` and `bash .claude/hooks/worktree-check.sh`; resolve only drift owned by this branch.
+- [x] Run `cargo test --manifest-path crates/orkworksd/Cargo.toml`; expect pass.
+- [x] Run `bash .claude/hooks/doc-check.sh` and `bash .claude/hooks/worktree-check.sh`; resolve only drift owned by this branch.
+
+### Task 4: ADR 0038 + `ToolHookContract` framework extension
+
+Added on top of the original plan in the same work session (see ADR 0038): the
+framework gains `ToolHookContract::reports_plan_path: bool` so the next
+harness that wants plan-path reporting has a declared opt-in rather than
+bespoke shell plumbing. The Claude `PostToolUse` transport is the first
+consumer; `base_status` enriches the integration coverage summary when the
+flag is set. ADR 0037's "deliberately does not generalize `ToolHookContract`"
+sentence is retracted by ADR 0038; #271.2's attention-signal generalization
+stays open.
