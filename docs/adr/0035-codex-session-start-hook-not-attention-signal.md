@@ -101,18 +101,11 @@ tested in. Not resolved here — see Consequences.
 - Codex sessions get exact resume once a user approves the hook inside
   Codex once — same reliability tier as Claude Code, not Peon's 0.50-capped
   guess.
-- **Unresolved**: project-level `.codex/hooks.json` is not always the
-  "local, safe to write a machine-specific path into" target the other
-  JSON-hook integrations rely on being local by convention — this repo's
-  own file is git-tracked. In such repos the integration correctly reports
-  an error rather than corrupting the shared file, but that also means it
-  never activates there. Whether the right fix is a global
-  `~/.codex/hooks.json` target instead (bigger blast radius, one install
-  covers every repo, breaks the per-repo ownership model every other
-  integration uses), detecting and appending safely to a shared file some
-  other way, or something else, is an open question for a follow-up rather
-  than decided here — tracked as
-  [issue #276](https://github.com/Rambolarsen/orkworks/issues/276).
+- **Resolved by ADR 0036**: project-level `.codex/hooks.json` being tracked
+  rather than local-only is handled by writing a portable, `$HOME`-relative
+  reporter command instead of an absolute one, and relaxing the tracked-file
+  safety check specifically for that portable-safe case. See
+  [ADR 0036](0036-codex-hooks-portable-reporter-path.md).
 - The "is this event an attention signal" distinction now lives as a
   string match on the marker inside two script files, not as a declared
   property on `ToolHookContract` or anywhere in the capability model. This

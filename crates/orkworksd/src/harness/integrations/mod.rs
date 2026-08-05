@@ -267,7 +267,19 @@ impl JsonHookHandler {
         ctx: &IntegrationContext<'_>,
     ) -> Result<(ConfigFileTransaction, Map<String, Value>, PathBuf), IntegrationError> {
         let target = self.target(ctx)?;
-        target.require_local_or_ignored_untracked()?;
+        // Codex is the only integration that can safely accept a
+        // git-tracked target — its merge writes a $HOME-relative command
+        // (portable_reporter_invocation, codex.rs) instead of an absolute
+        // per-machine path, so a committed fragment is byte-identical
+        // regardless of who installed it. POSIX only for now (ADR 0036);
+        // Codex on Windows keeps the standard, stricter check.
+        let portable_safe = self.contract.harness_id == "codex"
+            && ReporterPlatform::current() == ReporterPlatform::Posix;
+        if portable_safe {
+            target.require_tracked_or_ignored_untracked()?;
+        } else {
+            target.require_local_or_ignored_untracked()?;
+        }
         let transaction = ConfigFileTransaction::open(target)?;
         let document = if transaction.current_bytes().is_empty() {
             Map::new()
@@ -399,6 +411,54 @@ pub(crate) fn reporter_invocation(path: &Path, marker: &str) -> ReporterInvocati
     reporter_invocation_for_platform(ReporterPlatform::current(), path, marker)
 }
 
+/// Rewrites an absolute reporter-script path into a `$HOME`-relative shell
+/// expression, so the resulting hook command is byte-identical no matter
+/// whose machine generated it. Required before Codex's reporter invocation
+/// is safe to persist into a git-tracked, team-shared `.codex/hooks.json` —
+/// Codex has no local-only hooks file the way Claude's `settings.local.json`
+/// is local by convention (ADR 0035, ADR 0036). POSIX only; Codex on
+/// Windows keeps writing a resolved absolute path (see ADR 0036).
+pub(crate) fn portable_reporter_path(reporter: &Path) -> Result<PathBuf, IntegrationError> {
+    let home = dirs::home_dir().ok_or_else(|| {
+        IntegrationError::InvalidConfig(
+            "Could not resolve a home directory to build a portable Codex hook command.".into(),
+        )
+    })?;
+    let suffix = reporter.strip_prefix(&home).map_err(|_| {
+        IntegrationError::InvalidConfig(format!(
+            "Codex reporter script {} is not under the home directory; cannot build a portable hook command.",
+            reporter.display()
+        ))
+    })?;
+    Ok(Path::new("$HOME").join(suffix))
+}
+
+/// POSIX-only portable counterpart to `reporter_invocation`. Same shape,
+/// but the path segment is `$HOME`-relative and double-quoted instead of
+/// single-quoted (`shell_quote` always single-quotes, and single-quoted
+/// strings don't expand `$HOME` in POSIX shells). Double-quoting is safe
+/// here specifically because everything after the one intentional `$HOME`
+/// expansion is a fixed, OrkWorks-authored suffix — never user input, and
+/// never containing a `"` or an unintended second `$` — the same
+/// never-untrusted-input guarantee `shell_quote` gives the marker argument,
+/// which stays single-quoted and unchanged.
+pub(crate) fn portable_reporter_invocation(
+    reporter: &Path,
+    marker: &str,
+) -> Result<ReporterInvocation, IntegrationError> {
+    let portable = portable_reporter_path(reporter)?;
+    let path_str = portable.to_string_lossy().into_owned();
+    Ok(ReporterInvocation {
+        // program/args are unexpanded ("$HOME/..." is only meaningful once
+        // shell-interpreted) — codex.rs only ever reads shell_command.
+        // Do not spawn program/args directly the way claude.rs does with
+        // its own (always-absolute) reporter_invocation.
+        program: path_str.clone(),
+        args: vec!["--marker".into(), marker.into()],
+        shell_command: format!("\"{path_str}\" --marker {}", shell_quote(marker)),
+    })
+}
+
 fn shell_quote(value: &str) -> String {
     // Close the quoted string, emit a literal quote via the standard
     // close-escape-reopen idiom (`'\''`), then reopen — NOT `'\"'\"'`, which
@@ -420,6 +480,7 @@ mod tests {
         IntegrationContext, IntegrationOwnership, IntegrationRegistration, ReporterAssetResolver,
     };
     use crate::metadata::MetadataStore;
+    use crate::test_support::FakeHome;
 
     #[test]
     fn report_harness_event_defaults_to_waiting_attention_and_accepts_a_status_override() {
@@ -705,9 +766,14 @@ mod tests {
             )
             .unwrap();
             let stable = tempfile::tempdir().unwrap();
+            // Codex's portable reporter path (Task 1) resolves against
+            // dirs::home_dir(), so HOME must point at the same tempdir the
+            // stable reporter directory lives under — harmless for the
+            // other three handlers, which never call dirs::home_dir().
+            let _fake_home = FakeHome::set(stable.path());
             let reporter = ReporterAssetResolver {
                 source_dir: assets.path().to_path_buf(),
-                stable_dir: stable.path().join("hook-scripts"),
+                stable_dir: stable.path().join(".orkworks").join("hook-scripts"),
             };
             let context = IntegrationContext {
                 workspace: workspace.path(),
@@ -808,9 +874,10 @@ mod tests {
         )
         .unwrap();
         let stable = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(stable.path());
         let reporter = ReporterAssetResolver {
             source_dir: assets.path().to_path_buf(),
-            stable_dir: stable.path().join("hook-scripts"),
+            stable_dir: stable.path().join(".orkworks").join("hook-scripts"),
         };
         let context = IntegrationContext {
             workspace: workspace.path(),
@@ -828,6 +895,352 @@ mod tests {
         let claude_status = handler(&IntegrationBinding::Claude).status(&context).unwrap();
         let claude_confirmation = claude_status.confirmation.expect("claude confirmation");
         assert!(claude_confirmation.executable_code_warning);
+    }
+
+    // Codex only accepts a tracked target on POSIX (ADR 0036) — on Windows
+    // load() keeps the standard, stricter safety check, so these four
+    // tracked-file tests would fail there. PR CI is ubuntu-latest only
+    // today, but gate for correctness rather than relying on that.
+    #[cfg(unix)]
+    #[test]
+    fn codex_install_succeeds_against_a_git_tracked_hooks_json() {
+        let workspace = tempfile::tempdir().unwrap();
+        let repo = git2::Repository::init(workspace.path()).unwrap();
+        fs::create_dir(workspace.path().join(".codex")).unwrap();
+        fs::write(workspace.path().join(".codex/hooks.json"), "{}").unwrap();
+        let mut index = repo.index().unwrap();
+        index.add_path(Path::new(".codex/hooks.json")).unwrap();
+        index.write().unwrap();
+
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        let assets = tempfile::tempdir().unwrap();
+        fs::write(
+            assets.path().join(ReporterPlatform::Posix.asset_name()),
+            "#!/bin/sh\n",
+        )
+        .unwrap();
+        let reporter = ReporterAssetResolver {
+            source_dir: assets.path().to_path_buf(),
+            stable_dir: home.path().join(".orkworks").join("hook-scripts"),
+        };
+        let context = IntegrationContext {
+            workspace: workspace.path(),
+            workspace_metadata: None,
+            orkworks_root: home.path(),
+            enabled: true,
+            detected_tool: None,
+            reporter_assets: &reporter,
+        };
+
+        let status = handler(&IntegrationBinding::Codex).install(&context);
+
+        assert_eq!(
+            status.unwrap().registration,
+            IntegrationRegistration::Installed
+        );
+    }
+
+    #[test]
+    fn codex_install_still_refuses_an_untracked_unignored_hooks_json() {
+        let workspace = tempfile::tempdir().unwrap();
+        git2::Repository::init(workspace.path()).unwrap();
+        fs::create_dir(workspace.path().join(".codex")).unwrap();
+        // No .gitignore entry and nothing added to the index: untracked and
+        // unignored — the relaxation must not widen this case.
+
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        let assets = tempfile::tempdir().unwrap();
+        fs::write(
+            assets.path().join(ReporterPlatform::Posix.asset_name()),
+            "#!/bin/sh\n",
+        )
+        .unwrap();
+        let reporter = ReporterAssetResolver {
+            source_dir: assets.path().to_path_buf(),
+            stable_dir: home.path().join(".orkworks").join("hook-scripts"),
+        };
+        let context = IntegrationContext {
+            workspace: workspace.path(),
+            workspace_metadata: None,
+            orkworks_root: home.path(),
+            enabled: true,
+            detected_tool: None,
+            reporter_assets: &reporter,
+        };
+
+        let status = handler(&IntegrationBinding::Codex).status(&context).unwrap();
+
+        assert_eq!(status.registration, IntegrationRegistration::Error);
+        assert_eq!(status.diagnostics[0].code, "not_ignored_target");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn codex_install_produces_byte_identical_content_regardless_of_which_machine_installed_it() {
+        fn install_from_home(home_dir: &Path) -> Vec<u8> {
+            let workspace = tempfile::tempdir().unwrap();
+            let repo = git2::Repository::init(workspace.path()).unwrap();
+            fs::create_dir(workspace.path().join(".codex")).unwrap();
+            fs::write(workspace.path().join(".codex/hooks.json"), "{}").unwrap();
+            let mut index = repo.index().unwrap();
+            index.add_path(Path::new(".codex/hooks.json")).unwrap();
+            index.write().unwrap();
+
+            let _fake_home = FakeHome::set(home_dir);
+            let assets = tempfile::tempdir().unwrap();
+            fs::write(
+                assets.path().join(ReporterPlatform::Posix.asset_name()),
+                "#!/bin/sh\n",
+            )
+            .unwrap();
+            let reporter = ReporterAssetResolver {
+                source_dir: assets.path().to_path_buf(),
+                stable_dir: home_dir.join(".orkworks").join("hook-scripts"),
+            };
+            let context = IntegrationContext {
+                workspace: workspace.path(),
+                workspace_metadata: None,
+                orkworks_root: home_dir,
+                enabled: true,
+                detected_tool: None,
+                reporter_assets: &reporter,
+            };
+            handler(&IntegrationBinding::Codex)
+                .install(&context)
+                .unwrap();
+            fs::read(workspace.path().join(".codex/hooks.json")).unwrap()
+        }
+
+        let alice = tempfile::tempdir().unwrap();
+        let bob = tempfile::tempdir().unwrap();
+
+        let alice_bytes = install_from_home(alice.path());
+        let bob_bytes = install_from_home(bob.path());
+
+        assert_eq!(
+            alice_bytes, bob_bytes,
+            "installed hook content must not depend on the installing machine's home directory"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn codex_install_reconciles_the_local_reporter_script_for_a_teammates_pulled_fragment() {
+        // Simulates a teammate pulling a tracked .codex/hooks.json that
+        // already carries Alice's committed, byte-identical OrkWorks
+        // fragment — Bob's machine has never reconciled its own copy of
+        // the reporter script. probe()/status() must not silently claim
+        // Installed for a hook that can't actually run here; install()
+        // must actually reconcile the missing script rather than
+        // early-returning on a false "already Installed".
+        let workspace = tempfile::tempdir().unwrap();
+        let repo = git2::Repository::init(workspace.path()).unwrap();
+        fs::create_dir(workspace.path().join(".codex")).unwrap();
+        // Alice installs while the file is still untracked-and-ignored (the
+        // ordinary solo-user path); it's tracked afterward to simulate
+        // someone committing it despite the ignore rule, matching this
+        // repo's own real .codex/.gitignore whitelist pattern.
+        fs::write(
+            workspace.path().join(".gitignore"),
+            ".codex/hooks.json\n",
+        )
+        .unwrap();
+
+        let alice_home = tempfile::tempdir().unwrap();
+        let alice_assets = tempfile::tempdir().unwrap();
+        fs::write(
+            alice_assets.path().join(ReporterPlatform::Posix.asset_name()),
+            "#!/bin/sh\n",
+        )
+        .unwrap();
+        {
+            let _fake_home = FakeHome::set(alice_home.path());
+            let reporter = ReporterAssetResolver {
+                source_dir: alice_assets.path().to_path_buf(),
+                stable_dir: alice_home.path().join(".orkworks").join("hook-scripts"),
+            };
+            let context = IntegrationContext {
+                workspace: workspace.path(),
+                workspace_metadata: None,
+                orkworks_root: alice_home.path(),
+                enabled: true,
+                detected_tool: None,
+                reporter_assets: &reporter,
+            };
+            handler(&IntegrationBinding::Codex)
+                .install(&context)
+                .unwrap();
+        }
+        let mut index = repo.index().unwrap();
+        index.add_path(Path::new(".codex/hooks.json")).unwrap();
+        index.write().unwrap();
+
+        // Bob: a different home directory that has never run install/
+        // reconcile for Codex, opening the same (now-tracked) workspace.
+        let bob_home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(bob_home.path());
+        let bob_assets = tempfile::tempdir().unwrap();
+        fs::write(
+            bob_assets.path().join(ReporterPlatform::Posix.asset_name()),
+            "#!/bin/sh\n",
+        )
+        .unwrap();
+        let bob_reporter = ReporterAssetResolver {
+            source_dir: bob_assets.path().to_path_buf(),
+            stable_dir: bob_home.path().join(".orkworks").join("hook-scripts"),
+        };
+        let bob_context = IntegrationContext {
+            workspace: workspace.path(),
+            workspace_metadata: None,
+            orkworks_root: bob_home.path(),
+            enabled: true,
+            detected_tool: None,
+            reporter_assets: &bob_reporter,
+        };
+        let bob_reporter_script = bob_home
+            .path()
+            .join(".orkworks")
+            .join("hook-scripts")
+            .join(ReporterPlatform::Posix.asset_name());
+        assert!(
+            !bob_reporter_script.exists(),
+            "precondition: Bob's machine has never reconciled the reporter script"
+        );
+
+        let status_before = handler(&IntegrationBinding::Codex)
+            .status(&bob_context)
+            .unwrap();
+        assert_ne!(
+            status_before.registration,
+            IntegrationRegistration::Installed,
+            "must not report Installed while Bob's own reporter script doesn't exist yet"
+        );
+
+        let status_after = handler(&IntegrationBinding::Codex)
+            .install(&bob_context)
+            .unwrap();
+        assert_eq!(status_after.registration, IntegrationRegistration::Installed);
+        assert!(
+            bob_reporter_script.exists(),
+            "install() must reconcile Bob's local reporter script copy"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn codex_install_activates_alongside_pre_existing_tracked_apm_hook_groups() {
+        let workspace = tempfile::tempdir().unwrap();
+        let repo = git2::Repository::init(workspace.path()).unwrap();
+        fs::create_dir(workspace.path().join(".codex")).unwrap();
+        // Shape mirrors this repo's real, APM-managed .codex/hooks.json:
+        // Stop/sessionStart/userPromptSubmitted/SessionStart/UserPromptSubmit
+        // groups tagged _apm_source: "ponytail", none touching OrkWorks'
+        // marker. install() must add its own SessionStart group without
+        // disturbing any of these.
+        let existing = serde_json::json!({
+            "hooks": {
+                "Stop": [{
+                    "hooks": [{
+                        "type": "command",
+                        "command": "ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd); bash \"$ROOT/.codex/hooks/doc-check-stop.sh\""
+                    }]
+                }],
+                "sessionStart": [{
+                    "type": "command",
+                    "bash": "node \".codex/hooks/ponytail/hooks/ponytail-activate.js\"",
+                    "powershell": "node \".codex/hooks/ponytail/hooks/ponytail-activate.js\"",
+                    "timeoutSec": 5,
+                    "_apm_source": "ponytail"
+                }],
+                "userPromptSubmitted": [{
+                    "type": "command",
+                    "bash": "node \".codex/hooks/ponytail/hooks/ponytail-mode-tracker.js\"",
+                    "powershell": "node \".codex/hooks/ponytail/hooks/ponytail-mode-tracker.js\"",
+                    "timeoutSec": 5,
+                    "_apm_source": "ponytail"
+                }],
+                "SessionStart": [{
+                    "matcher": "startup|resume|clear|compact",
+                    "hooks": [{
+                        "type": "command",
+                        "command": "command -v node >/dev/null 2>&1 && node \".codex/hooks/ponytail/hooks/ponytail-activate.js\" || exit 0",
+                        "timeout": 5,
+                        "statusMessage": "Loading ponytail mode..."
+                    }],
+                    "_apm_source": "ponytail"
+                }],
+                "UserPromptSubmit": [{
+                    "hooks": [{
+                        "type": "command",
+                        "command": "command -v node >/dev/null 2>&1 && node \".codex/hooks/ponytail/hooks/ponytail-mode-tracker.js\" || exit 0",
+                        "timeout": 5,
+                        "statusMessage": "Tracking ponytail mode..."
+                    }],
+                    "_apm_source": "ponytail"
+                }]
+            }
+        });
+        fs::write(
+            workspace.path().join(".codex/hooks.json"),
+            serde_json::to_vec_pretty(&existing).unwrap(),
+        )
+        .unwrap();
+        let mut index = repo.index().unwrap();
+        index.add_path(Path::new(".codex/hooks.json")).unwrap();
+        index.write().unwrap();
+
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        let assets = tempfile::tempdir().unwrap();
+        fs::write(
+            assets.path().join(ReporterPlatform::Posix.asset_name()),
+            "#!/bin/sh\n",
+        )
+        .unwrap();
+        let reporter = ReporterAssetResolver {
+            source_dir: assets.path().to_path_buf(),
+            stable_dir: home.path().join(".orkworks").join("hook-scripts"),
+        };
+        let context = IntegrationContext {
+            workspace: workspace.path(),
+            workspace_metadata: None,
+            orkworks_root: home.path(),
+            enabled: true,
+            detected_tool: None,
+            reporter_assets: &reporter,
+        };
+
+        let status = handler(&IntegrationBinding::Codex).install(&context);
+        let persisted: Value =
+            serde_json::from_slice(&fs::read(workspace.path().join(".codex/hooks.json")).unwrap())
+                .unwrap();
+
+        assert_eq!(
+            status.unwrap().registration,
+            IntegrationRegistration::Installed
+        );
+        let hooks = persisted["hooks"].as_object().unwrap();
+        assert!(hooks.contains_key("Stop"), "must preserve APM's Stop hook");
+        assert!(
+            hooks.contains_key("sessionStart"),
+            "must preserve APM's lowercase sessionStart hook"
+        );
+        assert!(
+            hooks.contains_key("userPromptSubmitted"),
+            "must preserve APM's userPromptSubmitted hook"
+        );
+        assert!(
+            hooks.contains_key("UserPromptSubmit"),
+            "must preserve APM's UserPromptSubmit hook"
+        );
+        let session_start = hooks["SessionStart"].as_array().unwrap();
+        assert_eq!(
+            session_start.len(),
+            2,
+            "must add its own SessionStart group alongside APM's existing one, not replace it"
+        );
     }
 
     #[test]
@@ -1213,6 +1626,71 @@ mod tests {
                 .ownership,
             IntegrationOwnership::None
         );
+    }
+
+    #[test]
+    fn portable_reporter_path_rewrites_the_resolved_path_as_home_relative() {
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+
+        let reporter = home
+            .path()
+            .join(".orkworks/hook-scripts/report-harness-event.sh");
+        let result = portable_reporter_path(&reporter);
+
+        assert_eq!(
+            result.unwrap(),
+            Path::new("$HOME/.orkworks/hook-scripts/report-harness-event.sh")
+        );
+    }
+
+    #[test]
+    fn portable_reporter_path_errors_when_reporter_is_not_under_home() {
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+
+        let outside = tempfile::tempdir().unwrap();
+        let reporter = outside.path().join("report-harness-event.sh");
+        let result = portable_reporter_path(&reporter);
+
+        assert!(matches!(result, Err(IntegrationError::InvalidConfig(_))));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn portable_reporter_invocation_expands_home_and_actually_invokes_the_script() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        let script_dir = home.path().join(".orkworks").join("hook-scripts");
+        fs::create_dir_all(&script_dir).unwrap();
+        let script = script_dir.join("report-harness-event.sh");
+        let marker_file = home.path().join("invoked");
+        fs::write(
+            &script,
+            format!("#!/bin/sh\ntouch '{}'\n", marker_file.display()),
+        )
+        .unwrap();
+        let mut perms = fs::metadata(&script).unwrap().permissions();
+        perms.set_mode(perms.mode() | 0o111);
+        fs::set_permissions(&script, perms).unwrap();
+
+        let invocation =
+            portable_reporter_invocation(&script, "orkworks:harness-integration:v2:codex")
+                .unwrap();
+        let status = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(&invocation.shell_command)
+            .status()
+            .expect("sh must be available to run the portable command");
+
+        assert!(
+            status.success(),
+            "portable shell_command failed: {}",
+            invocation.shell_command
+        );
+        assert!(marker_file.exists(), "reporter script was not invoked");
     }
 
     #[test]
