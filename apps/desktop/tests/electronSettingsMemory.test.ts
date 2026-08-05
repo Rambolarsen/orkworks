@@ -209,7 +209,7 @@ test("settings memory normalizes debug settings and preserves persisted showSess
 
     const settings = readSettings(dir);
 
-    assert.deepEqual(settings.debug, { showSessionIds: true });
+    assert.deepEqual(settings.debug, { showSessionIds: true, rendererHealthLogMs: 0 });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
