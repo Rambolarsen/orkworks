@@ -42,7 +42,7 @@ use crate::http::provider_handlers::{
 use crate::http::retention_handlers::set_retention;
 use crate::http::session_handlers::{
     apply_debug_attention, create_session, delete_session, forget_session, list_sessions,
-get_session_plan_content, request_session_plan_review, report_attention, report_harness_session, resume_session,
+get_session_plan_content, request_session_plan_review, report_attention, report_harness_session, report_session_plan_path, resume_session,
     set_active_harnesses, set_active_session, set_workspace,
 };
 use crate::runtime::peon_runtime::peon_loop;
@@ -192,20 +192,39 @@ async fn main() {
         });
     }
 
+    let app = build_router(state.clone());
+
+    let addr = SocketAddr::from(([127, 0, 0, 1], 0));
+    let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
+    let bound_addr = listener.local_addr().unwrap();
+    state.bound_port.store(bound_addr.port(), Ordering::Relaxed);
+
+    println!("ORKWORKSD_PORT={}", bound_addr.port());
+
+    tracing::info!(addr = %bound_addr, "orkworksd listening");
+
+    axum::serve(listener, app).await.unwrap();
+}
+
+async fn health_check() -> &'static str {
+    "ok"
+}
+
+/// Single source of truth for the HTTP router. Both the runtime `main`
+/// listener and the test fixtures build their `Router` through this so
+/// route drift between production and tests is structurally impossible.
+pub(crate) fn build_router(state: Arc<AppState>) -> Router {
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods(Any)
         .allow_headers(Any);
 
-    let app = Router::new()
+    Router::new()
         .route("/health", get(health_check))
         .route("/providers", get(get_providers))
         .route("/providers/:id/models", get(get_provider_models))
         .route("/settings/providers", post(set_provider_settings))
-        .route(
-            "/settings/providers/ollama/verify",
-            post(verify_ollama_settings),
-        )
+        .route("/settings/providers/ollama/verify", post(verify_ollama_settings))
         .route("/workspace", post(set_workspace))
         .route("/workspace/active-session", post(set_active_session))
         .route("/workspace/active-harnesses", put(set_active_harnesses))
@@ -226,14 +245,15 @@ async fn main() {
         .route("/sessions/:id", delete(delete_session))
         .route("/sessions/:id/forget", delete(forget_session))
         .route("/sessions/:id/resume", post(resume_session))
-        .route(
-            "/sessions/:id/harness-session",
-            post(report_harness_session),
-        )
+        .route("/sessions/:id/harness-session", post(report_harness_session))
         .route("/sessions/:id/attention", post(report_attention))
+        .route("/sessions/:id/plan-path", post(report_session_plan_path))
         .route("/sessions/:id/debug-injection", post(apply_debug_attention))
         .route("/sessions/:id/plan-content", get(get_session_plan_content))
-        .route("/sessions/:id/request-plan-review", post(request_session_plan_review))
+        .route(
+            "/sessions/:id/request-plan-review",
+            post(request_session_plan_review),
+        )
         .route("/settings/retention", post(set_retention))
         .route("/harnesses", get(list_harnesses).post(create_harness))
         .route("/harnesses/:id", put(update_harness).delete(delete_harness))
@@ -241,22 +261,7 @@ async fn main() {
         .route("/sessions/:id/terminal-output", get(get_terminal_output))
         .route("/sessions/:id/summary-log", get(get_summary_log))
         .layer(cors)
-        .with_state(state.clone());
-
-    let addr = SocketAddr::from(([127, 0, 0, 1], 0));
-    let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
-    let bound_addr = listener.local_addr().unwrap();
-    state.bound_port.store(bound_addr.port(), Ordering::Relaxed);
-
-    println!("ORKWORKSD_PORT={}", bound_addr.port());
-
-    tracing::info!(addr = %bound_addr, "orkworksd listening");
-
-    axum::serve(listener, app).await.unwrap();
-}
-
-async fn health_check() -> &'static str {
-    "ok"
+        .with_state(state)
 }
 
 #[cfg(test)]
@@ -548,52 +553,9 @@ mod tests {
     use crate::test_support::*;
 
     fn test_router(state: Arc<AppState>) -> Router {
-        let cors = CorsLayer::new()
-            .allow_origin(Any)
-            .allow_methods(Any)
-            .allow_headers(Any);
-
-        Router::new()
-            .route("/health", get(health_check))
-            .route("/providers", get(get_providers))
-            .route("/providers/:id/models", get(get_provider_models))
-            .route("/settings/providers", post(set_provider_settings))
-            .route("/workspace", post(set_workspace))
-            .route("/workspace/active-session", post(set_active_session))
-            .route("/workspace/active-harnesses", put(set_active_harnesses))
-            .route(
-                "/workspace/integrations/:harness_id/status",
-                get(get_integration_status),
-            )
-            .route(
-                "/workspace/integrations/:harness_id/install",
-                post(install_integration),
-            )
-            .route(
-                "/workspace/integrations/:harness_id/uninstall",
-                post(uninstall_integration),
-            )
-            .route("/sessions", post(create_session))
-            .route("/sessions", get(list_sessions))
-            .route("/sessions/:id", delete(delete_session))
-            .route("/sessions/:id/forget", delete(forget_session))
-            .route("/sessions/:id/resume", post(resume_session))
-            .route(
-                "/sessions/:id/harness-session",
-                post(report_harness_session),
-            )
-            .route("/sessions/:id/attention", post(report_attention))
-            .route("/sessions/:id/debug-injection", post(apply_debug_attention))
-            .route("/sessions/:id/plan-content", get(get_session_plan_content))
-            .route("/sessions/:id/request-plan-review", post(request_session_plan_review))
-            .route("/settings/retention", post(set_retention))
-            .route("/harnesses", get(list_harnesses).post(create_harness))
-            .route("/harnesses/:id", put(update_harness).delete(delete_harness))
-            .route("/sessions/:id/terminal", get(session_terminal_handler))
-            .route("/sessions/:id/terminal-output", get(get_terminal_output))
-            .route("/sessions/:id/summary-log", get(get_summary_log))
-            .layer(cors)
-            .with_state(state)
+        // The shared builder is the production router; the test fixture
+        // delegates to it so route-registration drift is impossible.
+        build_router(state)
     }
 
     async fn test_server_base_url(state: Arc<AppState>) -> (String, tokio::task::JoinHandle<()>) {
@@ -641,6 +603,12 @@ mod tests {
             (
                 reqwest::Method::POST,
                 format!("{}/sessions/test-id", base_url),
+            ),
+            // Pins the fix that wired `/sessions/:id/plan-path` through the
+            // shared `build_router` so production and tests cannot drift.
+            (
+                reqwest::Method::GET,
+                format!("{}/sessions/test-id/plan-path", base_url),
             ),
         ];
 

@@ -44,3 +44,4 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 | [0034](./0034-user-approved-session-review-prompt.md) | User-approved session review prompt | accepted |
 | [0035](./0035-codex-session-start-hook-not-attention-signal.md) | Codex `SessionStart` hook captures session ID, not attention | accepted |
 | [0036](./0036-codex-hooks-portable-reporter-path.md) | Codex hook installation uses a portable, home-relative reporter path | accepted |
+| [0037](./0037-hook-reported-plan-paths.md) | Hook-reported plan paths | accepted |

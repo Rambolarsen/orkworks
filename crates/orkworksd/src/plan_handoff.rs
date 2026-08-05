@@ -69,9 +69,83 @@ pub(crate) fn resolve_openable_plan(
     Ok(candidate)
 }
 
+pub(crate) fn normalize_reported_plan_path(
+    workspace_root: &Path,
+    reported_path: &str,
+) -> Result<String, String> {
+    if reported_path.chars().any(char::is_control) {
+        return Err("plan path must not contain control characters".into());
+    }
+    let reported = Path::new(reported_path);
+    // Reject lexical escape vectors on relative inputs. ParentDir, RootDir,
+    // or drive Prefix components would let a relative hook input diverge
+    // from the workspace anchor or escalate across drives before
+    // canonicalization runs.
+    if !reported.is_absolute() {
+        for component in reported.components() {
+            if matches!(
+                component,
+                Component::ParentDir | Component::RootDir | Component::Prefix(_)
+            ) {
+                return Err("relative plan path must not escape the workspace".into());
+            }
+        }
+    }
+    let workspace = workspace_root
+        .canonicalize()
+        .map_err(|error| error.to_string())?;
+    // Anchor relative inputs against the canonical workspace so they do
+    // not silently resolve against orkworksd's process CWD.
+    let lexical_anchored = if reported.is_absolute() {
+        reported.to_path_buf()
+    } else {
+        workspace.join(reported)
+    };
+    let candidate = lexical_anchored
+        .canonicalize()
+        .map_err(|error| error.to_string())?;
+    let relative = candidate
+        .strip_prefix(&workspace)
+        .map_err(|_| "plan path is outside the workspace".to_string())?;
+    if !candidate.is_file()
+        || !candidate
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("md"))
+        || !(relative.starts_with("docs/superpowers/plans")
+            || relative.starts_with("docs/superpowers/specs")
+            || relative.starts_with("specs"))
+    {
+        return Err("plan path is not a supported plan or specification".into());
+    }
+    // Reject in-workspace symlink pivots into an allowed root. For
+    // absolute inputs, strip the lexical anchored path against the
+    // uncanonical workspace_root (the syntactic path the workspace was
+    // opened with) so legitimate symlinked workspace prefixes — such as
+    // macOS `/var` -> `/private/var` — keep working. For relative
+    // inputs, lexical_anchored is workspace-canonical.join(reported), so
+    // strip against the canonicalized workspace. When the lexical strip
+    // succeeds, the result must equal the canonical relative form; a
+    // mismatch means a symlink crossed between roots and the session did
+    // not directly author the recorded plan/spec.
+    let lexical_relative = if reported.is_absolute() {
+        lexical_anchored.strip_prefix(workspace_root).ok()
+    } else {
+        lexical_anchored.strip_prefix(&workspace).ok()
+    };
+    if let Some(lexical_relative) = lexical_relative {
+        if lexical_relative != relative {
+            return Err("plan path crosses a symlink into an allowed root".into());
+        }
+    }
+    relative
+        .to_str()
+        .map(str::to_owned)
+        .ok_or_else(|| "plan path is not valid UTF-8".into())
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{printed_plan_path, resolve_openable_plan};
+    use super::{normalize_reported_plan_path, printed_plan_path, resolve_openable_plan};
     use std::fs;
 
     #[test]
@@ -92,6 +166,89 @@ mod tests {
         assert!(resolve_openable_plan(workspace.path(), "docs/notes.txt").is_err());
         assert!(resolve_openable_plan(workspace.path(), "docs").is_err());
         assert!(resolve_openable_plan(workspace.path(), "docs\nignored/plan.MD").is_err());
+    }
+
+    #[test]
+    fn normalizes_a_hook_reported_absolute_plan_path() {
+        let workspace = tempfile::tempdir().unwrap();
+        let plan_dir = workspace.path().join("docs/superpowers/plans");
+        fs::create_dir_all(&plan_dir).unwrap();
+        let plan = plan_dir.join("session.md");
+        fs::write(&plan, "# plan").unwrap();
+
+        assert_eq!(
+            normalize_reported_plan_path(workspace.path(), plan.to_str().unwrap()).unwrap(),
+            "docs/superpowers/plans/session.md"
+        );
+    }
+
+    #[test]
+    fn anchors_a_workspace_relative_hook_path_against_the_workspace_root() {
+        let workspace = tempfile::tempdir().unwrap();
+        let plan_dir = workspace.path().join("docs/superpowers/plans");
+        fs::create_dir_all(&plan_dir).unwrap();
+        let plan = plan_dir.join("relative.md");
+        fs::write(&plan, "# plan").unwrap();
+
+        // A relative hook input must resolve against the workspace, not
+        // orkworksd's process CWD. Switch CWD to a sibling of the workspace
+        // so a CWD-anchored resolve would land outside the workspace.
+        let sibling = tempfile::tempdir().unwrap();
+        std::env::set_current_dir(sibling.path()).unwrap();
+        assert_eq!(
+            normalize_reported_plan_path(
+                workspace.path(),
+                "docs/superpowers/plans/relative.md"
+            )
+            .unwrap(),
+            "docs/superpowers/plans/relative.md"
+        );
+    }
+
+    #[test]
+    fn rejects_a_relative_hook_path_with_parent_dir_components() {
+        let workspace = tempfile::tempdir().unwrap();
+        let plan_dir = workspace.path().join("docs/superpowers/plans");
+        fs::create_dir_all(&plan_dir).unwrap();
+        fs::write(plan_dir.join("plan.md"), "# plan").unwrap();
+
+        let outside = tempfile::tempdir().unwrap();
+        let outside_plan = outside.path().join("outside.md");
+        fs::write(&outside_plan, "# outside").unwrap();
+
+        // Even if the canonicalized target lands inside the workspace,
+        // lexical escape via `..` must be rejected up front.
+        assert!(normalize_reported_plan_path(
+            workspace.path(),
+            "../outside.md"
+        )
+        .is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_an_inbound_symlink_from_a_non_allowed_root_into_an_allowed_root() {
+        use std::os::unix::fs::symlink;
+
+        let workspace = tempfile::tempdir().unwrap();
+        let plan_dir = workspace.path().join("docs/superpowers/plans");
+        fs::create_dir_all(&plan_dir).unwrap();
+        let target = plan_dir.join("real.md");
+        fs::write(&target, "# plan").unwrap();
+
+        let notes_dir = workspace.path().join("notes");
+        fs::create_dir_all(&notes_dir).unwrap();
+        // A session edited `notes/current.md`, but the file is a symlink
+        // into the allowed plan root; without the lexical check, the
+        // canonical form would be recorded as if the session had authored
+        // `docs/superpowers/plans/real.md` directly.
+        symlink(&target, notes_dir.join("current.md")).unwrap();
+
+        assert!(normalize_reported_plan_path(
+            workspace.path(),
+            notes_dir.join("current.md").to_str().unwrap()
+        )
+        .is_err());
     }
 
     #[test]
