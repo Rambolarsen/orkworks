@@ -180,7 +180,17 @@ pub(crate) async fn report_session_plan_path(
         let relative = normalize_reported_plan_path(&workspace.path, &req.plan_path)
             .map_err(|_| axum::http::StatusCode::BAD_REQUEST)?;
         metadata.plan_path = Some(relative);
-        workspace.metadata.write_session(&metadata);
+        // The session JSON is the source of truth. Use the fallible writer
+        // and only append the hooked event when the write actually
+        // landed, so the event log cannot claim a path association that
+        // the session file does not reflect.
+        workspace
+            .metadata
+            .try_write_session(&metadata)
+            .map_err(|error| {
+                tracing::error!(error = %error, session = %id, "plan path session write failed");
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR
+            })?;
         workspace.metadata.append_event(&id, &metadata::Event {
             event_type: "session.plan_path_hooked".into(), timestamp: iso_now(), status: metadata.status.clone(),
             observed_status: metadata.observed_status.clone(), confidence: Some(1.0),
@@ -5523,6 +5533,57 @@ mod tests {
         let metadata = state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session("plan-session").unwrap();
         assert_eq!(metadata.plan_path.as_deref(), Some("docs/superpowers/plans/plan.md"));
         assert_eq!(metadata.attention.as_deref(), Some("working"));
+    }
+
+    #[tokio::test]
+    async fn report_session_plan_path_returns_internal_error_and_skips_event_when_session_write_fails() {
+        let workspace = tempfile::tempdir().unwrap();
+        let plan_dir = workspace.path().join("docs/superpowers/plans");
+        std::fs::create_dir_all(&plan_dir).unwrap();
+        let plan = plan_dir.join("plan.md");
+        std::fs::write(&plan, "# plan").unwrap();
+        let state = test_app_state_with_workspace(workspace.path());
+        let mut metadata = test_session_metadata(
+            "plan-session", "Plan session", workspace.path().display().to_string(), "running", "now", "now",
+        );
+        metadata.lifecycle_phase = "active".into();
+        metadata.lifecycle = "alive".into();
+        metadata.attention = Some("working".into());
+        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&metadata);
+
+        // Squat a directory on the per-session temp path so the atomic write
+        // fails (write_session returns Err) while the session JSON remains
+        // readable — mirrors the established failure-mode test pattern.
+        let sessions_path =
+            state.workspace.lock().unwrap().as_ref().unwrap().metadata.sessions_dir();
+        std::fs::create_dir_all(sessions_path.join("plan-session.json.tmp")).unwrap();
+
+        let response = report_session_plan_path(
+            State(state.clone()),
+            Path("plan-session".into()),
+            Json(PlanPathReportRequest { plan_path: plan.display().to_string() }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::INTERNAL_SERVER_ERROR);
+        // The session JSON is the source of truth; the handler must not
+        // append a `session.plan_path_hooked` event when the write never
+        // landed.
+        let events = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_events("plan-session");
+        assert!(
+            events
+                .iter()
+                .all(|event| event.event_type != "session.plan_path_hooked"),
+            "no plan-path-hooked event should be appended on a write failure, got: {events:?}"
+        );
     }
 
     #[tokio::test]
