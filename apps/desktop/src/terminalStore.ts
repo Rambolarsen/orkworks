@@ -12,6 +12,7 @@ import {
   appendPendingInput,
   canSendTerminalInput,
 } from "./terminalProtocol";
+import { createTerminalRegistry, type TerminalRegistry } from "./terminalRegistry";
 
 const MAX_PENDING_INPUT_LENGTH = 64 * 1024;
 
@@ -28,7 +29,7 @@ export interface TerminalHandle {
   resizeObserver: ResizeObserver;
 }
 
-const terminals = new Map<string, TerminalHandle>();
+const terminals: TerminalRegistry<TerminalHandle> = createTerminalRegistry<TerminalHandle>();
 
 function sendResize(ws: WebSocket, term: Terminal): void {
   if (ws.readyState !== WebSocket.OPEN) return;
@@ -186,6 +187,7 @@ export function ensureTerminal(id: string, baseUrl: string): TerminalHandle {
       })
     ) {
       getTerminalOutput(baseUrl, id).then((payload) => {
+        if (handle.disposed) return;
         writeTerminalReplay(term, payload.lines);
       }).catch(() => {
         /* silently ignore fetch failures */
@@ -232,9 +234,13 @@ export function ensureTerminal(id: string, baseUrl: string): TerminalHandle {
 }
 
 export function disposeTerminal(id: string): void {
-  const handle = terminals.get(id);
+  const handle = terminals.remove(id);
   if (!handle) return;
   handle.disposed = true;
+  teardownHandle(handle);
+}
+
+function teardownHandle(handle: TerminalHandle): void {
   handle.resizeObserver.disconnect();
   try {
     handle.ws.close();
@@ -247,17 +253,25 @@ export function disposeTerminal(id: string): void {
     /* ignore */
   }
   handle.wrapper.remove();
-  terminals.delete(id);
 }
 
 export function pruneTerminals(keepLiveSessionIds: ReadonlySet<string>): void {
-  for (const id of [...terminals.keys()]) {
-    if (!keepLiveSessionIds.has(id)) disposeTerminal(id);
+  for (const handle of terminals.prune(keepLiveSessionIds)) {
+    handle.disposed = true;
+    teardownHandle(handle);
   }
 }
 
 export function disposeAllTerminals(): void {
-  for (const id of [...terminals.keys()]) disposeTerminal(id);
+  pruneTerminals(new Set());
+}
+
+export function getLiveTerminalCount(): number {
+  return terminals.size;
+}
+
+export function getLiveTerminalIds(): readonly string[] {
+  return terminals.liveIds();
 }
 
 if (typeof window !== "undefined") {

@@ -7,6 +7,7 @@ export interface RetentionSettings {
 
 export interface DebugSettings {
   showSessionIds: boolean;
+  rendererHealthLogMs: number;
 }
 
 export interface HotkeySettings {

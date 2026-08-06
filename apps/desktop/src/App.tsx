@@ -25,7 +25,8 @@ import {
   setActiveWorkspaceSession,
   getProviders,
 } from "./api";
-import { disposeTerminal, getTerminal, pruneTerminals } from "./terminalStore";
+import { disposeTerminal, getTerminal, pruneTerminals, getLiveTerminalCount, getLiveTerminalIds } from "./terminalStore";
+import { captureRendererHealth, type RendererHealthSample } from "./rendererHealthProbe";
 import { startSessionPolling } from "./sessionPolling";
 import type { AppSettings } from "./appSettingsTypes";
 import type { HarnessConfig, CreateSessionOptions } from "./harnessTypes";
@@ -46,6 +47,33 @@ function App() {
   const [newSessionDialogOpen, setNewSessionDialogOpen] = useState(false);
   const dockviewApiRef = useRef<DockviewApi | null>(null);
   const sessionsHiddenLayoutRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const intervalMs = settings?.debug?.rendererHealthLogMs ?? 0;
+    if (!intervalMs || intervalMs < 1) {
+      (window as unknown as { __orkworksCaptureRendererHealth?: unknown }).__orkworksCaptureRendererHealth = undefined;
+      return;
+    }
+    const deps = {
+      panelCountProvider: () => {
+        const api = dockviewApiRef.current;
+        if (!api) return 0;
+        try { return api.size; } catch { return 0; }
+      },
+      liveTerminalCountProvider: () => getLiveTerminalCount(),
+      liveTerminalIdsProvider: () => getLiveTerminalIds(),
+    };
+    const timer = window.setInterval(() => {
+      const sample = captureRendererHealth(deps);
+      console.info("[orkworks:health]", sample);
+    }, intervalMs);
+    (window as unknown as { __orkworksCaptureRendererHealth?: () => RendererHealthSample }).__orkworksCaptureRendererHealth =
+      () => captureRendererHealth(deps);
+    return () => {
+      window.clearInterval(timer);
+      (window as unknown as { __orkworksCaptureRendererHealth?: unknown }).__orkworksCaptureRendererHealth = undefined;
+    };
+  }, [settings?.debug?.rendererHealthLogMs, dockviewApiRef]);
 
   useEffect(() => {
     if (backendStatus !== "connecting…") return;
@@ -455,7 +483,7 @@ function App() {
       <DockviewApp
         backendStatus={backendStatus}
         workspace={workspace}
-        debugSettings={settings?.debug ?? { showSessionIds: false }}
+        debugSettings={settings?.debug ?? { showSessionIds: false, rendererHealthLogMs: 0 }}
         sessions={sessions}
         activeSessionId={activeSessionId}
         unreadIds={unreadState.unreadIds}

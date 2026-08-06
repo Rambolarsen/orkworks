@@ -371,7 +371,7 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
                 type="checkbox"
                 checked={debugSettings.showSessionIds}
                 onChange={(e) => {
-                  const next = { showSessionIds: e.target.checked };
+                  const next = { showSessionIds: e.target.checked, rendererHealthLogMs: debugSettings.rendererHealthLogMs };
                   setDebugSettings(next);
                   saveDebugSettings(next);
                 }}

@@ -10,6 +10,7 @@ export interface RetentionSettings {
 
 export interface DebugSettings {
   showSessionIds: boolean;
+  rendererHealthLogMs: number;
 }
 
 export interface AppSettings {
@@ -104,6 +105,7 @@ export const DEFAULT_RETENTION: RetentionSettings = {
 
 export const DEFAULT_DEBUG_SETTINGS: DebugSettings = {
   showSessionIds: false,
+  rendererHealthLogMs: 0,
 };
 
 const VALID_PROVIDER_IDS = new Set<ProviderId>(["opencode", "claude-code", "codex", "gemini", "aider", "gh-copilot", "ollama"]);
@@ -228,12 +230,15 @@ export function normalizeDebugSettings(value: unknown): DebugSettings {
     return { ...DEFAULT_DEBUG_SETTINGS };
   }
   const raw = value as Record<string, unknown>;
-  return {
-    showSessionIds:
-      typeof raw.showSessionIds === "boolean"
-        ? raw.showSessionIds
-        : DEFAULT_DEBUG_SETTINGS.showSessionIds,
-  };
+  const showSessionIds =
+    typeof raw.showSessionIds === "boolean"
+      ? raw.showSessionIds
+      : DEFAULT_DEBUG_SETTINGS.showSessionIds;
+  const rendererHealthLogMs =
+    typeof raw.rendererHealthLogMs === "number" && Number.isFinite(raw.rendererHealthLogMs) && raw.rendererHealthLogMs >= 0
+      ? Math.floor(raw.rendererHealthLogMs)
+      : DEFAULT_DEBUG_SETTINGS.rendererHealthLogMs;
+  return { showSessionIds, rendererHealthLogMs };
 }
 
 export function normalizeProviderSettings(value: unknown): ProviderSettings {
