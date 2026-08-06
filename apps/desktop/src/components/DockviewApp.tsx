@@ -100,7 +100,11 @@ function TermPanel() {
   const session = ctx.sessions.find((s) => s.id === ctx.activeSessionId) ?? null;
   return <TerminalPanel key={`${session?.id ?? 'none'}-${ctx.resumeTick}`} backendStatus={ctx.backendStatus} session={session} />;
 }
-function ReviewTab() { const ctx = useContext(DockviewContext); return <ReviewPanel sessionId={ctx.activeSessionId} />; }
+function ReviewTab() {
+  const ctx = useContext(DockviewContext);
+  const session = ctx.sessions.find((s) => s.id === ctx.activeSessionId);
+  return <ReviewPanel sessionId={session?.hasOpenablePlan ? ctx.activeSessionId : null} />;
+}
 
 function CapPanel() {
   return <CapacityPanel />;

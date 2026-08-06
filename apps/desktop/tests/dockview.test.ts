@@ -89,6 +89,17 @@ test("Review is a reusable Terminal-group tab, including after a restored layout
   assert.match(app, /position: \{ referencePanel: "terminal" \}/);
 });
 
+test("ReviewTab only fetches plan content when the active session has an openable plan", () => {
+  // Regression: ReviewTab used to pass ctx.activeSessionId straight through
+  // regardless of hasOpenablePlan, so switching to any plan-less session
+  // while the Review tab stayed open re-fired getPlanContent, which the
+  // sidecar correctly rejects (no plan_path) but Electron logs as an
+  // "Error occurred in handler for 'get-plan-content'" every single time.
+  const source = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /session\?\.hasOpenablePlan \? ctx\.activeSessionId : null/);
+});
+
 test("A readable plan keeps the Details review card visible even without another action", () => {
   const source = readFileSync(new URL("../src/components/SessionDetailPanel.tsx", import.meta.url), "utf8");
 
