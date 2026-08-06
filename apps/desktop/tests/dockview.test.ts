@@ -642,3 +642,21 @@ test("SettingsModal includes a Model providers section above Hotkeys", () => {
   assert.match(source, /provider-model-select/);
   assert.match(source, /getProviderModels/);
 });
+
+test("handleOpenWorkspace refreshes sessions before setting activeSessionId, so no consumer sees a real active id with an empty session list", () => {
+  const source = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+
+  const start = source.indexOf("const handleOpenWorkspace");
+  const end = source.indexOf("\n  }, [", start);
+  const body = source.slice(start, end);
+
+  const refreshIndex = body.indexOf("await refreshSessions()");
+  const setActiveIndex = body.indexOf("setActiveSessionId(info.lastActiveSessionId");
+  assert.ok(refreshIndex !== -1, "handleOpenWorkspace should await refreshSessions()");
+  assert.ok(setActiveIndex !== -1, "handleOpenWorkspace should set activeSessionId from info.lastActiveSessionId");
+  assert.ok(
+    refreshIndex < setActiveIndex,
+    "refreshSessions() must resolve before activeSessionId is set, otherwise a consumer reading ctx.sessions " +
+      "for the just-set activeSessionId (e.g. ReviewTab) transiently sees no match during workspace switch",
+  );
+});
