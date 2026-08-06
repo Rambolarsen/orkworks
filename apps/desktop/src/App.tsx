@@ -160,12 +160,16 @@ function App() {
         setActiveHarnessIds(info.activeHarnessIds ?? []);
         setBackendStatus("connecting…");
         setSessions([]);
+        // Wait for the new workspace's sessions before setting activeSessionId,
+        // so no consumer (e.g. ReviewTab) ever sees a real active id against
+        // an empty ctx.sessions and mistakes "not loaded yet" for "no plan".
+        await refreshSessions();
         setActiveSessionId(info.lastActiveSessionId ?? null);
       }
     } catch {
       pushToast("error", "Couldn't open workspace.");
     }
-  }, []);
+  }, [refreshSessions]);
 
   useEffect(() => {
     window.orkworks.getSettings().then(setSettings).catch(() => {

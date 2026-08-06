@@ -89,6 +89,17 @@ test("Review is a reusable Terminal-group tab, including after a restored layout
   assert.match(app, /position: \{ referencePanel: "terminal" \}/);
 });
 
+test("ReviewTab only fetches plan content when the active session has an openable plan", () => {
+  // Regression: ReviewTab used to pass ctx.activeSessionId straight through
+  // regardless of hasOpenablePlan, so switching to any plan-less session
+  // while the Review tab stayed open re-fired getPlanContent, which the
+  // sidecar correctly rejects (no plan_path) but Electron logs as an
+  // "Error occurred in handler for 'get-plan-content'" every single time.
+  const source = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /session\?\.hasOpenablePlan \? ctx\.activeSessionId : null/);
+});
+
 test("A readable plan keeps the Details review card visible even without another action", () => {
   const source = readFileSync(new URL("../src/components/SessionDetailPanel.tsx", import.meta.url), "utf8");
 
@@ -630,4 +641,22 @@ test("SettingsModal includes a Model providers section above Hotkeys", () => {
   assert.match(source, /providerDraft/);
   assert.match(source, /provider-model-select/);
   assert.match(source, /getProviderModels/);
+});
+
+test("handleOpenWorkspace refreshes sessions before setting activeSessionId, so no consumer sees a real active id with an empty session list", () => {
+  const source = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+
+  const start = source.indexOf("const handleOpenWorkspace");
+  const end = source.indexOf("\n  }, [", start);
+  const body = source.slice(start, end);
+
+  const refreshIndex = body.indexOf("await refreshSessions()");
+  const setActiveIndex = body.indexOf("setActiveSessionId(info.lastActiveSessionId");
+  assert.ok(refreshIndex !== -1, "handleOpenWorkspace should await refreshSessions()");
+  assert.ok(setActiveIndex !== -1, "handleOpenWorkspace should set activeSessionId from info.lastActiveSessionId");
+  assert.ok(
+    refreshIndex < setActiveIndex,
+    "refreshSessions() must resolve before activeSessionId is set, otherwise a consumer reading ctx.sessions " +
+      "for the just-set activeSessionId (e.g. ReviewTab) transiently sees no match during workspace switch",
+  );
 });
