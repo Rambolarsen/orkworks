@@ -15,8 +15,7 @@
         "type": "command",
         "bash": "node \".codex/hooks/ponytail/hooks/ponytail-activate.js\"",
         "powershell": "node \".codex/hooks/ponytail/hooks/ponytail-activate.js\"",
-        "timeoutSec": 5,
-        "_apm_source": "ponytail"
+        "timeoutSec": 5
       }
     ],
     "userPromptSubmitted": [
@@ -24,8 +23,7 @@
         "type": "command",
         "bash": "node \".codex/hooks/ponytail/hooks/ponytail-mode-tracker.js\"",
         "powershell": "node \".codex/hooks/ponytail/hooks/ponytail-mode-tracker.js\"",
-        "timeoutSec": 5,
-        "_apm_source": "ponytail"
+        "timeoutSec": 5
       }
     ],
     "SessionStart": [
@@ -39,8 +37,25 @@
             "timeout": 5,
             "statusMessage": "Loading ponytail mode..."
           }
-        ],
-        "_apm_source": "ponytail"
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "SCRIPT=\".codex/hooks/agent-skills/hooks/session-start.sh\"; [ -f \"$SCRIPT\" ] || SCRIPT=\"${CLAUDE_PROJECT_DIR}/.claude/hooks/session-start.sh\"; [ -f \"$SCRIPT\" ]&& bash \"$SCRIPT\" || true"
+          }
+        ]
+      },
+      {
+        "matcher": "startup|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\".codex/hooks/superpowers/hooks/run-hook.cmd\" session-start",
+            "async": false
+          }
+        ]
       }
     ],
     "UserPromptSubmit": [
@@ -53,8 +68,7 @@
             "timeout": 5,
             "statusMessage": "Tracking ponytail mode..."
           }
-        ],
-        "_apm_source": "ponytail"
+        ]
       }
     ]
   }

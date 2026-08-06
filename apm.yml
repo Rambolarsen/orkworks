@@ -21,6 +21,10 @@ dependencies:
         - codebase-design
         - grilling
         - improve-codebase-architecture
+    - git: addyosmani/agent-skills
+      skills:
+        - context-engineering
+        - doubt-driven-development
   mcp:
     - name: serena
       registry: false

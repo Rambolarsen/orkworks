@@ -46,10 +46,13 @@ apm_modules/
 apm.lock.yaml
 .agents/
 .claude/skills/
+.claude/agents/
 .claude/hooks/ponytail/
 .claude/hooks/superpowers/
+.claude/hooks/agent-skills/
 .claude/apm-hooks.json
 .github/hooks/
+.github/agents/
 .opencode/
 .codex/*
 !.codex/hooks.json
