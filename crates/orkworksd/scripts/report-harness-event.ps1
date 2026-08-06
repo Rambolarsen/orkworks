@@ -1,7 +1,13 @@
 [CmdletBinding()]
 param(
     [string]$Marker = "",
-    [string]$Status = "waiting_for_input"
+    [string]$Status = "waiting_for_input",
+    # Plan-path mode (ADR 0038): set by Claude's installed PostToolUse
+    # Write|Edit hook entry. In this mode the reporter forwards the hook
+    # payload's `tool_input.file_path` to `/sessions/:id/plan-path` and
+    # skips the generic attention + harness-session POSTs entirely;
+    # the sidecar canonicalizes/rejects the path.
+    [switch]$ReportPlanPath
 )
 
 $payload = ""
@@ -11,6 +17,38 @@ try {
 
 $sessionId = $env:ORKWORKS_SESSION_ID
 $port = $env:ORKWORKS_PORT
+
+# Plan-path mode: extract `tool_input.file_path`, apply a cheap lexical
+# whitelist (Markdown; one of the recognized plan/spec roots), POST once to
+# /sessions/:id/plan-path, and exit. The cheap filter is never the authority
+# — `report_session_plan_path` canonicalizes and rejects non-Markdown,
+# workspace-escaping, symlink-pivoting, and missing files. The filter exists
+# only to keep unrelated Write/Edit calls from spamming the route.
+if ($ReportPlanPath) {
+    if ($sessionId -and $port) {
+        try {
+            $data = $payload | ConvertFrom-Json
+            if ($data -is [System.Management.Automation.PSCustomObject]) {
+                $file = ""
+                if ($data.tool_input -and $data.tool_input.file_path) {
+                    $file = ([string]$data.tool_input.file_path).Trim()
+                }
+                if ($file) {
+                    $isMarkdown = $file -like "*.md"
+                    $inSpecsDir = $file -like "*\specs\*" -or $file -like "*/specs/*"
+                    $inPlansDir = $file -like "*\docs\superpowers\plans\*" -or $file -like "*/docs/superpowers/plans/*"
+                    $inSuperpowerSpecs = $file -like "*\docs\superpowers\specs\*" -or $file -like "*/docs/superpowers/specs/*"
+                    if ($isMarkdown -and ($inSpecsDir -or $inPlansDir -or $inSuperpowerSpecs)) {
+                        $body = @{ planPath = $file } | ConvertTo-Json -Compress
+                        Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$port/sessions/$sessionId/plan-path" `
+                            -ContentType "application/json" -Body $body -TimeoutSec 5 | Out-Null
+                    }
+                }
+            }
+        } catch {}
+    }
+    exit
+}
 
 # Claude Code's hook JSON includes a "cwd" field (its own current working
 # directory) on every event, alongside "session_id" below. Forwarding it

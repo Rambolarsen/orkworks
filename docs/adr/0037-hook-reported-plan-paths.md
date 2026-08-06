@@ -31,3 +31,9 @@ Rust owns path validation once. This extends the marker-specific hook semantics
 noted in ADR 0035 and deliberately does not generalize `ToolHookContract`; that
 broader concern remains issue #271. Renumbered from 0036 to 0037 after ADR 0036
 (`codex-hooks-portable-reporter-path`) landed on `main` first.
+
+> **Note (2026-08-05, [ADR 0038](./0038-claude-plan-path-post-tool-use-hook.md)):**
+> The "deliberately does not generalize `ToolHookContract`" sentence above was
+> scoped to PR #283 and is retracted by ADR 0038, which lands the Claude
+> `PostToolUse` transport this ADR deferred. The `ToolHookContract` gains a
+> `reports_plan_path` flag; #271's attention-signal generalization stays open.

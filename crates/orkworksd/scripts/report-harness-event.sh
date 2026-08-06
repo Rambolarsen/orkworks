@@ -3,6 +3,12 @@ set -u
 
 marker=""
 status="waiting_for_input"
+# Plan-path mode (ADR 0038): set by an installed hook entry passing
+# `--report-plan-path` (currently Claude's PostToolUse Write|Edit). In this
+# mode the reporter forwards the harness payload's `tool_input.file_path`
+# to `/sessions/:id/plan-path` and skips the generic attention + harness-
+# session POSTs entirely — the sidecar canonicalizes/rejects the path.
+report_plan_path="no"
 while [ $# -gt 0 ]; do
   case "$1" in
     --marker)
@@ -22,6 +28,10 @@ while [ $# -gt 0 ]; do
         shift 1
       fi
       ;;
+    --report-plan-path)
+      report_plan_path="yes"
+      shift 1
+      ;;
     *)
       shift
       ;;
@@ -29,6 +39,50 @@ while [ $# -gt 0 ]; do
 done
 
 payload="$(cat || true)"
+
+# Plan-path mode is its own exit path: extract the harness-written file path
+# from the JSON stdin payload (`tool_input.file_path` — Claude's shape), apply
+# a cheap lexical whitelist that defers real validation to the sidecar, POST
+# once to /sessions/:id/plan-path, and exit before any attention or harness-
+# session flow runs. The cheap filter exists only to keep unrelated Write/Edit
+# calls from spamming the route; report_session_plan_path canonicalizes,
+# rejects non-Markdown, workspace-escaping, symlink-pivoting, and missing
+# files — the filter here is never the authority.
+if [ "$report_plan_path" = "yes" ]; then
+  if [ -n "${ORKWORKS_SESSION_ID:-}" ] && [ -n "${ORKWORKS_PORT:-}" ]; then
+    file_path="$(printf '%s' "$payload" | \
+      python3 -c 'import json,sys;
+data = json.load(sys.stdin) if sys.stdin else {}
+ti = data.get("tool_input") if isinstance(data, dict) else None
+print(((ti.get("file_path") if isinstance(ti, dict) else None) or "") if isinstance(data, dict) else "")' 2>/dev/null)" || true
+    case "$file_path" in
+      # Markdown only — the sidecar rejects anything else, but skip the
+      # round-trip here.
+      *.md)
+        # Recognized plan/spec roots: `*/specs/*`, `*/docs/superpowers/plans/*`,
+        # `*/docs/superpowers/specs/*`. Bash case patterns anchor each segment
+        # with a `/` so a directory like `myspecs/` or `docs/specs/` does not
+        # match.
+        case "$file_path" in
+          */specs/*|*/docs/superpowers/plans/*|*/docs/superpowers/specs/*)
+            # sed's `[\\"]` escaping only covers backslashes/quotes; POSIX
+            # filenames may legally contain newlines or other control
+            # characters, which would otherwise land unescaped inside the
+            # JSON string literal. json.dumps escapes the full set.
+            plan_path_payload="$(python3 -c 'import json,sys; print(json.dumps({"planPath": sys.argv[1]}, separators=(",", ":")))' "$file_path" 2>/dev/null)" || true
+            if [ -n "$plan_path_payload" ]; then
+              curl -sS --max-time 5 --connect-timeout 2 -X POST \
+                "http://127.0.0.1:$ORKWORKS_PORT/sessions/$ORKWORKS_SESSION_ID/plan-path" \
+                -H "Content-Type: application/json" \
+                -d "$plan_path_payload" >/dev/null || true
+            fi
+            ;;
+        esac
+        ;;
+    esac
+  fi
+  exit 0
+fi
 
 # Claude Code's hook JSON includes both "cwd" (its own current working
 # directory — issue #241) and "session_id" on every event; extract both from

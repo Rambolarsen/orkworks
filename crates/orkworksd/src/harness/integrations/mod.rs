@@ -74,6 +74,16 @@ pub(crate) struct ToolHookContract {
     pub ownership_marker: &'static str,
     pub coverage: IntegrationCoverage,
     pub activation: IntegrationActivation,
+    /// True when this integration installs at least one owned hook that
+    /// reports a written plan/spec path to `/sessions/:id/plan-path`
+    /// (ADR 0038). The framework uses only as a declarative opt-in: a handler
+    /// that installs such a hook sets this so `base_status` can surface the
+    /// capability to the integration UI's coverage summary, and the harness
+    /// integration contract table stays self-describing. Adding a new
+    /// plan-path reporter is "install a hook entry whose reporter invocation
+    /// passes `--report-plan-path` and set this flag" — no shell-side
+    /// special casing for the new harness.
+    pub reports_plan_path: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -140,6 +150,16 @@ impl JsonHookHandler {
         } else {
             "Native session ID capture"
         };
+        // Surface plan/spec reporting (ADR 0038) so the integration UI can
+        // tell which harnesses own its plan association. `/` is stripped by
+        // `sanitized_label`, so the summary deliberately uses "plan & spec"
+        // rather than "plan/spec" — whatever text we put here surfaces
+        // verbatim through `IntegrationConfirmation::coverage_summary`.
+        let coverage_summary: String = if self.contract.reports_plan_path {
+            format!("{coverage_summary} plus plan & spec reporting")
+        } else {
+            coverage_summary.into()
+        };
         IntegrationStatus {
             harness_id: self.contract.harness_id.into(),
             enabled: ctx.enabled,
@@ -152,7 +172,7 @@ impl JsonHookHandler {
             confirmation: IntegrationConfirmation::new(
                 self.contract.tool_name,
                 ctx.workspace,
-                coverage_summary,
+                &coverage_summary,
                 &[Path::new(self.contract.relative_path)],
                 is_attention_signal,
             )
@@ -532,9 +552,10 @@ mod tests {
         let script = include_str!("../../../scripts/report-harness-event.sh");
         let max_time_count = script.matches("--max-time").count();
         assert_eq!(
-            max_time_count, 2,
-            "both possible curl calls must cap their own runtime so a stuck orkworksd cannot \
-             hang the harness's own hook mechanism"
+            max_time_count, 3,
+            "every possible curl call (attention, harness-session, plan-path) \
+             must cap its own runtime so a stuck orkworksd cannot hang the \
+             harness's own hook mechanism"
         );
     }
 
@@ -555,15 +576,31 @@ mod tests {
     /// under `bash -x`, returning its stderr trace (which `set -x` writes
     /// each executed command to, including the constructed JSON payloads).
     fn run_report_harness_event_sh_trace(marker: &str, stdin_payload: &str) -> String {
+        run_report_harness_event_sh_trace_with_args(marker, stdin_payload, &[])
+    }
+
+    /// Same as `run_report_harness_event_sh_trace`, but lets the caller pass
+    /// extra reporter-script flags after `--marker <value>` — e.g.
+    /// `--report-plan-path` for Claude's PostToolUse transport.
+    fn run_report_harness_event_sh_trace_with_args(
+        marker: &str,
+        stdin_payload: &str,
+        extra_args: &[&str],
+    ) -> String {
         use std::io::Write;
         use std::process::{Command, Stdio};
 
         let script_path = concat!(env!("CARGO_MANIFEST_DIR"), "/scripts/report-harness-event.sh");
-        let mut child = Command::new("bash")
+        let mut command = Command::new("bash");
+        command
             .arg("-x")
             .arg(script_path)
             .arg("--marker")
-            .arg(marker)
+            .arg(marker);
+        for arg in extra_args {
+            command.arg(arg);
+        }
+        let mut child = command
             .env("ORKWORKS_SESSION_ID", "test-session")
             .env("ORKWORKS_PORT", "1") // unroutable; curl fails fast, harmless (`|| true`)
             .stdin(Stdio::piped())
@@ -666,8 +703,9 @@ mod tests {
         let script = include_str!("../../../scripts/report-harness-event.ps1");
         let timeout_count = script.matches("-TimeoutSec").count();
         assert_eq!(
-            timeout_count, 2,
-            "both possible requests must cap their own runtime so a stuck orkworksd cannot \
+            timeout_count, 3,
+            "every possible Invoke-RestMethod call (attention, harness-session, \
+             plan-path) must cap its own runtime so a stuck orkworksd cannot \
              hang the harness's own hook mechanism"
         );
     }
@@ -1833,6 +1871,133 @@ mod tests {
                 .filter(|pair| pair[0] == "--notifications-command")
                 .count(),
             1
+        );
+    }
+
+    // ----- Plan-path mode (ADR 0038) ------------------------------------
+
+    #[test]
+    fn report_harness_event_forwards_plan_path_in_plan_path_mode() {
+        let trace = run_report_harness_event_sh_trace_with_args(
+            "orkworks:harness-integration:v2:claude-code",
+            r#"{"session_id":"abc","cwd":"/tmp/ws","tool_input":{"file_path":"/tmp/ws/specs/plan.md"},"tool_name":"Write"}"#,
+            &["--report-plan-path"],
+        );
+        // The cheap lexical whitelist must let bucketed Markdown through, and
+        // the script must POST to the plan-path route — never to /attention.
+        assert!(
+            trace.contains("/sessions/test-session/plan-path"),
+            "expected a /plan-path POST; trace:\n{trace}"
+        );
+        assert!(
+            trace.contains(r#""planPath":"/tmp/ws/specs/plan.md""#),
+            "expected the constructed JSON to embed tool_input.file_path; trace:\n{trace}"
+        );
+        assert!(
+            !trace.contains("/sessions/test-session/attention"),
+            "plan-path mode must not post the generic attention update; trace:\n{trace}"
+        );
+        assert!(
+            !trace.contains("/sessions/test-session/harness-session"),
+            "plan-path mode must not also relay the session-id capture; trace:\n{trace}"
+        );
+    }
+
+    #[test]
+    fn report_harness_event_skips_plan_path_for_non_markdown_files() {
+        // The cheap lexical whitelist at the reporter edge is not the
+        // authority — the sidecar canonicalizes/rejects — but it must keep
+        // unrelated Write/Edit calls from spamming the plan-path route.
+        let trace = run_report_harness_event_sh_trace_with_args(
+            "orkworks:harness-integration:v2:claude-code",
+            r#"{"session_id":"abc","cwd":"/tmp/ws","tool_input":{"file_path":"/tmp/ws/src/main.rs"},"tool_name":"Write"}"#,
+            &["--report-plan-path"],
+        );
+        assert!(
+            !trace.contains("/sessions/test-session/plan-path"),
+            "must not POST for a non-Markdown file; trace:\n{trace}"
+        );
+        assert!(
+            !trace.contains("/sessions/test-session/attention"),
+            "plan-path mode must not regress into an attention POST when it skips; trace:\n{trace}"
+        );
+    }
+
+    #[test]
+    fn report_harness_event_skips_plan_path_for_markdown_outside_plan_roots() {
+        // A Markdown file outside the recognized plan/spec roots (e.g. a
+        // README under docs/) must also be cheaply filtered out.
+        let trace = run_report_harness_event_sh_trace_with_args(
+            "orkworks:harness-integration:v2:claude-code",
+            r#"{"session_id":"abc","cwd":"/tmp/ws","tool_input":{"file_path":"/tmp/ws/docs/readme.md"},"tool_name":"Edit"}"#,
+            &["--report-plan-path"],
+        );
+        assert!(
+            !trace.contains("/sessions/test-session/plan-path"),
+            "must not POST for a non-plan Markdown file; trace:\n{trace}"
+        );
+    }
+
+    #[test]
+    fn report_harness_event_ps1_parses_the_plan_path_flag() {
+        // Alongside the .sh trace assertions, the PS1 script must declare the
+        // counterpart `[switch]$ReportPlanPath` param so the install-time
+        // `-ReportPlanPath` flag (emitted by `plan_path_invocation_for_platform`)
+        // binds via PowerShell's CmdletBinding param() block without that
+        // dash ever appearing in the script source itself (mirroring the
+        // existing `[string]$Marker` / `-Marker` convention).
+        let script = include_str!("../../../scripts/report-harness-event.ps1");
+        assert!(
+            script.contains("[switch]$ReportPlanPath"),
+            "PS1 script must declare a -ReportPlanPath switch param so install-time flags bind; script:\n{script}"
+        );
+        assert!(
+            script.contains("/plan-path"),
+            "PS1 script must POST to the plan-path route in plan-path mode; script:\n{script}"
+        );
+    }
+
+    #[test]
+    fn claude_integration_status_lists_plan_spec_reporting_in_coverage() {
+        // ToolHookContract.reports_plan_path is consumed by base_status to
+        // surface plan/spec reporting to the user-facing coverage summary.
+        let workspace = tempfile::tempdir().unwrap();
+        git2::Repository::init(workspace.path()).unwrap();
+        fs::write(
+            workspace.path().join(".gitignore"),
+            ".claude/settings.local.json\n",
+        )
+        .unwrap();
+        fs::create_dir_all(workspace.path().join(".claude"))
+            .unwrap();
+        fs::write(workspace.path().join(".claude/settings.local.json"), "{}").unwrap();
+        let assets = tempfile::tempdir().unwrap();
+        fs::write(assets.path().join(ReporterPlatform::Posix.asset_name()), "#!/bin/sh\n").unwrap();
+        fs::write(
+            assets.path().join(ReporterPlatform::WindowsPowerShell.asset_name()),
+            "# noop\n",
+        )
+        .unwrap();
+        let stable = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(stable.path());
+        let reporter = ReporterAssetResolver {
+            source_dir: assets.path().to_path_buf(),
+            stable_dir: stable.path().join(".orkworks").join("hook-scripts"),
+        };
+        let ctx = IntegrationContext {
+            workspace: workspace.path(),
+            workspace_metadata: None,
+            orkworks_root: stable.path(),
+            enabled: true,
+            detected_tool: None,
+            reporter_assets: &reporter,
+        };
+        let claude = handler(&IntegrationBinding::Claude).status(&ctx).unwrap();
+        let confirmation = claude.confirmation.expect("claude confirmation present");
+        assert!(
+            confirmation.coverage_summary.contains("plan & spec reporting"),
+            "expected plan & spec reporting in coverage summary; got: {coverage_summary:?}",
+            coverage_summary = confirmation.coverage_summary
         );
     }
 }

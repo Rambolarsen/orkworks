@@ -62,6 +62,10 @@ pub(crate) static HANDLER: JsonHookHandler = JsonHookHandler::new(
         // an installed hook definition actually runs (hash-pinned trust).
         // Installing the file is not the same as it being active yet.
         activation: IntegrationActivation::NeedsTrust,
+        // Codex stays on the terminal-fallback `(printed_plan_path)`
+        // because its `apply_patch` hook payload carries patch text rather
+        // than a canonical file path — see ADR 0037 / ADR 0038.
+        reports_plan_path: false,
     },
     probe,
     merge,
