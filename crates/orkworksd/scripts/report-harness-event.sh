@@ -65,12 +65,17 @@ print(((ti.get("file_path") if isinstance(ti, dict) else None) or "") if isinsta
         # match.
         case "$file_path" in
           */specs/*|*/docs/superpowers/plans/*|*/docs/superpowers/specs/*)
-            escaped_file_path=$(printf '%s' "$file_path" | sed 's/[\\"]/\\&/g')
-            plan_path_payload=$(printf '{"planPath":"%s"}' "$escaped_file_path")
-            curl -sS --max-time 5 --connect-timeout 2 -X POST \
-              "http://127.0.0.1:$ORKWORKS_PORT/sessions/$ORKWORKS_SESSION_ID/plan-path" \
-              -H "Content-Type: application/json" \
-              -d "$plan_path_payload" >/dev/null || true
+            # sed's `[\\"]` escaping only covers backslashes/quotes; POSIX
+            # filenames may legally contain newlines or other control
+            # characters, which would otherwise land unescaped inside the
+            # JSON string literal. json.dumps escapes the full set.
+            plan_path_payload="$(python3 -c 'import json,sys; print(json.dumps({"planPath": sys.argv[1]}, separators=(",", ":")))' "$file_path" 2>/dev/null)" || true
+            if [ -n "$plan_path_payload" ]; then
+              curl -sS --max-time 5 --connect-timeout 2 -X POST \
+                "http://127.0.0.1:$ORKWORKS_PORT/sessions/$ORKWORKS_SESSION_ID/plan-path" \
+                -H "Content-Type: application/json" \
+                -d "$plan_path_payload" >/dev/null || true
+            fi
             ;;
         esac
         ;;

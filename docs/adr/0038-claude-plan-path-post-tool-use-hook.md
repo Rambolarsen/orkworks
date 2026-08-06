@@ -69,9 +69,9 @@ open as the larger unification this ADR does not attempt.
   hook report lands later and `report_session_plan_path` overwrites
   `meta.plan_path` unconditionally (it is not gated on `is_none()`). The
   fallback's old `is_none()` guard stays in place as the only protection
-  against a later hook report clobbering a path that a real hook has already
-  established — that's intentional and correct, since the terminal fallback
-  is lower-confidence than the hook.
+  against the terminal fallback itself clobbering a path that a real hook has
+  already established — that's intentional and correct, since the terminal
+  fallback is lower-confidence than the hook.
 - The reporter scripts grow a new flag and a Claude-shaped payload extraction
   (`tool_input.file_path`). The marker-suffix dispatch for cwd/session_id
   capture is unchanged.
