@@ -162,6 +162,7 @@ Architecture decisions are captured as ADRs in `docs/adr/`. Each significant arc
 - A decision is reversed or replaced when: (a) a new ADR explicitly contradicts a prior ADR, or (b) implementation diverges from what an existing ADR records.
 - **Supersede** old ADRs (don't delete) when a decision is reversed or replaced. In case (b), write the new ADR first, then update the old ADR status to `superseded` and reference the new ADR number.
 - **Keep the index updated** — add each new ADR to the `docs/adr/README.md` table.
+- **The `## Architecture` section's inline ADR bullets are curated, not comprehensive** — see the eligibility rule stated there. When you supersede an ADR that has an inline bullet, remove that bullet in the same change (the README table remains the historical record). When you add prose elsewhere (e.g. `docs/agents/architecture.md`) that covers an ADR already inlined here, collapse its bullet to a pointer in the same change.
 
 ADRs are complementary to specs: specs define what we're building; ADRs record why we chose to build it that way.
 
@@ -183,22 +184,14 @@ Use normal engineering terminology for all other concepts. Peon and Taskmaster a
 
 Electron + React/TypeScript frontend (`apps/desktop/`) communicates with a Rust sidecar (`crates/orkworksd/`) over a dynamic localhost HTTP/WebSocket port. The desktop UI uses Dockview draggable panels around xterm.js terminal sessions. The sidecar manages PTY sessions, Git context, the metadata protocol (under `~/.orkworks/workspaces/<hash>/`), Peon observation, and Taskmaster recommendation state.
 
-- ADR 0017: Provider context is session-scoped (read-only in Details), not app-wide.
-- ADR 0022: PTY lifetime is session-runtime-owned in the sidecar; renderer terminal attachment is detachable and does not own process lifetime.
-- ADR 0024: Raw terminal replay is bounded to the newest 1,000 lines and 1 MiB; durable summary checkpoints live in the event log.
-- ADR 0025: Session-plan handoff uses a sidecar-scoped secret and Electron main-process path revalidation; the renderer never receives filesystem paths.
-- ADR 0026: Harness capabilities resolve from one immutable registry; integration mutations require Electron-main confirmation and sidecar-only authority.
-- ADR 0028: Harness version-probe results are cached with bounded TTLs and generation-aware invalidation, preserving the integration action's post-probe identity revalidation.
-- ADR 0029: Session `label` (title) is a one-shot Peon-authored topic, decoupled from the turn-by-turn `summary`/checkpoint log; it is not part of the ADR 0005 metadata-source precedence system.
-- ADR 0031: Session git-context fields (`repo_root`/`branch`/`dirty`/etc.) reflect each session's live PTY-process cwd, probed cross-platform via the `sysinfo` crate, not just its frozen launch-time cwd.
-- ADR 0032: For Claude Code sessions, the harness's own self-reported cwd (forwarded from its hook JSON payload) takes priority over ADR 0031's pid probe, since command-template harnesses run as the PTY child directly and track "current directory" as internal state rather than calling `chdir()` on themselves.
-- ADR 0033: Dead-session terminal replay renders at the PTY's recorded `cols × rows` persisted in a per-session `.terminal-size` sidecar (cleared on resume), served as optional `cols`/`rows` on the terminal-output endpoint; legacy and unknown-size sessions keep fit-to-container replay.
-- ADR 0035: Codex's `SessionStart` hook (`.codex/hooks.json`) captures `harness_session_id` at `agent`-tier confidence via the existing `JsonHookHandler`/reporter-script framework; unlike every other integration's hooked event, `SessionStart` is not a "needs input" signal, so the shared reporter script skips its generic attention POST specifically for Codex's marker.
-- ADR 0036: Codex's hook installer writes a `$HOME`-relative, POSIX-only reporter command instead of a resolved absolute path, so a git-tracked `.codex/hooks.json` (the shape every APM-managed repo, including this one, actually has) is safe to install into — the tracked-file safety check every other JSON-hook integration still enforces unconditionally is relaxed only for this portable-safe Codex case.
-- ADR 0037: Plan/spec paths can be reported through a dedicated path-only sidecar route (`POST /sessions/:id/plan-path`) that canonicalizes the file and stores its workspace-relative form without changing session attention, superseding terminal-text inference when a harness reports a canonical file path. Codex remains on the conservative terminal fallback because its hook payload provides patch text, not a canonical file path.
-- ADR 0038: Claude Code's owned integration installs a synchronous `PostToolUse` `Write|Edit` hook whose reporter invocation passes `--report-plan-path`, switching the shared reporter script into plan-path mode: it forwards the hook payload's `tool_input.file_path` to `/sessions/:id/plan-path` and skips the generic attention + harness-session POSTs. `ToolHookContract` gains a declarative `reports_plan_path` flag so any JsonHookHandler can opt into plan-path reporting without bespoke shell plumbing. Closes the Claude transport that ADR 0037 deferred and retracts 0037's "does not generalize `ToolHookContract`" note; the broader #271.2 attention-signal generalization stays open.
+An ADR earns a bullet below only while it is `accepted` (not superseded), constrains how agents should write code, and has no independent prose summary elsewhere — once another doc gains prose coverage of an already-inlined ADR, its bullet collapses to a pointer. See [`docs/adr/README.md`](docs/adr/README.md) for the full historical index, including superseded decisions, and [`docs/agents/architecture.md`](docs/agents/architecture.md) for the full inter-component breakdown (port discovery, preload bridge, API data flow, Rust modules, panel layout).
 
-See [`docs/agents/architecture.md`](docs/agents/architecture.md) for the full inter-component breakdown (port discovery, preload bridge, API data flow, Rust modules, panel layout).
+- ADR 0022: PTY lifetime is session-runtime-owned in the sidecar; renderer terminal attachment is detachable and does not own process lifetime.
+- ADR 0028: Harness version-probe results are cached with bounded TTLs and generation-aware invalidation, preserving the integration action's post-probe identity revalidation.
+- ADR 0035: Codex's `SessionStart` hook (`.codex/hooks.json`) captures `harness_session_id` at `agent`-tier confidence via the existing `JsonHookHandler`/reporter-script framework; unlike every other integration's hooked event, `SessionStart` is not a "needs input" signal, so the shared reporter script skips its generic attention POST specifically for Codex's marker.
+- ADR 0037: Plan/spec paths can be reported through a dedicated path-only sidecar route (`POST /sessions/:id/plan-path`) that canonicalizes the file and stores its workspace-relative form without changing session attention, superseding terminal-text inference when a harness reports a canonical file path. Codex remains on the conservative terminal fallback because its hook payload provides patch text, not a canonical file path.
+- ADR 0024, 0025, 0026, 0029, 0031, 0032, 0033: prose lives in [`docs/agents/architecture.md`](docs/agents/architecture.md).
+- ADR 0036, 0038: prose lives in [`docs/agents/harness-integration-contracts.md`](docs/agents/harness-integration-contracts.md).
 
 ## Metadata protocol
 
