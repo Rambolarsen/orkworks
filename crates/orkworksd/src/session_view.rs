@@ -148,7 +148,7 @@ pub(crate) fn merge_live_session_info(
     let is_live = info.status != "killed"
         && info.status != "ended"
         && info.status != "error"
-        && meta.is_none_or(|m| m.lifecycle_phase != "ended");
+        && !meta.is_some_and(|m| m.lifecycle_phase == "ended");
     let (memory_state, resume_strategy) = derive_memory_state(
         is_live,
         meta.and_then(|m| m.resume.as_ref())
