@@ -141,7 +141,14 @@ pub(crate) fn merge_live_session_info(
     peon_last_inference: Option<&String>,
     harness: Option<&ResolvedHarness>,
 ) -> SessionInfo {
-    let is_live = info.status != "killed" && info.status != "ended" && info.status != "error";
+    // `info.status` reflects the in-memory process-handle registry, which can
+    // lag persisted metadata's `lifecycle_phase` (e.g. a harness process that
+    // errors/exits before the handle's own status transitions). Trust either
+    // terminal signal so memory_state doesn't get stuck at Live (#286).
+    let is_live = info.status != "killed"
+        && info.status != "ended"
+        && info.status != "error"
+        && meta.is_none_or(|m| m.lifecycle_phase != "ended");
     let (memory_state, resume_strategy) = derive_memory_state(
         is_live,
         meta.and_then(|m| m.resume.as_ref())
@@ -433,6 +440,92 @@ mod tests {
         );
         assert!(!merged.resume_options[1].available);
         assert!(!merged.resume_options[2].available);
+    }
+
+    #[test]
+    fn merge_live_session_info_resolves_non_live_when_metadata_ended_but_handle_status_stale() {
+        // Regression for #286: the harness process errored/exited before Peon
+        // ever transitioned the in-memory handle's status off "creating", but
+        // metadata already finalized to lifecycle_phase "ended". memory_state
+        // must follow metadata's terminal signal, not just the stale handle.
+        let info = test_session_info(
+            "stale-handle",
+            "Stale Handle",
+            "/tmp/project",
+            "creating",
+            "2026-06-28T09:00:00Z",
+        );
+        let meta = metadata::SessionMetadata {
+            id: "stale-handle".into(),
+            label: "Stale Handle".into(),
+            workspace: "/tmp/project".into(),
+            task: "".into(),
+            harness: "".into(),
+            model: "".into(),
+            cwd: "/tmp/project".into(),
+            status: "error".into(),
+            work_phase: "unknown".into(),
+            lifecycle_phase: "ended".into(),
+            lifecycle: "dead".into(),
+            attention: None,
+            plan_path: None,
+            connectivity: "offline".into(),
+            terminal_outcome: Some("error".into()),
+            pending_terminal_status: None,
+            observed_status: None,
+            ending_observed_status_snapshot: None,
+            final_observed_status_snapshot: Some(metadata::ObservedStatusSnapshotMetadata {
+                value: None,
+                source: "recovery".into(),
+                confidence: None,
+                observed_at: None,
+            }),
+            summary: None,
+            next_action: None,
+            needs_user_input: None,
+            detected_question: None,
+            suggested_options: None,
+            blocker_description: None,
+            failed_command: None,
+            failed_test: None,
+            capacity_hints: None,
+            peon_last_inference: None,
+            provider_id: None,
+            provider_label: None,
+            provider_model: None,
+            provider_state: None,
+            created_at: "2026-06-28T09:00:00Z".into(),
+            last_activity: "2026-06-28T09:00:05Z".into(),
+            last_output_at: None,
+            metadata_source: "process".into(),
+            metadata_confidence: 1.0,
+            repo_root: Some("/tmp/project".into()),
+            branch: Some("main".into()),
+            dirty: Some(false),
+            changed_files: Some(0),
+            is_worktree: Some(false),
+            resume: Some(harness::ResumeMemory {
+                state: harness::ResumeState::Available,
+                preferred_strategy: harness::ResumeStrategy::Exact,
+                harness_session_id: Some("captured-session-id".into()),
+                latest_fallback: true,
+                last_seen_at: Some("2026-06-28T09:00:05Z".into()),
+            }),
+            resume_options: vec![],
+            harness_session_id_source: None,
+            harness_session_id_confidence: None,
+            harness_session_id_captured_at: None,
+            resumed_from: None,
+            last_user_input: None,
+        };
+        let harness = harness("claude-code");
+
+        let merged = merge_live_session_info(info, Some(&meta), None, Some(&harness));
+
+        assert_eq!(merged.lifecycle_phase, "ended");
+        assert_ne!(merged.memory_state, MemoryState::Live);
+        assert_eq!(merged.memory_state, MemoryState::Resumable);
+        assert_eq!(merged.resume_strategy, harness::ResumeStrategy::Exact);
     }
 
     #[test]
