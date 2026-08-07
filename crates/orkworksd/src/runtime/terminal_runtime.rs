@@ -31,6 +31,7 @@ pub(crate) fn session_env_overrides(session_id: &str, port: Option<u16>) -> Vec<
     env
 }
 
+
 #[derive(Debug, PartialEq)]
 pub(crate) enum TerminalAction {
     Input(String),
@@ -1815,6 +1816,36 @@ mod tests {
         let overrides = session_env_overrides("session-123", None);
         assert!(overrides.contains(&("ORKWORKS_SESSION_ID".into(), "session-123".into())));
         assert!(!overrides.iter().any(|(key, _)| key == "ORKWORKS_PORT"));
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn resolve_windows_program_prefers_cmd_shim_over_bare_posix_script() {
+        let dir = tempfile::tempdir().unwrap();
+        // Mirror npm's global bin layout: a POSIX shell shim with no
+        // extension alongside the Windows .cmd shim.
+        std::fs::write(dir.path().join("codex"), "#!/bin/sh\n").unwrap();
+        std::fs::write(dir.path().join("codex.cmd"), "@echo off\r\n").unwrap();
+
+        let previous_path = std::env::var_os("PATH");
+        std::env::set_var("PATH", dir.path());
+
+        let resolved = resolve_windows_program("codex");
+
+        if let Some(path) = previous_path {
+            std::env::set_var("PATH", path);
+        } else {
+            std::env::remove_var("PATH");
+        }
+
+        assert_eq!(resolved, dir.path().join("codex.cmd").to_string_lossy());
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn resolve_windows_program_leaves_absolute_paths_untouched() {
+        let resolved = resolve_windows_program("C:\\Windows\\System32\\cmd.exe");
+        assert_eq!(resolved, "C:\\Windows\\System32\\cmd.exe");
     }
 
     #[test]

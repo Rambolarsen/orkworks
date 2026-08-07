@@ -2,6 +2,11 @@ import { execSync } from "child_process";
 import { existsSync, writeFileSync } from "fs";
 import { join, resolve } from "path";
 
+// This optimization only applies to macOS ARM64 cached Electron zips.
+if (process.platform !== "darwin" || process.arch !== "arm64") {
+  process.exit(0);
+}
+
 const electronPath = resolve(import.meta.dirname, "..", "node_modules", "electron");
 const distPath = join(electronPath, "dist");
 const pathTxt = join(electronPath, "path.txt");
