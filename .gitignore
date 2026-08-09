@@ -60,3 +60,7 @@ apm.lock.yaml
 .codex/hooks/*
 !.codex/hooks/doc-check.sh
 !.codex/hooks/doc-check-stop.sh
+
+# Local agent configuration
+.claude/settings.json
+.codex/hooks.json
