@@ -6,6 +6,8 @@ use crate::runtime::terminal_runtime::{
     make_pty_system, schedule_session_ending_finalization, session_env_overrides,
     set_session_status, should_forward_terminal_env, terminal_env_overrides,
 };
+#[cfg(windows)]
+use crate::runtime::terminal_runtime::resolve_windows_program;
 use crate::{harness, metadata, peon, plan_handoff, AppState};
 use chrono::{DateTime, Utc};
 use portable_pty::{CommandBuilder, PtySize, PtySystem};
@@ -591,7 +593,12 @@ pub(crate) async fn start_session_runtime(
     let pty_sys = make_pty_system();
     let pair = pty_sys.openpty(initial_size).map_err(|e| e.to_string())?;
 
-    let mut cmd = CommandBuilder::new(&command.program);
+    #[cfg(windows)]
+    let program = resolve_windows_program(&command.program);
+    #[cfg(not(windows))]
+    let program = command.program.clone();
+
+    let mut cmd = CommandBuilder::new(&program);
     cmd.args(&command.args);
     cmd.cwd(&command.cwd);
     for (key, value) in std::env::vars() {

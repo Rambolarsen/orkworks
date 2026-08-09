@@ -603,6 +603,31 @@ pub(crate) fn make_pty_system() -> ConPtySystem {
     ConPtySystem {}
 }
 
+/// Resolves a bare launch command (e.g. `"codex"`) to an absolute path on
+/// Windows before handing it to `portable_pty`. `portable_pty`'s own Windows
+/// `CommandBuilder::search_path` checks each `PATH` dir for the *exact* bare
+/// filename before ever trying a `PATHEXT` extension — so when an npm-style
+/// global install drops both an extensionless POSIX shell shim (`codex`) and
+/// a `codex.cmd` batch shim in the same directory (the normal `npm install
+/// -g` layout), it resolves to the POSIX script. `CreateProcessW` cannot
+/// execute that file (it's not a recognized Win32/batch image) and fails
+/// with `ERROR_BAD_EXE_FORMAT` (193) — confirmed by direct `CreateProcessW`
+/// experiment against a real npm-installed Codex CLI. Delegating to
+/// `probe_installed_tool`'s `PATHEXT`-only candidate search (already used
+/// for harness detection) skips the bare-name check entirely and finds
+/// `codex.cmd`, which `CreateProcessW` launches directly without needing a
+/// `cmd.exe` wrapper (also confirmed empirically).
+#[cfg(windows)]
+pub(crate) fn resolve_windows_program(program: &str) -> String {
+    if std::path::Path::new(program).is_absolute() {
+        return program.to_string();
+    }
+    match crate::harness::detect::probe_installed_tool(program) {
+        Some(tool) => tool.executable.to_string_lossy().into_owned(),
+        None => program.to_string(),
+    }
+}
+
 /// Applies a status transition to the in-memory handle and persisted metadata.
 ///
 /// Terminal statuses ("killed"/"ended"/"error") transition the session into the
