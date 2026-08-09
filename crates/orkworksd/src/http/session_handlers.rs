@@ -179,7 +179,7 @@ pub(crate) async fn report_session_plan_path(
         if metadata.lifecycle != "alive" { return Err(axum::http::StatusCode::CONFLICT); }
         let relative = normalize_reported_plan_path(&workspace.path, &req.plan_path)
             .map_err(|_| axum::http::StatusCode::BAD_REQUEST)?;
-        metadata.plan_path = Some(relative);
+        metadata.plan_path = Some(metadata::PlanReference { worktree_root: None, relative_path: relative, source: metadata::PlanSource::HookReported });
         // The session JSON is the source of truth. Use the fallible writer
         // and only append the hooked event when the write actually
         // landed, so the event log cannot claim a path association that

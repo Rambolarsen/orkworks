@@ -906,7 +906,7 @@ pub(crate) async fn start_session_runtime(
                                             if meta.plan_path.is_none()
                                                 && !ws.metadata.plan_path_is_explicitly_cleared(&driver_id)
                                             {
-                                                meta.plan_path = Some(plan_path);
+                                                meta.plan_path = Some(crate::metadata::PlanReference { worktree_root: None, relative_path: plan_path, source: crate::metadata::PlanSource::TerminalFallback });
                                                 ws.metadata.write_session(&meta);
                                             }
                                         }

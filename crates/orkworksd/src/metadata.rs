@@ -120,6 +120,39 @@ pub(crate) enum PlanPathUpdate {
     Set(String),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub(crate) struct PlanReference {
+    #[serde(rename = "worktreeRoot", skip_serializing_if = "Option::is_none")]
+    pub(crate) worktree_root: Option<String>,
+    #[serde(rename = "relativePath")]
+    pub(crate) relative_path: String,
+    pub(crate) source: PlanSource,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum PlanSource { Legacy, UserSelected, HookReported, TerminalFallback }
+
+impl<'de> Deserialize<'de> for PlanReference {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Stored { Legacy(String), Anchored { #[serde(rename = "worktreeRoot")] worktree_root: Option<String>, #[serde(rename = "relativePath")] relative_path: String, source: PlanSource } }
+        Ok(match Stored::deserialize(deserializer)? {
+            Stored::Legacy(relative_path) => Self { worktree_root: None, relative_path, source: PlanSource::Legacy },
+            Stored::Anchored { worktree_root, relative_path, source } => Self { worktree_root, relative_path, source },
+        })
+    }
+}
+
+impl std::ops::Deref for PlanReference {
+    type Target = str;
+    fn deref(&self) -> &Self::Target { &self.relative_path }
+}
+impl From<String> for PlanReference { fn from(relative_path: String) -> Self { Self { worktree_root: None, relative_path, source: PlanSource::Legacy } } }
+impl From<&str> for PlanReference { fn from(relative_path: &str) -> Self { relative_path.to_string().into() } }
+impl std::fmt::Display for PlanReference { fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { self.relative_path.fmt(f) } }
+
 impl<'de> Deserialize<'de> for PlanPathUpdate {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -205,7 +238,7 @@ pub struct SessionMetadata {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub attention: Option<String>,
     #[serde(rename = "planPath", skip_serializing_if = "Option::is_none")]
-    pub plan_path: Option<String>,
+    pub plan_path: Option<PlanReference>,
     #[serde(default = "default_connectivity")]
     pub connectivity: String,
     #[serde(rename = "terminalOutcome", skip_serializing_if = "Option::is_none")]
@@ -1401,7 +1434,7 @@ impl MetadataStore {
         match plan_path {
             PlanPathUpdate::Unchanged => {}
             PlanPathUpdate::Clear => meta.plan_path = None,
-            PlanPathUpdate::Set(path) => meta.plan_path = Some(path.clone()),
+            PlanPathUpdate::Set(path) => meta.plan_path = Some(PlanReference { worktree_root: None, relative_path: path.clone(), source: PlanSource::HookReported }),
         }
         meta.last_activity = timestamp.to_string();
         meta.metadata_source = source.into();
@@ -3319,6 +3352,19 @@ mod tests {
         let updated = store.read_session("attention-plan-path").unwrap();
         assert_eq!(updated.plan_path.as_deref(), Some("docs/plan.md"));
         assert_eq!(updated.attention.as_deref(), Some("needs_you"));
+        assert_eq!(updated.plan_path.unwrap().source, PlanSource::HookReported);
+    }
+
+    #[test]
+    fn plan_reference_reads_legacy_string_and_writes_anchored_shape() {
+        let legacy: PlanReference = serde_json::from_str(r#""specs/plan.md""#).unwrap();
+        assert_eq!(legacy.relative_path, "specs/plan.md");
+        assert_eq!(legacy.source, PlanSource::Legacy);
+        let encoded = serde_json::to_value(PlanReference {
+            worktree_root: Some("/repo".into()), relative_path: "specs/plan.md".into(), source: PlanSource::UserSelected,
+        }).unwrap();
+        assert_eq!(encoded["worktreeRoot"], "/repo");
+        assert_eq!(encoded["source"], "user_selected");
     }
 
     #[test]
