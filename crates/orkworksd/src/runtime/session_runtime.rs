@@ -594,7 +594,12 @@ pub(crate) async fn start_session_runtime(
     let pair = pty_sys.openpty(initial_size).map_err(|e| e.to_string())?;
 
     #[cfg(windows)]
-    let program = resolve_windows_program(&command.program);
+    let program = {
+        let raw = command.program.clone();
+        tokio::task::spawn_blocking(move || resolve_windows_program(&raw))
+            .await
+            .unwrap_or(command.program.clone())
+    };
     #[cfg(not(windows))]
     let program = command.program.clone();
 

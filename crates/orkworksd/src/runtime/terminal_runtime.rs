@@ -619,9 +619,6 @@ pub(crate) fn make_pty_system() -> ConPtySystem {
 /// `cmd.exe` wrapper (also confirmed empirically).
 #[cfg(windows)]
 pub(crate) fn resolve_windows_program(program: &str) -> String {
-    if std::path::Path::new(program).is_absolute() {
-        return program.to_string();
-    }
     match crate::harness::detect::probe_installed_tool(program) {
         Some(tool) => tool.executable.to_string_lossy().into_owned(),
         None => program.to_string(),
