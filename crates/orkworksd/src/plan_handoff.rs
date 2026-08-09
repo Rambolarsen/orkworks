@@ -1,5 +1,33 @@
 use std::path::{Component, Path, PathBuf};
 
+fn git_common_dir(path: &Path) -> Result<PathBuf, String> {
+    let repo = git2::Repository::discover(path).map_err(|error| error.to_string())?;
+    let git_dir = repo.path().canonicalize().map_err(|error| error.to_string())?;
+    if repo.is_worktree() {
+        let worktrees = git_dir.parent().ok_or("linked worktree has no parent")?;
+        if worktrees.file_name().is_some_and(|name| name == "worktrees") {
+            return worktrees.parent().map(Path::to_path_buf).ok_or_else(|| "linked worktree has no common git directory".into());
+        }
+    }
+    Ok(git_dir)
+}
+
+pub(crate) fn resolve_printed_plan_path(launch_root: &Path, printed_path: &str) -> Result<(PathBuf, String), String> {
+    if printed_path.chars().any(char::is_control) { return Err("plan path must not contain control characters".into()); }
+    let printed = Path::new(printed_path);
+    let launch_root = launch_root.canonicalize().map_err(|error| error.to_string())?;
+    let candidate = if printed.is_absolute() { printed.to_path_buf() } else {
+        if printed.components().any(|component| matches!(component, Component::ParentDir | Component::RootDir | Component::Prefix(_))) { return Err("relative plan path must not escape launch worktree".into()); }
+        launch_root.join(printed)
+    }.canonicalize().map_err(|error| error.to_string())?;
+    let candidate_repo = git_common_dir(&candidate)?;
+    if candidate_repo != git_common_dir(&launch_root)? { return Err("plan path is outside the session repository worktree family".into()); }
+    let root = git2::Repository::discover(&candidate).map_err(|error| error.to_string())?.workdir().ok_or("plan repository is bare")?.canonicalize().map_err(|error| error.to_string())?;
+    let relative = candidate.strip_prefix(&root).map_err(|_| "plan path is outside its worktree".to_string())?;
+    if !candidate.is_file() || !candidate.extension().is_some_and(|extension| extension.eq_ignore_ascii_case("md")) || !(relative.starts_with("docs/superpowers/plans") || relative.starts_with("docs/superpowers/specs") || relative.starts_with("specs")) { return Err("plan path is not a supported plan or specification".into()); }
+    Ok((root, relative.to_str().ok_or("plan path is not valid UTF-8")?.to_owned()))
+}
+
 /// Verbs that indicate a line is reporting a file the agent just wrote,
 /// rather than merely mentioning or quoting an existing path (e.g. a `grep`
 /// hit, an error message, or prose referencing someone else's plan).
@@ -145,7 +173,7 @@ pub(crate) fn normalize_reported_plan_path(
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_reported_plan_path, printed_plan_path, resolve_openable_plan};
+    use super::{normalize_reported_plan_path, printed_plan_path, resolve_openable_plan, resolve_printed_plan_path};
     use std::fs;
 
     #[test]
@@ -271,6 +299,18 @@ mod tests {
             ),
             Some("docs/superpowers/specs/2026-08-03-recorded-terminal-size-cue-design.md".into())
         );
+    }
+
+    #[test]
+    fn resolves_relative_terminal_link_against_launch_worktree() {
+        let workspace = tempfile::tempdir().unwrap();
+        git2::Repository::init(workspace.path()).unwrap();
+        let plan_dir = workspace.path().join("specs");
+        fs::create_dir_all(&plan_dir).unwrap();
+        fs::write(plan_dir.join("plan.md"), "# plan").unwrap();
+        let (root, relative) = resolve_printed_plan_path(workspace.path(), "specs/plan.md").unwrap();
+        assert_eq!(root, workspace.path().canonicalize().unwrap());
+        assert_eq!(relative, "specs/plan.md");
     }
 
     #[test]
