@@ -598,7 +598,7 @@ pub(crate) async fn start_session_runtime(
         let raw = command.program.clone();
         tokio::task::spawn_blocking(move || resolve_windows_program(&raw))
             .await
-            .unwrap_or(command.program.clone())
+            .unwrap_or_else(|_| command.program.clone())
     };
     #[cfg(not(windows))]
     let program = command.program.clone();
