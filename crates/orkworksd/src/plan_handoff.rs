@@ -1,5 +1,7 @@
 use std::path::{Component, Path, PathBuf};
 
+use crate::metadata::PlanReference;
+
 fn git_common_dir(path: &Path) -> Result<PathBuf, String> {
     let repo = git2::Repository::discover(path).map_err(|error| error.to_string())?;
     let git_dir = repo.path().canonicalize().map_err(|error| error.to_string())?;
@@ -97,6 +99,61 @@ pub(crate) fn resolve_openable_plan(
     Ok(candidate)
 }
 
+/// Resolves a persisted plan reference. New references retain the worktree
+/// that produced the path; older string-only references deliberately retain
+/// the historical workspace-root behavior.
+pub(crate) fn resolve_openable_plan_reference(
+    session_workspace_root: &Path,
+    reference: &PlanReference,
+) -> Result<PathBuf, String> {
+    let anchor = match reference.worktree_root.as_deref() {
+        Some(root) => Path::new(root),
+        None => return resolve_openable_plan(session_workspace_root, &reference.relative_path),
+    };
+    if reference.relative_path.chars().any(char::is_control) {
+        return Err("plan path must not contain control characters".into());
+    }
+    let relative = Path::new(&reference.relative_path);
+    if relative.is_absolute()
+        || relative.components().any(|component| {
+            matches!(
+                component,
+                Component::ParentDir | Component::RootDir | Component::Prefix(_)
+            )
+        })
+    {
+        return Err("plan path must be relative to its worktree".into());
+    }
+
+    let anchor = anchor.canonicalize().map_err(|error| error.to_string())?;
+    let anchor_repo = git2::Repository::discover(&anchor).map_err(|error| error.to_string())?;
+    let worktree_root = anchor_repo
+        .workdir()
+        .ok_or("plan repository is bare")?
+        .canonicalize()
+        .map_err(|error| error.to_string())?;
+    if anchor != worktree_root {
+        return Err("plan worktree anchor is not a repository root".into());
+    }
+    if git_common_dir(&worktree_root)? != git_common_dir(session_workspace_root)? {
+        return Err("plan worktree is outside the session repository family".into());
+    }
+
+    let candidate = worktree_root
+        .join(relative)
+        .canonicalize()
+        .map_err(|error| error.to_string())?;
+    if !candidate.starts_with(&worktree_root)
+        || !candidate.is_file()
+        || !candidate
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("md"))
+    {
+        return Err("plan path is not an openable worktree Markdown file".into());
+    }
+    Ok(candidate)
+}
+
 pub(crate) fn normalize_reported_plan_path(
     workspace_root: &Path,
     reported_path: &str,
@@ -173,7 +230,8 @@ pub(crate) fn normalize_reported_plan_path(
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_reported_plan_path, printed_plan_path, resolve_openable_plan, resolve_printed_plan_path};
+    use super::{normalize_reported_plan_path, printed_plan_path, resolve_openable_plan, resolve_openable_plan_reference, resolve_printed_plan_path};
+    use crate::metadata::{PlanReference, PlanSource};
     use std::fs;
 
     #[test]
@@ -311,6 +369,32 @@ mod tests {
         let (root, relative) = resolve_printed_plan_path(workspace.path(), "specs/plan.md").unwrap();
         assert_eq!(root, workspace.path().canonicalize().unwrap());
         assert_eq!(relative, "specs/plan.md");
+    }
+
+    #[test]
+    fn resolves_an_anchored_plan_reference_from_its_recorded_worktree() {
+        let workspace = tempfile::tempdir().unwrap();
+        git2::Repository::init(workspace.path()).unwrap();
+        let plan_dir = workspace.path().join("specs");
+        fs::create_dir_all(&plan_dir).unwrap();
+        let plan = plan_dir.join("selected.md");
+        fs::write(&plan, "# plan").unwrap();
+
+        let reference = PlanReference {
+            worktree_root: Some(workspace.path().to_string_lossy().into_owned()),
+            relative_path: "specs/selected.md".into(),
+            source: PlanSource::UserSelected,
+        };
+        assert_eq!(
+            resolve_openable_plan_reference(workspace.path(), &reference).unwrap(),
+            plan.canonicalize().unwrap()
+        );
+
+        let escaped = PlanReference {
+            relative_path: "../selected.md".into(),
+            ..reference
+        };
+        assert!(resolve_openable_plan_reference(workspace.path(), &escaped).is_err());
     }
 
     #[test]

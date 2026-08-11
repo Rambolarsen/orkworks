@@ -9,7 +9,7 @@ const browserScheduler: PollScheduler = {
 };
 
 export function startSessionPolling(
-  refresh: () => Promise<void>,
+  refresh: () => Promise<unknown>,
   delayMs = 2_000,
   scheduler: PollScheduler = browserScheduler,
 ): () => void {

@@ -1431,10 +1431,22 @@ impl MetadataStore {
         if let Some(msg) = message {
             meta.summary = Some(msg.to_string());
         }
+        let preserve_user_selection = source != "user"
+            && meta
+                .plan_path
+                .as_ref()
+                .is_some_and(|reference| reference.source == PlanSource::UserSelected);
         match plan_path {
             PlanPathUpdate::Unchanged => {}
-            PlanPathUpdate::Clear => meta.plan_path = None,
-            PlanPathUpdate::Set(path) => meta.plan_path = Some(PlanReference { worktree_root: None, relative_path: path.clone(), source: PlanSource::HookReported }),
+            PlanPathUpdate::Clear if !preserve_user_selection => meta.plan_path = None,
+            PlanPathUpdate::Set(path) if !preserve_user_selection => {
+                meta.plan_path = Some(PlanReference {
+                    worktree_root: None,
+                    relative_path: path.clone(),
+                    source: PlanSource::HookReported,
+                });
+            }
+            PlanPathUpdate::Clear | PlanPathUpdate::Set(_) => {}
         }
         meta.last_activity = timestamp.to_string();
         meta.metadata_source = source.into();
@@ -3353,6 +3365,34 @@ mod tests {
         assert_eq!(updated.plan_path.as_deref(), Some("docs/plan.md"));
         assert_eq!(updated.attention.as_deref(), Some("needs_you"));
         assert_eq!(updated.plan_path.unwrap().source, PlanSource::HookReported);
+    }
+
+    #[test]
+    fn agent_attention_signal_preserves_a_user_selected_plan() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let mut meta = test_metadata("selected-plan-path");
+        meta.plan_path = Some(PlanReference {
+            worktree_root: Some("/repo".into()),
+            relative_path: "specs/selected.md".into(),
+            source: PlanSource::UserSelected,
+        });
+        store.write_session(&meta);
+
+        assert_eq!(
+            store.merge_agent_attention_signal_with_plan(
+                "selected-plan-path",
+                "working",
+                None,
+                &PlanPathUpdate::Set("specs/reported.md".into()),
+                "2026-08-11T12:00:00Z",
+                "agent",
+                1.0,
+            ),
+            AttentionMergeResult::Accepted,
+        );
+        let updated = store.read_session("selected-plan-path").unwrap();
+        assert_eq!(updated.plan_path.unwrap().relative_path, "specs/selected.md");
     }
 
     #[test]

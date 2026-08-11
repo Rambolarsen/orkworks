@@ -113,9 +113,11 @@ function App() {
       const list = await listSessions(baseUrl);
       pruneTerminals(new Set(list.filter((session) => session.lifecycle !== "dead").map((session) => session.id)));
       setSessions((previous) => mergeSessionsById(previous, list));
+      return true;
     } catch {
       // Silent: polled every 2s; transient failures are reflected by the
       // backendStatus badge, not by spamming toasts.
+      return false;
     }
   }, []);
 
@@ -292,7 +294,9 @@ function App() {
       const sessionId = (event as CustomEvent<{ sessionId?: unknown }>).detail?.sessionId;
       if (typeof sessionId !== "string") return;
       setActiveSessionId(sessionId);
-      void refreshSessions().then(handleReviewPlan);
+      void refreshSessions().then((refreshed) => {
+        if (refreshed) handleReviewPlan();
+      });
     };
     window.addEventListener("orkworks:terminal-plan-selected", onSelected);
     return () => window.removeEventListener("orkworks:terminal-plan-selected", onSelected);

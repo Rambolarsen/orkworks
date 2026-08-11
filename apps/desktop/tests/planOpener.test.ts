@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { getSessionPlanContent, requestSessionPlanReview } from "../electron/planOpener.ts";
+import { getSessionPlanContent, requestSessionPlanReview, selectTerminalPlan } from "../electron/planOpener.ts";
 
 test("reads plan content through the authenticated sidecar endpoint", async () => {
   const requests: Array<{ url: string; init?: RequestInit }> = [];
@@ -38,6 +38,22 @@ test("submits a review request through the authenticated sidecar endpoint", asyn
   assert.deepEqual(requests, [{
     url: "http://127.0.0.1:4444/sessions/session%201/request-plan-review",
     init: { method: "POST", headers: { "x-orkworks-open-plan-token": "private-token" } },
+  }]);
+});
+
+test("selects a terminal plan through the authenticated sidecar endpoint", async () => {
+  const requests: Array<{ url: string; init?: RequestInit }> = [];
+  await selectTerminalPlan("http://127.0.0.1:4444", "session 1", "specs/plan.md", "private-token", async (url, init) => {
+    requests.push({ url: url.toString(), init });
+    return new Response(null, { status: 204 });
+  });
+  assert.deepEqual(requests, [{
+    url: "http://127.0.0.1:4444/sessions/session%201/select-terminal-plan",
+    init: {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-orkworks-open-plan-token": "private-token" },
+      body: JSON.stringify({ printedPath: "specs/plan.md" }),
+    },
   }]);
 });
 

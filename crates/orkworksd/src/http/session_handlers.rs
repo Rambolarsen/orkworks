@@ -1,5 +1,5 @@
 use crate::harness::registry::ResolvedHarness;
-use crate::plan_handoff::{normalize_reported_plan_path, resolve_openable_plan, resolve_printed_plan_path};
+use crate::plan_handoff::{normalize_reported_plan_path, resolve_openable_plan_reference, resolve_printed_plan_path};
 use crate::session_types::{MemoryState, SessionInfo};
 use crate::session_view::{
     connectivity_for_status, derive_memory_state, detect_conflicts, merge_live_session_info,
@@ -135,7 +135,7 @@ pub(crate) async fn get_session_plan_content(
         };
         (workspace.path.clone(), plan_path)
     };
-    match resolve_openable_plan(&workspace_root, &plan_path)
+    match resolve_openable_plan_reference(&workspace_root, &plan_path)
         .and_then(|path| std::fs::read_to_string(path).map_err(|error| error.to_string()))
     {
         Ok(content) => Json(PlanContentResponse { content }).into_response(),
@@ -149,16 +149,28 @@ pub(crate) async fn request_session_plan_review(
     headers: HeaderMap,
 ) -> impl IntoResponse {
     if let Err(status) = authorize_plan_request(&headers) { return status.into_response(); }
-    let relative = {
+    let plan_path = {
         let workspace = state.workspace.lock().unwrap();
         let Some(workspace) = workspace.as_ref() else { return axum::http::StatusCode::CONFLICT.into_response(); };
         let Some(meta) = workspace.metadata.read_session(&id) else { return axum::http::StatusCode::NOT_FOUND.into_response(); };
         if meta.lifecycle != "alive" { return axum::http::StatusCode::CONFLICT.into_response(); }
         let Some(path) = meta.plan_path else { return axum::http::StatusCode::CONFLICT.into_response(); };
-        if resolve_openable_plan(&workspace.path, &path).is_err() { return axum::http::StatusCode::CONFLICT.into_response(); }
-        path
+        let resolved = match resolve_openable_plan_reference(&workspace.path, &path) {
+            Ok(path) => path,
+            Err(_) => return axum::http::StatusCode::CONFLICT.into_response(),
+        };
+        let launch_root = std::path::Path::new(&meta.cwd).canonicalize().ok();
+        let selected_root = path
+            .worktree_root
+            .as_deref()
+            .and_then(|root| std::path::Path::new(root).canonicalize().ok());
+        if selected_root.is_some() && selected_root != launch_root {
+            resolved.to_string_lossy().into_owned()
+        } else {
+            path.relative_path
+        }
     };
-    let prompt = format!("Please review the plan or specification at {relative}. If your tooling can spawn a separate review subagent, delegate the review to it instead of reviewing your own work; otherwise review it yourself. Check for missing requirements, risky assumptions, and unclear steps, then report the findings.\r");
+    let prompt = format!("Please review the plan or specification at {plan_path}. If your tooling can spawn a separate review subagent, delegate the review to it instead of reviewing your own work; otherwise review it yourself. Check for missing requirements, risky assumptions, and unclear steps, then report the findings.\r");
     match crate::runtime::terminal_runtime::submit_approved_input(&state, &id, prompt).await {
         Ok(()) => {
             if let Some(workspace) = state.workspace.lock().unwrap().as_ref() {
@@ -211,9 +223,16 @@ pub(crate) async fn report_session_plan_path(
         let Some(workspace) = workspace.as_ref() else { return Err(axum::http::StatusCode::CONFLICT); };
         let Some(mut metadata) = workspace.metadata.read_session(&id) else { return Err(axum::http::StatusCode::NOT_FOUND); };
         if metadata.lifecycle != "alive" { return Err(axum::http::StatusCode::CONFLICT); }
+        if metadata.plan_path.as_ref().is_some_and(|reference| reference.source == metadata::PlanSource::UserSelected) {
+            return Ok(());
+        }
         let relative = normalize_reported_plan_path(&workspace.path, &req.plan_path)
             .map_err(|_| axum::http::StatusCode::BAD_REQUEST)?;
-        metadata.plan_path = Some(metadata::PlanReference { worktree_root: None, relative_path: relative, source: metadata::PlanSource::HookReported });
+        metadata.plan_path = Some(metadata::PlanReference {
+            worktree_root: Some(workspace.path.to_string_lossy().into_owned()),
+            relative_path: relative,
+            source: metadata::PlanSource::HookReported,
+        });
         // The session JSON is the source of truth. Use the fallible writer
         // and only append the hooked event when the write actually
         // landed, so the event log cannot claim a path association that
@@ -1439,11 +1458,11 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
                 let mut merged =
                     merge_live_session_info(info, meta, peon_times.get(&id), resolved_harness);
                 merged.has_openable_plan = meta
-                    .and_then(|metadata| metadata.plan_path.as_deref())
-                    .and_then(|path| {
+                    .and_then(|metadata| metadata.plan_path.as_ref())
+                    .and_then(|reference| {
                         workspace_root
                             .as_deref()
-                            .map(|root| resolve_openable_plan(root, path).is_ok())
+                            .map(|root| resolve_openable_plan_reference(root, reference).is_ok())
                     });
                 let fresh_output_since_origin = origin
                     .map(|(line_count, scan_len)| {
@@ -1652,10 +1671,10 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
                 resume_latest_repo,
             ),
             resumed_from: meta.resumed_from.clone(),
-            has_openable_plan: meta.plan_path.as_deref().and_then(|path| {
+            has_openable_plan: meta.plan_path.as_ref().and_then(|reference| {
                 workspace_root
                     .as_deref()
-                    .map(|root| resolve_openable_plan(root, path).is_ok())
+                    .map(|root| resolve_openable_plan_reference(root, reference).is_ok())
             }),
             provider: meta.provider_label.clone(),
             provider_model: meta.provider_model.clone(),

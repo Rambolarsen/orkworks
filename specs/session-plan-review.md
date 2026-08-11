@@ -15,7 +15,7 @@ OrkWorks should let a user read and explicitly request review of a plan or speci
 - The selected session's Details panel shows a card whenever the associated artifact remains readable. It says **Plan ready for review** when the session needs the user and **Plan available** otherwise.
 - **Review plan** selects a single reusable Review tab beside Terminal and renders that artifact. It never creates a document tab per file.
 - **Request independent review** is available only for a live selected session. The user click is the explicit approval: Electron main calls a sidecar endpoint authenticated with its per-sidecar secret; the sidecar revalidates the stored path and writes one fixed review prompt plus Enter to that session's PTY.
-- The renderer provides only a session ID. It cannot provide a path, command, or arbitrary terminal text. The sidecar appends an event recording the user-approved review handoff.
+- For review requests, the renderer provides only a session ID and cannot supply a path, command, or arbitrary terminal text. The terminal-link selection IPC is the narrow exception: it may pass the exact clicked path text with its session ID, and the sidecar remains responsible for all resolution and validation. The sidecar appends an event recording each user-approved handoff.
 
 ## Prompt
 

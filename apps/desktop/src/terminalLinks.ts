@@ -8,7 +8,11 @@ export function terminalLinkHandler(openExternal: (url: string) => Promise<void>
   };
 }
 
-const PLAN_PATH = /(?:docs\/superpowers\/(?:plans|specs)|specs)\/[\w./-]+\.md\b/g;
+const PLAN_PATH = /(?:\/(?:[\w.-]+\/)*(?:docs\/superpowers\/(?:plans|specs)|specs)\/[\w./-]+\.md|(?:docs\/superpowers\/(?:plans|specs)|specs)\/[\w./-]+\.md)\b/g;
+
+export function terminalPlanPaths(line: string): string[] {
+  return [...line.matchAll(PLAN_PATH)].map((match) => match[0]);
+}
 
 export function createTerminalPlanLinkProvider(
   terminal: Terminal,
