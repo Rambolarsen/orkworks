@@ -7,6 +7,7 @@ import test from 'node:test';
 const repoRoot = resolve(new URL('../../..', import.meta.url).pathname);
 const hooksPath = resolve(repoRoot, '.codex/hooks.json');
 const hooks = JSON.parse(readFileSync(hooksPath, 'utf8'));
+const expectedStopCommand = 'ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd); bash "$ROOT/.codex/hooks/doc-check-stop.sh"';
 
 function collectCommands(value, commands = []) {
   if (Array.isArray(value)) {
@@ -30,6 +31,17 @@ function runStopHook(environment = {}) {
     encoding: 'utf8',
   });
 }
+
+test('Codex hooks define exactly one unchanged Stop command hook', () => {
+  assert.deepEqual(Object.keys(hooks.hooks), ['Stop']);
+  assert.equal(hooks.hooks.Stop.length, 1);
+  assert.deepEqual(hooks.hooks.Stop[0], {
+    hooks: [{
+      type: 'command',
+      command: expectedStopCommand,
+    }],
+  });
+});
 
 test('Codex hooks contain only supported generated hook commands', () => {
   const staleCommand = collectCommands(hooks).find((command) =>
