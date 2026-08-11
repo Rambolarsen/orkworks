@@ -28,6 +28,7 @@ contextBridge.exposeInMainWorld("orkworks", {
   openExternalLink: (url: string): Promise<void> => ipcRenderer.invoke("open-external-link", url),
   getPlanContent: (sessionId: string): Promise<string> => ipcRenderer.invoke("get-plan-content", sessionId),
   requestPlanReview: (sessionId: string): Promise<void> => ipcRenderer.invoke("request-plan-review", sessionId),
+  selectTerminalPlan: (sessionId: string, printedPath: string): Promise<void> => ipcRenderer.invoke("select-terminal-plan", sessionId, printedPath),
   setHotkeyCaptureActive: (active: boolean) => {
     ipcRenderer.send("orkworks:hotkey-capture-active", active);
   },

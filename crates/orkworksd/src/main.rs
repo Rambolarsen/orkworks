@@ -42,7 +42,7 @@ use crate::http::provider_handlers::{
 use crate::http::retention_handlers::set_retention;
 use crate::http::session_handlers::{
     apply_debug_attention, create_session, delete_session, forget_session, list_sessions,
-get_session_plan_content, request_session_plan_review, report_attention, report_harness_session, report_session_plan_path, resume_session,
+get_session_plan_content, request_session_plan_review, report_attention, report_harness_session, report_session_plan_path, resume_session, select_terminal_plan,
     set_active_harnesses, set_active_session, set_workspace,
 };
 use crate::runtime::peon_runtime::peon_loop;
@@ -248,6 +248,7 @@ pub(crate) fn build_router(state: Arc<AppState>) -> Router {
         .route("/sessions/:id/harness-session", post(report_harness_session))
         .route("/sessions/:id/attention", post(report_attention))
         .route("/sessions/:id/plan-path", post(report_session_plan_path))
+        .route("/sessions/:id/select-terminal-plan", post(select_terminal_plan))
         .route("/sessions/:id/debug-injection", post(apply_debug_attention))
         .route("/sessions/:id/plan-content", get(get_session_plan_content))
         .route(

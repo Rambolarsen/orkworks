@@ -1,5 +1,5 @@
 use crate::harness::registry::ResolvedHarness;
-use crate::plan_handoff::{normalize_reported_plan_path, resolve_openable_plan};
+use crate::plan_handoff::{normalize_reported_plan_path, resolve_openable_plan, resolve_printed_plan_path};
 use crate::session_types::{MemoryState, SessionInfo};
 use crate::session_view::{
     connectivity_for_status, derive_memory_state, detect_conflicts, merge_live_session_info,
@@ -67,6 +67,12 @@ pub(crate) struct AttentionReportRequest {
 pub(crate) struct PlanPathReportRequest {
     #[serde(rename = "planPath")]
     pub(crate) plan_path: String,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct TerminalPlanSelectionRequest {
+    #[serde(rename = "printedPath")]
+    pub(crate) printed_path: String,
 }
 
 #[derive(Deserialize)]
@@ -165,6 +171,34 @@ pub(crate) async fn request_session_plan_review(
         }
         Err(()) => axum::http::StatusCode::CONFLICT.into_response(),
     }
+}
+
+pub(crate) async fn select_terminal_plan(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Json(req): Json<TerminalPlanSelectionRequest>,
+) -> impl IntoResponse {
+    if let Err(status) = authorize_plan_request(&headers) { return status.into_response(); }
+    let result = tokio::task::spawn_blocking(move || {
+        let workspace = state.workspace.lock().unwrap();
+        let Some(workspace) = workspace.as_ref() else { return Err(axum::http::StatusCode::CONFLICT); };
+        let Some(mut meta) = workspace.metadata.read_session(&id) else { return Err(axum::http::StatusCode::NOT_FOUND); };
+        let (worktree_root, relative_path) = resolve_printed_plan_path(std::path::Path::new(&meta.cwd), &req.printed_path)
+            .map_err(|_| axum::http::StatusCode::CONFLICT)?;
+        meta.plan_path = Some(metadata::PlanReference {
+            worktree_root: Some(worktree_root.to_string_lossy().into_owned()),
+            relative_path,
+            source: metadata::PlanSource::UserSelected,
+        });
+        workspace.metadata.try_write_session(&meta).map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
+        workspace.metadata.append_event(&id, &metadata::Event {
+            event_type: "session.plan_selected_by_user".into(), timestamp: iso_now(), status: meta.status.clone(),
+            observed_status: meta.observed_status.clone(), confidence: Some(1.0), summary: None, source: Some("user".into()),
+        });
+        Ok(())
+    }).await;
+    match result { Ok(Ok(())) => axum::http::StatusCode::NO_CONTENT.into_response(), Ok(Err(status)) => status.into_response(), Err(_) => axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response() }
 }
 
 pub(crate) async fn report_session_plan_path(
