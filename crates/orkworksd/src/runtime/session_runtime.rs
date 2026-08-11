@@ -1720,10 +1720,20 @@ mod tests {
         let output_tx = runtime.output_tx.clone();
         let mut events = output_tx.subscribe();
 
+        // Deliberately `-c`, not `-lc`: this assertion depends on the marker
+        // being the *first* visible PTY chunk (consume_pending_work_signal
+        // qualifies on the first non-echo visible output it sees). A login
+        // shell sources profile scripts that can print their own banner
+        // before this printf runs — e.g. an nvm init script — which then
+        // gets consumed as the "genuine" signal instead of the real marker,
+        // so the promotion this test exists to verify never fires. The test
+        // only needs a shell that can sleep and printf; it has no PATH/login
+        // dependency, so `-c` is both sufficient and immune to this class of
+        // environment-specific test failure.
         let command = harness::CommandSpec {
             program: "/bin/sh".into(),
             args: vec![
-                "-lc".into(),
+                "-c".into(),
                 "sleep 2.2; printf 'model-output-after-bare-key\\n'; sleep 1".into(),
             ],
             cwd: dir.path().display().to_string(),
