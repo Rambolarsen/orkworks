@@ -1729,7 +1729,7 @@ mod tests {
         // so the promotion this test exists to verify never fires. The test
         // only needs a shell that can sleep and printf; it has no PATH/login
         // dependency, so `-c` is both sufficient and immune to this class of
-        // environment-specific false positive.
+        // environment-specific test failure.
         let command = harness::CommandSpec {
             program: "/bin/sh".into(),
             args: vec![
