@@ -1,4 +1,5 @@
 import type { IBufferLine, ILinkHandler, ILinkProvider, Terminal } from "@xterm/xterm";
+import { pushToast } from "./feedback.ts";
 
 export function terminalLinkHandler(openExternal: (url: string) => Promise<void>): ILinkHandler {
   return {
@@ -76,7 +77,12 @@ export function createTerminalPlanLinkProvider(
             start: { x: columnForTextOffset(start.part.line, start.offset), y: start.part.y },
             end: { x: columnForTextOffset(end.part.line, end.offset), y: end.part.y },
           },
-          activate: () => { void onPlanPath(path).catch((error) => console.error("[terminal] couldn't select plan", error)); },
+          activate: () => {
+            void onPlanPath(path).catch((error) => {
+              console.error("[terminal] couldn't select plan", error);
+              pushToast("error", error instanceof Error ? error.message : "Couldn't open this plan.");
+            });
+          },
         };
       }).filter((link): link is NonNullable<typeof link> => link !== undefined);
       callback(links.length ? links : undefined);

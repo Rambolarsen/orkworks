@@ -14,6 +14,12 @@ fn git_common_dir(path: &Path) -> Result<PathBuf, String> {
     Ok(git_dir)
 }
 
+fn is_supported_plan_path(relative: &Path) -> bool {
+    relative.starts_with("docs/superpowers/plans")
+        || relative.starts_with("docs/superpowers/specs")
+        || relative.starts_with("specs")
+}
+
 pub(crate) fn resolve_printed_plan_path(launch_root: &Path, printed_path: &str) -> Result<(PathBuf, String), String> {
     if printed_path.chars().any(char::is_control) { return Err("plan path must not contain control characters".into()); }
     let printed = Path::new(printed_path);
@@ -26,7 +32,7 @@ pub(crate) fn resolve_printed_plan_path(launch_root: &Path, printed_path: &str) 
     if candidate_repo != git_common_dir(&launch_root)? { return Err("plan path is outside the session repository worktree family".into()); }
     let root = git2::Repository::discover(&candidate).map_err(|error| error.to_string())?.workdir().ok_or("plan repository is bare")?.canonicalize().map_err(|error| error.to_string())?;
     let relative = candidate.strip_prefix(&root).map_err(|_| "plan path is outside its worktree".to_string())?;
-    if !candidate.is_file() || !candidate.extension().is_some_and(|extension| extension.eq_ignore_ascii_case("md")) || !(relative.starts_with("docs/superpowers/plans") || relative.starts_with("docs/superpowers/specs") || relative.starts_with("specs")) { return Err("plan path is not a supported plan or specification".into()); }
+    if !candidate.is_file() || !candidate.extension().is_some_and(|extension| extension.eq_ignore_ascii_case("md")) || !is_supported_plan_path(relative) { return Err("plan path is not a supported plan or specification".into()); }
     Ok((root, relative.to_str().ok_or("plan path is not valid UTF-8")?.to_owned()))
 }
 
@@ -148,6 +154,7 @@ pub(crate) fn resolve_openable_plan_reference(
         || !candidate
             .extension()
             .is_some_and(|extension| extension.eq_ignore_ascii_case("md"))
+        || !is_supported_plan_path(relative)
     {
         return Err("plan path is not an openable worktree Markdown file".into());
     }
@@ -196,9 +203,7 @@ pub(crate) fn normalize_reported_plan_path(
         || !candidate
             .extension()
             .is_some_and(|extension| extension.eq_ignore_ascii_case("md"))
-        || !(relative.starts_with("docs/superpowers/plans")
-            || relative.starts_with("docs/superpowers/specs")
-            || relative.starts_with("specs"))
+        || !is_supported_plan_path(relative)
     {
         return Err("plan path is not a supported plan or specification".into());
     }
@@ -392,9 +397,16 @@ mod tests {
 
         let escaped = PlanReference {
             relative_path: "../selected.md".into(),
-            ..reference
+            ..reference.clone()
         };
         assert!(resolve_openable_plan_reference(workspace.path(), &escaped).is_err());
+
+        fs::write(workspace.path().join("notes.md"), "# notes").unwrap();
+        let tampered = PlanReference {
+            relative_path: "notes.md".into(),
+            ..reference
+        };
+        assert!(resolve_openable_plan_reference(workspace.path(), &tampered).is_err());
     }
 
     #[test]

@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import xterm from "@xterm/xterm";
+import { dismissToast, subscribeToasts } from "../src/feedback.ts";
 import { createTerminalPlanLinkProvider, terminalLinkHandler, terminalPlanPaths } from "../src/terminalLinks.ts";
 
 const { Terminal } = xterm;
@@ -54,5 +55,20 @@ test("uses xterm cell widths for a path after a wide character", async () => {
   const links = await new Promise<any>((resolve) => provider.provideLinks(1, resolve));
   const wideCellWidth = terminal.buffer.active.getLine(0)?.getCell(0)?.getWidth() ?? 1;
   assert.equal(links?.[0]?.range.start.x, wideCellWidth + 2);
+  terminal.dispose();
+});
+
+test("shows a visible error when selecting a terminal plan fails", async () => {
+  const terminal = new Terminal({ cols: 80, rows: 2 });
+  await new Promise<void>((resolve) => terminal.write("specs/plan.md", resolve));
+  const provider = createTerminalPlanLinkProvider(terminal, async () => { throw new Error("Couldn't open this plan."); });
+  const links = await new Promise<any>((resolve) => provider.provideLinks(1, resolve));
+  let current: readonly { id: string; message: string }[] = [];
+  const unsubscribe = subscribeToasts((toasts) => { current = toasts; });
+  links[0].activate();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(current.at(-1)?.message, "Couldn't open this plan.");
+  for (const toast of current) dismissToast(toast.id);
+  unsubscribe();
   terminal.dispose();
 });
