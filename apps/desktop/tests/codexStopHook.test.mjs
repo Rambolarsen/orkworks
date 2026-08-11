@@ -63,8 +63,8 @@ test('Codex Stop hook emits diagnostic output as a system message', () => {
 
   assert.deepEqual(JSON.parse(runStopHook({
     ORKWORKS_DOC_CHECK_OUTPUT: message,
-    ORKWORKS_DOC_CHECK_EXIT_CODE: '1',
-  })), { systemMessage: `[doc-check] Hook failed with exit 1.\n${message}` });
+    ORKWORKS_DOC_CHECK_EXIT_CODE: '0',
+  })), { systemMessage: message });
 });
 
 test('Codex Stop hook reports numeric and invalid exit code values', () => {
