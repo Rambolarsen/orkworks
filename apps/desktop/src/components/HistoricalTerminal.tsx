@@ -6,7 +6,7 @@ import { getTerminalOutput } from "../api";
 import { loadTerminalReplay } from "../terminalReplay";
 import { computeReplayScale, availableContentBox } from "../terminalReplayScale";
 import { orkworksTerminalTheme } from "../terminalTheme";
-import { terminalLinkHandler } from "../terminalLinks";
+import { createTerminalPlanLinkProvider, terminalLinkHandler } from "../terminalLinks";
 import EmptyState from "./EmptyState";
 
 type ReplayState = "loading" | "empty" | "error" | "loaded";
@@ -45,6 +45,10 @@ export default function HistoricalTerminal({ sessionId }: { sessionId: string })
             linkHandler: terminalLinkHandler(window.orkworks.openExternalLink),
             ...(hasFixedSize ? { cols, rows } : {}),
           });
+          terminal.registerLinkProvider(createTerminalPlanLinkProvider(terminal, async (path) => {
+            await window.orkworks.selectTerminalPlan(sessionId, path);
+            window.dispatchEvent(new CustomEvent("orkworks:terminal-plan-selected", { detail: { sessionId } }));
+          }));
           if (!container) return terminal;
           terminal.open(container);
 

@@ -287,6 +287,17 @@ function App() {
     panel?.api.setActive();
   }, []);
 
+  useEffect(() => {
+    const onSelected = (event: Event) => {
+      const sessionId = (event as CustomEvent<{ sessionId?: unknown }>).detail?.sessionId;
+      if (typeof sessionId !== "string") return;
+      setActiveSessionId(sessionId);
+      void refreshSessions().then(handleReviewPlan);
+    };
+    window.addEventListener("orkworks:terminal-plan-selected", onSelected);
+    return () => window.removeEventListener("orkworks:terminal-plan-selected", onSelected);
+  }, [handleReviewPlan, refreshSessions]);
+
   const handleResumeSession = useCallback(async (id: string) => {
     try {
       disposeTerminal(id);
