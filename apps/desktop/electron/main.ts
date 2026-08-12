@@ -11,7 +11,7 @@ import { DEFAULT_HOTKEYS, DEFAULT_RETENTION, normalizeDebugSettings, normalizePr
 import { pushProviderSettings } from "./providerSettingsSync";
 import type { ProviderSettings } from "./providerTypes";
 import { buildMenuTemplate } from "./menuTemplate";
-import { getSessionPlanContent, requestSessionPlanReview } from "./planOpener";
+import { getSessionPlanContent, requestSessionPlanReview, selectTerminalPlan } from "./planOpener";
 import { configureExternalLinks, openExternalLink } from "./externalLinks";
 
 app.setName("OrkWorks");
@@ -343,6 +343,11 @@ app.whenReady().then(() => {
     if (typeof sessionId !== "string" || !sessionId) throw new Error("Invalid session ID.");
     const port = await portPromise;
     await requestSessionPlanReview(`http://127.0.0.1:${port}`, sessionId, openPlanToken, fetch);
+  });
+  ipcMain.handle("select-terminal-plan", async (_event, sessionId: unknown, printedPath: unknown) => {
+    if (typeof sessionId !== "string" || !sessionId || typeof printedPath !== "string" || !printedPath) throw new Error("Invalid plan selection.");
+    const port = await portPromise;
+    await selectTerminalPlan(`http://127.0.0.1:${port}`, sessionId, printedPath, openPlanToken, fetch);
   });
 
   const integrationActionLabels: Record<"status" | "install" | "uninstall", string> = {

@@ -5,7 +5,7 @@ import { terminalPtySize } from "./terminalSize";
 import { orkworksTerminalTheme } from "./terminalTheme";
 import { getTerminalOutput } from "./api";
 import { writeTerminalReplay } from "./terminalReplay";
-import { terminalLinkHandler } from "./terminalLinks";
+import { createTerminalPlanLinkProvider, terminalLinkHandler } from "./terminalLinks";
 import {
   parseTerminalControlMessage,
   shouldReplayTerminalOutputOnClose,
@@ -64,6 +64,10 @@ export function ensureTerminal(id: string, baseUrl: string): TerminalHandle {
 
   const fitAddon = new FitAddon();
   term.loadAddon(fitAddon);
+  term.registerLinkProvider(createTerminalPlanLinkProvider(term, async (path) => {
+    await window.orkworks.selectTerminalPlan(id, path);
+    window.dispatchEvent(new CustomEvent("orkworks:terminal-plan-selected", { detail: { sessionId: id } }));
+  }));
 
   try {
     const webglAddon = new WebglAddon();
