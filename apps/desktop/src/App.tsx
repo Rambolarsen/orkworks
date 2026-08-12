@@ -9,6 +9,7 @@ import { EMPTY_UNREAD_STATE, clearUnread, trackUnread, type UnreadState } from "
 import { PANEL_DEFAULTS, buildDefaultLayout } from "./components/DockviewApp";
 import { VOCAB } from "./labels";
 import { pushToast } from "./feedback";
+import { activeNewSessionHarnesses } from "./newSessionDialogState";
 import {
   type SessionInfo,
   type SessionAttention,
@@ -140,9 +141,7 @@ function App() {
     loadHarnesses();
   }, [backendStatus]);
 
-  const filteredHarnesses = activeHarnessIds.length === 0
-    ? harnesses.filter((h) => h.id === "generic-shell")
-    : harnesses.filter((h) => h.id === "generic-shell" || activeHarnessIds.includes(h.id));
+  const filteredHarnesses = activeNewSessionHarnesses(harnesses, activeHarnessIds);
 
   const handleSaveActiveHarnesses = useCallback(async (ids: string[]) => {
     try {

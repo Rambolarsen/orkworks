@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { HarnessConfig, CreateSessionOptions } from "../harnessTypes";
 import type { ProviderModelsResponse } from "../providerTypes";
 import type { ProviderRuntimeResponse } from "../api";
-import { canStartNewSession, syncDraftWithHarnesses, type NewSessionDraft } from "../newSessionDialogState";
+import { canStartNewSession, selectableHarnesses, syncDraftWithHarnesses, type NewSessionDraft } from "../newSessionDialogState";
 
 interface NewSessionDialogProps {
   harnesses: HarnessConfig[];
@@ -35,6 +35,7 @@ function resolveInitialDraft(harnesses: HarnessConfig[]) {
 }
 
 export default function NewSessionDialog({ harnesses, providerRuntime, onConfirm, onCancel }: NewSessionDialogProps) {
+  const selectable = selectableHarnesses(harnesses);
   const [draft, setDraft] = useState(() => resolveInitialDraft(harnesses));
   const [initialPrompt, setInitialPrompt] = useState("");
   const [models, setModels] = useState<string[]>([]);
@@ -75,7 +76,7 @@ export default function NewSessionDialog({ harnesses, providerRuntime, onConfirm
   }, [draft.harnessId]);
 
   function handleHarnessChange(id: string) {
-    const h = harnesses.find((h) => h.id === id);
+    const h = selectable.find((h) => h.id === id);
     setDraft({
       harnessId: id,
       model: h?.defaultModel ?? "",
@@ -134,12 +135,12 @@ export default function NewSessionDialog({ harnesses, providerRuntime, onConfirm
               className="new-session-select"
               value={draft.harnessId}
               onChange={(e) => handleHarnessChange(e.target.value)}
-              disabled={harnesses.length === 0}
+              disabled={selectable.length === 0}
             >
-              {harnesses.length === 0 ? (
+              {selectable.length === 0 ? (
                 <option value="">Default shell</option>
               ) : (
-                harnesses.map((h) => {
+                selectable.map((h) => {
                   const state = providerRuntime?.providers.find((p) => p.id === h.id)?.effectiveState;
                   return <option key={h.id} value={h.id}>{harnessLabel(h.name, state)}</option>;
                 })

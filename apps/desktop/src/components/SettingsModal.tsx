@@ -4,6 +4,7 @@ import type { AppSettings, DebugSettings, HotkeySettings, RetentionSettings, Sav
 import type { ProviderSettings, ProviderModelsResponse, OllamaVerificationResponse } from "../providerTypes";
 import type { ProviderRuntimeResponse } from "../api";
 import type { HarnessConfig } from "../harnessTypes";
+import { selectableHarnesses } from "../newSessionDialogState";
 import ProviderSettingsSection from "./ProviderSettingsSection";
 import HarnessIntegrationSection from "./HarnessIntegrationSection";
 
@@ -288,7 +289,11 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
   async function saveActiveHarnessesHandler() {
     setActiveSaveStatus(null);
     try {
-      await onSaveActiveHarnesses(activeDraft);
+      const normalizedActiveDraft = activeDraft.filter((id) =>
+        harnesses.some((harness) => harness.id === id && !harness.retired),
+      );
+      await onSaveActiveHarnesses(normalizedActiveDraft);
+      setActiveDraft(normalizedActiveDraft);
       setActiveSaveStatus("Saved");
     } catch {
       setActiveSaveStatus("Couldn't save active coding tools.");
@@ -329,7 +334,7 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
           </p>
 
           <div className="settings-config-list">
-            {harnesses
+            {selectableHarnesses(harnesses)
               .filter((h) => h.id !== "generic-shell")
               .sort((a, b) => a.name.localeCompare(b.name))
               .map((h) => (

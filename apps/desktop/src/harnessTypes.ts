@@ -7,6 +7,7 @@ export type HarnessLaunch =
 export interface HarnessConfig {
   id: string;
   name: string;
+  retired: boolean;
   launch: HarnessLaunch;
   defaultModel: string | null;
   resume: unknown;

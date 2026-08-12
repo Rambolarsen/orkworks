@@ -11,6 +11,8 @@ pub(crate) const EMBEDDED_BUILTINS: &str = include_str!("../../resources/harness
 pub(crate) struct HarnessDefinition {
     pub id: String,
     pub name: String,
+    #[serde(default)]
+    pub retired: bool,
     pub launch: LaunchCapability,
     pub default_model: Option<String>,
     pub resume: Option<ResumeCapability>,
@@ -757,6 +759,7 @@ mod tests {
                 "claude-code",
                 "opencode",
                 "codex",
+                "antigravity",
                 "gemini",
                 "aider",
                 "copilot",
@@ -773,6 +776,8 @@ mod tests {
             .definition
             .integration
             .is_none());
+        assert!(resolved.get("gemini").unwrap().definition.retired);
+        assert!(!resolved.get("antigravity").unwrap().definition.retired);
     }
 
     #[test]

@@ -436,6 +436,7 @@ fn legacy_definition(
     HarnessDefinition {
         id,
         name: entry.name,
+        retired: false,
         launch: LaunchCapability::CommandTemplate {
             command: entry.command,
             args: entry.args,
