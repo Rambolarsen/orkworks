@@ -23,6 +23,8 @@ export interface TerminalHandle {
   fitAddon: FitAddon;
   wrapper: HTMLDivElement;
   ended: boolean;
+  /** Set once the server reports the terminal transport itself can't be attached (distinct from `ended`, which means the session's process is gone). Keeps later effects from re-enabling stdin on a handle whose socket is already dead. */
+  unavailable: boolean;
   disposed: boolean;
   pendingInput: string;
   pendingInputOverflowed: boolean;
@@ -113,6 +115,7 @@ export function ensureTerminal(id: string, baseUrl: string): TerminalHandle {
     fitAddon,
     wrapper,
     ended: false,
+    unavailable: false,
     disposed: false,
     pendingInput: "",
     pendingInputOverflowed: false,
@@ -166,6 +169,7 @@ export function ensureTerminal(id: string, baseUrl: string): TerminalHandle {
       case "terminal-unavailable":
         term.options.disableStdin = true;
         term.options.cursorBlink = false;
+        handle.unavailable = true;
         term.writeln(`\r\n[terminal unavailable: ${message.reason}]`);
         break;
       case "input-dropped":

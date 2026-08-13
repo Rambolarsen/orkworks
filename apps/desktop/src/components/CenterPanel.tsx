@@ -1,17 +1,25 @@
 import { useEffect, useRef, useCallback } from "react";
 import "@xterm/xterm/css/xterm.css";
 import { disposeTerminal, ensureTerminal, getTerminal } from "../terminalStore";
+import { computeTerminalInteractivity } from "../terminalPresentation";
 import EmptyState from "./EmptyState";
 
 interface CenterPanelProps {
   backendStatus: string;
   sessionId: string | null;
+  starting: boolean;
 }
 
-function CenterPanel({ backendStatus, sessionId }: CenterPanelProps) {
+function CenterPanel({ backendStatus, sessionId, starting }: CenterPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const activeIdRef = useRef<string | null>(null);
+  const startingRef = useRef(starting);
+  startingRef.current = starting;
 
+  // Deliberately has no `starting` dependency: the attach effect below re-runs
+  // whenever this callback's identity changes, and it unconditionally refocuses
+  // the terminal — depending on `starting` here would steal focus from wherever
+  // the user is typing every time a background session finishes starting.
   const attachTerminal = useCallback((id: string) => {
     const container = containerRef.current;
     const handle = getTerminal(id);
@@ -31,6 +39,13 @@ function CenterPanel({ backendStatus, sessionId }: CenterPanelProps) {
 
     activeIdRef.current = id;
 
+    const { disableStdin, cursorBlink } = computeTerminalInteractivity({
+      starting: startingRef.current,
+      ended: handle.ended || handle.unavailable,
+    });
+    handle.terminal.options.disableStdin = disableStdin;
+    handle.terminal.options.cursorBlink = cursorBlink;
+
     try {
       handle.fitAddon.fit();
     } catch {
@@ -38,10 +53,19 @@ function CenterPanel({ backendStatus, sessionId }: CenterPanelProps) {
     }
     const listEl = document.getElementById("sessions-list");
     const listHasFocus = !!listEl && listEl.contains(document.activeElement);
-    if (!handle.ended && !listHasFocus) {
+    if (!handle.ended && !handle.unavailable && !listHasFocus) {
       handle.terminal.focus();
     }
   }, []);
+
+  useEffect(() => {
+    if (backendStatus !== "connected" || !sessionId) return;
+    const handle = getTerminal(sessionId);
+    if (!handle || handle.ended || handle.unavailable) return;
+    const { disableStdin, cursorBlink } = computeTerminalInteractivity({ starting, ended: false });
+    handle.terminal.options.disableStdin = disableStdin;
+    handle.terminal.options.cursorBlink = cursorBlink;
+  }, [starting, sessionId, backendStatus]);
 
   useEffect(() => {
     const previousId = activeIdRef.current;
@@ -102,7 +126,8 @@ function CenterPanel({ backendStatus, sessionId }: CenterPanelProps) {
     return <EmptyState message="Connecting to OrkWorks…" />;
   }
 
-  const ended = sessionId ? getTerminal(sessionId)?.ended : false;
+  const terminalHandle = sessionId ? getTerminal(sessionId) : undefined;
+  const ended = terminalHandle ? terminalHandle.ended || terminalHandle.unavailable : false;
 
   return (
     <div
@@ -116,6 +141,16 @@ function CenterPanel({ backendStatus, sessionId }: CenterPanelProps) {
         ref={containerRef}
         className={`terminal-container${ended ? " terminal-container--ended" : ""}`}
       />
+      {starting && !ended && (
+        <div className="terminal-starting-overlay" role="status" aria-live="polite">
+          Starting session
+          <span className="starting-dots" aria-hidden="true">
+            <span>.</span>
+            <span>.</span>
+            <span>.</span>
+          </span>
+        </div>
+      )}
     </div>
   );
 }

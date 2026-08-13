@@ -45,7 +45,7 @@ test("TerminalPanel uses read-only replay only for dead sessions", () => {
 
   assert.match(source, /renderTerminalPresentation/);
   assert.match(source, /<HistoricalTerminal sessionId=\{session\.id\} \/>/);
-  assert.match(source, /\(\) => <CenterPanel backendStatus=\{backendStatus\} sessionId=\{session\.id\} \/>/);
+  assert.match(source, /<CenterPanel[\s\S]*?backendStatus=\{backendStatus\}[\s\S]*?sessionId=\{session\.id\}[\s\S]*?\/>/);
 });
 
 test("HistoricalTerminal loads output without opening an interactive terminal transport", () => {
@@ -641,6 +641,48 @@ test("SettingsModal includes a Model providers section above Hotkeys", () => {
   assert.match(source, /providerDraft/);
   assert.match(source, /provider-model-select/);
   assert.match(source, /getProviderModels/);
+});
+
+test("TerminalPanel marks CenterPanel as starting while the session is still being created", () => {
+  const source = readFileSync(new URL("../src/components/TerminalPanel.tsx", import.meta.url), "utf8");
+  assert.match(source, /starting=\{session\.status === "creating"\}/);
+});
+
+test("CenterPanel disables stdin and shows a loading overlay while starting, instead of an interactable blank terminal", () => {
+  const source = readFileSync(new URL("../src/components/CenterPanel.tsx", import.meta.url), "utf8");
+  assert.match(source, /computeTerminalInteractivity/);
+  assert.match(source, /terminal-starting-overlay/);
+  assert.match(source, /starting-dots/);
+});
+
+test("terminal starting overlay exposes role=status so assistive tech announces it like other live regions", () => {
+  const source = readFileSync(new URL("../src/components/CenterPanel.tsx", import.meta.url), "utf8");
+  const overlay = source.match(/<div className="terminal-starting-overlay"[^>]*>/)?.[0] ?? "";
+  assert.match(overlay, /role="status"/);
+});
+
+test("the starting overlay's render-time ended check also treats an unavailable terminal as ended, so a rejected attach on a still-creating session doesn't strand the overlay on screen forever", () => {
+  const source = readFileSync(new URL("../src/components/CenterPanel.tsx", import.meta.url), "utf8");
+  assert.match(source, /terminalHandle\.ended \|\| terminalHandle\.unavailable/);
+});
+
+test("attachTerminal keeps a stable identity across starting transitions, so a session finishing setup in the background does not steal focus from the user", () => {
+  const source = readFileSync(new URL("../src/components/CenterPanel.tsx", import.meta.url), "utf8");
+
+  const start = source.indexOf("const attachTerminal = useCallback(");
+  const bodyEnd = source.indexOf("\n  }, [", start);
+  const depsStart = bodyEnd + "\n  }, [".length;
+  const depsEnd = source.indexOf("]);", depsStart);
+  const deps = source.slice(depsStart, depsEnd);
+
+  assert.equal(
+    deps.trim(),
+    "",
+    "attachTerminal's useCallback deps must stay empty — depending on `starting` re-triggers the attach " +
+      "effect (backendStatus/sessionId/attachTerminal) on every creating→running transition, which " +
+      "unconditionally calls terminal.focus() and steals focus from whatever the user is doing elsewhere " +
+      "in the app at that moment",
+  );
 });
 
 test("handleOpenWorkspace refreshes sessions before setting activeSessionId, so no consumer sees a real active id with an empty session list", () => {
