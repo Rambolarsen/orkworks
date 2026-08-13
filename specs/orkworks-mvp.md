@@ -424,7 +424,7 @@ Sessions should be prioritized:
   - OpenCode
   - Codex
   - Claude Code
-  - Gemini CLI
+  - Antigravity CLI
   - Aider
 - harness/model labels in UI
 - initial prompt/instruction injection or display
@@ -655,4 +655,12 @@ The MVP is not:
 - an automatic merge system
 - a cloud sync service
 - a universal billing tracker
-- a replacement for OpenCode, Claude Code, Codex CLI, Gemini CLI, or Aider
+- a replacement for OpenCode, Claude Code, Codex CLI, Antigravity CLI, or Aider
+
+Gemini CLI is retired for new sessions because its individual Code Assist tier
+is no longer supported. Its legacy `gemini` harness definition remains readable
+only to preserve existing session history and settings; OrkWorks does not launch
+or select it for new sessions. Antigravity CLI is the supported replacement and
+is launched as `agy`; it currently has no compiled integration, signal, voice,
+capacity, or model-selection capability beyond its documented launch and resume
+commands.

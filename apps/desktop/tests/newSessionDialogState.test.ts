@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { activeNewSessionHarnesses, canStartNewSession, syncDraftWithHarnesses } from "../src/newSessionDialogState.ts";
+import { activeNewSessionHarnesses, canStartNewSession, normalizeActiveHarnessIds, syncDraftWithHarnesses } from "../src/newSessionDialogState.ts";
 import type { HarnessConfig } from "../src/harnessTypes.ts";
 
 function harness(id: string, name = id, defaultModel = ""): HarnessConfig {
@@ -58,6 +58,21 @@ test("retired Gemini current drafts clear their model and add Antigravity to act
     activeNewSessionHarnesses(harnesses, ["gemini"]).map((entry) => entry.id),
     ["antigravity", "generic-shell"],
   );
+  assert.deepEqual(normalizeActiveHarnessIds(harnesses, ["gemini"]), ["antigravity"]);
+});
+
+test("retiring a custom harness does not enable Antigravity", () => {
+  const harnesses = [
+    { ...harness("custom", "Custom"), retired: true },
+    harness("antigravity", "Antigravity CLI"),
+    harness("generic-shell", "Shell"),
+  ];
+
+  assert.deepEqual(
+    activeNewSessionHarnesses(harnesses, ["custom"]).map((entry) => entry.id),
+    ["generic-shell"],
+  );
+  assert.deepEqual(normalizeActiveHarnessIds(harnesses, ["custom"]), []);
 });
 
 test("syncDraftWithHarnesses hydrates an empty draft when harnesses arrive later", () => {

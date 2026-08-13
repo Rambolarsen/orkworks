@@ -9,6 +9,20 @@ export function selectableHarnesses(harnesses: HarnessConfig[]): HarnessConfig[]
   return harnesses.filter((harness) => !harness.retired);
 }
 
+export function normalizeActiveHarnessIds(
+  harnesses: HarnessConfig[],
+  activeHarnessIds: string[],
+): string[] {
+  const antigravityAvailable = selectableHarnesses(harnesses).some(
+    (harness) => harness.id === "antigravity",
+  );
+  return activeHarnessIds.flatMap((id) => {
+    const harness = harnesses.find((entry) => entry.id === id);
+    if (!harness?.retired) return [id];
+    return id === "gemini" && antigravityAvailable ? ["antigravity"] : [];
+  });
+}
+
 export function activeNewSessionHarnesses(
   harnesses: HarnessConfig[],
   activeHarnessIds: string[],
@@ -18,16 +32,11 @@ export function activeNewSessionHarnesses(
   }
 
   const selectable = selectableHarnesses(harnesses);
+  const normalizedActiveHarnessIds = normalizeActiveHarnessIds(harnesses, activeHarnessIds);
   const active = selectable.filter(
-    (harness) => harness.id === "generic-shell" || activeHarnessIds.includes(harness.id),
+    (harness) => harness.id === "generic-shell" || normalizedActiveHarnessIds.includes(harness.id),
   );
-  const hasRetiredSelection = activeHarnessIds.some(
-    (id) => harnesses.some((harness) => harness.id === id && harness.retired),
-  );
-  const antigravity = selectable.find((harness) => harness.id === "antigravity");
-  return hasRetiredSelection && antigravity && !active.includes(antigravity)
-    ? [antigravity, ...active]
-    : active;
+  return active;
 }
 
 export function syncDraftWithHarnesses(
