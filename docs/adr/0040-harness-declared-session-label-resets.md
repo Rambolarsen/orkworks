@@ -17,15 +17,22 @@ commands would make the title lifecycle depend on guessed semantics.
 ## Decision
 
 Resolved harness definitions may declare `labelResetCommands`. The terminal
-runtime treats only an exact, trimmed match for the active session's harness as
-a topic reset. It clears pending label inference, re-arms the one-shot label
-lifecycle, and waits for the next descriptive user input to seed and refine a
-new topic through ADR 0029's existing path.
+runtime treats only an exact, trimmed, successfully delivered non-sensitive
+match for the active session's persisted harness ID as a topic reset. It
+atomically replaces both live and persisted labels with the ADR 0029 placeholder
+and clears queued label work, so the placeholder is visible until the next
+descriptive input seeds a new topic.
+
+Each queued or in-flight `InputLabel` refinement carries a per-session label
+epoch. A reset increments that epoch; the refinement must still match it before
+writing either live or persisted state. Thus an old conversation's late Peon
+result cannot restore its title after a reset.
 
 The initial built-ins declare only documented fresh-conversation commands:
 Claude Code uses `/clear`, `/reset`, and `/new`; OpenCode uses `/clear` and
-`/new`. Harnesses without verified reset semantics declare none. Custom
-harnesses may opt in with their own documented commands.
+`/new`. Harnesses without verified reset semantics declare none. The definition
+field defaults for existing custom documents; custom definitions and sparse
+built-in overrides may replace it or clear it with `null`.
 
 ## Consequences
 
@@ -35,3 +42,5 @@ harnesses may opt in with their own documented commands.
   scoped to the tool that owns the command.
 - New documented commands require a small registry update and a regression
   test rather than a terminal-text heuristic.
+- Label inference has an explicit generation check, avoiding a stale async
+  write at the cost of carrying one small per-session counter.

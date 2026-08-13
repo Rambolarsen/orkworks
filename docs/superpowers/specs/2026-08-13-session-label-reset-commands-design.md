@@ -18,15 +18,26 @@ an exact member of the active session harness's list. The initial built-ins are:
 | OpenCode | `/clear`, `/new` |
 | Codex, Antigravity CLI, Aider, Copilot, Shell | none |
 
-On a reset command OrkWorks clears that session's pending label inference and
-re-arms its one-shot label lifecycle. The reset command itself never becomes a
-label. The next descriptive user input uses the existing synchronous fallback
-and one-shot `InputLabel` Peon refinement. Subsequent descriptive inputs remain
-frozen until another declared reset command.
+On a successfully delivered, non-sensitive reset command, OrkWorks atomically
+replaces the live and persisted label with `Session <id-prefix>`, clears that
+session's pending hint/inference request, and increments its label epoch. The
+placeholder is intentionally visible until the next descriptive input arrives.
+The reset command itself never becomes a label. The next descriptive user input
+uses the existing synchronous fallback and one-shot `InputLabel` Peon
+refinement. Subsequent descriptive inputs remain frozen until another declared
+reset command.
+
+Each queued or in-flight `InputLabel` refinement carries the epoch captured
+with its hint. It may update the live or persisted label only if that epoch is
+still current. A reset therefore cannot be overwritten by an old conversation's
+late Peon result.
 
 `labelResetCommands` applies only to the active session's resolved harness
-definition. Custom harnesses may supply their own documented commands; an
-unknown or undeclared slash command has no label effect.
+definition, using the persisted session harness ID; missing or unknown IDs do
+nothing. Existing custom definitions remain compatible because the field has a
+Serde default. Custom definitions and sparse built-in overrides may replace the
+list with their own documented commands (or clear it with `null`); an unknown,
+undeclared, or merely similar slash command has no label effect.
 
 ## Non-goals
 
@@ -38,6 +49,8 @@ unknown or undeclared slash command has no label effect.
 
 ## Verification
 
-Rust regression tests cover exact matching, harness scoping, clearing stale
-Peon label work, re-seeding after the next descriptive input, and preservation
+Rust regression tests cover exact matching (`/new` only, not `/new extra`,
+`new`, or `/NEW`), harness scoping, missing/unknown harness IDs, sensitive
+input, clearing stale Peon label work, rejection of a delayed old-epoch result,
+re-seeding after the next descriptive input, override parsing, and preservation
 of the existing frozen behavior for normal input.
