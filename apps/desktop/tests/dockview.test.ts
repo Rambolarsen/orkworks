@@ -655,6 +655,12 @@ test("CenterPanel disables stdin and shows a loading overlay while starting, ins
   assert.match(source, /starting-dots/);
 });
 
+test("terminal starting overlay exposes role=status so assistive tech announces it like other live regions", () => {
+  const source = readFileSync(new URL("../src/components/CenterPanel.tsx", import.meta.url), "utf8");
+  const overlay = source.match(/<div className="terminal-starting-overlay"[^>]*>/)?.[0] ?? "";
+  assert.match(overlay, /role="status"/);
+});
+
 test("attachTerminal keeps a stable identity across starting transitions, so a session finishing setup in the background does not steal focus from the user", () => {
   const source = readFileSync(new URL("../src/components/CenterPanel.tsx", import.meta.url), "utf8");
 

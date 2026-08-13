@@ -141,7 +141,7 @@ function CenterPanel({ backendStatus, sessionId, starting }: CenterPanelProps) {
         className={`terminal-container${ended ? " terminal-container--ended" : ""}`}
       />
       {starting && !ended && (
-        <div className="terminal-starting-overlay" aria-live="polite">
+        <div className="terminal-starting-overlay" role="status" aria-live="polite">
           Starting session
           <span className="starting-dots" aria-hidden="true">
             <span>.</span>
