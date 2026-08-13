@@ -47,3 +47,4 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 | [0037](./0037-hook-reported-plan-paths.md) | Hook-reported plan paths | accepted |
 | [0038](./0038-claude-plan-path-post-tool-use-hook.md) | Claude `PostToolUse` plan-path transport | accepted |
 | [0039](./0039-terminal-plan-link-selection.md) | Terminal plan link selection | accepted |
+| [0040](./0040-harness-declared-session-label-resets.md) | Harness-declared session-label reset commands | accepted |
