@@ -655,6 +655,25 @@ test("CenterPanel disables stdin and shows a loading overlay while starting, ins
   assert.match(source, /starting-dots/);
 });
 
+test("attachTerminal keeps a stable identity across starting transitions, so a session finishing setup in the background does not steal focus from the user", () => {
+  const source = readFileSync(new URL("../src/components/CenterPanel.tsx", import.meta.url), "utf8");
+
+  const start = source.indexOf("const attachTerminal = useCallback(");
+  const bodyEnd = source.indexOf("\n  }, [", start);
+  const depsStart = bodyEnd + "\n  }, [".length;
+  const depsEnd = source.indexOf("]);", depsStart);
+  const deps = source.slice(depsStart, depsEnd);
+
+  assert.equal(
+    deps.trim(),
+    "",
+    "attachTerminal's useCallback deps must stay empty — depending on `starting` re-triggers the attach " +
+      "effect (backendStatus/sessionId/attachTerminal) on every creating→running transition, which " +
+      "unconditionally calls terminal.focus() and steals focus from whatever the user is doing elsewhere " +
+      "in the app at that moment",
+  );
+});
+
 test("handleOpenWorkspace refreshes sessions before setting activeSessionId, so no consumer sees a real active id with an empty session list", () => {
   const source = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
 

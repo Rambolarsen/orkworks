@@ -14,6 +14,13 @@ test("terminal-unavailable does not mark the terminal ended", () => {
   assert.doesNotMatch(branch, /handle\.ended = true/);
 });
 
+test("terminal-unavailable marks the handle unavailable, so later effects don't re-enable a dead terminal's stdin", () => {
+  const branch = source.match(
+    /case "terminal-unavailable":([\s\S]*?)break;/,
+  )?.[1] ?? "";
+  assert.match(branch, /handle\.unavailable = true/);
+});
+
 test("socket close without typed terminal end does not mark ended", () => {
   const onclose = source.match(
     /ws\.onclose = \(\) => \{([\s\S]*?)\n  \};/,
