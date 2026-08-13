@@ -3,10 +3,12 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
-const repoRoot = resolve(new URL('../../..', import.meta.url).pathname);
+const repoRoot = resolve(fileURLToPath(new URL('../../..', import.meta.url)));
 const hooksPath = resolve(repoRoot, '.codex/hooks.json');
 const hooks = JSON.parse(readFileSync(hooksPath, 'utf8'));
+const expectedSessionStartCommand = '"$HOME/.orkworks/hook-scripts/report-harness-event.sh" --marker \'orkworks:harness-integration:v2:codex\'';
 const expectedStopCommand = 'ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd); bash "$ROOT/.codex/hooks/doc-check-stop.sh"';
 
 function collectCommands(value, commands = []) {
@@ -32,8 +34,14 @@ function runStopHook(environment = {}) {
   });
 }
 
-test('Codex hooks define exactly one unchanged Stop command hook', () => {
-  assert.deepEqual(Object.keys(hooks.hooks), ['Stop']);
+test('Codex hooks define exactly the supported SessionStart and Stop commands', () => {
+  assert.deepEqual(Object.keys(hooks.hooks), ['SessionStart', 'Stop']);
+  assert.deepEqual(hooks.hooks.SessionStart, [{
+    hooks: [{
+      type: 'command',
+      command: expectedSessionStartCommand,
+    }],
+  }]);
   assert.equal(hooks.hooks.Stop.length, 1);
   assert.deepEqual(hooks.hooks.Stop[0], {
     hooks: [{
@@ -43,7 +51,7 @@ test('Codex hooks define exactly one unchanged Stop command hook', () => {
   });
 });
 
-test('Codex hooks contain only supported generated hook commands', () => {
+test('Codex hooks contain no unsupported generated hook commands', () => {
   const staleCommand = collectCommands(hooks).find((command) =>
     /ponytail|agent-skills|superpowers/i.test(command),
   );
