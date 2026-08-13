@@ -4,6 +4,7 @@ import type { AppSettings, DebugSettings, HotkeySettings, RetentionSettings, Sav
 import type { ProviderSettings, ProviderModelsResponse, OllamaVerificationResponse } from "../providerTypes";
 import type { ProviderRuntimeResponse } from "../api";
 import type { HarnessConfig } from "../harnessTypes";
+import { normalizeActiveHarnessIds, selectableHarnesses } from "../newSessionDialogState";
 import ProviderSettingsSection from "./ProviderSettingsSection";
 import HarnessIntegrationSection from "./HarnessIntegrationSection";
 
@@ -55,7 +56,9 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
   const [peonModelDraft, setPeonModelDraft] = useState<string | null>(initialSettings.providers.peonModel);
   const [ollamaBaseUrlDraft, setOllamaBaseUrlDraft] = useState<string>(initialSettings.providers.ollamaBaseUrl);
   const [ollamaVerification, setOllamaVerification] = useState<OllamaVerificationViewState>({ phase: "idle" });
-  const [activeDraft, setActiveDraft] = useState<string[]>(activeHarnessIds);
+  const [activeDraft, setActiveDraft] = useState<string[]>(() =>
+    normalizeActiveHarnessIds(harnesses, activeHarnessIds),
+  );
   const [activeSaveStatus, setActiveSaveStatus] = useState<string | null>(null);
   useLayoutEffect(() => {
     const modal = modalRef.current;
@@ -288,7 +291,9 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
   async function saveActiveHarnessesHandler() {
     setActiveSaveStatus(null);
     try {
-      await onSaveActiveHarnesses(activeDraft);
+      const normalizedActiveDraft = normalizeActiveHarnessIds(harnesses, activeDraft);
+      await onSaveActiveHarnesses(normalizedActiveDraft);
+      setActiveDraft(normalizedActiveDraft);
       setActiveSaveStatus("Saved");
     } catch {
       setActiveSaveStatus("Couldn't save active coding tools.");
@@ -329,7 +334,7 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
           </p>
 
           <div className="settings-config-list">
-            {harnesses
+            {selectableHarnesses(harnesses)
               .filter((h) => h.id !== "generic-shell")
               .sort((a, b) => a.name.localeCompare(b.name))
               .map((h) => (

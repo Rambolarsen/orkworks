@@ -974,6 +974,7 @@ pub(crate) fn resolve_session_launch(
     let requested_id = req.harness_id.as_deref();
     let harness = requested_id
         .and_then(|id| registry.get(id))
+        .filter(|harness| !harness.definition.retired)
         .or_else(|| registry.get("generic-shell"))
         .expect("generic-shell builtin exists");
     let model = req
@@ -1021,6 +1022,17 @@ pub(crate) async fn create_session(
         .read()
         .expect("harness catalog lock poisoned")
         .clone();
+    if req.harness_id.as_deref().is_some_and(|id| {
+        registry
+            .get(id)
+            .is_some_and(|harness| harness.definition.retired)
+    }) {
+        return (
+            axum::http::StatusCode::BAD_REQUEST,
+            "The selected coding tool is retired and cannot start new sessions.",
+        )
+            .into_response();
+    }
     let mut resolved_launch = resolve_session_launch(&registry, &req, cwd.clone());
     let integration_enabled = if let Some(harness) = resolved_launch
         .session_harness_id
@@ -5443,6 +5455,24 @@ mod tests {
 
         assert_eq!(launch.session_harness_id.as_deref(), Some("codex"));
         assert_eq!(launch.command.program, "codex");
+    }
+
+    #[tokio::test]
+    async fn create_session_rejects_a_retired_harness() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let response = create_session(
+            State(state),
+            Json(CreateSessionRequest {
+                harness_id: Some("gemini".into()),
+                model: None,
+                initial_prompt: Some("do not send this to a shell".into()),
+            }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
     }
 
     #[test]

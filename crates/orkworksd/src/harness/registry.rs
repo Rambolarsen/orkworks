@@ -728,6 +728,60 @@ mod tests {
     }
 
     #[test]
+    fn antigravity_launch_and_resume_use_documented_commands() {
+        let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
+        let registry = resolve_document(&builtins, &HarnessUserDocument::default()).unwrap();
+        let harness = registry.get("antigravity").unwrap();
+
+        let launch = harness.build_launch("/repo", Some("ignored-model"));
+        let exact = harness
+            .build_resume(
+                crate::harness::ResumeStrategy::Exact,
+                "/repo",
+                Some("conversation-1"),
+                None,
+                None,
+            )
+            .unwrap();
+        let latest = harness
+            .build_resume(
+                crate::harness::ResumeStrategy::LatestCwd,
+                "/repo",
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+
+        assert_eq!(launch.program, "agy");
+        assert!(launch.args.is_empty());
+        assert_eq!(exact.program, "agy");
+        assert_eq!(exact.args, ["--conversation=conversation-1"]);
+        assert_eq!(latest.program, "agy");
+        assert_eq!(latest.args, ["--continue"]);
+        assert_eq!(
+            harness.select_resume_strategy(&crate::harness::ResumeMemory {
+                state: crate::harness::ResumeState::Available,
+                preferred_strategy: crate::harness::ResumeStrategy::Exact,
+                harness_session_id: Some("conversation-1".into()),
+                latest_fallback: true,
+                last_seen_at: None,
+            }),
+            crate::harness::ResumeStrategy::Exact,
+        );
+        assert_eq!(
+            harness.select_resume_strategy(&crate::harness::ResumeMemory {
+                state: crate::harness::ResumeState::Available,
+                preferred_strategy: crate::harness::ResumeStrategy::Exact,
+                harness_session_id: None,
+                latest_fallback: true,
+                last_seen_at: None,
+            }),
+            crate::harness::ResumeStrategy::LatestCwd,
+        );
+    }
+
+    #[test]
     fn builtin_launch_without_model_drops_model_flag_and_capacity_is_declarative() {
         let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
         let registry = resolve_document(&builtins, &HarnessUserDocument::default()).unwrap();

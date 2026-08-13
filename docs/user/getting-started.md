@@ -1,7 +1,7 @@
 # Getting started
 
 OrkWorks is local-first mission control for AI coding sessions. It observes
-your coding-tool sessions (Claude Code, Codex, OpenCode, Gemini CLI, Aider)
+your coding-tool sessions (Claude Code, Codex, OpenCode, Antigravity CLI, Aider)
 and recommends what should happen next — it does not replace those tools.
 
 ## Install

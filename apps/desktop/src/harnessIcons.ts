@@ -19,7 +19,7 @@ const GEMINI_CLI = [
 
 /**
  * Keyed by normalized display name AND normalized backend harness id —
- * sessions carry the id (harness_registry.rs: "claude-code", "gemini", …),
+ * sessions carry the id (for example, "claude-code" or "antigravity"),
  * while the design contract names tools by display name.
  */
 export const HARNESS_ICON_PATHS: Record<string, string[]> = {
@@ -33,6 +33,8 @@ export const HARNESS_ICON_PATHS: Record<string, string[]> = {
   "github copilot cli": COPILOT,
   "gemini cli": GEMINI_CLI,
   "gemini": GEMINI_CLI,
+  "antigravity cli": GEMINI_CLI,
+  "antigravity": GEMINI_CLI,
 };
 
 /** Sessions may carry the display name ("Claude Code") or a harness id ("claude-code"). */

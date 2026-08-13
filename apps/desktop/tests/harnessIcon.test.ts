@@ -23,6 +23,7 @@ test("every builtin harness display name and id resolves to a vendored mark", ()
     ["Codex", "codex"],
     ["OpenCode", "opencode"],
     ["Aider", "aider"],
+    ["Antigravity CLI", "antigravity"],
     ["Gemini CLI", "gemini"],
     ["GitHub Copilot CLI", "gh-copilot"],
     ["Copilot", "copilot"],
