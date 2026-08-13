@@ -661,6 +661,11 @@ test("terminal starting overlay exposes role=status so assistive tech announces 
   assert.match(overlay, /role="status"/);
 });
 
+test("the starting overlay's render-time ended check also treats an unavailable terminal as ended, so a rejected attach on a still-creating session doesn't strand the overlay on screen forever", () => {
+  const source = readFileSync(new URL("../src/components/CenterPanel.tsx", import.meta.url), "utf8");
+  assert.match(source, /terminalHandle\.ended \|\| terminalHandle\.unavailable/);
+});
+
 test("attachTerminal keeps a stable identity across starting transitions, so a session finishing setup in the background does not steal focus from the user", () => {
   const source = readFileSync(new URL("../src/components/CenterPanel.tsx", import.meta.url), "utf8");
 

@@ -126,7 +126,8 @@ function CenterPanel({ backendStatus, sessionId, starting }: CenterPanelProps) {
     return <EmptyState message="Connecting to OrkWorks…" />;
   }
 
-  const ended = sessionId ? getTerminal(sessionId)?.ended : false;
+  const terminalHandle = sessionId ? getTerminal(sessionId) : undefined;
+  const ended = terminalHandle ? terminalHandle.ended || terminalHandle.unavailable : false;
 
   return (
     <div
