@@ -45,7 +45,7 @@ test("TerminalPanel uses read-only replay only for dead sessions", () => {
 
   assert.match(source, /renderTerminalPresentation/);
   assert.match(source, /<HistoricalTerminal sessionId=\{session\.id\} \/>/);
-  assert.match(source, /\(\) => <CenterPanel backendStatus=\{backendStatus\} sessionId=\{session\.id\} \/>/);
+  assert.match(source, /<CenterPanel[\s\S]*?backendStatus=\{backendStatus\}[\s\S]*?sessionId=\{session\.id\}[\s\S]*?\/>/);
 });
 
 test("HistoricalTerminal loads output without opening an interactive terminal transport", () => {
@@ -641,6 +641,18 @@ test("SettingsModal includes a Model providers section above Hotkeys", () => {
   assert.match(source, /providerDraft/);
   assert.match(source, /provider-model-select/);
   assert.match(source, /getProviderModels/);
+});
+
+test("TerminalPanel marks CenterPanel as starting while the session is still being created", () => {
+  const source = readFileSync(new URL("../src/components/TerminalPanel.tsx", import.meta.url), "utf8");
+  assert.match(source, /starting=\{session\.status === "creating"\}/);
+});
+
+test("CenterPanel disables stdin and shows a loading overlay while starting, instead of an interactable blank terminal", () => {
+  const source = readFileSync(new URL("../src/components/CenterPanel.tsx", import.meta.url), "utf8");
+  assert.match(source, /computeTerminalInteractivity/);
+  assert.match(source, /terminal-starting-overlay/);
+  assert.match(source, /starting-dots/);
 });
 
 test("handleOpenWorkspace refreshes sessions before setting activeSessionId, so no consumer sees a real active id with an empty session list", () => {

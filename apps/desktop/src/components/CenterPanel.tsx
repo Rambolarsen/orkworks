@@ -1,14 +1,16 @@
 import { useEffect, useRef, useCallback } from "react";
 import "@xterm/xterm/css/xterm.css";
 import { disposeTerminal, ensureTerminal, getTerminal } from "../terminalStore";
+import { computeTerminalInteractivity } from "../terminalPresentation";
 import EmptyState from "./EmptyState";
 
 interface CenterPanelProps {
   backendStatus: string;
   sessionId: string | null;
+  starting: boolean;
 }
 
-function CenterPanel({ backendStatus, sessionId }: CenterPanelProps) {
+function CenterPanel({ backendStatus, sessionId, starting }: CenterPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const activeIdRef = useRef<string | null>(null);
 
@@ -31,6 +33,13 @@ function CenterPanel({ backendStatus, sessionId }: CenterPanelProps) {
 
     activeIdRef.current = id;
 
+    const { disableStdin, cursorBlink } = computeTerminalInteractivity({
+      starting,
+      ended: handle.ended,
+    });
+    handle.terminal.options.disableStdin = disableStdin;
+    handle.terminal.options.cursorBlink = cursorBlink;
+
     try {
       handle.fitAddon.fit();
     } catch {
@@ -41,7 +50,16 @@ function CenterPanel({ backendStatus, sessionId }: CenterPanelProps) {
     if (!handle.ended && !listHasFocus) {
       handle.terminal.focus();
     }
-  }, []);
+  }, [starting]);
+
+  useEffect(() => {
+    if (backendStatus !== "connected" || !sessionId) return;
+    const handle = getTerminal(sessionId);
+    if (!handle || handle.ended) return;
+    const { disableStdin, cursorBlink } = computeTerminalInteractivity({ starting, ended: false });
+    handle.terminal.options.disableStdin = disableStdin;
+    handle.terminal.options.cursorBlink = cursorBlink;
+  }, [starting, sessionId, backendStatus]);
 
   useEffect(() => {
     const previousId = activeIdRef.current;
@@ -116,6 +134,16 @@ function CenterPanel({ backendStatus, sessionId }: CenterPanelProps) {
         ref={containerRef}
         className={`terminal-container${ended ? " terminal-container--ended" : ""}`}
       />
+      {starting && !ended && (
+        <div className="terminal-starting-overlay" aria-live="polite">
+          Starting session
+          <span className="starting-dots" aria-hidden="true">
+            <span>.</span>
+            <span>.</span>
+            <span>.</span>
+          </span>
+        </div>
+      )}
     </div>
   );
 }

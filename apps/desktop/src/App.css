@@ -526,11 +526,49 @@ html, body, #root {
 }
 
 .terminal-shell {
+  position: relative;
   display: flex;
   flex-direction: column;
   width: 100%;
   height: 100%;
   min-height: 0;
+}
+
+.terminal-starting-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  pointer-events: none;
+}
+
+.starting-dots span {
+  opacity: 0;
+  animation: terminal-starting-dot-blink 1.4s infinite;
+}
+
+.starting-dots span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.starting-dots span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes terminal-starting-dot-blink {
+  0%,
+  20% {
+    opacity: 0;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
 }
 
 .historical-terminal-size {

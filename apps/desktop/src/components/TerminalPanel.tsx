@@ -15,7 +15,13 @@ function TerminalPanel({ backendStatus, session }: TerminalPanelProps) {
   }
   return renderTerminalPresentation(
     session.lifecycle,
-    () => <CenterPanel backendStatus={backendStatus} sessionId={session.id} />,
+    () => (
+      <CenterPanel
+        backendStatus={backendStatus}
+        sessionId={session.id}
+        starting={session.status === "creating"}
+      />
+    ),
     () => <HistoricalTerminal sessionId={session.id} />,
   );
 }
