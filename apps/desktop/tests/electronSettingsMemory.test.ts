@@ -401,6 +401,9 @@ test("startup migration removes legacy Copilot and disables untouched Gemini", (
     assert.equal(settings.providers.providers.some((provider) => provider.id === "gh-copilot"), false);
     const persisted = JSON.parse(readFileSync(settingsPath(dir), "utf8"));
     assert.equal(persisted.providers.providers.some((provider: { id: string }) => provider.id === "gh-copilot"), false);
+    const firstPersistedValue = readFileSync(settingsPath(dir), "utf8");
+    loadSettingsForStartup!(dir);
+    assert.equal(readFileSync(settingsPath(dir), "utf8"), firstPersistedValue);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
