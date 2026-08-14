@@ -108,7 +108,7 @@ export const DEFAULT_DEBUG_SETTINGS: DebugSettings = {
   rendererHealthLogMs: 0,
 };
 
-const VALID_PROVIDER_IDS = new Set<ProviderId>(["opencode", "claude-code", "codex", "gemini", "aider", "ollama"]);
+const VALID_PROVIDER_IDS = new Set<ProviderId>(["opencode", "claude-code", "codex", "gemini", "aider", "copilot", "ollama"]);
 const VALID_CAPACITY_STATES = new Set<ProviderCapacityState>(["healthy", "degraded", "capped", "unknown"]);
 
 export const DEFAULT_PROVIDER_SETTINGS: ProviderSettings = {
@@ -122,7 +122,8 @@ export const DEFAULT_PROVIDER_SETTINGS: ProviderSettings = {
     { id: "codex", enabled: true, fallbackOrder: 2, defaultState: "unknown", overrideState: null },
     { id: "gemini", enabled: false, fallbackOrder: 3, defaultState: "unknown", overrideState: null },
     { id: "aider", enabled: true, fallbackOrder: 4, defaultState: "unknown", overrideState: null },
-    { id: "ollama", enabled: true, fallbackOrder: 5, defaultState: "unknown", overrideState: null },
+    { id: "copilot", enabled: true, fallbackOrder: 5, defaultState: "unknown", overrideState: null },
+    { id: "ollama", enabled: true, fallbackOrder: 6, defaultState: "unknown", overrideState: null },
   ],
 };
 
@@ -402,13 +403,19 @@ function migrateRawProviderSettings(value: unknown): { value: unknown; migrated:
   const providerSettings = providersValue as Record<string, unknown>;
   if (!Array.isArray(providerSettings.providers)) return { value, migrated: false };
 
+  const hasCanonicalCopilot = providerSettings.providers.some(
+    (entry) => entry && typeof entry === "object" && !Array.isArray(entry) && (entry as Record<string, unknown>).id === "copilot",
+  );
   let migrated = false;
+  let migratedLegacyCopilot = false;
   const providers = providerSettings.providers.flatMap((entry) => {
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) return [entry];
     const raw = entry as Record<string, unknown>;
     if (raw.id === "gh-copilot") {
       migrated = true;
-      return [];
+      if (hasCanonicalCopilot || migratedLegacyCopilot) return [];
+      migratedLegacyCopilot = true;
+      return [{ ...raw, id: "copilot" }];
     }
     if (isLegacyDefaultGemini(raw)) {
       migrated = true;

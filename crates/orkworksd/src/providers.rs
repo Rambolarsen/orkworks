@@ -11,6 +11,7 @@ use std::time::Duration;
 use reqwest::Client as HttpClient;
 use serde::{Deserialize, Serialize};
 
+use crate::harness::definition::PromptTransport;
 #[cfg(test)]
 use crate::harness::definition::{BuiltinDocument, HarnessUserDocument, EMBEDDED_BUILTINS};
 #[cfg(test)]
@@ -277,6 +278,7 @@ pub struct ProviderDefinition {
     pub model_arg_template: Option<String>,
     pub supports_model: bool,
     pub timeout_secs: u64,
+    pub prompt_transport: PromptTransport,
     pub list_models_command: Option<String>,
     pub list_models_args: Vec<String>,
     pub static_models: Vec<String>,
@@ -292,6 +294,7 @@ pub fn builtin_provider_registry() -> Vec<ProviderDefinition> {
         model_arg_template: None,
         supports_model: false,
         timeout_secs: 30,
+        prompt_transport: PromptTransport::Stdin,
         list_models_command: None,
         list_models_args: vec![],
         static_models: vec![],
@@ -689,9 +692,22 @@ impl ProviderManager {
             .into_iter()
             .map(|definition| definition.id)
             .collect();
-        settings
+        let has_canonical_copilot = settings.providers.iter().any(|entry| entry.id == "copilot");
+        let mut migrated_legacy_copilot = false;
+        settings.providers = settings
             .providers
-            .retain(|entry| valid_ids.contains(&entry.id));
+            .into_iter()
+            .filter_map(|mut entry| {
+                if entry.id == "gh-copilot" {
+                    if has_canonical_copilot || migrated_legacy_copilot {
+                        return None;
+                    }
+                    entry.id = "copilot".into();
+                    migrated_legacy_copilot = true;
+                }
+                valid_ids.contains(&entry.id).then_some(entry)
+            })
+            .collect();
         let revision = settings.revision;
         {
             let mut guard = self.settings.write().unwrap();
@@ -1021,10 +1037,21 @@ impl ProviderManager {
                 }
             }
 
+            let invocation_prompt = match definition.prompt_transport {
+                PromptTransport::Stdin => prompt.clone(),
+                PromptTransport::Argument => {
+                    args.push(prompt.clone());
+                    String::new()
+                }
+            };
             let timeout_secs = timeout_secs_override.unwrap_or(definition.timeout_secs);
-            let result =
-                self.runner
-                    .run(&entry.id, &definition.command, &args, &prompt, timeout_secs);
+            let result = self.runner.run(
+                &entry.id,
+                &definition.command,
+                &args,
+                &invocation_prompt,
+                timeout_secs,
+            );
 
             if result.success {
                 if let Some(inference) = peon::parse_inference(&result.stdout) {
@@ -1220,6 +1247,7 @@ pub struct FakeProvider {
     exit_code: i32,
     sleep_ms: u64,
     call_count: Option<std::sync::Arc<std::sync::atomic::AtomicUsize>>,
+    invocations: Option<std::sync::Arc<std::sync::Mutex<Vec<(Vec<String>, String)>>>>,
 }
 
 #[cfg(test)]
@@ -1232,6 +1260,7 @@ impl FakeProvider {
             exit_code: 0,
             sleep_ms: 0,
             call_count: None,
+            invocations: None,
         }
     }
 
@@ -1259,6 +1288,14 @@ impl FakeProvider {
         self.call_count = Some(counter);
         self
     }
+
+    pub fn with_invocations(
+        mut self,
+        invocations: std::sync::Arc<std::sync::Mutex<Vec<(Vec<String>, String)>>>,
+    ) -> Self {
+        self.invocations = Some(invocations);
+        self
+    }
 }
 
 #[cfg(test)]
@@ -1272,14 +1309,20 @@ impl ProviderRunner for FakeRunner {
         &self,
         id: &str,
         _command: &str,
-        _args: &[String],
-        _prompt: &str,
+        args: &[String],
+        prompt: &str,
         timeout_secs: u64,
     ) -> InvocationResult {
         match self.specs.get(id) {
             Some(spec) => {
                 if let Some(ref counter) = spec.call_count {
                     counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
+                if let Some(ref invocations) = spec.invocations {
+                    invocations
+                        .lock()
+                        .unwrap()
+                        .push((args.to_vec(), prompt.to_owned()));
                 }
                 if spec.sleep_ms > 0 {
                     if spec.sleep_ms > timeout_secs.saturating_mul(1000) {
@@ -1446,13 +1489,13 @@ mod tests {
     }
 
     #[test]
-    fn apply_settings_discards_legacy_and_non_peon_provider_ids() {
+    fn apply_settings_canonicalizes_legacy_copilot_and_discards_non_peon_provider_ids() {
         let payload = sample_settings(vec![
-            entry("opencode"),
+            entry("copilot").enabled(false),
             entry("gh-copilot"),
             entry("antigravity"),
         ]);
-        let manager = ProviderManager::for_tests(payload.clone(), vec![fake_provider("opencode")]);
+        let manager = ProviderManager::for_tests(payload.clone(), vec![fake_provider("copilot")]);
 
         manager.apply_settings(payload);
 
@@ -1463,12 +1506,64 @@ mod tests {
                 .iter()
                 .map(|provider| provider.id.as_str())
                 .collect::<Vec<_>>(),
-            vec!["opencode"]
+            vec!["copilot"]
         );
 
         let result = manager.run_inference(PeonScope::Session, &["terminal line".to_owned()]);
         assert_eq!(result.attempts.len(), 1);
-        assert_eq!(result.attempts[0].provider_id, "opencode");
+        assert_eq!(result.attempts[0].provider_id, "copilot");
+        assert_eq!(result.attempts[0].outcome, AttemptOutcome::SkippedDisabled);
+    }
+
+    #[test]
+    fn apply_settings_runs_legacy_copilot_as_canonical_provider() {
+        let payload = sample_settings(vec![entry("gh-copilot")]);
+        let manager = ProviderManager::for_tests(
+            payload.clone(),
+            vec![
+                fake_provider("copilot").stdout(r#"{"observedStatus":"working","confidence":0.9}"#)
+            ],
+        );
+
+        manager.apply_settings(payload);
+
+        let result = manager.run_inference(PeonScope::Session, &["terminal line".to_owned()]);
+        assert_eq!(result.attempts.len(), 1);
+        assert_eq!(result.attempts[0].provider_id, "copilot");
+        assert_eq!(result.attempts[0].outcome, AttemptOutcome::Succeeded);
+    }
+
+    #[test]
+    fn argument_prompt_transport_appends_the_prompt_without_writing_stdin() {
+        let invocations = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let manager = ProviderManager::for_tests_with_registry(
+            vec![ProviderDefinition {
+                id: "copilot".into(),
+                label: "Copilot".into(),
+                command: "copilot".into(),
+                default_args: vec!["-p".into()],
+                model_arg_template: None,
+                supports_model: false,
+                timeout_secs: 30,
+                prompt_transport: PromptTransport::Argument,
+                list_models_command: None,
+                list_models_args: vec![],
+                static_models: vec![],
+                http_list_models: false,
+            }],
+            sample_settings(vec![entry("copilot")]),
+            vec![fake_provider("copilot")
+                .stdout(r#"{"observedStatus":"working","confidence":0.9}"#)
+                .with_invocations(invocations.clone())],
+        );
+
+        manager.run_inference(PeonScope::Session, &["terminal line".to_owned()]);
+
+        let captured = invocations.lock().unwrap();
+        assert_eq!(captured.len(), 1);
+        assert_eq!(captured[0].0[0], "-p");
+        assert!(captured[0].0[1].contains("terminal line"));
+        assert_eq!(captured[0].1, "");
     }
 
     #[test]
@@ -1588,6 +1683,7 @@ mod tests {
                 model_arg_template: None,
                 supports_model: false,
                 timeout_secs: 30,
+                prompt_transport: PromptTransport::Stdin,
                 list_models_command: None,
                 list_models_args: vec![],
                 static_models: vec![],
@@ -1612,6 +1708,7 @@ mod tests {
                 model_arg_template: None,
                 supports_model: false,
                 timeout_secs: 30,
+                prompt_transport: PromptTransport::Stdin,
                 list_models_command: None,
                 list_models_args: vec![],
                 static_models: vec!["sonnet".into(), "opus".into(), "haiku".into()],
@@ -1636,6 +1733,7 @@ mod tests {
                 model_arg_template: Some("--model={model}".into()),
                 supports_model: true,
                 timeout_secs: 7,
+                prompt_transport: PromptTransport::Stdin,
                 list_models_command: None,
                 list_models_args: vec![],
                 static_models: vec!["custom-small".into(), "custom-large".into()],

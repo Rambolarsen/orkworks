@@ -362,7 +362,8 @@ test("settings memory seeds default provider settings", () => {
         { id: "codex", enabled: true, fallbackOrder: 2, defaultState: "unknown", overrideState: null },
         { id: "gemini", enabled: false, fallbackOrder: 3, defaultState: "unknown", overrideState: null },
         { id: "aider", enabled: true, fallbackOrder: 4, defaultState: "unknown", overrideState: null },
-        { id: "ollama", enabled: true, fallbackOrder: 5, defaultState: "unknown", overrideState: null },
+        { id: "copilot", enabled: true, fallbackOrder: 5, defaultState: "unknown", overrideState: null },
+        { id: "ollama", enabled: true, fallbackOrder: 6, defaultState: "unknown", overrideState: null },
       ],
     } satisfies ProviderSettings);
   } finally {
@@ -370,7 +371,7 @@ test("settings memory seeds default provider settings", () => {
   }
 });
 
-test("startup migration removes legacy Copilot and disables untouched Gemini", () => {
+test("startup migration canonicalizes legacy Copilot and disables untouched Gemini", () => {
   const dir = mkdtempSync(join(tmpdir(), "orkworks-settings-"));
   try {
     writeFileSync(
@@ -399,11 +400,50 @@ test("startup migration removes legacy Copilot and disables untouched Gemini", (
     assert.equal(settings.providers.revision, 7);
     assert.equal(settings.providers.providers.find((provider) => provider.id === "gemini")?.enabled, false);
     assert.equal(settings.providers.providers.some((provider) => provider.id === "gh-copilot"), false);
+    assert.equal(settings.providers.providers.find((provider) => provider.id === "copilot")?.enabled, true);
     const persisted = JSON.parse(readFileSync(settingsPath(dir), "utf8"));
     assert.equal(persisted.providers.providers.some((provider: { id: string }) => provider.id === "gh-copilot"), false);
+    assert.equal(persisted.providers.providers.find((provider: { id: string }) => provider.id === "copilot")?.enabled, true);
     const firstPersistedValue = readFileSync(settingsPath(dir), "utf8");
     loadSettingsForStartup!(dir);
     assert.equal(readFileSync(settingsPath(dir), "utf8"), firstPersistedValue);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("startup migration preserves canonical Copilot when legacy duplicate exists", () => {
+  const dir = mkdtempSync(join(tmpdir(), "orkworks-settings-"));
+  try {
+    writeFileSync(
+      settingsPath(dir),
+      JSON.stringify({
+        version: 1,
+        providers: {
+          version: 1,
+          revision: 7,
+          peonModel: null,
+          ollamaBaseUrl: "http://127.0.0.1:11434",
+          providers: [
+            { id: "copilot", enabled: false, fallbackOrder: 1, defaultState: "unknown", overrideState: null },
+            { id: "gh-copilot", enabled: true, fallbackOrder: 5, defaultState: "unknown", overrideState: null },
+          ],
+        },
+      }),
+    );
+
+    const loadSettingsForStartup = (settingsMemory as typeof settingsMemory & {
+      loadSettingsForStartup?: (userDataPath: string) => typeof DEFAULT_SETTINGS;
+    }).loadSettingsForStartup;
+    const settings = loadSettingsForStartup!(dir);
+
+    assert.deepEqual(
+      settings.providers.providers.filter((provider) => provider.id === "copilot"),
+      [{ id: "copilot", enabled: false, fallbackOrder: 2, defaultState: "unknown", overrideState: null }],
+    );
+    const persisted = JSON.parse(readFileSync(settingsPath(dir), "utf8"));
+    assert.equal(persisted.providers.providers.filter((provider: { id: string }) => provider.id === "copilot").length, 1);
+    assert.equal(persisted.providers.providers.some((provider: { id: string }) => provider.id === "gh-copilot"), false);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -458,7 +498,7 @@ test("settings memory normalizes malformed provider payloads", () => {
     const settings = readSettings(dir);
     assert.equal(settings.providers.version, 1);
     assert.equal(settings.providers.revision, 4);
-    assert.deepEqual(settings.providers.providers.map((entry) => entry.id), ["claude-code", "opencode", "codex", "gemini", "aider", "ollama"]);
+    assert.deepEqual(settings.providers.providers.map((entry) => entry.id), ["claude-code", "opencode", "codex", "gemini", "aider", "copilot", "ollama"]);
     assert.equal(settings.providers.providers[0].enabled, true);
     assert.equal(settings.providers.providers[0].fallbackOrder, 0);
     assert.equal(settings.providers.providers[0].defaultState, "unknown");
@@ -488,7 +528,7 @@ test("settings memory preserves provider revisions and canonical fallback order 
     assert.equal(persisted.providers.revision, 7);
     assert.deepEqual(
       persisted.providers.providers.map((entry: { id: string; fallbackOrder: number }) => [entry.id, entry.fallbackOrder]),
-      [["codex", 0], ["opencode", 1], ["gemini", 2], ["aider", 3], ["ollama", 4], ["claude-code", 5]],
+      [["codex", 0], ["opencode", 1], ["gemini", 2], ["aider", 3], ["copilot", 4], ["ollama", 5], ["claude-code", 6]],
     );
   } finally {
     rmSync(dir, { recursive: true, force: true });
