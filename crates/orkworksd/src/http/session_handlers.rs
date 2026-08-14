@@ -373,8 +373,7 @@ fn resume_handle_conflicts(
     metadata_ended: bool,
     has_tracked_pid: bool,
 ) -> bool {
-    handle.terminal_attached
-        || (handle.info.lifecycle_phase != "ended" && (!metadata_ended || has_tracked_pid))
+    handle.terminal_attached || !metadata_ended || has_tracked_pid
 }
 
 pub(crate) async fn resume_session(
@@ -2286,21 +2285,21 @@ mod tests {
     }
 
     #[test]
-    fn resume_handle_conflicts_only_when_attached_or_positively_live() {
+    fn resume_handle_conflicts_when_metadata_is_live_even_if_handle_is_ended() {
         let dir = tempfile::tempdir().unwrap();
         let mut handle = attention_test_handle("resume-stale-predicate", dir.path());
-        handle.info.lifecycle_phase = "active".into();
+        handle.info.lifecycle_phase = "ended".into();
         let mut session_pids = HashMap::new();
 
-        assert!(!resume_handle_conflicts(
+        assert!(resume_handle_conflicts(
             &handle,
-            true,
+            false,
             session_pids.contains_key("resume-stale-predicate"),
         ));
         session_pids.insert("resume-stale-predicate".to_string(), 42);
         assert!(resume_handle_conflicts(
             &handle,
-            true,
+            false,
             session_pids.contains_key("resume-stale-predicate"),
         ));
     }

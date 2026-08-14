@@ -2,7 +2,7 @@
 
 ## Result
 
-Implemented the lifecycle-consistent resume conflict predicate and endpoint regression. The guard now rejects an attached handle, or a non-ended handle unless persisted metadata is ended and no tracked PID exists. An unattached ended handle with no tracked PID is replaceable.
+Fixed the review regression in the resume conflict predicate. The guard now rejects whenever a terminal is attached, persisted metadata is not ended, or a PTY PID is tracked. Replacement is allowed only for an unattached handle with ended metadata and no tracked PID.
 
 ## Exact verification
 
@@ -11,7 +11,7 @@ Implemented the lifecycle-consistent resume conflict predicate and endpoint regr
 Command:
 
 ```text
-rtk cargo test --manifest-path crates/orkworksd/Cargo.toml resume_handle_conflicts
+cargo test --manifest-path crates/orkworksd/Cargo.toml resume_handle_conflicts
 ```
 
 Status: failed as expected before implementation.
@@ -19,8 +19,8 @@ Status: failed as expected before implementation.
 Output summary:
 
 ```text
-cargo test: 2 errors, 0 warnings (190 crates)
-error[E0425]: cannot find function `resume_handle_conflicts` in this scope
+cargo test: 1 failed, 0 passed, 588 filtered out
+assertion failed: resume_handle_conflicts(&handle, false, false)
 ```
 
 ### GREEN
@@ -28,9 +28,9 @@ error[E0425]: cannot find function `resume_handle_conflicts` in this scope
 Commands:
 
 ```text
-rtk cargo test --manifest-path crates/orkworksd/Cargo.toml resume_handle_conflicts
-rtk cargo test --manifest-path crates/orkworksd/Cargo.toml resume_session_rejects
-rtk cargo test --manifest-path crates/orkworksd/Cargo.toml resume_session_replaces_unattached_ended_stale_handle
+cargo test --manifest-path crates/orkworksd/Cargo.toml resume_handle_conflicts
+cargo test --manifest-path crates/orkworksd/Cargo.toml resume_session_rejects
+cargo test --manifest-path crates/orkworksd/Cargo.toml resume_session_replaces_unattached_ended_stale_handle
 ```
 
 Status: all passed.
@@ -38,9 +38,9 @@ Status: all passed.
 Output:
 
 ```text
-cargo test: 1 passed, 588 filtered out (1 suite, 0.00s)
-cargo test: 2 passed, 587 filtered out (1 suite, 0.01s)
-cargo test: 1 passed, 588 filtered out (1 suite, 0.16s)
+cargo test: 1 passed, 0 failed, 588 filtered out
+cargo test: 2 passed, 0 failed, 587 filtered out
+cargo test: 1 passed, 0 failed, 588 filtered out
 ```
 
 Additional checks:
@@ -55,8 +55,8 @@ bash .claude/hooks/worktree-check.sh # passed; no output
 
 ## Commit
 
-`102932c0e75e1ebf73959f5bb07c5c89b6d98ba4` (`fix: resume ended sessions with stale handles`)
+`PENDING` (review fix commit)
 
 ## Concerns
 
-No behavioral concerns in the requested scope. Full Rust tests were not run; focused tests and diff checks passed. Formatting remains globally non-clean due to unrelated shared-worktree changes.
+No behavioral concerns in the requested scope. Full Rust tests were not run; focused tests passed. Existing compiler warnings remain unrelated to this fix.
