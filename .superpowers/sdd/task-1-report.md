@@ -55,7 +55,7 @@ bash .claude/hooks/worktree-check.sh # passed; no output
 
 ## Commit
 
-`PENDING` (review fix commit)
+`95aea78` (`fix: reject resume when persisted session is live`)
 
 ## Concerns
 
