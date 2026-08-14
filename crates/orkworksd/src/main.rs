@@ -82,12 +82,26 @@ struct WorkspaceState {
     watcher: watcher::MetadataWatcher,
 }
 
+/// A queued `InputLabel` refinement request: the input line Peon should turn
+/// into a topic, tagged with the session's label epoch at the moment it was
+/// queued. A harness-declared reset command bumps that epoch (ADR 0040), so a
+/// refinement from the previous conversation can be recognized as stale.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct LabelHint {
+    text: String,
+    epoch: u64,
+}
+
 struct PeonState {
     last_output: StdRwLock<HashMap<String, tokio::time::Instant>>,
     last_inference: StdRwLock<HashMap<String, String>>,
     in_flight: StdRwLock<HashSet<String>>,
-    label_hint: StdRwLock<HashMap<String, String>>,
+    label_hint: StdRwLock<HashMap<String, LabelHint>>,
     label_pending: StdRwLock<HashSet<String>>,
+    // Per-session label generation. Incremented by a harness-declared label
+    // reset; queued and in-flight label work carries the epoch it was created
+    // under so a reset can invalidate it.
+    label_epochs: StdRwLock<HashMap<String, u64>>,
     // Pending (not yet newline-terminated) terminal input line per session, used
     // to detect a descriptive label. Cleared on an attention-hook report, since
     // that signals a harness turn boundary — without it, isolated hotkey
@@ -167,6 +181,7 @@ async fn main() {
             in_flight: StdRwLock::new(HashSet::new()),
             label_hint: StdRwLock::new(HashMap::new()),
             label_pending: StdRwLock::new(HashSet::new()),
+            label_epochs: StdRwLock::new(HashMap::new()),
             input_buf: StdRwLock::new(HashMap::new()),
             reported_cwd: StdRwLock::new(HashMap::new()),
             config: peon::PeonConfig::from_env(),
@@ -387,6 +402,7 @@ pub(crate) mod test_support {
                 in_flight: StdRwLock::new(HashSet::new()),
                 label_hint: StdRwLock::new(HashMap::new()),
                 label_pending: StdRwLock::new(HashSet::new()),
+                label_epochs: StdRwLock::new(HashMap::new()),
                 input_buf: StdRwLock::new(HashMap::new()),
                 reported_cwd: StdRwLock::new(HashMap::new()),
                 config: peon::PeonConfig::from_env(),
@@ -682,6 +698,7 @@ mod tests {
                 in_flight: StdRwLock::new(HashSet::new()),
                 label_hint: StdRwLock::new(HashMap::new()),
                 label_pending: StdRwLock::new(HashSet::new()),
+                label_epochs: StdRwLock::new(HashMap::new()),
                 input_buf: StdRwLock::new(HashMap::new()),
                 reported_cwd: StdRwLock::new(HashMap::new()),
                 config: peon::PeonConfig::from_env(),

@@ -110,7 +110,7 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
 
             let output_snapshot = hint
                 .as_ref()
-                .map(|h| vec![format!("[User input]: {}", h)])
+                .map(|h| vec![format!("[User input]: {}", h.text)])
                 .unwrap_or(output_snapshot);
 
             let state_clone = state.clone();
@@ -127,8 +127,8 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                             .map(|summary| summary.chars().take(100).collect::<String>())
                         .filter(|label| !label.trim().is_empty())
                         .filter(|label| {
-                            hint.as_deref()
-                                .is_some_and(|hint| peon::is_usable_input_label(label, hint))
+                            hint.as_ref()
+                                .is_some_and(|hint| peon::is_usable_input_label(label, &hint.text))
                         })
                     {
                         if let Some(handle) = state_clone.sessions.lock().unwrap().get_mut(&id) {
@@ -365,6 +365,7 @@ mod tests {
                 in_flight: RwLock::new(HashSet::new()),
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
+                label_epochs: RwLock::new(HashMap::new()),
                 input_buf: RwLock::new(HashMap::new()),
                 reported_cwd: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig {
@@ -437,7 +438,13 @@ mod tests {
             .label_hint
             .write()
             .unwrap()
-            .insert(id.clone(), "describe this task".into());
+            .insert(
+                id.clone(),
+                crate::LabelHint {
+                    text: "describe this task".into(),
+                    epoch: 0,
+                },
+            );
         state.peon.label_pending.write().unwrap().insert(id.clone());
 
         let task = tokio::spawn(peon_loop(state.clone()));
@@ -468,6 +475,7 @@ mod tests {
                 in_flight: RwLock::new(HashSet::new()),
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
+                label_epochs: RwLock::new(HashMap::new()),
                 input_buf: RwLock::new(HashMap::new()),
                 reported_cwd: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig {
@@ -540,7 +548,13 @@ mod tests {
             .label_hint
             .write()
             .unwrap()
-            .insert(id.clone(), "describe this task".into());
+            .insert(
+                id.clone(),
+                crate::LabelHint {
+                    text: "describe this task".into(),
+                    epoch: 0,
+                },
+            );
         state.peon.label_pending.write().unwrap().insert(id.clone());
         // Simulate an Output-mode inference already in flight for this
         // session at the moment the InputLabel request arrives.
@@ -591,6 +605,7 @@ mod tests {
                 in_flight: RwLock::new(HashSet::new()),
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
+                label_epochs: RwLock::new(HashMap::new()),
                 input_buf: RwLock::new(HashMap::new()),
                 reported_cwd: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig {
@@ -686,7 +701,13 @@ mod tests {
             .label_hint
             .write()
             .unwrap()
-            .insert(id.clone(), "describe this task".into());
+            .insert(
+                id.clone(),
+                crate::LabelHint {
+                    text: "describe this task".into(),
+                    epoch: 0,
+                },
+            );
         state.peon.label_pending.write().unwrap().insert(id.clone());
 
         let task = tokio::spawn(peon_loop(state.clone()));
@@ -732,6 +753,7 @@ mod tests {
                 in_flight: RwLock::new(HashSet::new()),
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
+                label_epochs: RwLock::new(HashMap::new()),
                 input_buf: RwLock::new(HashMap::new()),
                 reported_cwd: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig {
@@ -816,7 +838,13 @@ mod tests {
             .label_hint
             .write()
             .unwrap()
-            .insert(id.clone(), "describe this task".into());
+            .insert(
+                id.clone(),
+                crate::LabelHint {
+                    text: "describe this task".into(),
+                    epoch: 0,
+                },
+            );
         state.peon.label_pending.write().unwrap().insert(id.clone());
 
         let task = tokio::spawn(peon_loop(state.clone()));
@@ -868,6 +896,7 @@ mod tests {
                 in_flight: RwLock::new(HashSet::new()),
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
+                label_epochs: RwLock::new(HashMap::new()),
                 input_buf: RwLock::new(HashMap::new()),
                 reported_cwd: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig {
@@ -955,7 +984,13 @@ mod tests {
             .label_hint
             .write()
             .unwrap()
-            .insert(id.clone(), input_hint);
+            .insert(
+                id.clone(),
+                crate::LabelHint {
+                    text: input_hint,
+                    epoch: 0,
+                },
+            );
         state.peon.label_pending.write().unwrap().insert(id.clone());
 
         let task = tokio::spawn(peon_loop(state.clone()));
@@ -1018,6 +1053,7 @@ mod tests {
                 in_flight: RwLock::new(HashSet::new()),
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
+                label_epochs: RwLock::new(HashMap::new()),
                 input_buf: RwLock::new(HashMap::new()),
                 reported_cwd: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig::from_env(),
@@ -1202,6 +1238,7 @@ mod tests {
                 in_flight: RwLock::new(HashSet::new()),
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
+                label_epochs: RwLock::new(HashMap::new()),
                 input_buf: RwLock::new(HashMap::new()),
                 reported_cwd: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig::from_env(),
@@ -1309,6 +1346,7 @@ mod tests {
                 in_flight: RwLock::new(HashSet::new()),
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
+                label_epochs: RwLock::new(HashMap::new()),
                 input_buf: RwLock::new(HashMap::new()),
                 reported_cwd: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig {
@@ -1416,6 +1454,7 @@ mod tests {
                 in_flight: RwLock::new(HashSet::new()),
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
+                label_epochs: RwLock::new(HashMap::new()),
                 input_buf: RwLock::new(HashMap::new()),
                 reported_cwd: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig {
@@ -1520,6 +1559,7 @@ mod tests {
                 in_flight: RwLock::new(HashSet::new()),
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
+                label_epochs: RwLock::new(HashMap::new()),
                 input_buf: RwLock::new(HashMap::new()),
                 reported_cwd: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig {
@@ -1687,6 +1727,7 @@ mod tests {
                 in_flight: RwLock::new(HashSet::new()),
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
+                label_epochs: RwLock::new(HashMap::new()),
                 input_buf: RwLock::new(HashMap::new()),
                 reported_cwd: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig {
@@ -1866,6 +1907,7 @@ mod tests {
                 in_flight: RwLock::new(HashSet::new()),
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
+                label_epochs: RwLock::new(HashMap::new()),
                 input_buf: RwLock::new(HashMap::new()),
                 reported_cwd: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig {
@@ -2027,6 +2069,7 @@ mod tests {
                 in_flight: RwLock::new(HashSet::new()),
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
+                label_epochs: RwLock::new(HashMap::new()),
                 input_buf: RwLock::new(HashMap::new()),
                 reported_cwd: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig {
@@ -2186,6 +2229,7 @@ mod tests {
                 in_flight: RwLock::new(HashSet::new()),
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
+                label_epochs: RwLock::new(HashMap::new()),
                 input_buf: RwLock::new(HashMap::new()),
                 reported_cwd: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig {
@@ -2350,6 +2394,7 @@ mod tests {
                 in_flight: RwLock::new(HashSet::new()),
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
+                label_epochs: RwLock::new(HashMap::new()),
                 input_buf: RwLock::new(HashMap::new()),
                 reported_cwd: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig {
@@ -2513,6 +2558,7 @@ mod tests {
                 in_flight: RwLock::new(HashSet::new()),
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
+                label_epochs: RwLock::new(HashMap::new()),
                 input_buf: RwLock::new(HashMap::new()),
                 reported_cwd: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig::from_env(),
@@ -2678,6 +2724,7 @@ mod tests {
                 in_flight: RwLock::new(HashSet::new()),
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
+                label_epochs: RwLock::new(HashMap::new()),
                 input_buf: RwLock::new(HashMap::new()),
                 reported_cwd: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig {

@@ -448,6 +448,12 @@ fn record_terminal_input_impl(
     // Labels are display-bounded; echo-gating below uses the full `line`.
     let label_line: String = line.chars().take(100).collect();
     let is_sensitive = sensitivity_override.unwrap_or_else(|| snapshot_input_context(state, id).0);
+    // A harness-declared fresh-conversation command (ADR 0040) ends the
+    // current topic instead of describing one, so it is never itself a label
+    // and is never recorded as the last user input.
+    if !is_sensitive && reset_label_for_declared_command(state, id, &line) {
+        return Some(());
+    }
     let label_worthy = !is_sensitive && peon::is_descriptive_input(&label_line);
 
     // Seed-once: the label is a stable topic (ADR 0029), not a running log of
@@ -478,13 +484,7 @@ fn record_terminal_input_impl(
     }
 
     if queue_topic_inference {
-        state
-            .peon
-            .label_hint
-            .write()
-            .unwrap()
-            .insert(id.to_string(), line);
-        state.peon.label_pending.write().unwrap().insert(id.to_string());
+        queue_label_hint(state, id, line);
     }
 
     Some(())
@@ -494,6 +494,102 @@ fn record_terminal_input_impl(
 /// label has not yet been seeded from any descriptive input.
 fn is_placeholder_label(label: &str, id: &str) -> bool {
     label == crate::session_types::placeholder_label(id)
+}
+
+/// Whether `line` is exactly a label-reset command declared by the session's
+/// *persisted* harness (ADR 0040).
+///
+/// Deliberately strict: `SessionMetadata.harness` is the only harness
+/// consulted — never the live `SessionInfo.harness_id`, and never some other
+/// harness that happens to declare the same command — and the trimmed line
+/// must equal a declared command exactly, with no prefix matching and no case
+/// folding. An absent or unknown harness ID never resets.
+fn reset_command_for_persisted_harness(state: &Arc<AppState>, id: &str, line: &str) -> bool {
+    let harness_id = {
+        let ws_guard = state.workspace.lock().unwrap();
+        let Some(ws) = ws_guard.as_ref() else {
+            return false;
+        };
+        let Some(meta) = ws.metadata.read_session(id) else {
+            return false;
+        };
+        meta.harness
+    };
+    if harness_id.is_empty() {
+        return false;
+    }
+    let trimmed = line.trim();
+    let registry = state
+        .harness_catalog
+        .read()
+        .expect("harness catalog lock poisoned");
+    registry.get(&harness_id).is_some_and(|harness| {
+        harness
+            .definition
+            .label_reset_commands
+            .iter()
+            .any(|command| command == trimmed)
+    })
+}
+
+/// Applies a harness-declared conversation reset (ADR 0040): both copies of
+/// the label return to the ADR 0029 placeholder and queued label work is
+/// discarded, so the placeholder stays visible until the next descriptive
+/// line seeds a new topic. Returns whether `line` was such a command.
+///
+/// Call only for input that was actually delivered and classified
+/// non-sensitive.
+fn reset_label_for_declared_command(state: &Arc<AppState>, id: &str, line: &str) -> bool {
+    if !reset_command_for_persisted_harness(state, id, line) {
+        return false;
+    }
+
+    let placeholder = crate::session_types::placeholder_label(id);
+    // The epoch write guard is held across the whole reset — the bump, the
+    // stale-work clearing, and both label writes — so a label refinement
+    // (which holds the epoch read guard while it checks its own epoch) can
+    // never interleave and restore the old conversation's title.
+    let mut epochs = state.peon.label_epochs.write().unwrap();
+    let epoch = epochs.entry(id.to_string()).or_insert(0);
+    *epoch = epoch.saturating_add(1);
+    state.peon.label_hint.write().unwrap().remove(id);
+    state.peon.label_pending.write().unwrap().remove(id);
+
+    {
+        let ws_guard = state.workspace.lock().unwrap();
+        if let Some(ref ws) = *ws_guard {
+            if let Some(mut meta) = ws.metadata.read_session(id) {
+                meta.label = placeholder.clone();
+                ws.metadata.write_session(&meta);
+            }
+        }
+    }
+    if let Some(handle) = state.sessions.lock().unwrap().get_mut(id) {
+        handle.info.label = placeholder;
+    }
+
+    true
+}
+
+/// Queues Peon's `InputLabel` refinement for `line`, tagged with the
+/// session's current label epoch. The epoch read guard spans both the capture
+/// and the insert so a reset cannot land in between and leave work from the
+/// previous conversation queued under the new epoch.
+pub(crate) fn queue_label_hint(state: &Arc<AppState>, id: &str, line: String) {
+    let epochs = state.peon.label_epochs.read().unwrap();
+    let epoch = epochs.get(id).copied().unwrap_or(0);
+    state
+        .peon
+        .label_hint
+        .write()
+        .unwrap()
+        .insert(id.to_string(), crate::LabelHint { text: line, epoch });
+    state
+        .peon
+        .label_pending
+        .write()
+        .unwrap()
+        .insert(id.to_string());
 }
 /// Caller contract, not enforced here: only call this for a non-empty frame
 /// whose delivery to the PTY was actually accepted. `line_completed` is
@@ -1248,6 +1344,7 @@ mod tests {
                 in_flight: RwLock::new(HashSet::new()),
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
+                label_epochs: RwLock::new(HashMap::new()),
                 input_buf: RwLock::new(HashMap::new()),
                 reported_cwd: RwLock::new(HashMap::new()),
                 config: crate::peon::PeonConfig::from_env(),
@@ -1827,7 +1924,10 @@ mod tests {
         assert_eq!(meta.label, "fix the login redirect bug");
         assert_eq!(
             state.peon.label_hint.read().unwrap().get(session_id),
-            Some(&"fix the login redirect bug".to_string())
+            Some(&crate::LabelHint {
+                text: "fix the login redirect bug".into(),
+                epoch: 0,
+            })
         );
         assert!(state.peon.label_pending.read().unwrap().contains(session_id));
     }
@@ -1865,7 +1965,10 @@ mod tests {
         assert_eq!(meta.last_user_input.as_deref(), Some(display.as_str()));
         assert_eq!(
             state.peon.label_hint.read().unwrap().get(session_id),
-            Some(&input)
+            Some(&crate::LabelHint {
+                text: input.clone(),
+                epoch: 0,
+            })
         );
     }
 
@@ -1893,6 +1996,235 @@ mod tests {
         assert_eq!(meta.label, "Prompted session");
         assert!(state.peon.label_hint.read().unwrap().get(session_id).is_none());
         assert!(!state.peon.label_pending.read().unwrap().contains(session_id));
+    }
+
+    /// Persists `harness` as the session's durable harness ID — the only ID a
+    /// declared reset command is matched against (ADR 0040).
+    fn set_harness(state: &Arc<crate::AppState>, session_id: &str, harness: &str) {
+        let ws = state.workspace.lock().unwrap();
+        let store = &ws.as_ref().unwrap().metadata;
+        let mut meta = store.read_session(session_id).unwrap();
+        meta.harness = harness.into();
+        store.write_session(&meta);
+    }
+
+    /// Seeds both copies of an already-established topic label.
+    fn set_label(state: &Arc<crate::AppState>, session_id: &str, label: &str) {
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .get_mut(session_id)
+            .unwrap()
+            .info
+            .label = label.into();
+        let ws = state.workspace.lock().unwrap();
+        let store = &ws.as_ref().unwrap().metadata;
+        let mut meta = store.read_session(session_id).unwrap();
+        meta.label = label.into();
+        store.write_session(&meta);
+    }
+
+    /// Plants the queued label work a reset must clear: a hint at `epoch`, the
+    /// pending-inference flag, and the matching per-session epoch.
+    fn seed_label_hint(state: &Arc<crate::AppState>, session_id: &str, text: &str, epoch: u64) {
+        state.peon.label_hint.write().unwrap().insert(
+            session_id.to_string(),
+            crate::LabelHint {
+                text: text.to_string(),
+                epoch,
+            },
+        );
+        state
+            .peon
+            .label_pending
+            .write()
+            .unwrap()
+            .insert(session_id.to_string());
+        state
+            .peon
+            .label_epochs
+            .write()
+            .unwrap()
+            .insert(session_id.to_string(), epoch);
+    }
+
+    fn live_label(state: &Arc<crate::AppState>, session_id: &str) -> String {
+        state.sessions.lock().unwrap()[session_id].info.label.clone()
+    }
+
+    fn stored_label(state: &Arc<crate::AppState>, session_id: &str) -> String {
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(session_id)
+            .unwrap()
+            .label
+    }
+
+    fn label_epoch(state: &Arc<crate::AppState>, session_id: &str) -> u64 {
+        state
+            .peon
+            .label_epochs
+            .read()
+            .unwrap()
+            .get(session_id)
+            .copied()
+            .unwrap_or(0)
+    }
+
+    /// Asserts the whole label lifecycle is exactly as `set_label` /
+    /// `seed_label_hint` left it: no reset happened.
+    fn assert_label_lifecycle_untouched(state: &Arc<crate::AppState>, session_id: &str, case: &str) {
+        assert_eq!(live_label(state, session_id), "Old conversation title", "{case}");
+        assert_eq!(stored_label(state, session_id), "Old conversation title", "{case}");
+        assert_eq!(
+            state.peon.label_hint.read().unwrap().get(session_id),
+            Some(&crate::LabelHint {
+                text: "old topic".into(),
+                epoch: 0,
+            }),
+            "{case}"
+        );
+        assert!(
+            state.peon.label_pending.read().unwrap().contains(session_id),
+            "{case}"
+        );
+        assert_eq!(label_epoch(state, session_id), 0, "{case}");
+    }
+
+    #[test]
+    fn declared_reset_replaces_live_and_persisted_label_and_rearms_seeding() {
+        let id = "label-reset";
+        let (state, _dir) = prompted_session_state(id);
+        set_harness(&state, id, "claude-code");
+        set_label(&state, id, "Old conversation title");
+        seed_label_hint(&state, id, "old topic", 0);
+
+        record_terminal_input(&state, id, "  /new\r");
+
+        let placeholder = crate::session_types::placeholder_label(id);
+        assert_eq!(live_label(&state, id), placeholder);
+        assert_eq!(stored_label(&state, id), placeholder);
+        assert!(state.peon.label_hint.read().unwrap().get(id).is_none());
+        assert!(!state.peon.label_pending.read().unwrap().contains(id));
+        assert_eq!(label_epoch(&state, id), 1);
+
+        record_terminal_input(&state, id, "fix the next login bug\r");
+        assert_eq!(live_label(&state, id), "fix the next login bug");
+        assert_eq!(stored_label(&state, id), "fix the next login bug");
+    }
+
+    #[test]
+    fn near_miss_reset_commands_leave_the_label_lifecycle_untouched() {
+        // Only an exact, trimmed match resets (ADR 0040): no extra arguments,
+        // no missing prefix, no case folding.
+        for (case, input) in [
+            ("trailing argument", "/new extra\r"),
+            ("missing slash prefix", "new\r"),
+            ("different case", "/NEW\r"),
+        ] {
+            let id = "label-reset-near-miss";
+            let (state, _dir) = prompted_session_state(id);
+            set_harness(&state, id, "claude-code");
+            set_label(&state, id, "Old conversation title");
+            seed_label_hint(&state, id, "old topic", 0);
+
+            record_terminal_input(&state, id, input);
+
+            assert_label_lifecycle_untouched(&state, id, case);
+        }
+    }
+
+    #[test]
+    fn declared_reset_is_scoped_to_the_harness_that_declares_it() {
+        // Codex declares no reset commands, so Claude Code's `/new` is inert
+        // in a Codex session.
+        let id = "label-reset-codex";
+        let (state, _dir) = prompted_session_state(id);
+        set_harness(&state, id, "codex");
+        set_label(&state, id, "Old conversation title");
+        seed_label_hint(&state, id, "old topic", 0);
+
+        record_terminal_input(&state, id, "/new\r");
+
+        assert_label_lifecycle_untouched(&state, id, "codex session");
+    }
+
+    #[test]
+    fn empty_persisted_harness_id_never_resets_even_with_a_live_harness_id() {
+        // The persisted `SessionMetadata.harness` is the only source; there is
+        // deliberately no fallback to the live `SessionInfo.harness_id`.
+        let id = "label-reset-no-persisted-harness";
+        let (state, _dir) = prompted_session_state(id);
+        set_harness(&state, id, "");
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .get_mut(id)
+            .unwrap()
+            .info
+            .harness_id = Some("claude-code".into());
+        set_label(&state, id, "Old conversation title");
+        seed_label_hint(&state, id, "old topic", 0);
+
+        record_terminal_input(&state, id, "/new\r");
+
+        assert_label_lifecycle_untouched(&state, id, "empty persisted harness id");
+    }
+
+    #[test]
+    fn unknown_persisted_harness_id_never_resets() {
+        let id = "label-reset-unknown-harness";
+        let (state, _dir) = prompted_session_state(id);
+        set_harness(&state, id, "mystery-tool");
+        set_label(&state, id, "Old conversation title");
+        seed_label_hint(&state, id, "old topic", 0);
+
+        record_terminal_input(&state, id, "/new\r");
+
+        assert_label_lifecycle_untouched(&state, id, "unknown persisted harness id");
+    }
+
+    #[test]
+    fn sensitive_input_never_resets_the_label() {
+        // A password typed at a prompt that happens to read `/new` must not be
+        // interpreted as a command: sensitivity is decided before dispatch.
+        let id = "label-reset-sensitive";
+        let (state, _dir) = prompted_session_state(id);
+        set_harness(&state, id, "claude-code");
+        set_label(&state, id, "Old conversation title");
+        seed_label_hint(&state, id, "old topic", 0);
+
+        record_peon_input_side_effects(&state, id, "/new\r", true, 0);
+
+        assert_label_lifecycle_untouched(&state, id, "pre-dispatch sensitive input");
+    }
+
+    #[test]
+    fn declared_reset_command_is_not_recorded_as_last_user_input() {
+        let id = "label-reset-last-input";
+        let (state, _dir) = prompted_session_state(id);
+        set_harness(&state, id, "claude-code");
+        set_label(&state, id, "Old conversation title");
+
+        record_terminal_input(&state, id, "/new\r");
+
+        let meta = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
+        assert_eq!(meta.last_user_input, None);
     }
 
     #[test]
@@ -2115,6 +2447,7 @@ mod tests {
                 in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
                 label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
                 label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
+                label_epochs: std::sync::RwLock::new(std::collections::HashMap::new()),
                 input_buf: std::sync::RwLock::new(std::collections::HashMap::new()),
                 reported_cwd: std::sync::RwLock::new(std::collections::HashMap::new()),
                 config: crate::peon::PeonConfig::from_env(),
@@ -2211,6 +2544,7 @@ mod tests {
                 in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
                 label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
                 label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
+                label_epochs: std::sync::RwLock::new(std::collections::HashMap::new()),
                 input_buf: std::sync::RwLock::new(std::collections::HashMap::new()),
                 reported_cwd: std::sync::RwLock::new(std::collections::HashMap::new()),
                 config: crate::peon::PeonConfig::from_env(),
@@ -2409,6 +2743,7 @@ mod tests {
                 in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
                 label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
                 label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
+                label_epochs: std::sync::RwLock::new(std::collections::HashMap::new()),
                 input_buf: std::sync::RwLock::new(std::collections::HashMap::new()),
                 reported_cwd: std::sync::RwLock::new(std::collections::HashMap::new()),
                 config: crate::peon::PeonConfig {
@@ -2474,6 +2809,7 @@ mod tests {
                 in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
                 label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
                 label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
+                label_epochs: std::sync::RwLock::new(std::collections::HashMap::new()),
                 input_buf: std::sync::RwLock::new(std::collections::HashMap::new()),
                 reported_cwd: std::sync::RwLock::new(std::collections::HashMap::new()),
                 config: crate::peon::PeonConfig {
@@ -2543,6 +2879,7 @@ mod tests {
                 in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
                 label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
                 label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
+                label_epochs: std::sync::RwLock::new(std::collections::HashMap::new()),
                 input_buf: std::sync::RwLock::new(std::collections::HashMap::new()),
                 reported_cwd: std::sync::RwLock::new(std::collections::HashMap::new()),
                 config: crate::peon::PeonConfig::from_env(),
@@ -2617,6 +2954,7 @@ mod tests {
                 in_flight: RwLock::new(HashSet::new()),
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
+                label_epochs: RwLock::new(HashMap::new()),
                 input_buf: RwLock::new(HashMap::new()),
                 reported_cwd: RwLock::new(HashMap::new()),
                 config: crate::peon::PeonConfig::from_env(),
@@ -2759,6 +3097,7 @@ mod tests {
                 in_flight: RwLock::new(HashSet::new()),
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
+                label_epochs: RwLock::new(HashMap::new()),
                 input_buf: RwLock::new(HashMap::new()),
                 reported_cwd: RwLock::new(HashMap::new()),
                 config: crate::peon::PeonConfig::from_env(),
@@ -2936,6 +3275,7 @@ mod tests {
                 in_flight: RwLock::new(HashSet::new()),
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
+                label_epochs: RwLock::new(HashMap::new()),
                 input_buf: RwLock::new(HashMap::new()),
                 reported_cwd: RwLock::new(HashMap::new()),
                 config,
