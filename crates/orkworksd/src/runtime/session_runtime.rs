@@ -4,7 +4,7 @@ use crate::runtime::observed_status::{
 };
 use crate::runtime::terminal_runtime::{
     make_pty_system, schedule_session_ending_finalization, session_env_overrides,
-    set_session_status, should_forward_terminal_env, terminal_env_overrides,
+    set_session_status_for_generation, should_forward_terminal_env, terminal_env_overrides,
 };
 #[cfg(windows)]
 use crate::runtime::terminal_runtime::resolve_windows_program;
@@ -13,6 +13,7 @@ use chrono::{DateTime, Utc};
 use portable_pty::{CommandBuilder, PtySize, PtySystem};
 use std::collections::VecDeque;
 use std::io::{Read, Write};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::sync::{broadcast, mpsc};
 
@@ -28,6 +29,18 @@ const INITIAL_RESIZE_GRACE: std::time::Duration = std::time::Duration::from_mill
 const STARTUP_ATTENTION_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
 const WORK_SIGNAL_WINDOW: std::time::Duration = std::time::Duration::from_secs(10);
 const OUTPUT_RECENCY_PERSIST_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
+
+pub(crate) type RuntimeGeneration = u64;
+
+static NEXT_RUNTIME_GENERATION: AtomicU64 = AtomicU64::new(1);
+
+fn next_runtime_generation() -> RuntimeGeneration {
+    NEXT_RUNTIME_GENERATION
+        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |generation| {
+            generation.checked_add(1)
+        })
+        .expect("session runtime generation exhausted")
+}
 
 #[derive(Debug)]
 pub(crate) struct PendingWorkSignal {
@@ -204,6 +217,7 @@ impl ReplayBuffer {
 
 #[derive(Debug)]
 pub(crate) struct SessionRuntime {
+    run_generation: RuntimeGeneration,
     pub(crate) control_tx: mpsc::Sender<RuntimeCommand>,
     pub(crate) output_tx: broadcast::Sender<RuntimeEvent>,
     pub(crate) replay: ReplayBuffer,
@@ -228,6 +242,7 @@ impl SessionRuntime {
         let (output_tx, _) = broadcast::channel(256);
         (
             Self {
+                run_generation: next_runtime_generation(),
                 control_tx,
                 output_tx,
                 replay: ReplayBuffer::new(DEFAULT_REPLAY_CAPACITY),
@@ -254,6 +269,7 @@ impl SessionRuntime {
         let (control_tx, _control_rx) = mpsc::channel(CONTROL_CHANNEL_CAPACITY);
         let (output_tx, _) = broadcast::channel(256);
         Self {
+            run_generation: next_runtime_generation(),
             control_tx,
             output_tx,
             replay: ReplayBuffer::new(DEFAULT_REPLAY_CAPACITY),
@@ -276,6 +292,10 @@ impl SessionRuntime {
     #[cfg(test)]
     pub(crate) fn detached_test() -> Self {
         Self::detached(DEFAULT_TERMINAL_ROWS, DEFAULT_TERMINAL_COLS)
+    }
+
+    pub(crate) fn run_generation(&self) -> RuntimeGeneration {
+        self.run_generation
     }
 
     #[cfg(test)]
@@ -601,6 +621,55 @@ pub(crate) fn clear_ended_session_tracking(state: &AppState, id: &str) {
     state.session_pids.lock().unwrap().remove(id);
 }
 
+/// Applies an exit callback only while its runtime generation still owns the
+/// session ID. Marking the handle as ending first prevents resume admission
+/// from replacing it while the remaining runtime-owned side tables are
+/// cleared and output recency is flushed.
+pub(crate) async fn handle_runtime_exit(
+    state: &Arc<AppState>,
+    id: &str,
+    generation: RuntimeGeneration,
+    status: &str,
+) -> bool {
+    let owns_generation = state
+        .sessions
+        .lock()
+        .unwrap()
+        .get(id)
+        .is_some_and(|handle| handle.runtime.run_generation() == generation);
+    if !owns_generation {
+        return false;
+    }
+
+    // A user-initiated kill may already have moved this same generation to
+    // `ending`. The driver still owns cleanup and finalization in that case;
+    // only a generation mismatch makes the callback stale.
+    let _ = set_session_status_for_generation(state, id, generation, status);
+    {
+        let mut sessions = state.sessions.lock().unwrap();
+        let Some(handle) = sessions
+            .get_mut(id)
+            .filter(|handle| {
+                handle.runtime.run_generation() == generation
+                    && handle.info.lifecycle_phase == "ending"
+            })
+        else {
+            return false;
+        };
+        handle.runtime.attached_generation = None;
+        handle.terminal_attached = false;
+    }
+    clear_ended_session_tracking(state, id);
+    flush_output_recency(state, id).await;
+    schedule_session_ending_finalization(
+        state.clone(),
+        id.to_string(),
+        generation,
+        status.to_string(),
+    );
+    true
+}
+
 pub(crate) async fn start_session_runtime(
     state: Arc<AppState>,
     id: String,
@@ -611,6 +680,13 @@ pub(crate) async fn start_session_runtime(
     mut kill_rx: tokio::sync::watch::Receiver<bool>,
     initial_size: PtySize,
 ) -> Result<(), String> {
+    let run_generation = state
+        .sessions
+        .lock()
+        .unwrap()
+        .get(&id)
+        .map(|handle| handle.runtime.run_generation())
+        .ok_or_else(|| "session runtime handle is not installed".to_string())?;
     let (initial_size, pending_commands) =
         capture_startup_runtime_state(&mut control_rx, initial_size).await;
     let pty_sys = make_pty_system();
@@ -657,7 +733,12 @@ pub(crate) async fn start_session_runtime(
     let startup_grace_ends_at = tokio::time::Instant::now() + STARTUP_ATTENTION_GRACE;
     // The PTY has spawned, so the lifecycle is alive before either background
     // task can observe and classify its first output chunk.
-    set_session_status(&state, &id, "running");
+    if !set_session_status_for_generation(&state, &id, run_generation, "running") {
+        let _ = child.kill();
+        let _ = child.wait();
+        state.session_pids.lock().unwrap().remove(&id);
+        return Err("session runtime was replaced during startup".into());
+    }
 
     let mut reader = match pair.master.try_clone_reader() {
         Ok(reader) => reader,
@@ -988,26 +1069,19 @@ pub(crate) async fn start_session_runtime(
                                     )]);
                             }
 
-                            flush_output_recency(&driver_state, &driver_id).await;
-
-                            clear_ended_session_tracking(&driver_state, &driver_id);
-
-                            {
-                                let mut sessions = driver_state.sessions.lock().unwrap();
-                                if let Some(handle) = sessions.get_mut(&driver_id) {
-                                    handle.runtime.attached_generation = None;
-                                    handle.terminal_attached = false;
-                                }
-                            }
-
                             let status = if kill_requested { "killed" } else { "ended" };
+                            if !handle_runtime_exit(
+                                &driver_state,
+                                &driver_id,
+                                run_generation,
+                                status,
+                            )
+                            .await
+                            {
+                                drop(persist_tx);
+                                break;
+                            }
                             let _ = driver_output_tx.send(RuntimeEvent::Ended { status: status.to_string() });
-                            let _ = set_session_status(&driver_state, &driver_id, status);
-                            schedule_session_ending_finalization(
-                                driver_state.clone(),
-                                driver_id.clone(),
-                                status.to_string(),
-                            );
 
                             let trim_state = driver_state.clone();
                             let trim_id = driver_id.clone();
@@ -1036,25 +1110,21 @@ pub(crate) async fn start_session_runtime(
                                         "",
                                     )]);
                             }
-                            flush_output_recency(&driver_state, &driver_id).await;
-                            clear_ended_session_tracking(&driver_state, &driver_id);
+                            if !handle_runtime_exit(
+                                &driver_state,
+                                &driver_id,
+                                run_generation,
+                                "error",
+                            )
+                            .await
                             {
-                                let mut sessions = driver_state.sessions.lock().unwrap();
-                                if let Some(handle) = sessions.get_mut(&driver_id) {
-                                    handle.runtime.attached_generation = None;
-                                    handle.terminal_attached = false;
-                                }
+                                drop(persist_tx);
+                                break;
                             }
                             let _ = driver_output_tx.send(RuntimeEvent::Error {
                                 code: "pty_wait_failed".into(),
                                 message: error,
                             });
-                            let _ = set_session_status(&driver_state, &driver_id, "error");
-                            schedule_session_ending_finalization(
-                                driver_state.clone(),
-                                driver_id.clone(),
-                                "error".to_string(),
-                            );
                             let trim_state = driver_state.clone();
                             let trim_id = driver_id.clone();
                             tokio::spawn(async move {

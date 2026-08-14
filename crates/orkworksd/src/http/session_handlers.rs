@@ -380,12 +380,99 @@ fn resume_handle_conflicts(
         || has_tracked_pid
 }
 
+struct ResumeRollback {
+    workspace_path: PathBuf,
+    metadata: metadata::SessionMetadata,
+    terminal_size: Option<(u16, u16)>,
+}
+
+struct ResumeAdmission {
+    state: Arc<AppState>,
+    id: String,
+    generation: crate::runtime::session_runtime::RuntimeGeneration,
+    previous_handle: Option<SessionHandle>,
+    rollback: Option<ResumeRollback>,
+    committed: bool,
+}
+
+impl ResumeAdmission {
+    fn generation(&self) -> crate::runtime::session_runtime::RuntimeGeneration {
+        self.generation
+    }
+
+    fn arm_rollback(
+        &mut self,
+        workspace_path: PathBuf,
+        metadata: metadata::SessionMetadata,
+        terminal_size: Option<(u16, u16)>,
+    ) {
+        self.rollback = Some(ResumeRollback {
+            workspace_path,
+            metadata,
+            terminal_size,
+        });
+    }
+
+    fn commit(mut self) {
+        self.committed = true;
+        self.previous_handle = None;
+        self.rollback = None;
+    }
+}
+
+impl Drop for ResumeAdmission {
+    fn drop(&mut self) {
+        if self.committed {
+            return;
+        }
+
+        let restored = {
+            let mut sessions = self.state.sessions.lock().unwrap();
+            if !sessions.get(&self.id).is_some_and(|handle| {
+                handle.runtime.run_generation() == self.generation
+                    && handle.resume_in_progress
+            }) {
+                false
+            } else {
+                match self.previous_handle.take() {
+                    Some(previous) => {
+                        sessions.insert(self.id.clone(), previous);
+                    }
+                    None => {
+                        sessions.remove(&self.id);
+                    }
+                }
+                true
+            }
+        };
+        if !restored {
+            return;
+        }
+
+        let Some(rollback) = self.rollback.take() else {
+            return;
+        };
+        let ws_guard = self.state.workspace.lock().unwrap();
+        let Some(ws) = ws_guard
+            .as_ref()
+            .filter(|workspace| workspace.path == rollback.workspace_path)
+        else {
+            return;
+        };
+        ws.metadata.write_session(&rollback.metadata);
+        match rollback.terminal_size {
+            Some((cols, rows)) => ws.metadata.write_terminal_size(&self.id, cols, rows),
+            None => ws.metadata.clear_terminal_size(&self.id),
+        }
+    }
+}
+
 fn try_install_claimed_resume_handle(
     state: &Arc<AppState>,
     id: &str,
     mut replacement: SessionHandle,
     metadata_ended: bool,
-) -> Result<(), ()> {
+) -> Result<ResumeAdmission, ()> {
     let mut sessions = state.sessions.lock().unwrap();
     let has_tracked_pid = state.session_pids.lock().unwrap().contains_key(id);
     if !metadata_ended
@@ -398,8 +485,16 @@ fn try_install_claimed_resume_handle(
     }
 
     replacement.resume_in_progress = true;
-    sessions.insert(id.to_string(), replacement);
-    Ok(())
+    let generation = replacement.runtime.run_generation();
+    let previous_handle = sessions.insert(id.to_string(), replacement);
+    Ok(ResumeAdmission {
+        state: state.clone(),
+        id: id.to_string(),
+        generation,
+        previous_handle,
+        rollback: None,
+        committed: false,
+    })
 }
 
 pub(crate) async fn resume_session(
@@ -540,20 +635,25 @@ pub(crate) async fn resume_session(
         resume_scan_origin: capacity_check_pending.then_some((0, 0)),
         pending_capacity_visible_once: false,
     };
-    if try_install_claimed_resume_handle(
+    let mut admission = match try_install_claimed_resume_handle(
         &state,
         &id,
         replacement,
         meta.lifecycle_phase == "ended",
-    )
-    .is_err()
-    {
-        return axum::http::StatusCode::CONFLICT.into_response();
-    }
+    ) {
+        Ok(admission) => admission,
+        Err(()) => return axum::http::StatusCode::CONFLICT.into_response(),
+    };
+    let run_generation = admission.generation();
 
     {
         let ws_guard = state.workspace.lock().unwrap();
         if let Some(ref ws) = *ws_guard {
+            admission.arm_rollback(
+                ws.path.clone(),
+                meta.clone(),
+                ws.metadata.read_terminal_size(&id),
+            );
             // Drop any recorded terminal-size sidecar from the prior run before the
             // resumed runtime starts. If the daemon exits before the resumed run
             // reaches another terminal-status transition there is no in-memory
@@ -581,7 +681,7 @@ pub(crate) async fn resume_session(
         }
     }
 
-    match crate::runtime::session_runtime::start_session_runtime(
+    let start_result = crate::runtime::session_runtime::start_session_runtime(
         state.clone(),
         id.clone(),
         command.clone(),
@@ -596,15 +696,23 @@ pub(crate) async fn resume_session(
             pixel_height: 0,
         },
     )
-    .await
-    {
+    .await;
+    admission.commit();
+
+    match start_result {
         Ok(()) => {}
         Err(error) => {
             tracing::error!(session_id = %id, %error, "failed to start resumed session runtime");
-            if crate::runtime::terminal_runtime::set_session_status(&state, &id, "error") {
+            if crate::runtime::terminal_runtime::set_session_status_for_generation(
+                &state,
+                &id,
+                run_generation,
+                "error",
+            ) {
                 crate::runtime::terminal_runtime::schedule_session_ending_finalization(
                     state.clone(),
                     id.clone(),
+                    run_generation,
                     "error".into(),
                 );
             }
@@ -1213,6 +1321,7 @@ pub(crate) async fn create_session(
         crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
         crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
     );
+    let run_generation = runtime.run_generation();
     let output_tx = runtime.output_tx.clone();
     state.sessions.lock().unwrap().insert(
         id.clone(),
@@ -1321,10 +1430,16 @@ pub(crate) async fn create_session(
         Ok(()) => {}
         Err(error) => {
             tracing::error!(session_id = %id, %error, "failed to start session runtime");
-            if crate::runtime::terminal_runtime::set_session_status(&state, &id, "error") {
+            if crate::runtime::terminal_runtime::set_session_status_for_generation(
+                &state,
+                &id,
+                run_generation,
+                "error",
+            ) {
                 crate::runtime::terminal_runtime::schedule_session_ending_finalization(
                     state.clone(),
                     id.clone(),
+                    run_generation,
                     "error".into(),
                 );
             }
@@ -2550,6 +2665,216 @@ mod tests {
         assert!(sessions[&session_id].resume_in_progress);
     }
 
+    #[tokio::test]
+    async fn late_old_runtime_exit_is_a_noop_after_resume_replaces_its_generation() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let session_id = "resume-generation-replacement";
+        let old_handle = attention_test_handle(session_id, dir.path());
+        let old_generation = old_handle.runtime.run_generation();
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .insert(session_id.to_string(), old_handle);
+
+        let replacement = attention_test_handle(session_id, dir.path());
+        let admission =
+            try_install_claimed_resume_handle(&state, session_id, replacement, true).unwrap();
+        let replacement_generation = admission.generation();
+        admission.commit();
+        assert!(replacement_generation > old_generation);
+
+        let mut metadata = test_session_metadata(
+            session_id,
+            "Replacement",
+            dir.path().display().to_string(),
+            "running",
+            "before",
+            "before",
+        );
+        metadata.lifecycle_phase = "active".into();
+        metadata.lifecycle = "alive".into();
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
+        state
+            .session_pids
+            .lock()
+            .unwrap()
+            .insert(session_id.to_string(), 4242);
+        state
+            .peon
+            .last_output
+            .write()
+            .unwrap()
+            .insert(session_id.to_string(), tokio::time::Instant::now());
+        state
+            .peon
+            .last_inference
+            .write()
+            .unwrap()
+            .insert(session_id.to_string(), "replacement inference".into());
+        state
+            .peon
+            .input_buf
+            .write()
+            .unwrap()
+            .insert(session_id.to_string(), "replacement input".into());
+
+        assert!(!crate::runtime::session_runtime::handle_runtime_exit(
+            &state,
+            session_id,
+            old_generation,
+            "ended",
+        )
+        .await);
+        tokio::task::yield_now().await;
+
+        let sessions = state.sessions.lock().unwrap();
+        let replacement = &sessions[session_id];
+        assert_eq!(replacement.runtime.run_generation(), replacement_generation);
+        assert_eq!(replacement.info.status, "running");
+        assert_eq!(replacement.info.lifecycle_phase, "active");
+        assert!(replacement.resume_in_progress);
+        drop(sessions);
+        assert_eq!(state.session_pids.lock().unwrap()[session_id], 4242);
+        assert!(state.peon.last_output.read().unwrap().contains_key(session_id));
+        assert_eq!(
+            state.peon.last_inference.read().unwrap()[session_id],
+            "replacement inference"
+        );
+        assert_eq!(
+            state.peon.input_buf.read().unwrap()[session_id],
+            "replacement input"
+        );
+        let persisted = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(session_id)
+            .unwrap();
+        assert_eq!(persisted.status, "running");
+        assert_eq!(persisted.lifecycle_phase, "active");
+
+        // A finalizer that was already scheduled by the old generation must
+        // also be harmless if the replacement independently enters ending.
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let replacement = sessions.get_mut(session_id).unwrap();
+            replacement.info.lifecycle_phase = "ending".into();
+            replacement.info.lifecycle = "stopping".into();
+        }
+        {
+            let ws_guard = state.workspace.lock().unwrap();
+            let ws = ws_guard.as_ref().unwrap();
+            let mut ending = ws.metadata.read_session(session_id).unwrap();
+            ending.lifecycle_phase = "ending".into();
+            ending.lifecycle = "stopping".into();
+            ending.pending_terminal_status = Some("killed".into());
+            ws.metadata.write_session(&ending);
+        }
+        crate::runtime::terminal_runtime::finalize_session_ending(
+            state.clone(),
+            session_id.to_string(),
+            old_generation,
+            "ended".into(),
+        )
+        .await;
+        let sessions = state.sessions.lock().unwrap();
+        let replacement = &sessions[session_id];
+        assert_eq!(replacement.runtime.run_generation(), replacement_generation);
+        assert_eq!(replacement.info.lifecycle_phase, "ending");
+        assert!(replacement.resume_in_progress);
+        drop(sessions);
+        let persisted = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(session_id)
+            .unwrap();
+        assert_eq!(persisted.lifecycle_phase, "ending");
+        assert_eq!(persisted.pending_terminal_status.as_deref(), Some("killed"));
+    }
+
+    #[test]
+    fn cancelled_resume_admission_restores_prior_runtime_and_metadata() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let session_id = "resume-cancelled-admission";
+        let mut old_handle = attention_test_handle(session_id, dir.path());
+        old_handle.info.status = "ended".into();
+        old_handle.info.lifecycle_phase = "ended".into();
+        old_handle.info.lifecycle = "dead".into();
+        let old_generation = old_handle.runtime.run_generation();
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .insert(session_id.to_string(), old_handle);
+
+        let mut metadata = test_session_metadata(
+            session_id,
+            "Prior Runtime",
+            dir.path().display().to_string(),
+            "ended",
+            "before",
+            "before",
+        );
+        metadata.lifecycle_phase = "ended".into();
+        metadata.lifecycle = "dead".into();
+        let ws_guard = state.workspace.lock().unwrap();
+        let ws = ws_guard.as_ref().unwrap();
+        ws.metadata.write_session(&metadata);
+        ws.metadata.write_terminal_size(session_id, 120, 40);
+        drop(ws_guard);
+
+        let replacement = attention_test_handle(session_id, dir.path());
+        let mut admission =
+            try_install_claimed_resume_handle(&state, session_id, replacement, true).unwrap();
+        admission.arm_rollback(
+            dir.path().to_path_buf(),
+            metadata.clone(),
+            Some((120, 40)),
+        );
+        {
+            let ws_guard = state.workspace.lock().unwrap();
+            let ws = ws_guard.as_ref().unwrap();
+            let mut creating = metadata.clone();
+            creating.status = "creating".into();
+            creating.lifecycle_phase = "creating".into();
+            ws.metadata.write_session(&creating);
+            ws.metadata.clear_terminal_size(session_id);
+        }
+
+        // Dropping the request future drops its admission guard.
+        drop(admission);
+
+        let sessions = state.sessions.lock().unwrap();
+        let restored = &sessions[session_id];
+        assert_eq!(restored.runtime.run_generation(), old_generation);
+        assert_eq!(restored.info.lifecycle_phase, "ended");
+        assert!(!restored.resume_in_progress);
+        drop(sessions);
+        let ws_guard = state.workspace.lock().unwrap();
+        let ws = ws_guard.as_ref().unwrap();
+        let restored_metadata = ws.metadata.read_session(session_id).unwrap();
+        assert_eq!(restored_metadata.status, "ended");
+        assert_eq!(restored_metadata.lifecycle_phase, "ended");
+        assert_eq!(ws.metadata.read_terminal_size(session_id), Some((120, 40)));
+    }
+
     #[test]
     fn resume_admission_rejects_active_metadata_without_a_session_handle() {
         let dir = tempfile::tempdir().unwrap();
@@ -2628,9 +2953,13 @@ mod tests {
             "ending"
         );
 
+        let generation = state.sessions.lock().unwrap()[session_id]
+            .runtime
+            .run_generation();
         crate::runtime::terminal_runtime::finalize_session_ending(
             state.clone(),
             session_id.to_string(),
+            generation,
             "ended".into(),
         )
         .await;
