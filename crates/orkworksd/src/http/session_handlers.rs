@@ -2303,6 +2303,8 @@ mod tests {
             session_pids.contains_key("resume-stale-predicate"),
         ));
         assert!(resume_handle_conflicts(&handle, true, true));
+        handle.terminal_attached = true;
+        assert!(resume_handle_conflicts(&handle, true, false));
     }
 
     #[tokio::test]
