@@ -57,6 +57,8 @@ bash .claude/hooks/worktree-check.sh # passed; no output
 
 `95aea78` (`fix: reject resume when persisted session is live`)
 
+Follow-up test-only fix: `7408a7e` (`test: cover tracked pid resume conflict`). Added an independent assertion for an unattached ended handle with ended metadata and a tracked PID. A temporary restoration of the prior lifecycle-gated predicate produced the expected focused-test failure; the strict predicate was restored before the green run.
+
 ## Concerns
 
 No behavioral concerns in the requested scope. Full Rust tests were not run; focused tests passed. Existing compiler warnings remain unrelated to this fix.
