@@ -71,8 +71,7 @@ fn resume_handle_conflicts(
     metadata_ended: bool,
     has_tracked_pid: bool,
 ) -> bool {
-    handle.terminal_attached
-        || (handle.info.lifecycle_phase != "ended" && (!metadata_ended || has_tracked_pid))
+    handle.terminal_attached || !metadata_ended || has_tracked_pid
 }
 ```
 
