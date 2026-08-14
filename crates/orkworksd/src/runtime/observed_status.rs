@@ -211,6 +211,7 @@ mod tests {
             pending_work_signal: None,
             runtime: SessionRuntime::detached(DEFAULT_TERMINAL_ROWS, DEFAULT_TERMINAL_COLS),
             terminal_attached: false,
+            resume_in_progress: false,
             at_usage_limit_latched: false,
             capacity_check_pending: false,
             output_lines_seen: 0,

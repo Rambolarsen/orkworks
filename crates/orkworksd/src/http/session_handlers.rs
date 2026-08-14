@@ -373,7 +373,7 @@ fn resume_handle_conflicts(
     metadata_ended: bool,
     has_tracked_pid: bool,
 ) -> bool {
-    handle.terminal_attached || !metadata_ended || has_tracked_pid
+    handle.resume_in_progress || handle.terminal_attached || !metadata_ended || has_tracked_pid
 }
 
 pub(crate) async fn resume_session(
@@ -429,13 +429,14 @@ pub(crate) async fn resume_session(
     };
 
     {
-        let sessions = state.sessions.lock().unwrap();
-        if let Some(handle) = sessions.get(&id) {
+        let mut sessions = state.sessions.lock().unwrap();
+        if let Some(handle) = sessions.get_mut(&id) {
             let metadata_ended = meta.lifecycle_phase == "ended";
             let has_tracked_pid = state.session_pids.lock().unwrap().contains_key(&id);
             if resume_handle_conflicts(handle, metadata_ended, has_tracked_pid) {
                 return axum::http::StatusCode::CONFLICT.into_response();
             }
+            handle.resume_in_progress = true;
         }
     }
 
@@ -522,6 +523,7 @@ pub(crate) async fn resume_session(
                 pending_work_signal: None,
                 runtime,
                 terminal_attached: false,
+                resume_in_progress: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending,
                 output_lines_seen: 0,
@@ -1206,6 +1208,7 @@ pub(crate) async fn create_session(
             pending_work_signal,
             runtime,
             terminal_attached: false,
+            resume_in_progress: false,
             at_usage_limit_latched: false,
             capacity_check_pending: false,
             output_lines_seen: 0,
@@ -2010,6 +2013,7 @@ mod tests {
                 crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
             ),
             terminal_attached: false,
+            resume_in_progress: false,
             at_usage_limit_latched: false,
             capacity_check_pending: false,
             output_lines_seen: 0,
@@ -2185,6 +2189,7 @@ mod tests {
                     crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
                 ),
                 terminal_attached: false,
+                resume_in_progress: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
                 output_lines_seen: 0,
@@ -2285,10 +2290,10 @@ mod tests {
     }
 
     #[test]
-    fn resume_handle_conflicts_when_metadata_is_live_even_if_handle_is_ended() {
+    fn resume_handle_conflicts_for_metadata_pid_attachment_and_claim() {
         let dir = tempfile::tempdir().unwrap();
         let mut handle = attention_test_handle("resume-stale-predicate", dir.path());
-        handle.info.lifecycle_phase = "ended".into();
+        handle.info.lifecycle_phase = "active".into();
         let mut session_pids = HashMap::new();
 
         assert!(resume_handle_conflicts(
@@ -2304,6 +2309,10 @@ mod tests {
         ));
         assert!(resume_handle_conflicts(&handle, true, true));
         handle.terminal_attached = true;
+        assert!(resume_handle_conflicts(&handle, true, false));
+        handle.terminal_attached = false;
+        assert!(!resume_handle_conflicts(&handle, true, false));
+        handle.resume_in_progress = true;
         assert!(resume_handle_conflicts(&handle, true, false));
     }
 
@@ -2333,7 +2342,7 @@ mod tests {
             session_id.clone(),
             "Resume Stale Ended",
             dir.path().display().to_string(),
-            "ended",
+            "running",
             "before",
         );
         info.harness_id = Some("opencode".into());
@@ -2353,6 +2362,7 @@ mod tests {
                     crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
                 ),
                 terminal_attached: false,
+                resume_in_progress: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
                 output_lines_seen: 0,
@@ -2382,6 +2392,77 @@ mod tests {
 
         let response = resume_session(State(state), Path(session_id)).await.into_response();
         assert_eq!(response.status(), axum::http::StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn resume_session_admits_only_one_concurrent_stale_handle_resume() {
+        use crate::test_support::{make_test_executable, FakePath};
+
+        let dir = tempfile::tempdir().unwrap();
+        let fake_bin_dir = tempfile::tempdir().unwrap();
+        let opencode = fake_bin_dir.path().join("opencode");
+        std::fs::write(&opencode, "#!/bin/sh\nexit 0\n").unwrap();
+        make_test_executable(&opencode);
+        let _fake_path = FakePath::prepend(fake_bin_dir.path());
+
+        let state = test_app_state_with_workspace(dir.path());
+        let session_id = "resume-stale-concurrent".to_string();
+        let resume = harness::ResumeMemory {
+            state: harness::ResumeState::Available,
+            preferred_strategy: harness::ResumeStrategy::LatestCwd,
+            harness_session_id: None,
+            latest_fallback: true,
+            last_seen_at: Some("before".into()),
+        };
+        let mut stale_handle = attention_test_handle(&session_id, dir.path());
+        stale_handle.info.harness_id = Some("opencode".into());
+        stale_handle.info.harness = Some("opencode".into());
+        stale_handle.info.resume_strategy = harness::ResumeStrategy::LatestCwd;
+        stale_handle.info.resume = Some(resume.clone());
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .insert(session_id.clone(), stale_handle);
+
+        let mut metadata = test_session_metadata(
+            session_id.clone(),
+            "Resume Stale Concurrent",
+            dir.path().display().to_string(),
+            "ended",
+            "before",
+            "before",
+        );
+        metadata.harness = "opencode".into();
+        metadata.lifecycle_phase = "ended".into();
+        metadata.lifecycle = "ended".into();
+        metadata.resume = Some(resume);
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
+
+        let (first, second) = tokio::join!(
+            resume_session(State(state.clone()), Path(session_id.clone())),
+            resume_session(State(state.clone()), Path(session_id.clone())),
+        );
+        let mut statuses = [first.into_response().status(), second.into_response().status()];
+        statuses.sort_unstable();
+        assert_eq!(
+            statuses,
+            [
+                axum::http::StatusCode::OK,
+                axum::http::StatusCode::CONFLICT,
+            ]
+        );
+        let sessions = state.sessions.lock().unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert!(sessions.contains_key(&session_id));
+        assert!(!sessions[&session_id].resume_in_progress);
     }
 
     #[tokio::test]
@@ -2422,7 +2503,8 @@ mod tests {
                     crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
                     crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
                 ),
-                terminal_attached: true,
+            terminal_attached: true,
+            resume_in_progress: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
                 output_lines_seen: 0,
@@ -2538,6 +2620,7 @@ mod tests {
                     crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
                 ),
                 terminal_attached: false,
+                resume_in_progress: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
                 output_lines_seen: 0,
@@ -4272,6 +4355,7 @@ mod tests {
                     crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
                 ),
                 terminal_attached: false,
+                resume_in_progress: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
                 output_lines_seen: 0,
@@ -4344,6 +4428,7 @@ mod tests {
                     crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
                 ),
                 terminal_attached: false,
+                resume_in_progress: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
                 output_lines_seen: 0,
@@ -4457,6 +4542,7 @@ mod tests {
                     crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
                 ),
                 terminal_attached: false,
+                resume_in_progress: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
                 output_lines_seen: 0,
@@ -4587,6 +4673,7 @@ mod tests {
                     crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
                 ),
                 terminal_attached: false,
+                resume_in_progress: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
                 output_lines_seen: 0,
@@ -4669,6 +4756,7 @@ mod tests {
                     crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
                 ),
                 terminal_attached: false,
+                resume_in_progress: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
                 output_lines_seen: 0,
@@ -4759,6 +4847,7 @@ mod tests {
                     crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
                 ),
                 terminal_attached: false,
+                resume_in_progress: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: true,
                 output_lines_seen: 1,
@@ -4856,6 +4945,7 @@ mod tests {
                     crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
                 ),
                 terminal_attached: false,
+                resume_in_progress: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: true,
                 output_lines_seen: 1,
@@ -4929,6 +5019,7 @@ mod tests {
                     crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
                 ),
                 terminal_attached: false,
+                resume_in_progress: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: true,
                 output_lines_seen: 1,
@@ -5050,6 +5141,7 @@ mod tests {
                     crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
                 ),
                 terminal_attached: false,
+                resume_in_progress: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
                 output_lines_seen: 1,
@@ -5150,6 +5242,7 @@ mod tests {
                     crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
                 ),
                 terminal_attached: false,
+                resume_in_progress: false,
                 at_usage_limit_latched: true,
                 capacity_check_pending: false,
                 output_lines_seen: 2,
@@ -5252,6 +5345,7 @@ mod tests {
                     crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
                 ),
                 terminal_attached: false,
+                resume_in_progress: false,
                 at_usage_limit_latched: true,
                 capacity_check_pending: false,
                 output_lines_seen: 2,
@@ -5334,6 +5428,7 @@ mod tests {
                     crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
                 ),
                 terminal_attached: false,
+                resume_in_progress: false,
                 at_usage_limit_latched: true,
                 capacity_check_pending: false,
                 output_lines_seen: 2,

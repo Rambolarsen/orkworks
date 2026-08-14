@@ -62,6 +62,8 @@ struct SessionHandle {
     pending_work_signal: Option<runtime::session_runtime::PendingWorkSignal>,
     runtime: runtime::session_runtime::SessionRuntime,
     terminal_attached: bool,
+    // Runtime-only admission claim for an in-flight stale-handle resume.
+    resume_in_progress: bool,
     // Sticky: once usage limit is detected it stays true until the session is killed/resumed.
     at_usage_limit_latched: bool,
     capacity_check_pending: bool,
@@ -710,6 +712,7 @@ mod tests {
                     crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
                 ),
                 terminal_attached: false,
+                resume_in_progress: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
                 output_lines_seen: 0,
