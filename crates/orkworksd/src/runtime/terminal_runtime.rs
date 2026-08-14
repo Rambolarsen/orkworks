@@ -877,6 +877,7 @@ pub(crate) fn complete_session_ending(
         handle.info.observed_status = None;
         handle.info.final_observed_status = final_snapshot.value.clone();
         handle.info.last_activity_at = Some(now);
+        handle.resume_in_progress = false;
     }
 }
 
@@ -2861,6 +2862,13 @@ mod tests {
             .unwrap()
             .output_buffer
             .push("final line".into());
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .get_mut(&session_id)
+            .unwrap()
+            .resume_in_progress = true;
 
         {
             let ws_guard = state.workspace.lock().unwrap();
@@ -2924,7 +2932,9 @@ mod tests {
             });
         }
 
+        assert!(state.sessions.lock().unwrap()[&session_id].resume_in_progress);
         finalize_session_ending(state.clone(), session_id.clone(), "ended".to_string()).await;
+        assert!(!state.sessions.lock().unwrap()[&session_id].resume_in_progress);
 
         let session = state
             .sessions

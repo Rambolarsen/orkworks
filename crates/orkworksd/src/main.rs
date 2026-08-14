@@ -62,7 +62,8 @@ struct SessionHandle {
     pending_work_signal: Option<runtime::session_runtime::PendingWorkSignal>,
     runtime: runtime::session_runtime::SessionRuntime,
     terminal_attached: bool,
-    // Runtime-only admission claim for an in-flight stale-handle resume.
+    // Runtime-only ownership claim installed atomically before a resumed PTY starts.
+    // It remains set for the live runtime and is cleared by terminal finalization.
     resume_in_progress: bool,
     // Sticky: once usage limit is detected it stays true until the session is killed/resumed.
     at_usage_limit_latched: bool,

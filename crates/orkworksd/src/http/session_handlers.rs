@@ -376,6 +376,26 @@ fn resume_handle_conflicts(
     handle.resume_in_progress || handle.terminal_attached || !metadata_ended || has_tracked_pid
 }
 
+fn try_install_claimed_resume_handle(
+    state: &Arc<AppState>,
+    id: &str,
+    mut replacement: SessionHandle,
+    metadata_ended: bool,
+) -> Result<(), ()> {
+    let mut sessions = state.sessions.lock().unwrap();
+    let has_tracked_pid = state.session_pids.lock().unwrap().contains_key(id);
+    if sessions
+        .get(id)
+        .is_some_and(|handle| resume_handle_conflicts(handle, metadata_ended, has_tracked_pid))
+    {
+        return Err(());
+    }
+
+    replacement.resume_in_progress = true;
+    sessions.insert(id.to_string(), replacement);
+    Ok(())
+}
+
 pub(crate) async fn resume_session(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -427,18 +447,6 @@ pub(crate) async fn resume_session(
             active_work_hook,
         )
     };
-
-    {
-        let mut sessions = state.sessions.lock().unwrap();
-        if let Some(handle) = sessions.get_mut(&id) {
-            let metadata_ended = meta.lifecycle_phase == "ended";
-            let has_tracked_pid = state.session_pids.lock().unwrap().contains_key(&id);
-            if resume_handle_conflicts(handle, metadata_ended, has_tracked_pid) {
-                return axum::http::StatusCode::CONFLICT.into_response();
-            }
-            handle.resume_in_progress = true;
-        }
-    }
 
     let (kill_tx, _kill_rx) = tokio::sync::watch::channel(false);
     let info = SessionInfo {
@@ -509,29 +517,32 @@ pub(crate) async fn resume_session(
     );
     let output_tx = runtime.output_tx.clone();
 
+    let replacement = SessionHandle {
+        info: info.clone(),
+        active_work_hook,
+        kill_tx: kill_tx.clone(),
+        output_buffer: peon::RingBuffer::new(state.peon.config.max_lines),
+        scan_buf: String::new(),
+        pending_work_signal: None,
+        runtime,
+        terminal_attached: false,
+        resume_in_progress: false,
+        at_usage_limit_latched: false,
+        capacity_check_pending,
+        output_lines_seen: 0,
+        scan_bytes_seen: 0,
+        resume_scan_origin: capacity_check_pending.then_some((0, 0)),
+        pending_capacity_visible_once: false,
+    };
+    if try_install_claimed_resume_handle(
+        &state,
+        &id,
+        replacement,
+        meta.lifecycle_phase == "ended",
+    )
+    .is_err()
     {
-        let mut sessions = state.sessions.lock().unwrap();
-        sessions.remove(&id);
-        sessions.insert(
-            id.clone(),
-            SessionHandle {
-                info: info.clone(),
-                active_work_hook,
-                kill_tx: kill_tx.clone(),
-                output_buffer: peon::RingBuffer::new(state.peon.config.max_lines),
-                scan_buf: String::new(),
-                pending_work_signal: None,
-                runtime,
-                terminal_attached: false,
-                resume_in_progress: false,
-                at_usage_limit_latched: false,
-                capacity_check_pending,
-                output_lines_seen: 0,
-                scan_bytes_seen: 0,
-                resume_scan_origin: capacity_check_pending.then_some((0, 0)),
-                pending_capacity_visible_once: false,
-            },
-        );
+        return axum::http::StatusCode::CONFLICT.into_response();
     }
 
     {
@@ -2323,7 +2334,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let fake_bin_dir = tempfile::tempdir().unwrap();
         let opencode = fake_bin_dir.path().join("opencode");
-        std::fs::write(&opencode, "#!/bin/sh\nexit 0\n").unwrap();
+        std::fs::write(&opencode, "#!/bin/sh\nsleep 30\n").unwrap();
         make_test_executable(&opencode);
         let _fake_path = FakePath::prepend(fake_bin_dir.path());
 
@@ -2390,79 +2401,70 @@ mod tests {
             ws.as_ref().unwrap().metadata.write_session(&metadata);
         }
 
-        let response = resume_session(State(state), Path(session_id)).await.into_response();
+        let response = resume_session(State(state.clone()), Path(session_id.clone()))
+            .await
+            .into_response();
         assert_eq!(response.status(), axum::http::StatusCode::OK);
+        assert!(state.sessions.lock().unwrap()[&session_id].resume_in_progress);
+
+        crate::runtime::session_runtime::send_runtime_command(
+            &state,
+            &session_id,
+            crate::runtime::session_runtime::RuntimeCommand::Kill,
+        )
+        .await
+        .unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                if !state.sessions.lock().unwrap()[&session_id].resume_in_progress {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("terminal finalization clears the runtime claim");
     }
 
-    #[tokio::test]
-    async fn resume_session_admits_only_one_concurrent_stale_handle_resume() {
-        use crate::test_support::{make_test_executable, FakePath};
-
+    #[test]
+    fn resume_admission_installs_one_claimed_runtime_after_both_callers_observe_ended_metadata() {
         let dir = tempfile::tempdir().unwrap();
-        let fake_bin_dir = tempfile::tempdir().unwrap();
-        let opencode = fake_bin_dir.path().join("opencode");
-        std::fs::write(&opencode, "#!/bin/sh\nexit 0\n").unwrap();
-        make_test_executable(&opencode);
-        let _fake_path = FakePath::prepend(fake_bin_dir.path());
-
         let state = test_app_state_with_workspace(dir.path());
-        let session_id = "resume-stale-concurrent".to_string();
-        let resume = harness::ResumeMemory {
-            state: harness::ResumeState::Available,
-            preferred_strategy: harness::ResumeStrategy::LatestCwd,
-            harness_session_id: None,
-            latest_fallback: true,
-            last_seen_at: Some("before".into()),
-        };
-        let mut stale_handle = attention_test_handle(&session_id, dir.path());
-        stale_handle.info.harness_id = Some("opencode".into());
-        stale_handle.info.harness = Some("opencode".into());
-        stale_handle.info.resume_strategy = harness::ResumeStrategy::LatestCwd;
-        stale_handle.info.resume = Some(resume.clone());
-        state
-            .sessions
-            .lock()
-            .unwrap()
-            .insert(session_id.clone(), stale_handle);
+        let session_id = "resume-no-handle-concurrent".to_string();
+        let barrier = Arc::new(std::sync::Barrier::new(3));
+        let mut callers = Vec::new();
 
-        let mut metadata = test_session_metadata(
-            session_id.clone(),
-            "Resume Stale Concurrent",
-            dir.path().display().to_string(),
-            "ended",
-            "before",
-            "before",
-        );
-        metadata.harness = "opencode".into();
-        metadata.lifecycle_phase = "ended".into();
-        metadata.lifecycle = "ended".into();
-        metadata.resume = Some(resume);
-        state
-            .workspace
-            .lock()
-            .unwrap()
-            .as_ref()
-            .unwrap()
-            .metadata
-            .write_session(&metadata);
+        for _ in 0..2 {
+            let state = state.clone();
+            let session_id = session_id.clone();
+            let cwd = dir.path().to_path_buf();
+            let barrier = barrier.clone();
+            callers.push(std::thread::spawn(move || {
+                // Both request paths have already read the same ended metadata
+                // before either is allowed to enter atomic admission.
+                let metadata_ended = true;
+                let replacement = attention_test_handle(&session_id, &cwd);
+                barrier.wait();
+                try_install_claimed_resume_handle(
+                    &state,
+                    &session_id,
+                    replacement,
+                    metadata_ended,
+                )
+            }));
+        }
 
-        let (first, second) = tokio::join!(
-            resume_session(State(state.clone()), Path(session_id.clone())),
-            resume_session(State(state.clone()), Path(session_id.clone())),
-        );
-        let mut statuses = [first.into_response().status(), second.into_response().status()];
-        statuses.sort_unstable();
-        assert_eq!(
-            statuses,
-            [
-                axum::http::StatusCode::OK,
-                axum::http::StatusCode::CONFLICT,
-            ]
-        );
+        barrier.wait();
+        let results = callers
+            .into_iter()
+            .map(|caller| caller.join().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+        assert_eq!(results.iter().filter(|result| result.is_err()).count(), 1);
         let sessions = state.sessions.lock().unwrap();
         assert_eq!(sessions.len(), 1);
         assert!(sessions.contains_key(&session_id));
-        assert!(!sessions[&session_id].resume_in_progress);
+        assert!(sessions[&session_id].resume_in_progress);
     }
 
     #[tokio::test]
