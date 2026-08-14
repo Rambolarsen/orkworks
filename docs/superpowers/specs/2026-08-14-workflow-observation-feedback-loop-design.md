@@ -57,6 +57,40 @@ Taskmaster reads both, for different purposes:
 Taskmaster never parses activity-summary prose to manufacture workflow
 evidence. Peon never writes recommendations.
 
+### Current-summary projection
+
+`summary` becomes a first-class snapshot rather than text whose provenance is
+borrowed from unrelated record-wide metadata fields. The session contract adds:
+
+```text
+summary
+summarySource        agent | peon
+summaryConfidence    confidence that the summary accurately describes the work
+summaryObservedAt    timestamp of the accepted summary
+```
+
+An accepted non-empty Peon summary or agent attention message replaces all four
+fields together. An attention report without a message leaves all four fields
+unchanged. A newly submitted descriptive user instruction and an accepted
+session-label reset command clear all four fields synchronously, preventing the
+previous turn's activity from appearing current while new work starts.
+Non-descriptive confirmations and hotkeys do not clear the snapshot.
+
+Taskmaster uses only summaries carrying the dedicated source, confidence, and
+timestamp fields. Legacy sessions that contain only the flat `summary` remain
+displayable in the selected-session headline but do not become Taskmaster
+handoff evidence until a new accepted summary populates the dedicated fields.
+
+The Taskmaster workspace snapshot maps a valid snapshot to each session's
+`currentWork` input. Session-transition recommendations that create a handoff
+(`start_review_session`, `start_verification_session`, `start_fix_session`, or
+`start_fresh_handoff_session`) include `Current work: <summary>` in their
+generated prompt and cite its source and observed time in evidence. A missing
+snapshot simply omits that line; it never blocks a recommendation. The snapshot
+does not expire by wall-clock age: clearing on the next descriptive instruction
+defines the turn boundary, and the last summary of an ended session remains
+useful handoff context. It is never treated as workflow-friction evidence.
+
 ## Observation model
 
 The persisted record has the following logical shape. Rust uses snake_case and
@@ -65,6 +99,7 @@ the JSON representation uses the camelCase names shown below.
 ```text
 WorkflowObservation
   id                  stable occurrence identity
+  sequence            durable monotonic workspace append order
   sessionId           originating OrkWorks session
   observedAt          accepted timestamp
   kind                repetition | obstacle | missing_context | assumption |
@@ -73,8 +108,9 @@ WorkflowObservation
   evidence            concrete action, missing fact, correction, or outcome
   reportedImpact      low | medium | high
   source              agent | peon
-  confidence          source-derived confidence; never caller-selected
+  confidence          confidence that the observation is accurate
   fingerprint         versioned, server-derived correlation key
+  idempotencyKeyHash  server-derived durable retry identity; not API-exposed
 ```
 
 The containing workspace metadata directory supplies workspace identity; a
@@ -86,29 +122,35 @@ reasoning.
 `source` describes how the observation entered OrkWorks:
 
 - `agent` means a coding agent explicitly reported the observation. The
-  sidecar assigns confidence `1.0` to the provenance fact that the agent made
-  the report; the caller cannot set it. This does not assert that the report's
-  interpretation or proposed significance is objectively correct.
+  authenticated reporting adapter assigns confidence `0.9`; the caller cannot
+  set it. This policy treats a direct report from the session agent as strong
+  but fallible evidence.
 - `peon` means Peon inferred the observation from terminal evidence. The
-  accepted inference confidence is retained.
+  candidate carries its own required confidence in the strict inference schema;
+  one inference may therefore emit observations with different confidences.
 
-Higher-confidence provenance makes evidence more useful; it does not make the
-reported claim unquestionably true. Taskmaster remains responsible for judging
-whether the evidence supports a recommendation.
+Higher confidence makes evidence more useful; it does not make the claim
+unquestionably true. Taskmaster remains responsible for applying deterministic
+eligibility rules, and every resulting recommendation remains dismissible.
 
-Observations are append-only. Corrections do not rewrite history; a later
-observation can clarify or contradict an earlier one, and Taskmaster must retain
-both provenance trails.
+An observation is immutable while retained; bounded storage and explicit
+session deletion may remove it. The `correction` kind means a human or reviewer
+had to correct the coding agent in a way that reveals workflow friction; it is
+not a mechanism for amending or retracting a stored observation. Observation
+amendment/retraction is outside this first version. A false or unhelpful cluster
+is handled by dismissing its passive recommendation.
 
 ## Recording module and adapters
 
 A workflow-evidence module owns validation, normalization, fingerprinting,
-deduplication, persistence, and retrieval. Its external interface is kept small:
+deduplication, persistence, retention, and retrieval. Its external interface is
+kept small:
 
 ```text
-record_observation(session_id, origin, candidate)
-  -> accepted observation or rejection
+record_observation(session_id, origin, idempotency_key, candidate)
+  -> accepted observation, duplicate identity, or rejection
 workspace_observations(workspace_id) -> observations in append order
+delete_session_observations(session_id) -> deletion outcome
 ```
 
 Two adapters cross this seam:
@@ -117,15 +159,53 @@ Two adapters cross this seam:
 - the Peon inference adapter.
 
 `origin` is a server-owned enum selected by the adapter, never a request field.
-Neither adapter implements storage, confidence, fingerprint, or deduplication
-rules. Taskmaster reads through the module rather than opening metadata files
-directly. Tests exercise the same interface as production callers.
+The module owns the confidence policy: it assigns `0.9` to an authenticated
+agent report and requires a bounded per-candidate confidence for Peon input.
+Neither adapter implements storage, fingerprinting, or deduplication rules.
+Taskmaster reads through the module rather than opening metadata files directly.
+Tests exercise the same interface as production callers.
 
 Fingerprint version 1 is the string `v1:<kind>:<normalized-description>`, where
 normalization trims the description, lowercases it, and collapses every run of
 Unicode whitespace to one ASCII space. Evidence is deliberately excluded so
-separate occurrences with different proof can correlate. Taskmaster's semantic
-pass handles related observations whose deterministic fingerprints differ.
+separate occurrences with different proof can correlate.
+
+The module contains one workspace-scoped mutex. Idempotency lookup, durable
+write, bounded-file trimming, and cache publication happen while holding that
+mutex, so the Peon and HTTP adapters cannot race through a check-then-write
+sequence. Before accepting a new occurrence, the module durably advances a
+workspace counter and assigns that value to `sequence`; a crash may leave a gap
+but cannot reuse an accepted sequence. An under-limit write appends one complete
+JSON line, flushes it, and calls `sync_data` before publishing the cache entry
+or returning success. A
+write that would cross either segment bound instead writes the newest allowed
+complete records, including the new one, to a temporary file, syncs it,
+atomically replaces the segment, and syncs the parent directory. A failed
+durable write does not publish the idempotency key. Ordering and dismissal
+watermarks use `sequence`, never timestamps or random IDs.
+
+An observation line carries the key hash and canonical request hash needed for
+idempotency; raw caller keys are never persisted. When bounded trimming removes
+an observation less than 15 minutes
+after acceptance, the same atomic replacement retains a compact tombstone with
+the key hash, payload hash, observation ID, sequence, and acceptance time. The
+module caps all accepted observations for one session at 60 per rolling minute,
+so reserving up to 1,024 tombstones inside the segment's byte bound guarantees
+the 15-minute retry window. A matching retry within that window returns the
+same observation identity even if its evidence record was trimmed; a
+same-key/different-payload retry still conflicts. After 15 minutes the key is
+expired for the explicit agent-report adapter, and reuse is treated as a new
+logical occurrence with a new ID and sequence. Agents are instructed not to
+retry older reports. Peon never resubmits a completed revision range, so its
+unchanged-window guarantee does not depend on the tombstone lifetime.
+Idempotency state is rebuilt from retained observations and unexpired
+tombstones after restart.
+
+On read, one malformed final line is treated as a crash tail: the store reports
+a corruption diagnostic and truncates that final fragment under the writer
+mutex before the next append. A malformed interior line is skipped but marks
+workflow analysis degraded in diagnostics; Taskmaster may use later valid
+records but the UI must disclose that evidence history is incomplete.
 
 ## Explicit agent reporting
 
@@ -135,56 +215,127 @@ The sidecar exposes a harness-neutral, session-scoped route:
 POST /sessions/:id/workflow-observations
 ```
 
-The request contains only:
+Every live session receives an independent 256-bit random reporting capability
+in `ORKWORKS_REPORT_TOKEN`. The token lives on `SessionHandle`, is not persisted,
+and is replaced on resume. The route requires
+`Authorization: Bearer <ORKWORKS_REPORT_TOKEN>` and rejects missing, malformed,
+or wrong capabilities without recording an observation. Here, `source: agent`
+means "reported by a holder of that live session's reporting capability," not a
+verified statement about which harness process authored the text.
+
+The JSON request contains only:
 
 - `kind`;
 - `description`;
 - `evidence`; and
 - `reportedImpact`.
 
-It cannot provide workspace identity, source, confidence, fingerprint,
+The request also requires an `Idempotency-Key` header containing 1–128 visible
+ASCII characters. Reusing a key for the same session and payload returns the
+previous `{ observationId, sequence, acceptedAt }` identity with
+`duplicate: true`; the initial response returns the same identity with
+`duplicate: false`. Reusing the key with a different payload during the
+15-minute idempotency window returns `409 Conflict`. After that window the key
+is treated as a new report, as described by the recording contract.
+
+The request cannot provide workspace identity, source, confidence, fingerprint,
 recommendation text, or recommendation lifecycle. The sidecar requires a known
-session in the active workspace, applies the 500/2,000-character limits,
-validates the fixed vocabulary, derives server-owned fields, and rejects empty
-or malformed input.
+live session in the active workspace, limits the complete request body to 8 KiB,
+applies the 500/2,000-character field limits, validates the fixed vocabulary,
+derives server-owned fields, and rejects empty or malformed input. Each session
+may attempt at most 30 reports in a rolling 60-second window; excess requests
+return `429 Too Many Requests` without reaching persistence.
 
 Every spawned session already receives `ORKWORKS_SESSION_ID` and
-`ORKWORKS_PORT`, so coding agents can use the route without a harness-specific
-protocol. Harness integrations may add convenient wrappers later without
-changing the recording interface.
+`ORKWORKS_PORT`; the new token completes the reporting capability. Coding agents
+can use the route without a harness-specific protocol. Harness integrations may
+add convenient wrappers later without changing the recording interface.
 
 The route reports evidence only. It cannot directly create or mutate a
 Taskmaster recommendation.
 
+An authenticated explicit report with `reportedImpact: high` intentionally
+meets the single-event eligibility threshold because it is direct evidence from
+the live coding session. The fixed `0.9` remains below certainty, and the only
+possible consequence is a dismissible passive recommendation.
+
 ## Peon inference
 
 Peon's inference schema gains an optional collection of workflow-observation
-candidates. Peon is prompted to emit a candidate only when terminal evidence
-supports one of the fixed kinds. It must not turn ordinary progress, terminal
-redraws, or speculative advice into workflow friction.
+candidates. Each candidate contains `kind`, `description`, `evidence`,
+`reportedImpact`, and its own `confidence`. Peon is prompted to emit a candidate
+only when terminal evidence supports one of the fixed kinds. It must not turn
+ordinary progress, terminal redraws, or speculative advice into workflow
+friction.
 
 The existing session-situation inference remains independent. A single Peon
 pass may update the current situation, report workflow observations, do both,
 or do neither.
 
-Repeated inference over the same unchanged evidence window must not create new
-occurrences. A genuinely repeated action must create another occurrence, even
-when its normalized fingerprint matches an earlier record. The recording module
-therefore suppresses identical candidates tied to the same evidence window,
-not all consecutive observations with the same fingerprint.
+Each live `SessionRuntime` receives a random runtime-instance ID. The Peon
+adapter derives its idempotency key from that ID, the session ID, current input
+generation, first and last ring-buffer revisions in the analyzed snapshot, and
+candidate index. Those bounds extend the existing Peon output-revision contract;
+they are captured with the snapshot before inference. A Peon pass has a hard
+two-minute deadline, including provider and persistence work. After every
+candidate in a range is accepted, deduplicated, or permanently rejected, the
+runtime advances `min_peon_output_revision` past that range before another pass
+can be scheduled. A transient persistence failure does not advance the cursor
+and remains eligible for retry within the deadline. Therefore the adapter never
+submits the same completed range after the 15-minute tombstone window, even if a
+test clock advances; retrying an in-flight range returns the same occurrence,
+while a resumed runtime cannot collide with the prior runtime's revision range.
+A genuinely repeated action produces a later range and another occurrence,
+even when its normalized fingerprint is unchanged.
 
 ## Persistence and compatibility
 
-Accepted observations are appended to a workspace-scoped NDJSON file under the
+Accepted observations are workspace-scoped but segmented by session under the
 existing global metadata root:
 
 ```text
-~/.orkworks/workspaces/<hash>/workflow-observations.ndjson
+~/.orkworks/workspaces/<hash>/workflow-observations/<session-id>.ndjson
+~/.orkworks/workspaces/<hash>/workflow-observations/sequence
 ```
 
-Workspace scope makes correlation direct while `sessionId` retains provenance.
-Append-only NDJSON matches the existing event-log durability model and permits
-new optional fields without a destructive migration.
+The store aggregates these segments for Taskmaster. Segmentation keeps
+workspace-wide correlation behind the module interface while making session
+forgetting and configured retention exact. Append-oriented NDJSON matches the
+existing event-log durability model and permits new optional fields without a
+destructive migration; bounded trimming means a segment is not an unbounded
+historical archive.
+
+Each session segment is bounded to the newest 1,000 observations and 2 MiB,
+including the reserved compact idempotency tombstones. It trims complete oldest
+evidence records by atomic replace when a write would cross either limit and
+removes expired tombstones during the same rewrite. Workspace reconstruction
+reads at most the newest 10,000 evidence records across all retained segments,
+ordered by `sequence`; older retained records remain on disk but do not
+participate in the active recommendation pass. IDs are server-generated UUIDs
+for identity only. The counter file is advanced by atomic replace and directory
+sync before the observation write. On a fresh workspace it starts above the
+maximum retained sequence; a malformed existing counter degrades workflow
+analysis and rejects new observations instead of guessing and reusing an order
+value. Segment readers distinguish public observation records from internal
+idempotency tombstones; tombstones never reach Taskmaster or the desktop API.
+
+Ordinary size trimming does not invalidate an existing recommendation. At
+creation or update, the recommendation embeds immutable snapshots of every
+cited observation field needed to explain the proposal. Its observation IDs
+preserve lineage, while its expandable evidence does not depend on the source
+segment remaining within the active storage window.
+
+`DELETE /sessions/:id/forget` and automatic session retention delete that
+session's observation segment in the same cleanup path as session metadata and
+events. They also delete every derived recommendation referencing the removed
+session; Taskmaster may recreate a recommendation only when the remaining
+retained evidence still independently qualifies. This prevents orphaned links
+and prevents recommendation prose from retaining evidence the user asked
+OrkWorks to forget. The cleanup coordinator serializes recommendation and
+observation deletion against reads, reports failure until both stores have been
+updated, and runs the same orphan scrub during startup reconstruction. An
+orphaned recommendation is never returned by the Taskmaster API while cleanup
+is pending or after a crash.
 
 The latest activity `summary` remains on `SessionMetadata` so it survives a
 sidecar or desktop restart and can be consumed with the rest of the normalized
@@ -208,7 +359,7 @@ It reacts five seconds after the latest accepted observation so a burst of
 related records can be considered together, and it reconstructs its view from
 persisted observations after a restart.
 
-A deterministic eligibility pass limits semantic analysis to:
+A deterministic evaluator considers:
 
 - a fingerprint cluster containing at least two distinct observations whose
   individual confidence is at least `0.6`; or
@@ -219,11 +370,30 @@ observation. Repeated actions remain distinct observations and therefore can
 establish recurrence. Recurrence can occur within one session or across
 sessions; the recommendation must state which happened.
 
-Taskmaster may semantically combine closely related fingerprints after the
-eligibility pass. It must preserve all contributing observation IDs and cannot
-claim recurrence or impact without traceable supporting records. Explicit agent
-reports carry more evidentiary weight than Peon inference, but neither source
-automatically wins a semantic disagreement.
+Version 1 does not semantically combine different fingerprints. This deliberate
+limit keeps the first evaluator deterministic and aligned with the accepted
+Taskmaster rule engine. Equivalent observations whose wording normalizes to
+different descriptions remain separate until a later, separately specified
+model-assisted correlation phase exists. Peon prompts and explicit-report
+guidance should therefore favor short, concrete problem statements.
+
+The evaluator maps observation kinds to a default target and recommendation
+template:
+
+| Observation kind | Default target | Proposed-improvement template |
+| --- | --- | --- |
+| `repetition` | `tooling` | Automate or remove repeated work: `<description>` |
+| `obstacle` | `tooling` | Remove or document the obstacle: `<description>` |
+| `missing_context` | `instructions` | Add missing repository context: `<description>` |
+| `assumption` | `instructions` | Make the required assumption explicit: `<description>` |
+| `correction` | `instructions` | Prevent this recurring correction: `<description>` |
+| `workaround` | `tooling` | Replace the workaround with a supported path: `<description>` |
+| `verification_gap` | `test` | Add reliable verification for: `<description>` |
+
+The template is presentation, not evidence. Every recurrence, session, impact,
+and confidence claim is computed from the cited observations. Model-generated
+correlation, target selection, and recommendation prose are non-goals for this
+version.
 
 Observations below `0.6` confidence may be stored for later supporting context
 but do not count toward recurrence eligibility. A high-impact observation below
@@ -231,37 +401,84 @@ but do not count toward recurrence eligibility. A high-impact observation below
 
 ## Recommendation model
 
-Taskmaster produces a workspace-local `WorkflowRecommendation` with:
+Workflow improvement is the passive `improve_workflow` variant of Taskmaster's
+canonical recommendation contract, not a parallel recommendation type or
+store. It carries all required shared fields and the full shared lifecycle:
 
 ```text
-WorkflowRecommendation
+Recommendation
   id
+  workspaceId
+  chainId
+  chainDepth
+  type                  improve_workflow
+  status                proposed | accepted | executing | completed | dismissed |
+                        superseded | expired | failed
+  priority              derived from highest cited impact
   title
-  proposedImprovement
-  targetSurface        instructions | skill | test | tooling | documentation
-  rationale
-  observationIds
-  recurrenceCount
-  affectedSessionIds
-  impact
-  confidence
-  expectedBenefit
-  status               proposed | dismissed | superseded
+  summary
+  reason                plain-language strings
+  evidence              immutable workflow-observation snapshots
+  sourceSessionIds
+  targetSessionId       null
+  suggestedHarnessId    null
+  suggestedModel        null
+  suggestedWorkingDirectory null
+  suggestedPrompt       null
+  confidence            low | medium | high
+  requiresApproval      false
+  dedupeKey
   createdAt
   updatedAt
+  expiresAt
+  workflowImprovement
+    proposedImprovement
+    targetSurface       instructions | skill | test | tooling | documentation
+    observationIds
+    recurrenceCount
+    affectedSessionIds
+    impact
+    expectedBenefit
+    supersedesRecommendationId null or dismissed predecessor ID
+    dismissalWatermark null or dismissed evidence watermark
 ```
 
-Recommendations use the existing workspace recommendation persistence area.
-They remain derived proposals, not authoritative facts. Updating a
-recommendation must retain its evidence references and lifecycle history.
+Recommendations use the existing workspace recommendation persistence area and
+Taskmaster list/dismiss interfaces. They remain derived proposals, not
+authoritative facts. `requiresApproval: false` means there is no executable
+action to approve; it does not authorize OrkWorks to apply the improvement.
+For this passive variant, only `proposed`, `dismissed`, and `superseded` are
+reachable in the first version. Other canonical statuses remain valid for
+shared deserialization but cannot be produced by its evaluator. Priority is the
+highest cited impact. Recommendation confidence is conservative: `high` only
+when every qualifying cited observation is at least `0.8`; otherwise it is
+`medium`. Ineligible observations are not cited or counted. A proposed
+recommendation may be updated with later qualifying evidence while retaining
+its identity and lifecycle history. Each canonical evidence entry contains the
+observation ID, sequence, session ID, kind, description, evidence text, impact,
+source, confidence, and observed time. This bounded duplication is deliberate:
+it keeps proposed and dismissed recommendations explainable after ordinary
+observation trimming. Explicit session forgetting or retention still deletes
+the whole recommendation because the snapshot retains that session's evidence.
 
-Dismissal is persisted. Each recommendation has an internal versioned
-fingerprint derived from its normalized proposed improvement, target surface,
-and impact. Taskmaster does not resurface a dismissed recommendation while that
-fingerprint remains unchanged. An additional matching occurrence updates the
-stored evidence count and affected sessions without creating or resurfacing a
-card. A changed proposed improvement, target surface, or impact creates a new
-fingerprint and may produce a new recommendation linked to the superseded one.
+The dedupe family is
+`improve_workflow:v1:<target-surface>:<observation-fingerprint>`. It never uses
+generated prose. Dismissal stores an evidence watermark containing
+`dismissedAt`, `dismissedThroughSequence`, qualifying observation IDs and
+count, highest impact, and affected session IDs. The evaluator compares later
+durable observations with that fixed watermark without mutating the dismissed
+record or resurfacing it unless either:
+
+- the highest impact increases; or
+- at least two qualifying observations have a sequence greater than
+  `dismissedThroughSequence`, including one from a session not represented in
+  the watermark.
+
+When either condition holds, Taskmaster creates one new `proposed`
+recommendation with the same dedupe family and the dismissed ID in
+`supersedesRecommendationId`. The dismissed record remains immutable history.
+Unchanged evidence cannot create a duplicate, and only one proposed member of a
+dedupe family may exist at a time.
 
 ## Presentation
 
@@ -293,8 +510,8 @@ Observation and recommendation work is always secondary to the coding session:
   and leaves session state unchanged.
 - Invalid explicit reports receive a clear client error and are not partially
   persisted.
-- A malformed historical NDJSON line is skipped with a warning; later valid
-  observations remain readable.
+- A recoverable crash tail is truncated with a diagnostic; interior corruption
+  leaves later valid observations readable but marks analysis degraded.
 - Taskmaster failure does not lose accepted observations. Analysis can retry
   from the durable workspace log.
 - Recommendation persistence failure does not mutate observation history.
@@ -307,23 +524,42 @@ Observation and recommendation work is always secondary to the coding session:
 
 - Accept every valid observation kind and reject unknown, empty, or oversized
   candidates.
-- Derive source, confidence, timestamp, ID, workspace, and fingerprint
+- Derive source, confidence, timestamp, ID, workspace sequence, and fingerprint
   server-side.
 - Keep fingerprint normalization stable for equivalent candidates.
-- Suppress repeated inference over one unchanged evidence window.
+- Return the original identity when either adapter retries the same durable
+  idempotency key within 15 minutes, including after its evidence record was
+  trimmed and after a store reconstruction.
+- Reject reuse of one explicit idempotency key with a different payload during
+  that window, then treat reuse after expiry as a new occurrence.
+- Suppress repeated Peon inference over one unchanged revision range.
+- Keep a completed Peon revision range suppressed after the idempotency clock
+  advances beyond 15 minutes; only a later revision range can create another
+  occurrence.
 - Preserve a genuinely repeated action as a new occurrence with the same
   fingerprint.
 - Append and reload observations in order across a fresh store instance.
-- Skip a malformed NDJSON line without losing later valid entries.
+- Preserve workspace append order across equal timestamps, segment boundaries,
+  deletion, restart, and deliberate counter gaps.
+- Serialize concurrent Peon and HTTP writers so check-and-append cannot race.
+- Recover a partial final record and surface an interior-corruption diagnostic.
+- Enforce the per-session record/byte bounds and the workspace reconstruction
+  bound.
+- Delete a forgotten or retention-removed session's observations and every
+  recommendation that references them.
 
 ### Input adapters
 
 - Verify the explicit route accepts a valid report for a known session and
-  rejects unknown sessions and caller-owned provenance fields.
+  rejects unknown/dead sessions, missing or wrong capabilities, forged browser
+  origins without the capability, caller-owned provenance fields, oversized
+  bodies, and rate-limit excess.
 - Verify explicit reporting and Peon inference both write through the same
   recording interface.
 - Verify a Peon pass can update session situation without an observation, emit
   an observation without changing the summary, or do both.
+- Verify each Peon candidate retains its own confidence and revision-bound
+  idempotency key.
 
 ### Taskmaster
 
@@ -331,17 +567,25 @@ Observation and recommendation work is always secondary to the coding session:
   observation does not.
 - One sufficiently confident high-impact observation qualifies immediately.
 - Low-confidence evidence cannot independently qualify.
-- Semantic grouping retains every contributing observation ID.
+- Different fingerprints never combine in version 1.
+- Every observation kind maps to the specified deterministic target and text
+  template.
 - A recommendation cannot claim more recurrences or sessions than its evidence
   contains.
+- `improve_workflow` recommendations serialize through the canonical contract,
+  use the shared store, and expose no accept/execute action.
 - Dismissal persists across restart.
-- Equivalent new evidence updates a dismissed recommendation's history without
-  resurfacing it; materially changed impact or scope may resurface it.
+- A mere count increase remains suppressed; increased impact or the defined
+  two-observation/new-session threshold creates one linked successor.
+- After a segment's 1,001st observation trims cited source evidence, proposed
+  and dismissed recommendations still expose their immutable evidence snapshots.
 
 ### Desktop and compatibility
 
 - The latest summary continues to drive the selected session's situation
   headline and is available to Taskmaster session coordination.
+- Summary text, source, confidence, and timestamp update and clear atomically;
+  Taskmaster ignores provenance-less legacy summaries.
 - The desktop no longer fetches or renders summary checkpoint history.
 - Historical metadata containing summary checkpoint fields remains readable.
 - Recommendation cards render rationale, confidence, recurrence, session links,
@@ -360,10 +604,11 @@ This changes the authoritative meaning of Peon summaries, durable event
 history, and Taskmaster inputs. Implementation requires, before code:
 
 - updating `specs/orkworks-mvp.md` and `specs/taskmaster.md`;
-- superseding or amending ADR 0024's durable-summary-checkpoint decision with a
-  new ADR rather than silently diverging from it;
-- reconciling ADR 0029's statement that summary checkpoint history is the sole
-  home for current task detail while retaining its stable-label decision;
+- adding ADR 0041, which supersedes ADR 0024 and restates its surviving bounded
+  terminal-replay decision while replacing durable summary checkpoints with
+  workflow observations;
+- having ADR 0041 also supersede ADR 0029 while restating its surviving stable
+  one-shot label decision and defining the current-summary snapshot;
 - updating the metadata protocol and domain-entity documentation; and
 - creating or updating the corresponding GitHub implementation issue before
   implementation begins.
@@ -375,10 +620,13 @@ it in reviewable slices:
 
 1. Update the authoritative specs and ADRs, define the protocol types, and sync
    the metadata/domain documentation.
-2. Add the workflow-evidence module, explicit-report adapter, Peon adapter, and
-   observation persistence; stop producing and displaying summary checkpoints.
-3. Add Taskmaster eligibility, semantic correlation, recommendation persistence,
-   dismissal, and restart reconstruction.
+2. Add the workflow-evidence module, authenticated explicit-report adapter,
+   Peon adapter, bounded segmented persistence, retention integration, and
+   current-summary provenance; stop producing and displaying summary
+   checkpoints.
+3. Add deterministic Taskmaster eligibility, the passive canonical
+   `improve_workflow` recommendation variant, dismissal watermarks, and restart
+   reconstruction.
 4. Add the Taskmaster recommendation cards and end-to-end desktop verification.
 
 Each slice must keep the app usable and metadata backward-compatible. The issue
