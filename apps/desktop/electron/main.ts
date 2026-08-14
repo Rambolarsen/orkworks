@@ -7,7 +7,7 @@ import { getDevRepoRoot, getDevSidecarPath, getPackagedSidecarPath } from "./pat
 import { readWorkspaceMemory, rememberWorkspacePath } from "./workspaceMemory";
 import { readLayoutMemory, writeLayoutMemory } from "./layoutMemory";
 import type { AppSettings } from "./settingsMemory";
-import { DEFAULT_HOTKEYS, DEFAULT_RETENTION, normalizeDebugSettings, normalizeProviderSettings, normalizeRetention, readSettings, settingsWithHotkeys, validateHotkeys, writeSettings } from "./settingsMemory";
+import { DEFAULT_HOTKEYS, DEFAULT_RETENTION, loadSettingsForStartup, normalizeDebugSettings, normalizeProviderSettings, normalizeRetention, readSettings, settingsWithHotkeys, validateHotkeys, writeSettings } from "./settingsMemory";
 import { pushProviderSettings } from "./providerSettingsSync";
 import type { ProviderSettings } from "./providerTypes";
 import { buildMenuTemplate } from "./menuTemplate";
@@ -167,7 +167,7 @@ app.whenReady().then(() => {
       ? appMemory.lastWorkspacePath
       : null;
   workspacePath = initialWorkspacePath;
-  currentSettings = readSettings(app.getPath("userData"));
+  currentSettings = loadSettingsForStartup(app.getPath("userData"));
 
   ipcMain.handle("get-backend-url", async () => {
     const port = await portPromise;

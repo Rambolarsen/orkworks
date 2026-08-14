@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import * as settingsMemory from "../electron/settingsMemory.ts";
 
 import {
   DEFAULT_HOTKEYS,
@@ -359,12 +360,75 @@ test("settings memory seeds default provider settings", () => {
         { id: "opencode", enabled: true, fallbackOrder: 0, defaultState: "healthy", overrideState: null },
         { id: "claude-code", enabled: true, fallbackOrder: 1, defaultState: "unknown", overrideState: null },
         { id: "codex", enabled: true, fallbackOrder: 2, defaultState: "unknown", overrideState: null },
-        { id: "gemini", enabled: true, fallbackOrder: 3, defaultState: "unknown", overrideState: null },
+        { id: "gemini", enabled: false, fallbackOrder: 3, defaultState: "unknown", overrideState: null },
         { id: "aider", enabled: true, fallbackOrder: 4, defaultState: "unknown", overrideState: null },
-        { id: "gh-copilot", enabled: true, fallbackOrder: 5, defaultState: "unknown", overrideState: null },
-        { id: "ollama", enabled: true, fallbackOrder: 6, defaultState: "unknown", overrideState: null },
+        { id: "ollama", enabled: true, fallbackOrder: 5, defaultState: "unknown", overrideState: null },
       ],
     } satisfies ProviderSettings);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("startup migration removes legacy Copilot and disables untouched Gemini", () => {
+  const dir = mkdtempSync(join(tmpdir(), "orkworks-settings-"));
+  try {
+    writeFileSync(
+      settingsPath(dir),
+      JSON.stringify({
+        version: 1,
+        providers: {
+          version: 1,
+          revision: 7,
+          peonModel: null,
+          ollamaBaseUrl: "http://127.0.0.1:11434",
+          providers: [
+            { id: "gemini", enabled: true, fallbackOrder: 3, defaultState: "unknown", overrideState: null },
+            { id: "gh-copilot", enabled: true, fallbackOrder: 5, defaultState: "unknown", overrideState: null },
+          ],
+        },
+      }),
+    );
+
+    const loadSettingsForStartup = (settingsMemory as typeof settingsMemory & {
+      loadSettingsForStartup?: (userDataPath: string) => typeof DEFAULT_SETTINGS;
+    }).loadSettingsForStartup;
+    assert.equal(typeof loadSettingsForStartup, "function");
+    const settings = loadSettingsForStartup!(dir);
+
+    assert.equal(settings.providers.revision, 7);
+    assert.equal(settings.providers.providers.find((provider) => provider.id === "gemini")?.enabled, false);
+    assert.equal(settings.providers.providers.some((provider) => provider.id === "gh-copilot"), false);
+    const persisted = JSON.parse(readFileSync(settingsPath(dir), "utf8"));
+    assert.equal(persisted.providers.providers.some((provider: { id: string }) => provider.id === "gh-copilot"), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("startup migration preserves a user-modified Gemini entry", () => {
+  const dir = mkdtempSync(join(tmpdir(), "orkworks-settings-"));
+  try {
+    const raw = JSON.stringify({
+      version: 1,
+      providers: {
+        version: 1,
+        revision: 7,
+        peonModel: null,
+        ollamaBaseUrl: "http://127.0.0.1:11434",
+        providers: [{ id: "gemini", enabled: true, fallbackOrder: 8, defaultState: "unknown", overrideState: null }],
+      },
+    });
+    writeFileSync(settingsPath(dir), raw);
+
+    const loadSettingsForStartup = (settingsMemory as typeof settingsMemory & {
+      loadSettingsForStartup?: (userDataPath: string) => typeof DEFAULT_SETTINGS;
+    }).loadSettingsForStartup;
+    assert.equal(typeof loadSettingsForStartup, "function");
+    const settings = loadSettingsForStartup!(dir);
+
+    assert.equal(settings.providers.providers.find((provider) => provider.id === "gemini")?.enabled, true);
+    assert.equal(readFileSync(settingsPath(dir), "utf8"), raw);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -391,7 +455,7 @@ test("settings memory normalizes malformed provider payloads", () => {
     const settings = readSettings(dir);
     assert.equal(settings.providers.version, 1);
     assert.equal(settings.providers.revision, 4);
-    assert.deepEqual(settings.providers.providers.map((entry) => entry.id), ["claude-code", "opencode", "codex", "gemini", "aider", "gh-copilot", "ollama"]);
+    assert.deepEqual(settings.providers.providers.map((entry) => entry.id), ["claude-code", "opencode", "codex", "gemini", "aider", "ollama"]);
     assert.equal(settings.providers.providers[0].enabled, true);
     assert.equal(settings.providers.providers[0].fallbackOrder, 0);
     assert.equal(settings.providers.providers[0].defaultState, "unknown");
@@ -421,7 +485,7 @@ test("settings memory preserves provider revisions and canonical fallback order 
     assert.equal(persisted.providers.revision, 7);
     assert.deepEqual(
       persisted.providers.providers.map((entry: { id: string; fallbackOrder: number }) => [entry.id, entry.fallbackOrder]),
-      [["codex", 0], ["opencode", 1], ["gemini", 2], ["aider", 3], ["gh-copilot", 4], ["ollama", 5], ["claude-code", 6]],
+      [["codex", 0], ["opencode", 1], ["gemini", 2], ["aider", 3], ["ollama", 4], ["claude-code", 5]],
     );
   } finally {
     rmSync(dir, { recursive: true, force: true });

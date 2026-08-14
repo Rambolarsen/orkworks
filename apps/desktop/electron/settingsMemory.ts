@@ -108,7 +108,7 @@ export const DEFAULT_DEBUG_SETTINGS: DebugSettings = {
   rendererHealthLogMs: 0,
 };
 
-const VALID_PROVIDER_IDS = new Set<ProviderId>(["opencode", "claude-code", "codex", "gemini", "aider", "gh-copilot", "ollama"]);
+const VALID_PROVIDER_IDS = new Set<ProviderId>(["opencode", "claude-code", "codex", "gemini", "aider", "ollama"]);
 const VALID_CAPACITY_STATES = new Set<ProviderCapacityState>(["healthy", "degraded", "capped", "unknown"]);
 
 export const DEFAULT_PROVIDER_SETTINGS: ProviderSettings = {
@@ -120,10 +120,9 @@ export const DEFAULT_PROVIDER_SETTINGS: ProviderSettings = {
     { id: "opencode", enabled: true, fallbackOrder: 0, defaultState: "healthy", overrideState: null },
     { id: "claude-code", enabled: true, fallbackOrder: 1, defaultState: "unknown", overrideState: null },
     { id: "codex", enabled: true, fallbackOrder: 2, defaultState: "unknown", overrideState: null },
-    { id: "gemini", enabled: true, fallbackOrder: 3, defaultState: "unknown", overrideState: null },
+    { id: "gemini", enabled: false, fallbackOrder: 3, defaultState: "unknown", overrideState: null },
     { id: "aider", enabled: true, fallbackOrder: 4, defaultState: "unknown", overrideState: null },
-    { id: "gh-copilot", enabled: true, fallbackOrder: 5, defaultState: "unknown", overrideState: null },
-    { id: "ollama", enabled: true, fallbackOrder: 6, defaultState: "unknown", overrideState: null },
+    { id: "ollama", enabled: true, fallbackOrder: 5, defaultState: "unknown", overrideState: null },
   ],
 };
 
@@ -358,20 +357,84 @@ export function normalizeHotkeys(value: unknown): HotkeySettings {
 }
 
 export function readSettings(userDataPath: string): AppSettings {
+  return readSettingsWithMigration(userDataPath).settings;
+}
+
+export function readSettingsWithMigration(userDataPath: string): { settings: AppSettings; migrated: boolean } {
   const path = settingsPath(userDataPath);
   if (!existsSync(path)) {
-    return defaultSettings();
+    return { settings: defaultSettings(), migrated: false };
   }
   try {
-    return normalizeSettings(JSON.parse(readFileSync(path, "utf8")));
+    const migrated = migrateRawProviderSettings(JSON.parse(readFileSync(path, "utf8")));
+    return { settings: normalizeSettings(migrated.value), migrated: migrated.migrated };
   } catch {
-    return defaultSettings();
+    return { settings: defaultSettings(), migrated: false };
   }
+}
+
+export function loadSettingsForStartup(userDataPath: string): AppSettings {
+  const loaded = readSettingsWithMigration(userDataPath);
+  if (loaded.migrated) writeSettings(userDataPath, loaded.settings);
+  return loaded.settings;
 }
 
 export function writeSettings(userDataPath: string, settings: AppSettings): void {
   mkdirSync(userDataPath, { recursive: true });
   writeFileSync(settingsPath(userDataPath), `${JSON.stringify(normalizeSettings(settings), null, 2)}\n`);
+}
+
+const LEGACY_DEFAULT_GEMINI = {
+  id: "gemini",
+  enabled: true,
+  fallbackOrder: 3,
+  defaultState: "unknown",
+  overrideState: null,
+};
+
+function migrateRawProviderSettings(value: unknown): { value: unknown; migrated: boolean } {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return { value, migrated: false };
+  const root = value as Record<string, unknown>;
+  const providersValue = root.providers;
+  if (!providersValue || typeof providersValue !== "object" || Array.isArray(providersValue)) {
+    return { value, migrated: false };
+  }
+  const providerSettings = providersValue as Record<string, unknown>;
+  if (!Array.isArray(providerSettings.providers)) return { value, migrated: false };
+
+  let migrated = false;
+  const providers = providerSettings.providers.flatMap((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return [entry];
+    const raw = entry as Record<string, unknown>;
+    if (raw.id === "gh-copilot") {
+      migrated = true;
+      return [];
+    }
+    if (isLegacyDefaultGemini(raw)) {
+      migrated = true;
+      return [{ ...raw, enabled: false }];
+    }
+    return [entry];
+  });
+
+  if (!migrated) return { value, migrated: false };
+  return {
+    value: { ...root, providers: { ...providerSettings, providers } },
+    migrated: true,
+  };
+}
+
+function isLegacyDefaultGemini(entry: Record<string, unknown>): boolean {
+  const keys = Object.keys(entry);
+  return (
+    keys.length === Object.keys(LEGACY_DEFAULT_GEMINI).length &&
+    keys.every((key) => key in LEGACY_DEFAULT_GEMINI) &&
+    entry.id === LEGACY_DEFAULT_GEMINI.id &&
+    entry.enabled === LEGACY_DEFAULT_GEMINI.enabled &&
+    entry.fallbackOrder === LEGACY_DEFAULT_GEMINI.fallbackOrder &&
+    entry.defaultState === LEGACY_DEFAULT_GEMINI.defaultState &&
+    entry.overrideState === LEGACY_DEFAULT_GEMINI.overrideState
+  );
 }
 
 export function validateHotkeys(hotkeys: HotkeySettings): HotkeyValidationResult {
