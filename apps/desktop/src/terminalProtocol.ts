@@ -1,3 +1,14 @@
+/**
+ * DEC private-mode-off sequences for the mouse-tracking variants a terminal
+ * program can enable (X10 1000, button-event 1002, any-event 1003, UTF-8 1005,
+ * SGR 1006, urxvt 1015, SGR-pixels 1016). Fed directly into xterm.js's local
+ * parser (never sent over the wire) to clear its internal tracking state when
+ * OrkWorks ends a session's terminal, in case the terminated process enabled
+ * mouse tracking for its own TUI and never got to turn it back off.
+ */
+export const MOUSE_TRACKING_RESET_SEQUENCE =
+  "\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006l\x1b[?1015l\x1b[?1016l";
+
 export type TerminalControlMessage =
   | { type: "replay-start"; cursor: number }
   | { type: "replay-end"; cursor: number }

@@ -11,6 +11,7 @@ import {
   shouldReplayTerminalOutputOnClose,
   appendPendingInput,
   canSendTerminalInput,
+  MOUSE_TRACKING_RESET_SEQUENCE,
 } from "./terminalProtocol";
 import { createTerminalRegistry, type TerminalRegistry } from "./terminalRegistry";
 
@@ -156,11 +157,13 @@ export function ensureTerminal(id: string, baseUrl: string): TerminalHandle {
       case "replay-end":
         break;
       case "ended":
+        term.write(MOUSE_TRACKING_RESET_SEQUENCE);
         term.options.disableStdin = true;
         term.options.cursorBlink = false;
         handle.ended = true;
         break;
       case "error":
+        term.write(MOUSE_TRACKING_RESET_SEQUENCE);
         term.options.disableStdin = true;
         term.options.cursorBlink = false;
         handle.ended = true;
