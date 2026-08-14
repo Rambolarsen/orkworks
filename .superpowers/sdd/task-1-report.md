@@ -59,6 +59,8 @@ bash .claude/hooks/worktree-check.sh # passed; no output
 
 Follow-up test-only fix: `7408a7e` (`test: cover tracked pid resume conflict`). Added an independent assertion for an unattached ended handle with ended metadata and a tracked PID. A temporary restoration of the prior lifecycle-gated predicate produced the expected focused-test failure; the strict predicate was restored before the green run.
 
+Final test-only fix: `7b3b81b` (`test: cover attached resume conflict`). Added an independent assertion that a terminal-attached handle conflicts even with ended metadata and no tracked PID. Focused predicate/rejection/replacement tests remained green; no production predicate changes were made.
+
 ## Concerns
 
 No behavioral concerns in the requested scope. Full Rust tests were not run; focused tests passed. Existing compiler warnings remain unrelated to this fix.
