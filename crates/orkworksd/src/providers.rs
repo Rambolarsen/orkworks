@@ -1493,6 +1493,7 @@ mod tests {
         let payload = sample_settings(vec![
             entry("copilot").enabled(false),
             entry("gh-copilot"),
+            entry("gemini"),
             entry("antigravity"),
         ]);
         let manager = ProviderManager::for_tests(payload.clone(), vec![fake_provider("copilot")]);

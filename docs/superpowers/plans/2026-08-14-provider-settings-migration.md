@@ -2,7 +2,7 @@
 
 > For agentic workers: REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement task-by-task.
 
-**Goal:** Stop default and stale Peon settings from invoking retired Gemini while preserving canonical GitHub Copilot CLI Peon inference and intentional Gemini opt-in configuration.
+**Goal:** Stop default and stale Peon settings from invoking retired Gemini while preserving canonical GitHub Copilot CLI Peon inference.
 
 **Architecture:** Electron-main owns durable settings migration by inspecting raw provider entries before normalization loses intent, persisting only repairs, and syncing repaired settings before inference. Rust canonicalizes the legacy Copilot ID, independently filters every received provider payload against resolved Peon definitions, and makes prompt transport explicit in the harness Peon capability.
 
@@ -11,9 +11,9 @@
 ## Global Constraints
 
 - Keep electron/ and src/ provider types independently owned; update both.
-- Gemini stays explicit opt-in. Do not alter Google authentication or add Antigravity Peon inference.
-- Configurable providers are opencode, claude-code, codex, gemini, aider, copilot, and ollama only.
-- Preserve valid Gemini settings unless their raw persisted entry exactly equals the historical default. Local migration retains revision.
+- Do not alter Google authentication or add Antigravity Peon inference.
+- Configurable providers are opencode, claude-code, codex, aider, copilot, and ollama only.
+- Remove persisted Gemini provider entries before normalization and exclude retired harnesses from the sidecar registry. Local migration retains revision.
 
 ---
 
@@ -40,29 +40,27 @@ Add a test that writes persisted provider entries containing:
     { id: "gemini", enabled: true, fallbackOrder: 3, defaultState: "unknown", overrideState: null }
     { id: "gh-copilot", enabled: true, fallbackOrder: 5, defaultState: "unknown", overrideState: null }
 
-Call loadSettingsForStartup(tempDir). Assert: revision is unchanged; Gemini is disabled; the returned settings and serialized settings.json contain canonical `copilot` rather than `gh-copilot`. Add a duplicate test in which saved canonical `copilot` wins over its legacy duplicate. Add a second test whose Gemini entry differs only by fallbackOrder: it remains enabled and the raw file is unchanged. Update fresh-default and write canonicalization assertions to require seven IDs, disabled Gemini, and canonical Copilot.
+Call loadSettingsForStartup(tempDir). Assert: revision is unchanged; Gemini is absent; the returned settings and serialized settings.json contain canonical `copilot` rather than `gh-copilot`. Add a duplicate test in which saved canonical `copilot` wins over its legacy duplicate. Add a second test whose Gemini entry differs only by fallbackOrder: it is still removed and persisted. Add a write-failure test that keeps repaired settings active. Update fresh-default and write canonicalization assertions to require six IDs and canonical Copilot.
 
 - [ ] **Step 2: Verify RED**
 
 Run: cd apps/desktop && node --experimental-strip-types --test tests/electronSettingsMemory.test.ts
 
-Expected: FAIL because loadSettingsForStartup does not exist and defaults retain enabled Gemini and gh-copilot.
+Expected: FAIL because startup migration retains Gemini and throws if its persistence write fails.
 
 - [ ] **Step 3: Implement the minimum migration**
 
-In both providerTypes.ts files define ProviderId as the seven Peon-capable IDs listed in Global Constraints. Remove gh-copilot from VALID_PROVIDER_IDS, add canonical copilot to defaults, and set the Gemini default enabled field false.
+In both providerTypes.ts files define ProviderId as the six Peon-capable IDs listed in Global Constraints. Remove gh-copilot and gemini from VALID_PROVIDER_IDS, add canonical copilot to defaults, and remove Gemini from defaults.
 
-Before normalizeProviderEntry runs, add migrateRawProviderSettings(value), which clones only the providers payload, rewrites raw gh-copilot entries to copilot unless a canonical copilot entry already exists, and changes enabled to false only for an exact match of:
+Before normalizeProviderEntry runs, add migrateRawProviderSettings(value), which clones only the providers payload, rewrites raw gh-copilot entries to copilot unless a canonical copilot entry already exists, and removes every raw Gemini entry.
 
-    { id: "gemini", enabled: true, fallbackOrder: 3, defaultState: "unknown", overrideState: null }
-
-Do not sort, renumber, or change any other raw entry in this helper. Make readSettingsWithMigration parse once, run the helper, normalize its output, and expose its migration flag. loadSettingsForStartup writes normalized settings only when that flag is true. In main.ts initialize currentSettings with loadSettingsForStartup(app.getPath("userData")) before startSidecar() and syncSavedProviderSettings().
+Do not sort, renumber, or change any other raw entry in this helper. Make readSettingsWithMigration parse once, run the helper, normalize its output, and expose its migration flag. loadSettingsForStartup attempts to write normalized settings only when that flag is true and continues with repaired in-memory settings if the write fails. In main.ts initialize currentSettings with loadSettingsForStartup(app.getPath("userData")) before startSidecar() and syncSavedProviderSettings().
 
 - [ ] **Step 4: Verify GREEN and commit**
 
 Run: cd apps/desktop && node --experimental-strip-types --test tests/electronSettingsMemory.test.ts
 
-Expected: PASS, covering persisted migration, revision preservation, idempotence, and preserved custom Gemini.
+Expected: PASS, covering persisted migration, revision preservation, idempotence, removal of custom Gemini, and best-effort write failures.
 
 Run:
 

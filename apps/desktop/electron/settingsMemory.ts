@@ -108,7 +108,7 @@ export const DEFAULT_DEBUG_SETTINGS: DebugSettings = {
   rendererHealthLogMs: 0,
 };
 
-const VALID_PROVIDER_IDS = new Set<ProviderId>(["opencode", "claude-code", "codex", "gemini", "aider", "copilot", "ollama"]);
+const VALID_PROVIDER_IDS = new Set<ProviderId>(["opencode", "claude-code", "codex", "aider", "copilot", "ollama"]);
 const VALID_CAPACITY_STATES = new Set<ProviderCapacityState>(["healthy", "degraded", "capped", "unknown"]);
 
 export const DEFAULT_PROVIDER_SETTINGS: ProviderSettings = {
@@ -120,10 +120,9 @@ export const DEFAULT_PROVIDER_SETTINGS: ProviderSettings = {
     { id: "opencode", enabled: true, fallbackOrder: 0, defaultState: "healthy", overrideState: null },
     { id: "claude-code", enabled: true, fallbackOrder: 1, defaultState: "unknown", overrideState: null },
     { id: "codex", enabled: true, fallbackOrder: 2, defaultState: "unknown", overrideState: null },
-    { id: "gemini", enabled: false, fallbackOrder: 3, defaultState: "unknown", overrideState: null },
-    { id: "aider", enabled: true, fallbackOrder: 4, defaultState: "unknown", overrideState: null },
-    { id: "copilot", enabled: true, fallbackOrder: 5, defaultState: "unknown", overrideState: null },
-    { id: "ollama", enabled: true, fallbackOrder: 6, defaultState: "unknown", overrideState: null },
+    { id: "aider", enabled: true, fallbackOrder: 3, defaultState: "unknown", overrideState: null },
+    { id: "copilot", enabled: true, fallbackOrder: 4, defaultState: "unknown", overrideState: null },
+    { id: "ollama", enabled: true, fallbackOrder: 5, defaultState: "unknown", overrideState: null },
   ],
 };
 
@@ -374,9 +373,18 @@ export function readSettingsWithMigration(userDataPath: string): { settings: App
   }
 }
 
-export function loadSettingsForStartup(userDataPath: string): AppSettings {
+export function loadSettingsForStartup(
+  userDataPath: string,
+  persist: (path: string, settings: AppSettings) => void = writeSettings,
+): AppSettings {
   const loaded = readSettingsWithMigration(userDataPath);
-  if (loaded.migrated) writeSettings(userDataPath, loaded.settings);
+  if (loaded.migrated) {
+    try {
+      persist(userDataPath, loaded.settings);
+    } catch {
+      // The repaired settings remain safe for this process; retry persistence next startup.
+    }
+  }
   return loaded.settings;
 }
 
@@ -384,14 +392,6 @@ export function writeSettings(userDataPath: string, settings: AppSettings): void
   mkdirSync(userDataPath, { recursive: true });
   writeFileSync(settingsPath(userDataPath), `${JSON.stringify(normalizeSettings(settings), null, 2)}\n`);
 }
-
-const LEGACY_DEFAULT_GEMINI = {
-  id: "gemini",
-  enabled: true,
-  fallbackOrder: 3,
-  defaultState: "unknown",
-  overrideState: null,
-};
 
 function migrateRawProviderSettings(value: unknown): { value: unknown; migrated: boolean } {
   if (!value || typeof value !== "object" || Array.isArray(value)) return { value, migrated: false };
@@ -417,9 +417,9 @@ function migrateRawProviderSettings(value: unknown): { value: unknown; migrated:
       migratedLegacyCopilot = true;
       return [{ ...raw, id: "copilot" }];
     }
-    if (isLegacyDefaultGemini(raw)) {
+    if (raw.id === "gemini") {
       migrated = true;
-      return [{ ...raw, enabled: false }];
+      return [];
     }
     return [entry];
   });
@@ -429,19 +429,6 @@ function migrateRawProviderSettings(value: unknown): { value: unknown; migrated:
     value: { ...root, providers: { ...providerSettings, providers } },
     migrated: true,
   };
-}
-
-function isLegacyDefaultGemini(entry: Record<string, unknown>): boolean {
-  const keys = Object.keys(entry);
-  return (
-    keys.length === Object.keys(LEGACY_DEFAULT_GEMINI).length &&
-    keys.every((key) => key in LEGACY_DEFAULT_GEMINI) &&
-    entry.id === LEGACY_DEFAULT_GEMINI.id &&
-    entry.enabled === LEGACY_DEFAULT_GEMINI.enabled &&
-    entry.fallbackOrder === LEGACY_DEFAULT_GEMINI.fallbackOrder &&
-    entry.defaultState === LEGACY_DEFAULT_GEMINI.defaultState &&
-    entry.overrideState === LEGACY_DEFAULT_GEMINI.overrideState
-  );
 }
 
 export function validateHotkeys(hotkeys: HotkeySettings): HotkeyValidationResult {

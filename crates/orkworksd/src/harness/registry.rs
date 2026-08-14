@@ -398,6 +398,9 @@ fn capability_names(definition: &HarnessDefinition) -> BTreeSet<CapabilityName> 
 }
 
 fn provider_from_harness(harness: &ResolvedHarness) -> Option<ProviderDefinition> {
+    if harness.definition.retired {
+        return None;
+    }
     let PeonCapability {
         command_override,
         args,
@@ -646,6 +649,17 @@ mod tests {
         );
         assert_eq!(copilot.prompt_transport, PromptTransport::Argument);
         assert!(!copilot.supports_model);
+    }
+
+    #[test]
+    fn retired_gemini_is_not_an_executable_peon_provider() {
+        let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
+        let registry = resolve_document(&builtins, &HarnessUserDocument::default()).unwrap();
+
+        assert!(registry
+            .providers()
+            .iter()
+            .all(|provider| provider.id != "gemini"));
     }
 
     #[test]

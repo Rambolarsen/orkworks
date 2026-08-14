@@ -1,4 +1,4 @@
-export type ProviderId = "opencode" | "claude-code" | "codex" | "gemini" | "aider" | "copilot" | "ollama";
+export type ProviderId = "opencode" | "claude-code" | "codex" | "aider" | "copilot" | "ollama";
 export type ProviderCapacityState = "healthy" | "degraded" | "capped" | "unknown";
 export type ProviderEffectiveState = ProviderCapacityState | "disabled";
 

@@ -8,11 +8,12 @@ legacy Copilot provider ID without overriding deliberate user settings.
 ## Scope
 
 Fresh provider settings contain only harnesses that declare a Peon capability:
-OpenCode, Claude Code, Codex, Gemini, Aider, Copilot, and Ollama. Both independent
+OpenCode, Claude Code, Codex, Aider, Copilot, and Ollama. Both independent
 Electron-main and renderer `ProviderId` copies express that same set; they stay
-separate to preserve the Electron/renderer boundary. Gemini remains a
-supported, explicit opt-in provider but is disabled in the default fallback
-chain. Antigravity does not appear as a Peon provider.
+separate to preserve the Electron/renderer boundary. Gemini is retired: legacy
+settings are migrated out of executable provider settings and retired harnesses
+are excluded from the sidecar Peon registry. Antigravity does not appear as a
+Peon provider.
 
 Copilot is a Peon provider under its canonical `copilot` ID. Its adapter invokes
 the documented non-interactive `copilot -p` form, with an empty tool allow-list,
@@ -25,21 +26,19 @@ When Electron reads existing settings, it migrates `gh-copilot` to `copilot`:
 the legacy entry is recognized from the raw persisted array before the ordinary
 provider allow-list runs. If a canonical entry already exists it wins and the
 legacy duplicate is discarded; otherwise the legacy entry is rewritten to the
-canonical ID and persisted. It also disables Gemini only when the raw persisted
-Gemini entry exactly matches the historical default:
-`{ id: "gemini", enabled: true, fallbackOrder: 3, defaultState: "unknown",
-overrideState: null }`. This comparison happens before default completion.
-Missing or malformed Gemini input therefore receives the new disabled default;
-any valid variation of the old entry is preserved as the user's choice. The
-matcher operates before sorting or renumbering fallback order, so a user
-reorder cannot be mistaken for an untouched default.
+canonical ID and persisted. Every raw persisted Gemini entry is removed before
+default completion, regardless of its historical
+shape or user ordering. Its retained harness definition remains readable for
+existing history and settings migration only; OrkWorks never selects or launches
+it for new Peon inference.
 
 Normalization reports whether it performed a migration. During Electron
-startup, before the first sidecar provider-settings sync, main persists the
-normalized settings only when that migration flag is set. The persistence
-retains the existing revision: canonicalization is local data repair, not a
-user settings edit. Ordinary reads remain non-mutating, and already-current or
-user-custom Gemini settings do not trigger a write.
+startup, before the first sidecar provider-settings sync, main attempts to
+persist normalized settings only when that migration flag is set. Persistence is
+best-effort: a write failure leaves the repaired settings active for that launch
+and retries on the next startup. The persistence retains the existing revision:
+canonicalization is local data repair, not a user settings edit. Ordinary reads
+remain non-mutating.
 
 The sidecar retains defensive fallback behavior. On every settings apply it
 canonicalizes `gh-copilot` to `copilot`, applies the same canonical-entry
@@ -50,20 +49,18 @@ consequently expose only executable Peon providers.
 
 ## Error Handling
 
-Gemini is not removed: an explicit enabled setting is still attempted and its
-auth failure remains a provider runtime failure. The migration is local and
-does not attempt to repair Google credentials or configure Antigravity as a
-Peon provider.
+Gemini provider settings are removed rather than invoked. The migration is
+local and does not attempt to repair Google credentials or configure Antigravity
+as a Peon provider.
 
 ## Testing
 
 Electron unit tests cover both independent provider ID declarations, fresh
 defaults, migration of raw legacy Copilot input including duplicate precedence,
-and migration of both the legacy
-default Gemini entry and a user-modified Gemini entry. They assert the startup
-migration is persisted before provider sync, preserves revision, and is
-idempotent. Rust tests use the production harness catalog to verify settings
-application canonicalizes legacy Copilot and discards non-Peon IDs, so no
-fallback attempt or missing-registry warning can result. Registry and provider
+and removal of both default-shaped and user-modified Gemini entries. They assert
+the startup migration preserves revision, is idempotent, and continues if the
+best-effort persistence write fails. Rust tests use the production harness
+catalog to verify retired, non-Peon, and unknown IDs cannot reach fallback
+execution, while legacy Copilot canonicalizes correctly. Registry and provider
 tests assert the canonical Copilot definition's exact no-tool argument order
 and argument prompt transport without requiring authentication.
