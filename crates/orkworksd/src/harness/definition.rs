@@ -23,6 +23,8 @@ pub(crate) struct HarnessDefinition {
     pub integration: Option<IntegrationBinding>,
     pub voice: Option<VoiceCapability>,
     pub min_version: Option<VersionRequirement>,
+    #[serde(default)]
+    pub label_reset_commands: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -196,6 +198,8 @@ pub(crate) struct HarnessPatch {
     pub voice: Option<Option<VoicePatch>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub min_version: Option<Option<VersionRequirement>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label_reset_commands: Option<Option<Vec<String>>>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
@@ -274,6 +278,7 @@ impl<'de> Deserialize<'de> for HarnessPatch {
                 "integration",
                 "voice",
                 "minVersion",
+                "labelResetCommands",
             ],
         )?;
         Ok(Self {
@@ -288,6 +293,7 @@ impl<'de> Deserialize<'de> for HarnessPatch {
             integration: optional_boundary_field(&fields, "integration")?,
             voice: optional_boundary_field(&fields, "voice")?,
             min_version: optional_boundary_field(&fields, "minVersion")?,
+            label_reset_commands: optional_boundary_field(&fields, "labelResetCommands")?,
         })
     }
 }
@@ -564,6 +570,9 @@ impl HarnessDefinition {
         if let Some(value) = &patch.min_version {
             result.min_version = value.clone();
         }
+        if let Some(commands) = &patch.label_reset_commands {
+            result.label_reset_commands = commands.clone().unwrap_or_default();
+        }
         result
             .validate(DefinitionOrigin::Override)
             .map_err(|mut errors| errors.remove(0))?;
@@ -797,6 +806,48 @@ mod tests {
             .is_none());
         assert!(resolved.get("gemini").unwrap().definition.retired);
         assert!(!resolved.get("antigravity").unwrap().definition.retired);
+        assert_eq!(
+            resolved.get("claude-code").unwrap().definition.label_reset_commands,
+            ["/clear", "/reset", "/new"]
+        );
+        assert_eq!(
+            resolved.get("opencode").unwrap().definition.label_reset_commands,
+            ["/clear", "/new"]
+        );
+        assert!(resolved
+            .get("codex")
+            .unwrap()
+            .definition
+            .label_reset_commands
+            .is_empty());
+    }
+
+    #[test]
+    fn label_reset_commands_default_for_legacy_custom_documents() {
+        let document: HarnessUserDocument = serde_json::from_str(
+            r#"{"version":2,"custom":[{
+              "id":"company-tool","name":"Company Tool",
+              "launch":{"kind":"command-template","command":"company-tool","args":[],"modelPrefix":null},
+              "defaultModel":null,"resume":null,"models":null,"peon":null,
+              "capacity":null,"sessionSignals":null,"integration":null,"voice":null
+            }]}"#,
+        ).unwrap();
+        assert!(document.custom[0].label_reset_commands.is_empty());
+    }
+
+    #[test]
+    fn label_reset_command_patch_replaces_or_clears_the_builtin_list() {
+        let original = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap()
+            .builtins.into_iter().find(|h| h.id == "claude-code").unwrap();
+        assert_eq!(original.label_reset_commands, ["/clear", "/reset", "/new"]);
+
+        let replacement: HarnessPatch = serde_json::from_str(
+            r#"{"labelResetCommands":["/fresh"]}"#,
+        ).unwrap();
+        assert_eq!(original.apply_patch(&replacement).unwrap().label_reset_commands, ["/fresh"]);
+
+        let cleared: HarnessPatch = serde_json::from_str(r#"{"labelResetCommands":null}"#).unwrap();
+        assert!(original.apply_patch(&cleared).unwrap().label_reset_commands.is_empty());
     }
 
     #[test]

@@ -1176,6 +1176,7 @@ mod tests {
                         integration: None,
                         voice: None,
                         min_version: None,
+                        label_reset_commands: None,
                     },
                 );
                 Ok(())
