@@ -362,9 +362,14 @@ fn record_terminal_input_impl(
         let buf = bufs.entry(id.to_string()).or_default();
         let len_before = buf.len();
         let (line, completed) = collect_input_line(buf, data);
-        // Snapshot the post-mutation buffer under the same write lock, so the
-        // single-key arming site below can echo-gate against the typed-so-far
-        // line without re-acquiring the input_buf lock. Empty after Enter
+        // Snapshot only the *newly typed delta* this frame added to `buf`,
+        // under the same write lock, so the single-key arming site below can
+        // echo-gate against it without re-acquiring the input_buf lock. This
+        // must be the delta, not the whole accumulated buffer: a PTY only
+        // ever echoes back the character(s) just typed, not the composed
+        // line again on every keystroke, so arming against the full buffer
+        // would mismatch the second and later keystrokes' actual echo and
+        // misread it as genuine model output. Empty after Enter
         // (`collect_input_line` clears `buf` on a line terminator) — that's
         // how the single-key path avoids double-arming the Enter that the
         // existing committed-line path will handle. `buf_grew` distinguishes
@@ -378,7 +383,11 @@ fn record_terminal_input_impl(
         // `buf_grew`), so cloning the buffer for them would waste an
         // allocation on the input hot path.
         let grew = buf.len() > len_before;
-        let snapshot = if grew { Some(buf.clone()) } else { None };
+        let snapshot = if grew {
+            Some(buf[len_before..].to_string())
+        } else {
+            None
+        };
         (line, completed, snapshot, grew)
     };
 
@@ -402,9 +411,12 @@ fn record_terminal_input_impl(
     // recur: shell sessions never have hook-sourced `needs_you` with
     // `metadata_source = "agent"` (they're `process` or `None`), and
     // capable-hook harnesses are excluded because their own event is the
-    // source of truth for work start. Re-arm on each subsequent printable
-    // keystroke so the echo prefix tracks the typed-so-far line, keeping
-    // the 10-second window fresh while the user is still composing.
+    // source of truth for work start. Extend on each subsequent printable
+    // keystroke so the expected-echo tail keeps growing and the 10-second
+    // window stays fresh while the user is still composing — extending
+    // (appending the new delta, refreshing expiry) rather than re-arming
+    // from the full accumulated buffer, since a PTY only ever echoes back
+    // the character(s) just typed, not the composed line again each time.
     // `buf_grew` is the printable-char predicate: it is true iff this frame
     // pushed at least one new char into `input_buf`, which only happens for
     // non-control, non-Enter bytes outside bracketed paste (see
@@ -413,19 +425,19 @@ fn record_terminal_input_impl(
     // grow `buf`, so they cannot arm the signal even though their raw
     // frames contain ASCII-letter final bytes.
     if buf_grew {
-        if let Some(in_progress_buf) = in_progress_buf.as_deref() {
-            if !in_progress_buf.is_empty() {
+        if let Some(new_delta) = in_progress_buf.as_deref() {
+            if !new_delta.is_empty() {
                 let mut sessions = state.sessions.lock().unwrap();
                 if let Some(handle) = sessions.get_mut(id) {
                     if !handle.active_work_hook
                         && handle.info.attention.as_deref() == Some("needs_you")
                         && handle.info.metadata_source.as_deref() == Some("agent")
                     {
-                        handle.pending_work_signal =
-                            Some(crate::runtime::session_runtime::arm_pending_work_signal(
-                                in_progress_buf,
-                                tokio::time::Instant::now(),
-                            ));
+                        crate::runtime::session_runtime::extend_pending_work_signal(
+                            &mut handle.pending_work_signal,
+                            new_delta,
+                            tokio::time::Instant::now(),
+                        );
                     }
                 }
             }

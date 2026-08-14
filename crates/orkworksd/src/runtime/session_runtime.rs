@@ -45,6 +45,29 @@ pub(crate) fn arm_pending_work_signal(
     }
 }
 
+/// Extends an already-armed signal with newly typed (not yet echoed) text
+/// and refreshes its expiry, rather than discarding whatever remains of a
+/// prior keystroke's expected echo. A naive re-arm-per-keystroke that
+/// replaces `remaining_echo` with the full composed-so-far buffer mismatches
+/// how PTYs actually echo: each frame only echoes back the character(s)
+/// just typed, not the accumulated line again every time. Appending keeps
+/// `remaining_echo` an accurate expectation of the *next* echo chunk in
+/// order, however much of a previous keystroke's echo has already been
+/// absorbed.
+pub(crate) fn extend_pending_work_signal(
+    slot: &mut Option<PendingWorkSignal>,
+    new_text: &str,
+    now: tokio::time::Instant,
+) {
+    match slot {
+        Some(signal) => {
+            signal.remaining_echo.push_str(new_text);
+            signal.expires_at = now + WORK_SIGNAL_WINDOW;
+        }
+        None => *slot = Some(arm_pending_work_signal(new_text, now)),
+    }
+}
+
 /// A chunk only "counts" as visible output if it has at least one character
 /// that isn't whitespace and isn't a control code (e.g. a bare BEL or other
 /// C0 byte left over after ANSI stripping must not qualify as model output).
@@ -1352,6 +1375,25 @@ mod tests {
                 "observer-only output should not resume {status} to working"
             );
         }
+    }
+
+    #[test]
+    fn extending_on_next_keystroke_does_not_falsely_qualify_its_own_echo() {
+        let now = tokio::time::Instant::now();
+        // First keystroke 'h': armed fresh; its echo arrives and is
+        // correctly absorbed as non-qualifying.
+        let mut signal = Some(arm_pending_work_signal("h", now));
+        assert!(!consume_pending_work_signal(&mut signal, "h", now));
+        // Second keystroke 'e': the single-key arming site in
+        // terminal_runtime.rs extends the signal with only the newly typed
+        // delta ("e"), not the whole accumulated buffer — matching how a
+        // PTY actually echoes back just the character just typed. This must
+        // still not qualify as genuine model output while composing.
+        extend_pending_work_signal(&mut signal, "e", now);
+        assert!(
+            !consume_pending_work_signal(&mut signal, "e", now),
+            "echo of a later keystroke must not be mistaken for genuine model output"
+        );
     }
 
     #[test]
