@@ -368,6 +368,15 @@ pub(crate) async fn set_active_harnesses(
     axum::http::StatusCode::CONFLICT
 }
 
+fn resume_handle_conflicts(
+    handle: &SessionHandle,
+    metadata_ended: bool,
+    has_tracked_pid: bool,
+) -> bool {
+    handle.terminal_attached
+        || (handle.info.lifecycle_phase != "ended" && (!metadata_ended || has_tracked_pid))
+}
+
 pub(crate) async fn resume_session(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -423,8 +432,9 @@ pub(crate) async fn resume_session(
     {
         let sessions = state.sessions.lock().unwrap();
         if let Some(handle) = sessions.get(&id) {
-            let still_live = !matches!(handle.info.lifecycle_phase.as_str(), "ended");
-            if handle.terminal_attached || still_live {
+            let metadata_ended = meta.lifecycle_phase == "ended";
+            let has_tracked_pid = state.session_pids.lock().unwrap().contains_key(&id);
+            if resume_handle_conflicts(handle, metadata_ended, has_tracked_pid) {
                 return axum::http::StatusCode::CONFLICT.into_response();
             }
         }
@@ -2273,6 +2283,103 @@ mod tests {
             Some("native-123")
         );
         assert_ne!(updated_resume.last_seen_at.as_deref(), Some("before"));
+    }
+
+    #[test]
+    fn resume_handle_conflicts_only_when_attached_or_positively_live() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut handle = attention_test_handle("resume-stale-predicate", dir.path());
+        handle.info.lifecycle_phase = "active".into();
+        let mut session_pids = HashMap::new();
+
+        assert!(!resume_handle_conflicts(
+            &handle,
+            true,
+            session_pids.contains_key("resume-stale-predicate"),
+        ));
+        session_pids.insert("resume-stale-predicate".to_string(), 42);
+        assert!(resume_handle_conflicts(
+            &handle,
+            true,
+            session_pids.contains_key("resume-stale-predicate"),
+        ));
+    }
+
+    #[tokio::test]
+    async fn resume_session_replaces_unattached_ended_stale_handle() {
+        use crate::test_support::{make_test_executable, FakePath};
+
+        let dir = tempfile::tempdir().unwrap();
+        let fake_bin_dir = tempfile::tempdir().unwrap();
+        let opencode = fake_bin_dir.path().join("opencode");
+        std::fs::write(&opencode, "#!/bin/sh\nexit 0\n").unwrap();
+        make_test_executable(&opencode);
+        let _fake_path = FakePath::prepend(fake_bin_dir.path());
+
+        let state = test_app_state_with_workspace(dir.path());
+        let session_id = "resume-stale-ended".to_string();
+        let resume = harness::ResumeMemory {
+            state: harness::ResumeState::Available,
+            preferred_strategy: harness::ResumeStrategy::LatestCwd,
+            harness_session_id: None,
+            latest_fallback: true,
+            last_seen_at: Some("before".into()),
+        };
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+
+        let mut info = test_session_info(
+            session_id.clone(),
+            "Resume Stale Ended",
+            dir.path().display().to_string(),
+            "ended",
+            "before",
+        );
+        info.harness_id = Some("opencode".into());
+        info.harness = Some("opencode".into());
+        info.resume_strategy = harness::ResumeStrategy::LatestCwd;
+        info.resume = Some(resume.clone());
+        state.sessions.lock().unwrap().insert(
+            session_id.clone(),
+            SessionHandle {
+                info,
+                kill_tx,
+                output_buffer: peon::RingBuffer::new(200),
+                scan_buf: String::new(),
+                pending_work_signal: None,
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                ),
+                terminal_attached: false,
+                at_usage_limit_latched: false,
+                capacity_check_pending: false,
+                output_lines_seen: 0,
+                scan_bytes_seen: 0,
+                resume_scan_origin: None,
+                pending_capacity_visible_once: false,
+                active_work_hook: false,
+            },
+        );
+
+        let mut metadata = test_session_metadata(
+            session_id.clone(),
+            "Resume Stale Ended",
+            dir.path().display().to_string(),
+            "ended",
+            "before",
+            "before",
+        );
+        metadata.harness = "opencode".into();
+        metadata.lifecycle_phase = "ended".into();
+        metadata.lifecycle = "ended".into();
+        metadata.resume = Some(resume);
+        {
+            let ws = state.workspace.lock().unwrap();
+            ws.as_ref().unwrap().metadata.write_session(&metadata);
+        }
+
+        let response = resume_session(State(state), Path(session_id)).await.into_response();
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
     }
 
     #[tokio::test]
