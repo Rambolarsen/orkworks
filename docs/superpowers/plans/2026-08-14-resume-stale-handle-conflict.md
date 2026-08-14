@@ -4,7 +4,7 @@
 
 **Goal:** Allow an ended session whose obsolete, unattached in-memory handle has no live PTY to resume instead of returning HTTP 409.
 
-**Architecture:** The resume endpoint retains its existing metadata-derived command selection. Its in-memory conflict guard will distinguish an attached or PID-backed live runtime from a stale handle using three inputs: handle attachment, handle lifecycle phase, and the session PID registry. No UI or protocol changes are required.
+**Architecture:** The resume endpoint retains its existing metadata-derived command selection. Its in-memory conflict guard permits only an unattached handle with persisted ended metadata and no tracked PID; a runtime-only claim atomically installs the replacement under the sessions mutex and remains set until terminal finalization. No UI or protocol changes are required.
 
 **Tech Stack:** Rust, Axum, Tokio, existing sidecar unit tests.
 
@@ -13,6 +13,7 @@
 - Preserve HTTP 409 for a terminal-attached handle.
 - Preserve HTTP 409 for a detached live handle with a tracked PTY PID.
 - Permit replacement only when persisted lifecycle is `ended`, the handle is unattached, and no PID is tracked.
+- Serialize concurrent resume attempts for the same session: one request may claim and launch; later attempts receive 409.
 - Keep resume request/response shapes, metadata schema, and harness definitions unchanged.
 - Add a focused regression test before implementation and run the Rust sidecar test suite.
 
@@ -76,6 +77,20 @@ fn resume_handle_conflicts(
 ```
 
 In `resume_session`, derive `metadata_ended` from the already-read `meta`, read `has_tracked_pid` from `state.session_pids`, and replace the current `terminal_attached || still_live` branch with this helper. Do not alter command construction, metadata resets, or runtime startup.
+
+- [ ] **Step 3a: Claim admission atomically and prove concurrency behavior**
+
+Add `resume_in_progress: bool` to `SessionHandle`, initialized to `false` at
+every constructor. While holding `state.sessions`, reject an existing claim;
+after the stale-handle predicate passes, atomically install a replacement whose
+claim is `true`, including when no old handle exists. Leave the claim set while
+the runtime is live and clear it during terminal finalization.
+
+Change the stale endpoint fixture’s in-memory session from ended to active so
+it reproduces the former false 409. Add a barrier-controlled concurrent
+admission regression with the same ended metadata and fake `opencode`
+executable; assert one `StatusCode::OK`, one `StatusCode::CONFLICT`, and one
+registered claimed runtime.
 
 - [ ] **Step 4: Run focused regression tests**
 

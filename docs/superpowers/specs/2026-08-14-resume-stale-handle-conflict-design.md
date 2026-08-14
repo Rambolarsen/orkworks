@@ -25,6 +25,21 @@ inserted handle under the same session ID.
 This preserves the existing protection against resuming an attached or truly
 running session, while aligning the endpoint with the session-list projection.
 
+## Concurrent Admission
+
+Resume admission is per-session and atomic. `SessionHandle` records an
+internal runtime-ownership claim. The endpoint constructs and installs the
+claimed replacement under the existing sessions mutex, whether it is replacing
+a stale handle or starting from no handle. A second request therefore sees the
+claim and receives HTTP 409 even if it read old ended metadata before the first
+request persisted `creating`.
+
+The claim remains set for the live runtime and is cleared only when terminal
+finalization records its terminal state. That prevents delayed requests holding
+a stale metadata snapshot from launching a second PTY. This field is
+runtime-only: it does not change lifecycle vocabulary, metadata, or the public
+API.
+
 ## Data Flow and Error Handling
 
 `resume_session` already reads the session metadata before it checks the
@@ -33,6 +48,11 @@ guard and consult `session_pids` there. If the handle is unattached, the
 metadata is ended, and no PID is tracked, the stale handle is replaced by the
 resumed runtime; otherwise the endpoint returns 409 unchanged. Unsupported or
 missing resume metadata retain their existing 400/404 responses.
+
+The same sessions-mutex critical section rejects an existing claim before
+admitting a request, then atomically installs a claimed replacement. This
+closes the gap between validation and replacement for both stale-handle and
+no-handle sessions.
 
 ## Testing
 
@@ -43,6 +63,12 @@ environment, then assert the returned session is running/creating as
 appropriate. Keep the existing attached-live and detached-live 409 tests
 unchanged, and add a tracked-PID case if the existing detached-live fixture
 does not already cover it.
+
+The endpoint regression uses a stale handle whose in-memory lifecycle remains
+live, matching the reported mismatch. A barrier-controlled concurrent
+admission regression makes two callers attempt the same ended, PID-free
+session and asserts exactly one succeeds, one conflicts, and only one claimed
+runtime is installed.
 
 ## Scope
 
