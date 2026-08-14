@@ -2117,6 +2117,89 @@ mod tests {
         record_terminal_input(&state, id, "fix the next login bug\r");
         assert_eq!(live_label(&state, id), "fix the next login bug");
         assert_eq!(stored_label(&state, id), "fix the next login bug");
+        // The re-armed hint must carry the post-reset epoch, not the epoch the
+        // cleared conversation's work was queued under — that value is the
+        // whole basis for rejecting a stale in-flight refinement.
+        assert_eq!(
+            state.peon.label_hint.read().unwrap().get(id),
+            Some(&crate::LabelHint {
+                text: "fix the next login bug".into(),
+                epoch: 1,
+            })
+        );
+    }
+
+    #[test]
+    fn each_declared_command_resets_its_own_harness() {
+        // Every entry of a harness's declared list resets, not just the first,
+        // and each harness's own list applies (ADR 0040).
+        for (case, harness, command) in [
+            ("claude-code /clear", "claude-code", "/clear"),
+            ("claude-code /reset", "claude-code", "/reset"),
+            ("opencode /clear", "opencode", "/clear"),
+            ("opencode /new", "opencode", "/new"),
+        ] {
+            let id = "label-reset-declared";
+            let (state, _dir) = prompted_session_state(id);
+            set_harness(&state, id, harness);
+            set_label(&state, id, "Old conversation title");
+            seed_label_hint(&state, id, "old topic", 0);
+
+            record_terminal_input(&state, id, &format!("{command}\r"));
+
+            let placeholder = crate::session_types::placeholder_label(id);
+            assert_eq!(live_label(&state, id), placeholder, "{case}");
+            assert_eq!(stored_label(&state, id), placeholder, "{case}");
+            assert!(
+                state.peon.label_hint.read().unwrap().get(id).is_none(),
+                "{case}"
+            );
+            assert!(
+                !state.peon.label_pending.read().unwrap().contains(id),
+                "{case}"
+            );
+            assert_eq!(label_epoch(&state, id), 1, "{case}");
+        }
+    }
+
+    #[test]
+    fn a_second_declared_reset_advances_the_epoch_again() {
+        // Each reset must invalidate only the work queued before it, so the
+        // epoch accumulates rather than latching at its first value.
+        let id = "label-reset-repeated";
+        let (state, _dir) = prompted_session_state(id);
+        set_harness(&state, id, "claude-code");
+        set_label(&state, id, "Old conversation title");
+
+        record_terminal_input(&state, id, "/clear\r");
+        assert_eq!(label_epoch(&state, id), 1);
+        record_terminal_input(&state, id, "fix the next login bug\r");
+        assert_eq!(
+            state.peon.label_hint.read().unwrap().get(id),
+            Some(&crate::LabelHint {
+                text: "fix the next login bug".into(),
+                epoch: 1,
+            })
+        );
+
+        record_terminal_input(&state, id, "/reset\r");
+
+        assert_eq!(label_epoch(&state, id), 2);
+        assert_eq!(
+            live_label(&state, id),
+            crate::session_types::placeholder_label(id)
+        );
+        assert!(state.peon.label_hint.read().unwrap().get(id).is_none());
+        assert!(!state.peon.label_pending.read().unwrap().contains(id));
+
+        record_terminal_input(&state, id, "then rework the retry policy\r");
+        assert_eq!(
+            state.peon.label_hint.read().unwrap().get(id),
+            Some(&crate::LabelHint {
+                text: "then rework the retry policy".into(),
+                epoch: 2,
+            })
+        );
     }
 
     #[test]
