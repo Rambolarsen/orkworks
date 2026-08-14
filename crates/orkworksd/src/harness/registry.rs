@@ -3,6 +3,8 @@ use std::sync::{Arc, RwLock};
 
 use serde::Serialize;
 
+#[cfg(test)]
+use super::definition::PromptTransport;
 use super::definition::{
     BuiltinDocument, DefinitionOrigin, HarnessDiagnostic, HarnessUserDocument,
 };
@@ -396,12 +398,16 @@ fn capability_names(definition: &HarnessDefinition) -> BTreeSet<CapabilityName> 
 }
 
 fn provider_from_harness(harness: &ResolvedHarness) -> Option<ProviderDefinition> {
+    if harness.definition.retired {
+        return None;
+    }
     let PeonCapability {
         command_override,
         args,
         model_arg_template,
         supports_model,
         timeout_secs,
+        prompt_transport,
     } = harness.definition.peon.as_ref()?.clone();
     let (list_models_command, list_models_args, static_models) = match &harness.definition.models {
         Some(ModelCapability::Static { models }) => (None, Vec::new(), models.clone()),
@@ -420,6 +426,7 @@ fn provider_from_harness(harness: &ResolvedHarness) -> Option<ProviderDefinition
         model_arg_template,
         supports_model,
         timeout_secs,
+        prompt_transport,
         list_models_command,
         list_models_args,
         static_models,
@@ -618,6 +625,41 @@ mod tests {
             .diagnostics()
             .iter()
             .all(|diagnostic| diagnostic.code == "custom_id_collision"));
+    }
+
+    #[test]
+    fn canonical_copilot_has_a_no_tool_argument_prompt_provider() {
+        let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
+        let registry = resolve_document(&builtins, &HarnessUserDocument::default()).unwrap();
+        let copilot = registry
+            .providers()
+            .iter()
+            .find(|provider| provider.id == "copilot")
+            .expect("canonical Copilot Peon provider");
+
+        assert_eq!(
+            copilot.default_args,
+            [
+                "--available-tools=",
+                "--allow-all-tools",
+                "--no-custom-instructions",
+                "-s",
+                "-p"
+            ]
+        );
+        assert_eq!(copilot.prompt_transport, PromptTransport::Argument);
+        assert!(!copilot.supports_model);
+    }
+
+    #[test]
+    fn retired_gemini_is_not_an_executable_peon_provider() {
+        let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
+        let registry = resolve_document(&builtins, &HarnessUserDocument::default()).unwrap();
+
+        assert!(registry
+            .providers()
+            .iter()
+            .all(|provider| provider.id != "gemini"));
     }
 
     #[test]

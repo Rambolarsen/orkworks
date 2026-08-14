@@ -108,7 +108,7 @@ export const DEFAULT_DEBUG_SETTINGS: DebugSettings = {
   rendererHealthLogMs: 0,
 };
 
-const VALID_PROVIDER_IDS = new Set<ProviderId>(["opencode", "claude-code", "codex", "gemini", "aider", "gh-copilot", "ollama"]);
+const VALID_PROVIDER_IDS = new Set<ProviderId>(["opencode", "claude-code", "codex", "aider", "copilot", "ollama"]);
 const VALID_CAPACITY_STATES = new Set<ProviderCapacityState>(["healthy", "degraded", "capped", "unknown"]);
 
 export const DEFAULT_PROVIDER_SETTINGS: ProviderSettings = {
@@ -120,10 +120,9 @@ export const DEFAULT_PROVIDER_SETTINGS: ProviderSettings = {
     { id: "opencode", enabled: true, fallbackOrder: 0, defaultState: "healthy", overrideState: null },
     { id: "claude-code", enabled: true, fallbackOrder: 1, defaultState: "unknown", overrideState: null },
     { id: "codex", enabled: true, fallbackOrder: 2, defaultState: "unknown", overrideState: null },
-    { id: "gemini", enabled: true, fallbackOrder: 3, defaultState: "unknown", overrideState: null },
-    { id: "aider", enabled: true, fallbackOrder: 4, defaultState: "unknown", overrideState: null },
-    { id: "gh-copilot", enabled: true, fallbackOrder: 5, defaultState: "unknown", overrideState: null },
-    { id: "ollama", enabled: true, fallbackOrder: 6, defaultState: "unknown", overrideState: null },
+    { id: "aider", enabled: true, fallbackOrder: 3, defaultState: "unknown", overrideState: null },
+    { id: "copilot", enabled: true, fallbackOrder: 4, defaultState: "unknown", overrideState: null },
+    { id: "ollama", enabled: true, fallbackOrder: 5, defaultState: "unknown", overrideState: null },
   ],
 };
 
@@ -358,20 +357,78 @@ export function normalizeHotkeys(value: unknown): HotkeySettings {
 }
 
 export function readSettings(userDataPath: string): AppSettings {
+  return readSettingsWithMigration(userDataPath).settings;
+}
+
+export function readSettingsWithMigration(userDataPath: string): { settings: AppSettings; migrated: boolean } {
   const path = settingsPath(userDataPath);
   if (!existsSync(path)) {
-    return defaultSettings();
+    return { settings: defaultSettings(), migrated: false };
   }
   try {
-    return normalizeSettings(JSON.parse(readFileSync(path, "utf8")));
+    const migrated = migrateRawProviderSettings(JSON.parse(readFileSync(path, "utf8")));
+    return { settings: normalizeSettings(migrated.value), migrated: migrated.migrated };
   } catch {
-    return defaultSettings();
+    return { settings: defaultSettings(), migrated: false };
   }
+}
+
+export function loadSettingsForStartup(
+  userDataPath: string,
+  persist: (path: string, settings: AppSettings) => void = writeSettings,
+): AppSettings {
+  const loaded = readSettingsWithMigration(userDataPath);
+  if (loaded.migrated) {
+    try {
+      persist(userDataPath, loaded.settings);
+    } catch {
+      // The repaired settings remain safe for this process; retry persistence next startup.
+    }
+  }
+  return loaded.settings;
 }
 
 export function writeSettings(userDataPath: string, settings: AppSettings): void {
   mkdirSync(userDataPath, { recursive: true });
   writeFileSync(settingsPath(userDataPath), `${JSON.stringify(normalizeSettings(settings), null, 2)}\n`);
+}
+
+function migrateRawProviderSettings(value: unknown): { value: unknown; migrated: boolean } {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return { value, migrated: false };
+  const root = value as Record<string, unknown>;
+  const providersValue = root.providers;
+  if (!providersValue || typeof providersValue !== "object" || Array.isArray(providersValue)) {
+    return { value, migrated: false };
+  }
+  const providerSettings = providersValue as Record<string, unknown>;
+  if (!Array.isArray(providerSettings.providers)) return { value, migrated: false };
+
+  const hasCanonicalCopilot = providerSettings.providers.some(
+    (entry) => entry && typeof entry === "object" && !Array.isArray(entry) && (entry as Record<string, unknown>).id === "copilot",
+  );
+  let migrated = false;
+  let migratedLegacyCopilot = false;
+  const providers = providerSettings.providers.flatMap((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return [entry];
+    const raw = entry as Record<string, unknown>;
+    if (raw.id === "gh-copilot") {
+      migrated = true;
+      if (hasCanonicalCopilot || migratedLegacyCopilot) return [];
+      migratedLegacyCopilot = true;
+      return [{ ...raw, id: "copilot" }];
+    }
+    if (raw.id === "gemini") {
+      migrated = true;
+      return [];
+    }
+    return [entry];
+  });
+
+  if (!migrated) return { value, migrated: false };
+  return {
+    value: { ...root, providers: { ...providerSettings, providers } },
+    migrated: true,
+  };
 }
 
 export function validateHotkeys(hotkeys: HotkeySettings): HotkeyValidationResult {

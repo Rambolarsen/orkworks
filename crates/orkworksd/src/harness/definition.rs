@@ -88,6 +88,16 @@ pub(crate) struct PeonCapability {
     pub model_arg_template: Option<String>,
     pub supports_model: bool,
     pub timeout_secs: u64,
+    #[serde(default)]
+    pub prompt_transport: PromptTransport,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum PromptTransport {
+    #[default]
+    Stdin,
+    Argument,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -227,6 +237,8 @@ pub(crate) struct PeonPatch {
     pub supports_model: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout_secs: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_transport: Option<PromptTransport>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
@@ -329,6 +341,7 @@ impl<'de> Deserialize<'de> for PeonPatch {
                 "modelArgTemplate",
                 "supportsModel",
                 "timeoutSecs",
+                "promptTransport",
             ],
         )?;
         Ok(Self {
@@ -337,6 +350,7 @@ impl<'de> Deserialize<'de> for PeonPatch {
             model_arg_template: optional_boundary_field(&fields, "modelArgTemplate")?,
             supports_model: required_patch_field(&fields, "supportsModel")?,
             timeout_secs: required_patch_field(&fields, "timeoutSecs")?,
+            prompt_transport: required_patch_field(&fields, "promptTransport")?,
         })
     }
 }
@@ -662,6 +676,7 @@ fn patch_peon(existing: Option<&PeonCapability>, patch: &PeonPatch) -> PeonCapab
         model_arg_template: None,
         supports_model: false,
         timeout_secs: 30,
+        prompt_transport: PromptTransport::Stdin,
     });
     PeonCapability {
         command_override: patch
@@ -675,6 +690,10 @@ fn patch_peon(existing: Option<&PeonCapability>, patch: &PeonPatch) -> PeonCapab
             .unwrap_or(existing.model_arg_template),
         supports_model: patch.supports_model.unwrap_or(existing.supports_model),
         timeout_secs: patch.timeout_secs.unwrap_or(existing.timeout_secs),
+        prompt_transport: patch
+            .prompt_transport
+            .clone()
+            .unwrap_or(existing.prompt_transport),
     }
 }
 
