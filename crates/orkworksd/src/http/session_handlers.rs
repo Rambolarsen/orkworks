@@ -2302,6 +2302,7 @@ mod tests {
             false,
             session_pids.contains_key("resume-stale-predicate"),
         ));
+        assert!(resume_handle_conflicts(&handle, true, true));
     }
 
     #[tokio::test]
