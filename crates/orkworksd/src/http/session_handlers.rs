@@ -373,7 +373,11 @@ fn resume_handle_conflicts(
     metadata_ended: bool,
     has_tracked_pid: bool,
 ) -> bool {
-    handle.resume_in_progress || handle.terminal_attached || !metadata_ended || has_tracked_pid
+    handle.info.lifecycle_phase == "ending"
+        || handle.resume_in_progress
+        || handle.terminal_attached
+        || !metadata_ended
+        || has_tracked_pid
 }
 
 fn try_install_claimed_resume_handle(
@@ -384,9 +388,11 @@ fn try_install_claimed_resume_handle(
 ) -> Result<(), ()> {
     let mut sessions = state.sessions.lock().unwrap();
     let has_tracked_pid = state.session_pids.lock().unwrap().contains_key(id);
-    if sessions
-        .get(id)
-        .is_some_and(|handle| resume_handle_conflicts(handle, metadata_ended, has_tracked_pid))
+    if !metadata_ended
+        || has_tracked_pid
+        || sessions
+            .get(id)
+            .is_some_and(|handle| resume_handle_conflicts(handle, metadata_ended, has_tracked_pid))
     {
         return Err(());
     }
@@ -2426,6 +2432,83 @@ mod tests {
         .expect("terminal finalization clears the runtime claim");
     }
 
+    #[tokio::test]
+    async fn resume_session_startup_failure_eventually_clears_runtime_claim() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        state
+            .harness_store
+            .mutate(&state.harness_catalog, |document| {
+                let override_patch = document.overrides.entry("opencode".into()).or_default();
+                override_patch.resume = Some(Some(harness::definition::ResumePatch {
+                    latest_cwd: Some(Some(harness::CommandTemplate {
+                        command: "orkworks-resume-command-that-does-not-exist".into(),
+                        args: vec![],
+                    })),
+                    ..Default::default()
+                }));
+                Ok(())
+            })
+            .unwrap();
+        let session_id = "resume-startup-failure".to_string();
+        let resume = harness::ResumeMemory {
+            state: harness::ResumeState::Available,
+            preferred_strategy: harness::ResumeStrategy::LatestCwd,
+            harness_session_id: None,
+            latest_fallback: true,
+            last_seen_at: Some("before".into()),
+        };
+        let mut metadata = test_session_metadata(
+            session_id.clone(),
+            "Resume Startup Failure",
+            dir.path().display().to_string(),
+            "ended",
+            "before",
+            "before",
+        );
+        metadata.harness = "opencode".into();
+        metadata.lifecycle_phase = "ended".into();
+        metadata.lifecycle = "dead".into();
+        metadata.resume = Some(resume);
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
+
+        let response = resume_session(State(state.clone()), Path(session_id.clone()))
+            .await
+            .into_response();
+
+        assert_eq!(
+            response.status(),
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR
+        );
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                let claim_cleared = state
+                    .sessions
+                    .lock()
+                    .unwrap()
+                    .get(&session_id)
+                    .is_some_and(|handle| !handle.resume_in_progress);
+                if claim_cleared {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("startup-failure finalization clears the runtime claim");
+        let sessions = state.sessions.lock().unwrap();
+        assert_eq!(sessions[&session_id].info.status, "error");
+        assert_eq!(sessions[&session_id].info.lifecycle_phase, "ended");
+        assert!(!sessions[&session_id].resume_in_progress);
+    }
+
     #[test]
     fn resume_admission_installs_one_claimed_runtime_after_both_callers_observe_ended_metadata() {
         let dir = tempfile::tempdir().unwrap();
@@ -2465,6 +2548,106 @@ mod tests {
         assert_eq!(sessions.len(), 1);
         assert!(sessions.contains_key(&session_id));
         assert!(sessions[&session_id].resume_in_progress);
+    }
+
+    #[test]
+    fn resume_admission_rejects_active_metadata_without_a_session_handle() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let session_id = "resume-no-handle-active-metadata";
+        let replacement = attention_test_handle(session_id, dir.path());
+
+        let result = try_install_claimed_resume_handle(&state, session_id, replacement, false);
+
+        assert!(result.is_err());
+        assert!(!state.sessions.lock().unwrap().contains_key(session_id));
+    }
+
+    #[test]
+    fn resume_admission_rejects_tracked_pid_without_a_session_handle() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let session_id = "resume-no-handle-tracked-pid";
+        state
+            .session_pids
+            .lock()
+            .unwrap()
+            .insert(session_id.to_string(), 42);
+        let replacement = attention_test_handle(session_id, dir.path());
+
+        let result = try_install_claimed_resume_handle(&state, session_id, replacement, true);
+
+        assert!(result.is_err());
+        assert!(!state.sessions.lock().unwrap().contains_key(session_id));
+    }
+
+    #[tokio::test]
+    async fn resume_admission_waits_for_ending_handle_finalization_before_replacement() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let session_id = "resume-ending-finalization";
+        let mut ending_handle = attention_test_handle(session_id, dir.path());
+        ending_handle.info.lifecycle_phase = "ending".into();
+        ending_handle.info.lifecycle = "stopping".into();
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .insert(session_id.to_string(), ending_handle);
+        let mut metadata = test_session_metadata(
+            session_id,
+            "Resume Ending Finalization",
+            dir.path().display().to_string(),
+            "running",
+            "before",
+            "before",
+        );
+        metadata.lifecycle_phase = "ending".into();
+        metadata.lifecycle = "stopping".into();
+        metadata.pending_terminal_status = Some("ended".into());
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
+
+        // The request-side metadata snapshot may already say `ended` while
+        // the old finalizer is waiting to update the in-memory handle.
+        let premature_replacement = attention_test_handle(session_id, dir.path());
+        let premature_result =
+            try_install_claimed_resume_handle(&state, session_id, premature_replacement, true);
+
+        assert!(premature_result.is_err());
+        assert_eq!(
+            state.sessions.lock().unwrap()[session_id]
+                .info
+                .lifecycle_phase,
+            "ending"
+        );
+
+        crate::runtime::terminal_runtime::finalize_session_ending(
+            state.clone(),
+            session_id.to_string(),
+            "ended".into(),
+        )
+        .await;
+        assert_eq!(
+            state.sessions.lock().unwrap()[session_id]
+                .info
+                .lifecycle_phase,
+            "ended"
+        );
+
+        let replacement = attention_test_handle(session_id, dir.path());
+        let result = try_install_claimed_resume_handle(&state, session_id, replacement, true);
+
+        assert!(result.is_ok());
+        let sessions = state.sessions.lock().unwrap();
+        assert!(sessions[session_id].resume_in_progress);
+        assert_ne!(sessions[session_id].info.lifecycle_phase, "ended");
     }
 
     #[tokio::test]
