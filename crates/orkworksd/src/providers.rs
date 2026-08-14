@@ -683,7 +683,15 @@ impl ProviderManager {
         *self.session_checking.write().unwrap() = checking;
     }
 
-    pub fn apply_settings(&self, settings: ProviderSettingsPayload) -> ProviderApplyStatus {
+    pub fn apply_settings(&self, mut settings: ProviderSettingsPayload) -> ProviderApplyStatus {
+        let valid_ids: HashSet<String> = self
+            .definitions()
+            .into_iter()
+            .map(|definition| definition.id)
+            .collect();
+        settings
+            .providers
+            .retain(|entry| valid_ids.contains(&entry.id));
         let revision = settings.revision;
         {
             let mut guard = self.settings.write().unwrap();
@@ -1435,6 +1443,32 @@ mod tests {
         assert_eq!(result.attempts.len(), 2);
         assert_eq!(result.attempts[0].outcome, AttemptOutcome::SkippedDisabled);
         assert_eq!(result.attempts[1].outcome, AttemptOutcome::SkippedCapped);
+    }
+
+    #[test]
+    fn apply_settings_discards_legacy_and_non_peon_provider_ids() {
+        let payload = sample_settings(vec![
+            entry("opencode"),
+            entry("gh-copilot"),
+            entry("antigravity"),
+        ]);
+        let manager = ProviderManager::for_tests(payload.clone(), vec![fake_provider("opencode")]);
+
+        manager.apply_settings(payload);
+
+        let response = manager.get_providers_response();
+        assert_eq!(
+            response
+                .providers
+                .iter()
+                .map(|provider| provider.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["opencode"]
+        );
+
+        let result = manager.run_inference(PeonScope::Session, &["terminal line".to_owned()]);
+        assert_eq!(result.attempts.len(), 1);
+        assert_eq!(result.attempts[0].provider_id, "opencode");
     }
 
     #[test]
