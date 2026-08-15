@@ -4,13 +4,13 @@ Electron + Rust sidecar cross-platform release pipeline for internal/alpha testi
 
 ## Motivation
 
-OrkWorks needs installable artifacts for early testers on macOS, Windows, and Linux. There is currently no packaging tooling, no CI/CD, and no release process. This spec adds the minimum infrastructure to build, package, and publish alpha releases via GitHub Releases.
+OrkWorks needs installable artifacts for early testers on macOS and Windows. There is currently no packaging tooling, no CI/CD, and no release process. This spec adds the minimum infrastructure to build, package, and publish alpha releases via GitHub Releases.
 
 ## Scope & Non-Goals
 
 ### In scope
 
-- electron-builder configuration for macOS (DMG), Windows (NSIS), and Linux (AppImage, deb)
+- GitHub Release artifacts for macOS (DMG) and Windows (NSIS)
 - GitHub Actions workflow triggered by git tag push
 - Rust sidecar bundled as `extraResources` for all platforms
 - Version source of truth: `apps/desktop/package.json` `version` field
@@ -28,21 +28,19 @@ OrkWorks needs installable artifacts for early testers on macOS, Windows, and Li
 ## Architecture
 
 ```
-git tag vX.Y.Z ──> GitHub Actions (release.yml) ──> 4 parallel matrix jobs
+git tag vX.Y.Z ──> GitHub Actions (release.yml) ──> 3 parallel matrix jobs
                                                          │
                   ┌───────────────────────┬──────────────┼──────────────┬──────────────────────┐
-                  ▼                       ▼              ▼              ▼                      ▼
-             macos-13                macos-latest   windows-latest  ubuntu-latest       publish job
-             (mac x64)               (mac arm64)       (win x64)      (linux x64)         (draft)
-                  │                       │              │              │
-      pnpm install && build    pnpm install && build    │              │
-                  │                       │              │              │
-         pnpm package:release   pnpm package:release  pnpm package:release  pnpm package:release
-                  │                       │              │              │
                   ▼                       ▼              ▼              ▼
+             macos-13                macos-latest   windows-latest  publish job
+             (mac x64)               (mac arm64)       (win x64)      (draft)
+                  │                       │              │
+      pnpm install && build    pnpm install && build    │
+                  │                       │              │
+         pnpm package:release   pnpm package:release  pnpm package:release
+                  │                       │              │
+                  ▼                       ▼              ▼
        OrkWorks-*-mac-x64.dmg  OrkWorks-*-mac-arm64.dmg OrkWorks-*-win-x64.exe
-                                                               OrkWorks-*-linux-x64.AppImage
-                                                               OrkWorks-*-linux-x64.deb
 ```
 
 ## File Changes
@@ -87,6 +85,8 @@ nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
 ```
+
+Linux packaging configuration remains available for local development, but the tag-driven GitHub Release workflow publishes only macOS and Windows artifacts.
 
 ### New: `.github/workflows/release.yml`
 
@@ -164,8 +164,6 @@ electron-builder's per-platform `extraResources` blocks (see config above) copy 
 |-----------|----------|
 | macOS unsigned DMG | Gatekeeper blocks first launch; user right-clicks → Open to bypass |
 | Windows unsigned NSIS | SmartScreen shows warning; user clicks "More info" → "Run anyway" |
-| Linux AppImage | Requires `fuse` (pre-installed on ubuntu-latest runner); user may need `--appimage-extract-and-run` on systems without fuse |
-| Linux arm64 | Not built — `ubuntu-latest` is x86_64. Linux arm64 testers are unsupported for alpha |
 | Local mac packaging | `pnpm package:release` builds the host arch only. Dual-arch mac output comes from two CI jobs (`macos-13` x64 and `macos-latest` arm64), not from one local host cross-compiling both sidecars |
 | Sidecar binary missing | `electron-builder` fails with a clear error if `cargo build --release` hasn't run |
 | CI runner missing Rust | `dtolnay/rust-toolchain` action installs it; no manual setup needed |

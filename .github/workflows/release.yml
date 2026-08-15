@@ -19,9 +19,6 @@ jobs:
           - os: windows-latest
             target: win
             arch: x64
-          - os: ubuntu-latest
-            target: linux
-            arch: x64
       fail-fast: false
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30

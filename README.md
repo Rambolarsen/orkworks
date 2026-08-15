@@ -92,7 +92,6 @@ GitHub Releases are tag-driven. Pushing `vX.Y.Z` runs `.github/workflows/release
 - macOS x64 on `macos-13`
 - macOS arm64 on `macos-latest`
 - Windows x64 on `windows-latest`
-- Linux x64 on `ubuntu-latest`
 
 Normal pull requests use `.github/workflows/pr-ci.yml`. That workflow routes by changed surface:
 
