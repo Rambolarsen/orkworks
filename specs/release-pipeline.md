@@ -30,17 +30,17 @@ OrkWorks needs installable artifacts for early testers on macOS and Windows. The
 ```
 git tag vX.Y.Z ──> GitHub Actions (release.yml) ──> 3 parallel matrix jobs
                                                          │
-                  ┌───────────────────────┬──────────────┼──────────────┬──────────────────────┐
-                  ▼                       ▼              ▼              ▼
-             macos-13                macos-latest   windows-latest  publish job
-             (mac x64)               (mac arm64)       (win x64)      (draft)
-                  │                       │              │
-      pnpm install && build    pnpm install && build    │
-                  │                       │              │
-         pnpm package:release   pnpm package:release  pnpm package:release
-                  │                       │              │
+                  ┌───────────────────────┬──────────────┬──────────────────────┐
                   ▼                       ▼              ▼
-       OrkWorks-*-mac-x64.dmg  OrkWorks-*-mac-arm64.dmg OrkWorks-*-win-x64.exe
+             macos-latest           windows-latest  publish job
+             (mac arm64)               (win x64)      (draft)
+                  │                       │
+      pnpm install && build    pnpm install && build
+                  │                       │
+         pnpm package:release   pnpm package:release
+                  │                       │
+                  ▼                       ▼
+       OrkWorks-*-mac-arm64.dmg OrkWorks-*-win-x64.exe
 ```
 
 ## File Changes
@@ -86,7 +86,7 @@ nsis:
   allowToChangeInstallationDirectory: true
 ```
 
-Linux packaging configuration remains available for local development, but the tag-driven GitHub Release workflow publishes only macOS and Windows artifacts.
+Linux and Intel macOS packaging configuration remains available for local development, but the tag-driven GitHub Release workflow publishes only Apple Silicon macOS and Windows artifacts.
 
 ### New: `.github/workflows/release.yml`
 
@@ -164,7 +164,7 @@ electron-builder's per-platform `extraResources` blocks (see config above) copy 
 |-----------|----------|
 | macOS unsigned DMG | Gatekeeper blocks first launch; user right-clicks → Open to bypass |
 | Windows unsigned NSIS | SmartScreen shows warning; user clicks "More info" → "Run anyway" |
-| Local mac packaging | `pnpm package:release` builds the host arch only. Dual-arch mac output comes from two CI jobs (`macos-13` x64 and `macos-latest` arm64), not from one local host cross-compiling both sidecars |
+| Local mac packaging | `pnpm package:release` builds the host arch only. The tagged release currently publishes Apple Silicon macOS output from `macos-latest`; Intel macOS packaging remains a local-only path until a reliable Intel runner is selected |
 | Sidecar binary missing | `electron-builder` fails with a clear error if `cargo build --release` hasn't run |
 | CI runner missing Rust | `dtolnay/rust-toolchain` action installs it; no manual setup needed |
 | Tag push without version bump | CI guard (workflow step 2) compares `$GITHUB_REF_NAME` to `apps/desktop/package.json` and fails the job, so a stale tag never produces artifacts |

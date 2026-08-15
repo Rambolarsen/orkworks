@@ -89,7 +89,6 @@ cd apps/desktop && pnpm package:release
 
 GitHub Releases are tag-driven. Pushing `vX.Y.Z` runs `.github/workflows/release.yml`, which builds:
 
-- macOS x64 on `macos-13`
 - macOS arm64 on `macos-latest`
 - Windows x64 on `windows-latest`
 

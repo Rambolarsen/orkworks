@@ -10,9 +10,6 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: macos-13
-            target: mac
-            arch: x64
           - os: macos-latest
             target: mac
             arch: arm64
