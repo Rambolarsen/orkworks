@@ -62,11 +62,15 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Verify packaged artifact
+        working-directory: apps/desktop
+        run: pnpm verify:release
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: release-${{ matrix.target }}-${{ matrix.arch }}
-          path: apps/desktop/release/*
+          path: apps/desktop/release/OrkWorks-*
           if-no-files-found: error
 
   publish:

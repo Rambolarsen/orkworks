@@ -93,6 +93,10 @@ GitHub Releases are tag-driven. Pushing `vX.Y.Z` runs `.github/workflows/release
 - macOS arm64 on `macos-latest`
 - Windows x64 on `windows-latest`
 
+Each release build verifies the installer, packaged Rust sidecar, and hook
+scripts before uploading the top-level `OrkWorks-*` artifacts to the draft
+GitHub Release.
+
 Normal pull requests use `.github/workflows/pr-ci.yml`. That workflow routes by changed surface:
 
 - `apps/desktop/**` runs desktop type-check, tests, and build
