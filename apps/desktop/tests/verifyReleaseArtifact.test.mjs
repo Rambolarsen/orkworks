@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import {
   createReleaseArtifactExpectation,
@@ -46,7 +46,7 @@ test("Windows expectation points at the NSIS installer and exe sidecar", () => {
   assert.equal(expectation.appDir, join("/release", "win-unpacked"));
   assert.equal(expectation.sidecarPath, join("/release", "win-unpacked", "resources", "orkworksd.exe"));
   assert.equal(expectation.scriptsDir, join("/release", "win-unpacked", "resources", "scripts"));
-  assert.deepEqual(expectation.scriptPaths.map((path) => path.split("/").pop()), [
+  assert.deepEqual(expectation.scriptPaths.map((path) => basename(path)), [
     "report-harness-event.sh",
     "report-harness-event.ps1",
     "report-opencode-session.sh",
@@ -73,7 +73,7 @@ test("missing packaged resources identify the failing path", () => {
 
   assert.throws(
     () => verifyReleaseArtifact(expectation, fakeFs),
-    new RegExp(expectation.appDir),
+    (error) => error instanceof Error && error.message.includes(expectation.appDir),
   );
 });
 
@@ -94,7 +94,7 @@ test("missing hook scripts identify the exact packaged file", () => {
 
   assert.throws(
     () => verifyReleaseArtifact(expectation, fakeFs),
-    new RegExp(expectation.scriptPaths[1]),
+    (error) => error instanceof Error && error.message.includes(expectation.scriptPaths[1]),
   );
 });
 

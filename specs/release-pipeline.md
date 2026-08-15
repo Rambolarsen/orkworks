@@ -158,8 +158,9 @@ electron-builder's per-platform `extraResources` blocks (see config above) copy 
 `apps/desktop/scripts/verifyReleaseArtifact.mjs` validates the generated
 installer and unpacked app before CI uploads anything. It checks the expected
 platform-specific sidecar name and the `resources/scripts/` directory used by
-installed harness integrations. This catches incomplete packages while the
-build job still has the unpacked application available for inspection.
+installed harness integrations, including each expected reporter script. This
+catches incomplete packages while the build job still has the unpacked
+application available for inspection.
 
 ## Version Management
 
