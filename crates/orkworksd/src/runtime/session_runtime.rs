@@ -42,7 +42,7 @@ struct StartupEndingCheckGate {
 }
 
 #[cfg(test)]
-static STARTUP_ENDING_CHECK_GATE: Mutex<Option<StartupEndingCheckGate>> = Mutex::new(None);
+static STARTUP_ENDING_CHECK_GATE: Mutex<Vec<StartupEndingCheckGate>> = Mutex::new(Vec::new());
 
 fn next_runtime_generation() -> RuntimeGeneration {
     NEXT_RUNTIME_GENERATION
@@ -61,22 +61,25 @@ pub(crate) fn pause_startup_after_ending_check(
 ) {
     let (checked, checked_rx) = tokio::sync::oneshot::channel();
     let (resume_tx, resume) = tokio::sync::oneshot::channel();
-    *STARTUP_ENDING_CHECK_GATE.lock().unwrap() = Some(StartupEndingCheckGate {
-        id,
-        checked,
-        resume,
-    });
+    STARTUP_ENDING_CHECK_GATE
+        .lock()
+        .unwrap()
+        .push(StartupEndingCheckGate {
+            id,
+            checked,
+            resume,
+        });
     (checked_rx, resume_tx)
 }
 
 #[cfg(test)]
 async fn wait_at_startup_ending_check(id: &str) {
     let gate = {
-        let mut slot = STARTUP_ENDING_CHECK_GATE.lock().unwrap();
-        slot.as_ref()
-            .is_some_and(|gate| gate.id == id)
-            .then(|| slot.take())
-            .flatten()
+        let mut gates = STARTUP_ENDING_CHECK_GATE.lock().unwrap();
+        gates
+            .iter()
+            .position(|gate| gate.id == id)
+            .map(|index| gates.remove(index))
     };
     if let Some(gate) = gate {
         let _ = gate.checked.send(());
