@@ -16,6 +16,7 @@
     "build:rust": "cargo build --manifest-path ../../crates/orkworksd/Cargo.toml",
     "build:rust:release": "cargo build --release --manifest-path ../../crates/orkworksd/Cargo.toml",
     "package:release": "node scripts/package-release.mjs",
+    "verify:release": "node scripts/verifyReleaseArtifact.mjs",
     "dist": "tsc -p tsconfig.node.json && vite build && node scripts/package-release.mjs",
     "preview": "vite preview"
   },

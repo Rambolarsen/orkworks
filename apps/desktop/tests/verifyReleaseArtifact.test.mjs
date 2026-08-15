@@ -1,9 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import {
   createReleaseArtifactExpectation,
+  runCli,
   verifyReleaseArtifact,
 } from "../scripts/verifyReleaseArtifact.mjs";
 
@@ -63,4 +65,34 @@ test("missing packaged resources identify the failing path", () => {
     () => verifyReleaseArtifact(expectation, fakeFs),
     new RegExp(expectation.appDir),
   );
+});
+
+test("runCli verifies a release and reports the installer", () => {
+  const expectation = createReleaseArtifactExpectation("darwin", "arm64", "0.1.0", "/release");
+  const output = [];
+  const fakeFs = {
+    statSync(path) {
+      if (path === expectation.installerPath) return { isFile: () => true, isDirectory: () => false, size: 1 };
+      if (path === expectation.sidecarPath) return { isFile: () => true, isDirectory: () => false, size: 1 };
+      return { isFile: () => false, isDirectory: () => true, size: 0 };
+    },
+  };
+
+  const result = runCli({
+    platform: "darwin",
+    arch: "arm64",
+    version: "0.1.0",
+    releaseDir: "/release",
+    fsModule: fakeFs,
+    output: (message) => output.push(message),
+  });
+
+  assert.deepEqual(result, expectation);
+  assert.equal(output.length, 1);
+  assert.match(output[0], /OrkWorks-0\.1\.0-mac-arm64\.dmg/);
+});
+
+test("desktop package exposes the release verification command", () => {
+  const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+  assert.equal(packageJson.scripts["verify:release"], "node scripts/verifyReleaseArtifact.mjs");
 });
