@@ -218,6 +218,7 @@ impl ReplayBuffer {
 #[derive(Debug)]
 pub(crate) struct SessionRuntime {
     run_generation: RuntimeGeneration,
+    startup_spawned: bool,
     pub(crate) control_tx: mpsc::Sender<RuntimeCommand>,
     pub(crate) output_tx: broadcast::Sender<RuntimeEvent>,
     pub(crate) replay: ReplayBuffer,
@@ -243,6 +244,7 @@ impl SessionRuntime {
         (
             Self {
                 run_generation: next_runtime_generation(),
+                startup_spawned: false,
                 control_tx,
                 output_tx,
                 replay: ReplayBuffer::new(DEFAULT_REPLAY_CAPACITY),
@@ -270,6 +272,7 @@ impl SessionRuntime {
         let (output_tx, _) = broadcast::channel(256);
         Self {
             run_generation: next_runtime_generation(),
+            startup_spawned: false,
             control_tx,
             output_tx,
             replay: ReplayBuffer::new(DEFAULT_REPLAY_CAPACITY),
@@ -296,6 +299,14 @@ impl SessionRuntime {
 
     pub(crate) fn run_generation(&self) -> RuntimeGeneration {
         self.run_generation
+    }
+
+    pub(crate) fn mark_startup_spawned(&mut self) {
+        self.startup_spawned = true;
+    }
+
+    pub(crate) fn startup_spawned(&self) -> bool {
+        self.startup_spawned
     }
 
     #[cfg(test)]
@@ -724,6 +735,19 @@ pub(crate) async fn start_session_runtime(
     }
 
     let mut child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
+    let owns_spawned_generation = state
+        .sessions
+        .lock()
+        .unwrap()
+        .get_mut(&id)
+        .filter(|handle| handle.runtime.run_generation() == run_generation)
+        .map(|handle| handle.runtime.mark_startup_spawned())
+        .is_some();
+    if !owns_spawned_generation {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err("session runtime was replaced during startup".into());
+    }
     // Captured before `child` moves into the wait task below; used to probe
     // the process's live cwd (issue #241) rather than trusting the frozen
     // launch-time cwd forever.
@@ -1149,6 +1173,13 @@ pub(crate) async fn start_session_runtime(
             }
         }
     });
+
+    // Give request-cancellation regressions a deterministic post-spawn window
+    // after the child and driver are established but before the caller commits
+    // its admission guard. This is test-only; production startup remains
+    // uninterrupted here.
+    #[cfg(test)]
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
     Ok(())
 }

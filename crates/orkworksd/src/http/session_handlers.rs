@@ -431,6 +431,7 @@ impl Drop for ResumeAdmission {
             if !sessions.get(&self.id).is_some_and(|handle| {
                 handle.runtime.run_generation() == self.generation
                     && handle.resume_in_progress
+                    && !handle.runtime.startup_spawned()
             }) {
                 None
             } else {
@@ -2561,6 +2562,116 @@ mod tests {
         })
         .await
         .expect("terminal finalization clears the runtime claim");
+    }
+
+    #[tokio::test]
+    async fn cancelled_resume_after_spawn_keeps_live_runtime() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let (program, args) = if cfg!(windows) {
+            (
+                "cmd.exe".to_string(),
+                vec!["/C".to_string(), "timeout /T 30 /NOBREAK".to_string()],
+            )
+        } else {
+            ("sh".to_string(), vec!["-c".to_string(), "exec sleep 30".to_string()])
+        };
+        state
+            .harness_store
+            .mutate(&state.harness_catalog, |document| {
+                let override_patch = document.overrides.entry("opencode".into()).or_default();
+                override_patch.resume = Some(Some(harness::definition::ResumePatch {
+                    latest_cwd: Some(Some(harness::CommandTemplate {
+                        command: program,
+                        args,
+                    })),
+                    ..Default::default()
+                }));
+                Ok(())
+            })
+            .unwrap();
+
+        let session_id = "resume-cancelled-after-spawn".to_string();
+        let resume = harness::ResumeMemory {
+            state: harness::ResumeState::Available,
+            preferred_strategy: harness::ResumeStrategy::LatestCwd,
+            harness_session_id: None,
+            latest_fallback: true,
+            last_seen_at: Some("before".into()),
+        };
+        let mut metadata = test_session_metadata(
+            session_id.clone(),
+            "Cancelled Resume",
+            dir.path().display().to_string(),
+            "ended",
+            "before",
+            "before",
+        );
+        metadata.harness = "opencode".into();
+        metadata.lifecycle_phase = "ended".into();
+        metadata.lifecycle = "dead".into();
+        metadata.resume = Some(resume);
+        {
+            let ws_guard = state.workspace.lock().unwrap();
+            let ws = ws_guard.as_ref().unwrap();
+            ws.metadata.write_session(&metadata);
+            ws.metadata.write_terminal_size(&session_id, 120, 40);
+        }
+
+        let task = tokio::spawn(resume_session(State(state.clone()), Path(session_id.clone())));
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                if state.session_pids.lock().unwrap().contains_key(&session_id) {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("resumed child reaches the PTY spawn boundary");
+
+        task.abort();
+        assert!(matches!(task.await, Err(error) if error.is_cancelled()));
+
+        let replacement_generation = state.sessions.lock().unwrap()[&session_id]
+            .runtime
+            .run_generation();
+        assert!(state.sessions.lock().unwrap()[&session_id].resume_in_progress);
+        let ws_guard = state.workspace.lock().unwrap();
+        let ws = ws_guard.as_ref().unwrap();
+        assert_ne!(ws.metadata.read_session(&session_id).unwrap().status, "ended");
+        assert_eq!(ws.metadata.read_terminal_size(&session_id), None);
+        drop(ws_guard);
+
+        crate::runtime::session_runtime::send_runtime_command(
+            &state,
+            &session_id,
+            crate::runtime::session_runtime::RuntimeCommand::Kill,
+        )
+        .await
+        .unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                if state
+                    .sessions
+                    .lock()
+                    .unwrap()
+                    .get(&session_id)
+                    .is_some_and(|handle| !handle.resume_in_progress)
+                {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("terminal finalization releases the replacement claim");
+        assert_eq!(
+            state.sessions.lock().unwrap()[&session_id]
+                .runtime
+                .run_generation(),
+            replacement_generation
+        );
     }
 
     #[tokio::test]
