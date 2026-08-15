@@ -26,15 +26,16 @@
 - Create: `apps/desktop/tests/verifyReleaseArtifact.test.mjs`
 
 **Interfaces:**
-- Produces `createReleaseArtifactExpectation(platform, arch, version, releaseDir)` returning `{ installerPath, appDir, sidecarPath, scriptsDir }`.
+- Produces `createReleaseArtifactExpectation(platform, arch, version, releaseDir)` returning `{ installerPath, appDir, sidecarPath, scriptsDir, scriptPaths }`.
 - Produces `verifyReleaseArtifact(expectation, fsModule)` returning `void` or throwing an actionable `Error`.
 
 - [ ] **Step 1: Write the failing tests**
 
 Add tests that assert the macOS expectation names the DMG, app bundle sidecar,
-and scripts directory, that the Windows expectation uses the NSIS `.exe` and
-`.exe` sidecar, and that unsupported platform/architecture combinations throw.
-Also test that a missing required path produces an error naming that path.
+and all three required hook files; that the Windows expectation uses the NSIS
+`.exe`, `.exe` sidecar, and the same hook files; and that unsupported
+platform/architecture combinations throw. Also test that a missing required
+path produces an error naming that path.
 
 ```js
 import test from "node:test";
@@ -86,10 +87,11 @@ Expected: FAIL because `scripts/verifyReleaseArtifact.mjs` does not exist yet.
 - [ ] **Step 3: Implement the minimal expectation and verification functions**
 
 Use `resolve` for all generated paths. Return the exact platform-specific
-paths above. Validate the installer with `statSync` and require a positive
-file size; validate `appDir`, `sidecarPath`, and `scriptsDir` as existing paths
-with `statSync`. Wrap filesystem failures in an error that names the failed
-path and says the packaged artifact is incomplete. Export the two functions.
+paths above, including the three hook file paths. Validate the installer,
+sidecar, and each hook file with `statSync` and require positive file sizes;
+validate `appDir` and `scriptsDir` as directories. Wrap filesystem failures in
+an error that names the failed path and says the packaged artifact is
+incomplete. Export the two functions.
 
 - [ ] **Step 4: Run the focused tests and verify they pass**
 
@@ -179,7 +181,10 @@ git commit -m "feat: verify packaged release resources"
 
 - [ ] **Step 1: Add the CI verification step and narrow artifact upload**
 
-Insert a `Verify packaged artifact` step after `pnpm package:release` with
+Insert a `Verify runner architecture` bash step before packaging. Compare
+`node -p "process.arch"` to `${{ matrix.arch }}` and exit non-zero with both
+values if they differ. Then insert a `Verify packaged artifact` step after
+`pnpm package:release` with
 `working-directory: apps/desktop` and `run: pnpm verify:release`. Change the
 upload path from `apps/desktop/release/*` to
 `apps/desktop/release/OrkWorks-*`.

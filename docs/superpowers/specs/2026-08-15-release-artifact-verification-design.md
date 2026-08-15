@@ -18,8 +18,9 @@ clear handoff of installable files to the draft GitHub Release.
 Add a small cross-platform Node verifier in `apps/desktop/scripts/` with a
 pure expectation function and a CLI entry point. The verifier will check the
 current platform's non-empty installer, unpacked application directory, Rust
-sidecar, and hook-script resource directory. The existing release workflow
-will invoke it after `pnpm package:release` and upload only top-level generated
+sidecar, and every expected hook-script resource. The existing release
+workflow will assert the runner architecture before packaging, invoke the
+verifier after `pnpm package:release`, and upload only top-level generated
 release files, preventing unpacked directories from becoming ambiguous release
 inputs.
 
@@ -34,14 +35,16 @@ the package version, host platform, host architecture, and `release/` output
 directory. It fails with a platform-specific error if any required path is
 missing or an installer is empty.
 
-Expected packaged paths are:
+Expected packaged paths and hook files are:
 
 - macOS: `OrkWorks-${version}-mac-${arch}.dmg`,
   `mac-${arch}/OrkWorks.app/Contents/Resources/orkworksd`, and
-  `mac-${arch}/OrkWorks.app/Contents/Resources/scripts/`.
+  `mac-${arch}/OrkWorks.app/Contents/Resources/scripts/` containing
+  `report-harness-event.sh`, `report-harness-event.ps1`, and
+  `report-opencode-session.sh`.
 - Windows: `OrkWorks-${version}-win-${arch}.exe`,
   `win-unpacked/resources/orkworksd.exe`, and
-  `win-unpacked/resources/scripts/`.
+  `win-unpacked/resources/scripts/` containing the same three hook files.
 
 The pure expectation function is unit-tested for both supported release
 targets. The CLI's filesystem checks are exercised by the real packaging

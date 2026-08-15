@@ -31,6 +31,11 @@ test("macOS expectation points at the DMG and packaged resources", () => {
       "Resources",
       "scripts",
     ),
+    scriptPaths: [
+      join("/release", "mac-arm64", "OrkWorks.app", "Contents", "Resources", "scripts", "report-harness-event.sh"),
+      join("/release", "mac-arm64", "OrkWorks.app", "Contents", "Resources", "scripts", "report-harness-event.ps1"),
+      join("/release", "mac-arm64", "OrkWorks.app", "Contents", "Resources", "scripts", "report-opencode-session.sh"),
+    ],
   });
 });
 
@@ -41,6 +46,11 @@ test("Windows expectation points at the NSIS installer and exe sidecar", () => {
   assert.equal(expectation.appDir, join("/release", "win-unpacked"));
   assert.equal(expectation.sidecarPath, join("/release", "win-unpacked", "resources", "orkworksd.exe"));
   assert.equal(expectation.scriptsDir, join("/release", "win-unpacked", "resources", "scripts"));
+  assert.deepEqual(expectation.scriptPaths.map((path) => path.split("/").pop()), [
+    "report-harness-event.sh",
+    "report-harness-event.ps1",
+    "report-opencode-session.sh",
+  ]);
 });
 
 test("unsupported release targets are rejected", () => {
@@ -67,6 +77,27 @@ test("missing packaged resources identify the failing path", () => {
   );
 });
 
+test("missing hook scripts identify the exact packaged file", () => {
+  const expectation = createReleaseArtifactExpectation("darwin", "arm64", "0.1.0", "/release");
+  const fakeFs = {
+    statSync(path) {
+      if (path === expectation.installerPath || path === expectation.sidecarPath) {
+        return { isFile: () => true, isDirectory: () => false, size: 1 };
+      }
+      if (path === expectation.appDir || path === expectation.scriptsDir) {
+        return { isFile: () => false, isDirectory: () => true, size: 0 };
+      }
+      if (path === expectation.scriptPaths[1]) throw new Error("ENOENT");
+      return { isFile: () => true, isDirectory: () => false, size: 1 };
+    },
+  };
+
+  assert.throws(
+    () => verifyReleaseArtifact(expectation, fakeFs),
+    new RegExp(expectation.scriptPaths[1]),
+  );
+});
+
 test("runCli verifies a release and reports the installer", () => {
   const expectation = createReleaseArtifactExpectation("darwin", "arm64", "0.1.0", "/release");
   const output = [];
@@ -74,6 +105,7 @@ test("runCli verifies a release and reports the installer", () => {
     statSync(path) {
       if (path === expectation.installerPath) return { isFile: () => true, isDirectory: () => false, size: 1 };
       if (path === expectation.sidecarPath) return { isFile: () => true, isDirectory: () => false, size: 1 };
+      if (expectation.scriptPaths.includes(path)) return { isFile: () => true, isDirectory: () => false, size: 1 };
       return { isFile: () => false, isDirectory: () => true, size: 0 };
     },
   };

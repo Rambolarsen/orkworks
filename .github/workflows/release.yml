@@ -56,6 +56,15 @@ jobs:
         working-directory: apps/desktop
         run: pnpm build
 
+      - name: Verify runner architecture
+        shell: bash
+        run: |
+          ACTUAL_ARCH="$(node -p "process.arch")"
+          if [ "$ACTUAL_ARCH" != "${{ matrix.arch }}" ]; then
+            echo "Runner architecture $ACTUAL_ARCH does not match release target ${{ matrix.arch }}"
+            exit 1
+          fi
+
       - name: Package (electron-builder)
         working-directory: apps/desktop
         run: pnpm package:release

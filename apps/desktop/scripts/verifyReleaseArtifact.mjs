@@ -2,6 +2,12 @@ import { readFileSync, statSync as defaultStatSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
+const HOOK_SCRIPT_NAMES = [
+  "report-harness-event.sh",
+  "report-harness-event.ps1",
+  "report-opencode-session.sh",
+];
+
 export function createReleaseArtifactExpectation(platform, arch, version, releaseDir) {
   if (platform === "darwin" && (arch === "arm64" || arch === "x64")) {
     const appDir = join(releaseDir, `mac-${arch}`, "OrkWorks.app");
@@ -11,6 +17,7 @@ export function createReleaseArtifactExpectation(platform, arch, version, releas
       appDir,
       sidecarPath: join(resourcesDir, "orkworksd"),
       scriptsDir: join(resourcesDir, "scripts"),
+      scriptPaths: HOOK_SCRIPT_NAMES.map((name) => join(resourcesDir, "scripts", name)),
     };
   }
 
@@ -22,6 +29,7 @@ export function createReleaseArtifactExpectation(platform, arch, version, releas
       appDir,
       sidecarPath: join(resourcesDir, "orkworksd.exe"),
       scriptsDir: join(resourcesDir, "scripts"),
+      scriptPaths: HOOK_SCRIPT_NAMES.map((name) => join(resourcesDir, "scripts", name)),
     };
   }
 
@@ -47,6 +55,9 @@ export function verifyReleaseArtifact(expectation, fsModule = { statSync: defaul
   assertPath(fsModule, expectation.appDir, "unpacked app", "directory");
   assertPath(fsModule, expectation.sidecarPath, "Rust sidecar", "file");
   assertPath(fsModule, expectation.scriptsDir, "hook scripts", "directory");
+  for (const scriptPath of expectation.scriptPaths) {
+    assertPath(fsModule, scriptPath, "hook script", "file");
+  }
 }
 
 export function runCli({

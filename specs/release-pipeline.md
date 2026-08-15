@@ -104,9 +104,10 @@ Triggered on tag push matching `v*`. Uses a matrix strategy for OS/arch jobs. Ea
    - builds the sidecar for that exact target
    - stages the built binary into `crates/orkworksd/target/release/`
    - runs `electron-builder` with the matching CLI arch flag
-8. Runs `pnpm verify:release`, which fails unless the installer, unpacked app,
-   Rust sidecar, and packaged hook-script resources all exist.
-9. Uploads top-level `OrkWorks-*` artifacts via `actions/upload-artifact`.
+8. Verifies `process.arch` matches the matrix architecture before packaging.
+9. Runs `pnpm verify:release`, which fails unless the installer, unpacked app,
+   Rust sidecar, and each packaged hook-script file all exist.
+10. Uploads top-level `OrkWorks-*` artifacts via `actions/upload-artifact`.
 
 After all matrix jobs complete, a `publish` job downloads all artifacts and creates/updates a draft GitHub Release via `softprops/action-gh-release@v2`. Requires `permissions: { contents: write }` at the workflow level.
 
