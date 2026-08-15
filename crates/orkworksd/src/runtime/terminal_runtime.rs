@@ -458,33 +458,36 @@ fn record_terminal_input_impl(
 
     // Seed-once: the label is a stable topic (ADR 0029), not a running log of
     // whatever was last typed. Only the still-placeholder label gets replaced
-    // here; once seeded, later lines leave it alone.
-    let mut queue_topic_inference = false;
+    // here; once seeded, later lines leave it alone. Keep the epoch read guard
+    // across the complete bookkeeping transaction, including queueing the
+    // refinement, so a reset cannot clear the queue and have this old input
+    // reinserted under the new epoch.
     if !is_sensitive {
-        let ws_guard = state.workspace.lock().unwrap();
-        if let Some(ref ws) = *ws_guard {
-            if let Some(mut meta) = ws.metadata.read_session(id) {
-                if label_worthy && is_placeholder_label(&meta.label, id) {
-                    meta.label = label_line.clone();
-                    queue_topic_inference = true;
+        with_label_epoch_read(state, id, |epoch| {
+            let mut queue_topic_inference = false;
+            let ws_guard = state.workspace.lock().unwrap();
+            if let Some(ref ws) = *ws_guard {
+                if let Some(mut meta) = ws.metadata.read_session(id) {
+                    if label_worthy && is_placeholder_label(&meta.label, id) {
+                        meta.label = label_line.clone();
+                        queue_topic_inference = true;
+                    }
+                    meta.last_user_input = Some(label_line.clone());
+                    ws.metadata.write_session(&meta);
                 }
-                meta.last_user_input = Some(label_line.clone());
-                ws.metadata.write_session(&meta);
             }
-        }
-    }
 
-    // Reuses the same decision as the metadata write above (rather than
-    // re-checking the in-memory label independently) so the two copies of
-    // the label can never disagree about whether this line seeded it.
-    if queue_topic_inference {
-        if let Some(handle) = state.sessions.lock().unwrap().get_mut(id) {
-            handle.info.label = label_line.clone();
-        }
-    }
-
-    if queue_topic_inference {
-        queue_label_hint(state, id, line);
+            // Reuses the same decision as the metadata write above (rather
+            // than re-checking the in-memory label independently) so the two
+            // copies of the label can never disagree about whether this line
+            // seeded it.
+            if queue_topic_inference {
+                if let Some(handle) = state.sessions.lock().unwrap().get_mut(id) {
+                    handle.info.label = label_line.clone();
+                }
+                queue_label_hint_at_epoch(state, id, line, epoch);
+            }
+        });
     }
 
     Some(())
@@ -575,9 +578,17 @@ fn reset_label_for_declared_command(state: &Arc<AppState>, id: &str, line: &str)
 /// session's current label epoch. The epoch read guard spans both the capture
 /// and the insert so a reset cannot land in between and leave work from the
 /// previous conversation queued under the new epoch.
-pub(crate) fn queue_label_hint(state: &Arc<AppState>, id: &str, line: String) {
+fn with_label_epoch_read<T>(
+    state: &Arc<AppState>,
+    id: &str,
+    f: impl FnOnce(u64) -> T,
+) -> T {
     let epochs = state.peon.label_epochs.read().unwrap();
     let epoch = epochs.get(id).copied().unwrap_or(0);
+    f(epoch)
+}
+
+fn queue_label_hint_at_epoch(state: &Arc<AppState>, id: &str, line: String, epoch: u64) {
     state
         .peon
         .label_hint
@@ -591,6 +602,13 @@ pub(crate) fn queue_label_hint(state: &Arc<AppState>, id: &str, line: String) {
         .unwrap()
         .insert(id.to_string());
 }
+
+pub(crate) fn queue_label_hint(state: &Arc<AppState>, id: &str, line: String) {
+    with_label_epoch_read(state, id, |epoch| {
+        queue_label_hint_at_epoch(state, id, line, epoch)
+    });
+}
+
 /// Caller contract, not enforced here: only call this for a non-empty frame
 /// whose delivery to the PTY was actually accepted. `line_completed` is
 /// whether this frame finished a submitted line (`\r`/`\n` seen outside
@@ -2047,6 +2065,51 @@ mod tests {
             .write()
             .unwrap()
             .insert(session_id.to_string(), epoch);
+    }
+
+    #[test]
+    fn label_bookkeeping_epoch_serializes_hint_seeding_with_reset() {
+        let id = "label-reset-race";
+        let (state, _dir) = prompted_session_state(id);
+        set_harness(&state, id, "claude-code");
+        set_label(&state, id, "Old conversation title");
+
+        let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let worker_state = state.clone();
+        let worker_id = id.to_string();
+        let worker = std::thread::spawn(move || {
+            with_label_epoch_read(&worker_state, &worker_id, |epoch| {
+                queue_label_hint_at_epoch(
+                    &worker_state,
+                    &worker_id,
+                    "old topic".into(),
+                    epoch,
+                );
+                entered_tx.send(()).unwrap();
+                release_rx.recv().unwrap();
+            });
+        });
+        entered_rx.recv().unwrap();
+
+        let reset_state = state.clone();
+        let reset_id = id.to_string();
+        let (reset_done_tx, reset_done_rx) = std::sync::mpsc::channel();
+        let reset = std::thread::spawn(move || {
+            let reset = reset_label_for_declared_command(&reset_state, &reset_id, "/new");
+            reset_done_tx.send(reset).unwrap();
+        });
+
+        assert!(reset_done_rx
+            .recv_timeout(std::time::Duration::from_millis(500))
+            .is_err());
+        release_tx.send(()).unwrap();
+        worker.join().unwrap();
+        assert!(reset_done_rx.recv().unwrap());
+        reset.join().unwrap();
+
+        assert!(state.peon.label_hint.read().unwrap().get(id).is_none());
+        assert_eq!(label_epoch(&state, id), 1);
     }
 
     fn live_label(state: &Arc<crate::AppState>, session_id: &str) -> String {
