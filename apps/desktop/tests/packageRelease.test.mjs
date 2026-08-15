@@ -1,10 +1,23 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 import {
   createReleaseBuildPlan,
   electronBuilderInvocation,
 } from "../scripts/packageReleaseConfig.mjs";
+
+test("desktop package declares the GitHub repository for release metadata", () => {
+  const packageJson = JSON.parse(
+    readFileSync(resolve(import.meta.dirname, "..", "package.json"), "utf8"),
+  );
+
+  assert.deepEqual(packageJson.repository, {
+    type: "git",
+    url: "https://github.com/Rambolarsen/orkworks.git",
+  });
+});
 
 test("release packaging invokes electron-builder's local CLI through Node", () => {
   assert.deepEqual(

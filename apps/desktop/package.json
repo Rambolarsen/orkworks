@@ -3,6 +3,10 @@
   "productName": "OrkWorks",
   "version": "0.1.0",
   "description": "OrkWorks — Mission Control for AI Agents",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Rambolarsen/orkworks.git"
+  },
   "main": "dist-electron/main.js",
   "packageManager": "pnpm@11.9.0",
   "scripts": {
