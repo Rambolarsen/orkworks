@@ -2062,6 +2062,7 @@ pub(crate) async fn forget_session(
 
     state.sessions.lock().unwrap().remove(&id);
     crate::runtime::session_runtime::clear_ended_session_tracking(&state, &id);
+    crate::runtime::session_runtime::clear_forgotten_session_tracking(&state, &id);
 
     axum::http::StatusCode::OK.into_response()
 }
@@ -5296,6 +5297,12 @@ mod tests {
                 vec!["hello".to_string()]
             );
         }
+        state
+            .peon
+            .label_epochs
+            .write()
+            .unwrap()
+            .insert(session_id.clone(), 2);
 
         let response = forget_session(State(state.clone()), Path(session_id.clone()))
             .await
@@ -5308,6 +5315,12 @@ mod tests {
             store.read_terminal_output(&session_id, 10).is_empty(),
             "forgetting a session must delete its terminal output file, not just its metadata"
         );
+        assert!(!state
+            .peon
+            .label_epochs
+            .read()
+            .unwrap()
+            .contains_key(&session_id));
     }
 
     #[tokio::test]

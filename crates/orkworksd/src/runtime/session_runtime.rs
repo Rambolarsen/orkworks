@@ -677,6 +677,13 @@ pub(crate) fn clear_ended_session_tracking(state: &AppState, id: &str) {
     state.session_pids.lock().unwrap().remove(id);
 }
 
+/// Clears state that is only retained while a session remains resumable. This
+/// is separate from PTY-exit cleanup because a killed session can still be
+/// resumed, while forgotten/retention-deleted sessions cannot.
+pub(crate) fn clear_forgotten_session_tracking(state: &AppState, id: &str) {
+    state.peon.label_epochs.write().unwrap().remove(id);
+}
+
 /// Applies an exit callback only while its runtime generation still owns the
 /// session ID. Marking the handle as ending first prevents resume admission
 /// from replacing it while the remaining runtime-owned side tables are
@@ -1334,6 +1341,36 @@ mod tests {
         );
 
         state
+    }
+
+    #[test]
+    fn forgotten_session_cleanup_removes_label_epoch_but_ended_cleanup_preserves_it() {
+        let state = test_state_with_runtime_session("epoch-cleanup");
+        state
+            .peon
+            .label_epochs
+            .write()
+            .unwrap()
+            .insert("epoch-cleanup".into(), 3);
+
+        clear_ended_session_tracking(&state, "epoch-cleanup");
+        assert_eq!(
+            state
+                .peon
+                .label_epochs
+                .read()
+                .unwrap()
+                .get("epoch-cleanup"),
+            Some(&3)
+        );
+
+        clear_forgotten_session_tracking(&state, "epoch-cleanup");
+        assert!(!state
+            .peon
+            .label_epochs
+            .read()
+            .unwrap()
+            .contains_key("epoch-cleanup"));
     }
 
     #[test]
