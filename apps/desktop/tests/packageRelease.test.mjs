@@ -1,7 +1,20 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { createReleaseBuildPlan } from "../scripts/packageReleaseConfig.mjs";
+import {
+  createReleaseBuildPlan,
+  electronBuilderInvocation,
+} from "../scripts/packageReleaseConfig.mjs";
+
+test("release packaging invokes the local electron-builder through pnpm", () => {
+  assert.deepEqual(
+    electronBuilderInvocation({ builderTarget: "win", electronArch: "x64" }),
+    {
+      command: "pnpm",
+      args: ["exec", "electron-builder", "--win", "--x64", "--publish", "never"],
+    },
+  );
+});
 
 test("macOS x64 release plan uses the x64 Rust target", () => {
   assert.deepEqual(createReleaseBuildPlan("darwin", "x64"), [

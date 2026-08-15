@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { copyFileSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
-import { createReleaseBuildPlan } from "./packageReleaseConfig.mjs";
+import { createReleaseBuildPlan, electronBuilderInvocation } from "./packageReleaseConfig.mjs";
 
 const appRoot = resolve(import.meta.dirname, "..");
 const repoRoot = resolve(appRoot, "..", "..");
@@ -23,5 +23,6 @@ function stageSidecarBinary(step) {
 for (const step of createReleaseBuildPlan(process.platform, process.arch)) {
   run("cargo", ["build", "--release", "--manifest-path", sidecarManifestPath, "--target", step.rustTarget], repoRoot);
   stageSidecarBinary(step);
-  run("npx", ["electron-builder", `--${step.builderTarget}`, `--${step.electronArch}`, "--publish", "never"]);
+  const { command, args } = electronBuilderInvocation(step);
+  run(command, args);
 }
