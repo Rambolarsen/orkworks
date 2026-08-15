@@ -426,28 +426,30 @@ impl Drop for ResumeAdmission {
             return;
         }
 
-        let restored = {
+        let restored_generation = {
             let mut sessions = self.state.sessions.lock().unwrap();
             if !sessions.get(&self.id).is_some_and(|handle| {
                 handle.runtime.run_generation() == self.generation
                     && handle.resume_in_progress
             }) {
-                false
+                None
             } else {
                 match self.previous_handle.take() {
                     Some(previous) => {
+                        let generation = previous.runtime.run_generation();
                         sessions.insert(self.id.clone(), previous);
+                        Some(Some(generation))
                     }
                     None => {
                         sessions.remove(&self.id);
+                        Some(None)
                     }
                 }
-                true
             }
         };
-        if !restored {
+        let Some(restored_generation) = restored_generation else {
             return;
-        }
+        };
 
         let Some(rollback) = self.rollback.take() else {
             return;
@@ -459,6 +461,20 @@ impl Drop for ResumeAdmission {
         else {
             return;
         };
+        // Another resume may claim the restored handle while cancellation is
+        // waiting for the workspace lock. Recheck the post-rollback registry
+        // state and keep the sessions lock through both persisted restorations
+        // so a newer generation can never be overwritten after this check.
+        let sessions = self.state.sessions.lock().unwrap();
+        let still_owns_persisted_rollback = match restored_generation {
+            Some(generation) => sessions
+                .get(&self.id)
+                .is_some_and(|handle| handle.runtime.run_generation() == generation),
+            None => !sessions.contains_key(&self.id),
+        };
+        if !still_owns_persisted_rollback {
+            return;
+        }
         ws.metadata.write_session(&rollback.metadata);
         match rollback.terminal_size {
             Some((cols, rows)) => ws.metadata.write_terminal_size(&self.id, cols, rows),
@@ -2873,6 +2889,111 @@ mod tests {
         assert_eq!(restored_metadata.status, "ended");
         assert_eq!(restored_metadata.lifecycle_phase, "ended");
         assert_eq!(ws.metadata.read_terminal_size(session_id), Some((120, 40)));
+    }
+
+    #[test]
+    fn cancelled_resume_does_not_overwrite_newer_generation_metadata_between_rollback_stages() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let session_id = "resume-cancelled-interleaving";
+        let mut old_handle = attention_test_handle(session_id, dir.path());
+        old_handle.info.status = "ended".into();
+        old_handle.info.lifecycle_phase = "ended".into();
+        old_handle.info.lifecycle = "dead".into();
+        let old_generation = old_handle.runtime.run_generation();
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .insert(session_id.to_string(), old_handle);
+
+        let mut old_metadata = test_session_metadata(
+            session_id,
+            "Prior Runtime",
+            dir.path().display().to_string(),
+            "ended",
+            "before",
+            "before",
+        );
+        old_metadata.lifecycle_phase = "ended".into();
+        old_metadata.lifecycle = "dead".into();
+        {
+            let ws_guard = state.workspace.lock().unwrap();
+            let ws = ws_guard.as_ref().unwrap();
+            ws.metadata.write_session(&old_metadata);
+            ws.metadata.write_terminal_size(session_id, 120, 40);
+        }
+
+        let replacement = attention_test_handle(session_id, dir.path());
+        let mut cancelled_admission =
+            try_install_claimed_resume_handle(&state, session_id, replacement, true).unwrap();
+        cancelled_admission.arm_rollback(
+            dir.path().to_path_buf(),
+            old_metadata.clone(),
+            Some((120, 40)),
+        );
+        {
+            let ws_guard = state.workspace.lock().unwrap();
+            let ws = ws_guard.as_ref().unwrap();
+            let mut creating = old_metadata.clone();
+            creating.status = "creating".into();
+            creating.lifecycle_phase = "creating".into();
+            creating.lifecycle = "creating".into();
+            ws.metadata.write_session(&creating);
+            ws.metadata.clear_terminal_size(session_id);
+        }
+
+        // Hold the workspace lock so cancellation must pause after restoring
+        // the prior handle and before attempting its persisted rollback.
+        let ws_guard = state.workspace.lock().unwrap();
+        let drop_thread = std::thread::spawn(move || drop(cancelled_admission));
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            let restored = state
+                .sessions
+                .lock()
+                .unwrap()
+                .get(session_id)
+                .is_some_and(|handle| handle.runtime.run_generation() == old_generation);
+            if restored {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "cancelled admission did not restore its prior handle"
+            );
+            std::thread::yield_now();
+        }
+
+        let newer_handle = attention_test_handle(session_id, dir.path());
+        let newer_admission =
+            try_install_claimed_resume_handle(&state, session_id, newer_handle, true).unwrap();
+        let newer_generation = newer_admission.generation();
+        let ws = ws_guard.as_ref().unwrap();
+        let mut newer_metadata = old_metadata.clone();
+        newer_metadata.label = "Newer Runtime".into();
+        newer_metadata.status = "running".into();
+        newer_metadata.lifecycle_phase = "active".into();
+        newer_metadata.lifecycle = "alive".into();
+        ws.metadata.write_session(&newer_metadata);
+        ws.metadata.write_terminal_size(session_id, 150, 50);
+        newer_admission.commit();
+        drop(ws_guard);
+        drop_thread.join().unwrap();
+
+        let sessions = state.sessions.lock().unwrap();
+        assert_eq!(
+            sessions[session_id].runtime.run_generation(),
+            newer_generation
+        );
+        drop(sessions);
+        let ws_guard = state.workspace.lock().unwrap();
+        let ws = ws_guard.as_ref().unwrap();
+        let persisted = ws.metadata.read_session(session_id).unwrap();
+        assert_eq!(persisted.label, "Newer Runtime");
+        assert_eq!(persisted.status, "running");
+        assert_eq!(persisted.lifecycle_phase, "active");
+        assert_eq!(ws.metadata.read_terminal_size(session_id), Some((150, 50)));
     }
 
     #[test]

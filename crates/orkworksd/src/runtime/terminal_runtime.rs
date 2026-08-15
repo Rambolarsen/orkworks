@@ -2272,6 +2272,80 @@ mod tests {
     }
 
     #[test]
+    fn stale_generation_status_updates_leave_replacement_live_and_persisted_state_unchanged() {
+        let session_id = "stale-status-generation";
+        let (state, _dir) = prompted_session_state(session_id);
+        let (old_generation, replacement_generation) = {
+            let mut sessions = state.sessions.lock().unwrap();
+            let mut replacement = sessions.remove(session_id).unwrap();
+            let old_generation = replacement.runtime.run_generation();
+            replacement.runtime =
+                crate::runtime::session_runtime::SessionRuntime::detached(55, 155);
+            let replacement_generation = replacement.runtime.run_generation();
+            replacement.info.label = "Replacement Runtime".into();
+            replacement.info.status = "running".into();
+            replacement.info.lifecycle_phase = "active".into();
+            replacement.info.lifecycle = "alive".into();
+            replacement.info.attention = Some("working".into());
+            replacement.info.observed_status = Some("working".into());
+            sessions.insert(session_id.into(), replacement);
+            (old_generation, replacement_generation)
+        };
+        assert_ne!(old_generation, replacement_generation);
+
+        {
+            let ws_guard = state.workspace.lock().unwrap();
+            let ws = ws_guard.as_ref().unwrap();
+            let mut replacement = ws.metadata.read_session(session_id).unwrap();
+            replacement.label = "Replacement Runtime".into();
+            replacement.status = "running".into();
+            replacement.lifecycle_phase = "active".into();
+            replacement.lifecycle = "alive".into();
+            replacement.attention = Some("working".into());
+            replacement.observed_status = Some("working".into());
+            replacement.pending_terminal_status = None;
+            ws.metadata.write_session(&replacement);
+            ws.metadata.write_terminal_size(session_id, 155, 55);
+        }
+
+        assert!(!set_session_status_for_generation(
+            &state,
+            session_id,
+            old_generation,
+            "running",
+        ));
+        assert!(!set_session_status_for_generation(
+            &state,
+            session_id,
+            old_generation,
+            "ended",
+        ));
+
+        let sessions = state.sessions.lock().unwrap();
+        let replacement = &sessions[session_id];
+        assert_eq!(replacement.runtime.run_generation(), replacement_generation);
+        assert_eq!(replacement.info.label, "Replacement Runtime");
+        assert_eq!(replacement.info.status, "running");
+        assert_eq!(replacement.info.lifecycle_phase, "active");
+        assert_eq!(replacement.info.lifecycle, "alive");
+        assert_eq!(replacement.info.attention.as_deref(), Some("working"));
+        assert_eq!(replacement.info.observed_status.as_deref(), Some("working"));
+        drop(sessions);
+
+        let ws_guard = state.workspace.lock().unwrap();
+        let ws = ws_guard.as_ref().unwrap();
+        let persisted = ws.metadata.read_session(session_id).unwrap();
+        assert_eq!(persisted.label, "Replacement Runtime");
+        assert_eq!(persisted.status, "running");
+        assert_eq!(persisted.lifecycle_phase, "active");
+        assert_eq!(persisted.lifecycle, "alive");
+        assert_eq!(persisted.attention.as_deref(), Some("working"));
+        assert_eq!(persisted.observed_status.as_deref(), Some("working"));
+        assert_eq!(persisted.pending_terminal_status, None);
+        assert_eq!(ws.metadata.read_terminal_size(session_id), Some((155, 55)));
+    }
+
+    #[test]
     fn set_session_status_persists_terminal_size_on_terminal_transition() {
         let dir = tempfile::tempdir().unwrap();
         let state = test_app_state_with_workspace(dir.path());
