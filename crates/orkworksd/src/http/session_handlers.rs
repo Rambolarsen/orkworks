@@ -2675,6 +2675,83 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn delete_during_startup_finalizes_same_generation() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let (program, args) = if cfg!(windows) {
+            (
+                "cmd.exe".to_string(),
+                vec!["/C".to_string(), "timeout /T 30 /NOBREAK".to_string()],
+            )
+        } else {
+            ("sh".to_string(), vec!["-c".to_string(), "exec sleep 30".to_string()])
+        };
+        state
+            .harness_store
+            .mutate(&state.harness_catalog, |document| {
+                let override_patch = document.overrides.entry("opencode".into()).or_default();
+                override_patch.resume = Some(Some(harness::definition::ResumePatch {
+                    latest_cwd: Some(Some(harness::CommandTemplate {
+                        command: program,
+                        args,
+                    })),
+                    ..Default::default()
+                }));
+                Ok(())
+            })
+            .unwrap();
+
+        let session_id = "delete-during-startup".to_string();
+        let resume = harness::ResumeMemory {
+            state: harness::ResumeState::Available,
+            preferred_strategy: harness::ResumeStrategy::LatestCwd,
+            harness_session_id: None,
+            latest_fallback: true,
+            last_seen_at: Some("before".into()),
+        };
+        let mut metadata = test_session_metadata(session_id.clone(), "Delete During Startup", dir.path().display().to_string(), "ended", "before", "before");
+        metadata.harness = "opencode".into();
+        metadata.lifecycle_phase = "ended".into();
+        metadata.lifecycle = "dead".into();
+        metadata.resume = Some(resume);
+        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&metadata);
+
+        let resume_task = tokio::spawn(resume_session(State(state.clone()), Path(session_id.clone())));
+        tokio::task::yield_now().await;
+
+        let response = delete_session(State(state.clone()), Path(session_id.clone())).await.into_response();
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+
+        let response = tokio::time::timeout(std::time::Duration::from_secs(5), resume_task)
+            .await
+            .expect("startup request returns after its generation is finalized")
+            .expect("startup task does not panic");
+        assert_eq!(response.into_response().status(), axum::http::StatusCode::INTERNAL_SERVER_ERROR);
+
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                let finalized = state.sessions.lock().unwrap().get(&session_id).is_some_and(|handle| {
+                    handle.info.status == "killed"
+                        && handle.info.lifecycle_phase == "ended"
+                        && !handle.resume_in_progress
+                });
+                if finalized {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("deleted startup generation is finalized");
+
+        let metadata = state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(&session_id).unwrap();
+        assert_eq!(metadata.status, "killed");
+        assert_eq!(metadata.lifecycle_phase, "ended");
+        assert!(!state.session_pids.lock().unwrap().contains_key(&session_id));
+        assert!(!state.peon.last_output.read().unwrap().contains_key(&session_id));
+    }
+
+    #[tokio::test]
     async fn resume_session_startup_failure_eventually_clears_runtime_claim() {
         let dir = tempfile::tempdir().unwrap();
         let state = test_app_state_with_workspace(dir.path());

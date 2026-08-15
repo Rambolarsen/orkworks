@@ -681,6 +681,54 @@ pub(crate) async fn handle_runtime_exit(
     true
 }
 
+/// Aborts a child that crossed the PTY-spawn boundary but could not finish
+/// startup. A delete may already have moved this same generation to `ending`;
+/// in that case the normal terminal finalizer owns its durable completion.
+/// Other setup failures still return to their HTTP handler's existing error
+/// transition, and must not clean up a replacement generation's side tables.
+fn abort_post_spawn_startup(
+    state: &Arc<AppState>,
+    id: &str,
+    generation: RuntimeGeneration,
+    child: &mut dyn portable_pty::Child,
+) -> bool {
+    let _ = child.kill();
+    let _ = child.wait();
+
+    let lifecycle_phase = state
+        .sessions
+        .lock()
+        .unwrap()
+        .get(id)
+        .filter(|handle| handle.runtime.run_generation() == generation)
+        .map(|handle| handle.info.lifecycle_phase.clone());
+    let Some(lifecycle_phase) = lifecycle_phase else {
+        return false;
+    };
+
+    clear_ended_session_tracking(state, id);
+    if lifecycle_phase != "ending" {
+        return false;
+    }
+    schedule_session_ending_finalization(
+        state.clone(),
+        id.to_string(),
+        generation,
+        "killed".to_string(),
+    );
+    true
+}
+
+fn startup_generation_is_ending(
+    state: &AppState,
+    id: &str,
+    generation: RuntimeGeneration,
+) -> bool {
+    state.sessions.lock().unwrap().get(id).is_some_and(|handle| {
+        handle.runtime.run_generation() == generation && handle.info.lifecycle_phase == "ending"
+    })
+}
+
 pub(crate) async fn start_session_runtime(
     state: Arc<AppState>,
     id: String,
@@ -757,28 +805,26 @@ pub(crate) async fn start_session_runtime(
     let startup_grace_ends_at = tokio::time::Instant::now() + STARTUP_ATTENTION_GRACE;
     // The PTY has spawned, so the lifecycle is alive before either background
     // task can observe and classify its first output chunk.
+    if startup_generation_is_ending(&state, &id, run_generation) {
+        abort_post_spawn_startup(&state, &id, run_generation, child.as_mut());
+        return Err("session runtime was deleted during startup".into());
+    }
     if !set_session_status_for_generation(&state, &id, run_generation, "running") {
-        let _ = child.kill();
-        let _ = child.wait();
-        state.session_pids.lock().unwrap().remove(&id);
+        let _ = abort_post_spawn_startup(&state, &id, run_generation, child.as_mut());
         return Err("session runtime was replaced during startup".into());
     }
 
     let mut reader = match pair.master.try_clone_reader() {
         Ok(reader) => reader,
         Err(error) => {
-            let _ = child.kill();
-            let _ = child.wait();
-            state.session_pids.lock().unwrap().remove(&id);
+            let _ = abort_post_spawn_startup(&state, &id, run_generation, child.as_mut());
             return Err(error.to_string());
         }
     };
     let writer = match pair.master.take_writer() {
         Ok(writer) => writer,
         Err(error) => {
-            let _ = child.kill();
-            let _ = child.wait();
-            state.session_pids.lock().unwrap().remove(&id);
+            let _ = abort_post_spawn_startup(&state, &id, run_generation, child.as_mut());
             return Err(error.to_string());
         }
     };
