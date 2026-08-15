@@ -45,9 +45,9 @@ export function createReleaseBuildPlan(platform, arch) {
   throw new Error(`Unsupported release platform/arch: ${platform}/${arch}`);
 }
 
-export function electronBuilderInvocation({ builderTarget, electronArch }) {
+export function electronBuilderInvocation(nodeExecutable, cliPath, { builderTarget, electronArch }) {
   return {
-    command: "pnpm",
-    args: ["exec", "electron-builder", `--${builderTarget}`, `--${electronArch}`, "--publish", "never"],
+    command: nodeExecutable,
+    args: [cliPath, `--${builderTarget}`, `--${electronArch}`, "--publish", "never"],
   };
 }

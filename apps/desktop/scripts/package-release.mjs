@@ -8,6 +8,7 @@ const appRoot = resolve(import.meta.dirname, "..");
 const repoRoot = resolve(appRoot, "..", "..");
 const sidecarManifestPath = resolve(repoRoot, "crates", "orkworksd", "Cargo.toml");
 const sidecarTargetRoot = resolve(repoRoot, "crates", "orkworksd", "target");
+const electronBuilderCliPath = resolve(appRoot, "node_modules", "electron-builder", "cli.js");
 
 function run(command, args, cwd = appRoot) {
   execFileSync(command, args, { cwd, stdio: "inherit" });
@@ -23,6 +24,6 @@ function stageSidecarBinary(step) {
 for (const step of createReleaseBuildPlan(process.platform, process.arch)) {
   run("cargo", ["build", "--release", "--manifest-path", sidecarManifestPath, "--target", step.rustTarget], repoRoot);
   stageSidecarBinary(step);
-  const { command, args } = electronBuilderInvocation(step);
+  const { command, args } = electronBuilderInvocation(process.execPath, electronBuilderCliPath, step);
   run(command, args);
 }

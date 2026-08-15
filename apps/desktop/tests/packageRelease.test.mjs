@@ -6,12 +6,15 @@ import {
   electronBuilderInvocation,
 } from "../scripts/packageReleaseConfig.mjs";
 
-test("release packaging invokes the local electron-builder through pnpm", () => {
+test("release packaging invokes electron-builder's local CLI through Node", () => {
   assert.deepEqual(
-    electronBuilderInvocation({ builderTarget: "win", electronArch: "x64" }),
+    electronBuilderInvocation("node", "/app/node_modules/electron-builder/cli.js", {
+      builderTarget: "win",
+      electronArch: "x64",
+    }),
     {
-      command: "pnpm",
-      args: ["exec", "electron-builder", "--win", "--x64", "--publish", "never"],
+      command: "node",
+      args: ["/app/node_modules/electron-builder/cli.js", "--win", "--x64", "--publish", "never"],
     },
   );
 });
