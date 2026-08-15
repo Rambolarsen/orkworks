@@ -646,10 +646,40 @@ pub(crate) fn resolve_windows_program(program: &str) -> String {
 /// the captured ending snapshot or re-open a finalized session. Returns whether
 /// the transition was applied — callers schedule finalization only on `true`.
 pub(crate) fn set_session_status(state: &Arc<AppState>, id: &str, status: &str) -> bool {
+    set_session_status_inner(state, id, None, status)
+}
+
+pub(crate) fn set_session_status_for_generation(
+    state: &Arc<AppState>,
+    id: &str,
+    generation: crate::runtime::session_runtime::RuntimeGeneration,
+    status: &str,
+) -> bool {
+    set_session_status_inner(state, id, Some(generation), status)
+}
+
+fn set_session_status_inner(
+    state: &Arc<AppState>,
+    id: &str,
+    expected_generation: Option<crate::runtime::session_runtime::RuntimeGeneration>,
+    status: &str,
+) -> bool {
     let is_terminal = matches!(status, "killed" | "ended" | "error");
     let (handle_decision, session_resume, entered_running, entered_terminal, terminal_size) = {
         let mut sessions = state.sessions.lock().unwrap();
+        if expected_generation.is_some_and(|expected| {
+            !sessions
+                .get(id)
+                .is_some_and(|handle| handle.runtime.run_generation() == expected)
+        }) {
+            return false;
+        }
         if let Some(handle) = sessions.get_mut(id) {
+            if !is_terminal
+                && matches!(handle.info.lifecycle_phase.as_str(), "ending" | "ended")
+            {
+                return false;
+            }
             let entered_running =
                 !is_terminal && status == "running" && handle.info.status != "running";
             if is_terminal && matches!(handle.info.lifecycle_phase.as_str(), "ending" | "ended") {
@@ -716,7 +746,6 @@ pub(crate) fn set_session_status(state: &Arc<AppState>, id: &str, status: &str) 
         if let Some(mut meta) = ws.metadata.read_session(id) {
             // With no in-memory handle, the persisted lifecycle is the guard authority.
             if handle_decision.is_none()
-                && is_terminal
                 && matches!(meta.lifecycle_phase.as_str(), "ending" | "ended")
             {
                 return false;
@@ -816,9 +845,20 @@ fn fallback_final_snapshot(
 pub(crate) fn complete_session_ending(
     state: &Arc<AppState>,
     id: &str,
+    generation: crate::runtime::session_runtime::RuntimeGeneration,
     final_snapshot: metadata::ObservedStatusSnapshotMetadata,
     fallback_terminal_status: &str,
-) {
+) -> bool {
+    {
+        let sessions = state.sessions.lock().unwrap();
+        if !sessions.get(id).is_some_and(|handle| {
+            handle.runtime.run_generation() == generation
+                && handle.info.lifecycle_phase == "ending"
+        }) {
+            return false;
+        }
+    }
+
     let now = iso_now();
     let mut final_status: Option<String> = None;
 
@@ -827,7 +867,7 @@ pub(crate) fn complete_session_ending(
         if let Some(ref ws) = *ws_guard {
             if let Some(mut meta) = ws.metadata.read_session(id) {
                 if meta.lifecycle_phase == "ended" {
-                    return;
+                    return false;
                 }
                 let pending = meta
                     .pending_terminal_status
@@ -865,8 +905,10 @@ pub(crate) fn complete_session_ending(
     let pending = final_status.unwrap_or_else(|| fallback_terminal_status.into());
     let mut sessions = state.sessions.lock().unwrap();
     if let Some(handle) = sessions.get_mut(id) {
-        if handle.info.lifecycle_phase == "ended" {
-            return;
+        if handle.runtime.run_generation() != generation
+            || handle.info.lifecycle_phase == "ended"
+        {
+            return false;
         }
         handle.info.status = pending.clone();
         handle.info.lifecycle_phase = "ended".into();
@@ -877,18 +919,25 @@ pub(crate) fn complete_session_ending(
         handle.info.observed_status = None;
         handle.info.final_observed_status = final_snapshot.value.clone();
         handle.info.last_activity_at = Some(now);
+        handle.resume_in_progress = false;
+        return true;
     }
+    false
 }
 
 pub(crate) async fn finalize_session_ending(
     state: Arc<AppState>,
     id: String,
+    generation: crate::runtime::session_runtime::RuntimeGeneration,
     fallback_terminal_status: String,
 ) {
     let output_snapshot = {
         let sessions = state.sessions.lock().unwrap();
         match sessions.get(&id) {
-            Some(handle) if handle.info.lifecycle_phase == "ending" => {
+            Some(handle)
+                if handle.runtime.run_generation() == generation
+                    && handle.info.lifecycle_phase == "ending" =>
+            {
                 handle.output_buffer.snapshot()
             }
             _ => return,
@@ -919,6 +968,17 @@ pub(crate) async fn finalize_session_ending(
     };
 
     let now = iso_now();
+
+    {
+        let sessions = state.sessions.lock().unwrap();
+        if !sessions.get(&id).is_some_and(|handle| {
+            handle.runtime.run_generation() == generation
+                && handle.info.lifecycle_phase == "ending"
+        }) {
+            return;
+        }
+    }
+
     let inferred_snapshot = final_snapshot_from_inference(
         scan_result
             .as_ref()
@@ -956,12 +1016,19 @@ pub(crate) async fn finalize_session_ending(
         })
     };
 
-    complete_session_ending(&state, &id, final_snapshot, &fallback_terminal_status);
+    complete_session_ending(
+        &state,
+        &id,
+        generation,
+        final_snapshot,
+        &fallback_terminal_status,
+    );
 }
 
 pub(crate) fn schedule_session_ending_finalization(
     state: Arc<AppState>,
     id: String,
+    generation: crate::runtime::session_runtime::RuntimeGeneration,
     fallback_terminal_status: String,
 ) {
     if tokio::runtime::Handle::try_current().is_err() {
@@ -969,7 +1036,7 @@ pub(crate) fn schedule_session_ending_finalization(
     }
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_secs(0)).await;
-        finalize_session_ending(state, id, fallback_terminal_status).await;
+        finalize_session_ending(state, id, generation, fallback_terminal_status).await;
     });
 }
 
@@ -1220,8 +1287,9 @@ mod tests {
                     crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
                     crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
                 ),
-                terminal_attached: false,
-                at_usage_limit_latched: false,
+            terminal_attached: false,
+            resume_in_progress: false,
+            at_usage_limit_latched: false,
                 capacity_check_pending: false,
                 output_lines_seen: 0,
                 scan_bytes_seen: 0,
@@ -2082,6 +2150,7 @@ mod tests {
                     crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
                 ),
                 terminal_attached: false,
+                resume_in_progress: false,
                 at_usage_limit_latched: true,
                 capacity_check_pending: false,
                 output_lines_seen: 1,
@@ -2169,6 +2238,7 @@ mod tests {
                     crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
                 ),
                 terminal_attached: false,
+                resume_in_progress: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
                 output_lines_seen: 0,
@@ -2206,6 +2276,80 @@ mod tests {
     }
 
     #[test]
+    fn stale_generation_status_updates_leave_replacement_live_and_persisted_state_unchanged() {
+        let session_id = "stale-status-generation";
+        let (state, _dir) = prompted_session_state(session_id);
+        let (old_generation, replacement_generation) = {
+            let mut sessions = state.sessions.lock().unwrap();
+            let mut replacement = sessions.remove(session_id).unwrap();
+            let old_generation = replacement.runtime.run_generation();
+            replacement.runtime =
+                crate::runtime::session_runtime::SessionRuntime::detached(55, 155);
+            let replacement_generation = replacement.runtime.run_generation();
+            replacement.info.label = "Replacement Runtime".into();
+            replacement.info.status = "running".into();
+            replacement.info.lifecycle_phase = "active".into();
+            replacement.info.lifecycle = "alive".into();
+            replacement.info.attention = Some("working".into());
+            replacement.info.observed_status = Some("working".into());
+            sessions.insert(session_id.into(), replacement);
+            (old_generation, replacement_generation)
+        };
+        assert_ne!(old_generation, replacement_generation);
+
+        {
+            let ws_guard = state.workspace.lock().unwrap();
+            let ws = ws_guard.as_ref().unwrap();
+            let mut replacement = ws.metadata.read_session(session_id).unwrap();
+            replacement.label = "Replacement Runtime".into();
+            replacement.status = "running".into();
+            replacement.lifecycle_phase = "active".into();
+            replacement.lifecycle = "alive".into();
+            replacement.attention = Some("working".into());
+            replacement.observed_status = Some("working".into());
+            replacement.pending_terminal_status = None;
+            ws.metadata.write_session(&replacement);
+            ws.metadata.write_terminal_size(session_id, 155, 55);
+        }
+
+        assert!(!set_session_status_for_generation(
+            &state,
+            session_id,
+            old_generation,
+            "running",
+        ));
+        assert!(!set_session_status_for_generation(
+            &state,
+            session_id,
+            old_generation,
+            "ended",
+        ));
+
+        let sessions = state.sessions.lock().unwrap();
+        let replacement = &sessions[session_id];
+        assert_eq!(replacement.runtime.run_generation(), replacement_generation);
+        assert_eq!(replacement.info.label, "Replacement Runtime");
+        assert_eq!(replacement.info.status, "running");
+        assert_eq!(replacement.info.lifecycle_phase, "active");
+        assert_eq!(replacement.info.lifecycle, "alive");
+        assert_eq!(replacement.info.attention.as_deref(), Some("working"));
+        assert_eq!(replacement.info.observed_status.as_deref(), Some("working"));
+        drop(sessions);
+
+        let ws_guard = state.workspace.lock().unwrap();
+        let ws = ws_guard.as_ref().unwrap();
+        let persisted = ws.metadata.read_session(session_id).unwrap();
+        assert_eq!(persisted.label, "Replacement Runtime");
+        assert_eq!(persisted.status, "running");
+        assert_eq!(persisted.lifecycle_phase, "active");
+        assert_eq!(persisted.lifecycle, "alive");
+        assert_eq!(persisted.attention.as_deref(), Some("working"));
+        assert_eq!(persisted.observed_status.as_deref(), Some("working"));
+        assert_eq!(persisted.pending_terminal_status, None);
+        assert_eq!(ws.metadata.read_terminal_size(session_id), Some((155, 55)));
+    }
+
+    #[test]
     fn set_session_status_persists_terminal_size_on_terminal_transition() {
         let dir = tempfile::tempdir().unwrap();
         let state = test_app_state_with_workspace(dir.path());
@@ -2235,6 +2379,7 @@ mod tests {
                 pending_work_signal: None,
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(40, 120),
                 terminal_attached: false,
+                resume_in_progress: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
                 output_lines_seen: 0,
@@ -2296,6 +2441,7 @@ mod tests {
                     crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
                 ),
                 terminal_attached: false,
+                resume_in_progress: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
                 output_lines_seen: 0,
@@ -2360,6 +2506,7 @@ mod tests {
                     crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
                 ),
                 terminal_attached: false,
+                resume_in_progress: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
                 output_lines_seen: 0,
@@ -2425,6 +2572,7 @@ mod tests {
                     crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
                 ),
                 terminal_attached: false,
+                resume_in_progress: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
                 output_lines_seen: 0,
@@ -2504,6 +2652,7 @@ mod tests {
                     crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
                 ),
                 terminal_attached: false,
+                resume_in_progress: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
                 output_lines_seen: 0,
@@ -2645,6 +2794,7 @@ mod tests {
                     crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
                 ),
                 terminal_attached: false,
+                resume_in_progress: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
                 output_lines_seen: 0,
@@ -2717,9 +2867,13 @@ mod tests {
             });
         }
 
+        let generation = state.sessions.lock().unwrap()[&session_id]
+            .runtime
+            .run_generation();
         complete_session_ending(
             &state,
             &session_id,
+            generation,
             metadata::ObservedStatusSnapshotMetadata {
                 value: Some("done".into()),
                 source: "peon".into(),
@@ -2834,6 +2988,7 @@ mod tests {
                     crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
                 ),
                 terminal_attached: false,
+                resume_in_progress: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
                 output_lines_seen: 0,
@@ -2851,6 +3006,13 @@ mod tests {
             .unwrap()
             .output_buffer
             .push("final line".into());
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .get_mut(&session_id)
+            .unwrap()
+            .resume_in_progress = true;
 
         {
             let ws_guard = state.workspace.lock().unwrap();
@@ -2914,7 +3076,18 @@ mod tests {
             });
         }
 
-        finalize_session_ending(state.clone(), session_id.clone(), "ended".to_string()).await;
+        let generation = state.sessions.lock().unwrap()[&session_id]
+            .runtime
+            .run_generation();
+        assert!(state.sessions.lock().unwrap()[&session_id].resume_in_progress);
+        finalize_session_ending(
+            state.clone(),
+            session_id.clone(),
+            generation,
+            "ended".to_string(),
+        )
+        .await;
+        assert!(!state.sessions.lock().unwrap()[&session_id].resume_in_progress);
 
         let session = state
             .sessions
