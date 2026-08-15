@@ -100,6 +100,11 @@ pub(crate) async fn retention_cleanup_once(
             sessions.remove(id);
             peon_output.remove(id);
             peon_inference.remove(id);
+        }
+        drop(peon_inference);
+        drop(peon_output);
+        drop(sessions);
+        for id in &all_deleted {
             crate::runtime::session_runtime::clear_forgotten_session_tracking(state, id);
         }
     }
