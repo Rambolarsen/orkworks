@@ -2716,11 +2716,19 @@ mod tests {
         metadata.resume = Some(resume);
         state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&metadata);
 
+        let (checked_rx, resume_tx) =
+            crate::runtime::session_runtime::pause_startup_after_ending_check(session_id.clone());
         let resume_task = tokio::spawn(resume_session(State(state.clone()), Path(session_id.clone())));
-        tokio::task::yield_now().await;
+        tokio::time::timeout(std::time::Duration::from_secs(5), checked_rx)
+            .await
+            .expect("startup reaches the post-check transition gap")
+            .expect("startup test hook remains installed");
 
         let response = delete_session(State(state.clone()), Path(session_id.clone())).await.into_response();
         assert_eq!(response.status(), axum::http::StatusCode::OK);
+        resume_tx
+            .send(())
+            .expect("startup is waiting to attempt the running transition");
 
         let response = tokio::time::timeout(std::time::Duration::from_secs(5), resume_task)
             .await

@@ -34,12 +34,54 @@ pub(crate) type RuntimeGeneration = u64;
 
 static NEXT_RUNTIME_GENERATION: AtomicU64 = AtomicU64::new(1);
 
+#[cfg(test)]
+struct StartupEndingCheckGate {
+    id: String,
+    checked: tokio::sync::oneshot::Sender<()>,
+    resume: tokio::sync::oneshot::Receiver<()>,
+}
+
+#[cfg(test)]
+static STARTUP_ENDING_CHECK_GATE: Mutex<Option<StartupEndingCheckGate>> = Mutex::new(None);
+
 fn next_runtime_generation() -> RuntimeGeneration {
     NEXT_RUNTIME_GENERATION
         .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |generation| {
             generation.checked_add(1)
         })
         .expect("session runtime generation exhausted")
+}
+
+#[cfg(test)]
+pub(crate) fn pause_startup_after_ending_check(
+    id: String,
+) -> (
+    tokio::sync::oneshot::Receiver<()>,
+    tokio::sync::oneshot::Sender<()>,
+) {
+    let (checked, checked_rx) = tokio::sync::oneshot::channel();
+    let (resume_tx, resume) = tokio::sync::oneshot::channel();
+    *STARTUP_ENDING_CHECK_GATE.lock().unwrap() = Some(StartupEndingCheckGate {
+        id,
+        checked,
+        resume,
+    });
+    (checked_rx, resume_tx)
+}
+
+#[cfg(test)]
+async fn wait_at_startup_ending_check(id: &str) {
+    let gate = {
+        let mut slot = STARTUP_ENDING_CHECK_GATE.lock().unwrap();
+        slot.as_ref()
+            .is_some_and(|gate| gate.id == id)
+            .then(|| slot.take())
+            .flatten()
+    };
+    if let Some(gate) = gate {
+        let _ = gate.checked.send(());
+        let _ = gate.resume.await;
+    }
 }
 
 #[derive(Debug)]
@@ -809,6 +851,8 @@ pub(crate) async fn start_session_runtime(
         abort_post_spawn_startup(&state, &id, run_generation, child.as_mut());
         return Err("session runtime was deleted during startup".into());
     }
+    #[cfg(test)]
+    wait_at_startup_ending_check(&id).await;
     if !set_session_status_for_generation(&state, &id, run_generation, "running") {
         let _ = abort_post_spawn_startup(&state, &id, run_generation, child.as_mut());
         return Err("session runtime was replaced during startup".into());

@@ -675,6 +675,11 @@ fn set_session_status_inner(
             return false;
         }
         if let Some(handle) = sessions.get_mut(id) {
+            if !is_terminal
+                && matches!(handle.info.lifecycle_phase.as_str(), "ending" | "ended")
+            {
+                return false;
+            }
             let entered_running =
                 !is_terminal && status == "running" && handle.info.status != "running";
             if is_terminal && matches!(handle.info.lifecycle_phase.as_str(), "ending" | "ended") {
@@ -741,7 +746,6 @@ fn set_session_status_inner(
         if let Some(mut meta) = ws.metadata.read_session(id) {
             // With no in-memory handle, the persisted lifecycle is the guard authority.
             if handle_decision.is_none()
-                && is_terminal
                 && matches!(meta.lifecycle_phase.as_str(), "ending" | "ended")
             {
                 return false;
