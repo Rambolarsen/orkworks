@@ -238,6 +238,7 @@ mod tests {
     use super::{normalize_reported_plan_path, printed_plan_path, resolve_openable_plan, resolve_openable_plan_reference, resolve_printed_plan_path};
     use crate::metadata::{PlanReference, PlanSource};
     use std::fs;
+    use std::path::Path;
 
     #[test]
     fn accepts_workspace_relative_markdown_only() {
@@ -374,6 +375,51 @@ mod tests {
         let (root, relative) = resolve_printed_plan_path(workspace.path(), "specs/plan.md").unwrap();
         assert_eq!(root, workspace.path().canonicalize().unwrap());
         assert_eq!(relative, "specs/plan.md");
+    }
+
+    fn run_git(dir: &Path, args: &[&str]) {
+        let status = std::process::Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .status()
+            .unwrap();
+        assert!(status.success(), "git {args:?} failed in {dir:?}");
+    }
+
+    // Every other test above builds its repo with a bare `git2::Repository::init`,
+    // which never exercises the linked-worktree branch of `git_common_dir` (a
+    // real linked worktree's `.git` is a *file* pointing at
+    // `<main>/.git/worktrees/<name>`, not a `.git` directory). This test uses a
+    // real `git worktree add` so an absolute path resolved against a launch
+    // root in the *main* checkout, pointing at a file that only exists in a
+    // sibling linked worktree, is actually covered.
+    #[test]
+    fn resolves_an_absolute_terminal_link_in_a_real_sibling_linked_worktree() {
+        let base = tempfile::tempdir().unwrap();
+        let main_dir = base.path().join("main");
+        let linked_dir = base.path().join("linked");
+        fs::create_dir_all(&main_dir).unwrap();
+
+        run_git(&main_dir, &["init", "-q"]);
+        run_git(&main_dir, &["commit", "-q", "--allow-empty", "-m", "init"]);
+        run_git(&main_dir, &["branch", "feature"]);
+        run_git(
+            &main_dir,
+            &["worktree", "add", "-q", linked_dir.to_str().unwrap(), "feature"],
+        );
+
+        let plan_dir = linked_dir.join("docs/superpowers/specs");
+        fs::create_dir_all(&plan_dir).unwrap();
+        let plan = plan_dir.join("example.md");
+        fs::write(&plan, "# spec").unwrap();
+        run_git(&linked_dir, &["add", "-A"]);
+        run_git(&linked_dir, &["commit", "-q", "-m", "add spec"]);
+
+        let printed_path = plan.canonicalize().unwrap();
+        let (root, relative) =
+            resolve_printed_plan_path(&main_dir, printed_path.to_str().unwrap()).unwrap();
+        assert_eq!(root, linked_dir.canonicalize().unwrap());
+        assert_eq!(relative, "docs/superpowers/specs/example.md");
     }
 
     #[test]
