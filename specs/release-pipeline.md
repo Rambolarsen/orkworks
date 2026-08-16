@@ -104,7 +104,10 @@ Triggered on tag push matching `v*`. Uses a matrix strategy for OS/arch jobs. Ea
    - builds the sidecar for that exact target
    - stages the built binary into `crates/orkworksd/target/release/`
    - runs `electron-builder` with the matching CLI arch flag
-8. Uploads platform artifacts via `actions/upload-artifact`
+8. Verifies `process.arch` matches the matrix architecture before packaging.
+9. Runs `pnpm verify:release`, which fails unless the installer, unpacked app,
+   Rust sidecar, and each packaged hook-script file all exist.
+10. Uploads top-level `OrkWorks-*` artifacts via `actions/upload-artifact`.
 
 After all matrix jobs complete, a `publish` job downloads all artifacts and creates/updates a draft GitHub Release via `softprops/action-gh-release@v2`. Requires `permissions: { contents: write }` at the workflow level.
 
@@ -114,6 +117,7 @@ Additions to `scripts`:
 ```json
 "build:rust:release": "cargo build --release --manifest-path ../../crates/orkworksd/Cargo.toml",
 "package:release": "node scripts/package-release.mjs",
+"verify:release": "node scripts/verifyReleaseArtifact.mjs",
 "dist": "tsc -p tsconfig.node.json && vite build && node scripts/package-release.mjs"
 ```
 
@@ -148,6 +152,15 @@ function getSidecarPath(): string {
 ```
 
 electron-builder's per-platform `extraResources` blocks (see config above) copy the right binary name into the app's `resources/` directory, matching `process.resourcesPath`. The packaging script builds and stages the sidecar for the current host arch before invoking electron-builder, so each CI job produces an app bundle whose sidecar matches the bundled Electron arch.
+
+## Artifact Verification
+
+`apps/desktop/scripts/verifyReleaseArtifact.mjs` validates the generated
+installer and unpacked app before CI uploads anything. It checks the expected
+platform-specific sidecar name and the `resources/scripts/` directory used by
+installed harness integrations, including each expected reporter script. This
+catches incomplete packages while the build job still has the unpacked
+application available for inspection.
 
 ## Version Management
 

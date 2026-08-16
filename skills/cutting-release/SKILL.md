@@ -7,7 +7,7 @@ description: Use when the user asks to cut a release, ship a version, or publish
 
 ## Overview
 
-Use this skill to publish a new release of the OrkWorks desktop app. The release pipeline is tag-driven: pushing a `vX.Y.Z` tag triggers a GitHub Actions workflow that builds, packages, and publishes a draft GitHub Release with artifacts for macOS, Windows, and Linux.
+Use this skill to publish a new release of the OrkWorks desktop app. The release pipeline is tag-driven: pushing a `vX.Y.Z` tag triggers a GitHub Actions workflow that builds, verifies, and publishes a draft GitHub Release with artifacts for macOS and Windows.
 
 ## When to use
 
@@ -61,7 +61,7 @@ The tag must exactly match `v` + the `version` in `apps/desktop/package.json` â€
 The tag push triggers `.github/workflows/release.yml`. Watch it:
 - Go to https://github.com/Rambolarsen/orkworks/actions
 - Find the "Release" workflow run for the tag
-- Wait for all four build jobs to complete (`macos-13` x64, `macos-latest` arm64, `windows-latest` x64, `ubuntu-latest` x64)
+- Wait for both build jobs to complete (`macos-latest` arm64 and `windows-latest` x64)
 - If any job fails, fix the issue, delete the tag (`git push --delete origin v0.2.0; git tag -d v0.2.0`), and retry after fixing
 
 ### 5. Verify the draft release
@@ -69,9 +69,8 @@ The tag push triggers `.github/workflows/release.yml`. Watch it:
 - Go to https://github.com/Rambolarsen/orkworks/releases
 - Find the draft release (named after the tag)
 - Confirm all expected artifacts are attached:
-  - macOS: `OrkWorks-0.2.0-mac-arm64.dmg`, `OrkWorks-0.2.0-mac-x64.dmg`
+  - macOS: `OrkWorks-0.2.0-mac-arm64.dmg`
   - Windows: `OrkWorks-0.2.0-win-x64.exe`
-  - Linux: `OrkWorks-0.2.0-linux-x64.AppImage`, `OrkWorks-0.2.0-linux-x64.deb`
 - Add release notes (describe what changed since the last release)
 
 ### 6. Publish
@@ -91,4 +90,3 @@ Fix the issue, then re-tag and push.
 
 - **macOS artifacts are unsigned.** Alpha testers must right-click the DMG and select "Open" to bypass Gatekeeper.
 - **Windows artifacts are unsigned.** SmartScreen will show a warning; click "More info" â†’ "Run anyway".
-- **Linux AppImage may require fuse.** On systems without it, use `--appimage-extract-and-run`.

@@ -56,17 +56,30 @@ jobs:
         working-directory: apps/desktop
         run: pnpm build
 
+      - name: Verify runner architecture
+        shell: bash
+        run: |
+          ACTUAL_ARCH="$(node -p "process.arch")"
+          if [ "$ACTUAL_ARCH" != "${{ matrix.arch }}" ]; then
+            echo "Runner architecture $ACTUAL_ARCH does not match release target ${{ matrix.arch }}"
+            exit 1
+          fi
+
       - name: Package (electron-builder)
         working-directory: apps/desktop
         run: pnpm package:release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Verify packaged artifact
+        working-directory: apps/desktop
+        run: pnpm verify:release
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: release-${{ matrix.target }}-${{ matrix.arch }}
-          path: apps/desktop/release/*
+          path: apps/desktop/release/OrkWorks-*
           if-no-files-found: error
 
   publish:
