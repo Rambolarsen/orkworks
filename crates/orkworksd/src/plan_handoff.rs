@@ -377,8 +377,19 @@ mod tests {
         assert_eq!(relative, "specs/plan.md");
     }
 
+    // CI runners have no global git identity configured, so `git commit`
+    // fails there even though it works locally with a personal git config.
+    // Force a hermetic identity and disable signing for this throwaway repo.
     fn run_git(dir: &Path, args: &[&str]) {
         let status = std::process::Command::new("git")
+            .args([
+                "-c",
+                "user.email=orkworks-test@example.invalid",
+                "-c",
+                "user.name=OrkWorks Test",
+                "-c",
+                "commit.gpgsign=false",
+            ])
             .args(args)
             .current_dir(dir)
             .status()
