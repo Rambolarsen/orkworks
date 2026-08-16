@@ -198,7 +198,7 @@ pub(crate) async fn select_terminal_plan(
         let Some(mut meta) = workspace.metadata.read_session(&id) else { return Err(axum::http::StatusCode::NOT_FOUND); };
         let (worktree_root, relative_path) = resolve_printed_plan_path(std::path::Path::new(&meta.cwd), &req.printed_path)
             .map_err(|error| {
-                tracing::warn!(session_id = %id, reason = %error, "select_terminal_plan: plan path resolution failed");
+                tracing::warn!(session_id = %id, printed_path = %req.printed_path, %error, "select_terminal_plan: plan path resolution failed");
                 axum::http::StatusCode::CONFLICT
             })?;
         meta.plan_path = Some(metadata::PlanReference {
