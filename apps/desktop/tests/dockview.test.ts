@@ -653,6 +653,7 @@ test("CenterPanel disables stdin and shows a loading overlay while starting, ins
   assert.match(source, /computeTerminalInteractivity/);
   assert.match(source, /terminal-starting-overlay/);
   assert.match(source, /starting-dots/);
+  assert.match(source, /terminal-starting-overlay" role="status" aria-live="polite"/);
 });
 
 test("terminal starting overlay exposes role=status so assistive tech announces it like other live regions", () => {
