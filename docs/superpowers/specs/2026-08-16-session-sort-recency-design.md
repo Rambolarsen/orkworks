@@ -105,10 +105,15 @@ naturally land near the top of a re-sort because their
 
 - Line 163 (`setSessions([])` on workspace switch) is a plain reset.
 - Line 309 (`setSessions((prev) => prev.map(s => s.id === id ? session : s))`,
-  single-session replace on resume/delete) doesn't go through merge;
-  its eventual recency re-sort catches up on the next 2s poll via the
-  mirror effect. A transient race where `sessionsRef.current` is stale
-  for one poll tick is bounded and self-corrects on the next merge.
+  single-session replace on resume — `handleForgetSession` and
+  `handleKillSession` go through `refreshSessions` and merge at line 116,
+  not this site) doesn't go through merge. The next 2s poll reflects the
+  resumed session's updated fields via the mirror effect (it's the same ID
+  set, so the throttle preserves visual order on that merge); the resumed
+  session's eventual rise to its recency-sorted position fires at the 30s
+  tick per the throttle rule above. A transient race where
+  `sessionsRef.current` is stale for one poll tick is bounded and
+  self-corrects on the next merge.
 
 ### Removed code
 
@@ -192,7 +197,7 @@ already covered verbatim by the existing test at
 
 **Test-update note on the regex test:** the App.tsx regex test at
 `sessionSort.test.ts:105` asserts a `mergeSessionsById` invocation of
-the form `mergeSessionsById(\1, [\1, session])`. After this change
+the form `mergeSessionsById(\1, [...\1, session])`. After this change
 both call sites become `const [next, nextLastResortAt] = mergeSessionsById(…,
 …, lastResortAtRef.current, new Date())`. The regex must be updated to
 match the new shape; the test's intent (App.tsx still combines the
