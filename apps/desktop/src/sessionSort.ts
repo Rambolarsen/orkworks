@@ -1,16 +1,6 @@
 import type { SessionInfo } from "./api.ts";
 import { lastActivityTimestamp } from "./labels.ts";
 
-const ATTENTION_PRIORITY: Record<string, number> = {
-  needs_you: 0,
-  blocked: 1,
-  capped: 2,
-  failed: 3,
-  working: 5,
-  idle: 6,
-  neutral: 99,
-};
-
 export function needsAttention(status: string): boolean {
   return (
     status === "blocked" ||
@@ -31,15 +21,12 @@ export function sessionAttentionStatus(session: SessionInfo): string {
 
 export function sortSessions(list: SessionInfo[]): SessionInfo[] {
   return [...list].sort((a, b) => {
-    const la = a.lifecycle === "alive" ? 0 : 1;
-    const lb = b.lifecycle === "alive" ? 0 : 1;
-    if (la !== lb) return la - lb;
-    const pa = ATTENTION_PRIORITY[sessionAttentionStatus(a)] ?? 99;
-    const pb = ATTENTION_PRIORITY[sessionAttentionStatus(b)] ?? 99;
-    if (pa !== pb) return pa - pb;
     const ta = Date.parse(lastActivityTimestamp(a) ?? "");
     const tb = Date.parse(lastActivityTimestamp(b) ?? "");
     if (!Number.isNaN(ta) && !Number.isNaN(tb) && ta !== tb) return tb - ta;
+    const ca = Date.parse(a.created_at ?? "");
+    const cb = Date.parse(b.created_at ?? "");
+    if (!Number.isNaN(ca) && !Number.isNaN(cb) && ca !== cb) return cb - ca;
     return a.label.localeCompare(b.label);
   });
 }

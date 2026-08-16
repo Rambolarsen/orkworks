@@ -5,7 +5,6 @@ import type { SessionInfo } from "../src/api.ts";
 import {
   needsAttention,
   sessionAttentionStatus,
-  sortSessions,
 } from "../src/sessionSort.ts";
 
 test("DockviewApp registers panels through onReady", () => {
@@ -294,23 +293,7 @@ test("SessionDetailPanel keeps its existing action zone and adds plan review for
   assert.doesNotMatch(source, /session-resume-button/);
 });
 
-test("session list sorts canonical alive attention before dead sessions", () => {
-  const sessions: SessionInfo[] = [
-    { id: "1", label: "s1", status: "running", lifecycle: "alive", attention: "idle", cwd: "/tmp", created_at: "now", memoryState: "live", resumeStrategy: "none" },
-    { id: "2", label: "s2", status: "running", lifecycle: "alive", attention: "needs_you", cwd: "/tmp", created_at: "now", memoryState: "live", resumeStrategy: "none" },
-    { id: "3", label: "s3", status: "ended", lifecycle: "dead", cwd: "/tmp", created_at: "now", memoryState: "remembered", resumeStrategy: "none" },
-    { id: "4", label: "s4", status: "running", lifecycle: "alive", attention: "failed", cwd: "/tmp", created_at: "now", memoryState: "live", resumeStrategy: "none" },
-    { id: "5", label: "s5", status: "running", lifecycle: "alive", attention: "blocked", cwd: "/tmp", created_at: "now", memoryState: "live", resumeStrategy: "none" },
-    { id: "6", label: "s6", status: "running", lifecycle: "alive", attention: "working", cwd: "/tmp", created_at: "now", memoryState: "live", resumeStrategy: "none" },
-  ];
-  const sorted = sortSessions(sessions);
-  assert.equal(sorted[0].id, "2"); // needs_you
-  assert.equal(sorted[1].id, "5"); // blocked
-  assert.equal(sorted[2].id, "4"); // failed
-  assert.equal(sorted[3].id, "6"); // working
-  assert.equal(sorted[4].id, "1"); // idle
-  assert.equal(sorted[5].id, "3"); // ended
-});
+
 
 test("needsAttention lifecycle statuses do not trigger from raw lifecycle", () => {
   assert.equal(needsAttention("running"), false);

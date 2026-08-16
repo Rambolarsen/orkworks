@@ -46,18 +46,22 @@ test("a session reads idle the instant it goes alive, even before the harness re
   assert.equal(sessionAttentionStatus(session("just-alive", "alive")), "idle");
 });
 
-test("sortSessions ranks actionable alive sessions before working, idle, and dead", () => {
-  const ordered = sortSessions([
-    session("dead", "dead"),
-    session("idle", "alive", "idle"),
-    session("working", "alive", "working"),
-    session("failed", "alive", "failed"),
-    session("needs-you", "alive", "needs_you"),
-  ]);
-  assert.deepEqual(ordered.map((item) => item.id), ["needs-you", "failed", "working", "idle", "dead"]);
+test("sortSessions orders purely by lastActivityTimestamp descending, ignoring attention", () => {
+  const olderButNeedsYou = {
+    ...session("older-needs-you", "alive", "needs_you"),
+    lastActivityAt: "2026-08-01T10:00:00.000Z",
+  };
+  const newerButIdle = {
+    ...session("newer-idle", "alive", "idle"),
+    lastActivityAt: "2026-08-01T11:00:00.000Z",
+  };
+
+  const ordered = sortSessions([olderButNeedsYou, newerButIdle]);
+
+  assert.deepEqual(ordered.map((item) => item.id), ["newer-idle", "older-needs-you"]);
 });
 
-test("sortSessions breaks attention ties by most recent activity, not label", () => {
+test("sortSessions orders by most recent activity when timestamps differ", () => {
   const stale = { ...session("4Seems the branch", "alive", "idle"), lastActivityAt: "2026-07-28T08:00:00.000Z" };
   const recent = { ...session("keep going", "alive", "idle"), lastActivityAt: "2026-07-28T21:00:00.000Z" };
 
