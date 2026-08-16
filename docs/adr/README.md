@@ -31,12 +31,12 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 | [0021](./0021-session-lifecycle-phases.md) | Explicit session lifecycle phases with frozen final observed state | superseded by [0023](./0023-simplified-session-lifecycle.md) |
 | [0022](./0022-session-runtime-owned-pty-lifetime.md) | Session-runtime-owned PTY lifetime | accepted |
 | [0023](./0023-simplified-session-lifecycle.md) | Simplified session lifecycle and alive-only attention | accepted |
-| [0024](./0024-bounded-terminal-replay-durable-summary-checkpoints.md) | Bounded terminal replay with durable summary checkpoints | accepted |
+| [0024](./0024-bounded-terminal-replay-durable-summary-checkpoints.md) | Bounded terminal replay with durable summary checkpoints | superseded by [0042](./0042-workflow-observations-replace-summary-checkpoints.md) |
 | [0025](./0025-authenticated-session-plan-handoff.md) | Authenticated session plan handoff | accepted |
 | [0026](./0026-resolved-harness-capability-registry.md) | Resolved harness capability registry | accepted |
 | [0027](./0027-observed-status-attention-owning-module.md) | Observed-status/attention writes owned by one runtime module | accepted |
 | [0028](./0028-generation-aware-harness-version-probe-cache.md) | Generation-aware harness version probe cache | accepted |
-| [0029](./0029-session-label-topic-vs-activity-summary.md) | Session label is a one-shot Peon-authored topic, decoupled from the turn-by-turn summary | accepted |
+| [0029](./0029-session-label-topic-vs-activity-summary.md) | Session label is a one-shot Peon-authored topic, decoupled from the turn-by-turn summary | superseded by [0042](./0042-workflow-observations-replace-summary-checkpoints.md) |
 | [0030](./0030-integration-lock-check-await-helper.md) | Integration lock-check-drop-await-relock helper | accepted |
 | [0031](./0031-live-session-cwd-via-sysinfo-probe.md) | Live session cwd via cross-platform sysinfo probe | accepted |
 | [0032](./0032-harness-reported-cwd-via-hook-payload.md) | Harness-reported cwd via existing hook payload | accepted |
@@ -49,3 +49,4 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 | [0039](./0039-terminal-plan-link-selection.md) | Terminal plan link selection | accepted |
 | [0040](./0040-harness-declared-session-label-resets.md) | Harness-declared session-label reset commands | accepted |
 | [0041](./0041-session-runtime-generation-ownership.md) | Session runtime generation ownership | accepted |
+| [0042](./0042-workflow-observations-replace-summary-checkpoints.md) | Workflow observations replace summary checkpoints | accepted |

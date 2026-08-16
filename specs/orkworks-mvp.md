@@ -249,12 +249,14 @@ Peon may infer:
 - failed command or failed test summary
 - capacity/cap hints
 - confidence
+- workflow-observation candidates (see "Workflow observations" below), independently of the current-situation fields above
 
 Peon may update:
 
 - `.orkworks/sessions/<session-id>.json`
 - `.orkworks/events/<session-id>.ndjson`
 - `.orkworks/capacity/<capacity-id>.json`
+- `.orkworks/workflow-observations/<session-id>.ndjson`, through the shared recording module only (never by direct file write from the inference path)
 
 Peon must not:
 
@@ -265,10 +267,77 @@ Peon must not:
 - modify source code
 - override user decisions
 - treat inference as more authoritative than explicit agent/user metadata
+- turn ordinary progress, terminal redraws, or speculative advice into a workflow observation
+- write recommendations
 
 The first MVP autonomy level for Peon is observer-only.
 
 Later versions may add suggested terminal input, but it must be gated by explicit user approval.
+
+### Current-summary snapshot
+
+`summary` is a first-class snapshot, not text whose provenance is borrowed from unrelated record-wide metadata fields. The session contract carries `summary`, `summarySource` (`agent` | `peon`), `summaryConfidence`, and `summaryObservedAt` together:
+
+- An accepted non-empty Peon summary or agent attention message (with a message) replaces all four fields together.
+- An attention report without a message leaves all four fields unchanged.
+- A newly submitted descriptive user instruction, and an accepted session-label reset command, clear all four fields synchronously, so the previous turn's activity cannot appear current while new work starts. Non-descriptive confirmations and hotkeys do not clear the snapshot.
+- The snapshot does not expire by wall-clock age. Taskmaster uses only summaries carrying the dedicated source/confidence/timestamp fields for handoff evidence; legacy sessions with only a flat `summary` remain displayable in the selected-session headline but are not Taskmaster handoff evidence until a new accepted summary populates the dedicated fields. The last summary of an ended session remains useful handoff context. It is never treated as workflow-friction evidence.
+- Historical event records containing superseded summary-checkpoint fields (see [ADR 0042](../docs/adr/0042-workflow-observations-replace-summary-checkpoints.md)) remain readable; no checkpoint is appended for new updates and no checkpoint-log route is offered.
+
+## Workflow observations
+
+Peon and coding agents also produce a second, independent output: `WorkflowObservation` records answering "what made this work harder than necessary?" — deliberately separate from the current-summary snapshot above, which answers "what is happening now?" Taskmaster never parses activity-summary prose to manufacture workflow evidence, and Peon never writes recommendations. See [ADR 0042](../docs/adr/0042-workflow-observations-replace-summary-checkpoints.md) and `specs/taskmaster.md` for how Taskmaster correlates these records into improvement recommendations.
+
+### Record shape
+
+```text
+WorkflowObservation
+  id                  stable occurrence identity
+  sequence            durable monotonic workspace append order
+  sessionId           originating OrkWorks session
+  observedAt          accepted timestamp
+  kind                repetition | obstacle | missing_context | assumption |
+                      correction | workaround | verification_gap
+  description         concise statement of the friction (max 500 Unicode scalar values)
+  evidence            concrete action, missing fact, correction, or outcome (max 2,000 Unicode scalar values)
+  reportedImpact      low | medium | high
+  source              agent | peon
+  confidence          confidence that the observation is accurate
+  fingerprint         versioned, server-derived correlation key
+  idempotencyKeyHash  server-derived durable retry identity; not API-exposed
+```
+
+`source: agent` carries a fixed confidence of `0.9`, assigned by the authenticated reporting adapter; the caller cannot set it. `source: peon` carries Peon's own required per-candidate confidence. An observation is immutable while retained; bounded storage and explicit session deletion may remove it. Higher confidence makes evidence more useful; it does not make the claim unquestionably true, and every resulting recommendation remains dismissible.
+
+### Recording module
+
+One workflow-evidence module owns validation, normalization, fingerprinting, deduplication, persistence, retention, and retrieval, reachable only through:
+
+```text
+record_observation(session_id, origin, idempotency_key, candidate)
+  -> accepted observation, duplicate identity, or rejection
+workspace_observations(workspace_id) -> observations in append order
+delete_session_observations(session_id) -> deletion outcome
+```
+
+Two adapters cross this seam: the explicit agent-report HTTP adapter and the Peon inference adapter. Neither adapter implements storage, fingerprinting, or deduplication rules directly, and Taskmaster reads through the module rather than opening metadata files directly.
+
+### Explicit agent reporting
+
+```text
+POST /sessions/:id/workflow-observations
+```
+
+Every live session receives an independent 256-bit random reporting capability in `ORKWORKS_REPORT_TOKEN` (not persisted, replaced on resume), alongside the existing `ORKWORKS_SESSION_ID` and `ORKWORKS_PORT`. The route requires `Authorization: Bearer <ORKWORKS_REPORT_TOKEN>` and an `Idempotency-Key` header (1–128 visible ASCII characters), rejects missing/malformed/wrong capabilities without recording an observation, accepts only `kind`, `description`, `evidence`, and `reportedImpact` in the request body (workspace identity, source, confidence, fingerprint, and recommendation fields are all server-derived), limits the complete body to 8 KiB, and enforces at most 30 reports per session in a rolling 60-second window (`429` beyond that). The route reports evidence only; it cannot create or mutate a Taskmaster recommendation directly.
+
+### Storage and limits
+
+```text
+~/.orkworks/workspaces/<hash>/workflow-observations/<session-id>.ndjson
+~/.orkworks/workspaces/<hash>/workflow-observations/sequence
+```
+
+Segments are session-scoped for exact deletion but aggregated workspace-wide for correlation. Each session segment is bounded to the newest 1,000 observations and 2 MiB (including reserved compact idempotency tombstones); workspace reconstruction for Taskmaster reads at most the newest 10,000 observations across all segments, ordered by `sequence`. `DELETE /sessions/:id/forget` and automatic retention delete a session's observation segment and every recommendation derived from it, in the same cleanup path as session metadata and events.
 
 ## Updated MVP Scope
 
@@ -358,11 +427,13 @@ The first useful MVP should include:
   - `events/`
   - `capacity/`
   - `skills/`
+  - `workflow-observations/`
 - read/write `sessions/<session-id>.json`
 - watch session JSON files for changes
 - trust explicit agent-written session JSON
 - infer state when JSON is missing or stale
 - append basic event logs to `events/<session-id>.ndjson`
+- record bounded, sequenced workflow observations to `workflow-observations/<session-id>.ndjson` through the shared recording module (see "Workflow observations" above)
 
 #### Git Context Detection
 
@@ -385,6 +456,7 @@ The first useful MVP should include:
 - validate model response against schema
 - update session JSON with inferred metadata
 - append Peon notes to event log
+- may emit workflow-observation candidates (kind, description, evidence, reportedImpact, own confidence) alongside or independently of session-situation inference
 - show confidence/source in UI
 - never send terminal input automatically
 

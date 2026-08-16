@@ -33,9 +33,9 @@ Electron-main denies renderer popup and navigation requests, delegates valid HTT
 
 `apps/desktop/src/api.ts` defines TypeScript types and fetch wrappers for the REST API. `App.tsx` polls `/sessions` every 2 seconds, restores the last active workspace session when `POST /workspace` returns `lastActiveSessionId`, and persists the newly selected active session back through `POST /workspace/active-session`. Session state flows: Rust structs → JSON API → `SessionInfo`/`WorkspaceInfo` TS types → React state → components. The payload exposes canonical `harnessId`, `modelProviderId`, and `modelId` fields alongside legacy fields during the migration window. Its session state is the canonical `creating → alive → stopping → dead` lifecycle, with alive-only attention (`working`, `idle`, `needs_you`, `blocked`, `failed`, or `capped`); `connectivity`, `terminalOutcome`, `lastActivityAt`, `lastOutputAt`, and `resumeOptions` provide supporting runtime and history context. `lastActivityAt` tracks meaningful situation changes for task history, while `lastOutputAt` tracks raw PTY output; session-list recency selects the newest valid timestamp. PTY lifetime is session-runtime-owned in the sidecar; the terminal WebSocket is an attach/detach transport rather than the thing that keeps the PTY alive.
 
-Key endpoints: `POST /workspace`, `POST /workspace/active-session`, `PUT /workspace/active-harnesses`, `GET/POST /sessions`, `DELETE /sessions/:id`, `DELETE /sessions/:id/forget`, `POST /sessions/:id/resume`, `POST /sessions/:id/harness-session`, `POST /sessions/:id/attention`, `POST /sessions/:id/plan-path`, `POST /sessions/:id/debug-injection`, `GET /sessions/:id/plan-content`, `POST /sessions/:id/request-plan-review`, `GET /workspace/integrations/:harness_id/status`, `POST /workspace/integrations/:harness_id/install`, `POST /workspace/integrations/:harness_id/uninstall`, `GET /sessions/:id/terminal-output`, `GET /sessions/:id/summary-log`, `GET /providers`, `GET /providers/:id/models`, `POST /settings/providers`, `POST /settings/providers/ollama/verify`, `POST /settings/retention`, `GET/POST /harnesses`, `PUT/DELETE /harnesses/:id`, and `WS /sessions/:id/terminal`.
+Key endpoints: `POST /workspace`, `POST /workspace/active-session`, `PUT /workspace/active-harnesses`, `GET/POST /sessions`, `DELETE /sessions/:id`, `DELETE /sessions/:id/forget`, `POST /sessions/:id/resume`, `POST /sessions/:id/harness-session`, `POST /sessions/:id/attention`, `POST /sessions/:id/plan-path`, `POST /sessions/:id/debug-injection`, `GET /sessions/:id/plan-content`, `POST /sessions/:id/request-plan-review`, `GET /workspace/integrations/:harness_id/status`, `POST /workspace/integrations/:harness_id/install`, `POST /workspace/integrations/:harness_id/uninstall`, `GET /sessions/:id/terminal-output`, `GET /providers`, `GET /providers/:id/models`, `POST /settings/providers`, `POST /settings/providers/ollama/verify`, `POST /settings/retention`, `GET/POST /harnesses`, `PUT/DELETE /harnesses/:id`, and `WS /sessions/:id/terminal`.
 
-`GET /sessions/:id/summary-log` returns `{ "entries": [{ "timestamp", "summary", "source", "confidence" }] }` in append order, where `confidence` is nullable; a missing workspace, session log, or checkpoint returns `{ "entries": [] }`. Internal event types and status fields are excluded. `apps/desktop/src/api.ts`'s `getSummaryLog` fetches it, and `SessionDetailPanel` renders the checkpoint history as a "Task history" section (ADR 0029) — distinct from the session `label`, which is a stable, one-shot Peon-authored topic rather than this turn-by-turn activity log.
+`GET /sessions/:id/summary-log` and the desktop's "Task history" checkpoint list it fed are removed (ADR 0042, superseding ADR 0024/ADR 0029) in favor of the current-summary snapshot and workflow-observation contract described below.
 
 Every spawned PTY session receives `ORKWORKS_SESSION_ID` and `ORKWORKS_PORT` in its environment, so an in-session hook can address the sidecar without any config look-up. Harness-native session IDs are reported through `POST /sessions/:id/harness-session`, which writes `resume.harnessSessionId` plus source/confidence/captured-at metadata. Deterministic supported sources such as the installable OpenCode `session.created` plugin (issue #110; reads the same two env vars via `process.env` inside OpenCode's plugin host) and Claude hook JSON outrank Peon inference; interactive status probes remain user-triggered.
 
@@ -48,6 +48,56 @@ Every spawned PTY session receives `ORKWORKS_SESSION_ID` and `ORKWORKS_PORT` in 
 `POST /sessions` now accepts `{ harnessId, model, initialPrompt }`. The renderer's New agent session dialog labels harness choices as coding tools, can fall back to the default shell session if harness metadata is temporarily unavailable, and still sends the selected harness config id so session rows and remembered-session resume behavior remain compatible. The response returns as soon as the `"creating"` metadata record is persisted, before the harness has actually spawned — the PTY spawn runs as a detached background task, mirroring how `POST /sessions/:id/resume` and daemon-restart reconciliation already leave a session observable in `"creating"`. A spawn failure surfaces asynchronously as `status: "error"`, observed via the existing `GET /sessions` poll, rather than as a synchronous error response (issue #302).
 
 `electron/workspaceMemory.ts` persists the last workspace path and recent workspace directories to the Electron user data directory, enabling workspace restore on relaunch. The sidecar persists workspace-scoped state to `~/.orkworks/workspaces/<path-hash>/workspace.json`; Aider's versioned notification-command preference is separately stored at `integrations/aider.json`, so no repository Aider configuration is edited.
+
+## Workflow observations and the current-summary snapshot (design)
+
+This section documents the authoritative target contract from
+[ADR 0042](../adr/0042-workflow-observations-replace-summary-checkpoints.md)
+and `specs/orkworks-mvp.md`/`specs/taskmaster.md`; implementation is tracked
+by [issue #313](https://github.com/Rambolarsen/orkworks/issues/313) and lands
+across Tasks 2–4 of the workflow-observation-feedback-loop plan, not this
+section alone. Update this section (and remove this note) once the code
+matches it.
+
+`SessionMetadata` gains a first-class current-summary snapshot: `summary`,
+`summarySource` (`agent` | `peon`), `summaryConfidence`, and
+`summaryObservedAt`, all four updated or cleared together (see
+"Current-summary snapshot" in `specs/orkworks-mvp.md`). This replaces the
+ADR 0024 durable summary-checkpoint mechanism; no new checkpoint is appended
+to `events/<id>.ndjson`, and `GET /sessions/:id/summary-log` and the desktop's
+"Task history" section are removed. Old event records containing the
+superseded checkpoint fields remain readable.
+
+Separately, a workflow-evidence module owns `WorkflowObservation` records
+(`id`, `sequence`, `sessionId`, `observedAt`, `kind`, `description`,
+`evidence`, `reportedImpact`, `source`, `confidence`, `fingerprint`,
+`idempotencyKeyHash`) behind a small interface — `record_observation`,
+`workspace_observations`, `delete_session_observations` — reachable from two
+adapters: an authenticated explicit-report HTTP adapter and a Peon inference
+adapter. Records persist as bounded, session-segmented NDJSON under
+`~/.orkworks/workspaces/<hash>/workflow-observations/<session-id>.ndjson`
+(newest 1,000 records/2 MiB per session), ordered by a durable
+`~/.orkworks/workspaces/<hash>/workflow-observations/sequence` counter;
+workspace reconstruction reads the newest 10,000 records across segments.
+`DELETE /sessions/:id/forget` and retention delete a session's segment and
+every recommendation derived from it.
+
+The three routes this design introduces or repurposes:
+
+- `POST /sessions/:id/workflow-observations` — harness-neutral explicit report, authenticated with a per-session, non-persisted `ORKWORKS_REPORT_TOKEN` bearer capability (alongside the existing `ORKWORKS_SESSION_ID`/`ORKWORKS_PORT` env vars) and an `Idempotency-Key` header; body limited to `kind`/`description`/`evidence`/`reportedImpact`, 8 KiB total, rate-limited to 30/session/60s.
+- `GET /taskmaster/recommendations` — lists the passive `improve_workflow` recommendation variant alongside other Taskmaster recommendation types.
+- `POST /taskmaster/recommendations/:id/dismiss` — the only lifecycle action `improve_workflow` exposes; it has no accept/execute action, since `requiresApproval: false` here means "nothing to approve," not "auto-applied."
+
+Taskmaster correlates accepted observations five seconds after the latest
+accepted one: a fingerprint cluster of at least two distinct observations at
+confidence ≥ 0.6, or one `reportedImpact: high` observation at confidence ≥
+0.8, produces one `improve_workflow` recommendation embedding immutable
+snapshots of its cited observations, deduped as
+`improve_workflow:v1:<target-surface>:<observation-fingerprint>` and
+resurfaced past a dismissal watermark only on higher impact or two
+newly-qualifying observations including a new session. See
+`specs/taskmaster.md`'s "Workflow-improvement recommendations" section for
+the full eligibility, kind-to-target mapping, and dismissal-watermark rules.
 
 ## Rust sidecar (`crates/orkworksd/src/`)
 
@@ -69,7 +119,7 @@ Single binary. Top-level modules:
   - `terminal_runtime.rs` — env helpers (`terminal_env_overrides`, `session_env_overrides`, `should_forward_terminal_env`), `TerminalAction` dispatch, `set_session_status`, and websocket attach/detach transport that continues observing client closure while a command is backpressured
 - `git.rs` — git2-based context detection (repo root, branch, dirty check including untracked files while excluding ignored files), run against each session's *effective* cwd (see `procfs.rs` and `session_view::resolve_effective_cwds`)
 - `harness.rs` — neutral command and resume types plus `definition`, `registry`, `store`, `integration`, and `integrations` submodules. The versioned built-in resource and user overrides resolve once into an immutable `ResolvedHarnessRegistry`; each runtime operation captures one snapshot. Definitions can be `retired`: they remain resolvable for historical sessions and settings, but are excluded from new-session selection and launch. `integration` supplies canonical workspace confinement, component-by-component no-follow parent creation, Git-local-only checks, optimistic revision-checked configuration transactions, and the cross-platform publication helper; `integrations` is the closed compiled-handler dispatch boundary. Definitions declare launch, resume, model, Peon, capacity, signal, integration, and voice capabilities without adapter code paths. Windows uses target-only `windows-sys`: `ReplaceFileW` for an expected existing target and non-replacing `MoveFileExW` for an expected new target. The final check remains best-effort optimistic concurrency, not a portable CAS guarantee.
-- `metadata.rs` — reads/writes session, workspace, and event files under the global metadata root (`~/.orkworks/workspaces/<hash>/`). Raw `events/<id>.terminal` replay is trimmed on append to the newest 1,000 lines and 1 MiB; existing oversized dormant files remain unchanged until append. The PTY's last known `cols`/`rows` is persisted once to `events/<id>.terminal-size` at the terminal-status transition and cleared on resume, so dead-session replay renders at the recorded grid instead of fit-to-container; see [ADR 0033](../adr/0033-recorded-terminal-replay-size-sidecar.md). Accepted Peon inference and attention reports preserve exact summaries as durable NDJSON checkpoints with accepted provenance, omitting only whitespace summaries and exact consecutive duplicates. See [ADR 0024](../adr/0024-bounded-terminal-replay-durable-summary-checkpoints.md).
+- `metadata.rs` — reads/writes session, workspace, and event files under the global metadata root (`~/.orkworks/workspaces/<hash>/`). Raw `events/<id>.terminal` replay is trimmed on append to the newest 1,000 lines and 1 MiB; existing oversized dormant files remain unchanged until append. The PTY's last known `cols`/`rows` is persisted once to `events/<id>.terminal-size` at the terminal-status transition and cleared on resume, so dead-session replay renders at the recorded grid instead of fit-to-container; see [ADR 0033](../adr/0033-recorded-terminal-replay-size-sidecar.md). Accepted Peon inference and attention reports update the current-summary snapshot on `SessionMetadata` rather than appending a durable event-log checkpoint; see "Workflow observations and the current-summary snapshot" below and [ADR 0042](../adr/0042-workflow-observations-replace-summary-checkpoints.md).
 - `migration.rs` — one-time migration of legacy `<workspace>/.orkworks/` data into the global store
 - `peon.rs` — observer config, ring buffer, in-memory observation state, prompt building, inference parsing/validation, source-priority overwrite rules, timer-based idle detection (`PEON_IDLE_TIMEOUT`, default 15s), summary normalization (strips "User is/wants/typed" prefixes), and usage-limit detection from terminal output
 - `procfs.rs` — `live_cwds(pids)`: cross-platform (Linux/macOS/Windows) batched probe for running processes' current working directories in one `sysinfo` scan. Backs the pid-probe tier of live session git-context tracking (issue #241, [ADR 0031](../adr/0031-live-session-cwd-via-sysinfo-probe.md)); pids that are gone, denied, or unsupported are simply absent from the result and callers fall back further down the chain. Only actually tracks bare shell sessions — see `resolve_effective_cwds` below for why command-template harness sessions need [ADR 0032](../adr/0032-harness-reported-cwd-via-hook-payload.md)'s harness-reported cwd instead.

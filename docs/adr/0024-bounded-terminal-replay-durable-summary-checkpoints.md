@@ -1,6 +1,6 @@
 # Bounded terminal replay with durable summary checkpoints
 
-- Status: accepted
+- Status: superseded by [ADR 0042](./0042-workflow-observations-replace-summary-checkpoints.md)
 - Deciders: Rambolarsen
 - Date: 2026-07-21
 

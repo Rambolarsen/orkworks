@@ -190,15 +190,16 @@ An ADR earns a bullet below only while it is `accepted` (not superseded), constr
 - ADR 0028: Harness version-probe results are cached with bounded TTLs and generation-aware invalidation, preserving the integration action's post-probe identity revalidation.
 - ADR 0035: Codex's `SessionStart` hook (`.codex/hooks.json`) captures `harness_session_id` at `agent`-tier confidence via the existing `JsonHookHandler`/reporter-script framework; unlike every other integration's hooked event, `SessionStart` is not a "needs input" signal, so the shared reporter script skips its generic attention POST specifically for Codex's marker.
 - ADR 0037: Plan/spec paths can be reported through a dedicated path-only sidecar route (`POST /sessions/:id/plan-path`) that canonicalizes the file and stores its workspace-relative form without changing session attention, superseding terminal-text inference when a harness reports a canonical file path. Codex remains on the conservative terminal fallback because its hook payload provides patch text, not a canonical file path.
-- ADR 0024, 0025, 0026, 0029, 0031, 0032, 0033: prose lives in [`docs/agents/architecture.md`](docs/agents/architecture.md).
+- ADR 0025, 0026, 0031, 0032, 0033, 0042: prose lives in [`docs/agents/architecture.md`](docs/agents/architecture.md).
 - ADR 0036, 0038: prose lives in [`docs/agents/harness-integration-contracts.md`](docs/agents/harness-integration-contracts.md).
 
 ## Metadata protocol
 
-- `~/.orkworks/workspaces/<hash>/sessions/<id>.json` — session state
-- `~/.orkworks/workspaces/<hash>/events/<id>.ndjson` — append-only event log with durable, exact consecutive-deduplicated summary checkpoints and accepted provenance
+- `~/.orkworks/workspaces/<hash>/sessions/<id>.json` — session state, including the current-summary snapshot (`summary`, `summarySource`, `summaryConfidence`, `summaryObservedAt`, all four updated or cleared together — ADR 0042)
+- `~/.orkworks/workspaces/<hash>/events/<id>.ndjson` — append-only event log; existing records may still carry the superseded summary-checkpoint fields from ADR 0024 for read compatibility, but no new checkpoint is appended
 - `~/.orkworks/workspaces/<hash>/events/<id>.terminal` — recent raw terminal replay, bounded on append to the newest 1,000 lines and 1 MiB; existing oversized dormant files remain unchanged until their next append
 - `~/.orkworks/workspaces/<hash>/events/<id>.terminal-size` — the PTY's `cols`x`rows`, used to render dead-session terminal replay at its recorded size instead of the current panel width. Written authoritatively at the moment a session reaches a terminal status (`killed`/`ended`/`error`), and best-effort on every live resize so a daemon restart mid-session still leaves a usable last-known size for orphan reconciliation (`metadata::reconcile_orphaned_session`), which has no in-memory runtime handle to read a size from and never reaches the terminal-status transition itself. Still absent for sessions that ended before this file existed and for sessions that never lived long enough to receive a resize before an untimely daemon restart — both cases fall back to fit-to-container replay, which can misrender recorded output that used absolute-column cursor addressing computed for a different width than the container happens to fit to.
+- `~/.orkworks/workspaces/<hash>/workflow-observations/<session-id>.ndjson` and `~/.orkworks/workspaces/<hash>/workflow-observations/sequence` — bounded (1,000 records/2 MiB per session), sequenced, immutable `WorkflowObservation` evidence recorded through one shared module from an authenticated agent-report route and Peon inference; durable improvement evidence for Taskmaster, deliberately separate from the current-summary snapshot above (ADR 0042)
 - `~/.orkworks/workspaces/<hash>/capacity/<id>.json` — capacity per model/harness
 - `~/.orkworks/workspaces/<hash>/recommendations/<id>.json` — Taskmaster recommendation state and history
 - `~/.orkworks/workspaces/<hash>/workspace.json` — workspace memory, including the last active session
@@ -208,8 +209,7 @@ An ADR earns a bullet below only while it is `accepted` (not superseded), constr
 - Priority: user > agent > peon > backend_inference > process > unknown > debug
 - Peon reads terminal output, writes inferred metadata, never types into terminals
 - Detached runtimes continue draining terminal output, persisting history, and feeding Peon while `orkworksd` stays alive; losing the renderer terminal attachment alone must not end the session
-- `GET /sessions/:id/summary-log` exposes checkpoints in append order as timestamp, summary, source, and nullable confidence; missing data returns `{ "entries": [] }`. Rendered in the session detail panel as "Task history," distinct from the session's `label` (title), which is a stable, one-shot Peon-authored topic rather than this turn-by-turn activity log (ADR 0029).
-- Taskmaster consumes normalized metadata and proposes cross-session transitions; v1 requires explicit user approval for every action
+- Taskmaster consumes normalized metadata and proposes cross-session transitions; v1 requires explicit user approval for every action. Its passive `improve_workflow` recommendation is the one exception to the approval-before-action framing above only in that it requires no approval to *display* — it still cannot start a session, focus a terminal, or edit a file; it can only be dismissed (ADR 0042).
 
 ## Key conventions from specs
 

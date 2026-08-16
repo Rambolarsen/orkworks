@@ -1,6 +1,6 @@
 # Session label is a one-shot Peon-authored topic, decoupled from the turn-by-turn summary
 
-- Status: accepted
+- Status: superseded by [ADR 0042](./0042-workflow-observations-replace-summary-checkpoints.md)
 - Deciders: Rambolarsen
 - Date: 2026-07-27
 
