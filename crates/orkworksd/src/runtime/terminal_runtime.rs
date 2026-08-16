@@ -1356,6 +1356,10 @@ mod tests {
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
+                workflow_observations: crate::workflow_observations::WorkflowObservationStore::open(
+                    orkworks.clone(),
+                )
+                .expect("open workflow observation store"),
                 watcher: crate::watcher::MetadataWatcher::start(&orkworks.join("sessions")),
             })),
             peon: crate::PeonState {
@@ -3094,6 +3098,10 @@ mod tests {
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
+                workflow_observations: crate::workflow_observations::WorkflowObservationStore::open(
+                    orkworks.clone(),
+                )
+                .expect("open workflow observation store"),
                 watcher: crate::watcher::MetadataWatcher::start(&orkworks.join("sessions")),
             })),
             peon: crate::PeonState {
@@ -3237,6 +3245,10 @@ mod tests {
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
+                workflow_observations: crate::workflow_observations::WorkflowObservationStore::open(
+                    orkworks.clone(),
+                )
+                .expect("open workflow observation store"),
                 watcher: crate::watcher::MetadataWatcher::start(&orkworks.join("sessions")),
             })),
             peon: crate::PeonState {
@@ -3415,6 +3427,10 @@ mod tests {
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
+                workflow_observations: crate::workflow_observations::WorkflowObservationStore::open(
+                    orkworks.clone(),
+                )
+                .expect("open workflow observation store"),
                 watcher: crate::watcher::MetadataWatcher::start(&orkworks.join("sessions")),
             })),
             peon: crate::PeonState {

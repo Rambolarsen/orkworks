@@ -2016,6 +2016,10 @@ mod tests {
         *state.workspace.lock().unwrap() = Some(crate::WorkspaceState {
             path: dir.path().to_path_buf(),
             metadata: crate::metadata::MetadataStore::new(&metadata_root),
+            workflow_observations: crate::workflow_observations::WorkflowObservationStore::open(
+                metadata_root.clone(),
+            )
+            .expect("open workflow observation store"),
             watcher: crate::watcher::MetadataWatcher::start(&metadata_root.join("sessions")),
         });
 
@@ -2244,6 +2248,10 @@ mod tests {
         *state.workspace.lock().unwrap() = Some(crate::WorkspaceState {
             path: dir.path().to_path_buf(),
             metadata: crate::metadata::MetadataStore::new(&metadata_root),
+            workflow_observations: crate::workflow_observations::WorkflowObservationStore::open(
+                metadata_root.clone(),
+            )
+            .expect("open workflow observation store"),
             watcher: crate::watcher::MetadataWatcher::start(&metadata_root.join("sessions")),
         });
 
@@ -2434,6 +2442,10 @@ mod tests {
         *state.workspace.lock().unwrap() = Some(crate::WorkspaceState {
             path: dir.path().to_path_buf(),
             metadata: crate::metadata::MetadataStore::new(&metadata_root),
+            workflow_observations: crate::workflow_observations::WorkflowObservationStore::open(
+                metadata_root.clone(),
+            )
+            .expect("open workflow observation store"),
             watcher: crate::watcher::MetadataWatcher::start(&metadata_root.join("sessions")),
         });
         {
@@ -2510,6 +2522,10 @@ mod tests {
         *state.workspace.lock().unwrap() = Some(crate::WorkspaceState {
             path: dir.path().to_path_buf(),
             metadata: crate::metadata::MetadataStore::new(&metadata_root),
+            workflow_observations: crate::workflow_observations::WorkflowObservationStore::open(
+                metadata_root.clone(),
+            )
+            .expect("open workflow observation store"),
             watcher: crate::watcher::MetadataWatcher::start(&metadata_root.join("sessions")),
         });
         {
@@ -2669,6 +2685,10 @@ mod tests {
         *state.workspace.lock().unwrap() = Some(crate::WorkspaceState {
             path: dir.path().to_path_buf(),
             metadata: crate::metadata::MetadataStore::new(&metadata_root),
+            workflow_observations: crate::workflow_observations::WorkflowObservationStore::open(
+                metadata_root.clone(),
+            )
+            .expect("open workflow observation store"),
             watcher: crate::watcher::MetadataWatcher::start(&metadata_root.join("sessions")),
         });
         {
@@ -3380,6 +3400,10 @@ mod tests {
         *state.workspace.lock().unwrap() = Some(crate::WorkspaceState {
             path: dir.path().to_path_buf(),
             metadata: crate::metadata::MetadataStore::new(&metadata_root),
+            workflow_observations: crate::workflow_observations::WorkflowObservationStore::open(
+                metadata_root.clone(),
+            )
+            .expect("open workflow observation store"),
             watcher: crate::watcher::MetadataWatcher::start(&metadata_root.join("sessions")),
         });
         let replay_store = crate::metadata::MetadataStore::new(&metadata_root);

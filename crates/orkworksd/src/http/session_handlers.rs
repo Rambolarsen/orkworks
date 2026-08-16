@@ -298,10 +298,25 @@ pub(crate) async fn set_workspace(
     let watch_dir = global_dir.join("sessions");
     let watcher = watcher::MetadataWatcher::start(&watch_dir);
 
+    let workflow_observations = match crate::workflow_observations::WorkflowObservationStore::open(
+        global_dir.clone(),
+    ) {
+        Ok(store) => store,
+        Err(e) => {
+            tracing::warn!(path = %global_dir.display(), error = %e, "failed to open workflow observation store");
+            return (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "failed to open workflow observation store",
+            )
+                .into_response();
+        }
+    };
+
     let mut ws = state.workspace.lock().unwrap();
     *ws = Some(WorkspaceState {
         path: ws_path.clone(),
         metadata: store,
+        workflow_observations,
         watcher,
     });
     state.bump_harness_probe_generation();
@@ -5553,6 +5568,10 @@ mod tests {
             workspace: std::sync::Mutex::new(Some(WorkspaceState {
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
+                workflow_observations: crate::workflow_observations::WorkflowObservationStore::open(
+                    orkworks.clone(),
+                )
+                .expect("open workflow observation store"),
                 watcher: watcher::MetadataWatcher::start(&orkworks.join("sessions")),
             })),
             peon: crate::PeonState {
@@ -6644,6 +6663,10 @@ mod tests {
             workspace: std::sync::Mutex::new(Some(WorkspaceState {
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
+                workflow_observations: crate::workflow_observations::WorkflowObservationStore::open(
+                    orkworks.clone(),
+                )
+                .expect("open workflow observation store"),
                 watcher: watcher::MetadataWatcher::start(&orkworks.join("sessions")),
             })),
             peon: crate::PeonState {

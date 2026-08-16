@@ -24,6 +24,7 @@ mod runtime;
 mod session_types;
 mod session_view;
 mod watcher;
+mod workflow_observations;
 mod workspace_runtime;
 
 use crate::harness::definition::{BuiltinDocument, EMBEDDED_BUILTINS};
@@ -78,6 +79,10 @@ struct SessionHandle {
 struct WorkspaceState {
     path: PathBuf,
     metadata: metadata::MetadataStore,
+    // Not yet read anywhere: the HTTP and Peon adapters that call through it
+    // land in later tasks (see workflow_observations module docs).
+    #[allow(dead_code)]
+    workflow_observations: workflow_observations::WorkflowObservationStore,
     #[allow(dead_code)]
     watcher: watcher::MetadataWatcher,
 }
@@ -394,6 +399,10 @@ pub(crate) mod test_support {
             workspace: Mutex::new(Some(WorkspaceState {
                 path: path.to_path_buf(),
                 metadata: metadata::MetadataStore::new(&metadata_root),
+                workflow_observations: workflow_observations::WorkflowObservationStore::open(
+                    metadata_root.clone(),
+                )
+                .expect("open workflow observation store"),
                 watcher: watcher::MetadataWatcher::start(&metadata_root.join("sessions")),
             })),
             peon: PeonState {
@@ -427,6 +436,10 @@ pub(crate) mod test_support {
         *state.workspace.lock().unwrap() = Some(WorkspaceState {
             path: path.to_path_buf(),
             metadata: metadata::MetadataStore::new(&metadata_root),
+            workflow_observations: workflow_observations::WorkflowObservationStore::open(
+                metadata_root.clone(),
+            )
+            .expect("open workflow observation store"),
             watcher: watcher::MetadataWatcher::start(&metadata_root.join("sessions")),
         });
         state.bump_harness_probe_generation();
