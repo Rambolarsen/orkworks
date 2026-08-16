@@ -51,8 +51,11 @@ const MAX_SEGMENT_BYTES: u64 = 2 * 1024 * 1024;
 const MAX_WORKSPACE_OBSERVATIONS: usize = 10_000;
 const IDEMPOTENCY_WINDOW_SECS: i64 = 15 * 60;
 const MAX_TOMBSTONES: usize = 1_024;
-#[allow(dead_code)]
 const MAX_ACCEPTED_PER_SESSION_MINUTE: usize = 60;
+/// Rolling window over which `MAX_ACCEPTED_PER_SESSION_MINUTE` is enforced
+/// live in `record_observation`. Distinct from `IDEMPOTENCY_WINDOW_SECS`,
+/// which governs duplicate-key replay, not acceptance rate.
+const RATE_LIMIT_WINDOW_SECS: i64 = 60;
 
 /// Confidence assigned to every authenticated agent-origin report. The
 /// caller cannot override this; see `ObservationSource::Agent` policy in the
@@ -243,6 +246,10 @@ pub(crate) enum RecordError {
     /// guess or reuse an order value until it is repaired.
     Degraded,
     PersistFailed,
+    /// The session already has `MAX_ACCEPTED_PER_SESSION_MINUTE` accepted
+    /// observations within the trailing `RATE_LIMIT_WINDOW_SECS`; the
+    /// tombstone reservation math depends on this cap holding live.
+    RateLimited,
 }
 
 impl std::fmt::Display for RecordError {
@@ -265,6 +272,9 @@ impl std::fmt::Display for RecordError {
                 "the workflow observation store is degraded and rejects new observations"
             }
             RecordError::PersistFailed => "failed to durably persist the workflow observation",
+            RecordError::RateLimited => {
+                "the session exceeded the per-session accepted-observation rate cap"
+            }
         };
         write!(f, "{message}")
     }
@@ -505,6 +515,17 @@ impl WorkflowObservationStore {
             inner.idempotency.remove(&cache_key);
         }
 
+        if let Some(cache) = inner.session_cache.get(session_id) {
+            let accepted_in_window = cache
+                .observations
+                .iter()
+                .filter(|stored| within_rate_window(now, &stored.observation.observed_at))
+                .count();
+            if accepted_in_window >= MAX_ACCEPTED_PER_SESSION_MINUTE {
+                return Err(RecordError::RateLimited);
+            }
+        }
+
         let new_sequence = inner.last_issued_sequence + 1;
         self.write_counter(new_sequence)
             .map_err(|_| RecordError::PersistFailed)?;
@@ -687,6 +708,18 @@ fn within_window(now: DateTime<Utc>, iso: &str) -> bool {
         Ok(dt) => {
             now.signed_duration_since(dt.with_timezone(&Utc))
                 <= chrono::Duration::seconds(IDEMPOTENCY_WINDOW_SECS)
+        }
+        Err(_) => false,
+    }
+}
+
+/// Like `within_window` but over the shorter `RATE_LIMIT_WINDOW_SECS` used to
+/// enforce `MAX_ACCEPTED_PER_SESSION_MINUTE` live in `record_observation`.
+fn within_rate_window(now: DateTime<Utc>, iso: &str) -> bool {
+    match DateTime::parse_from_rfc3339(iso) {
+        Ok(dt) => {
+            now.signed_duration_since(dt.with_timezone(&Utc))
+                <= chrono::Duration::seconds(RATE_LIMIT_WINDOW_SECS)
         }
         Err(_) => false,
     }
@@ -1305,38 +1338,97 @@ mod tests {
 
     #[test]
     fn duplicate_retry_within_window_survives_trim_via_tombstone_after_restart() {
+        // Reaching >MAX_SEGMENT_OBSERVATIONS (1,000) accepted observations
+        // for one session is now impossible through record_observation alone
+        // within the 15-minute idempotency window, since the live rate cap
+        // limits acceptance to MAX_ACCEPTED_PER_SESSION_MINUTE (60) per
+        // rolling minute. So this test primes the original observation plus
+        // enough filler directly to disk -- exactly mirroring what a real
+        // restart rebuilds from already-durably-persisted history -- and
+        // only exercises the SUT's live trim/tombstone path for the single
+        // record that actually pushes the segment over the bound.
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().to_path_buf();
+        let ndjson_dir = root.join("workflow-observations");
+        fs::create_dir_all(&ndjson_dir).unwrap();
 
-        let original_id;
-        let original_seq;
+        // Older than the rate-limit window (60s) but well inside the
+        // 15-minute idempotency/tombstone window, so the primed history
+        // doesn't itself trip the live per-session rate cap on the one SUT
+        // call below.
+        let primed_at = Utc::now() - chrono::Duration::seconds(90);
+
+        let original_id = "obs-original".to_string();
+        let original_seq: u64 = 1;
+        let original_stored = StoredObservation {
+            observation: WorkflowObservation {
+                id: original_id.clone(),
+                sequence: original_seq,
+                session_id: "session-1".to_string(),
+                observed_at: primed_at.to_rfc3339(),
+                kind: ObservationKind::Obstacle,
+                description: "retried description".to_string(),
+                evidence: "evidence".to_string(),
+                reported_impact: Impact::Medium,
+                source: ObservationSource::Agent,
+                confidence: AGENT_CONFIDENCE,
+                fingerprint: "v1:obstacle:retried description".to_string(),
+            },
+            idempotency_key_hash: hash_key("session-1", "retry-key"),
+            payload_hash: hash_payload(
+                ObservationKind::Obstacle,
+                "retried description",
+                "evidence",
+                Impact::Medium,
+            ),
+        };
+
+        let mut buf = String::new();
+        buf.push_str(&serialize_observation_line(&original_stored).unwrap());
+        buf.push('\n');
+
+        let mut sequence = original_seq;
+        for _ in 0..(MAX_SEGMENT_OBSERVATIONS - 1) {
+            sequence += 1;
+            let stored = StoredObservation {
+                observation: WorkflowObservation {
+                    id: format!("obs-filler-{sequence}"),
+                    sequence,
+                    session_id: "session-1".to_string(),
+                    observed_at: primed_at.to_rfc3339(),
+                    kind: ObservationKind::Obstacle,
+                    description: "filler description".to_string(),
+                    evidence: "evidence".to_string(),
+                    reported_impact: Impact::Medium,
+                    source: ObservationSource::Agent,
+                    confidence: AGENT_CONFIDENCE,
+                    fingerprint: "v1:obstacle:filler description".to_string(),
+                },
+                idempotency_key_hash: format!("hash-{sequence}"),
+                payload_hash: format!("payload-{sequence}"),
+            };
+            buf.push_str(&serialize_observation_line(&stored).unwrap());
+            buf.push('\n');
+        }
+        fs::write(ndjson_dir.join("session-1.ndjson"), &buf).unwrap();
+        fs::write(ndjson_dir.join("sequence"), sequence.to_string()).unwrap();
+
         {
             let store = open_store(&root);
-            let first = store
+            // The segment is primed at exactly MAX_SEGMENT_OBSERVATIONS; one
+            // more accepted call pushes it over the bound, forcing the SUT
+            // to evict the oldest (the original observation) via the real
+            // trim/rewrite path. That eviction happens well within the
+            // 15-minute idempotency window, so it must retain a tombstone
+            // rather than dropping the key outright.
+            store
                 .record_observation(
                     "session-1",
                     ObservationOrigin::Agent,
-                    "retry-key",
-                    candidate(ObservationKind::Obstacle, "retried description", "evidence"),
+                    "final-key",
+                    candidate(ObservationKind::Obstacle, "final description", "evidence"),
                 )
                 .unwrap();
-            (original_id, original_seq) = match first {
-                RecordOutcome::Accepted(obs) => (obs.id, obs.sequence),
-                other => panic!("expected Accepted, got {other:?}"),
-            };
-
-            // Push the segment past MAX_SEGMENT_OBSERVATIONS so the first
-            // record is evicted into a tombstone.
-            for i in 0..MAX_SEGMENT_OBSERVATIONS {
-                store
-                    .record_observation(
-                        "session-1",
-                        ObservationOrigin::Agent,
-                        &format!("filler-{i}"),
-                        candidate(ObservationKind::Obstacle, "filler description", "evidence"),
-                    )
-                    .unwrap();
-            }
         }
 
         // Fresh store: idempotency state must be rebuilt from the retained
@@ -1365,7 +1457,15 @@ mod tests {
     fn segment_trims_to_newest_one_thousand_observations() {
         let dir = tempfile::tempdir().unwrap();
         let store = open_store(dir.path());
+        let base = DateTime::parse_from_rfc3339("2026-01-01T00:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        // This test only cares about count/sequence trimming, not real
+        // elapsed time. Advance the fake clock well clear of the live
+        // per-session rate cap (60/rolling-minute) between every call so it
+        // never trips while pushing far past MAX_SEGMENT_OBSERVATIONS.
         for i in 0..(MAX_SEGMENT_OBSERVATIONS + 5) {
+            store.test_set_clock(base + chrono::Duration::seconds(61 * i as i64));
             store
                 .record_observation(
                     "session-1",
@@ -1426,6 +1526,12 @@ mod tests {
         fs::write(ndjson_dir.join("sequence"), priming_count.to_string()).unwrap();
 
         let store = open_store(&root);
+        // The 700 primed observations above share ~real "now" as their
+        // observed_at. Move the fake clock well clear of the live
+        // per-session rate window (60/rolling-minute) so that already-primed
+        // history doesn't itself trip the cap on the SUT calls below (50
+        // calls is comfortably under the cap on its own).
+        store.test_set_clock(Utc::now() + chrono::Duration::seconds(120));
         // Each further record is a few KB; a handful of real, durable
         // appends is enough to cross MAX_SEGMENT_BYTES and trigger a real
         // trim/rewrite through the SUT.
@@ -1749,6 +1855,162 @@ mod tests {
 
         let diags = store.diagnostics();
         assert!(diags.iter().any(|d| d.code == "sequence_counter_corrupt"));
+    }
+
+    // -- Rate limiting -----------------------------------------------------
+
+    #[test]
+    fn caps_accepted_observations_at_sixty_per_session_per_rolling_minute() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = open_store(dir.path());
+
+        for i in 0..MAX_ACCEPTED_PER_SESSION_MINUTE {
+            let outcome = store
+                .record_observation(
+                    "session-1",
+                    ObservationOrigin::Agent,
+                    &format!("key-{i}"),
+                    candidate(ObservationKind::Obstacle, &format!("description {i}"), "evidence"),
+                )
+                .unwrap();
+            assert!(
+                matches!(outcome, RecordOutcome::Accepted(_)),
+                "expected call {i} to be accepted, got {outcome:?}"
+            );
+        }
+
+        let err = store
+            .record_observation(
+                "session-1",
+                ObservationOrigin::Agent,
+                "key-overflow",
+                candidate(ObservationKind::Obstacle, "description overflow", "evidence"),
+            )
+            .unwrap_err();
+        assert_eq!(err, RecordError::RateLimited);
+
+        // A different session must not be affected by session-1's cap.
+        let outcome = store
+            .record_observation(
+                "session-2",
+                ObservationOrigin::Agent,
+                "key-other-session",
+                candidate(ObservationKind::Obstacle, "description", "evidence"),
+            )
+            .unwrap();
+        assert!(matches!(outcome, RecordOutcome::Accepted(_)));
+    }
+
+    #[test]
+    fn rate_limit_does_not_consume_a_sequence_number_or_write_anything() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+        let store = open_store(&root);
+
+        let mut last_sequence = 0;
+        for i in 0..MAX_ACCEPTED_PER_SESSION_MINUTE {
+            let outcome = store
+                .record_observation(
+                    "session-1",
+                    ObservationOrigin::Agent,
+                    &format!("key-{i}"),
+                    candidate(ObservationKind::Obstacle, &format!("description {i}"), "evidence"),
+                )
+                .unwrap();
+            last_sequence = match outcome {
+                RecordOutcome::Accepted(obs) => obs.sequence,
+                other => panic!("expected Accepted, got {other:?}"),
+            };
+        }
+
+        let err = store
+            .record_observation(
+                "session-1",
+                ObservationOrigin::Agent,
+                "key-overflow",
+                candidate(ObservationKind::Obstacle, "description overflow", "evidence"),
+            )
+            .unwrap_err();
+        assert_eq!(err, RecordError::RateLimited);
+
+        // The rejected call must not have advanced the durable sequence
+        // counter or written anything: the next accepted call (in a
+        // different, uncapped session) picks up right after the last
+        // accepted call above, with no gap for the rate-limited attempt.
+        let outcome = store
+            .record_observation(
+                "session-2",
+                ObservationOrigin::Agent,
+                "key-next",
+                candidate(ObservationKind::Obstacle, "description", "evidence"),
+            )
+            .unwrap();
+        match outcome {
+            RecordOutcome::Accepted(obs) => assert_eq!(obs.sequence, last_sequence + 1),
+            other => panic!("expected Accepted, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn duplicate_idempotency_replay_does_not_count_against_the_rate_cap() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = open_store(dir.path());
+
+        let first = store
+            .record_observation(
+                "session-1",
+                ObservationOrigin::Agent,
+                "retry-key",
+                candidate(ObservationKind::Obstacle, "retried description", "evidence"),
+            )
+            .unwrap();
+        let (first_id, first_seq) = match first {
+            RecordOutcome::Accepted(obs) => (obs.id, obs.sequence),
+            other => panic!("expected Accepted, got {other:?}"),
+        };
+
+        // Fill the session up to the cap with distinct observations.
+        for i in 1..MAX_ACCEPTED_PER_SESSION_MINUTE {
+            store
+                .record_observation(
+                    "session-1",
+                    ObservationOrigin::Agent,
+                    &format!("key-{i}"),
+                    candidate(ObservationKind::Obstacle, &format!("description {i}"), "evidence"),
+                )
+                .unwrap();
+        }
+
+        // The session is now at the cap: a genuinely new observation must be
+        // rate-limited...
+        let err = store
+            .record_observation(
+                "session-1",
+                ObservationOrigin::Agent,
+                "key-overflow",
+                candidate(ObservationKind::Obstacle, "description overflow", "evidence"),
+            )
+            .unwrap_err();
+        assert_eq!(err, RecordError::RateLimited);
+
+        // ...but replaying the original idempotency key with the same
+        // payload must still succeed as a Duplicate, since it does not
+        // durably write anything new and therefore does not consume budget.
+        let retry = store
+            .record_observation(
+                "session-1",
+                ObservationOrigin::Agent,
+                "retry-key",
+                candidate(ObservationKind::Obstacle, "retried description", "evidence"),
+            )
+            .unwrap();
+        match retry {
+            RecordOutcome::Duplicate { observation_id, sequence, .. } => {
+                assert_eq!(observation_id, first_id);
+                assert_eq!(sequence, first_seq);
+            }
+            other => panic!("expected Duplicate, got {other:?}"),
+        }
     }
 
     // -- Deletion ---------------------------------------------------------
