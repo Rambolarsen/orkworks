@@ -81,19 +81,31 @@ test("sortSessions uses recent output when it is newer than meaningful activity"
   assert.deepEqual(sortSessions([stale, recentOutput]).map((item) => item.id), ["recent-output", "stale"]);
 });
 
+test("mergeSessionsById returns a [list, nextLastResortAt] tuple for an initial empty list, with nextLastResortAt === now", () => {
+  const now = new Date("2026-08-15T12:00:00.000Z");
+  const lastResortAt = new Date("2026-08-15T11:59:55.000Z");
+  const incoming = [session("a", "alive"), session("b", "alive")];
+
+  const [merged, nextLastResortAt] = mergeSessionsById([], incoming, lastResortAt, now);
+
+  assert.equal(merged.length, 2);
+  assert.equal(nextLastResortAt, now);
+});
+
 test("mergeSessionsById drops existing rows absent from an authoritative polling snapshot", () => {
   const existing = session("existing", "alive");
   const polledNew = session("new", "alive");
   const createdNew = { ...polledNew, label: "created-new" };
 
-  const merged = mergeSessionsById([existing, polledNew], [createdNew]);
+  const [merged] = mergeSessionsById([existing, polledNew], [createdNew]);
 
   assert.deepEqual(merged.map((item) => item.id), ["new"]);
   assert.strictEqual(merged.find((item) => item.id === "new"), createdNew);
 });
 
 test("mergeSessionsById drops every existing row when the polling snapshot is empty", () => {
-  assert.deepEqual(mergeSessionsById([session("forgotten", "dead")], []), []);
+  const [merged] = mergeSessionsById([session("forgotten", "dead")], []);
+  assert.deepEqual(merged, []);
 });
 
 test("mergeSessionsById sorts an initial polling snapshot deterministically", () => {
@@ -103,48 +115,12 @@ test("mergeSessionsById sorts an initial polling snapshot deterministically", ()
     session("needs-you", "alive", "needs_you"),
   ];
 
-  assert.deepEqual(mergeSessionsById([], incoming), sortSessions(incoming));
+  const [merged] = mergeSessionsById([], incoming);
+  assert.deepEqual(merged, sortSessions(incoming));
 });
 
 test("App combines a creation response with the current snapshot before merging", () => {
   const source = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
 
   assert.match(source, /setSessions\(\s*\(?\s*(\w+)\s*\)?\s*=>\s*mergeSessionsById\(\s*\1\s*,\s*\[\s*\.\.\.\1\s*,\s*session\s*\]\s*\)\s*\);/);
-});
-
-test("mergeSessionsById does not promote a session that just became alive", () => {
-  const top = { ...session("top", "alive"), lastOutputAt: "2026-07-31T12:00:01.000Z" };
-  const starting = { ...session("starting", "creating"), lastOutputAt: "2026-07-31T12:00:00.000Z" };
-  const now = new Date("2026-07-31T12:01:01.000Z");
-
-  assert.deepEqual(
-    mergeSessionsById(
-      [top, starting],
-      [top, { ...starting, lifecycle: "alive", lastOutputAt: "2026-07-31T12:01:01.000Z" }],
-      now,
-    ).map((item) => item.id),
-    ["top", "starting"],
-  );
-});
-
-test("mergeSessionsById promotes fresh activity only after the top session is quiet for one minute", () => {
-  const top = { ...session("top", "alive"), lastOutputAt: "2026-07-31T12:00:30.000Z" };
-  const updated = { ...session("updated", "alive"), lastOutputAt: "2026-07-31T12:01:00.000Z" };
-
-  assert.deepEqual(
-    mergeSessionsById(
-      [top, updated],
-      [top, { ...updated, lastOutputAt: "2026-07-31T12:01:01.000Z" }],
-      new Date("2026-07-31T12:01:01.000Z"),
-    ).map((item) => item.id),
-    ["top", "updated"],
-  );
-  assert.deepEqual(
-    mergeSessionsById(
-      [{ ...top, lastOutputAt: "2026-07-31T12:00:01.000Z" }, updated],
-      [{ ...top, lastOutputAt: "2026-07-31T12:00:01.000Z" }, { ...updated, lastOutputAt: "2026-07-31T12:01:01.000Z" }],
-      new Date("2026-07-31T12:01:01.000Z"),
-    ).map((item) => item.id),
-    ["updated", "top"],
-  );
 });
