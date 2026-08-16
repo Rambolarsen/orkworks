@@ -31,10 +31,12 @@ export function sortSessions(list: SessionInfo[]): SessionInfo[] {
   });
 }
 
+const THROTTLE_MS = 30_000;
+
 export function mergeSessionsById(
   existing: readonly SessionInfo[],
   incoming: readonly SessionInfo[],
-  _lastResortAt: Date = new Date(0),
+  lastResortAt: Date = new Date(0),
   now: Date = new Date(),
 ): [SessionInfo[], Date] {
   if (existing.length === 0) {
@@ -42,9 +44,16 @@ export function mergeSessionsById(
   }
   const existingIds = new Set(existing.map((session) => session.id));
   const incomingMap = new Map(incoming.map((session) => [session.id, session]));
+  const incomingIds = new Set(incomingMap.keys());
+  const idsChanged =
+    existingIds.size !== incomingIds.size ||
+    [...existingIds].some((id) => !incomingIds.has(id));
   const updated = existing
     .filter((session) => incomingMap.has(session.id))
     .map((session) => incomingMap.get(session.id)!);
   const added = [...incomingMap.values()].filter((session) => !existingIds.has(session.id));
-  return [sortSessions([...updated, ...added]), now];
+  if (idsChanged || now.getTime() - lastResortAt.getTime() >= THROTTLE_MS) {
+    return [sortSessions([...updated, ...added]), now];
+  }
+  return [updated, lastResortAt];
 }

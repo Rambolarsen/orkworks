@@ -124,3 +124,62 @@ test("App combines a creation response with the current snapshot before merging"
 
   assert.match(source, /setSessions\(\s*\(?\s*(\w+)\s*\)?\s*=>\s*mergeSessionsById\(\s*\1\s*,\s*\[\s*\.\.\.\1\s*,\s*session\s*\]\s*\)\s*\);/);
 });
+
+test("mergeSessionsById throttle holds visual order for 29s under rapid data churn", () => {
+  const start = new Date("2026-08-15T12:00:00.000Z");
+  const a = { ...session("a", "alive", "working"), lastActivityAt: "2026-08-15T12:00:00.000Z" };
+  const b = { ...session("b", "alive", "working"), lastActivityAt: "2026-08-15T11:00:00.000Z" };
+
+  const [first, lastResortAt1] = mergeSessionsById([], [a, b], new Date(0), start);
+  assert.deepEqual(first.map((item) => item.id), ["a", "b"]);
+
+  // 29s later, b emits output that would otherwise move it to top
+  const churnedB = { ...b, lastActivityAt: "2026-08-15T12:00:29.000Z" };
+  const [second, lastResortAt2] = mergeSessionsById(
+    first,
+    [churnedB, a],
+    lastResortAt1,
+    new Date("2026-08-15T12:00:29.000Z"),
+  );
+  assert.deepEqual(second.map((item) => item.id), ["a", "b"]); // visual order preserved
+  assert.equal(lastResortAt2, lastResortAt1); // throttle unchanged
+  assert.equal(second.find((item) => item.id === "b")?.lastActivityAt, "2026-08-15T12:00:29.000Z");
+});
+
+test("mergeSessionsById throttle fires a full re-sort at 30s", () => {
+  const start = new Date("2026-08-15T12:00:00.000Z");
+  const a = { ...session("a", "alive", "working"), lastActivityAt: "2026-08-15T12:00:00.000Z" };
+  const b = { ...session("b", "alive", "working"), lastActivityAt: "2026-08-15T11:00:00.000Z" };
+
+  const [first, lastResortAt1] = mergeSessionsById([], [a, b], new Date(0), start);
+
+  const churnedB = { ...b, lastActivityAt: "2026-08-15T12:00:30.000Z" };
+  const at30s = new Date("2026-08-15T12:00:30.000Z");
+  const [second, lastResortAt2] = mergeSessionsById(first, [churnedB, a], lastResortAt1, at30s);
+  assert.deepEqual(second.map((item) => item.id), ["b", "a"]); // re-sort fires
+  assert.equal(lastResortAt2, at30s);
+});
+
+test("mergeSessionsById bypasses throttle when a new session appears in the poll", () => {
+  const start = new Date("2026-08-15T12:00:00.000Z");
+  const a = { ...session("a", "alive", "working"), lastActivityAt: "2026-08-15T11:00:00.000Z" };
+
+  const [first, lastResortAt1] = mergeSessionsById([], [a], new Date(0), start);
+
+  const b = { ...session("b", "alive", "working"), lastActivityAt: "2026-08-15T12:00:05.000Z" };
+  const at5s = new Date("2026-08-15T12:00:05.000Z"); // throttle not expired
+  const [second] = mergeSessionsById(first, [a, b], lastResortAt1, at5s);
+  assert.deepEqual(second.map((item) => item.id), ["b", "a"]); // ID-set change re-sorts
+});
+
+test("mergeSessionsById bypasses throttle when a session disappears from the poll", () => {
+  const start = new Date("2026-08-15T12:00:00.000Z");
+  const a = { ...session("a", "alive", "working"), lastActivityAt: "2026-08-15T11:00:00.000Z" };
+  const b = { ...session("b", "alive", "working"), lastActivityAt: "2026-08-15T12:00:00.000Z" };
+
+  const [first, lastResortAt1] = mergeSessionsById([], [a, b], new Date(0), start);
+
+  const at5s = new Date("2026-08-15T12:00:05.000Z"); // throttle not expired
+  const [second] = mergeSessionsById(first, [a], lastResortAt1, at5s);
+  assert.deepEqual(second.map((item) => item.id), ["a"]); // dropped + re-sorted
+});
