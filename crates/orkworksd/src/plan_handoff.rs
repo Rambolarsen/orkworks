@@ -55,9 +55,15 @@ const WRITE_VERB_LINE_PREFIX: usize = 1;
 /// `written` and the path in `Spec written and committed: <path>`).
 const WRITE_VERB_PROXIMITY: usize = 3;
 /// Maximum gap allowed between a write-signal verb and the path when the
-/// verb is *not* sentence-initial: the verb must sit immediately adjacent
-/// to the path, so `A model writes <path>` still scores, while
-/// `the spec writes <…long body…> <path>` does not.
+/// verb is *not* sentence-initial: the verb must sit immediately before
+/// the path, so `A model writes <path>` still scores, while
+/// `the spec writes <…long body…> <path>` does not. The verb must
+/// *precede* the path (`vp < i`), not follow it: `<path> written` is
+/// intentionally not treated as authorship, because `<path> written by
+/// another agent` / `<path> written earlier` are real prose shapes that
+/// symmetric adjacency would misattribute — the spec's "intentionally
+/// favors missing the card over misattributing an unrelated document"
+/// contract prefers the conservative direction.
 const WRITE_VERB_ADJACENCY: usize = 1;
 
 fn trim_plan_token(word: &str) -> &str {
@@ -71,9 +77,11 @@ fn trim_plan_token(word: &str) -> &str {
 /// tokens) and the path follows within `WRITE_VERB_PROXIMITY` tokens of it
 /// — covering `Wrote <path>`, `Created <path>`, `Plan written to <path>`,
 /// and `Spec written and committed: <path>` — or if the write-signal verb
-/// is immediately adjacent to the path anywhere on the line (within
-/// `WRITE_VERB_ADJACENCY` tokens). A write-signal verb anywhere else on
-/// the line is *not* treated as authorship, so prose that merely discusses
+/// sits immediately before the path anywhere on the line (within
+/// `WRITE_VERB_ADJACENCY` tokens, verb preceding path), so a non-sentence-initial
+/// authorship report like `A model writes <path>` still scores. A
+/// write-signal verb anywhere else on the line — including a verb that
+/// *follows* the path (`<path> written`) — is *not* treated as authorship, so prose that merely discusses
 /// a plan path while its sentence also happens to contain
 /// "writes"/"writing"/"saved" no longer attaches the path as
 /// `source: terminal_fallback` authorship, honoring the spec's
@@ -506,6 +514,40 @@ mod tests {
             printed_plan_path(
                 "Saved the previous draft earlier; specs/legacy.md remains open"
             ),
+            None
+        );
+    }
+
+    #[test]
+    fn accepts_a_non_sentence_initial_write_verb_immediately_before_the_path() {
+        // A write-signal verb that is NOT at line start still scores when
+        // it sits immediately before the path, covering authorship reports
+        // like `A model writes <path>` or `The agent saved <path>`.
+        assert_eq!(
+            printed_plan_path("A model writes specs/feature.md"),
+            Some("specs/feature.md".into())
+        );
+        assert_eq!(
+            printed_plan_path("The agent saved docs/superpowers/plans/x.md"),
+            Some("docs/superpowers/plans/x.md".into())
+        );
+    }
+
+    #[test]
+    fn ignores_a_write_verb_that_follows_the_path() {
+        // A write-signal verb that *follows* the path is intentionally not
+        // treated as authorship: `<path> written by another agent` and
+        // `<path> written earlier` are real prose shapes that symmetric
+        // adjacency would misattribute. The spec's "intentionally favors
+        // missing the card over misattributing an unrelated document"
+        // contract prefers the conservative verb-before-path direction.
+        assert_eq!(printed_plan_path("specs/feature.md written"), None);
+        assert_eq!(
+            printed_plan_path("specs/feature.md written by another agent"),
+            None
+        );
+        assert_eq!(
+            printed_plan_path("docs/superpowers/plans/x.md saved earlier"),
             None
         );
     }
