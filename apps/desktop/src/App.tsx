@@ -27,6 +27,7 @@ import {
   getProviders,
 } from "./api";
 import { disposeTerminal, getTerminal, pruneTerminals, getLiveTerminalCount, getLiveTerminalIds } from "./terminalStore";
+import { resolvePendingCreates, trackPendingCreate } from "./pendingCreate";
 import { captureRendererHealth, type RendererHealthSample } from "./rendererHealthProbe";
 import { startSessionPolling } from "./sessionPolling";
 import type { AppSettings } from "./appSettingsTypes";
@@ -50,6 +51,9 @@ function App() {
   const sessionsHiddenLayoutRef = useRef<string | null>(null);
   const lastResortAtRef = useRef<Date>(new Date(0));
   const sessionsRef = useRef<SessionInfo[]>([]);
+  // Ids of sessions just added via the New Session dialog, scoped only to
+  // their creation window — see pendingCreate.ts.
+  const pendingCreateIdsRef = useRef<ReadonlySet<string>>(new Set());
 
   useEffect(() => {
     const intervalMs = settings?.debug?.rendererHealthLogMs ?? 0;
@@ -119,6 +123,11 @@ function App() {
       const baseUrl = await window.orkworks.getBackendUrl();
       const list = await listSessions(baseUrl);
       pruneTerminals(new Set(list.filter((session) => session.lifecycle !== "dead").map((session) => session.id)));
+
+      const resolution = resolvePendingCreates(pendingCreateIdsRef.current, list);
+      pendingCreateIdsRef.current = resolution.ids;
+      resolution.erroredIds.forEach(() => pushToast("error", "Couldn't start a new session."));
+
       const [next, nextLastResortAt] = mergeSessionsById(
         sessionsRef.current,
         list,
@@ -225,6 +234,7 @@ function App() {
     try {
       const baseUrl = await window.orkworks.getBackendUrl();
       const session = await createSession(baseUrl, opts);
+      pendingCreateIdsRef.current = trackPendingCreate(pendingCreateIdsRef.current, session.id);
       const [next, nextLastResortAt] = mergeSessionsById(
         sessionsRef.current,
         [...sessionsRef.current, session],
