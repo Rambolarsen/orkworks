@@ -48,6 +48,8 @@ function App() {
   const [newSessionDialogOpen, setNewSessionDialogOpen] = useState(false);
   const dockviewApiRef = useRef<DockviewApi | null>(null);
   const sessionsHiddenLayoutRef = useRef<string | null>(null);
+  const lastResortAtRef = useRef<Date>(new Date(0));
+  const sessionsRef = useRef<SessionInfo[]>([]);
 
   useEffect(() => {
     const intervalMs = settings?.debug?.rendererHealthLogMs ?? 0;
@@ -75,6 +77,10 @@ function App() {
       (window as unknown as { __orkworksCaptureRendererHealth?: unknown }).__orkworksCaptureRendererHealth = undefined;
     };
   }, [settings?.debug?.rendererHealthLogMs, dockviewApiRef]);
+
+  useEffect(() => {
+    sessionsRef.current = sessions;
+  }, [sessions]);
 
   useEffect(() => {
     if (backendStatus !== "connecting…") return;
@@ -113,7 +119,15 @@ function App() {
       const baseUrl = await window.orkworks.getBackendUrl();
       const list = await listSessions(baseUrl);
       pruneTerminals(new Set(list.filter((session) => session.lifecycle !== "dead").map((session) => session.id)));
-      setSessions((previous) => mergeSessionsById(previous, list));
+      const [next, nextLastResortAt] = mergeSessionsById(
+        sessionsRef.current,
+        list,
+        lastResortAtRef.current,
+        new Date()
+      );
+      sessionsRef.current = next;
+      lastResortAtRef.current = nextLastResortAt;
+      setSessions(next);
       return true;
     } catch {
       // Silent: polled every 2s; transient failures are reflected by the
@@ -211,7 +225,15 @@ function App() {
     try {
       const baseUrl = await window.orkworks.getBackendUrl();
       const session = await createSession(baseUrl, opts);
-      setSessions((prev) => mergeSessionsById(prev, [...prev, session]));
+      const [next, nextLastResortAt] = mergeSessionsById(
+        sessionsRef.current,
+        [...sessionsRef.current, session],
+        lastResortAtRef.current,
+        new Date()
+      );
+      sessionsRef.current = next;
+      lastResortAtRef.current = nextLastResortAt;
+      setSessions(next);
       setActiveSessionId(session.id);
 
       const api = dockviewApiRef.current;
