@@ -44,34 +44,98 @@ const WRITE_SIGNALS: [&str; 12] = [
     "creates", "creating", "saved", "save", "saves",
 ];
 
-fn has_write_signal(line: &str) -> bool {
-    line.split(|ch: char| !ch.is_ascii_alphanumeric())
-        .any(|word| WRITE_SIGNALS.contains(&word.to_ascii_lowercase().as_str()))
+/// Maximum token index at which a write-signal verb counts as the
+/// "sentence-initial authorship report" shape: `Wrote <path>`,
+/// `Created <path>`, `Plan written to <path>`, `Spec written and
+/// committed: <path>` — the verb sits at the first or second token of
+/// the line.
+const WRITE_VERB_LINE_PREFIX: usize = 1;
+/// Maximum gap between a sentence-initial write-signal verb and the path
+/// token that follows it (e.g. the `and committed:` clause between
+/// `written` and the path in `Spec written and committed: <path>`).
+const WRITE_VERB_PROXIMITY: usize = 3;
+/// Maximum gap allowed between a write-signal verb and the path when the
+/// verb is *not* sentence-initial: the verb must sit immediately before
+/// the path, so `A model writes <path>` still scores, while
+/// `the spec writes <…long body…> <path>` does not. The verb must
+/// *precede* the path (`vp < i`), not follow it: `<path> written` is
+/// intentionally not treated as authorship, because `<path> written by
+/// another agent` / `<path> written earlier` are real prose shapes that
+/// symmetric adjacency would misattribute — the spec's "intentionally
+/// favors missing the card over misattributing an unrelated document"
+/// contract prefers the conservative direction.
+const WRITE_VERB_ADJACENCY: usize = 1;
+
+fn trim_plan_token(word: &str) -> &str {
+    word.trim_matches(|ch: char| matches!(ch, '`' | '\'' | '"' | '(' | ')' | '[' | ']' | '{' | '}' | ',' | '.' | ':'))
 }
 
-/// Returns the first Markdown path printed by an agent that is in one of the
-/// narrow plan locations OrkWorks recognizes, on a line that also reports
-/// having written the file. Validation against the actual workspace happens
-/// before the value is persisted or served.
+/// Returns the first Markdown path printed by an agent that sits under one
+/// of the narrow plan locations OrkWorks recognizes, on a line that
+/// *reports* having written the file. A write-signal verb qualifies only
+/// if it sits at the start of the line (within `WRITE_VERB_LINE_PREFIX`
+/// tokens) and the path follows within `WRITE_VERB_PROXIMITY` tokens of it
+/// — covering `Wrote <path>`, `Created <path>`, `Plan written to <path>`,
+/// and `Spec written and committed: <path>` — or if the write-signal verb
+/// sits immediately before the path anywhere on the line (within
+/// `WRITE_VERB_ADJACENCY` tokens, verb preceding path), so a non-sentence-initial
+/// authorship report like `A model writes <path>` still scores. A
+/// write-signal verb anywhere else on the line — including a verb that
+/// *follows* the path (`<path> written`) — is *not* treated as authorship, so prose that merely discusses
+/// a plan path while its sentence also happens to contain
+/// "writes"/"writing"/"saved" no longer attaches the path as
+/// `source: terminal_fallback` authorship, honoring the spec's
+/// "intentionally favors missing the card over misattributing an unrelated
+/// document" contract. Validation against the actual workspace happens
+/// before the value is persisted or served; this fallback also yields to
+/// hook-reported `planPath` (ADR 0037/0038) and to user-approved
+/// terminal-link selections.
 pub(crate) fn printed_plan_path(output: &str) -> Option<String> {
     output.lines().find_map(|line| {
-        if !has_write_signal(line) {
+        let tokens: Vec<&str> = line.split_whitespace().collect();
+        if tokens.is_empty() {
             return None;
         }
-        line.split_whitespace().find_map(|word| {
-            let path = word.trim_matches(|ch: char| matches!(ch, '`' | '\'' | '"' | '(' | ')' | '[' | ']' | '{' | '}' | ',' | '.' | ':'));
+        // Pre-compute the token positions of write-signal verbs on this
+        // line so the proximity / adjacency gates can scan the line once
+        // and rank paths against authorship-shaped verbs, catching prose
+        // (where the verb is far from the path) without re-tokenizing.
+        let write_verb_positions: Vec<usize> = tokens
+            .iter()
+            .enumerate()
+            .filter_map(|(i, tok)| {
+                WRITE_SIGNALS
+                    .contains(&trim_plan_token(tok).to_ascii_lowercase().as_str())
+                    .then_some(i)
+            })
+            .collect();
+        if write_verb_positions.is_empty() {
+            return None;
+        }
+        tokens.iter().enumerate().find_map(|(i, word)| {
+            let path = trim_plan_token(word);
             if Path::new(path)
                 .components()
                 .any(|component| matches!(component, Component::ParentDir | Component::RootDir | Component::Prefix(_)))
             {
                 return None;
             }
-            (path.starts_with("docs/superpowers/plans/")
+            if !(path.starts_with("docs/superpowers/plans/")
                 || path.starts_with("docs/superpowers/specs/")
                 || path.starts_with("specs/"))
-                .then_some(path)
-                .filter(|path| path.ends_with(".md") && !path.chars().any(char::is_control))
-                .map(str::to_owned)
+                || !path.ends_with(".md")
+                || path.chars().any(char::is_control)
+            {
+                return None;
+            }
+            let verb_precedes_within_proximity = write_verb_positions
+                .iter()
+                .any(|&vp| vp <= WRITE_VERB_LINE_PREFIX && vp < i && i - vp <= WRITE_VERB_PROXIMITY);
+            let verb_adjacent_to_path = write_verb_positions
+                .iter()
+                .any(|&vp| vp < i && i - vp <= WRITE_VERB_ADJACENCY);
+            (verb_precedes_within_proximity || verb_adjacent_to_path)
+                .then_some(path.to_owned())
         })
     })
 }
@@ -477,6 +541,70 @@ mod tests {
         );
         assert_eq!(
             printed_plan_path("grep hit: docs/superpowers/plans/unrelated.md:12:some text"),
+            None
+        );
+    }
+
+    #[test]
+    fn ignores_prose_that_quotes_a_write_verb_away_from_a_plan_path() {
+        // Real false positive reported in the wild: a session reading the
+        // session-plan-review spec aloud while its prose also contains a
+        // write signal ("writes"/"writing"/"saved" etc., e.g. while quoting
+        // the spec body that says "writes the file") must not be tagged as
+        // having authored the cited plan. The bare anywhere-on-line
+        // write-signal rule used to misattribute, attaching
+        // `source: terminal_fallback` to sessions that were merely
+        // *discussing* a plan path; the detector now requires the write
+        // signal to sit close to the path (proximity/adjacency), so prose
+        // far from the path is treated as background context, not authorship.
+        assert_eq!(
+            printed_plan_path(
+                "The spec writes that OrkWorks recognizes a path at `specs/session-plan-review.md`."
+            ),
+            None
+        );
+        assert_eq!(
+            printed_plan_path("We finished writing again about specs/some-other-doc.md"),
+            None
+        );
+        assert_eq!(
+            printed_plan_path(
+                "Saved the previous draft earlier; specs/legacy.md remains open"
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn accepts_a_non_sentence_initial_write_verb_immediately_before_the_path() {
+        // A write-signal verb that is NOT at line start still scores when
+        // it sits immediately before the path, covering authorship reports
+        // like `A model writes <path>` or `The agent saved <path>`.
+        assert_eq!(
+            printed_plan_path("A model writes specs/feature.md"),
+            Some("specs/feature.md".into())
+        );
+        assert_eq!(
+            printed_plan_path("The agent saved docs/superpowers/plans/x.md"),
+            Some("docs/superpowers/plans/x.md".into())
+        );
+    }
+
+    #[test]
+    fn ignores_a_write_verb_that_follows_the_path() {
+        // A write-signal verb that *follows* the path is intentionally not
+        // treated as authorship: `<path> written by another agent` and
+        // `<path> written earlier` are real prose shapes that symmetric
+        // adjacency would misattribute. The spec's "intentionally favors
+        // missing the card over misattributing an unrelated document"
+        // contract prefers the conservative verb-before-path direction.
+        assert_eq!(printed_plan_path("specs/feature.md written"), None);
+        assert_eq!(
+            printed_plan_path("specs/feature.md written by another agent"),
+            None
+        );
+        assert_eq!(
+            printed_plan_path("docs/superpowers/plans/x.md saved earlier"),
             None
         );
     }
