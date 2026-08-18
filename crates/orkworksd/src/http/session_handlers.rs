@@ -313,10 +313,11 @@ pub(crate) async fn set_workspace(
     // only a session with no matching in-memory handle is actually orphaned.
     if let Some(ref ws) = *ws {
         let now = iso_now();
-        let live_ids = state.sessions.lock().unwrap();
+        let live_ids: std::collections::HashSet<String> =
+            state.sessions.lock().unwrap().keys().cloned().collect();
         for meta in ws.metadata.read_all_sessions() {
             if (meta.status == "running" || meta.status == "creating")
-                && !live_ids.contains_key(&meta.id)
+                && !live_ids.contains(&meta.id)
             {
                 ws.metadata
                     .write_session(&metadata::reconcile_orphaned_session(meta, &now));
