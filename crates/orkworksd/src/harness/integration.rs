@@ -355,6 +355,47 @@ mod tests {
         assert!(!source.exists());
     }
 
+    #[test]
+    fn commit_removal_deletes_an_existing_target_and_is_idempotent_when_already_absent() {
+        let workspace = tempfile::tempdir().unwrap();
+        fs::create_dir(workspace.path().join(".opencode")).unwrap();
+        let relative = Path::new(".opencode/plugin.js");
+        let path = workspace.path().join(relative);
+        fs::write(&path, "content").unwrap();
+        let target = ValidatedWorkspaceTarget::new(workspace.path(), relative).unwrap();
+
+        ConfigFileTransaction::open(target.clone())
+            .unwrap()
+            .commit_removal()
+            .unwrap();
+
+        assert!(!path.exists());
+
+        // Idempotent: removing an already-absent target succeeds rather
+        // than erroring, matching install/uninstall's idempotency contract.
+        ConfigFileTransaction::open(target)
+            .unwrap()
+            .commit_removal()
+            .unwrap();
+    }
+
+    #[test]
+    fn commit_removal_rejects_an_external_edit_before_delete() {
+        let workspace = tempfile::tempdir().unwrap();
+        fs::create_dir(workspace.path().join(".opencode")).unwrap();
+        let relative = Path::new(".opencode/plugin.js");
+        let path = workspace.path().join(relative);
+        fs::write(&path, "content").unwrap();
+        let target = ValidatedWorkspaceTarget::new(workspace.path(), relative).unwrap();
+        let transaction = ConfigFileTransaction::open(target).unwrap();
+        fs::write(&path, "externally edited").unwrap();
+
+        let error = transaction.commit_removal().unwrap_err();
+
+        assert!(matches!(error, IntegrationError::RevisionChanged));
+        assert_eq!(fs::read_to_string(path).unwrap(), "externally edited");
+    }
+
     #[cfg(windows)]
     #[test]
     fn target_validation_rejects_windows_directory_reparse_escape_when_available() {
@@ -883,6 +924,32 @@ impl ConfigFileTransaction {
     fn with_replace(mut self, replace: fn(&Path, &Path, bool) -> std::io::Result<()>) -> Self {
         self.replace = replace;
         self
+    }
+
+    /// Deletes the target after the same confinement and optimistic revision
+    /// checks as [`commit`](Self::commit), instead of writing a replacement.
+    /// For handlers whose owned content is a whole file (not a fragment
+    /// merged into a shared document), presence of the file *is* the
+    /// installed state, so uninstall must remove it rather than merely
+    /// rewrite it. Idempotent: an already-absent target is a no-op success.
+    pub(crate) fn commit_removal(self) -> Result<(), IntegrationError> {
+        self.target.revalidate()?;
+        if self.original.hash.is_none() {
+            return Ok(());
+        }
+        let (current, _) = FileRevision::read(&self.target.target)?;
+        if current != self.original {
+            return Err(IntegrationError::RevisionChanged);
+        }
+        match fs::remove_file(&self.target.target) {
+            Ok(()) => {
+                #[cfg(not(windows))]
+                sync_parent_directory_best_effort(self.target.target.parent());
+                Ok(())
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(error.into()),
+        }
     }
 
     pub(crate) fn commit(self, replacement: &[u8]) -> Result<(), IntegrationError> {
