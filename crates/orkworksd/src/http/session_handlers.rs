@@ -306,12 +306,18 @@ pub(crate) async fn set_workspace(
     });
     state.bump_harness_probe_generation();
 
-    // Reconcile sessions left in "running"/"creating" from a previous daemon run.
-    // On restart state.sessions is empty, so anything still "running" in metadata is orphaned.
+    // Reconcile sessions left in "running"/"creating" from a previous daemon
+    // run. This handler also re-runs whenever the Electron app alone
+    // restarts and reconnects to an already-running (detached) sidecar, in
+    // which case state.sessions is NOT empty and still holds live handles —
+    // only a session with no matching in-memory handle is actually orphaned.
     if let Some(ref ws) = *ws {
         let now = iso_now();
+        let live_ids = state.sessions.lock().unwrap();
         for meta in ws.metadata.read_all_sessions() {
-            if meta.status == "running" || meta.status == "creating" {
+            if (meta.status == "running" || meta.status == "creating")
+                && !live_ids.contains_key(&meta.id)
+            {
                 ws.metadata
                     .write_session(&metadata::reconcile_orphaned_session(meta, &now));
             }
@@ -2224,6 +2230,143 @@ mod tests {
             resume_scan_origin: None,
             pending_capacity_visible_once: false,
         }
+    }
+
+    fn orphan_test_metadata(id: &str, workspace: &std::path::Path) -> metadata::SessionMetadata {
+        let workspace = workspace.display().to_string();
+        metadata::SessionMetadata {
+            id: id.into(),
+            label: "Test".into(),
+            workspace: workspace.clone(),
+            task: "".into(),
+            harness: "".into(),
+            model: "".into(),
+            cwd: workspace,
+            status: "running".into(),
+            work_phase: "unknown".into(),
+            lifecycle_phase: "active".into(),
+            lifecycle: "alive".into(),
+            attention: None,
+            plan_path: None,
+            connectivity: "online".into(),
+            terminal_outcome: None,
+            pending_terminal_status: None,
+            observed_status: None,
+            ending_observed_status_snapshot: None,
+            final_observed_status_snapshot: None,
+            summary: None,
+            next_action: None,
+            needs_user_input: None,
+            detected_question: None,
+            suggested_options: None,
+            blocker_description: None,
+            failed_command: None,
+            failed_test: None,
+            capacity_hints: None,
+            peon_last_inference: None,
+            provider_id: None,
+            provider_label: None,
+            provider_model: None,
+            provider_state: None,
+            created_at: "now".into(),
+            last_activity: "now".into(),
+            last_output_at: None,
+            metadata_source: "process".into(),
+            metadata_confidence: 1.0,
+            repo_root: None,
+            branch: None,
+            dirty: None,
+            changed_files: None,
+            is_worktree: None,
+            resume: None,
+            resume_options: vec![],
+            harness_session_id_source: None,
+            harness_session_id_confidence: None,
+            harness_session_id_captured_at: None,
+            resumed_from: None,
+            last_user_input: None,
+        }
+    }
+
+    /// A daemon restart truly does empty `state.sessions`, so a session
+    /// found "running" in persisted metadata with no matching in-memory
+    /// handle is genuinely orphaned and must be reconciled to "ended".
+    #[tokio::test]
+    async fn set_workspace_reconciles_running_session_with_no_live_handle() {
+        let home_dir = tempfile::tempdir().unwrap();
+        let workspace_dir = tempfile::tempdir().unwrap();
+        let _home = FakeHome::set(home_dir.path());
+
+        let state = test_app_state_with_workspace(workspace_dir.path());
+        let global_dir = orkworks_global_dir(workspace_dir.path()).unwrap();
+        std::fs::create_dir_all(global_dir.join("sessions")).unwrap();
+        metadata::MetadataStore::new(&global_dir)
+            .write_session(&orphan_test_metadata("orphaned", workspace_dir.path()));
+
+        let response = set_workspace(
+            State(state.clone()),
+            Json(WorkspaceRequest {
+                path: workspace_dir.path().display().to_string(),
+            }),
+        )
+        .await
+        .into_response();
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+
+        let ws_guard = state.workspace.lock().unwrap();
+        let reloaded = ws_guard
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session("orphaned")
+            .unwrap();
+        assert_eq!(reloaded.status, "ended");
+    }
+
+    /// Only the sidecar (`orkworksd`) itself restarting empties
+    /// `state.sessions`. When just the Electron app restarts and
+    /// reconnects to an already-running sidecar, `set_workspace` runs
+    /// again against a sidecar whose in-memory session handles are still
+    /// alive — a session with a live handle here must not be reconciled
+    /// to "ended" out from under its still-running process.
+    #[tokio::test]
+    async fn set_workspace_does_not_reconcile_session_with_live_in_memory_handle() {
+        let home_dir = tempfile::tempdir().unwrap();
+        let workspace_dir = tempfile::tempdir().unwrap();
+        let _home = FakeHome::set(home_dir.path());
+
+        let state = test_app_state_with_workspace(workspace_dir.path());
+        let global_dir = orkworks_global_dir(workspace_dir.path()).unwrap();
+        std::fs::create_dir_all(global_dir.join("sessions")).unwrap();
+        metadata::MetadataStore::new(&global_dir)
+            .write_session(&orphan_test_metadata("alive", workspace_dir.path()));
+
+        state.sessions.lock().unwrap().insert(
+            "alive".into(),
+            attention_test_handle("alive", workspace_dir.path()),
+        );
+
+        let response = set_workspace(
+            State(state.clone()),
+            Json(WorkspaceRequest {
+                path: workspace_dir.path().display().to_string(),
+            }),
+        )
+        .await
+        .into_response();
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+
+        let ws_guard = state.workspace.lock().unwrap();
+        let reloaded = ws_guard
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session("alive")
+            .unwrap();
+        assert_eq!(
+            reloaded.status, "running",
+            "a session with a live in-memory handle must not be reconciled as orphaned"
+        );
     }
 
     #[tokio::test]
