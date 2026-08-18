@@ -1457,67 +1457,68 @@ pub(crate) async fn create_session(
         }
     }
 
-    match crate::runtime::session_runtime::start_session_runtime(
-        state.clone(),
-        id.clone(),
-        command,
-        initial_prompt,
-        control_rx,
-        output_tx,
-        kill_tx.subscribe(),
-        PtySize {
-            rows: crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
-            cols: crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
-            pixel_width: 0,
-            pixel_height: 0,
-        },
-    )
-    .await
-    {
-        Ok(()) => {}
-        Err(error) => {
-            tracing::error!(session_id = %id, %error, "failed to start session runtime");
-            if crate::runtime::terminal_runtime::set_session_status_for_generation(
-                &state,
-                &id,
-                run_generation,
-                "error",
-            ) {
-                crate::runtime::terminal_runtime::schedule_session_ending_finalization(
-                    state.clone(),
-                    id.clone(),
-                    run_generation,
-                    "error".into(),
-                );
-            }
-            return axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
-    }
-    let info = state
-        .sessions
-        .lock()
-        .unwrap()
-        .get(&id)
-        .map(|handle| handle.info.clone())
-        .expect("newly started session remains registered");
-
-    let now = iso_now();
-    let ws_guard = state.workspace.lock().unwrap();
-    if let Some(ref ws) = *ws_guard {
-        ws.metadata.append_event(
-            &id,
-            &metadata::Event {
-                event_type: "session.created".into(),
-                timestamp: now,
-                status: "running".into(),
-                observed_status: None,
-                confidence: None,
-                summary: None,
-                source: None,
+    // Spawn detached rather than awaiting: awaiting here would delay this
+    // handler's response until after the PTY spawn completes, so the client
+    // would never actually observe `status: "creating"` (issue #302) — the
+    // response below always reports the pre-spawn record. Mirrors the
+    // pattern resume_session's startup_task already proved safe, including
+    // the generation guards that keep it correct against concurrent deletion.
+    let startup_state = state.clone();
+    let startup_id = id.clone();
+    tokio::spawn(async move {
+        match crate::runtime::session_runtime::start_session_runtime(
+            startup_state.clone(),
+            startup_id.clone(),
+            command,
+            initial_prompt,
+            control_rx,
+            output_tx,
+            kill_tx.subscribe(),
+            PtySize {
+                rows: crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                cols: crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                pixel_width: 0,
+                pixel_height: 0,
             },
-        );
-    }
-    drop(ws_guard);
+        )
+        .await
+        {
+            Ok(()) => {
+                let now = iso_now();
+                let ws_guard = startup_state.workspace.lock().unwrap();
+                if let Some(ref ws) = *ws_guard {
+                    ws.metadata.append_event(
+                        &startup_id,
+                        &metadata::Event {
+                            event_type: "session.created".into(),
+                            timestamp: now,
+                            status: "running".into(),
+                            observed_status: None,
+                            confidence: None,
+                            summary: None,
+                            source: None,
+                        },
+                    );
+                }
+            }
+            Err(error) => {
+                tracing::error!(session_id = %startup_id, %error, "failed to start session runtime");
+                if crate::runtime::terminal_runtime::set_session_status_for_generation(
+                    &startup_state,
+                    &startup_id,
+                    run_generation,
+                    "error",
+                ) {
+                    crate::runtime::terminal_runtime::schedule_session_ending_finalization(
+                        startup_state.clone(),
+                        startup_id.clone(),
+                        run_generation,
+                        "error".into(),
+                    );
+                }
+            }
+        }
+    });
 
     Json(info).into_response()
 }
@@ -2082,6 +2083,29 @@ mod tests {
     use crate::test_support::*;
 
     static PLAN_TOKEN_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// `create_session` now returns before the detached spawn completes (see
+    /// issue #302), so any test that needs the session past its `"creating"`
+    /// interval — e.g. to call an endpoint that requires `lifecycle ==
+    /// "alive"` — must wait for the spawn like a real client polling would.
+    async fn wait_for_session_status(state: &Arc<AppState>, id: &str, status: &str) {
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                let matches = state
+                    .sessions
+                    .lock()
+                    .unwrap()
+                    .get(id)
+                    .is_some_and(|handle| handle.info.status == status);
+                if matches {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap_or_else(|_| panic!("session {id} did not reach status {status:?} in time"));
+    }
 
     #[test]
     fn session_git_context_is_resolved_once_per_unique_cwd() {
@@ -4528,6 +4552,7 @@ mod tests {
             .as_str()
             .unwrap()
             .to_owned();
+        wait_for_session_status(&state, &created_id, "running").await;
 
         let response = apply_debug_attention(
             State(state.clone()),
@@ -4667,6 +4692,7 @@ mod tests {
             .as_str()
             .unwrap()
             .to_owned();
+        wait_for_session_status(&state, &created_id, "running").await;
 
         let response = apply_debug_attention(
             State(state.clone()),
@@ -4731,6 +4757,7 @@ mod tests {
             .as_str()
             .unwrap()
             .to_owned();
+        wait_for_session_status(&state, &created_id, "running").await;
 
         let response = apply_debug_attention(
             State(state.clone()),
@@ -4815,6 +4842,7 @@ mod tests {
             .as_str()
             .unwrap()
             .to_owned();
+        wait_for_session_status(&state, &created_id, "running").await;
 
         // A real capacity hint is already present, as if genuine harness capacity
         // detection had set it before the debug picker was ever touched.
@@ -5005,6 +5033,7 @@ mod tests {
             .as_str()
             .unwrap()
             .to_owned();
+        wait_for_session_status(&state, &created_id, "running").await;
 
         assert!(state.peon.label_hint.read().unwrap().get(&created_id).is_none());
         assert!(!state.peon.label_pending.read().unwrap().contains(&created_id));
@@ -6661,6 +6690,88 @@ mod tests {
         .into_response();
 
         assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
+    }
+
+    /// Regression test for issue #302: `create_session` used to await the PTY
+    /// spawn before responding, so the client's response body — and thus the
+    /// first render of the new session in `sessions` state — never actually
+    /// observed `status: "creating"`. The response must reflect the
+    /// pre-spawn record; the transition to `"running"` happens afterward,
+    /// asynchronously.
+    #[tokio::test]
+    async fn create_session_returns_creating_status_before_spawn_completes() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+
+        let response = create_session(
+            State(state.clone()),
+            Json(CreateSessionRequest {
+                harness_id: Some("generic-shell".into()),
+                model: None,
+                initial_prompt: None,
+            }),
+        )
+        .await
+        .into_response();
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(
+            body["status"], "creating",
+            "the create response must reflect the pre-spawn record, not wait for spawn to finish"
+        );
+        let created_id = body["id"].as_str().unwrap().to_owned();
+
+        wait_for_session_status(&state, &created_id, "running").await;
+    }
+
+    /// Regression test for issue #302: a spawn failure must no longer surface
+    /// as a synchronous 500 from `POST /sessions` (that response has already
+    /// gone out reporting `"creating"`), but as an async transition to
+    /// `status: "error"` observed via the existing poll/metadata mechanism —
+    /// the same signal resume and daemon-restart reconciliation already
+    /// produce for this failure mode.
+    #[tokio::test]
+    async fn create_session_spawn_failure_surfaces_as_async_error_status() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        state
+            .harness_store
+            .mutate(&state.harness_catalog, |document| {
+                let override_patch = document.overrides.entry("opencode".into()).or_default();
+                override_patch.launch = Some(harness::definition::LaunchPatch {
+                    command: Some("orkworks-create-command-that-does-not-exist".into()),
+                    ..Default::default()
+                });
+                Ok(())
+            })
+            .unwrap();
+
+        let response = create_session(
+            State(state.clone()),
+            Json(CreateSessionRequest {
+                harness_id: Some("opencode".into()),
+                model: None,
+                initial_prompt: None,
+            }),
+        )
+        .await
+        .into_response();
+        assert_eq!(
+            response.status(),
+            axum::http::StatusCode::OK,
+            "spawn failures are no longer synchronous 500s"
+        );
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["status"], "creating");
+        let created_id = body["id"].as_str().unwrap().to_owned();
+
+        wait_for_session_status(&state, &created_id, "error").await;
     }
 
     #[test]

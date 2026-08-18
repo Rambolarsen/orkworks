@@ -2,7 +2,7 @@ import CenterPanel from "./CenterPanel";
 import HistoricalTerminal from "./HistoricalTerminal";
 import EmptyState from "./EmptyState";
 import type { SessionInfo } from "../api";
-import { renderTerminalPresentation } from "../terminalPresentation";
+import { isSessionStarting, renderTerminalPresentation } from "../terminalPresentation";
 
 interface TerminalPanelProps {
   backendStatus: string;
@@ -19,7 +19,7 @@ function TerminalPanel({ backendStatus, session }: TerminalPanelProps) {
       <CenterPanel
         backendStatus={backendStatus}
         sessionId={session.id}
-        starting={session.status === "creating"}
+        starting={isSessionStarting(session)}
       />
     ),
     () => <HistoricalTerminal sessionId={session.id} />,
