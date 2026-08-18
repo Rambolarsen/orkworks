@@ -191,6 +191,7 @@ export function ensureTerminal(id: string, baseUrl: string): TerminalHandle {
     }
     term.options.disableStdin = true;
     term.options.cursorBlink = false;
+    handle.unavailable = true;
     if (
       shouldReplayTerminalOutputOnClose({
         disposed: handle.disposed,

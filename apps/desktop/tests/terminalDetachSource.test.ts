@@ -27,3 +27,10 @@ test("socket close without typed terminal end does not mark ended", () => {
   )?.[1] ?? "";
   assert.doesNotMatch(onclose, /handle\.ended = true/);
 });
+
+test("socket close marks the handle unavailable, so reattaching after an unexpected drop doesn't re-enable stdin on a dead transport", () => {
+  const onclose = source.match(
+    /ws\.onclose = \(\) => \{([\s\S]*?)\n  \};/,
+  )?.[1] ?? "";
+  assert.match(onclose, /handle\.unavailable = true/);
+});
