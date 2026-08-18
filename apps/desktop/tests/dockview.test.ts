@@ -628,7 +628,8 @@ test("SettingsModal includes a Model providers section above Hotkeys", () => {
 
 test("TerminalPanel marks CenterPanel as starting while the session is still being created", () => {
   const source = readFileSync(new URL("../src/components/TerminalPanel.tsx", import.meta.url), "utf8");
-  assert.match(source, /starting=\{session\.status === "creating"\}/);
+  assert.match(source, /starting=\{isSessionStarting\(session\)\}/);
+  assert.match(source, /import \{ isSessionStarting, renderTerminalPresentation \} from "\.\.\/terminalPresentation"/);
 });
 
 test("CenterPanel disables stdin and shows a loading overlay while starting, instead of an interactable blank terminal", () => {
