@@ -588,12 +588,27 @@ pub(crate) async fn update_runtime_size(
     rows: u16,
     cols: u16,
 ) -> Result<(), ()> {
-    let tx = {
+    let (tx, should_persist) = {
         let mut sessions = state.sessions.lock().unwrap();
         let handle = sessions.get_mut(id).ok_or(())?;
+        // Skip once the session has started (or finished) its terminal-status
+        // transition: that transition captures last_rows/last_cols as the
+        // authoritative final size and writes it to disk under this same
+        // `sessions` lock's ordering, from `set_session_status_for_generation`.
+        // A resize that arrives after lifecycle_phase flips to "ending" (the PTY
+        // control channel may already be closed, but a queued/in-flight resize
+        // message can still land here) must not overwrite that with a size
+        // nothing was actually replayed at. Gating on the same lock the
+        // transition uses to read last_rows/last_cols means there is no
+        // interleaving where a stale value reaches disk after the final one:
+        // either this resize is observed here before the transition (its value
+        // becomes what the transition itself persists) or it is observed after
+        // (lifecycle_phase already reads "ending"/"ended" and it is skipped).
+        let live = !matches!(handle.info.lifecycle_phase.as_str(), "ending" | "ended");
+        let changed = handle.runtime.last_rows != rows || handle.runtime.last_cols != cols;
         handle.runtime.last_rows = rows;
         handle.runtime.last_cols = cols;
-        handle.runtime.control_tx.clone()
+        (handle.runtime.control_tx.clone(), live && changed)
     };
     // Best-effort persist on every live resize, not just at the terminal-status
     // transition: if the daemon restarts mid-session, orphan reconciliation
@@ -603,8 +618,15 @@ pub(crate) async fn update_runtime_size(
     // to whatever width the panel happens to have at replay time misplaces any
     // absolute-column cursor addressing the original PTY width baked into the
     // recorded bytes, which is what produced the garbled replay this fixes.
-    if let Some(ref ws) = *state.workspace.lock().unwrap() {
-        ws.metadata.write_terminal_size(id, cols, rows);
+    if should_persist {
+        let state = state.clone();
+        let id = id.to_string();
+        let _ = tokio::task::spawn_blocking(move || {
+            if let Some(ref ws) = *state.workspace.lock().unwrap() {
+                ws.metadata.write_terminal_size(&id, cols, rows);
+            }
+        })
+        .await;
     }
     tx.send(RuntimeCommand::Resize { rows, cols })
         .await
@@ -2902,6 +2924,98 @@ mod tests {
         let ws_guard = state.workspace.lock().unwrap();
         let ws = ws_guard.as_ref().unwrap();
         assert_eq!(ws.metadata.read_terminal_size(&id), Some((210, 55)));
+    }
+
+    #[tokio::test]
+    async fn update_runtime_size_does_not_overwrite_terminal_size_after_ending_transition() {
+        // A resize message queued before the terminal websocket task noticed the
+        // session ended can still reach `update_runtime_size` while the handle
+        // lingers in `state.sessions` during the "ending" lifecycle window
+        // (bounded by `final_scan_timeout_secs` in `finalize_session_ending`). It
+        // must not clobber the authoritative size the terminal-status transition
+        // already wrote — the buffered replay bytes were never rendered at this
+        // stale resize's dimensions.
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(dir.path());
+        let id = "ending-session".to_string();
+
+        {
+            let ws_guard = state.workspace.lock().unwrap();
+            let ws = ws_guard.as_ref().unwrap();
+            ws.metadata.write_terminal_size(&id, 100, 30);
+        }
+
+        let mut info =
+            crate::test_support::test_session_info(id.clone(), "Ending", "/tmp", "ended", "t0");
+        info.lifecycle_phase = "ending".into();
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        state.sessions.lock().unwrap().insert(
+            id.clone(),
+            crate::SessionHandle {
+                info,
+                kill_tx,
+                output_buffer: crate::peon::RingBuffer::new(200),
+                scan_buf: String::new(),
+                pending_work_signal: None,
+                runtime: SessionRuntime::detached(30, 100),
+                terminal_attached: false,
+                resume_in_progress: false,
+                at_usage_limit_latched: false,
+                capacity_check_pending: false,
+                output_lines_seen: 0,
+                scan_bytes_seen: 0,
+                resume_scan_origin: None,
+                pending_capacity_visible_once: false,
+                active_work_hook: false,
+            },
+        );
+
+        let _ = update_runtime_size(&state, &id, 55, 210).await;
+
+        let ws_guard = state.workspace.lock().unwrap();
+        let ws = ws_guard.as_ref().unwrap();
+        assert_eq!(ws.metadata.read_terminal_size(&id), Some((100, 30)));
+    }
+
+    #[tokio::test]
+    async fn update_runtime_size_skips_persist_when_size_unchanged() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(dir.path());
+        let id = "unchanged-session".to_string();
+
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        state.sessions.lock().unwrap().insert(
+            id.clone(),
+            crate::SessionHandle {
+                info: crate::test_support::test_session_info(
+                    id.clone(),
+                    "Unchanged",
+                    "/tmp",
+                    "running",
+                    "t0",
+                ),
+                kill_tx,
+                output_buffer: crate::peon::RingBuffer::new(200),
+                scan_buf: String::new(),
+                pending_work_signal: None,
+                runtime: SessionRuntime::detached(55, 210),
+                terminal_attached: false,
+                resume_in_progress: false,
+                at_usage_limit_latched: false,
+                capacity_check_pending: false,
+                output_lines_seen: 0,
+                scan_bytes_seen: 0,
+                resume_scan_origin: None,
+                pending_capacity_visible_once: false,
+                active_work_hook: false,
+            },
+        );
+
+        let _ = update_runtime_size(&state, &id, 55, 210).await;
+
+        let ws_guard = state.workspace.lock().unwrap();
+        let ws = ws_guard.as_ref().unwrap();
+        assert_eq!(ws.metadata.read_terminal_size(&id), None);
     }
 
     #[tokio::test]
