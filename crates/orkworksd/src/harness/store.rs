@@ -349,6 +349,7 @@ fn legacy_patch(entry: &LegacyHarnessConfig, baseline: &LegacyHarnessConfig) -> 
         integration: None,
         voice: legacy_voice_patch(&entry.capabilities, &baseline.capabilities),
         min_version: None,
+        label_reset_commands: None,
     }
 }
 
@@ -460,6 +461,7 @@ fn legacy_definition(
         integration: None,
         voice: legacy_voice(&entry.capabilities),
         min_version: safe_adapter.and_then(|definition| definition.min_version.clone()),
+        label_reset_commands: Vec::new(),
     }
 }
 

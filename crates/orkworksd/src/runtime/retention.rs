@@ -101,6 +101,12 @@ pub(crate) async fn retention_cleanup_once(
             peon_output.remove(id);
             peon_inference.remove(id);
         }
+        drop(peon_inference);
+        drop(peon_output);
+        drop(sessions);
+        for id in &all_deleted {
+            crate::runtime::session_runtime::clear_forgotten_session_tracking(state, id);
+        }
     }
 }
 
@@ -195,8 +201,15 @@ mod tests {
                     last_active_session_id: Some(session_id.clone()),
                     last_active_at: Some("2024-01-01T00:00:00Z".into()),
                     active_harness_ids: vec![],
-                });
+            });
         }
+
+        state
+            .peon
+            .label_epochs
+            .write()
+            .unwrap()
+            .insert(session_id.clone(), 2);
 
         {
             let mut config = state.retention_config.write().await;
@@ -215,5 +228,11 @@ mod tests {
         let memory = ws.metadata.read_workspace_memory().unwrap();
         assert_eq!(memory.last_active_session_id, None);
         assert_eq!(memory.last_active_at, None);
+        assert!(!state
+            .peon
+            .label_epochs
+            .read()
+            .unwrap()
+            .contains_key(&session_id));
     }
 }

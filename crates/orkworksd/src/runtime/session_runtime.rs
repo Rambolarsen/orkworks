@@ -677,6 +677,20 @@ pub(crate) fn clear_ended_session_tracking(state: &AppState, id: &str) {
     state.session_pids.lock().unwrap().remove(id);
 }
 
+/// Clears state that is only retained while a session remains resumable. This
+/// is separate from PTY-exit cleanup because a killed session can still be
+/// resumed, while forgotten/retention-deleted sessions cannot.
+///
+/// Also clears any queued label work: once the session is gone, `peon_loop`
+/// bails out early on a missing session handle (see the `sessions.get`
+/// checks in `peon_runtime.rs`) and would otherwise leave an orphaned
+/// `label_hint`/`label_pending` entry queued forever.
+pub(crate) fn clear_forgotten_session_tracking(state: &AppState, id: &str) {
+    state.peon.label_epochs.write().unwrap().remove(id);
+    state.peon.label_hint.write().unwrap().remove(id);
+    state.peon.label_pending.write().unwrap().remove(id);
+}
+
 /// Applies an exit callback only while its runtime generation still owns the
 /// session ID. Marking the handle as ending first prevents resume admission
 /// from replacing it while the remaining runtime-owned side tables are
@@ -1298,6 +1312,7 @@ mod tests {
                 in_flight: RwLock::new(HashSet::new()),
                 label_hint: RwLock::new(HashMap::new()),
                 label_pending: RwLock::new(HashSet::new()),
+                label_epochs: RwLock::new(HashMap::new()),
                 input_buf: RwLock::new(HashMap::new()),
                 reported_cwd: RwLock::new(HashMap::new()),
                 config: crate::peon::PeonConfig::from_env(),
@@ -1333,6 +1348,69 @@ mod tests {
         );
 
         state
+    }
+
+    #[test]
+    fn forgotten_session_cleanup_removes_label_epoch_but_ended_cleanup_preserves_it() {
+        let state = test_state_with_runtime_session("epoch-cleanup");
+        state
+            .peon
+            .label_epochs
+            .write()
+            .unwrap()
+            .insert("epoch-cleanup".into(), 3);
+
+        clear_ended_session_tracking(&state, "epoch-cleanup");
+        assert_eq!(
+            state
+                .peon
+                .label_epochs
+                .read()
+                .unwrap()
+                .get("epoch-cleanup"),
+            Some(&3)
+        );
+
+        clear_forgotten_session_tracking(&state, "epoch-cleanup");
+        assert!(!state
+            .peon
+            .label_epochs
+            .read()
+            .unwrap()
+            .contains_key("epoch-cleanup"));
+    }
+
+    #[test]
+    fn forgotten_session_cleanup_removes_queued_label_work() {
+        let state = test_state_with_runtime_session("label-cleanup");
+        state.peon.label_hint.write().unwrap().insert(
+            "label-cleanup".into(),
+            crate::LabelHint {
+                text: "hello".into(),
+                epoch: 0,
+            },
+        );
+        state
+            .peon
+            .label_pending
+            .write()
+            .unwrap()
+            .insert("label-cleanup".into());
+
+        clear_forgotten_session_tracking(&state, "label-cleanup");
+
+        assert!(!state
+            .peon
+            .label_hint
+            .read()
+            .unwrap()
+            .contains_key("label-cleanup"));
+        assert!(!state
+            .peon
+            .label_pending
+            .read()
+            .unwrap()
+            .contains("label-cleanup"));
     }
 
     #[test]

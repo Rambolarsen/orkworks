@@ -1361,13 +1361,7 @@ pub(crate) async fn create_session(
         let label_line: String = prompt.chars().take(100).collect();
         if peon::is_descriptive_input(&label_line) {
             info.label = label_line.clone();
-            state
-                .peon
-                .label_hint
-                .write()
-                .unwrap()
-                .insert(id.clone(), prompt.to_string());
-            state.peon.label_pending.write().unwrap().insert(id.clone());
+            crate::runtime::terminal_runtime::queue_label_hint(&state, &id, prompt.to_string());
         }
     }
 
@@ -2079,6 +2073,7 @@ pub(crate) async fn forget_session(
 
     state.sessions.lock().unwrap().remove(&id);
     crate::runtime::session_runtime::clear_ended_session_tracking(&state, &id);
+    crate::runtime::session_runtime::clear_forgotten_session_tracking(&state, &id);
 
     axum::http::StatusCode::OK.into_response()
 }
@@ -5107,7 +5102,10 @@ mod tests {
 
         assert_eq!(
             state.peon.label_hint.read().unwrap().get(&created_id),
-            Some(&"fix the login redirect bug".to_string())
+            Some(&crate::LabelHint {
+                text: "fix the login redirect bug".into(),
+                epoch: 0,
+            })
         );
         assert!(state.peon.label_pending.read().unwrap().contains(&created_id));
 
@@ -5151,7 +5149,10 @@ mod tests {
         assert_eq!(body["label"], display);
         assert_eq!(
             state.peon.label_hint.read().unwrap().get(created_id),
-            Some(&prompt)
+            Some(&crate::LabelHint {
+                text: prompt.clone(),
+                epoch: 0,
+            })
         );
     }
 
@@ -5472,6 +5473,12 @@ mod tests {
                 vec!["hello".to_string()]
             );
         }
+        state
+            .peon
+            .label_epochs
+            .write()
+            .unwrap()
+            .insert(session_id.clone(), 2);
 
         let response = forget_session(State(state.clone()), Path(session_id.clone()))
             .await
@@ -5484,6 +5491,12 @@ mod tests {
             store.read_terminal_output(&session_id, 10).is_empty(),
             "forgetting a session must delete its terminal output file, not just its metadata"
         );
+        assert!(!state
+            .peon
+            .label_epochs
+            .read()
+            .unwrap()
+            .contains_key(&session_id));
     }
 
     #[tokio::test]
@@ -5548,6 +5561,7 @@ mod tests {
                 in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
                 label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
                 label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
+                label_epochs: std::sync::RwLock::new(std::collections::HashMap::new()),
                 input_buf: std::sync::RwLock::new(std::collections::HashMap::new()),
                 reported_cwd: std::sync::RwLock::new(std::collections::HashMap::new()),
                 config: peon::PeonConfig::from_env(),
@@ -5875,6 +5889,7 @@ mod tests {
                 in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
                 label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
                 label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
+                label_epochs: std::sync::RwLock::new(std::collections::HashMap::new()),
                 input_buf: std::sync::RwLock::new(std::collections::HashMap::new()),
                 reported_cwd: std::sync::RwLock::new(std::collections::HashMap::new()),
                 config: peon::PeonConfig::from_env(),
@@ -5967,6 +5982,7 @@ mod tests {
                 in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
                 label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
                 label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
+                label_epochs: std::sync::RwLock::new(std::collections::HashMap::new()),
                 input_buf: std::sync::RwLock::new(std::collections::HashMap::new()),
                 reported_cwd: std::sync::RwLock::new(std::collections::HashMap::new()),
                 config: peon::PeonConfig::from_env(),
@@ -6061,6 +6077,7 @@ mod tests {
                 in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
                 label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
                 label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
+                label_epochs: std::sync::RwLock::new(std::collections::HashMap::new()),
                 input_buf: std::sync::RwLock::new(std::collections::HashMap::new()),
                 reported_cwd: std::sync::RwLock::new(std::collections::HashMap::new()),
                 config: peon::PeonConfig::from_env(),
@@ -6137,6 +6154,7 @@ mod tests {
                 in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
                 label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
                 label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
+                label_epochs: std::sync::RwLock::new(std::collections::HashMap::new()),
                 input_buf: std::sync::RwLock::new(std::collections::HashMap::new()),
                 reported_cwd: std::sync::RwLock::new(std::collections::HashMap::new()),
                 config: peon::PeonConfig::from_env(),
@@ -6634,6 +6652,7 @@ mod tests {
                 in_flight: std::sync::RwLock::new(std::collections::HashSet::new()),
                 label_hint: std::sync::RwLock::new(std::collections::HashMap::new()),
                 label_pending: std::sync::RwLock::new(std::collections::HashSet::new()),
+                label_epochs: std::sync::RwLock::new(std::collections::HashMap::new()),
                 input_buf: std::sync::RwLock::new(std::collections::HashMap::new()),
                 reported_cwd: std::sync::RwLock::new(std::collections::HashMap::new()),
                 config: peon::PeonConfig::from_env(),
