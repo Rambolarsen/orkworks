@@ -50,9 +50,10 @@ The Rust sidecar uses the target-specific `windows-sys` `Win32_Storage_FileSyste
 
 All implementation work is tracked as GitHub issues: [https://github.com/Rambolarsen/orkworks/issues](https://github.com/Rambolarsen/orkworks/issues)
 
-- **Prioritize stabilization work first.** Prefer issues that restore or stabilize existing functionality before starting new milestone feature work. This includes user-visible bugs, regressions, failing tests, and correctness or data-integrity bugs.
-- **Use milestone order for net-new work.** When no meaningful stabilization work is open, pick from the lowest incomplete milestone and work forward in milestone order.
-- **Break ties by user impact.** If both a bugfix and a feature slice are plausible next steps, favor current usability and data correctness.
+- **Prioritize GitHub Copilot harness work first.** OrkWorks is used daily against GitHub Copilot CLI as a harness; closing gaps in Copilot support (resume, model selection, capacity signals, native voice, session ID capture, attention/integration coverage, and related issues — see #323–#327) takes priority over stabilization and milestone work.
+- **Stabilization work is next.** Once no open Copilot-harness issue is actionable, prefer issues that restore or stabilize existing functionality before starting new milestone feature work. This includes user-visible bugs, regressions, failing tests, and correctness or data-integrity bugs.
+- **Use milestone order for remaining net-new work.** When no meaningful Copilot or stabilization work is open, pick from the lowest incomplete milestone and work forward in milestone order.
+- **Break ties by user impact.** If multiple issues within the same priority tier are plausible next steps, favor current usability and data correctness.
 - **Add future work** as new issues. Break down into scoped, deliverable-sized issues with checkbox acceptance criteria.
 - **Keep issues in sync** with the codebase — close when done, update when scope changes.
 - If the issue board is inaccessible, do not guess at priorities. Stop and inform the user that issue board access is required before picking or closing work.
