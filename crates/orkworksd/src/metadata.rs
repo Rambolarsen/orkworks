@@ -1791,10 +1791,13 @@ impl MetadataStore {
         self.events_dir().join(format!("{}.terminal-size", id))
     }
 
-    /// Records the PTY's last known size for a session, once, at the moment
-    /// it reaches a terminal status. This is the only write path — resize
-    /// events during a live session are not persisted, since replay only
-    /// ever needs the final size.
+    /// Records the PTY's last known size for a session. Written at the
+    /// terminal-status transition (the authoritative final size for replay)
+    /// and, best-effort, on every live resize (`update_runtime_size` in
+    /// `session_runtime.rs`) so a daemon restart mid-session still leaves a
+    /// usable last-known size on disk for orphan reconciliation, which has
+    /// no in-memory runtime to read a size from and never reaches the
+    /// terminal-status transition itself.
     pub fn write_terminal_size(&self, id: &str, cols: u16, rows: u16) {
         if let Err(e) = fs::create_dir_all(&self.events_dir()) {
             warn!("failed to create events dir for terminal size: {e}");

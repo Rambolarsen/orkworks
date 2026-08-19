@@ -779,7 +779,7 @@ fn set_session_status_inner(
     status: &str,
 ) -> bool {
     let is_terminal = matches!(status, "killed" | "ended" | "error");
-    let (handle_decision, session_resume, entered_running, entered_terminal, terminal_size) = {
+    let (handle_decision, session_resume, entered_running, entered_terminal) = {
         let mut sessions = state.sessions.lock().unwrap();
         if expected_generation.is_some_and(|expected| {
             !sessions
@@ -826,20 +826,25 @@ fn set_session_status_inner(
             if is_terminal {
                 handle.info.observed_status = None;
             }
-            let terminal_size =
-                is_terminal.then(|| (handle.runtime.last_cols, handle.runtime.last_rows));
             (
                 Some(true),
                 (handle.info.resume.clone(), handle.info.resumed_from.clone()),
                 entered_running,
                 is_terminal,
-                terminal_size,
             )
         } else {
-            (None, (None, None), false, false, None)
+            (None, (None, None), false, false)
         }
     };
     if entered_terminal {
+        // Authoritative final size for dead-session replay. Goes through the
+        // same lock-serialized helper live-resize persistence uses
+        // (`session_runtime::persist_terminal_size`) so a live-resize write
+        // deferred onto a blocking-pool thread can never land after this one
+        // and clobber it with a stale size — see that function's doc comment.
+        // Must run before `ws_guard` below acquires `state.workspace`, since
+        // this also locks it internally and the lock isn't reentrant.
+        crate::runtime::session_runtime::persist_terminal_size(state, id, true);
         state.peon.last_output.write().unwrap().remove(id);
     } else if entered_running && state.peon.config.enabled {
         state
@@ -854,9 +859,6 @@ fn set_session_status_inner(
     let mut applied = handle_decision.unwrap_or(false);
     let ws_guard = state.workspace.lock().unwrap();
     if let Some(ref ws) = *ws_guard {
-        if let Some((cols, rows)) = terminal_size {
-            ws.metadata.write_terminal_size(id, cols, rows);
-        }
         if let Some(mut meta) = ws.metadata.read_session(id) {
             // With no in-memory handle, the persisted lifecycle is the guard authority.
             if handle_decision.is_none()
