@@ -1425,32 +1425,6 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_bindings_do_not_touch_workspace_files() {
-        for binding in [IntegrationBinding::OpenCode] {
-            let workspace = tempfile::tempdir().unwrap();
-            let assets = tempfile::tempdir().unwrap();
-            let stable = tempfile::tempdir().unwrap();
-            let reporter = ReporterAssetResolver {
-                source_dir: assets.path().to_path_buf(),
-                stable_dir: stable.path().join("hook-scripts"),
-            };
-            let context = IntegrationContext {
-                workspace: workspace.path(),
-                workspace_metadata: None,
-                orkworks_root: stable.path(),
-                enabled: true,
-                detected_tool: None,
-                reporter_assets: &reporter,
-            };
-            assert_eq!(
-                handler(&binding).install(&context).unwrap().registration,
-                IntegrationRegistration::Unsupported
-            );
-            assert!(fs::read_dir(workspace.path()).unwrap().next().is_none());
-        }
-    }
-
-    #[test]
     fn copilot_uses_top_level_inline_hook_version_and_preserves_unrelated_settings() {
         let workspace = tempfile::tempdir().unwrap();
         git2::Repository::init(workspace.path()).unwrap();

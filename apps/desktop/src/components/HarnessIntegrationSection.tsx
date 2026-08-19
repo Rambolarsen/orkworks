@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { HarnessConfig, IntegrationStatusResult } from "../harnessTypes";
+import { isAttentionSignal } from "../harnessIntegrationPresentation";
 
 // Mirrors the sole direct-reference condition in the backend probe
 // (crates/orkworksd/src/harness/detect.rs::probe_installed_tool): POSIX
@@ -13,13 +14,6 @@ interface HarnessIntegrationSectionProps {
   harnessId: string;
   harnessName: string;
   harness: HarnessConfig | undefined;
-}
-
-// TODO(#271): derive this from a backend-declared event-semantics field on
-// the integration status instead of a per-harness special case here — Codex
-// is the only integration today whose hook doesn't mean "needs input".
-function isAttentionSignal(harnessId: string): boolean {
-  return harnessId !== "codex";
 }
 
 export default function HarnessIntegrationSection({ harnessId, harnessName, harness }: HarnessIntegrationSectionProps) {
