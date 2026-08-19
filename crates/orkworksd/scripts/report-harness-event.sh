@@ -88,8 +88,10 @@ fi
 # directory — issue #241) and "session_id" on every event; extract both from
 # one parse of the same payload rather than spawning python3 twice. Codex's
 # SessionStart payload carries other fields too (cwd, hook_event_name,
-# source, ...) but we only extract "session_id" from it. `session_source`
-# doubles as
+# source, ...) but we only extract "session_id" from it. Copilot's
+# notification payload uses camelCase "sessionId" (not "session_id") per
+# https://docs.github.com/en/copilot/reference/hooks-reference, alongside its
+# own "cwd". `session_source` doubles as
 # the harness-session "source" field below and as the marker for "this event
 # isn't a needs-input signal" further down — one extraction point instead of
 # matching "$marker" a second and third time.
@@ -117,6 +119,14 @@ case "$marker" in
         python3 -c 'import json,sys; print(json.load(sys.stdin).get("session_id") or "")' 2>/dev/null
     )" || true
     session_source="codex_hook"
+    ;;
+  *:copilot)
+    copilot_fields="$(
+      printf '%s' "$payload" |
+        python3 -c 'import json,sys; data=json.load(sys.stdin); print("%s\x1f%s" % (data.get("cwd") or "", data.get("sessionId") or ""))' 2>/dev/null
+    )" || true
+    IFS=$'\x1f' read -r reported_cwd harness_session_id <<< "$copilot_fields"
+    session_source="copilot_hook"
     ;;
 esac
 

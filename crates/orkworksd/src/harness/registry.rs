@@ -652,6 +652,55 @@ mod tests {
     }
 
     #[test]
+    fn copilot_exact_resume_builds_resume_flag() {
+        let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
+        let registry = resolve_document(&builtins, &HarnessUserDocument::default()).unwrap();
+        let harness = registry.get("copilot").unwrap();
+
+        let resume = harness
+            .build_resume(
+                crate::harness::ResumeStrategy::Exact,
+                "/repo",
+                Some("647ad3f9-0f01-4014-ae31-4f32add8ad89"),
+                None,
+                None,
+            )
+            .unwrap();
+
+        assert_eq!(resume.program, "copilot");
+        assert_eq!(
+            resume.args,
+            ["--resume", "647ad3f9-0f01-4014-ae31-4f32add8ad89"]
+        );
+    }
+
+    // Copilot's `--continue` was verified locally (two non-interactive `-p`
+    // sessions in unrelated, non-git directories on different days) to
+    // recover the single most recently touched session machine-wide,
+    // ignoring cwd entirely — unlike Claude's cwd-scoped `--continue` or
+    // Codex's `resume --last`. Neither `latestCwd` nor `latestRepo` models
+    // that "ignores location" behavior, and mapping to either would risk
+    // silently resuming an unrelated project's session, so Copilot
+    // declares no latest-fallback strategy at all: resume is exact-only.
+    #[test]
+    fn copilot_has_no_latest_fallback_resume_strategy() {
+        let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
+        let registry = resolve_document(&builtins, &HarnessUserDocument::default()).unwrap();
+        let harness = registry.get("copilot").unwrap();
+
+        assert_eq!(
+            harness.select_resume_strategy(&crate::harness::ResumeMemory {
+                state: crate::harness::ResumeState::Available,
+                preferred_strategy: crate::harness::ResumeStrategy::Exact,
+                harness_session_id: None,
+                latest_fallback: true,
+                last_seen_at: None,
+            }),
+            crate::harness::ResumeStrategy::None,
+        );
+    }
+
+    #[test]
     fn retired_gemini_is_not_an_executable_peon_provider() {
         let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
         let registry = resolve_document(&builtins, &HarnessUserDocument::default()).unwrap();
