@@ -14,12 +14,13 @@ Use **pnpm** for all Node.js package-management tasks in this repository, includ
 
 ## CI routing
 
-GitHub Actions now has four distinct workflow classes:
+GitHub Actions now has five distinct workflow classes:
 
 - `.github/workflows/release.yml` for tag-driven release packaging only
 - `.github/workflows/pr-ci.yml` for pull-request validation on `main`
 - `.github/workflows/docs.yml` builds the VitePress docs site and deploys it to GitHub Pages on doc-path pushes to `main`
 - `.github/workflows/quality-audit.yml` for the weekly scheduled quality audit — rotates through the audit skills in `skills/` (one per week, so each fires roughly monthly) and files scoped issues per those skills' guardrails; requires the `CLAUDE_CODE_OAUTH_TOKEN` repo secret (subscription auth via `claude setup-token`; an `ANTHROPIC_API_KEY` swap is documented in the workflow header)
+- `.github/workflows/pr-review.yml` posts one automated first-pass review comment on newly opened PRs that touch `apps/desktop/` or `crates/orkworksd/`, reusing the same `CLAUDE_CODE_OAUTH_TOKEN` secret. It is informational only — excluded from required status checks, cannot block a merge, and does not replace the manual `/code-review` review gate below; it always says so in its own comment.
 
 PR CI is path-routed: desktop changes run desktop validation, Rust changes run Rust tests, and non-code PRs receive a lightweight passing no-op check. `pr-ci.yml` also runs a `doc-drift` job on every PR — the same drift checks as `.claude/hooks/doc-check.sh` (see "Doc currency check" below), run against the PR's diff and surfaced in the Actions run summary. It is intentionally excluded from required status checks and can never block a merge; it exists so the doc-drift nudge also reaches non-Claude-Code harnesses that don't trigger the Stop hook.
 
@@ -139,7 +140,7 @@ When starting any task that will produce code changes, invoke the `starting-work
 
 **One PR per logical unit of work.** A burst of 5–10 small commits in a few minutes that share a feature name is one PR, not ten commits on main. Squash or rebase locally before opening it.
 
-**Review gate:** PRs that touch code under `apps/desktop/` or `crates/orkworksd/` must have a `/code-review` run before merge. Default to a lightweight review. Escalate to medium effort or higher only for bigger or riskier changes: cross-cutting architecture/runtime work, concurrency or lifecycle changes, protocol/schema/migration changes, security-sensitive work, or unusually large diffs (roughly more than 8 code files or 500 lines). Address findings or note why each is intentional in the PR description.
+**Review gate:** PRs that touch code under `apps/desktop/` or `crates/orkworksd/` must have a `/code-review` run before merge. Default to a lightweight review. Escalate to medium effort or higher only for bigger or riskier changes: cross-cutting architecture/runtime work, concurrency or lifecycle changes, protocol/schema/migration changes, security-sensitive work, or unusually large diffs (roughly more than 8 code files or 500 lines). Address findings or note why each is intentional in the PR description. `pr-review.yml` (see "CI routing" above) posts an automated first-pass comment on the same PRs; treat it as a convenience heads-up, not a substitute for the manual run this gate requires.
 
 **Squash-merge by default.** Preserve multiple commits only when the history tells a story worth keeping (e.g. a refactor followed by a focused fix on top).
 

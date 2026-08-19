@@ -1,0 +1,115 @@
+# Automated first-pass code review on PR open — fourth workflow class
+# alongside release.yml (tag-driven packaging), pr-ci.yml (PR validation),
+# and quality-audit.yml (scheduled audits).
+#
+# Posts one informational review comment on newly opened PRs that touch
+# apps/desktop/ or crates/orkworksd/ — the same scope as the manual
+# /code-review review-gate in AGENTS.md. This is a convenience first pass,
+# not a replacement: it is intentionally excluded from required status
+# checks and can never block a merge, same rationale as pr-ci.yml's
+# doc-drift job. The PR author is still responsible for the manual
+# /code-review the review-gate requires, especially for anything the
+# gate says to escalate to medium effort or higher.
+#
+# Setup: reuses the CLAUDE_CODE_OAUTH_TOKEN repo secret already configured
+# for quality-audit.yml — no additional setup needed.
+
+name: PR review
+
+on:
+  pull_request:
+    types: [opened]
+    branches:
+      - main
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  changes:
+    name: Detect changed surfaces
+    runs-on: ubuntu-latest
+    outputs:
+      relevant_code_changed: ${{ steps.filter.outputs.desktop == 'true' || steps.filter.outputs.rust == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            desktop:
+              - 'apps/desktop/**'
+            rust:
+              - 'crates/orkworksd/**'
+
+  review:
+    name: Automated review
+    needs: changes
+    if: needs.changes.outputs.relevant_code_changed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run review
+        uses: anthropics/claude-code-action@v1
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          prompt: |
+            Review pull request #${{ github.event.pull_request.number }} in
+            this repository (Rambolarsen/orkworks) and post one comment with
+            your findings. This is an automated first pass, not the
+            project's real review gate — the PR author still runs a manual
+            /code-review per AGENTS.md, especially for bigger or riskier
+            changes. Say so plainly at the end of your comment so nobody
+            mistakes this for that review.
+
+            Eligibility: if the PR is a draft, is closed, is an automated
+            dependency-bump PR, or you have already posted a comment on it
+            starting with "### Automated code review" (check with
+            `gh pr view ${{ github.event.pull_request.number }} --json comments`),
+            stop and post nothing.
+
+            Otherwise:
+
+            1. Read the root AGENTS.md, plus apps/desktop/AGENTS.md and/or
+               crates/orkworksd/AGENTS.md depending on which paths the PR
+               touches (`gh pr diff ${{ github.event.pull_request.number }} --name-only`).
+            2. Read the full diff with
+               `gh pr diff ${{ github.event.pull_request.number }}`.
+            3. Look for real correctness bugs and clear violations of the
+               AGENTS.md files you read — not style nitpicks. Do not flag:
+               anything a linter/typechecker/compiler/test run would catch
+               (imports, types, formatting — CI runs those separately);
+               general code-quality opinions not required by AGENTS.md;
+               pre-existing issues outside the diff; issues on lines the PR
+               didn't touch; changes that are clearly intentional.
+            4. Judge the size/risk of the diff using the same heuristic
+               AGENTS.md's review gate uses for humans (cross-cutting
+               architecture/runtime work, concurrency or lifecycle changes,
+               protocol/schema/migration changes, security-sensitive work,
+               or a diff over roughly 8 code files or 500 lines all count as
+               higher-risk) and look harder at those changes; for small,
+               low-risk diffs a quick pass is enough.
+            5. Do not attempt to build, typecheck, or run tests yourself —
+               pr-ci.yml already does that.
+
+            Post exactly one comment via
+            `gh pr comment ${{ github.event.pull_request.number }} --body "..."`.
+            Keep it brief, no emojis except the sign-off. Cite file and line
+            with a full-commit-SHA GitHub permalink for each finding (e.g.
+            https://github.com/Rambolarsen/orkworks/blob/<full-sha>/path/to/file#L10-L15,
+            with 1 line of context before/after the cited lines). If you
+            found no issues, say so plainly instead of inventing filler.
+            Always end the comment with a line stating this was an automated
+            first pass and does not replace the project's manual
+            /code-review review gate.
+          claude_args: |
+            --allowedTools "Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr comment:*),Bash(gh pr list:*),Read,Grep,Glob"
