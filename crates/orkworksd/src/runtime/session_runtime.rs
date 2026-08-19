@@ -595,6 +595,17 @@ pub(crate) async fn update_runtime_size(
         handle.runtime.last_cols = cols;
         handle.runtime.control_tx.clone()
     };
+    // Best-effort persist on every live resize, not just at the terminal-status
+    // transition: if the daemon restarts mid-session, orphan reconciliation
+    // (metadata.rs::reconcile_orphaned_session) never reaches that transition and
+    // has no in-memory runtime to read a size from, so historical replay would
+    // otherwise always fall back to fit-to-container for these sessions. Fitting
+    // to whatever width the panel happens to have at replay time misplaces any
+    // absolute-column cursor addressing the original PTY width baked into the
+    // recorded bytes, which is what produced the garbled replay this fixes.
+    if let Some(ref ws) = *state.workspace.lock().unwrap() {
+        ws.metadata.write_terminal_size(id, cols, rows);
+    }
     tx.send(RuntimeCommand::Resize { rows, cols })
         .await
         .map_err(|_| ())
@@ -2844,6 +2855,53 @@ mod tests {
             handle[session_id].info.attention.as_deref(),
             Some("working")
         );
+    }
+
+    #[tokio::test]
+    async fn update_runtime_size_persists_terminal_size_for_orphan_recovery() {
+        // If the daemon restarts mid-session, orphan reconciliation
+        // (metadata::reconcile_orphaned_session) has no in-memory runtime handle
+        // and never reaches the terminal-status transition that would otherwise
+        // write `.terminal-size`. Without a live-resize fallback like this, replay
+        // falls back to fit-to-container and misrenders recorded output that used
+        // absolute-column cursor addressing computed for the original PTY width.
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(dir.path());
+        let id = "resize-session".to_string();
+
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        state.sessions.lock().unwrap().insert(
+            id.clone(),
+            crate::SessionHandle {
+                info: crate::test_support::test_session_info(
+                    id.clone(),
+                    "Resize",
+                    "/tmp",
+                    "running",
+                    "t0",
+                ),
+                kill_tx,
+                output_buffer: crate::peon::RingBuffer::new(200),
+                scan_buf: String::new(),
+                pending_work_signal: None,
+                runtime: SessionRuntime::detached(24, 80),
+                terminal_attached: false,
+                resume_in_progress: false,
+                at_usage_limit_latched: false,
+                capacity_check_pending: false,
+                output_lines_seen: 0,
+                scan_bytes_seen: 0,
+                resume_scan_origin: None,
+                pending_capacity_visible_once: false,
+                active_work_hook: false,
+            },
+        );
+
+        let _ = update_runtime_size(&state, &id, 55, 210).await;
+
+        let ws_guard = state.workspace.lock().unwrap();
+        let ws = ws_guard.as_ref().unwrap();
+        assert_eq!(ws.metadata.read_terminal_size(&id), Some((210, 55)));
     }
 
     #[tokio::test]
