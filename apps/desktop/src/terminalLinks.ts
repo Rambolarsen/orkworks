@@ -43,11 +43,27 @@ function partAtOffset(
   return undefined;
 }
 
+// Bounds how many wrapped continuation rows a single logical line can span.
+// Legacy `.terminal` replay files predate the 1,000-line/1 MiB retention cap
+// (see AGENTS.md) and can still hold tens of megabytes of unbroken output;
+// without a cap, an un-newlined blob turns this scan into an unbounded walk
+// of the whole buffer on every call. No real plan-path match needs anywhere
+// near this many wrapped rows.
+const MAX_LOGICAL_LINE_ROWS = 200;
+
 function logicalLine(terminal: Terminal, y: number): Array<{ y: number; line: IBufferLine; text: string }> {
   let start = y;
-  while (start > 1 && terminal.buffer.active.getLine(start - 1)?.isWrapped) start -= 1;
+  let backSteps = 0;
+  while (
+    start > 1 &&
+    backSteps < MAX_LOGICAL_LINE_ROWS &&
+    terminal.buffer.active.getLine(start - 1)?.isWrapped
+  ) {
+    start -= 1;
+    backSteps += 1;
+  }
   const lines = [];
-  for (let current = start; ; current += 1) {
+  for (let current = start; current - start < MAX_LOGICAL_LINE_ROWS; current += 1) {
     const line = terminal.buffer.active.getLine(current - 1);
     if (!line) break;
     lines.push({ y: current, line, text: line.translateToString(true) });

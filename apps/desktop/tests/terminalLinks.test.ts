@@ -58,6 +58,30 @@ test("uses xterm cell widths for a path after a wide character", async () => {
   terminal.dispose();
 });
 
+test("caps the wrapped-chain scan instead of walking an entire oversized buffer", async () => {
+  // Legacy `.terminal` replay files predate the 1,000-line/1 MiB retention cap
+  // and can still be tens of megabytes of unbroken output. A plan path lying
+  // beyond the scan cap must not be found (a bounded, cheap miss), rather
+  // than the provider re-walking the whole wrapped chain on every call.
+  const terminal = new Terminal({ cols: 2, rows: 4 });
+  const filler = "xy".repeat(210); // wraps into 210 rows at cols=2
+  await new Promise<void>((resolve) => terminal.write(filler + "specs/plan.md", resolve));
+  const provider = createTerminalPlanLinkProvider(terminal, async () => {});
+  const links = await new Promise<any>((resolve) => provider.provideLinks(1, resolve));
+  assert.equal(links, undefined);
+  terminal.dispose();
+});
+
+test("still finds a wrapped link that stays within the scan cap", async () => {
+  const terminal = new Terminal({ cols: 2, rows: 4 });
+  const filler = "xy".repeat(50); // wraps into 50 rows at cols=2, well under the cap
+  await new Promise<void>((resolve) => terminal.write(filler + "specs/plan.md", resolve));
+  const provider = createTerminalPlanLinkProvider(terminal, async () => {});
+  const links = await new Promise<any>((resolve) => provider.provideLinks(1, resolve));
+  assert.equal(links?.[0]?.text, "specs/plan.md");
+  terminal.dispose();
+});
+
 test("shows a visible error when selecting a terminal plan fails", async () => {
   const terminal = new Terminal({ cols: 80, rows: 2 });
   await new Promise<void>((resolve) => terminal.write("specs/plan.md", resolve));
