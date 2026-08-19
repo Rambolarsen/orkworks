@@ -55,7 +55,10 @@ if ($ReportPlanPath) {
 # lets the sidecar track where the agent is actually working, not just
 # where its process was launched (issue #241). Codex's SessionStart payload
 # carries other fields too (cwd, hook_event_name, source, ...) but we only
-# extract "session_id" from it. $sessionSource doubles as the harness-session
+# extract "session_id" from it. Copilot's notification payload uses camelCase
+# "sessionId" (not "session_id") per
+# https://docs.github.com/en/copilot/reference/hooks-reference, alongside its
+# own "cwd". $sessionSource doubles as the harness-session
 # "source" field below and as the marker for "this event isn't a needs-input
 # signal" further down — one extraction point instead of matching $Marker a
 # second and third time.
@@ -88,6 +91,19 @@ if ($Marker -clike "*:claude-code") {
         }
     } catch {}
     $sessionSource = "codex_hook"
+} elseif ($Marker -clike "*:copilot") {
+    try {
+        $data = $payload | ConvertFrom-Json
+        if ($data -is [System.Management.Automation.PSCustomObject]) {
+            if ($data.sessionId) {
+                $harnessSessionId = ([string]$data.sessionId).Trim()
+            }
+            if ($data.cwd) {
+                $reportedCwd = ([string]$data.cwd).Trim()
+            }
+        }
+    } catch {}
+    $sessionSource = "copilot_hook"
 }
 
 # The timeout below bounds the whole request; Invoke-RestMethod has no
