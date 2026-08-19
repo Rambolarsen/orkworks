@@ -1,4 +1,5 @@
 use axum::{
+    extract::DefaultBodyLimit,
     routing::{delete, get, post, put},
     Router,
 };
@@ -46,6 +47,7 @@ use crate::http::session_handlers::{
 get_session_plan_content, request_session_plan_review, report_attention, report_harness_session, report_session_plan_path, resume_session, select_terminal_plan,
     set_active_harnesses, set_active_session, set_workspace,
 };
+use crate::http::workflow_observation_handlers::report_workflow_observation;
 use crate::runtime::peon_runtime::peon_loop;
 use crate::runtime::retention::retention_cleanup_task;
 use crate::runtime::terminal_http::{
@@ -284,6 +286,16 @@ pub(crate) fn build_router(state: Arc<AppState>) -> Router {
         .route("/sessions/:id/terminal", get(session_terminal_handler))
         .route("/sessions/:id/terminal-output", get(get_terminal_output))
         .route("/sessions/:id/summary-log", get(get_summary_log))
+        .merge(
+            // Isolated so the 8 KiB body cap (ADR 0042) applies only to this
+            // route, not the rest of the API.
+            Router::new()
+                .route(
+                    "/sessions/:id/workflow-observations",
+                    post(report_workflow_observation),
+                )
+                .layer(DefaultBodyLimit::max(8 * 1024)),
+        )
         .layer(cors)
         .with_state(state)
 }

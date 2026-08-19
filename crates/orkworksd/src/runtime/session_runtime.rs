@@ -3,8 +3,9 @@ use crate::runtime::observed_status::{
     process_transition_fields, ProcessTransition,
 };
 use crate::runtime::terminal_runtime::{
-    make_pty_system, schedule_session_ending_finalization, session_env_overrides,
-    set_session_status_for_generation, should_forward_terminal_env, terminal_env_overrides,
+    clear_workflow_report_token, make_pty_system, new_workflow_report_token,
+    schedule_session_ending_finalization, session_env_overrides, set_session_status_for_generation,
+    set_workflow_report_token, should_forward_terminal_env, terminal_env_overrides,
 };
 #[cfg(windows)]
 use crate::runtime::terminal_runtime::resolve_windows_program;
@@ -731,6 +732,9 @@ pub(crate) fn clear_ended_session_tracking(state: &AppState, id: &str) {
     state.peon.input_buf.write().unwrap().remove(id);
     state.peon.reported_cwd.write().unwrap().remove(id);
     state.session_pids.lock().unwrap().remove(id);
+    // ADR 0042: a dead session's reporting capability must stop working
+    // immediately, even if a caller captured the token beforehand.
+    clear_workflow_report_token(id);
 }
 
 /// Clears state that is only retained while a session remains resumable. This
@@ -893,11 +897,29 @@ pub(crate) async fn start_session_runtime(
         0 => None,
         value => Some(value),
     };
-    for (key, value) in session_env_overrides(&id, port) {
+    // ADR 0042: every live session gets an independent, unpredictable
+    // reporting capability. OS randomness failing here must abort startup
+    // before the child is spawned rather than ever hand out an empty or
+    // predictable token.
+    let report_token = new_workflow_report_token().map_err(|error| {
+        tracing::error!(
+            session_id = %id,
+            %error,
+            "failed to generate a workflow-observation reporting capability; aborting session startup"
+        );
+        "failed to generate a secure workflow-observation reporting capability".to_string()
+    })?;
+    for (key, value) in session_env_overrides(&id, port, &report_token) {
         cmd.env(&key, &value);
     }
 
     let mut child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
+    // The capability is installed only once the child has actually spawned;
+    // any earlier `?` return above leaves no capability behind for this
+    // session id. `set_workflow_report_token` overwrites any prior value,
+    // which is exactly the desired "replaced on resume" behavior since
+    // resume re-enters this same function.
+    set_workflow_report_token(&id, report_token);
     let owns_spawned_generation = state
         .sessions
         .lock()
@@ -3315,6 +3337,151 @@ mod tests {
         assert!(
             !still_tracked,
             "session_pids entry should be cleared once the process has exited"
+        );
+    }
+
+    #[tokio::test]
+    async fn spawned_child_receives_a_verifiable_report_token_via_env() {
+        let dir = tempfile::tempdir().unwrap();
+        let output_path = dir.path().join("report-token.txt");
+        let session_id = "runtime-report-token";
+        let state = test_state_with_runtime_session(session_id);
+
+        let (runtime, control_rx) =
+            SessionRuntime::live(DEFAULT_TERMINAL_ROWS, DEFAULT_TERMINAL_COLS);
+        let output_tx = runtime.output_tx.clone();
+
+        let command = harness::CommandSpec {
+            program: "/bin/sh".into(),
+            args: vec![
+                "-c".into(),
+                // The trailing sleep keeps the child alive past the exit-driven
+                // cleanup that would otherwise race with (and could win
+                // against) this test's own capability check below.
+                format!(
+                    "printf '%s' \"$ORKWORKS_REPORT_TOKEN\" > {}; sleep 1",
+                    output_path.display()
+                ),
+            ],
+            cwd: dir.path().display().to_string(),
+        };
+
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut(session_id).unwrap();
+            handle.runtime = runtime;
+        }
+
+        let (_kill_tx, kill_rx) = tokio::sync::watch::channel(false);
+        start_session_runtime(
+            state.clone(),
+            session_id.to_string(),
+            command,
+            None,
+            control_rx,
+            output_tx,
+            kill_rx,
+            PtySize {
+                rows: DEFAULT_TERMINAL_ROWS,
+                cols: DEFAULT_TERMINAL_COLS,
+                pixel_width: 0,
+                pixel_height: 0,
+            },
+        )
+        .await
+        .unwrap();
+
+        let mut token_from_env = None;
+        for _ in 0..50 {
+            if let Ok(contents) = std::fs::read_to_string(&output_path) {
+                if !contents.is_empty() {
+                    token_from_env = Some(contents);
+                    break;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        let token_from_env = token_from_env.expect("child should have written its report token");
+
+        assert_eq!(token_from_env.len(), 64);
+        assert!(token_from_env.chars().all(|c| c.is_ascii_hexdigit()));
+        assert!(
+            crate::runtime::terminal_runtime::verify_workflow_report_token(
+                session_id,
+                &token_from_env
+            ),
+            "the token the child actually received must match the registered capability"
+        );
+    }
+
+    // Note: "regenerate on resume" is deliberately verified at the
+    // capability-registry level
+    // (`set_workflow_report_token_replaces_prior_value_on_resume` in
+    // terminal_runtime.rs, alongside `new_workflow_report_token_generates_independent_values`
+    // and this file's `spawned_child_receives_a_verifiable_report_token_via_env`)
+    // rather than by driving two real, sequential PTY spawns through
+    // `start_session_runtime` for one session id here. A real resume also
+    // resets session lifecycle bookkeeping that lives in the
+    // (out-of-scope-for-this-task) `resume_session` HTTP handler before
+    // re-entering this function; without replicating that reset, a second
+    // direct call races the first run's own asynchronous exit-driven
+    // finalization for reasons unrelated to the reporting capability itself.
+    // `set_workflow_report_token` unconditionally overwrites any prior entry
+    // (see that test), which is the actual mechanism resume relies on.
+
+    #[tokio::test]
+    async fn os_randomness_failure_aborts_startup_before_spawning_a_child() {
+        let dir = tempfile::tempdir().unwrap();
+        let session_id = "runtime-report-token-forced-failure";
+        let state = test_state_with_runtime_session(session_id);
+
+        let (runtime, control_rx) =
+            SessionRuntime::live(DEFAULT_TERMINAL_ROWS, DEFAULT_TERMINAL_COLS);
+        let output_tx = runtime.output_tx.clone();
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            sessions.get_mut(session_id).unwrap().runtime = runtime;
+        }
+
+        let command = harness::CommandSpec {
+            program: "/bin/sh".into(),
+            args: vec!["-lc".into(), "sleep 5".into()],
+            cwd: dir.path().display().to_string(),
+        };
+
+        let (_kill_tx, kill_rx) = tokio::sync::watch::channel(false);
+        let result = {
+            let _force =
+                crate::runtime::terminal_runtime::ForceTokenGenerationFailure::enable();
+            start_session_runtime(
+                state.clone(),
+                session_id.to_string(),
+                command,
+                None,
+                control_rx,
+                output_tx,
+                kill_rx,
+                PtySize {
+                    rows: DEFAULT_TERMINAL_ROWS,
+                    cols: DEFAULT_TERMINAL_COLS,
+                    pixel_width: 0,
+                    pixel_height: 0,
+                },
+            )
+            .await
+        };
+
+        assert!(
+            result.is_err(),
+            "OS randomness failing must fail session startup, not silently spawn with a weak token"
+        );
+        assert!(
+            state.session_pids.lock().unwrap().get(session_id).is_none(),
+            "no child process should have been spawned"
+        );
+        assert!(
+            !crate::runtime::terminal_runtime::verify_workflow_report_token(session_id, ""),
+            "no capability should have been installed for the failed session"
         );
     }
 

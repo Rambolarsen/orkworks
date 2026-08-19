@@ -1,151 +1,105 @@
-# Task 1 Report — Rewrite `sortSessions` to single-key recency
+# Task 1 report — Make the feature authoritative and tracked
+
+## Status: DONE_WITH_CONCERNS
+
+One concern (ADR numbering collision, see below) required a judgment call rather than following the brief literally. Everything else completed as specified.
 
 ## What I implemented
 
-Followed the brief's 9 steps exactly.
+1. **`specs/orkworks-mvp.md`** — added a "Current-summary snapshot" subsection (summary/summarySource/summaryConfidence/summaryObservedAt, update/clear rules) under Peon, and a new "## Workflow observations" section (record shape, recording module interface, explicit-report route, storage/limits). Extended the Peon `may infer`/`may update`/`must not` lists and the Session Metadata Protocol / Peon MVP-scope bullet lists to reference the new directory and observation candidates.
+2. **`specs/taskmaster.md`** — added a "Workflow observations" input subsection, an `improve_workflow` recommendation type, a full "## Workflow-improvement recommendations" section (eligibility, kind-to-target mapping table, recommendation shape/`workflowImprovement` object, dedupe family, dismissal watermark, presentation), an API-section note on which routes apply to this passive variant, and three new acceptance-criteria checkboxes.
+3. **`docs/adr/0042-workflow-observations-replace-summary-checkpoints.md`** (new) — `Status: accepted`, `Date: 2026-08-14`. Supersedes ADR 0024 and ADR 0029, restates their surviving decisions (bounded terminal replay; stable one-shot label), and records the five decisions requested: current-summary snapshot, workflow observations as durable evidence, exact deterministic Taskmaster correlation, embedded recommendation evidence, removal of summary checkpoints.
+4. **ADR 0024 / ADR 0029** — status line changed to `superseded by [ADR 0042](...)`. Bodies left untouched (historically accurate as written).
+5. **`docs/adr/README.md`** — 0024 and 0029 rows updated to "superseded by 0042"; new 0042 row added.
+6. **`docs/agents/architecture.md`** — removed `GET /sessions/:id/summary-log` from the Key endpoints list and its explanatory paragraph; updated the `metadata.rs` bullet to stop claiming durable NDJSON checkpoints; added a new "## Workflow observations and the current-summary snapshot (design)" section documenting the target contract (current-summary fields, `WorkflowObservation` shape, recording-module interface, storage paths/bounds, and the three routes: `POST /sessions/:id/workflow-observations`, `GET /taskmaster/recommendations`, `POST /taskmaster/recommendations/:id/dismiss`), explicitly marked as design/not-yet-implemented and pointing at issue #313.
+7. **`docs/agents/domain-entities.md`** — added a "## Workflow observation feedback loop (design)" section (also marked not-yet-implemented) documenting the forthcoming `SessionMetadata` snapshot fields and the `WorkflowObservation` type, without touching the existing "Notable fields" list (which documents actual current code).
+8. **`AGENTS.md`** — curated ADR bullet list: removed 0024/0029 from the "prose lives in architecture.md" pointer (now superseded), added 0042 to that same pointer (it has independent prose coverage in architecture.md, so per the section's own eligibility rule it doesn't get a dedicated inline bullet). Metadata-protocol bullets updated: `events/<id>.ndjson` description no longer claims checkpoints; added `workflow-observations/` path bullet; replaced the summary-log/"Task history" bullet with current-summary-snapshot wording and an `improve_workflow` clarification.
+9. **`README.md`** — same class of updates: replaced checkpoint/Task-history claims in the Architecture and Metadata-protocol bullet lists with current-summary-snapshot + workflow-observation wording, all pointing at ADR 0042.
 
-**Production code** — `apps/desktop/src/sessionSort.ts`:
-- Deleted lines 4–12 (the `ATTENTION_PRIORITY: Record<string, number>` constant).
-- Rewrote the `sortSessions` body (was lines 32–45) with the exact 3-key comparator from the brief:
-  1. `lastActivityTimestamp` descending
-  2. `created_at` descending
-  3. `label` ascending (via `localeCompare`)
-- Kept `needsAttention` and `sessionAttentionStatus` untouched (spec: ordering-agnostic, still used by UI row badges/color).
-- Kept `mergeSessionsById` and its private helpers (`isAtLeastOneMinuteOld`, `newestUpdatedAliveSession`) untouched — pure-function + tuple-return contract lands in Task 2, not Task 1, per global constraints. `mergeSessionsById` still calls `sortSessions` at line 39 in its initial-empty branch; the new comparator signature is unchanged so the call typechecks.
-- Verified via grep that `ATTENTION_PRIORITY` in `sessionSort.ts` is referenced only inside the old `sortSessions` body (was lines 37–38) before deleting. (Note: `apps/desktop/src/domain/session.ts` has its own *separate* `ATTENTION_PRIORITY` constant at its line 101, used by its own `sortSessions` for a different view. Per spec line 135–136, that file is intentionally unchanged in this work; left alone.)
+## ADR numbering collision (the concern)
 
-**Tests** — `apps/desktop/tests/sessionSort.test.ts`:
-- Added the new test "sortSessions orders purely by lastActivityTimestamp descending, ignoring attention" verbatim from the brief.
-- Deleted the obsolete "sortSessions ranks actionable alive sessions before working, idle, and dead" test (it asserts exactly the removed attention-category behavior).
-- Renamed the tie-break test from "sortSessions breaks attention ties by most recent activity, not label" to "sortSessions orders by most recent activity when timestamps differ" per Step 6. Setup and assertion unchanged (assertion order is already correct under the new comparator).
-- All other tests in the file left unchanged and green (needsAttention, sessionAttentionStatus lifecycle/alive/default tests, `sortSessions uses recent output…`, all `mergeSessionsById` tests, App.tsx regex test).
+The design doc and task brief both assume ADR 0041 is free. It is not: `docs/adr/0041-session-runtime-generation-ownership.md` was accepted on 2026-08-15 (one day after the design doc was authored) for an unrelated decision (PTY runtime generation ownership), and is already referenced by name from `README.md`. Renumbering or overwriting an already-accepted, already-referenced ADR was not a safe option.
 
-## TDD evidence
+I filed the new ADR as **0042** instead, keeping `Date: 2026-08-14` (the date the underlying design was approved) and adding an explicit numbering note in the ADR's Context section. All cross-references (specs, README, AGENTS.md, architecture.md, domain-entities.md, the ADR index) consistently point to 0042. Tasks 2–11 should reference ADR 0042, not 0041.
 
-**RED (Step 2)** — new recency test fails before production change. Ran from `apps/desktop/`:
-```
-node --experimental-strip-types --test tests/sessionSort.test.ts
-```
-Relevant output:
-```
-✖ sortSessions orders purely by lastActivityTimestamp descending, ignoring attention (0.717417ms)
-  AssertionError: Expected values to be strictly deep-equal:
-  + actual - expected
-  [
-  +  'older-needs-you',
-     'newer-idle',
-  -  'older-needs-you'
-  ]
-```
-Why expected: the old comparator ranked `needs_you` (priority 0) above `idle` (priority 6) via `ATTENTION_PRIORITY`, so `older-needs-you` was sorted first regardless of its older `lastActivityAt`. The test's expected order (`["newer-idle","older-needs-you"]`) requires the new recency-only sort. Other tests in the file were green at this point.
+## Other judgment calls
 
-**GREEN (Step 4)** — new recency test passes after production change. Same command. Output:
-```
-✔ sortSessions orders purely by lastActivityTimestamp descending, ignoring attention (0.109167ms)
-```
-At this same step, the OLD line 49 test went RED exactly as the brief predicted:
-```
-✖ sortSessions ranks actionable alive sessions before working, idle, and dead (14.402625ms)
-  actual:   [ 'dead', 'failed', 'idle', 'needs-you', 'working' ]
-  expected: [ 'needs-you', 'failed', 'working', 'idle', 'dead' ]
-```
-Reason matches brief's prediction: those test sessions have no `lastActivityAt`/`lastOutputAt`, all share `created_at: "now"` (unparseable Date → NaN), and the new comparator's final tiebreaker is `label` asc — yielding alphabetical `["dead","failed","idle","needs-you","working"]`, not the old attention-category order.
+- **specs/orkworks-mvp.md and specs/taskmaster.md had no prior summary-checkpoint/"Task history" language** — that content lived only in ADR 0024/0029, `docs/agents/architecture.md`, `AGENTS.md`, and `README.md`. So the "remove statements that define durable summary checkpoints" instruction for the two specs was a no-op there; I only needed to *add* the new contract to them.
+- **"the three Taskmaster API routes" (Step 4)** — Taskmaster has zero implemented routes in code today (grepped `crates/orkworksd/src` — no `/taskmaster` handlers exist; it's spec-only). I interpreted this as the three routes this design actually exercises for the passive `improve_workflow` variant: `POST /sessions/:id/workflow-observations`, `GET /taskmaster/recommendations`, and `POST /taskmaster/recommendations/:id/dismiss` (accept/refresh don't apply — no accept/execute action, no manual refresh needed given the 5s correlation debounce). I did **not** add `/taskmaster/*` routes to architecture.md's "Key endpoints" list, since that list documents actually-implemented routes and none exist yet; instead they're documented in a clearly-marked "(design)" section.
+- **architecture.md / domain-entities.md forward-looking content** — both files otherwise document *current* Rust code. Since none of this design is implemented yet (Tasks 2–4's job), I added clearly-labeled "(design)" sections rather than editing the "current state" prose as if the code already existed, and pointed them at issue #313 with an instruction to fold the content into the normal current-state prose once implemented. This keeps both docs honest today while still satisfying the brief's synchronization requirement.
+- **Pre-existing worktree issue, fixed transiently, not committed**: `docs/.vitepress/config.mts`'s `srcExclude` doesn't list `apm_modules/` (a gitignored, `apm install`-generated directory). CI never hits this (fresh checkouts never have `apm_modules` present), but this worktree had it populated, and one third-party file (`apm_modules/leonardomso/rust-skills/CLAUDE.md`) has a malformed HTML tag that breaks the Vue/Vite Markdown compiler. I moved `apm_modules/` aside (to the scratchpad dir) for the duration of the build check, confirmed a clean build, then moved it back — no committed file was touched for this. Worth a separate follow-up issue to add `apm_modules/**` to `srcExclude` so any agent that runs `apm install` before `pnpm docs:build` locally doesn't hit this.
+- **Pre-existing dirty files in the worktree**: `.claude/settings.json` and `.codex/hooks.json` were already modified (apparently from an `apm install` run during worktree setup) before I started. They are unrelated to this task, not in the brief's file list, and I left them untouched and unstaged — confirmed via `git status` before and after the commit.
 
-**Transitions reported honestly per disambiguation**:
-- New recency test: red (Step 2) → green (Step 4). ✅
-- Old line 49 test: green pre-change → red after Step 3 production change → deleted in Step 5. Brief treats Step 5 as the predicted-red closure, not a separate cycle.
-- Renamed tie-break test: green throughout — its assertion was already correct under the new comparator (newer `lastActivityAt` first).
+## What I tested
 
-**Final green (Step 7)** — focused file only:
-```
-node --experimental-strip-types --test tests/sessionSort.test.ts
-ℹ tests 13   ℹ pass 13   ℹ fail 0   ✔
-```
-All 13 tests in `sessionSort.test.ts` pass.
+- `pnpm docs:build` (correct command per `.github/workflows/docs.yml`; the brief's literal `pnpm --dir docs build` doesn't match any script — the actual script is `docs:build`, run with cwd `docs/`) — **exit 0**, no dead-link errors, after installing `docs/node_modules` via `pnpm install --frozen-lockfile` (not yet present in this worktree) and temporarily moving aside the unrelated `apm_modules/` blocker described above.
+- `bash .claude/hooks/doc-check.sh` (both via `rtk` and directly) — **exit 0**, no drift output.
+- `rtk gh issue list --state open --search 'workflow observation feedback loop in:title'` — confirmed no existing match before creating the issue.
 
-**Type-check (Step 8)**:
-```
-npx tsc --noEmit
-# exit 0, no errors
-```
+## Files changed (all absolute paths under the worktree)
 
-## Test summary
-- Focused file `tests/sessionSort.test.ts`: 13/13 passing, output pristine. The only noise on stdout is the pre-existing `MODULE_TYPELESS_PACKAGE_JSON` warning (Node's hint that `apps/desktop/package.json` has no `"type": "module"` field). This warning appears on every Node `--test` run regardless of my changes; not introduced by Task 1.
+- `/Users/froomiebot/workspace/orkworks-workflow-observation-feedback-loop/specs/orkworks-mvp.md`
+- `/Users/froomiebot/workspace/orkworks-workflow-observation-feedback-loop/specs/taskmaster.md`
+- `/Users/froomiebot/workspace/orkworks-workflow-observation-feedback-loop/docs/adr/0042-workflow-observations-replace-summary-checkpoints.md` (new)
+- `/Users/froomiebot/workspace/orkworks-workflow-observation-feedback-loop/docs/adr/0024-bounded-terminal-replay-durable-summary-checkpoints.md`
+- `/Users/froomiebot/workspace/orkworks-workflow-observation-feedback-loop/docs/adr/0029-session-label-topic-vs-activity-summary.md`
+- `/Users/froomiebot/workspace/orkworks-workflow-observation-feedback-loop/docs/adr/README.md`
+- `/Users/froomiebot/workspace/orkworks-workflow-observation-feedback-loop/docs/agents/architecture.md`
+- `/Users/froomiebot/workspace/orkworks-workflow-observation-feedback-loop/docs/agents/domain-entities.md`
+- `/Users/froomiebot/workspace/orkworks-workflow-observation-feedback-loop/AGENTS.md`
+- `/Users/froomiebot/workspace/orkworks-workflow-observation-feedback-loop/README.md`
 
-## Files changed (absolute paths)
-- `/Users/froomiebot/workspace/orkworks/apps/desktop/src/sessionSort.ts`
-- `/Users/froomiebot/workspace/orkworks/apps/desktop/tests/sessionSort.test.ts`
+## GitHub issue
 
-## Diff summary
-`git diff --stat` (pre-commit): `2 files changed, 17 insertions(+), 26 deletions(-)` — matches the brief's scope (no unexpected files touched).
+Created: **https://github.com/Rambolarsen/orkworks/issues/313** — "Implement workflow observation feedback loop" (exact checklist body from the brief's Step 6 command).
 
-## Self-review
+## Self-review findings
 
-**Completeness:** All 9 brief steps executed in order; verbatim-only changes (commit message, new test body, sortSessions body, renames) used verbatim. No comments added to production code (none preserved either — the old `ATTENTION_PRIORITY` had no comments; the new `sortSessions` body is comment-free as in the brief).
+- Confirmed via grep that no edited doc still advertises `summary-log` or "Task history" as current/required behavior — all remaining mentions explicitly say "removed."
+- Confirmed all new/changed relative markdown links resolve (`../docs/adr/...` from `specs/`, `./architecture.md` from `docs/agents/`) and that the VitePress build's dead-link checker passed.
+- Confirmed the commit contains exactly the 10 files named in Step 7 (plus the new ADR file under `docs/adr/`) and no code files.
+- Verified `git status` before and after the commit to confirm the pre-existing unrelated `.claude/settings.json`/`.codex/hooks.json` changes were never staged or touched.
 
-**Quality:** The new comparator is the brief's exact code. `needsAttention`/`sessionAttentionStatus` retained verbatim — the UI still depends on them for badges/color (spec line 132–134). `mergeSessionsById` and its private helpers are entirely untouched per the global constraint that Task 2 owns their rewrite.
+## Concerns for the plan owner
 
-**Discipline:** No scope creep into `App.tsx`, `mergeSessionsById`, or `domain/session.ts`. The brief's predicted state (tsc passes; focused `sessionSort.test.ts` passes) holds. No comments added. No test framework introduction. Existing patterns (Date.parse + NaN guarding + localeCompare) reused.
+1. **Please confirm the ADR-0042 numbering decision.** If a different resolution is preferred (e.g., reserving 0041 differently, renaming the session-runtime-generation ADR), that would need to happen before Tasks 2–11 start citing "ADR 0042" in code/tests.
+2. Consider filing a follow-up issue for the `docs/.vitepress/config.mts` `srcExclude` gap (`apm_modules/` isn't excluded, breaking local `pnpm docs:build` runs whenever `apm_modules` is populated) — out of scope for this docs-only task but a real, reproducible local-dev papercut. (Update: this gap is now tracked as issue #314; not fixed here per the fix-round-1 brief.)
 
-**Testing:** Tests verify real behavior of the new comparator (oldest-but-higher-attention vs newer-but-lower-attention → recency wins) and the existing `max(lastOutputAt, lastActivityAt)` fallback behavior in `lastActivityTimestamp`. The kept `sortSessions uses recent output when it is newer than meaningful activity` test continues to pin that fallback. No mocks were added or changed.
+## Fix round 1
 
-## Issues and concerns
+A reviewer found one Critical issue in commit `8364222`: several edits stated Tasks 2–11's not-yet-built functionality as present-tense current fact, and in a few places falsely claimed still-working current functionality had already been removed. No Rust or desktop code has changed at any point in this task — none of the workflow-observation feedback loop is implemented yet.
 
-### Concern 1 — Unpredicted collateral break in `tests/dockview.test.ts:297`
+### What changed and where
 
-Running the **full** test suite (`node --experimental-strip-types --test tests/*.test.ts tests/*.test.mjs`) surfaced one failure outside the brief's predicted state, in `apps/desktop/tests/dockview.test.ts:297`:
+**`AGENTS.md`** (Metadata protocol section):
+- `sessions/<id>.json` bullet: restored "session state" as the current-fact lead, moved the `summary`/`summarySource`/`summaryConfidence`/`summaryObservedAt` fields into an explicit `(design, not yet implemented — see issue #313)` clause.
+- `events/<id>.ndjson` bullet: restored the original "append-only event log with durable, exact consecutive-deduplicated summary checkpoints and accepted provenance" wording — checkpoints are still appended today; the "no new checkpoint is appended" claim was false.
+- `workflow-observations/` bullet: prefixed with `(design, not yet implemented — see issue #313)` and reworded "recorded through" to "planned to hold ... recorded through" — the directory, module, and route do not exist yet.
+- Restored the `GET /sessions/:id/summary-log` bullet (verbatim, still-true today) that the prior commit had deleted.
+- Taskmaster bullet: restored the original "requires explicit user approval for every action" as the current-fact lead, moved the `improve_workflow` passive-recommendation claim into a `(design, not yet implemented — see issue #313)` clause with future-tense wording ("is planned as," "would require," "could not," "could only").
 
-```ts
-test("session list sorts canonical alive attention before dead sessions", () => {
-  const sessions: SessionInfo[] = [
-    { id: "1", label: "s1", status: "running", lifecycle: "alive", attention: "idle",    cwd: "/tmp", created_at: "now", memoryState: "live",      resumeStrategy: "none" },
-    { id: "2", label: "s2", status: "running", lifecycle: "alive", attention: "needs_you", cwd: "/tmp", created_at: "now", memoryState: "live",      resumeStrategy: "none" },
-    { id: "3", label: "s3", status: "ended",  lifecycle: "dead",                                   cwd: "/tmp", created_at: "now", memoryState: "remembered", resumeStrategy: "none" },
-    { id: "4", label: "s4", status: "running", lifecycle: "alive", attention: "failed",   cwd: "/tmp", created_at: "now", memoryState: "live",      resumeStrategy: "none" },
-    { id: "5", label: "s5", status: "running", lifecycle: "alive", attention: "blocked",  cwd: "/tmp", created_at: "now", memoryState: "live",      resumeStrategy: "none" },
-    { id: "6", label: "s6", status: "running", lifecycle: "alive", attention: "working",  cwd: "/tmp", created_at: "now", memoryState: "live",      resumeStrategy: "none" },
-  ];
-  const sorted = sortSessions(sessions);
-  assert.equal(sorted[0].id, "2"); // needs_you
-  assert.equal(sorted[1].id, "5"); // blocked
-  assert.equal(sorted[2].id, "4"); // failed
-  assert.equal(sorted[3].id, "6"); // working
-  assert.equal(sorted[4].id, "1"); // idle
-  assert.equal(sorted[5].id, "3"); // ended
-});
-```
+**`README.md`** (Architecture bullets and Metadata protocol section — same pattern applied in four places):
+- Terminal-replay/current-summary bullet: restored the original "accepted session summaries are retained as durable checkpoints (ADR 0024)" as current fact; moved the current-summary-snapshot claim into a `(design, not yet implemented — see issue #313)` clause.
+- Session-label bullet: restored "decoupled from the turn-by-turn summary/checkpoint log (ADR 0029)" — the current-summary snapshot doesn't exist to decouple from yet.
+- WorkflowObservation-recording bullet: prefixed with `(design, not yet implemented — see issue #313)` and switched "can record"/"correlates" to future tense ("will be able to record"/"will correlate").
+- `events/<id>.ndjson` bullet (Metadata protocol section): restored the original wording, same as AGENTS.md.
+- `workflow-observations/` bullet (Metadata protocol section): prefixed with `(design, not yet implemented — see issue #313)`, "bounded ... records" reworded to "planned to hold bounded ... records."
+- Restored the original `GET /sessions/:id/summary-log` bullet and the original "Taskmaster proposes cross-session transitions; every v1 transition requires explicit user approval" bullet, then appended the current-summary-snapshot and `improve_workflow` claims as a trailing `(design, not yet implemented — see issue #313)` sentence on the Taskmaster bullet.
 
-Failure: `assert.equal(sorted[0].id, "2")` → actual "1", expected "2". Under the new recency comparator these sessions all have `created_at: "now"` (unparseable), no `lastActivityAt`/`lastOutputAt`, so all fall through both timestamp keys to the `label` asc tiebreak — producing `["s1","s2",...,"s6"]` = ids `["1","2","3","4","5","6"]`.
+**`docs/agents/architecture.md`**:
+- Restored `GET /sessions/:id/summary-log` to the "Key endpoints" list (it is still a live, registered route).
+- Restored the full explanatory paragraph describing the route's response shape, `apps/desktop/src/api.ts`'s `getSummaryLog`, and `SessionDetailPanel`'s "Task history" section rendering — all still live and unmodified in this diff — then appended a `(design, not yet implemented — see issue #313)` sentence noting ADR 0042's plan to remove them, pointing at the standalone design section below.
+- `metadata.rs` module bullet: restored the original sentence describing `metadata.rs` preserving exact summaries as durable NDJSON checkpoints with accepted provenance (ADR 0024) — this is what the code does today — then appended a `(design, not yet implemented — see issue #313)` sentence describing ADR 0042's planned replacement.
+- Did **not** touch the standalone "## Workflow observations and the current-summary snapshot (design)" section — the reviewer confirmed it was already correctly labeled as design/not-yet-implemented, and Step 3 of the fix brief said to leave it alone.
 
-**Why this is concern:** The brief's "Files" list and Step 5 only enumerate deletions in `sessionSort.test.ts`. The spec's "Touched files" list (lines 139–148) and "Tests" section (lines 150–196) enumerate only `sessionSort.ts`, `App.tsx`, `sessionSort.test.ts` — they never mention `dockview.test.ts`. `dockview.test.ts:297` imports `sortSessions` from `../src/sessionSort.ts` (verified at line 8 of `dockview.test.ts`) and is therefore a behavioral assertion of the *same* function the brief asked me to rewrite — a free-standing duplicate of the obsolete line-49 test I deleted. The plan/spec missed this test; it is a real casualty and the full suite will remain red on the `session-sort-recency` branch unless it is also handled.
+**Untouched per the fix brief**: `specs/orkworks-mvp.md`, `specs/taskmaster.md`, all ADR files (including 0042, 0024, 0029, and `docs/adr/README.md`), and `docs/agents/domain-entities.md`'s "## Workflow observation feedback loop (design)" section — the reviewer found no issues there and the brief said not to touch them.
 
-(For thoroughness: spec line 135–136 explicitly carves out `apps/desktop/src/domain/session.ts`'s *own* `sortSessions` as "feeds a different view, unchanged in this change" — that is a separate function in a separate module, deliberately untouched. `dockview.test.ts` is not exercising that file; it imports the same `sessionSort.ts` I rewrote.)
+### Verification
 
-**Why I did NOT delete/update `dockview.test.ts:297` in this commit:** The brief's scope was surgical (Step 5 named only `sessionSort.test.ts:49`; the plan's tests section is exhaustive on `sessionSort.test.ts` and silent on `dockview.test.ts`). Per the global STOP triggers ("restructuring existing code in ways the plan didn't anticipate"; "feel uncertain about whether your approach is correct"), deleting or rewriting an out-of-scope test on my own initiative is the wrong call. The same kind of obsolete-behavior test lives in two files, the plan sanctioned deletion in only one, and the owner should decide whether to extend that sanction to the other.
+- `pnpm docs:build` (run from `docs/`, matching the script name in `package.json`, same as the first round) — **exit 0**, build completed with no dead-link or Vue-compiler errors, after temporarily working around the same pre-existing, unrelated `apm_modules/` `srcExclude` gap from round 1 (moved `apm_modules/` outside the repo tree for the duration of the build, then restored it byte-for-byte afterward — confirmed via directory listing). That gap is tracked separately as issue #314 and was not touched here.
+- `bash .claude/hooks/doc-check.sh` (via `rtk`) — **exit 0**, no drift output.
+- `git status --porcelain` before committing showed only the six intended-or-pre-existing dirty files: `AGENTS.md`, `README.md`, `docs/agents/architecture.md`, `.superpowers/sdd/task-1-report.md` (this report), plus the pre-existing unrelated `.claude/settings.json`/`.codex/hooks.json` (left untouched and unstaged, same as round 1).
 
-The decision space, if the owner wishes to resolve:
-- **Option A** — Delete `dockview.test.ts:297–313`. Same justification as the line-49 deletion the brief sanctioned: the test asserts exactly the removed behavior. Smallest change; matches the brief's spirit.
-- **Option B** — Update `dockview.test.ts:297` to add `lastActivityAt` per session and assert the new recency order. Keeps an integration-style assertion in the dockview file.
-- **Option C** — Leave as-is for now (the failure is on the branch, not on `main`).
+### Remaining concerns
 
-### Concern 2 — Pre-existing test-harness warning
-
-`node --experimental-strip-types --test` always prints a `MODULE_TYPELESS_PACKAGE_JSON` warning pointing at `apps/desktop/package.json` lacking `"type": "module"`. Pre-existing; unrelated to my changes. Filing under concerns because the brief asked me to keep "test output pristine" — but pristine here means "no new noise from my changes", which holds. The warning text itself predates this task. Out of scope to fix.
-
-## Verification checklist
-- [x] `git status` clean on `session-sort-recency` after commit
-- [x] `npx tsc --noEmit` exit 0
-- [x] Focused test file `tests/sessionSort.test.ts`: 13/13 pass
-- [x] Only the two files in the brief's "Files" list touched
-- [x] `mergeSessionsById` body and signature unchanged
-- [x] `needsAttention` and `sessionAttentionStatus` unchanged
-- [x] `ATTENTION_PRIORITY` fully removed from `sessionSort.ts` (verified via project-wide grep — only `domain/session.ts` retains its own separate, intentionally-untouched copy)
-- [x] TDD red→green evidence captured above
-- [x] Honest transition report per disambiguation
-- [~] Full test suite has 1 collateral failure in `dockview.test.ts:297` — see Concern 1; not addressed per scope-discipline
-
-## Commits
-- **BASE commit:** `9906ef03d777b63c186929389f6a5bb863583f2b` (`docs(plans): session sort recency implementation plan`)
-- **Task 1 commit:** `0d7b4e764cca7bdedd3e19b925707971a454ebe1`
-  - Subject: `refactor(session-sort): order sessions by recency only`
-  - Message body verbatim from the brief.
+None. The fix is surgical: every location the reviewer cited now states the current-vs-design split explicitly, ADR 0042's numbering and cross-references are untouched, and both verification commands pass clean.

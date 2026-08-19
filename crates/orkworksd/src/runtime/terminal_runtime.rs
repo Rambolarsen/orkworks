@@ -3,10 +3,11 @@ use crate::session_view::{connectivity_for_status, terminal_outcome_for_status};
 use crate::workspace_runtime::iso_now;
 use crate::{metadata, peon, providers, AppState};
 use axum::extract::ws::{Message, WebSocket};
+use std::collections::{HashMap, VecDeque};
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
-use std::time::Duration;
+use std::sync::{Arc, Mutex as StdMutex, OnceLock};
+use std::time::{Duration, Instant};
 
 #[cfg(unix)]
 use portable_pty::unix::UnixPtySystem;
@@ -23,12 +24,185 @@ pub(crate) fn terminal_env_overrides() -> Vec<(String, String)> {
     ]
 }
 
-pub(crate) fn session_env_overrides(session_id: &str, port: Option<u16>) -> Vec<(String, String)> {
-    let mut env = vec![("ORKWORKS_SESSION_ID".into(), session_id.to_string())];
+/// `report_token` completes the reporting capability described by ADR 0042 /
+/// the workflow-observation feedback loop design's "Explicit agent
+/// reporting" section: every spawned session already receives
+/// `ORKWORKS_SESSION_ID` and `ORKWORKS_PORT`, and this adds
+/// `ORKWORKS_REPORT_TOKEN` so a coding agent inside the session can call
+/// `POST /sessions/:id/workflow-observations` without a harness-specific
+/// protocol.
+pub(crate) fn session_env_overrides(
+    session_id: &str,
+    port: Option<u16>,
+    report_token: &str,
+) -> Vec<(String, String)> {
+    let mut env = vec![
+        ("ORKWORKS_SESSION_ID".into(), session_id.to_string()),
+        ("ORKWORKS_REPORT_TOKEN".into(), report_token.to_string()),
+    ];
     if let Some(port) = port {
         env.push(("ORKWORKS_PORT".into(), port.to_string()));
     }
     env
+}
+
+// ---------------------------------------------------------------------------
+// Workflow-observation reporting capability
+// ---------------------------------------------------------------------------
+//
+// Every live session gets an independent 256-bit random reporting capability
+// (ADR 0042). The token is generated here from OS randomness, handed to the
+// spawned child as `ORKWORKS_REPORT_TOKEN` via `session_env_overrides`, and
+// tracked in this process-local registry so the explicit-report HTTP
+// adapter (`http::workflow_observation_handlers`) can authenticate a bearer
+// token without the token ever being persisted to disk, serialized, or
+// logged. The registry is intentionally *not* a field on `SessionHandle` or
+// `AppState`: both of those structs are constructed via explicit field
+// literals across several files outside this task's scope (session
+// creation/resume handlers, Peon runtime tests, retention tests), so adding
+// a required field there would force edits to files this task must not
+// touch. A session-id-keyed process-local table gives the same per-session,
+// in-memory-only, resume-replaced semantics without that footprint; entries
+// are seeded by `start_session_runtime` (this module's only production
+// caller) and removed by `clear_ended_session_tracking` alongside the other
+// per-session side tables it already clears.
+
+/// Number of authenticated report attempts a single session may make before
+/// `record_report_attempt` starts returning `false`. This is an HTTP-layer,
+/// pre-persistence cap, distinct from `workflow_observations`' own
+/// 60-accepted-per-minute cap enforced after persistence.
+pub(crate) const WORKFLOW_REPORT_RATE_LIMIT: usize = 30;
+pub(crate) const WORKFLOW_REPORT_RATE_WINDOW: Duration = Duration::from_secs(60);
+
+struct ReportCapability {
+    token: String,
+    attempts: StdMutex<VecDeque<Instant>>,
+}
+
+fn report_capabilities() -> &'static StdMutex<HashMap<String, Arc<ReportCapability>>> {
+    static REGISTRY: OnceLock<StdMutex<HashMap<String, Arc<ReportCapability>>>> = OnceLock::new();
+    REGISTRY.get_or_init(|| StdMutex::new(HashMap::new()))
+}
+
+/// Installs (or replaces, on resume) the live reporting capability for
+/// `session_id`. Never logged; the token only ever travels into the child
+/// process's environment and this in-memory table.
+pub(crate) fn set_workflow_report_token(session_id: &str, token: String) {
+    report_capabilities().lock().unwrap().insert(
+        session_id.to_string(),
+        Arc::new(ReportCapability {
+            token,
+            attempts: StdMutex::new(VecDeque::new()),
+        }),
+    );
+}
+
+/// Removes `session_id`'s reporting capability, so a token issued to a
+/// now-dead session can never authenticate a later request even if an
+/// attacker captured it beforehand.
+pub(crate) fn clear_workflow_report_token(session_id: &str) {
+    report_capabilities().lock().unwrap().remove(session_id);
+}
+
+/// Constant-time-compares `candidate` against the live token for
+/// `session_id`. Returns `false` uniformly for an unknown session id or a
+/// wrong token, so a caller cannot use response shape/timing to learn
+/// whether a session id exists.
+pub(crate) fn verify_workflow_report_token(session_id: &str, candidate: &str) -> bool {
+    let registry = report_capabilities().lock().unwrap();
+    match registry.get(session_id) {
+        Some(capability) => constant_time_eq(&capability.token, candidate),
+        None => false,
+    }
+}
+
+fn constant_time_eq(a: &str, b: &str) -> bool {
+    let a = a.as_bytes();
+    let b = b.as_bytes();
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
+/// Records one authenticated report attempt for `session_id` and reports
+/// whether it is within `WORKFLOW_REPORT_RATE_LIMIT` attempts over the
+/// trailing `WORKFLOW_REPORT_RATE_WINDOW`. Returns `false` (without
+/// recording anything) for a session with no live capability, so this must
+/// only be called after `verify_workflow_report_token` has already
+/// succeeded.
+pub(crate) fn record_report_attempt(session_id: &str) -> bool {
+    let registry = report_capabilities().lock().unwrap();
+    let Some(capability) = registry.get(session_id) else {
+        return false;
+    };
+    let mut attempts = capability.attempts.lock().unwrap();
+    let now = Instant::now();
+    while let Some(&oldest) = attempts.front() {
+        if now.duration_since(oldest) > WORKFLOW_REPORT_RATE_WINDOW {
+            attempts.pop_front();
+        } else {
+            break;
+        }
+    }
+    if attempts.len() >= WORKFLOW_REPORT_RATE_LIMIT {
+        false
+    } else {
+        attempts.push_back(now);
+        true
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    // Thread-local, not a shared global: `#[tokio::test]` defaults to a
+    // fresh single-threaded ("current_thread") runtime per test, so every
+    // task the test itself spawns (including inside
+    // `start_session_runtime`) stays on this same OS thread. Scoping the
+    // flag per-thread means one test forcing a failure can never leak into
+    // an unrelated test running concurrently on its own thread.
+    static FORCE_TOKEN_GENERATION_FAILURE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Test-only seam for "OS randomness fails, so session creation/resume must
+/// fail before spawning a child" (ADR 0042).
+#[cfg(test)]
+pub(crate) struct ForceTokenGenerationFailure {
+    _private: (),
+}
+
+#[cfg(test)]
+impl ForceTokenGenerationFailure {
+    pub(crate) fn enable() -> Self {
+        FORCE_TOKEN_GENERATION_FAILURE.with(|flag| flag.set(true));
+        Self { _private: () }
+    }
+}
+
+#[cfg(test)]
+impl Drop for ForceTokenGenerationFailure {
+    fn drop(&mut self) {
+        FORCE_TOKEN_GENERATION_FAILURE.with(|flag| flag.set(false));
+    }
+}
+
+/// Generates a fresh 256-bit reporting capability token from OS randomness,
+/// hex-encoded to 64 lowercase hex characters. Never predictable, never
+/// empty: a `getrandom` failure is propagated so the caller aborts session
+/// startup before spawning a child rather than starting a reportable
+/// session with a weak token.
+pub(crate) fn new_workflow_report_token() -> Result<String, getrandom::Error> {
+    #[cfg(test)]
+    if FORCE_TOKEN_GENERATION_FAILURE.with(|flag| flag.get()) {
+        return Err(getrandom::Error::UNEXPECTED);
+    }
+    let mut bytes = [0_u8; 32];
+    getrandom::fill(&mut bytes)?;
+    Ok(hex::encode(bytes))
 }
 
 
@@ -2392,16 +2566,114 @@ mod tests {
 
     #[test]
     fn session_env_overrides_include_orkworks_session_and_port() {
-        let overrides = session_env_overrides("session-123", Some(5173));
+        let overrides = session_env_overrides("session-123", Some(5173), "the-report-token");
         assert!(overrides.contains(&("ORKWORKS_SESSION_ID".into(), "session-123".into())));
         assert!(overrides.contains(&("ORKWORKS_PORT".into(), "5173".into())));
     }
 
     #[test]
     fn session_env_overrides_omit_port_when_unknown() {
-        let overrides = session_env_overrides("session-123", None);
+        let overrides = session_env_overrides("session-123", None, "the-report-token");
         assert!(overrides.contains(&("ORKWORKS_SESSION_ID".into(), "session-123".into())));
         assert!(!overrides.iter().any(|(key, _)| key == "ORKWORKS_PORT"));
+    }
+
+    #[test]
+    fn session_env_overrides_include_report_token() {
+        let overrides = session_env_overrides("session-123", Some(5173), "a-report-token-value");
+        assert!(overrides.contains(&(
+            "ORKWORKS_REPORT_TOKEN".into(),
+            "a-report-token-value".into()
+        )));
+    }
+
+    // -- Workflow-observation reporting capability ---------------------------
+
+    #[test]
+    fn new_workflow_report_token_is_sixty_four_lowercase_hex_chars() {
+        let token = new_workflow_report_token().expect("token generation succeeds");
+        assert_eq!(token.len(), 64, "32 bytes hex-encoded is 64 chars");
+        assert!(
+            token.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
+            "token must be lowercase hex: {token}"
+        );
+    }
+
+    #[test]
+    fn new_workflow_report_token_generates_independent_values() {
+        let a = new_workflow_report_token().unwrap();
+        let b = new_workflow_report_token().unwrap();
+        assert_ne!(a, b, "each session must receive an independent token");
+    }
+
+    #[test]
+    fn new_workflow_report_token_fails_closed_when_os_randomness_fails() {
+        let _force = ForceTokenGenerationFailure::enable();
+        let result = new_workflow_report_token();
+        assert!(result.is_err(), "a getrandom failure must propagate, not silently substitute a weak token");
+    }
+
+    #[test]
+    fn verify_workflow_report_token_accepts_the_live_token() {
+        let session_id = format!("cap-test-{}", uuid::Uuid::new_v4());
+        set_workflow_report_token(&session_id, "correct-token".to_string());
+        assert!(verify_workflow_report_token(&session_id, "correct-token"));
+    }
+
+    #[test]
+    fn verify_workflow_report_token_rejects_wrong_token() {
+        let session_id = format!("cap-test-{}", uuid::Uuid::new_v4());
+        set_workflow_report_token(&session_id, "correct-token".to_string());
+        assert!(!verify_workflow_report_token(&session_id, "wrong-token"));
+    }
+
+    #[test]
+    fn verify_workflow_report_token_rejects_unknown_session() {
+        let session_id = format!("cap-test-{}", uuid::Uuid::new_v4());
+        assert!(!verify_workflow_report_token(&session_id, "anything"));
+    }
+
+    #[test]
+    fn set_workflow_report_token_replaces_prior_value_on_resume() {
+        let session_id = format!("cap-test-{}", uuid::Uuid::new_v4());
+        set_workflow_report_token(&session_id, "first-token".to_string());
+        assert!(verify_workflow_report_token(&session_id, "first-token"));
+
+        // Simulates a resume: a fresh call replaces the old token outright.
+        set_workflow_report_token(&session_id, "second-token".to_string());
+        assert!(!verify_workflow_report_token(&session_id, "first-token"));
+        assert!(verify_workflow_report_token(&session_id, "second-token"));
+    }
+
+    #[test]
+    fn clear_workflow_report_token_revokes_the_capability() {
+        let session_id = format!("cap-test-{}", uuid::Uuid::new_v4());
+        set_workflow_report_token(&session_id, "a-token".to_string());
+        clear_workflow_report_token(&session_id);
+        assert!(!verify_workflow_report_token(&session_id, "a-token"));
+    }
+
+    #[test]
+    fn record_report_attempt_allows_up_to_the_rate_limit_then_rejects() {
+        let session_id = format!("cap-test-{}", uuid::Uuid::new_v4());
+        set_workflow_report_token(&session_id, "a-token".to_string());
+
+        for i in 0..WORKFLOW_REPORT_RATE_LIMIT {
+            assert!(
+                record_report_attempt(&session_id),
+                "attempt {i} should be within the rate limit"
+            );
+        }
+        assert!(
+            !record_report_attempt(&session_id),
+            "the attempt exceeding the rolling-window cap must be rejected"
+        );
+    }
+
+    #[test]
+    fn record_report_attempt_rejects_session_without_a_capability() {
+        let session_id = format!("cap-test-{}", uuid::Uuid::new_v4());
+        assert!(!record_report_attempt(&session_id));
     }
 
     #[test]
