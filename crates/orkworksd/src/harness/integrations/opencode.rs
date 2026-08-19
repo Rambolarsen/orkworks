@@ -76,6 +76,10 @@ fn content_state(bytes: &[u8]) -> FragmentState {
         return FragmentState::Installed;
     }
     let first_line = bytes.split(|&byte| byte == b'\n').next().unwrap_or(&[]);
+    // Strip a trailing \r so a CRLF-written drift (e.g. an older OrkWorks
+    // version writing on Windows) still matches the marker instead of being
+    // classified Ambiguous and refused reconciliation.
+    let first_line = first_line.strip_suffix(b"\r").unwrap_or(first_line);
     if first_line == MARKER_LINE.as_bytes() {
         FragmentState::Drifted
     } else {
@@ -274,6 +278,24 @@ mod tests {
         let path = workspace.path().join(RELATIVE_PATH);
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(&path, format!("{MARKER_LINE}\nstale content\n")).unwrap();
+
+        let status = HANDLER.status(&ctx).unwrap();
+        assert_eq!(status.registration, IntegrationRegistration::Drifted);
+        assert_eq!(status.ownership, IntegrationOwnership::OrkWorks);
+
+        let reinstalled = HANDLER.install(&ctx).unwrap();
+        assert_eq!(reinstalled.registration, IntegrationRegistration::Installed);
+        assert_eq!(fs::read_to_string(&path).unwrap(), PLUGIN_SOURCE);
+    }
+
+    #[test]
+    fn crlf_drifted_content_is_still_recognized_as_owned() {
+        let workspace = gitignored_workspace();
+        let resolver = resolver(workspace.path());
+        let ctx = context(workspace.path(), &resolver);
+        let path = workspace.path().join(RELATIVE_PATH);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, format!("{MARKER_LINE}\r\nstale content\r\n")).unwrap();
 
         let status = HANDLER.status(&ctx).unwrap();
         assert_eq!(status.registration, IntegrationRegistration::Drifted);
