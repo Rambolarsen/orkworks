@@ -35,7 +35,7 @@ const hotkeyRows: Array<{ action: HotkeyAction; label: string; optional?: boolea
 ];
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
-const INTEGRATION_HARNESS_IDS = ["claude-code", "gemini", "copilot", "codex"];
+const INTEGRATION_HARNESS_IDS = ["claude-code", "gemini", "copilot", "codex", "opencode"];
 
 export default function SettingsModal({ initialSettings, harnesses, activeHarnessIds, providerRuntime, onClose, onSaved, onSaveActiveHarnesses }: SettingsModalProps) {
   const modalRef = useRef<HTMLElement>(null);
