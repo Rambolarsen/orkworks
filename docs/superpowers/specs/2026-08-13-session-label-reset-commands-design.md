@@ -10,7 +10,7 @@ conversation leaves the old topic in place. Issue #240 addresses that gap.
 
 The resolved harness definition declares an optional, explicit list of
 `labelResetCommands`. A terminal input is a reset only when its trimmed text is
-an exact member of the active session harness's list. The initial built-ins are:
+an exact member of the active session harness's list. The current built-ins are:
 
 | Coding tool | Reset commands |
 | --- | --- |
@@ -19,8 +19,11 @@ an exact member of the active session harness's list. The initial built-ins are:
 | Copilot | `/clear`, `/new`, `/reset` |
 | Codex, Antigravity CLI, Aider, Shell | none |
 
-Copilot's documented commands are sourced from the [GitHub Copilot CLI
-command reference](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference).
+When this design was originally written, Copilot was undeclared. After the
+Copilot label-reset change, it is declared with `/clear`, `/new`, and `/reset`;
+the `/reset` alias requires Copilot CLI 1.0.33 or later through the existing
+minimum-version detection gate. Copilot's documented commands are sourced from
+the [GitHub Copilot CLI command reference](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference).
 Only the bare forms are declared. The runtime's exact-match rule intentionally
 does not treat optional prompt-bearing forms such as `/new fix auth` as label
 resets; prompt-bearing reset semantics are outside this design.

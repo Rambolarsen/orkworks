@@ -28,11 +28,14 @@ epoch. A reset increments that epoch; the refinement must still match it before
 writing either live or persisted state. Thus an old conversation's late Peon
 result cannot restore its title after a reset.
 
-The initial built-ins declare only documented fresh-conversation commands:
-Claude Code uses `/clear`, `/reset`, and `/new`; OpenCode uses `/clear` and
-`/new`; Copilot uses `/clear`, `/new`, and `/reset`. Harnesses without verified
-reset semantics declare none. Copilot's commands are sourced from the [GitHub
-Copilot CLI command reference](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference).
+At this ADR's original decision, the initial built-ins declared only documented
+fresh-conversation commands: Claude Code used `/clear`, `/reset`, and `/new`;
+OpenCode used `/clear` and `/new`; Copilot was undeclared. After the Copilot
+label-reset change, Copilot is declared with `/clear`, `/new`, and `/reset`;
+the `/reset` alias requires Copilot CLI 1.0.33 or later through the existing
+minimum-version detection gate. Harnesses without verified reset semantics
+declare none. Copilot's commands are sourced from the [GitHub Copilot CLI
+command reference](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference).
 Only the bare command forms are declared; optional prompt-bearing forms are
 not exact matches and remain outside this decision. The definition field
 defaults for existing custom documents; custom definitions and sparse built-in

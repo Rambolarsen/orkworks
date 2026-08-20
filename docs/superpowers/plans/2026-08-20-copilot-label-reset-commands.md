@@ -12,6 +12,7 @@
 
 - Use the persisted session harness ID when testing reset behavior; do not broaden runtime matching.
 - Match only exact trimmed commands; `/new prompt` and other prompt-bearing forms remain outside this change.
+- Require Copilot CLI 1.0.33 or later through the existing `minVersion` detection gate because `/reset` is an alias first available in that version; do not add another version mechanism.
 - Do not add model, voice, capacity, hook, UI, or terminal-text inference behavior.
 - Preserve the existing label-reset semantics from ADR 0040: successful, non-sensitive, delivered commands reset the label and invalidate stale label work.
 - Validate with `cargo build --manifest-path crates/orkworksd/Cargo.toml` and `cargo test --manifest-path crates/orkworksd/Cargo.toml`.
@@ -93,16 +94,17 @@ single-line resource format:
 "labelResetCommands": ["/clear", "/new", "/reset"]
 ```
 
-- [ ] **Step 2: Run the focused definition test and verify GREEN**
+- [ ] **Step 2: Run the focused definition tests and verify GREEN**
 
 Run:
 
 ```bash
+cargo test --manifest-path crates/orkworksd/Cargo.toml harness::definition::tests::min_version_round_trips_through_serde_and_patch_and_the_codex_and_copilot_builtins_have_it_set
 cargo test --manifest-path crates/orkworksd/Cargo.toml harness::definition::tests::embedded_builtins_are_complete_and_valid
 ```
 
-Expected: PASS with the Copilot list resolved exactly as
-`["/clear", "/new", "/reset"]`.
+Expected: PASS with Copilot's `minVersion` resolved as `[1, 0, 33]` and its
+command list resolved exactly as `["/clear", "/new", "/reset"]`.
 
 The existing runtime assertions already verify the placeholder label,
 persisted label, cleared label hint and pending work, and incremented label

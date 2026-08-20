@@ -914,12 +914,25 @@ mod tests {
     }
 
     #[test]
-    fn min_version_round_trips_through_serde_and_patch_and_the_codex_builtin_has_it_set() {
+    fn min_version_round_trips_through_serde_and_patch_and_the_codex_and_copilot_builtins_have_it_set(
+    ) {
         // The codex builtin entry declares the hooks framework's minimum version.
         let definition = codex();
         assert_eq!(
             definition.min_version,
             Some(VersionRequirement { min: (0, 114, 0) })
+        );
+
+        // Copilot's declared `/reset` alias requires Copilot CLI 1.0.33 or later.
+        let copilot = BuiltinDocument::parse(EMBEDDED_BUILTINS)
+            .unwrap()
+            .builtins
+            .into_iter()
+            .find(|definition| definition.id == "copilot")
+            .unwrap();
+        assert_eq!(
+            copilot.min_version,
+            Some(VersionRequirement { min: (1, 0, 33) })
         );
 
         // A sparse patch can set min_version on a harness that doesn't have one.
