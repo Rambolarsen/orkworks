@@ -16,14 +16,16 @@ an exact member of the active session harness's list. The current built-ins are:
 | --- | --- |
 | Claude Code | `/clear`, `/reset`, `/new` |
 | OpenCode | `/clear`, `/new` |
-| Copilot | `/clear`, `/new`, `/reset` |
+| Copilot | `/clear`, `/new` |
 | Codex, Antigravity CLI, Aider, Shell | none |
 
-When this design was originally written, Copilot was undeclared. After the
-Copilot label-reset change, it is declared with `/clear`, `/new`, and `/reset`;
-the `/reset` alias requires Copilot CLI 1.0.33 or later through the existing
-minimum-version detection gate. Copilot's documented commands are sourced from
-the [GitHub Copilot CLI command reference](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference).
+When this design was originally written, Copilot was undeclared. Copilot
+currently declares `/clear` and `/new`. Its documented commands are sourced
+from the
+[GitHub Copilot CLI command reference](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference).
+`/reset` is intentionally deferred: the existing `minVersion` gate controls
+integration-status probing only, not terminal label-reset matching, so it
+cannot safely protect a `/reset` declaration.
 Only the bare forms are declared. The runtime's exact-match rule intentionally
 does not treat optional prompt-bearing forms such as `/new fix auth` as label
 resets; prompt-bearing reset semantics are outside this design.

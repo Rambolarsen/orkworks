@@ -4,7 +4,7 @@
 
 **Goal:** Declare Copilot CLI's verified bare fresh-conversation commands so OrkWorks resets the session label for Copilot sessions using the existing harness capability.
 
-**Architecture:** Keep label-reset behavior declarative. Add the three exact commands to the Copilot builtin definition, then extend the existing definition and runtime regression tests; no runtime implementation change is expected because `terminal_runtime` already matches the persisted harness's declared commands.
+**Architecture:** Keep label-reset behavior declarative. Add Copilot's two exact declared commands to the builtin definition, then extend the existing definition and runtime regression tests; no runtime implementation change is expected because `terminal_runtime` already matches the persisted harness's declared commands.
 
 **Tech Stack:** Rust, serde-backed harness definitions, embedded JSON, Cargo unit tests.
 
@@ -12,9 +12,10 @@
 
 - Use the persisted session harness ID when testing reset behavior; do not broaden runtime matching.
 - Match only exact trimmed commands; `/new prompt` and other prompt-bearing forms remain outside this change.
-- Require Copilot CLI 1.0.33 or later through the existing `minVersion` detection gate because `/reset` is an alias first available in that version; do not add another version mechanism.
+- Copilot currently declares only `/clear` and `/new`. `/reset` is intentionally deferred because the existing `minVersion` gate controls integration-status probing only, not terminal label-reset matching; do not add a runtime version-capability mechanism for it.
 - Do not add model, voice, capacity, hook, UI, or terminal-text inference behavior.
 - Preserve the existing label-reset semantics from ADR 0040: successful, non-sensitive, delivered commands reset the label and invalidate stale label work.
+- Use the [GitHub Copilot CLI command reference](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference) as the command authority. Match only bare commands: optional prompt-bearing forms remain ordinary input.
 - Validate with `cargo build --manifest-path crates/orkworksd/Cargo.toml` and `cargo test --manifest-path crates/orkworksd/Cargo.toml`.
 
 ---
@@ -38,7 +39,7 @@ Extend `embedded_builtins_are_complete_and_valid` with:
 ```rust
 assert_eq!(
     resolved.get("copilot").unwrap().definition.label_reset_commands,
-    ["/clear", "/new", "/reset"]
+    ["/clear", "/new"]
 );
 ```
 
@@ -50,9 +51,9 @@ Run:
 cargo test --manifest-path crates/orkworksd/Cargo.toml harness::definition::tests::embedded_builtins_are_complete_and_valid
 ```
 
-Expected: FAIL because Copilot's current resolved `label_reset_commands` is
-empty. The test must compile and fail on the missing declaration, not report a
-test or parse error.
+Expected: FAIL before the declaration is added because Copilot's resolved
+`label_reset_commands` is empty. The test must compile and fail on the missing
+declaration, not report a test or parse error.
 
 - [ ] **Step 3: Add Copilot cases to the runtime test matrix**
 
@@ -61,7 +62,6 @@ Extend the test's array with:
 ```rust
 ("copilot /clear", "copilot", "/clear"),
 ("copilot /new", "copilot", "/new"),
-("copilot /reset", "copilot", "/reset"),
 ```
 
 - [ ] **Step 4: Run the focused runtime test and verify RED**
@@ -72,9 +72,9 @@ Run:
 cargo test --manifest-path crates/orkworksd/Cargo.toml runtime::terminal_runtime::tests::each_declared_command_resets_its_own_harness
 ```
 
-Expected: FAIL for the first Copilot case because the Copilot definition has
-no declared commands. Existing Claude Code and OpenCode cases should still
-pass; the failure must be the missing Copilot declaration.
+Expected: FAIL for the first Copilot case before the declaration is added.
+Existing Claude Code and OpenCode cases should still pass; do not add a
+`/reset` case.
 
 ### Task 2: Add Copilot's declared reset commands (GREEN)
 
@@ -83,7 +83,7 @@ pass; the failure must be the missing Copilot declaration.
 
 **Interfaces:**
 - Consumes: The failing definition and runtime assertions from Task 1.
-- Produces: Copilot's resolved builtin definition with `labelResetCommands` equal to `[/clear, /new, /reset]`.
+- Produces: Copilot's resolved builtin definition with `labelResetCommands` equal to `[/clear, /new]`.
 
 - [ ] **Step 1: Update the Copilot builtin JSON entry**
 
@@ -91,7 +91,7 @@ Add the field to the end of the Copilot object, preserving the existing
 single-line resource format:
 
 ```json
-"labelResetCommands": ["/clear", "/new", "/reset"]
+"labelResetCommands": ["/clear", "/new"]
 ```
 
 - [ ] **Step 2: Run the focused definition tests and verify GREEN**
@@ -99,12 +99,11 @@ single-line resource format:
 Run:
 
 ```bash
-cargo test --manifest-path crates/orkworksd/Cargo.toml harness::definition::tests::min_version_round_trips_through_serde_and_patch_and_the_codex_and_copilot_builtins_have_it_set
 cargo test --manifest-path crates/orkworksd/Cargo.toml harness::definition::tests::embedded_builtins_are_complete_and_valid
 ```
 
-Expected: PASS with Copilot's `minVersion` resolved as `[1, 0, 33]` and its
-command list resolved exactly as `["/clear", "/new", "/reset"]`.
+Expected: PASS with Copilot's command list resolved exactly as `["/clear",
+"/new"]`; the existing min-version test continues to cover Codex only.
 
 The existing runtime assertions already verify the placeholder label,
 persisted label, cleared label hint and pending work, and incremented label
@@ -114,7 +113,8 @@ epoch. After the JSON change, run:
 cargo test --manifest-path crates/orkworksd/Cargo.toml runtime::terminal_runtime::tests::each_declared_command_resets_its_own_harness
 ```
 
-Expected: PASS for Claude Code, OpenCode, and all three Copilot commands.
+Expected: PASS for Claude Code, OpenCode, and Copilot's `/clear` and `/new`
+commands.
 
 - [ ] **Step 3: Confirm exact-match behavior remains covered**
 

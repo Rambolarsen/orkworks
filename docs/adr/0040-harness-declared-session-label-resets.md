@@ -30,12 +30,13 @@ result cannot restore its title after a reset.
 
 At this ADR's original decision, the initial built-ins declared only documented
 fresh-conversation commands: Claude Code used `/clear`, `/reset`, and `/new`;
-OpenCode used `/clear` and `/new`; Copilot was undeclared. After the Copilot
-label-reset change, Copilot is declared with `/clear`, `/new`, and `/reset`;
-the `/reset` alias requires Copilot CLI 1.0.33 or later through the existing
-minimum-version detection gate. Harnesses without verified reset semantics
-declare none. Copilot's commands are sourced from the [GitHub Copilot CLI
-command reference](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference).
+OpenCode used `/clear` and `/new`; Copilot was undeclared. Copilot currently
+declares `/clear` and `/new`. `/reset` is intentionally deferred because the
+existing
+`minVersion` gate controls integration-status probing only, not terminal
+label-reset matching, so it cannot safely protect a `/reset` declaration.
+Harnesses without verified reset semantics declare none. Copilot's commands
+are sourced from the [GitHub Copilot CLI command reference](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference).
 Only the bare command forms are declared; optional prompt-bearing forms are
 not exact matches and remain outside this decision. The definition field
 defaults for existing custom documents; custom definitions and sparse built-in

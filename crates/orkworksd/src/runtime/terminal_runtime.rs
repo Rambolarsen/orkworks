@@ -2205,7 +2205,6 @@ mod tests {
             ("opencode /new", "opencode", "/new"),
             ("copilot /clear", "copilot", "/clear"),
             ("copilot /new", "copilot", "/new"),
-            ("copilot /reset", "copilot", "/reset"),
         ] {
             let id = "label-reset-declared";
             let (state, _dir) = prompted_session_state(id);
