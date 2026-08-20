@@ -16,7 +16,14 @@ an exact member of the active session harness's list. The initial built-ins are:
 | --- | --- |
 | Claude Code | `/clear`, `/reset`, `/new` |
 | OpenCode | `/clear`, `/new` |
-| Codex, Antigravity CLI, Aider, Copilot, Shell | none |
+| Copilot | `/clear`, `/new`, `/reset` |
+| Codex, Antigravity CLI, Aider, Shell | none |
+
+Copilot's documented commands are sourced from the [GitHub Copilot CLI
+command reference](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference).
+Only the bare forms are declared. The runtime's exact-match rule intentionally
+does not treat optional prompt-bearing forms such as `/new fix auth` as label
+resets; prompt-bearing reset semantics are outside this design.
 
 On a successfully delivered, non-sensitive reset command, OrkWorks atomically
 replaces the live and persisted label with `Session <id-prefix>`, clears that

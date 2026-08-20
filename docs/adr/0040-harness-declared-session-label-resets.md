@@ -30,9 +30,13 @@ result cannot restore its title after a reset.
 
 The initial built-ins declare only documented fresh-conversation commands:
 Claude Code uses `/clear`, `/reset`, and `/new`; OpenCode uses `/clear` and
-`/new`. Harnesses without verified reset semantics declare none. The definition
-field defaults for existing custom documents; custom definitions and sparse
-built-in overrides may replace it or clear it with `null`.
+`/new`; Copilot uses `/clear`, `/new`, and `/reset`. Harnesses without verified
+reset semantics declare none. Copilot's commands are sourced from the [GitHub
+Copilot CLI command reference](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference).
+Only the bare command forms are declared; optional prompt-bearing forms are
+not exact matches and remain outside this decision. The definition field
+defaults for existing custom documents; custom definitions and sparse built-in
+overrides may replace it or clear it with `null`.
 
 ## Consequences
 
