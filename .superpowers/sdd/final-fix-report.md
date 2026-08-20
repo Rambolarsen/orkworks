@@ -1,4 +1,8 @@
-# Copilot Label Reset Commands — Final Fix Report
+> **Superseded:** This intermediate report covered a discarded `/reset` and
+> `minVersion` approach. The final scope is documented in
+> `final-scope-fix-report.md`.
+
+# Copilot Label Reset Commands — Intermediate Fix Report
 
 ## Result
 
