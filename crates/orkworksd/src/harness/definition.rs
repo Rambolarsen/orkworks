@@ -814,6 +814,10 @@ mod tests {
             resolved.get("opencode").unwrap().definition.label_reset_commands,
             ["/clear", "/new"]
         );
+        assert_eq!(
+            resolved.get("copilot").unwrap().definition.label_reset_commands,
+            ["/clear", "/new", "/reset"]
+        );
         assert!(resolved
             .get("codex")
             .unwrap()
