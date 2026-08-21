@@ -1028,11 +1028,33 @@ impl ProviderManager {
                 }
             };
 
-            let mut args: Vec<String> = definition.default_args.clone();
-            if definition.supports_model {
-                if let Some(model) = &settings.peon_model {
-                    if let Some(template) = definition.model_arg_template.as_deref() {
-                        args.push(template.replace("{model}", model));
+            let model_arg = if definition.supports_model {
+                settings.peon_model.as_deref().and_then(|model| {
+                    definition
+                        .model_arg_template
+                        .as_deref()
+                        .map(|template| template.replace("{model}", model))
+                })
+            } else {
+                None
+            };
+            let mut args: Vec<String> = Vec::with_capacity(
+                definition.default_args.len() + model_arg.as_ref().map_or(0, |_| 1) + 1,
+            );
+            // Argument prompt transport ends with a prompt-consuming flag
+            // (e.g. Copilot's `-p`), so the rendered model argument must
+            // precede the harness's default args; appending it after them
+            // would let `-p` swallow it as the prompt text. Stdin transport
+            // has no such flag, so appending keeps prior behavior there.
+            match (&model_arg, &definition.prompt_transport) {
+                (Some(rendered), PromptTransport::Argument) => {
+                    args.push(rendered.clone());
+                    args.extend(definition.default_args.iter().cloned());
+                }
+                _ => {
+                    args.extend(definition.default_args.iter().cloned());
+                    if let Some(rendered) = &model_arg {
+                        args.push(rendered.clone());
                     }
                 }
             }
@@ -1564,6 +1586,58 @@ mod tests {
         assert_eq!(captured.len(), 1);
         assert_eq!(captured[0].0[0], "-p");
         assert!(captured[0].0[1].contains("terminal line"));
+        assert_eq!(captured[0].1, "");
+    }
+
+    #[test]
+    fn argument_prompt_transport_places_the_model_flag_before_the_prompt_tail() {
+        // Copilot's Peon invocation ends with `-s -p "<prompt>"`; `-p` consumes
+        // the next argument, so a `--model=…` appended between `-p` and the
+        // prompt would be swallowed as the prompt text. The rendered model
+        // argument must precede the `default_args` tail, with the prompt last.
+        let invocations = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let manager = ProviderManager::for_tests_with_registry(
+            vec![ProviderDefinition {
+                id: "copilot".into(),
+                label: "Copilot".into(),
+                command: "copilot".into(),
+                default_args: vec![
+                    "--available-tools=".into(),
+                    "--allow-all-tools".into(),
+                    "--no-custom-instructions".into(),
+                    "-s".into(),
+                    "-p".into(),
+                ],
+                model_arg_template: Some("--model={model}".into()),
+                supports_model: true,
+                timeout_secs: 30,
+                prompt_transport: PromptTransport::Argument,
+                list_models_command: None,
+                list_models_args: vec![],
+                static_models: vec![],
+                http_list_models: false,
+            }],
+            ProviderSettingsPayload {
+                peon_model: Some("claude-sonnet-4.6".into()),
+                ..sample_settings(vec![entry("copilot")])
+            },
+            vec![fake_provider("copilot")
+                .stdout(r#"{"observedStatus":"working","confidence":0.9}"#)
+                .with_invocations(invocations.clone())],
+        );
+
+        manager.run_inference(PeonScope::Session, &["terminal line".to_owned()]);
+
+        let captured = invocations.lock().unwrap();
+        assert_eq!(captured.len(), 1);
+        let args = &captured[0].0;
+        // Model flag first, before the harness's own tail flags…
+        assert_eq!(args[0], "--model=claude-sonnet-4.6");
+        assert_eq!(args[1], "--available-tools=");
+        // …and the prompt stays last, directly after `-p`.
+        assert_eq!(args[5], "-p");
+        assert_eq!(args.len(), 7);
+        assert!(args[6].contains("terminal line"));
         assert_eq!(captured[0].1, "");
     }
 
