@@ -748,7 +748,9 @@ pub(crate) async fn resume_session(
                 &startup_id,
                 run_generation,
                 "error",
-            ) {
+            )
+            .await
+            {
                 crate::runtime::terminal_runtime::schedule_session_ending_finalization(
                     startup_state.clone(),
                     startup_id.clone(),
@@ -1509,7 +1511,9 @@ pub(crate) async fn create_session(
                     &startup_id,
                     run_generation,
                     "error",
-                ) {
+                )
+                .await
+                {
                     crate::runtime::terminal_runtime::schedule_session_ending_finalization(
                         startup_state.clone(),
                         startup_id.clone(),
@@ -2022,8 +2026,17 @@ pub(crate) async fn delete_session(
     };
     match handle {
         Some(kill_tx) => {
-            crate::runtime::terminal_runtime::set_session_status(&state, &id, "killed");
+            // Send the kill signal before the (now-async, awaiting) status
+            // transition below, not after: if this request's future is dropped
+            // mid-await (e.g. client disconnect), everything after the await
+            // point never runs. A synchronous channel send has no yield point,
+            // so it can't be interrupted that way — and it's safe to run first
+            // because the PTY's own exit path (`handle_runtime_exit`) redundantly
+            // re-applies the same "killed" status transition once the process
+            // actually exits, guarded by the same ending/ended no-op check this
+            // function's doc comment already describes for racing exit paths.
             let _ = kill_tx.send(true);
+            crate::runtime::terminal_runtime::set_session_status(&state, &id, "killed").await;
         }
         None => return axum::http::StatusCode::NOT_FOUND,
     }
@@ -2614,7 +2627,7 @@ mod tests {
         .into_response();
 
         assert_eq!(response.status(), axum::http::StatusCode::OK);
-        set_session_status(&state, &session_id, "ended");
+        set_session_status(&state, &session_id, "ended").await;
 
         let ws = state.workspace.lock().unwrap();
         let updated = ws

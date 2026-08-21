@@ -770,7 +770,7 @@ pub(crate) async fn handle_runtime_exit(
     // A user-initiated kill may already have moved this same generation to
     // `ending`. The driver still owns cleanup and finalization in that case;
     // only a generation mismatch makes the callback stale.
-    let _ = set_session_status_for_generation(state, id, generation, status);
+    let _ = set_session_status_for_generation(state, id, generation, status).await;
     {
         let mut sessions = state.sessions.lock().unwrap();
         let Some(handle) = sessions
@@ -926,7 +926,7 @@ pub(crate) async fn start_session_runtime(
     }
     #[cfg(test)]
     wait_at_startup_ending_check(&id).await;
-    if !set_session_status_for_generation(&state, &id, run_generation, "running") {
+    if !set_session_status_for_generation(&state, &id, run_generation, "running").await {
         let _ = abort_post_spawn_startup(&state, &id, run_generation, child.as_mut());
         return Err("session runtime was replaced during startup".into());
     }

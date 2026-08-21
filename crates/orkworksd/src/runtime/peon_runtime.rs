@@ -2045,7 +2045,7 @@ mod tests {
             }
         }
 
-        crate::runtime::terminal_runtime::set_session_status(&state, &session_id, "running");
+        crate::runtime::terminal_runtime::set_session_status(&state, &session_id, "running").await;
 
         let task = tokio::spawn(peon_loop(state.clone()));
         tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
