@@ -567,7 +567,7 @@ signal behavior must be rechecked against primary documentation under the
 | `codex` | command template, terminal patterns, `codex-events`, `codex-workspace-hooks` | `codex` | Not configured in this change | None | documented hook `session_id`, source `codex_hook`, high confidence | Explicit install/repair/uninstall; interactive probes remain user-triggered |
 | `gemini` | command template, `gemini-events`, `gemini-workspace-hooks` | `gemini` | Not configured in this change | None | documented hook `session_id`, source `gemini_hook`, high confidence | Explicit install/repair/uninstall |
 | `aider` | command template, `aider-notification-bridge` | `aider [--model <model>]` | Not configured | None | None | Explicit limited integration enable/disable |
-| `copilot` | command template, `copilot-events`, `copilot-workspace-hooks` | `copilot` | Not configured in this change | None | documented hook `sessionId`/`session_id`, source `copilot_hook`, high confidence | Explicit install/repair/uninstall |
+| `copilot` | command template, `copilot-events`, `copilot-workspace-hooks` | `copilot [--model <model>]` (model selection added in #336; flag dropped when no model is set) | Not configured in this change | None | documented hook `sessionId`/`session_id`, source `copilot_hook`, high confidence | Explicit install/repair/uninstall |
 | `generic-shell` | command template only | user's interactive shell | Not configured | None | None | Integration unavailable |
 
 Test updates span `harness.rs`/its replacement modules,

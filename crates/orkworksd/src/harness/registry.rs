@@ -648,7 +648,41 @@ mod tests {
             ]
         );
         assert_eq!(copilot.prompt_transport, PromptTransport::Argument);
-        assert!(!copilot.supports_model);
+        assert!(copilot.supports_model);
+        assert_eq!(
+            copilot.model_arg_template.as_deref(),
+            Some("--model={model}")
+        );
+        assert_eq!(
+            copilot.static_models.first().map(String::as_str),
+            Some("auto")
+        );
+        assert!(copilot.static_models.contains(&"claude-sonnet-4.6".into()));
+        assert!(copilot.static_models.contains(&"gpt-5.3-codex".into()));
+        assert!(copilot
+            .static_models
+            .contains(&"mai-code-1-flash-picker".into()));
+        assert_eq!(copilot.list_models_command, None);
+    }
+
+    #[test]
+    fn copilot_launch_renders_and_drops_the_model_flag() {
+        let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
+        let registry = resolve_document(&builtins, &HarnessUserDocument::default()).unwrap();
+        let harness = registry.get("copilot").unwrap();
+
+        assert_eq!(
+            harness
+                .build_launch("/repo", Some("claude-sonnet-4.6"))
+                .args,
+            ["--model", "claude-sonnet-4.6"]
+        );
+        // Without a model the `--model` flag and its standalone placeholder
+        // are both dropped, so Copilot follows its own settings.json default.
+        assert_eq!(
+            harness.build_launch("/repo", None).args,
+            Vec::<String>::new()
+        );
     }
 
     #[test]
