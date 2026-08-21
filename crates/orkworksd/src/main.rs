@@ -85,9 +85,6 @@ struct SessionHandle {
 struct WorkspaceState {
     path: PathBuf,
     metadata: metadata::MetadataStore,
-    // Not yet read anywhere: the HTTP and Peon adapters that call through it
-    // land in later tasks (see workflow_observations module docs).
-    #[allow(dead_code)]
     workflow_observations: workflow_observations::WorkflowObservationStore,
     recommendation_store: taskmaster::store::RecommendationStore,
     #[allow(dead_code)]

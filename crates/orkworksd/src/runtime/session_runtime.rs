@@ -3,7 +3,8 @@ use crate::runtime::observed_status::{
     process_transition_fields, ProcessTransition,
 };
 use crate::runtime::terminal_runtime::{
-    clear_workflow_report_token, make_pty_system, new_workflow_report_token,
+    clear_workflow_report_token, clear_workflow_report_token_if_matches, make_pty_system,
+    new_workflow_report_token,
     schedule_session_ending_finalization, session_env_overrides, set_session_status_for_generation,
     set_workflow_report_token, should_forward_terminal_env, terminal_env_overrides,
 };
@@ -925,7 +926,7 @@ pub(crate) async fn start_session_runtime(
     // session id. `set_workflow_report_token` overwrites any prior value,
     // which is exactly the desired "replaced on resume" behavior since
     // resume re-enters this same function.
-    set_workflow_report_token(&id, report_token);
+    set_workflow_report_token(&id, report_token.clone());
     let owns_spawned_generation = state
         .sessions
         .lock()
@@ -937,6 +938,7 @@ pub(crate) async fn start_session_runtime(
     if !owns_spawned_generation {
         let _ = child.kill();
         let _ = child.wait();
+        clear_workflow_report_token_if_matches(&id, &report_token);
         return Err("session runtime was replaced during startup".into());
     }
     // Captured before `child` moves into the wait task below; used to probe

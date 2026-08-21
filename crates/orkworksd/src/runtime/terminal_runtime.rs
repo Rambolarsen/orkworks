@@ -104,6 +104,19 @@ pub(crate) fn clear_workflow_report_token(session_id: &str) {
     report_capabilities().lock().unwrap().remove(session_id);
 }
 
+/// Removes a capability only when it is still the one issued by the caller.
+/// A resumed runtime may have replaced the session's capability in the
+/// meantime, and an older startup failure must not revoke the replacement.
+pub(crate) fn clear_workflow_report_token_if_matches(session_id: &str, token: &str) {
+    let mut registry = report_capabilities().lock().unwrap();
+    if registry
+        .get(session_id)
+        .is_some_and(|capability| constant_time_eq(&capability.token, token))
+    {
+        registry.remove(session_id);
+    }
+}
+
 /// Constant-time-compares `candidate` against the live token for
 /// `session_id`. Returns `false` uniformly for an unknown session id or a
 /// wrong token, so a caller cannot use response shape/timing to learn
@@ -1293,8 +1306,9 @@ pub(crate) async fn finalize_session_ending(
             if let (Some(ref inference), Some(_session)) = (result.inference.as_ref(), meta.as_ref()) {
                 for (index, candidate) in inference.workflow_observations.iter().enumerate() {
                     let key = format!("final-scan:{generation}:{index}");
-                    if matches!(
-                        ws.workflow_observations.record_observation(
+                    let mut recorded = false;
+                    for attempt in 0..3 {
+                        let result = ws.workflow_observations.record_observation(
                             &id,
                             crate::workflow_observations::ObservationOrigin::Peon,
                             &key,
@@ -1305,10 +1319,44 @@ pub(crate) async fn finalize_session_ending(
                                 reported_impact: candidate.reported_impact,
                                 confidence: Some(candidate.confidence),
                             },
-                        ),
-                        Ok(crate::workflow_observations::RecordOutcome::Accepted(_))
-                    ) {
-                        final_observation_accepted = true;
+                        );
+                        match result {
+                            Ok(crate::workflow_observations::RecordOutcome::Accepted(_)) => {
+                                final_observation_accepted = true;
+                                recorded = true;
+                                break;
+                            }
+                            Ok(crate::workflow_observations::RecordOutcome::Duplicate { .. }) => {
+                                // The final scan may race a retry of the live
+                                // Peon path; the evidence is already durable.
+                                recorded = true;
+                                break;
+                            }
+                            Err(error)
+                                if attempt < 2
+                                    && matches!(
+                                        error,
+                                        crate::workflow_observations::RecordError::PersistFailed
+                                            | crate::workflow_observations::RecordError::Degraded
+                                            | crate::workflow_observations::RecordError::RateLimited
+                                    ) => {}
+                            Err(error) => {
+                                tracing::warn!(
+                                    session_id = %id,
+                                    candidate_index = index,
+                                    %error,
+                                    "final peon workflow observation could not be recorded"
+                                );
+                                break;
+                            }
+                        }
+                    }
+                    if !recorded {
+                        tracing::warn!(
+                            session_id = %id,
+                            candidate_index = index,
+                            "final peon workflow observation remained unrecorded after retries"
+                        );
                     }
                 }
             }
@@ -2682,6 +2730,16 @@ mod tests {
         set_workflow_report_token(&session_id, "a-token".to_string());
         clear_workflow_report_token(&session_id);
         assert!(!verify_workflow_report_token(&session_id, "a-token"));
+    }
+
+    #[test]
+    fn conditional_report_token_cleanup_does_not_revoke_a_replacement() {
+        let session_id = format!("cap-test-{}", uuid::Uuid::new_v4());
+        set_workflow_report_token(&session_id, "replacement-token".to_string());
+        clear_workflow_report_token_if_matches(&session_id, "stale-token");
+        assert!(verify_workflow_report_token(&session_id, "replacement-token"));
+        clear_workflow_report_token_if_matches(&session_id, "replacement-token");
+        assert!(!verify_workflow_report_token(&session_id, "replacement-token"));
     }
 
     #[test]

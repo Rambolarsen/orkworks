@@ -53,8 +53,8 @@ decisions and replaces the durable-summary-checkpoint mechanism:
   remain displayable in the selected-session headline but are not Taskmaster
   handoff evidence until a new accepted summary populates the dedicated
   fields.
-- **Workflow observations replace summary checkpoints as durable improvement
-  evidence**: immutable `WorkflowObservation` records (`id`, `sequence`,
+- **Workflow observations provide durable improvement evidence**: immutable
+  `WorkflowObservation` records (`id`, `sequence`,
   `sessionId`, `observedAt`, `kind`, `description`, `evidence`,
   `reportedImpact`, `source`, `confidence`, `fingerprint`,
   `idempotencyKeyHash`) are accepted through one workflow-evidence module,
@@ -64,12 +64,11 @@ decisions and replaces the durable-summary-checkpoint mechanism:
   adapter. They are workspace-scoped but session-segmented NDJSON under
   `~/.orkworks/workspaces/<hash>/workflow-observations/`, bounded per session
   to the newest 1,000 records/2 MiB, with a durable `sequence` counter file
-  ordering workspace-wide reconstruction (newest 10,000 records). New summary
-  checkpoints are no longer appended to `events/<session-id>.ndjson`; the
-  `GET /sessions/:id/summary-log` route and the desktop's "Task history"
-  surface are removed. Existing event records containing the old
-  `summary`/`source` checkpoint fields remain readable and are not rewritten
-  or deleted.
+  ordering workspace-wide reconstruction (newest 10,000 records). The
+  separate current-summary migration and removal of summary checkpoints are
+  planned follow-up work; the existing `GET /sessions/:id/summary-log` route,
+  desktop "Task history" surface, and event records remain supported and
+  readable for now.
 - **Exact deterministic Taskmaster correlation**: Taskmaster evaluates
   accepted observations within the active workspace, five seconds after the
   latest accepted observation. A cluster qualifies when it contains at least
@@ -89,8 +88,9 @@ decisions and replaces the durable-summary-checkpoint mechanism:
   impact, affected sessions); Taskmaster creates a new linked successor only
   when the highest impact increases, or when at least two qualifying
   observations past the watermark include a session absent from it.
-- **Removal of summary checkpoints**: ADR 0024's checkpoint-writing and
-  `summary-log` read paths are removed in favor of the mechanisms above.
+- **Planned removal of summary checkpoints**: ADR 0024's checkpoint-writing
+  and `summary-log` read paths will be removed in favor of the mechanisms
+  above once the current-summary migration lands.
   `DELETE /sessions/:id/forget` and automatic retention delete a session's
   observation segment and every recommendation referencing it, in the same
   cleanup path as session metadata and events.

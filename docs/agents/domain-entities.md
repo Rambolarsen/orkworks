@@ -91,16 +91,13 @@ SessionMetadata (on disk)
 
 An earlier `domain/session/` + `application/session/` + `infrastructure/session_*` layer existed as a typed alternative to the above (a `Session` aggregate with a 5-variant `SessionStatus` enum, `MemoryState`, `AttentionState`, `WorkPhase`, `LifecyclePhase`, domain events, a `SessionRepository` port, and command handlers). It was never wired into any production code path — `SessionModule` was constructed only to populate an unread `AppState` field, and its PTY adapters were unimplemented stubs. It has been deleted. Two gaps would need to be closed before a typed state machine like this could work: it modeled only the 5-variant `SessionStatus` enum where production status vocabulary is the larger untyped set documented above, and it had no representation of PTY runtime state (`kill_tx`, output buffers, `SessionRuntime`) at all. See [issue #181](https://github.com/Rambolarsen/orkworks/issues/181) for the idea captured for future work.
 
-## Workflow observation feedback loop (design)
+## Workflow observation feedback loop
 
-Not yet implemented in `crates/orkworksd/src/`; the sections below describe
-the target contract from
-[ADR 0042](../adr/0042-workflow-observations-replace-summary-checkpoints.md)
-and `specs/orkworks-mvp.md`/`specs/taskmaster.md`, tracked by
-[issue #313](https://github.com/Rambolarsen/orkworks/issues/313). Move this
-content into the "Notable fields" list and its own type section (and delete
-this heading) once the corresponding `SessionMetadata` fields and
-`WorkflowObservation` type exist in code.
+The durable `WorkflowObservation` contract and Peon/Taskmaster feedback loop
+are implemented in `crates/orkworksd/src/`. The current-summary snapshot
+(`summary`, `summarySource`, `summaryConfidence`, and `summaryObservedAt`) and
+the replacement of summary-checkpoint history remain pending under
+[issue #313](https://github.com/Rambolarsen/orkworks/issues/313).
 
 `SessionMetadata` gains a current-summary snapshot: `summary` alongside
 `summarySource` (`agent` | `peon`), `summaryConfidence`, and
