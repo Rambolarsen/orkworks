@@ -16,8 +16,12 @@ are excluded from the sidecar Peon registry. Antigravity does not appear as a
 Peon provider.
 
 Copilot is a Peon provider under its canonical `copilot` ID. Its adapter invokes
-the documented non-interactive `copilot -p` form, with an empty tool allow-list,
-custom instructions disabled, and no model override. The prompt is passed as a
+the documented non-interactive `copilot -p` form, with an empty tool allow-list
+and custom instructions disabled. It supports a model override
+(`--model={model}`) against a static model list sourced from the CLI's own
+`--model` completion values; the rendered argument is placed ahead of the
+adapter's argument tail so the prompt-consuming `-p` flag cannot swallow it
+(#336). The prompt is passed as a
 command argument rather than stdin; this transport remains an explicit Peon
 capability so existing stdin-based adapters retain their behavior. Copilot has
 no resume configuration, capacity detector, or new session-ID source.
