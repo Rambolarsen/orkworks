@@ -32,7 +32,7 @@
 - Produces: Definition and runtime assertions that initially fail because
   Copilot has no declared commands.
 
-- [ ] **Step 1: Add the failing assertion**
+- [x] **Step 1: Add the failing assertion**
 
 Extend `embedded_builtins_are_complete_and_valid` with:
 
@@ -43,7 +43,7 @@ assert_eq!(
 );
 ```
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- [x] **Step 2: Run the focused test and verify RED**
 
 Run:
 
@@ -55,7 +55,7 @@ Expected: FAIL before the declaration is added because Copilot's resolved
 `label_reset_commands` is empty. The test must compile and fail on the missing
 declaration, not report a test or parse error.
 
-- [ ] **Step 3: Add Copilot cases to the runtime test matrix**
+- [x] **Step 3: Add Copilot cases to the runtime test matrix**
 
 Extend the test's array with:
 
@@ -64,7 +64,7 @@ Extend the test's array with:
 ("copilot /new", "copilot", "/new"),
 ```
 
-- [ ] **Step 4: Run the focused runtime test and verify RED**
+- [x] **Step 4: Run the focused runtime test and verify RED**
 
 Run:
 
@@ -85,7 +85,7 @@ Existing Claude Code and OpenCode cases should still pass; do not add a
 - Consumes: The failing definition and runtime assertions from Task 1.
 - Produces: Copilot's resolved builtin definition with `labelResetCommands` equal to `[/clear, /new]`.
 
-- [ ] **Step 1: Update the Copilot builtin JSON entry**
+- [x] **Step 1: Update the Copilot builtin JSON entry**
 
 Add the field to the end of the Copilot object, preserving the existing
 single-line resource format:
@@ -94,7 +94,7 @@ single-line resource format:
 "labelResetCommands": ["/clear", "/new"]
 ```
 
-- [ ] **Step 2: Run the focused definition tests and verify GREEN**
+- [x] **Step 2: Run the focused definition tests and verify GREEN**
 
 Run:
 
@@ -116,7 +116,7 @@ cargo test --manifest-path crates/orkworksd/Cargo.toml runtime::terminal_runtime
 Expected: PASS for Claude Code, OpenCode, and Copilot's `/clear` and `/new`
 commands.
 
-- [ ] **Step 3: Confirm exact-match behavior remains covered**
+- [x] **Step 3: Confirm exact-match behavior remains covered**
 
 Run:
 
@@ -138,7 +138,7 @@ do not add prompt-bearing matching to make the new cases pass.
 - Consumes: The completed Tasks 1–2 changes.
 - Produces: A verified, review-ready branch for issue #326.
 
-- [ ] **Step 1: Run Rust formatting and diff checks**
+- [x] **Step 1: Run Rust formatting and diff checks**
 
 Run:
 
@@ -147,9 +147,11 @@ rtk cargo fmt --manifest-path crates/orkworksd/Cargo.toml -- --check
 rtk git diff --check
 ```
 
-Expected: both commands succeed without formatting or whitespace findings.
+Expected: the diff check succeeds without whitespace findings. Cargo fmt may
+report pre-existing formatting drift outside this change; do not reformat
+unrelated sidecar code as part of this issue.
 
-- [ ] **Step 2: Run the complete Rust test suite**
+- [x] **Step 2: Run the complete Rust test suite**
 
 Run:
 
@@ -157,9 +159,10 @@ Run:
 cargo test --manifest-path crates/orkworksd/Cargo.toml
 ```
 
-Expected: PASS with no new warnings or failures.
+Expected: PASS; the verified run completed 645 tests. Any pre-existing
+environment-only failures or warnings must be recorded in the handoff report.
 
-- [ ] **Step 3: Build the Rust sidecar**
+- [x] **Step 3: Build the Rust sidecar**
 
 Run:
 
@@ -169,7 +172,7 @@ cargo build --manifest-path crates/orkworksd/Cargo.toml
 
 Expected: successful debug build.
 
-- [ ] **Step 4: Run repository checks**
+- [x] **Step 4: Run repository checks**
 
 Run:
 
@@ -181,7 +184,7 @@ bash .claude/hooks/worktree-check.sh
 Expected: no unaddressed documentation-drift trigger and no owned stale
 worktree warning.
 
-- [ ] **Step 5: Review the final diff and commit implementation**
+- [x] **Step 5: Review the final diff and commit implementation**
 
 Run:
 
@@ -192,6 +195,6 @@ rtk git add crates/orkworksd/resources/harnesses-v2.json crates/orkworksd/src/ha
 rtk git commit -m "feat(harness): declare Copilot label reset commands"
 ```
 
-Expected: only the three implementation files are committed in this step;
-the design and documentation reconciliation remain in commits `8a937ae` and
-`ac38520`.
+Expected: the implementation files and the required design, ADR, plan, and
+verification documentation are committed on the feature branch; the branch
+is ready for review and squash merge.
