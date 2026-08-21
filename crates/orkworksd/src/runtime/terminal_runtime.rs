@@ -779,11 +779,17 @@ pub(crate) async fn set_session_status_for_generation(
 /// this crate (see `select_terminal_plan`/`report_session_plan_path` in
 /// `http/session_handlers.rs`). Keeping the whole thing in one closure (rather
 /// than deciding synchronously and only deferring the write) matters for
-/// correctness, not just style: it preserves the pre-refactor guarantee that a
-/// call's in-memory mutation and its disk write happen back-to-back with no
-/// Tokio-scheduling gap between them, so two concurrent calls for the same
-/// session id can't have their disk writes land in a different order than
-/// their in-memory mutations did.
+/// correctness, not just style: the `sessions` lock is still released before
+/// the `workspace` lock is acquired (same as before any of this file's
+/// spawn_blocking work), so this does *not* give two concurrent calls for the
+/// same session id an ordering guarantee that never existed — that race
+/// predates this whole refactor and is unchanged by it. What bundling both
+/// steps into one closure *does* restore is the original, OS-preemption-sized
+/// window for that pre-existing race: a split closer to `update_runtime_size`'s
+/// (decide synchronously, defer only the write to a separately spawned
+/// `spawn_blocking`) would instead widen it to a Tokio-blocking-pool-queueing-
+/// sized window, since the two steps would then run as two independently
+/// scheduled tasks instead of back-to-back on one thread.
 async fn set_session_status_inner(
     state: &Arc<AppState>,
     id: &str,
@@ -792,7 +798,6 @@ async fn set_session_status_inner(
 ) -> bool {
     let task_state = state.clone();
     let task_id = id.to_string();
-    let log_id = id.to_string();
     let status = status.to_string();
     tokio::task::spawn_blocking(move || {
         let state = task_state;
@@ -960,9 +965,19 @@ async fn set_session_status_inner(
         // the transition never happened, but the in-memory sessions-lock mutation
         // above may already have applied it, which would leave the session
         // permanently stuck in "ending" with finalization never scheduled.
+        //
+        // This deliberately differs from every other `spawn_blocking(...).await`
+        // call site in this crate (`select_terminal_plan`, `report_session_plan_path`,
+        // the harness/provider handlers), which convert a `JoinError` into a safe
+        // fallback (a 500 status, `None`, `false`) instead of re-panicking. Those
+        // sites can do that safely because a panic inside their closures happens
+        // *before* any caller-visible mutation — there's nothing for the fallback to
+        // contradict. Do not copy the graceful-fallback tail here without first
+        // checking whether the same "already mutated in-memory before the panic
+        // could happen" condition applies.
         tracing::error!(
             error = %error,
-            session_id = %log_id,
+            session_id = %id,
             "set_session_status: blocking task panicked"
         );
         std::panic::resume_unwind(error.into_panic())
