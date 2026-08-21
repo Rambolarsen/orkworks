@@ -263,6 +263,7 @@ impl ReplayBuffer {
 
 #[derive(Debug)]
 pub(crate) struct SessionRuntime {
+    pub(crate) runtime_instance_id: String,
     run_generation: RuntimeGeneration,
     startup_spawned: bool,
     pub(crate) control_tx: mpsc::Sender<RuntimeCommand>,
@@ -278,6 +279,7 @@ pub(crate) struct SessionRuntime {
     pub(crate) usage_limit_latched_at: Option<DateTime<Utc>>,
     pub(crate) peon_output_revision: u64,
     pub(crate) min_peon_output_revision: u64,
+    pub(crate) peon_output_capture: Option<peon::PeonOutputCapture>,
     last_output_persisted_at: Option<tokio::time::Instant>,
     pending_output_at: Option<String>,
     output_flush_scheduled: bool,
@@ -289,6 +291,7 @@ impl SessionRuntime {
         let (output_tx, _) = broadcast::channel(256);
         (
             Self {
+                runtime_instance_id: uuid::Uuid::new_v4().to_string(),
                 run_generation: next_runtime_generation(),
                 startup_spawned: false,
                 control_tx,
@@ -304,6 +307,7 @@ impl SessionRuntime {
                 usage_limit_latched_at: None,
                 peon_output_revision: 0,
                 min_peon_output_revision: 0,
+                peon_output_capture: None,
                 last_output_persisted_at: None,
                 pending_output_at: None,
                 output_flush_scheduled: false,
@@ -317,6 +321,7 @@ impl SessionRuntime {
         let (control_tx, _control_rx) = mpsc::channel(CONTROL_CHANNEL_CAPACITY);
         let (output_tx, _) = broadcast::channel(256);
         Self {
+            runtime_instance_id: uuid::Uuid::new_v4().to_string(),
             run_generation: next_runtime_generation(),
             startup_spawned: false,
             control_tx,
@@ -332,6 +337,7 @@ impl SessionRuntime {
             usage_limit_latched_at: None,
             peon_output_revision: 0,
             min_peon_output_revision: 0,
+            peon_output_capture: None,
             last_output_persisted_at: None,
             pending_output_at: None,
             output_flush_scheduled: false,
@@ -2042,6 +2048,10 @@ mod tests {
                 metadata_root.clone(),
             )
             .expect("open workflow observation store"),
+            recommendation_store: crate::taskmaster::store::RecommendationStore::open(
+                metadata_root.clone(),
+            )
+            .expect("open recommendation store"),
             watcher: crate::watcher::MetadataWatcher::start(&metadata_root.join("sessions")),
         });
 
@@ -2274,6 +2284,10 @@ mod tests {
                 metadata_root.clone(),
             )
             .expect("open workflow observation store"),
+            recommendation_store: crate::taskmaster::store::RecommendationStore::open(
+                metadata_root.clone(),
+            )
+            .expect("open recommendation store"),
             watcher: crate::watcher::MetadataWatcher::start(&metadata_root.join("sessions")),
         });
 
@@ -2468,6 +2482,10 @@ mod tests {
                 metadata_root.clone(),
             )
             .expect("open workflow observation store"),
+            recommendation_store: crate::taskmaster::store::RecommendationStore::open(
+                metadata_root.clone(),
+            )
+            .expect("open recommendation store"),
             watcher: crate::watcher::MetadataWatcher::start(&metadata_root.join("sessions")),
         });
         {
@@ -2548,6 +2566,10 @@ mod tests {
                 metadata_root.clone(),
             )
             .expect("open workflow observation store"),
+            recommendation_store: crate::taskmaster::store::RecommendationStore::open(
+                metadata_root.clone(),
+            )
+            .expect("open recommendation store"),
             watcher: crate::watcher::MetadataWatcher::start(&metadata_root.join("sessions")),
         });
         {
@@ -2711,6 +2733,10 @@ mod tests {
                 metadata_root.clone(),
             )
             .expect("open workflow observation store"),
+            recommendation_store: crate::taskmaster::store::RecommendationStore::open(
+                metadata_root.clone(),
+            )
+            .expect("open recommendation store"),
             watcher: crate::watcher::MetadataWatcher::start(&metadata_root.join("sessions")),
         });
         {
@@ -3571,6 +3597,10 @@ mod tests {
                 metadata_root.clone(),
             )
             .expect("open workflow observation store"),
+            recommendation_store: crate::taskmaster::store::RecommendationStore::open(
+                metadata_root.clone(),
+            )
+            .expect("open recommendation store"),
             watcher: crate::watcher::MetadataWatcher::start(&metadata_root.join("sessions")),
         });
         let replay_store = crate::metadata::MetadataStore::new(&metadata_root);

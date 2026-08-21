@@ -86,13 +86,13 @@ workspace reconstruction reads the newest 10,000 records across segments.
 `DELETE /sessions/:id/forget` and retention delete a session's segment and
 every recommendation derived from it.
 
-The three routes this design introduces or repurposes:
+The workflow-observation and Taskmaster routes this design introduces or repurposes:
 
 - `POST /sessions/:id/workflow-observations` — implemented. Harness-neutral explicit report, authenticated with a per-session, non-persisted `ORKWORKS_REPORT_TOKEN` bearer capability (alongside the existing `ORKWORKS_SESSION_ID`/`ORKWORKS_PORT` env vars, generated from OS randomness at session start/resume and never persisted, logged, or serialized) and an `Idempotency-Key` header; body limited to `kind`/`description`/`evidence`/`reportedImpact`, 8 KiB total, rate-limited to 30/session/60s ahead of the store's own 60/session/minute acceptance cap.
-- `GET /taskmaster/recommendations` — (design, not yet implemented) lists the passive `improve_workflow` recommendation variant alongside other Taskmaster recommendation types.
-- `POST /taskmaster/recommendations/:id/dismiss` — (design, not yet implemented) the only lifecycle action `improve_workflow` exposes; it has no accept/execute action, since `requiresApproval: false` here means "nothing to approve," not "auto-applied."
+- `GET /taskmaster/recommendations` and `GET /taskmaster/recommendations/:id` — implemented; list responses include persisted observation diagnostics.
+- `POST /taskmaster/recommendations/:id/dismiss` and `POST /taskmaster/recommendations/:id/refresh` — implemented. `improve_workflow` exposes no accept/execute action, since `requiresApproval: false` here means "nothing to approve," not "auto-applied."
 
-(design, not yet implemented) Taskmaster correlates accepted observations five seconds after the latest
+Taskmaster correlates accepted observations five seconds after the latest
 accepted one: a fingerprint cluster of at least two distinct observations at
 confidence ≥ 0.6, or one `reportedImpact: high` observation at confidence ≥
 0.8, produces one `improve_workflow` recommendation embedding immutable
@@ -115,6 +115,7 @@ Single binary. Top-level modules:
   - `retention_handlers.rs` — retention config handler (`POST /settings/retention`)
   - `session_handlers.rs` — session/workspace HTTP handlers (`POST /workspace`, `GET/POST /sessions`, `DELETE /sessions/:id`, `POST /sessions/:id/resume`, `POST /sessions/:id/harness-session`, etc.) and associated request/response types. `POST /workspace` reconciles sessions orphaned by a previous daemon run via `metadata::reconcile_orphaned_session`: stale "running"/"creating" sessions are completed to `ended`, and sessions persisted mid-`ending` consume their `pendingTerminalStatus` as the final status so they cannot stay stuck in the ending phase
   - `workflow_observation_handlers.rs` — the thin, capability-authenticated `POST /sessions/:id/workflow-observations` adapter (ADR 0042): bearer-token auth, the route's own 30-attempts/60s pre-persistence rate limit, `Idempotency-Key` validation, and fixed request-vocabulary enforcement, before mapping onto `workflow_observations::record_observation`. Merged into the router as its own sub-`Router` so `DefaultBodyLimit::max(8 KiB)` scopes to this route only.
+  - `taskmaster_handlers.rs` — passive recommendation list/detail/dismiss/refresh adapters; no accept or execute endpoint is exposed for workflow-improvement recommendations.
 - `runtime/` — background-task and PTY submodules:
   - `observed_status.rs` — owns every write to `observed_status`/`attention` across the live session handle and persisted metadata: `apply_attention_signal` (external hook/debug reports) and `apply_process_transition` (the sidecar's own observations — committed input, idle timeout). See [ADR 0027](../adr/0027-observed-status-attention-owning-module.md).
   - `peon_runtime.rs` — `peon_loop` (continuous Peon observation loop); idle sessions enter an in-memory hold and resume observation only after qualifying user input
@@ -133,6 +134,7 @@ Single binary. Top-level modules:
 - `session_view.rs` — lifecycle-aware session projection, connectivity and terminal-outcome derivation, conflict detection, and resume-option derivation. `resolve_effective_cwds` centralizes the harness-reported → pid-probed → launch-cwd fallback chain (ADR 0032 → ADR 0031 → launch `cwd`) so git-context enrichment and cwd-collision conflict warnings agree on where a session actually is.
 - `watcher.rs` — `notify`-based file watcher for session metadata changes under the global store
 - `workflow_observations.rs` — durable, bounded `WorkflowObservation` recording (ADR 0042): validation, idempotency (15-minute replay window via tombstones), sequencing, per-session (1,000 records/2 MiB) and per-workspace (10,000 records) bounds, and a live 60-accepted/session/minute rate cap. Public surface: `open`, `record_observation`, `workspace_observations`, `delete_session_observations`, `diagnostics`. Callers never see file paths or on-disk formats.
+- `taskmaster/` — canonical passive recommendation contract, deterministic workflow-improvement evaluator, five-second generation-debounced refresh, and atomic recommendation persistence with dismissal watermarks and orphan/session cleanup.
 - `workspace_runtime.rs` — `iso_now`, `orkworks_global_dir` (workspace path hashing to global store location)
 
 For the current Rust domain model itself, see [domain-entities.md](./domain-entities.md).

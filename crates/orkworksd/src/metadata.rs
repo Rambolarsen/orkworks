@@ -976,19 +976,17 @@ impl MetadataStore {
     }
 
     pub fn write_workspace_memory(&self, memory: &WorkspaceMemory) {
-        if let Err(e) = fs::create_dir_all(&self.root) {
-            warn!("failed to create metadata root {:?}: {e}", self.root);
-            return;
+        if let Err(e) = self.try_write_workspace_memory(memory) {
+            warn!("failed to write workspace memory: {e}");
         }
+    }
+
+    fn try_write_workspace_memory(&self, memory: &WorkspaceMemory) -> std::io::Result<()> {
+        fs::create_dir_all(&self.root)?;
         let path = self.workspace_memory_path();
-        match serde_json::to_string_pretty(memory) {
-            Ok(json) => {
-                if let Err(e) = write_atomic(&path, &json) {
-                    warn!("failed to write workspace memory {:?}: {e}", path);
-                }
-            }
-            Err(e) => warn!("failed to serialize workspace memory: {e}"),
-        }
+        let json = serde_json::to_string_pretty(memory)
+            .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
+        write_atomic(&path, &json)
     }
 
     pub fn read_all_sessions(&self) -> Vec<SessionMetadata> {
@@ -1107,7 +1105,7 @@ impl MetadataStore {
         if memory.last_active_session_id.as_deref() == Some(id) {
             memory.last_active_session_id = None;
             memory.last_active_at = None;
-            self.write_workspace_memory(&memory);
+            self.try_write_workspace_memory(&memory)?;
         }
         Ok(())
     }
@@ -1967,6 +1965,7 @@ mod tests {
             detected_harness: None,
             detected_model: None,
             harness_session_id: None,
+            workflow_observations: Vec::new(),
         }
     }
 
@@ -2250,6 +2249,7 @@ mod tests {
             detected_harness: None,
             detected_model: None,
             harness_session_id: None,
+            workflow_observations: Vec::new(),
         };
         store.merge_peon_inference_with_history(id, &inf, "t1", None, None).unwrap();
         assert_eq!(store.read_session(id).unwrap().last_activity, "t1");
@@ -2537,6 +2537,7 @@ mod tests {
             detected_harness: Some("claude-code".into()),
             detected_model: None,
             harness_session_id: None,
+            workflow_observations: Vec::new(),
         };
         store
             .merge_peon_inference("rename-test", &inf, "t1", None)
@@ -2563,6 +2564,7 @@ mod tests {
             detected_harness: Some("claude-code".into()),
             detected_model: Some("claude-sonnet-4-5".into()),
             harness_session_id: None,
+            workflow_observations: Vec::new(),
         };
         store
             .merge_peon_inference("rename-test", &inf2, "t2", None)
@@ -2597,6 +2599,7 @@ mod tests {
             detected_harness: None,
             detected_model: None,
             harness_session_id: None,
+            workflow_observations: Vec::new(),
         };
         store
             .merge_peon_inference("label-untouched", &inf, "t1", None)
@@ -2682,6 +2685,7 @@ mod tests {
             detected_harness: None,
             detected_model: None,
             harness_session_id: None,
+            workflow_observations: Vec::new(),
         };
 
         store
@@ -2735,6 +2739,7 @@ mod tests {
                 detected_harness: None,
                 detected_model: None,
                 harness_session_id: None,
+                workflow_observations: Vec::new(),
             };
             store
                 .merge_peon_inference(&id, &inf, "later", None)
@@ -2790,6 +2795,7 @@ mod tests {
             detected_harness: None,
             detected_model: None,
             harness_session_id: None,
+            workflow_observations: Vec::new(),
         };
         store
             .merge_peon_inference("preserved-terminal-attention", &inf, "later", None)
@@ -2825,6 +2831,7 @@ mod tests {
             detected_harness: None,
             detected_model: None,
             harness_session_id: None,
+            workflow_observations: Vec::new(),
         };
 
         // Poll 1: question with options
@@ -2898,6 +2905,7 @@ mod tests {
             detected_harness: None,
             detected_model: None,
             harness_session_id: None,
+            workflow_observations: Vec::new(),
         };
         let inf_empty = crate::peon::PeonInference {
             detected_question: Some("".into()),
@@ -2947,6 +2955,7 @@ mod tests {
             detected_harness: None,
             detected_model: None,
             harness_session_id: None,
+            workflow_observations: Vec::new(),
         };
 
         store
@@ -3553,6 +3562,7 @@ mod tests {
             detected_harness: Some("claude-code".into()),
             detected_model: Some("claude-sonnet-4-5".into()),
             harness_session_id: Some("sess-abc123".into()),
+            workflow_observations: Vec::new(),
         };
         store
             .merge_peon_inference("session-id-test", &inf, "2026-06-20T12:00:00Z", None)
@@ -3600,6 +3610,7 @@ mod tests {
             detected_harness: None,
             detected_model: None,
             harness_session_id: Some("native-peon".into()),
+            workflow_observations: Vec::new(),
         };
         store
             .merge_peon_inference("peon-confidence-test", &inf, "2026-06-26T12:00:00Z", None)
@@ -3642,6 +3653,7 @@ mod tests {
             detected_harness: None,
             detected_model: None,
             harness_session_id: Some("".into()),
+            workflow_observations: Vec::new(),
         };
         store
             .merge_peon_inference("empty-sid-test", &inf, "2026-06-20T12:00:00Z", None)
@@ -3676,6 +3688,7 @@ mod tests {
                 detected_harness: None,
                 detected_model: None,
                 harness_session_id: Some("ab".into()),
+                workflow_observations: Vec::new(),
             };
             store
                 .merge_peon_inference("short-sid", &inf, "2026-06-20T12:00:00Z", None)
@@ -3703,6 +3716,7 @@ mod tests {
                 detected_harness: None,
                 detected_model: None,
                 harness_session_id: Some("not an id".into()),
+                workflow_observations: Vec::new(),
             };
             store
                 .merge_peon_inference("whitespace-sid", &inf, "2026-06-20T12:00:00Z", None)
@@ -4123,6 +4137,7 @@ mod tests {
             detected_harness: None,
             detected_model: None,
             harness_session_id: None,
+            workflow_observations: Vec::new(),
         };
 
         let provider = crate::providers::ProviderObservation {

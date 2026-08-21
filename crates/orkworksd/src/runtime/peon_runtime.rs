@@ -1,5 +1,6 @@
 use crate::workspace_runtime::iso_now;
 use crate::{peon, providers, AppState};
+use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
 #[derive(Clone, Copy)]
@@ -21,12 +22,101 @@ fn input_label_epoch_is_current(captured_epoch: u64, current_epoch: u64) -> bool
     captured_epoch == current_epoch
 }
 
+fn peon_observation_key(
+    runtime_instance_id: &str,
+    session_id: &str,
+    input_generation: u64,
+    first_revision: u64,
+    last_revision: u64,
+    candidate_index: usize,
+) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(b"peon-v1|");
+    hasher.update(runtime_instance_id.as_bytes());
+    hasher.update(b"|");
+    hasher.update(session_id.as_bytes());
+    hasher.update(b"|");
+    hasher.update(input_generation.to_string().as_bytes());
+    hasher.update(b"|");
+    hasher.update(first_revision.to_string().as_bytes());
+    hasher.update(b"|");
+    hasher.update(last_revision.to_string().as_bytes());
+    hasher.update(b"|");
+    hasher.update(candidate_index.to_string().as_bytes());
+    hex::encode(hasher.finalize())
+}
+
+fn should_retry_observation_record(
+    error: &crate::workflow_observations::RecordError,
+) -> bool {
+    matches!(
+        error,
+        crate::workflow_observations::RecordError::PersistFailed
+            | crate::workflow_observations::RecordError::RateLimited
+            | crate::workflow_observations::RecordError::Degraded
+    )
+}
+
 #[cfg(test)]
 mod epoch_tests {
     #[test]
     fn input_label_epoch_is_current_only_for_the_same_epoch() {
         assert!(super::input_label_epoch_is_current(4, 4));
         assert!(!super::input_label_epoch_is_current(4, 5));
+    }
+
+    #[test]
+    fn peon_observation_key_binds_the_runtime_and_captured_range() {
+        let first = super::peon_observation_key("runtime-a", "session", 2, 10, 12, 0);
+        let same = super::peon_observation_key("runtime-a", "session", 2, 10, 12, 0);
+        let new_runtime = super::peon_observation_key("runtime-b", "session", 2, 10, 12, 0);
+        let new_range = super::peon_observation_key("runtime-a", "session", 2, 11, 12, 0);
+
+        assert_eq!(first, same);
+        assert_ne!(first, new_runtime);
+        assert_ne!(first, new_range);
+    }
+
+    #[test]
+    fn retrying_a_capture_keeps_the_original_key_when_new_output_arrives() {
+        let capture = crate::peon::PeonOutputCapture {
+            lines: vec!["first output".into()],
+            input_generation: 4,
+            min_revision: 10,
+            first_revision: 11,
+            last_revision: 11,
+            runtime_instance_id: "runtime-a".into(),
+        };
+        let initial_key = super::peon_observation_key(
+            &capture.runtime_instance_id,
+            "session",
+            capture.input_generation,
+            capture.first_revision,
+            capture.last_revision,
+            0,
+        );
+        let retry_key = super::peon_observation_key(
+            &capture.runtime_instance_id,
+            "session",
+            capture.input_generation,
+            capture.first_revision,
+            capture.last_revision,
+            0,
+        );
+
+        assert_eq!(initial_key, retry_key);
+        assert_eq!(capture.lines, vec!["first output"]);
+    }
+
+    #[test]
+    fn transient_observation_record_errors_keep_the_capture_for_retry() {
+        use crate::workflow_observations::RecordError;
+
+        assert!(super::should_retry_observation_record(&RecordError::PersistFailed));
+        assert!(super::should_retry_observation_record(&RecordError::RateLimited));
+        assert!(super::should_retry_observation_record(&RecordError::Degraded));
+        assert!(!super::should_retry_observation_record(&RecordError::EmptyEvidence));
+        assert!(!super::should_retry_observation_record(&RecordError::IdempotencyConflict));
     }
 }
 
@@ -92,18 +182,54 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
             }
 
             let (output_snapshot, output_boundary) = {
-                let sessions = state.sessions.lock().unwrap();
-                match sessions.get(&session_id) {
+                let mut sessions = state.sessions.lock().unwrap();
+                match sessions.get_mut(&session_id) {
                     Some(handle) => match mode {
-                        InferenceMode::Output => (
-                            handle
-                                .output_buffer
-                                .snapshot_after(handle.runtime.min_peon_output_revision),
-                            Some((
-                                handle.runtime.input_generation,
-                                handle.runtime.min_peon_output_revision,
-                            )),
-                        ),
+                        InferenceMode::Output => {
+                            let capture_is_current = handle
+                                .runtime
+                                .peon_output_capture
+                                .as_ref()
+                                .is_some_and(|capture| {
+                                    output_inference_is_current(
+                                        capture.input_generation,
+                                        capture.min_revision,
+                                        handle.runtime.input_generation,
+                                        handle.runtime.min_peon_output_revision,
+                                    )
+                                });
+                            if !capture_is_current {
+                                handle.runtime.peon_output_capture = None;
+                            }
+                            if handle.runtime.peon_output_capture.is_none() {
+                                handle.runtime.peon_output_capture = handle
+                                    .output_buffer
+                                    .snapshot_after_with_revisions(
+                                        handle.runtime.min_peon_output_revision,
+                                    )
+                                    .map(|snapshot| peon::PeonOutputCapture {
+                                        lines: snapshot.lines,
+                                        input_generation: handle.runtime.input_generation,
+                                        min_revision: handle.runtime.min_peon_output_revision,
+                                        first_revision: snapshot.first_revision,
+                                        last_revision: snapshot.last_revision,
+                                        runtime_instance_id: handle.runtime.runtime_instance_id.clone(),
+                                    });
+                            }
+                            handle.runtime.peon_output_capture.clone().map(|capture| {
+                                    (
+                                        capture.lines.clone(),
+                                        Some((
+                                            capture.input_generation,
+                                            capture.min_revision,
+                                            capture.first_revision,
+                                            capture.last_revision,
+                                            capture.runtime_instance_id,
+                                        )),
+                                    )
+                                })
+                                .unwrap_or((Vec::new(), None))
+                        }
                         InferenceMode::InputLabel => (Vec::new(), None),
                     },
                     None => {
@@ -128,11 +254,50 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
 
             let state_clone = state.clone();
             let id = session_id.clone();
-
-            tokio::task::spawn_blocking(move || {
-                let provider_result = state_clone
+            tokio::spawn(async move {
+            let provider_state = state_clone.clone();
+            let cleanup_state = state_clone.clone();
+            let provider_output = output_snapshot.clone();
+            let mut provider_task = tokio::task::spawn_blocking(move || {
+                provider_state
                     .providers
-                    .run_inference(providers::PeonScope::Session, &output_snapshot);
+                    .run_inference(providers::PeonScope::Session, &provider_output)
+            });
+            let provider_result = match tokio::time::timeout(
+                std::time::Duration::from_secs(120),
+                &mut provider_task,
+            )
+            .await
+            {
+                Ok(Ok(result)) => result,
+                Ok(Err(error)) => {
+                    tracing::warn!(session_id = %id, %error, "peon inference task failed");
+                    cleanup_state
+                        .peon
+                        .in_flight
+                        .write()
+                        .unwrap()
+                        .remove(&id);
+                    return;
+                }
+                Err(_) => {
+                    tracing::warn!(session_id = %id, "peon inference timed out");
+                    let wait_state = cleanup_state.clone();
+                    let wait_id = id.clone();
+                    tokio::spawn(async move {
+                        let _ = provider_task.await;
+                        wait_state
+                            .peon
+                            .in_flight
+                            .write()
+                            .unwrap()
+                            .remove(&wait_id);
+                    });
+                    return;
+                }
+            };
+
+            let _ = tokio::task::spawn_blocking(move || {
                 if matches!(mode, InferenceMode::InputLabel) {
                     if let Some(inference) = provider_result.inference {
                         if let Some(label) = inference
@@ -174,7 +339,7 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                 let active_work_hook = {
                     let sessions = state_clone.sessions.lock().unwrap();
                     sessions.get(&id).and_then(|handle| {
-                        let (generation, min_revision) = output_boundary?;
+                        let (generation, min_revision, _, _, _) = *output_boundary.as_ref()?;
                         output_inference_is_current(
                             generation,
                             min_revision,
@@ -208,6 +373,8 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                 let mut inference_persisted = false;
                 let mut permanent_hold = false;
                 let mut label_update = None;
+                let mut output_range_completed = false;
+                let mut accepted_observation = false;
                 if let Some(mut inf) = inference {
                     // Active-hook sessions are hook-authoritative for the working
                     // transition specifically: Peon may still persist summary/label/
@@ -260,9 +427,77 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                             None
                         }
                     };
+
+                if let Some((generation, _min_revision, first_revision, last_revision, runtime_instance_id)) =
+                        output_boundary.as_ref()
+                    {
+                        let mut range_completed = true;
+                        for (candidate_index, candidate) in
+                            inf.workflow_observations.iter().enumerate()
+                        {
+                            let key = peon_observation_key(
+                                runtime_instance_id,
+                                &id,
+                                *generation,
+                                *first_revision,
+                                *last_revision,
+                                candidate_index,
+                            );
+                            let result = ws_guard
+                                .as_ref()
+                                .map(|ws| {
+                                    ws.workflow_observations.record_observation(
+                                        &id,
+                                        crate::workflow_observations::ObservationOrigin::Peon,
+                                        &key,
+                                        crate::workflow_observations::ObservationCandidate {
+                                            kind: candidate.kind,
+                                            description: candidate.description.clone(),
+                                            evidence: candidate.evidence.clone(),
+                                            reported_impact: candidate.reported_impact,
+                                            confidence: Some(candidate.confidence),
+                                        },
+                                    )
+                                })
+                                .unwrap_or_else(|| {
+                                    Err(crate::workflow_observations::RecordError::PersistFailed)
+                                });
+                            if matches!(
+                                &result,
+                                Ok(crate::workflow_observations::RecordOutcome::Accepted(_))
+                            ) {
+                                accepted_observation = true;
+                            }
+                            if result
+                                .as_ref()
+                                .is_err_and(|error| should_retry_observation_record(error))
+                            {
+                                range_completed = false;
+                            }
+                        }
+                        output_range_completed = range_completed;
+                    }
                 }
 
                 drop(ws_guard);
+                if accepted_observation {
+                    crate::taskmaster::evaluator::schedule_evaluation(state_clone.clone());
+                }
+                if output_range_completed {
+                    if let Some((generation, min_revision, _, last_revision, _)) = output_boundary {
+                        if let Some(handle) = state_clone.sessions.lock().unwrap().get_mut(&id) {
+                            if output_inference_is_current(
+                                generation,
+                                min_revision,
+                                handle.runtime.input_generation,
+                                handle.runtime.min_peon_output_revision,
+                            ) {
+                                handle.runtime.min_peon_output_revision = last_revision;
+                                handle.runtime.peon_output_capture = None;
+                            }
+                        }
+                    }
+                }
                 if let Some(label) = label_update {
                     if let Some(handle) = state_clone.sessions.lock().unwrap().get_mut(&id) {
                         handle.info.label = label;
@@ -294,6 +529,8 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                         .insert(id.clone(), tokio::time::Instant::now());
                 }
                 state_clone.peon.in_flight.write().unwrap().remove(&id);
+            })
+            .await;
             });
         }
 
@@ -622,6 +859,10 @@ mod tests {
                     orkworks.clone(),
                 )
                 .expect("open workflow observation store"),
+                recommendation_store: crate::taskmaster::store::RecommendationStore::open(
+                    orkworks.clone(),
+                )
+                .expect("open recommendation store"),
                 watcher: crate::watcher::MetadataWatcher::start(&orkworks.join("sessions")),
             })),
             peon: crate::PeonState {
@@ -774,6 +1015,10 @@ mod tests {
                     orkworks.clone(),
                 )
                 .expect("open workflow observation store"),
+                recommendation_store: crate::taskmaster::store::RecommendationStore::open(
+                    orkworks.clone(),
+                )
+                .expect("open recommendation store"),
                 watcher: crate::watcher::MetadataWatcher::start(&orkworks.join("sessions")),
             })),
             peon: crate::PeonState {
@@ -921,6 +1166,10 @@ mod tests {
                     orkworks.clone(),
                 )
                 .expect("open workflow observation store"),
+                recommendation_store: crate::taskmaster::store::RecommendationStore::open(
+                    orkworks.clone(),
+                )
+                .expect("open recommendation store"),
                 watcher: crate::watcher::MetadataWatcher::start(&orkworks.join("sessions")),
             })),
             peon: crate::PeonState {
@@ -1082,6 +1331,10 @@ mod tests {
                     orkworks.clone(),
                 )
                 .expect("open workflow observation store"),
+                recommendation_store: crate::taskmaster::store::RecommendationStore::open(
+                    orkworks.clone(),
+                )
+                .expect("open recommendation store"),
                 watcher: crate::watcher::MetadataWatcher::start(&orkworks.join("sessions")),
             })),
             peon: crate::PeonState {
@@ -1271,6 +1524,10 @@ mod tests {
                     orkworks.clone(),
                 )
                 .expect("open workflow observation store"),
+                recommendation_store: crate::taskmaster::store::RecommendationStore::open(
+                    orkworks.clone(),
+                )
+                .expect("open recommendation store"),
                 watcher: crate::watcher::MetadataWatcher::start(&orkworks.join("sessions")),
             })),
             peon: crate::PeonState {
@@ -1383,6 +1640,10 @@ mod tests {
                     orkworks.clone(),
                 )
                 .expect("open workflow observation store"),
+                recommendation_store: crate::taskmaster::store::RecommendationStore::open(
+                    orkworks.clone(),
+                )
+                .expect("open recommendation store"),
                 watcher: crate::watcher::MetadataWatcher::start(&orkworks.join("sessions")),
             })),
             peon: crate::PeonState {
@@ -1600,6 +1861,10 @@ mod tests {
                     orkworks.clone(),
                 )
                 .expect("open workflow observation store"),
+                recommendation_store: crate::taskmaster::store::RecommendationStore::open(
+                    orkworks.clone(),
+                )
+                .expect("open recommendation store"),
                 watcher: crate::watcher::MetadataWatcher::start(&orkworks.join("sessions")),
             })),
             peon: crate::PeonState {
@@ -1772,6 +2037,10 @@ mod tests {
                     orkworks.clone(),
                 )
                 .expect("open workflow observation store"),
+                recommendation_store: crate::taskmaster::store::RecommendationStore::open(
+                    orkworks.clone(),
+                )
+                .expect("open recommendation store"),
                 watcher: crate::watcher::MetadataWatcher::start(&orkworks.join("sessions")),
             })),
             peon: crate::PeonState {
@@ -1956,6 +2225,10 @@ mod tests {
                     orkworks.clone(),
                 )
                 .expect("open workflow observation store"),
+                recommendation_store: crate::taskmaster::store::RecommendationStore::open(
+                    orkworks.clone(),
+                )
+                .expect("open recommendation store"),
                 watcher: crate::watcher::MetadataWatcher::start(&orkworks.join("sessions")),
             })),
             peon: crate::PeonState {
@@ -2122,6 +2395,10 @@ mod tests {
                     orkworks.clone(),
                 )
                 .expect("open workflow observation store"),
+                recommendation_store: crate::taskmaster::store::RecommendationStore::open(
+                    orkworks.clone(),
+                )
+                .expect("open recommendation store"),
                 watcher: crate::watcher::MetadataWatcher::start(&orkworks.join("sessions")),
             })),
             peon: crate::PeonState {
@@ -2286,6 +2563,10 @@ mod tests {
                     orkworks.clone(),
                 )
                 .expect("open workflow observation store"),
+                recommendation_store: crate::taskmaster::store::RecommendationStore::open(
+                    orkworks.clone(),
+                )
+                .expect("open recommendation store"),
                 watcher: crate::watcher::MetadataWatcher::start(&orkworks.join("sessions")),
             })),
             peon: crate::PeonState {
@@ -2455,6 +2736,10 @@ mod tests {
                     orkworks.clone(),
                 )
                 .expect("open workflow observation store"),
+                recommendation_store: crate::taskmaster::store::RecommendationStore::open(
+                    orkworks.clone(),
+                )
+                .expect("open recommendation store"),
                 watcher: crate::watcher::MetadataWatcher::start(&orkworks.join("sessions")),
             })),
             peon: crate::PeonState {
@@ -2623,6 +2908,10 @@ mod tests {
                     orkworks.clone(),
                 )
                 .expect("open workflow observation store"),
+                recommendation_store: crate::taskmaster::store::RecommendationStore::open(
+                    orkworks.clone(),
+                )
+                .expect("open recommendation store"),
                 watcher: crate::watcher::MetadataWatcher::start(&orkworks.join("sessions")),
             })),
             peon: crate::PeonState {

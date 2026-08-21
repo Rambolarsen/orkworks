@@ -1,6 +1,38 @@
 use crate::AppState;
 use std::sync::Arc;
 
+pub(crate) fn delete_session_evidence(
+    workspace: &crate::WorkspaceState,
+    session_id: &str,
+    mut delete_recommendations: impl FnMut(&str) -> Result<(), String>,
+) -> Result<(), String> {
+    workspace
+        .workflow_observations
+        .delete_session_observations(session_id)
+        .map_err(|error| error.to_string())?;
+    workspace
+        .metadata
+        .delete_events(session_id)
+        .map_err(|error| error.to_string())?;
+    workspace
+        .metadata
+        .clear_last_active_session_if_matches(session_id)
+        .map_err(|error| error.to_string())?;
+    workspace
+        .metadata
+        .delete_session(session_id)
+        .map_err(|error| error.to_string())?;
+    // Recommendation cleanup is last: if deleting the session metadata fails,
+    // the session remains retryable and its evidence-backed recommendations
+    // are preserved for that retry. Orphan cleanup handles the inverse case.
+    if let Err(first_error) = delete_recommendations(session_id) {
+        delete_recommendations(session_id).map_err(|retry_error| {
+            format!("{first_error}; recommendation cleanup retry failed: {retry_error}")
+        })?;
+    }
+    Ok(())
+}
+
 pub(crate) async fn retention_cleanup_task(state: Arc<AppState>) {
     loop {
         tokio::time::sleep(std::time::Duration::from_secs(300)).await;
@@ -25,20 +57,8 @@ pub(crate) async fn retention_cleanup_once(
         }
     };
 
-    let live_ids: std::collections::HashSet<String> = {
-        let sessions = state.sessions.lock().unwrap();
-        sessions
-            .iter()
-            .filter(|(_, h)| {
-                h.info.status == "live" || h.info.status == "creating" || h.info.status == "running"
-            })
-            .map(|(id, _)| id.clone())
-            .collect()
-    };
-
     let mut candidates: Vec<_> = all_sessions
         .into_iter()
-        .filter(|s| !live_ids.contains(&s.id))
         .collect();
 
     if candidates.is_empty() {
@@ -60,17 +80,33 @@ pub(crate) async fn retention_cleanup_once(
             }
         }
         if !expired.is_empty() {
+            let mut deleted_expired = Vec::new();
             let ws_guard = state.workspace.lock().unwrap();
             if let Some(ref ws) = *ws_guard {
+                let mut sessions = state.sessions.lock().unwrap();
                 for id in &expired {
+                    if sessions.get(id).is_some_and(|h| {
+                        h.info.status == "live"
+                            || h.info.status == "creating"
+                            || h.info.status == "running"
+                    }) {
+                        continue;
+                    }
                     tracing::info!(session_id = %id, "retention: deleting expired session");
-                    let _ = ws.metadata.delete_session(id);
-                    let _ = ws.metadata.delete_events(id);
-                    let _ = ws.metadata.clear_last_active_session_if_matches(id);
+                    if let Err(error) = delete_session_evidence(ws, id, |session_id| {
+                        ws.recommendation_store
+                            .delete_referencing_session(session_id)
+                            .map_err(|error| error.to_string())
+                    }) {
+                        tracing::error!(session_id = %id, %error, "retention: failed to delete expired session");
+                        continue;
+                    }
+                    sessions.remove(id);
+                    deleted_expired.push(id.clone());
                 }
             }
-            all_deleted.extend(expired.iter().cloned());
-            candidates.retain(|s| !expired.contains(&s.id));
+            all_deleted.extend(deleted_expired.iter().cloned());
+            candidates.retain(|s| !deleted_expired.contains(&s.id));
         }
     }
 
@@ -78,32 +114,54 @@ pub(crate) async fn retention_cleanup_once(
         let to_delete = candidates.len() - config.max_sessions;
         let ws_guard = state.workspace.lock().unwrap();
         if let Some(ref ws) = *ws_guard {
-            for s in candidates.iter().take(to_delete) {
+            let mut sessions = state.sessions.lock().unwrap();
+            let eligible: Vec<_> = candidates
+                .iter()
+                .filter(|s| {
+                    !sessions.get(&s.id).is_some_and(|h| {
+                        h.info.status == "live"
+                            || h.info.status == "creating"
+                            || h.info.status == "running"
+                    })
+                })
+                .take(to_delete)
+                .collect();
+            for s in eligible {
+                if sessions.get(&s.id).is_some_and(|h| {
+                    h.info.status == "live"
+                        || h.info.status == "creating"
+                        || h.info.status == "running"
+                }) {
+                    continue;
+                }
                 tracing::info!(
                     session_id = %s.id,
                     max_sessions = config.max_sessions,
                     "retention: deleting session (exceeds max)"
                 );
-                let _ = ws.metadata.delete_session(&s.id);
-                let _ = ws.metadata.delete_events(&s.id);
-                let _ = ws.metadata.clear_last_active_session_if_matches(&s.id);
+                if let Err(error) = delete_session_evidence(ws, &s.id, |session_id| {
+                    ws.recommendation_store
+                        .delete_referencing_session(session_id)
+                        .map_err(|error| error.to_string())
+                }) {
+                    tracing::error!(session_id = %s.id, %error, "retention: failed to delete session");
+                    continue;
+                }
+                sessions.remove(&s.id);
                 all_deleted.push(s.id.clone());
             }
         }
     }
 
     if !all_deleted.is_empty() {
-        let mut sessions = state.sessions.lock().unwrap();
         let mut peon_output = state.peon.last_output.write().unwrap();
         let mut peon_inference = state.peon.last_inference.write().unwrap();
         for id in &all_deleted {
-            sessions.remove(id);
             peon_output.remove(id);
             peon_inference.remove(id);
         }
         drop(peon_inference);
         drop(peon_output);
-        drop(sessions);
         for id in &all_deleted {
             crate::runtime::session_runtime::clear_forgotten_session_tracking(state, id);
         }
@@ -115,6 +173,145 @@ mod tests {
     use super::*;
     use crate::metadata;
     use crate::test_support::*;
+    use crate::workflow_observations::{
+        Impact, ObservationCandidate, ObservationKind, ObservationOrigin,
+    };
+
+    fn record_test_observation(
+        store: &crate::workflow_observations::WorkflowObservationStore,
+        session_id: &str,
+        key: &str,
+    ) {
+        store
+            .record_observation(
+                session_id,
+                ObservationOrigin::Agent,
+                key,
+                ObservationCandidate {
+                    kind: ObservationKind::VerificationGap,
+                    description: "test observation".into(),
+                    evidence: "test evidence".into(),
+                    reported_impact: Impact::Low,
+                    confidence: None,
+                },
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn delete_session_evidence_removes_only_one_session_and_preserves_sequence() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let ws_guard = state.workspace.lock().unwrap();
+        let ws = ws_guard.as_ref().unwrap();
+        for id in ["session-a", "session-b"] {
+            ws.metadata.write_session(&test_session_metadata(
+                id,
+                id,
+                dir.path().display().to_string(),
+                "ended",
+                "2024-01-01T00:00:00Z",
+                "2024-01-01T00:00:00Z",
+            ));
+            ws.metadata
+                .append_terminal_output_lines(id, &["terminal".into()]);
+            record_test_observation(&ws.workflow_observations, id, id);
+        }
+        ws.metadata.write_workspace_memory(&metadata::WorkspaceMemory {
+            last_active_session_id: Some("session-a".into()),
+            last_active_at: Some("2024-01-01T00:00:00Z".into()),
+            active_harness_ids: vec![],
+        });
+
+        delete_session_evidence(ws, "session-a", |_| Ok(())).unwrap();
+
+        assert!(!ws.metadata.session_file_exists("session-a"));
+        assert!(ws.metadata.read_session("session-b").is_some());
+        assert!(ws.metadata.read_terminal_output("session-a", 10).is_empty());
+        assert_eq!(
+            ws.workflow_observations
+                .workspace_observations()
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            ws.workflow_observations.workspace_observations().unwrap()[0].session_id,
+            "session-b"
+        );
+        record_test_observation(&ws.workflow_observations, "session-b", "after-delete");
+        assert_eq!(
+            ws.workflow_observations
+                .workspace_observations()
+                .unwrap()[1]
+                .sequence,
+            3
+        );
+    }
+
+    #[test]
+    fn delete_session_evidence_keeps_recommendations_retryable_when_cleanup_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let ws_guard = state.workspace.lock().unwrap();
+        let ws = ws_guard.as_ref().unwrap();
+        ws.metadata.write_session(&test_session_metadata(
+            "session-a",
+            "session-a",
+            dir.path().display().to_string(),
+            "ended",
+            "2024-01-01T00:00:00Z",
+            "2024-01-01T00:00:00Z",
+        ));
+        record_test_observation(&ws.workflow_observations, "session-a", "session-a");
+
+        let result = delete_session_evidence(ws, "session-a", |_| {
+            Err("recommendations failed".into())
+        });
+
+        assert_eq!(
+            result.unwrap_err(),
+            "recommendations failed; recommendation cleanup retry failed: recommendations failed"
+        );
+        // The metadata deletion completed before the failing final cleanup;
+        // the recommendation remains available for orphan cleanup/retry, and
+        // the session is no longer intact.
+        assert!(!ws.metadata.session_file_exists("session-a"));
+        assert_eq!(
+            ws.workflow_observations
+                .workspace_observations()
+                .unwrap()
+                .len(),
+            0
+        );
+    }
+
+    #[test]
+    fn delete_session_evidence_reports_observation_cleanup_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let ws_guard = state.workspace.lock().unwrap();
+        let ws = ws_guard.as_ref().unwrap();
+        ws.metadata.write_session(&test_session_metadata(
+            "session-a",
+            "session-a",
+            dir.path().display().to_string(),
+            "ended",
+            "2024-01-01T00:00:00Z",
+            "2024-01-01T00:00:00Z",
+        ));
+        record_test_observation(&ws.workflow_observations, "session-a", "session-a");
+        let segment_path = dir
+            .path()
+            .join(".orkworks-test/workflow-observations/session-a.ndjson");
+        std::fs::remove_file(&segment_path).unwrap();
+        std::fs::create_dir(&segment_path).unwrap();
+
+        let result = delete_session_evidence(ws, "session-a", |_| Ok(()));
+
+        assert!(result.is_err());
+        assert!(ws.metadata.session_file_exists("session-a"));
+    }
 
     #[tokio::test]
     async fn retention_cleanup_keeps_live_sessions() {

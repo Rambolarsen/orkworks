@@ -311,12 +311,39 @@ pub(crate) async fn set_workspace(
                 .into_response();
         }
     };
+    let recommendation_store = match crate::taskmaster::store::RecommendationStore::open(
+        global_dir.clone(),
+    ) {
+        Ok(store) => store,
+        Err(e) => {
+            tracing::warn!(path = %global_dir.display(), error = %e, "failed to open recommendation store");
+            return (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "failed to open recommendation store",
+            )
+                .into_response();
+        }
+    };
+    let retained_session_ids = store
+        .read_all_sessions()
+        .into_iter()
+        .map(|session| session.id)
+        .collect::<std::collections::HashSet<_>>();
+    if let Err(e) = recommendation_store.scrub_orphans(&retained_session_ids) {
+        tracing::warn!(path = %global_dir.display(), error = %e, "failed to scrub orphaned recommendations");
+        return (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            "failed to scrub orphaned recommendations",
+        )
+            .into_response();
+    }
 
     let mut ws = state.workspace.lock().unwrap();
     *ws = Some(WorkspaceState {
         path: ws_path.clone(),
         metadata: store,
         workflow_observations,
+        recommendation_store,
         watcher,
     });
     state.bump_harness_probe_generation();
@@ -516,6 +543,10 @@ fn try_install_claimed_resume_handle(
     metadata_ended: bool,
     expected_generation: Option<crate::runtime::session_runtime::RuntimeGeneration>,
 ) -> Result<ResumeAdmission, ()> {
+    // The caller performs the persisted-metadata recheck immediately before
+    // admission. Keeping this helper free of the workspace lock is essential:
+    // rollback tests and callers may deliberately hold that lock while
+    // coordinating generation replacement.
     let mut sessions = state.sessions.lock().unwrap();
     let current_generation = sessions
         .get(id)
@@ -688,15 +719,23 @@ pub(crate) async fn resume_session(
         resume_scan_origin: capacity_check_pending.then_some((0, 0)),
         pending_capacity_visible_once: false,
     };
-    let mut admission = match try_install_claimed_resume_handle(
-        &state,
-        &id,
-        replacement,
-        meta.lifecycle_phase == "ended",
-        expected_generation,
-    ) {
-        Ok(admission) => admission,
-        Err(()) => return axum::http::StatusCode::CONFLICT.into_response(),
+    let mut admission = {
+        let ws_guard = state.workspace.lock().unwrap();
+        let metadata_ended = ws_guard.as_ref().is_some_and(|ws| {
+            ws.metadata
+                .read_session(&id)
+                .is_some_and(|metadata| metadata.lifecycle_phase == "ended")
+        });
+        match try_install_claimed_resume_handle(
+            &state,
+            &id,
+            replacement,
+            metadata_ended,
+            expected_generation,
+        ) {
+            Ok(admission) => admission,
+            Err(()) => return axum::http::StatusCode::CONFLICT.into_response(),
+        }
     };
     let run_generation = admission.generation();
 
@@ -2050,25 +2089,21 @@ pub(crate) async fn forget_session(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
-    {
-        let sessions = state.sessions.lock().unwrap();
-        if let Some(h) = sessions.get(&id) {
-            if h.info.status == "live" || h.info.status == "creating" || h.info.status == "running"
-            {
-                return (
-                    axum::http::StatusCode::CONFLICT,
-                    "Cannot forget a live session. Kill it first.",
-                )
-                    .into_response();
-            }
-        }
-    }
-
     let ws_guard = state.workspace.lock().unwrap();
     let ws = match &*ws_guard {
         Some(ws) => ws,
         None => return axum::http::StatusCode::CONFLICT.into_response(),
     };
+    let mut sessions = state.sessions.lock().unwrap();
+    if let Some(h) = sessions.get(&id) {
+        if h.info.status == "live" || h.info.status == "creating" || h.info.status == "running" {
+            return (
+                axum::http::StatusCode::CONFLICT,
+                "Cannot forget a live session. Kill it first.",
+            )
+                .into_response();
+        }
+    }
 
     // Existence, not parseability: a corrupt-but-present metadata file must
     // still be forgettable, or the session becomes undeletable via the API.
@@ -2076,17 +2111,18 @@ pub(crate) async fn forget_session(
         return axum::http::StatusCode::NOT_FOUND.into_response();
     }
 
-    if let Err(e) = ws.metadata.delete_session(&id) {
-        tracing::error!(session_id = %id, error = %e, "failed to delete session");
+    if let Err(error) = crate::runtime::retention::delete_session_evidence(ws, &id, |session_id| {
+        ws.recommendation_store
+            .delete_referencing_session(session_id)
+            .map_err(|error| error.to_string())
+    }) {
+        tracing::error!(session_id = %id, %error, "failed to delete session evidence");
         return axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
-    if let Err(e) = ws.metadata.delete_events(&id) {
-        tracing::error!(session_id = %id, error = %e, "failed to delete session events");
-    }
-    let _ = ws.metadata.clear_last_active_session_if_matches(&id);
     drop(ws_guard);
 
-    state.sessions.lock().unwrap().remove(&id);
+    sessions.remove(&id);
+    drop(sessions);
     crate::runtime::session_runtime::clear_ended_session_tracking(&state, &id);
     crate::runtime::session_runtime::clear_forgotten_session_tracking(&state, &id);
 
@@ -3089,6 +3125,24 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let state = test_app_state_with_workspace(dir.path());
         let session_id = "resume-no-handle-concurrent".to_string();
+        let mut metadata = test_session_metadata(
+            &session_id,
+            "Concurrent Resume",
+            dir.path().display().to_string(),
+            "ended",
+            "before",
+            "before",
+        );
+        metadata.lifecycle_phase = "ended".into();
+        metadata.lifecycle = "dead".into();
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
         let barrier = Arc::new(std::sync::Barrier::new(3));
         let mut callers = Vec::new();
 
@@ -3131,6 +3185,25 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let state = test_app_state_with_workspace(dir.path());
         let session_id = "resume-stale-observation";
+
+        let mut metadata = test_session_metadata(
+            session_id,
+            "Stale Resume",
+            dir.path().display().to_string(),
+            "ended",
+            "before",
+            "before",
+        );
+        metadata.lifecycle_phase = "ended".into();
+        metadata.lifecycle = "dead".into();
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
 
         let mut old_handle = attention_test_handle(session_id, dir.path());
         old_handle.info.status = "ended".into();
@@ -3178,6 +3251,24 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let state = test_app_state_with_workspace(dir.path());
         let session_id = "resume-generation-replacement";
+        let mut metadata = test_session_metadata(
+            session_id,
+            "Replacement",
+            dir.path().display().to_string(),
+            "ended",
+            "before",
+            "before",
+        );
+        metadata.lifecycle_phase = "ended".into();
+        metadata.lifecycle = "dead".into();
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
         let old_handle = attention_test_handle(session_id, dir.path());
         let old_generation = old_handle.runtime.run_generation();
         state
@@ -5572,6 +5663,10 @@ mod tests {
                     orkworks.clone(),
                 )
                 .expect("open workflow observation store"),
+                recommendation_store: crate::taskmaster::store::RecommendationStore::open(
+                    orkworks.clone(),
+                )
+                .expect("open recommendation store"),
                 watcher: watcher::MetadataWatcher::start(&orkworks.join("sessions")),
             })),
             peon: crate::PeonState {
@@ -6667,6 +6762,10 @@ mod tests {
                     orkworks.clone(),
                 )
                 .expect("open workflow observation store"),
+                recommendation_store: crate::taskmaster::store::RecommendationStore::open(
+                    orkworks.clone(),
+                )
+                .expect("open recommendation store"),
                 watcher: watcher::MetadataWatcher::start(&orkworks.join("sessions")),
             })),
             peon: crate::PeonState {

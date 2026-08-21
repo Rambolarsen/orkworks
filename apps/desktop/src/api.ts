@@ -259,3 +259,118 @@ export async function saveActiveHarnesses(baseUrl: string, activeHarnessIds: str
   });
   if (!resp.ok) throw new Error(`save active harnesses failed: ${resp.status}`);
 }
+
+export type Impact = "low" | "medium" | "high";
+export type RecommendationConfidence = "low" | "medium" | "high";
+export type RecommendationStatus =
+  | "proposed" | "accepted" | "executing" | "completed"
+  | "dismissed" | "superseded" | "expired" | "failed";
+export type TargetSurface = "instructions" | "skill" | "test" | "tooling" | "documentation";
+export type ObservationKind =
+  | "repetition" | "obstacle" | "missing_context" | "assumption"
+  | "correction" | "workaround" | "verification_gap";
+
+export interface WorkflowObservationEvidence {
+  observationId: string;
+  sequence: number;
+  sessionId: string;
+  kind: ObservationKind;
+  description: string;
+  evidence: string;
+  reportedImpact: Impact;
+  source: "agent" | "peon";
+  confidence: number;
+  observedAt: string;
+}
+
+export interface DismissalWatermark {
+  dismissedAt: string;
+  dismissedThroughSequence: number;
+  observationIds: string[];
+  qualifyingCount: number;
+  highestImpact: Impact;
+  affectedSessionIds: string[];
+}
+
+export interface WorkflowImprovement {
+  proposedImprovement: string;
+  targetSurface: TargetSurface;
+  observationIds: string[];
+  recurrenceCount: number;
+  affectedSessionIds: string[];
+  impact: Impact;
+  expectedBenefit: string;
+  supersedesRecommendationId: string | null;
+  dismissalWatermark: DismissalWatermark | null;
+}
+
+export interface WorkflowRecommendation {
+  id: string;
+  workspaceId: string;
+  chainId: string;
+  chainDepth: number;
+  type: "improve_workflow";
+  status: RecommendationStatus;
+  priority: Impact;
+  title: string;
+  summary: string;
+  reason: string[];
+  evidence: WorkflowObservationEvidence[];
+  sourceSessionIds: string[];
+  targetSessionId: string | null;
+  suggestedHarnessId: string | null;
+  suggestedModel: string | null;
+  suggestedWorkingDirectory: string | null;
+  suggestedPrompt: string | null;
+  confidence: RecommendationConfidence;
+  requiresApproval: false;
+  dedupeKey: string;
+  createdAt: string;
+  updatedAt: string;
+  expiresAt: string | null;
+  workflowImprovement: WorkflowImprovement;
+}
+
+export interface ObservationDiagnostic {
+  code: string;
+  message: string;
+  sessionId: string | null;
+}
+
+export interface RecommendationListResponse {
+  recommendations: WorkflowRecommendation[];
+  diagnostics: ObservationDiagnostic[];
+}
+
+export class ApiError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+    this.name = "ApiError";
+  }
+}
+
+async function taskmasterRequest(baseUrl: string, path: string, init?: RequestInit): Promise<Response> {
+  const response = await fetch(`${baseUrl}${path}`, init);
+  if (!response.ok) throw new ApiError(`Taskmaster request failed: ${response.status}`, response.status);
+  return response;
+}
+
+export async function getTaskmasterRecommendations(baseUrl: string): Promise<RecommendationListResponse> {
+  const response = await taskmasterRequest(baseUrl, "/taskmaster/recommendations");
+  return response.json();
+}
+
+export async function dismissTaskmasterRecommendation(
+  baseUrl: string,
+  id: string,
+  reason?: string,
+): Promise<void> {
+  await taskmasterRequest(baseUrl, `/taskmaster/recommendations/${encodeURIComponent(id)}/dismiss`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(reason === undefined ? {} : { reason }),
+  });
+}

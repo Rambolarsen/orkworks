@@ -24,6 +24,7 @@ mod providers;
 mod runtime;
 mod session_types;
 mod session_view;
+mod taskmaster;
 mod watcher;
 mod workflow_observations;
 mod workspace_runtime;
@@ -46,6 +47,9 @@ use crate::http::session_handlers::{
     apply_debug_attention, create_session, delete_session, forget_session, list_sessions,
 get_session_plan_content, request_session_plan_review, report_attention, report_harness_session, report_session_plan_path, resume_session, select_terminal_plan,
     set_active_harnesses, set_active_session, set_workspace,
+};
+use crate::http::taskmaster_handlers::{
+    dismiss_recommendation, get_recommendation, list_recommendations,
 };
 use crate::http::workflow_observation_handlers::report_workflow_observation;
 use crate::runtime::peon_runtime::peon_loop;
@@ -85,6 +89,7 @@ struct WorkspaceState {
     // land in later tasks (see workflow_observations module docs).
     #[allow(dead_code)]
     workflow_observations: workflow_observations::WorkflowObservationStore,
+    recommendation_store: taskmaster::store::RecommendationStore,
     #[allow(dead_code)]
     watcher: watcher::MetadataWatcher,
 }
@@ -281,6 +286,15 @@ pub(crate) fn build_router(state: Arc<AppState>) -> Router {
             post(request_session_plan_review),
         )
         .route("/settings/retention", post(set_retention))
+        .route("/taskmaster/recommendations", get(list_recommendations))
+        .route(
+            "/taskmaster/recommendations/:id",
+            get(get_recommendation),
+        )
+        .route(
+            "/taskmaster/recommendations/:id/dismiss",
+            post(dismiss_recommendation),
+        )
         .route("/harnesses", get(list_harnesses).post(create_harness))
         .route("/harnesses/:id", put(update_harness).delete(delete_harness))
         .route("/sessions/:id/terminal", get(session_terminal_handler))
@@ -415,6 +429,10 @@ pub(crate) mod test_support {
                     metadata_root.clone(),
                 )
                 .expect("open workflow observation store"),
+                recommendation_store: taskmaster::store::RecommendationStore::open(
+                    metadata_root.clone(),
+                )
+                .expect("open recommendation store"),
                 watcher: watcher::MetadataWatcher::start(&metadata_root.join("sessions")),
             })),
             peon: PeonState {
@@ -452,6 +470,10 @@ pub(crate) mod test_support {
                 metadata_root.clone(),
             )
             .expect("open workflow observation store"),
+            recommendation_store: taskmaster::store::RecommendationStore::open(
+                metadata_root.clone(),
+            )
+            .expect("open recommendation store"),
             watcher: watcher::MetadataWatcher::start(&metadata_root.join("sessions")),
         });
         state.bump_harness_probe_generation();

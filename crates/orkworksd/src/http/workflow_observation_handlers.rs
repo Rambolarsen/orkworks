@@ -24,6 +24,7 @@
 //! module calls but never modifies.
 
 use crate::runtime::terminal_runtime::{record_report_attempt, verify_workflow_report_token};
+use crate::taskmaster::evaluator::schedule_evaluation;
 use crate::session_types::MemoryState;
 use crate::workflow_observations::{
     self, ObservationCandidate, ObservationOrigin, RecordError, RecordOutcome,
@@ -152,6 +153,10 @@ pub(crate) async fn report_workflow_observation(
         Ok(outcome) => outcome,
         Err(_join_error) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     };
+
+    if matches!(&outcome, Ok(RecordOutcome::Accepted(_))) {
+        schedule_evaluation(state.clone());
+    }
 
     match outcome {
         Ok(RecordOutcome::Accepted(observation)) => Json(WorkflowObservationReportResponse {

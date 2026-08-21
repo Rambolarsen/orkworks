@@ -34,6 +34,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
 use chrono::{DateTime, Utc};
@@ -329,6 +330,7 @@ fn current_time(_inner: &StoreInner) -> DateTime<Utc> {
 pub(crate) struct WorkflowObservationStore {
     dir: PathBuf,
     inner: Mutex<StoreInner>,
+    evaluation_generation: AtomicU64,
 }
 
 impl WorkflowObservationStore {
@@ -441,6 +443,7 @@ impl WorkflowObservationStore {
                 #[cfg(test)]
                 clock_override: None,
             }),
+            evaluation_generation: AtomicU64::new(0),
         })
     }
 
@@ -596,6 +599,14 @@ impl WorkflowObservationStore {
         inner.idempotency.retain(|(sid, _), _| sid != session_id);
         inner.diagnostics.remove(session_id);
         Ok(())
+    }
+
+    pub(crate) fn next_evaluation_generation(&self) -> u64 {
+        self.evaluation_generation.fetch_add(1, Ordering::SeqCst) + 1
+    }
+
+    pub(crate) fn evaluation_generation(&self) -> u64 {
+        self.evaluation_generation.load(Ordering::SeqCst)
     }
 
     pub(crate) fn diagnostics(&self) -> Vec<ObservationDiagnostic> {

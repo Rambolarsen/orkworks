@@ -1534,6 +1534,10 @@ mod tests {
                     orkworks.clone(),
                 )
                 .expect("open workflow observation store"),
+                recommendation_store: crate::taskmaster::store::RecommendationStore::open(
+                    orkworks.clone(),
+                )
+                .expect("open recommendation store"),
                 watcher: crate::watcher::MetadataWatcher::start(&orkworks.join("sessions")),
             })),
             peon: crate::PeonState {
@@ -3374,6 +3378,10 @@ mod tests {
                     orkworks.clone(),
                 )
                 .expect("open workflow observation store"),
+                recommendation_store: crate::taskmaster::store::RecommendationStore::open(
+                    orkworks.clone(),
+                )
+                .expect("open recommendation store"),
                 watcher: crate::watcher::MetadataWatcher::start(&orkworks.join("sessions")),
             })),
             peon: crate::PeonState {
@@ -3521,6 +3529,10 @@ mod tests {
                     orkworks.clone(),
                 )
                 .expect("open workflow observation store"),
+                recommendation_store: crate::taskmaster::store::RecommendationStore::open(
+                    orkworks.clone(),
+                )
+                .expect("open recommendation store"),
                 watcher: crate::watcher::MetadataWatcher::start(&orkworks.join("sessions")),
             })),
             peon: crate::PeonState {
@@ -3703,6 +3715,10 @@ mod tests {
                     orkworks.clone(),
                 )
                 .expect("open workflow observation store"),
+                recommendation_store: crate::taskmaster::store::RecommendationStore::open(
+                    orkworks.clone(),
+                )
+                .expect("open recommendation store"),
                 watcher: crate::watcher::MetadataWatcher::start(&orkworks.join("sessions")),
             })),
             peon: crate::PeonState {
