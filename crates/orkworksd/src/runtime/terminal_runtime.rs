@@ -772,87 +772,24 @@ pub(crate) async fn set_session_status_for_generation(
     set_session_status_inner(state, id, Some(generation), status).await
 }
 
-/// The metadata read/write/append tail below runs inside `tokio::task::spawn_blocking`,
-/// matching the pattern already used for multi-step `MetadataStore` sequences elsewhere
-/// in this crate (see `select_terminal_plan`/`report_session_plan_path` in
-/// `http/session_handlers.rs`) — it's local `std::fs` I/O and must not block the calling
-/// Tokio worker thread.
+/// The entire body below — the in-memory `sessions`-lock decision, the
+/// `state.peon.last_output` bookkeeping, and the `MetadataStore` read/write/append
+/// tail — runs inside one `tokio::task::spawn_blocking` closure, matching the
+/// pattern already used for multi-step `MetadataStore` sequences elsewhere in
+/// this crate (see `select_terminal_plan`/`report_session_plan_path` in
+/// `http/session_handlers.rs`). Keeping the whole thing in one closure (rather
+/// than deciding synchronously and only deferring the write) matters for
+/// correctness, not just style: it preserves the pre-refactor guarantee that a
+/// call's in-memory mutation and its disk write happen back-to-back with no
+/// Tokio-scheduling gap between them, so two concurrent calls for the same
+/// session id can't have their disk writes land in a different order than
+/// their in-memory mutations did.
 async fn set_session_status_inner(
     state: &Arc<AppState>,
     id: &str,
     expected_generation: Option<crate::runtime::session_runtime::RuntimeGeneration>,
     status: &str,
 ) -> bool {
-    let is_terminal = matches!(status, "killed" | "ended" | "error");
-    let (handle_decision, session_resume, entered_running, entered_terminal) = {
-        let mut sessions = state.sessions.lock().unwrap();
-        if expected_generation.is_some_and(|expected| {
-            !sessions
-                .get(id)
-                .is_some_and(|handle| handle.runtime.run_generation() == expected)
-        }) {
-            return false;
-        }
-        if let Some(handle) = sessions.get_mut(id) {
-            if !is_terminal
-                && matches!(handle.info.lifecycle_phase.as_str(), "ending" | "ended")
-            {
-                return false;
-            }
-            let entered_running =
-                !is_terminal && status == "running" && handle.info.status != "running";
-            if is_terminal && matches!(handle.info.lifecycle_phase.as_str(), "ending" | "ended") {
-                return false;
-            }
-            if is_terminal {
-                handle.info.status = "running".to_string();
-                handle.info.lifecycle_phase = "ending".to_string();
-                handle.info.lifecycle = "stopping".to_string();
-                handle.info.attention = None;
-                handle.info.connectivity = Some(connectivity_for_status("running").to_string());
-                handle.info.terminal_outcome = None;
-            } else {
-                handle.info.status = status.to_string();
-                handle.info.lifecycle_phase = if status == "creating" {
-                    "creating".to_string()
-                } else {
-                    "active".to_string()
-                };
-                handle.info.lifecycle = if status == "creating" {
-                    "creating"
-                } else {
-                    "alive"
-                }
-                .to_string();
-                handle.info.connectivity = Some(connectivity_for_status(status).to_string());
-                handle.info.terminal_outcome = terminal_outcome_for_status(status);
-            }
-            handle.info.last_activity_at = Some(iso_now());
-            if is_terminal {
-                handle.info.observed_status = None;
-            }
-            (
-                Some(true),
-                (handle.info.resume.clone(), handle.info.resumed_from.clone()),
-                entered_running,
-                is_terminal,
-            )
-        } else {
-            (None, (None, None), false, false)
-        }
-    };
-    if entered_terminal {
-        state.peon.last_output.write().unwrap().remove(id);
-    } else if entered_running && state.peon.config.enabled {
-        state
-            .peon
-            .last_output
-            .write()
-            .unwrap()
-            .entry(id.to_string())
-            .or_insert_with(tokio::time::Instant::now);
-    }
-
     let task_state = state.clone();
     let task_id = id.to_string();
     let log_id = id.to_string();
@@ -860,7 +797,70 @@ async fn set_session_status_inner(
     tokio::task::spawn_blocking(move || {
         let state = task_state;
         let id = task_id;
+        let is_terminal = matches!(status.as_str(), "killed" | "ended" | "error");
+        let (handle_decision, session_resume, entered_running, entered_terminal) = {
+            let mut sessions = state.sessions.lock().unwrap();
+            if expected_generation.is_some_and(|expected| {
+                !sessions
+                    .get(&id)
+                    .is_some_and(|handle| handle.runtime.run_generation() == expected)
+            }) {
+                return false;
+            }
+            if let Some(handle) = sessions.get_mut(&id) {
+                if !is_terminal
+                    && matches!(handle.info.lifecycle_phase.as_str(), "ending" | "ended")
+                {
+                    return false;
+                }
+                let entered_running = !is_terminal
+                    && status == "running"
+                    && handle.info.status != "running";
+                if is_terminal
+                    && matches!(handle.info.lifecycle_phase.as_str(), "ending" | "ended")
+                {
+                    return false;
+                }
+                if is_terminal {
+                    handle.info.status = "running".to_string();
+                    handle.info.lifecycle_phase = "ending".to_string();
+                    handle.info.lifecycle = "stopping".to_string();
+                    handle.info.attention = None;
+                    handle.info.connectivity =
+                        Some(connectivity_for_status("running").to_string());
+                    handle.info.terminal_outcome = None;
+                } else {
+                    handle.info.status = status.clone();
+                    handle.info.lifecycle_phase = if status == "creating" {
+                        "creating".to_string()
+                    } else {
+                        "active".to_string()
+                    };
+                    handle.info.lifecycle = if status == "creating" {
+                        "creating"
+                    } else {
+                        "alive"
+                    }
+                    .to_string();
+                    handle.info.connectivity = Some(connectivity_for_status(&status).to_string());
+                    handle.info.terminal_outcome = terminal_outcome_for_status(&status);
+                }
+                handle.info.last_activity_at = Some(iso_now());
+                if is_terminal {
+                    handle.info.observed_status = None;
+                }
+                (
+                    Some(true),
+                    (handle.info.resume.clone(), handle.info.resumed_from.clone()),
+                    entered_running,
+                    is_terminal,
+                )
+            } else {
+                (None, (None, None), false, false)
+            }
+        };
         if entered_terminal {
+            state.peon.last_output.write().unwrap().remove(&id);
             // Authoritative final size for dead-session replay. Goes through the
             // same lock-serialized helper live-resize persistence uses
             // (`session_runtime::persist_terminal_size`) so a live-resize write
@@ -869,6 +869,14 @@ async fn set_session_status_inner(
             // Must run before `ws_guard` below acquires `state.workspace`, since
             // this also locks it internally and the lock isn't reentrant.
             crate::runtime::session_runtime::persist_terminal_size(&state, &id, true);
+        } else if entered_running && state.peon.config.enabled {
+            state
+                .peon
+                .last_output
+                .write()
+                .unwrap()
+                .entry(id.clone())
+                .or_insert_with(tokio::time::Instant::now);
         }
         let now = iso_now();
         let mut applied = handle_decision.unwrap_or(false);
@@ -943,14 +951,22 @@ async fn set_session_status_inner(
         applied
     })
     .await
-    .inspect_err(|error| {
+    .unwrap_or_else(|error| {
+        // A poisoned lock (from an unrelated panic elsewhere) is the only realistic
+        // cause of a panic here — this crate treats poisoned locks as fatal
+        // everywhere via `.lock().unwrap()`. Log with session context (more durable
+        // than the bare panic hook in a daemon) and resume the unwind rather than
+        // quietly returning `false`: a caller that sees `false` moves on assuming
+        // the transition never happened, but the in-memory sessions-lock mutation
+        // above may already have applied it, which would leave the session
+        // permanently stuck in "ending" with finalization never scheduled.
         tracing::error!(
             error = %error,
             session_id = %log_id,
             "set_session_status: blocking task panicked"
         );
+        std::panic::resume_unwind(error.into_panic())
     })
-    .unwrap_or(false)
 }
 
 fn final_snapshot_from_inference(
