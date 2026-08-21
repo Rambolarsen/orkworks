@@ -429,8 +429,19 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                     };
 
                 if let Some((generation, _min_revision, first_revision, last_revision, runtime_instance_id)) =
-                        output_boundary.as_ref()
+                    output_boundary.as_ref()
                     {
+                        let workspace_owns_session = ws_guard.as_ref().is_some_and(|ws| {
+                            ws.metadata.read_session(&id).is_some()
+                        });
+                        if !workspace_owns_session {
+                            // A detached runtime can outlive a workspace
+                            // switch. Never write its observations into the
+                            // newly active workspace, and do not retain the
+                            // old capture for a workspace that no longer owns
+                            // the session.
+                            output_range_completed = true;
+                        } else {
                         let mut range_completed = true;
                         for (candidate_index, candidate) in
                             inf.workflow_observations.iter().enumerate()
@@ -476,6 +487,7 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                             }
                         }
                         output_range_completed = range_completed;
+                        }
                     }
                 }
 

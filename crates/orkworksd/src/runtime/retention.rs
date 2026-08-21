@@ -99,6 +99,10 @@ pub(crate) async fn retention_cleanup_once(
                             .map_err(|error| error.to_string())
                     }) {
                         tracing::error!(session_id = %id, %error, "retention: failed to delete expired session");
+                        if !ws.metadata.session_file_exists(id) {
+                            sessions.remove(id);
+                            deleted_expired.push(id.clone());
+                        }
                         continue;
                     }
                     sessions.remove(id);
@@ -145,6 +149,10 @@ pub(crate) async fn retention_cleanup_once(
                         .map_err(|error| error.to_string())
                 }) {
                     tracing::error!(session_id = %s.id, %error, "retention: failed to delete session");
+                    if !ws.metadata.session_file_exists(&s.id) {
+                        sessions.remove(&s.id);
+                        all_deleted.push(s.id.clone());
+                    }
                     continue;
                 }
                 sessions.remove(&s.id);

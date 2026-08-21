@@ -3,7 +3,7 @@ pub(crate) mod evaluator;
 
 use crate::workflow_observations::{Impact, ObservationKind, ObservationSource};
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -141,12 +141,7 @@ pub(crate) fn evaluate_workflow_improvements(
         let high_impact_single = qualifying.len() == 1
             && qualifying[0].reported_impact == Impact::High
             && qualifying[0].confidence >= 0.8;
-        let session_count = qualifying
-            .iter()
-            .map(|observation| observation.session_id.as_str())
-            .collect::<HashSet<_>>()
-            .len();
-        if (qualifying.len() < 2 || session_count < 2) && !high_impact_single {
+        if qualifying.len() < 2 && !high_impact_single {
             continue;
         }
 
@@ -161,21 +156,12 @@ pub(crate) fn evaluate_workflow_improvements(
             .filter(|recommendation| recommendation.dedupe_key == dedupe_key)
             .max_by(|left, right| left.updated_at.cmp(&right.updated_at));
 
-        let retained_observation_ids = observations
-            .iter()
-            .map(|observation| observation.id.as_str())
-            .collect::<HashSet<_>>();
         let mut evidence: Vec<WorkflowObservationEvidence> = prior
             .filter(|recommendation| {
                 recommendation.status == RecommendationStatus::Proposed
             })
             .map(|recommendation| {
-                recommendation
-                    .evidence
-                    .iter()
-                    .filter(|item| retained_observation_ids.contains(item.observation_id.as_str()))
-                    .cloned()
-                    .collect()
+                recommendation.evidence.clone()
             })
             .unwrap_or_default();
         for observation in qualifying {
@@ -260,9 +246,12 @@ pub(crate) fn evaluate_workflow_improvements(
             impact,
             source_mix(&evidence)
         );
-        let created_at = prior
-            .map(|recommendation| recommendation.created_at.clone())
-            .unwrap_or_else(|| now.to_string());
+        let created_at = match prior {
+            Some(recommendation) if recommendation.status == RecommendationStatus::Proposed => {
+                recommendation.created_at.clone()
+            }
+            _ => now.to_string(),
+        };
         proposals.push(Recommendation {
             id,
             workspace_id: workspace_id.to_string(),
@@ -450,7 +439,7 @@ mod tests {
     }
 
     #[test]
-    fn does_not_promote_repeated_evidence_from_only_one_session() {
+    fn promotes_repeated_evidence_from_one_session() {
         let proposals = evaluate_workflow_improvements(
             &[
                 observation("one", 1, "session-a", 0.8, Impact::Medium),
@@ -461,7 +450,7 @@ mod tests {
             "2026-08-21T12:00:00Z",
         );
 
-        assert!(proposals.is_empty());
+        assert_eq!(proposals.len(), 1);
     }
 
     #[test]

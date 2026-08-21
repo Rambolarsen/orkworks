@@ -1275,6 +1275,7 @@ pub(crate) async fn finalize_session_ending(
             .and_then(|result| result.inference.as_ref()),
         &now,
     );
+    let mut final_observation_accepted = false;
     let final_snapshot = {
         let ws_guard = state.workspace.lock().unwrap();
         let meta = ws_guard
@@ -1288,6 +1289,28 @@ pub(crate) async fn finalize_session_ending(
         if let (Some(ref ws), Some(ref result)) = (ws_guard.as_ref(), scan_result.as_ref()) {
             if let Some(ref observation) = result.observation {
                 ws.metadata.persist_provider_context(&id, observation);
+            }
+            if let (Some(ref inference), Some(_session)) = (result.inference.as_ref(), meta.as_ref()) {
+                for (index, candidate) in inference.workflow_observations.iter().enumerate() {
+                    let key = format!("final-scan:{generation}:{index}");
+                    if matches!(
+                        ws.workflow_observations.record_observation(
+                            &id,
+                            crate::workflow_observations::ObservationOrigin::Peon,
+                            &key,
+                            crate::workflow_observations::ObservationCandidate {
+                                kind: candidate.kind,
+                                description: candidate.description.clone(),
+                                evidence: candidate.evidence.clone(),
+                                reported_impact: candidate.reported_impact,
+                                confidence: Some(candidate.confidence),
+                            },
+                        ),
+                        Ok(crate::workflow_observations::RecordOutcome::Accepted(_))
+                    ) {
+                        final_observation_accepted = true;
+                    }
+                }
             }
             if result.inference.is_none() {
                 tracing::warn!(
@@ -1305,6 +1328,10 @@ pub(crate) async fn finalize_session_ending(
             None => metadata::canonical_null_snapshot("recovery", Some(now.clone())),
         })
     };
+
+    if final_observation_accepted {
+        crate::taskmaster::evaluator::schedule_evaluation(state.clone());
+    }
 
     complete_session_ending(
         &state,

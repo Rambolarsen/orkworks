@@ -55,12 +55,10 @@ This section documents the authoritative target contract from
 [ADR 0042](../adr/0042-workflow-observations-replace-summary-checkpoints.md)
 and `specs/orkworks-mvp.md`/`specs/taskmaster.md`; implementation is tracked
 by [issue #313](https://github.com/Rambolarsen/orkworks/issues/313) and lands
-across Tasks 2–4 of the workflow-observation-feedback-loop plan. As of Task 4,
-the storage module (`workflow_observations.rs`) and the authenticated
-explicit-report route below are implemented; the current-summary snapshot on
-`SessionMetadata`, the Peon-inference adapter, and both Taskmaster routes
-remain design-only, each marked "(design, not yet implemented)" below. Update
-this section (and remove those notes) as the remaining tasks land.
+across Tasks 2–4 of the workflow-observation-feedback-loop plan. The
+current-summary snapshot on `SessionMetadata` remains design-only below, while
+workflow-observation persistence, Peon recording, and passive Taskmaster
+recommendations are implemented.
 
 (design, not yet implemented) `SessionMetadata` gains a first-class
 current-summary snapshot: `summary`, `summarySource` (`agent` | `peon`),
@@ -76,8 +74,8 @@ records (`id`, `sequence`, `sessionId`, `observedAt`, `kind`, `description`,
 `evidence`, `reportedImpact`, `source`, `confidence`, `fingerprint`,
 `idempotencyKeyHash`) behind a small interface — `record_observation`,
 `workspace_observations`, `delete_session_observations`. The authenticated
-explicit-report HTTP adapter (`http/workflow_observation_handlers.rs`) is
-live; a Peon inference adapter is (design, not yet implemented). Records
+explicit-report HTTP adapter (`http/workflow_observation_handlers.rs`) and Peon
+inference adapter are live. Records
 persist as bounded, session-segmented NDJSON under
 `~/.orkworks/workspaces/<hash>/workflow-observations/<session-id>.ndjson`
 (newest 1,000 records/2 MiB per session), ordered by a durable
@@ -90,10 +88,10 @@ The workflow-observation and Taskmaster routes this design introduces or repurpo
 
 - `POST /sessions/:id/workflow-observations` — implemented. Harness-neutral explicit report, authenticated with a per-session, non-persisted `ORKWORKS_REPORT_TOKEN` bearer capability (alongside the existing `ORKWORKS_SESSION_ID`/`ORKWORKS_PORT` env vars, generated from OS randomness at session start/resume and never persisted, logged, or serialized) and an `Idempotency-Key` header; body limited to `kind`/`description`/`evidence`/`reportedImpact`, 8 KiB total, rate-limited to 30/session/60s ahead of the store's own 60/session/minute acceptance cap.
 - `GET /taskmaster/recommendations` and `GET /taskmaster/recommendations/:id` — implemented; list responses include persisted observation diagnostics.
-- `POST /taskmaster/recommendations/:id/dismiss` and `POST /taskmaster/recommendations/:id/refresh` — implemented. `improve_workflow` exposes no accept/execute action, since `requiresApproval: false` here means "nothing to approve," not "auto-applied."
+- `POST /taskmaster/recommendations/:id/dismiss` — implemented. `improve_workflow` exposes no refresh, accept, or execute action, since `requiresApproval: false` here means "nothing to approve," not "auto-applied."
 
 Taskmaster correlates accepted observations five seconds after the latest
-accepted one: a fingerprint cluster of at least two distinct observations at
+accepted one: a fingerprint cluster of at least two observations at
 confidence ≥ 0.6, or one `reportedImpact: high` observation at confidence ≥
 0.8, produces one `improve_workflow` recommendation embedding immutable
 snapshots of its cited observations, deduped as

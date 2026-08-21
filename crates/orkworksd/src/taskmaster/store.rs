@@ -71,7 +71,9 @@ impl RecommendationStore {
         use std::io::Write;
         file.write_all(&json).map_err(StoreError::Io)?;
         file.sync_all().map_err(StoreError::Io)?;
-        fs::rename(&temp, &path).map_err(StoreError::Io)?;
+        let target_existed = path.exists();
+        crate::harness::integration::atomic_replace(&temp, &path, target_existed)
+            .map_err(StoreError::Io)?;
         if let Ok(directory) = fs::File::open(&self.dir) {
             let _ = directory.sync_all();
         }

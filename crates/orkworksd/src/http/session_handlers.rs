@@ -367,6 +367,9 @@ pub(crate) async fn set_workspace(
         }
     }
 
+    drop(ws);
+    crate::taskmaster::evaluator::schedule_evaluation(state.clone());
+
     let git_ctx = git::detect(&ws_path);
 
     Json(WorkspaceResponse {
@@ -2117,6 +2120,13 @@ pub(crate) async fn forget_session(
             .map_err(|error| error.to_string())
     }) {
         tracing::error!(session_id = %id, %error, "failed to delete session evidence");
+        if !ws.metadata.session_file_exists(&id) {
+            sessions.remove(&id);
+            drop(ws_guard);
+            drop(sessions);
+            crate::runtime::session_runtime::clear_ended_session_tracking(&state, &id);
+            crate::runtime::session_runtime::clear_forgotten_session_tracking(&state, &id);
+        }
         return axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
     drop(ws_guard);

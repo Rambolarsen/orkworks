@@ -74,6 +74,8 @@ enum PersistError {
     /// No workspace is currently active; this session capability outlived
     /// its workspace context.
     NoWorkspace,
+    /// The live process session belongs to a different workspace.
+    SessionNotInWorkspace,
     Record(RecordError),
 }
 
@@ -138,6 +140,9 @@ pub(crate) async fn report_workflow_observation(
     let join_result = tokio::task::spawn_blocking(move || {
         let workspace = blocking_state.workspace.lock().unwrap();
         let ws = workspace.as_ref().ok_or(PersistError::NoWorkspace)?;
+        if ws.metadata.read_session(&blocking_id).is_none() {
+            return Err(PersistError::SessionNotInWorkspace);
+        }
         ws.workflow_observations
             .record_observation(
                 &blocking_id,
@@ -178,6 +183,7 @@ pub(crate) async fn report_workflow_observation(
         })
         .into_response(),
         Err(PersistError::NoWorkspace) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        Err(PersistError::SessionNotInWorkspace) => StatusCode::UNAUTHORIZED.into_response(),
         Err(PersistError::Record(RecordError::IdempotencyConflict)) => {
             StatusCode::CONFLICT.into_response()
         }
@@ -234,7 +240,7 @@ mod tests {
     use crate::runtime::session_runtime::SessionRuntime;
     use crate::runtime::terminal_runtime::{set_workflow_report_token, WORKFLOW_REPORT_RATE_LIMIT};
     use crate::session_types::MemoryState;
-    use crate::test_support::{test_app_state_with_workspace, test_session_info};
+    use crate::test_support::{test_app_state_with_workspace, test_session_info, test_session_metadata};
     use axum::http::header::AUTHORIZATION;
     use axum::http::HeaderValue;
     use serde_json::json;
@@ -280,6 +286,20 @@ mod tests {
             .unwrap()
             .info
             .memory_state = MemoryState::Remembered;
+    }
+
+    fn insert_live_session_with_workspace_metadata(state: &Arc<AppState>, id: &str) {
+        insert_live_session(state, id);
+        let ws_guard = state.workspace.lock().unwrap();
+        let ws = ws_guard.as_ref().unwrap();
+        ws.metadata.write_session(&test_session_metadata(
+            id,
+            id,
+            ws.path.display().to_string(),
+            "running",
+            "before",
+            "before",
+        ));
     }
 
     fn headers_with(auth: Option<&str>, idempotency_key: Option<&str>) -> HeaderMap {
@@ -365,7 +385,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let state = test_app_state_with_workspace(dir.path());
         let id = unique_session_id();
-        insert_live_session(&state, &id);
+        insert_live_session_with_workspace_metadata(&state, &id);
         set_workflow_report_token(&id, "the-token".to_string());
 
         let response = report_workflow_observation(
@@ -405,7 +425,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let state = test_app_state_with_workspace(dir.path());
         let id = unique_session_id();
-        insert_live_session(&state, &id);
+        insert_live_session_with_workspace_metadata(&state, &id);
         set_workflow_report_token(&id, "the-token".to_string());
         *state.workspace.lock().unwrap() = None;
 
@@ -426,7 +446,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let state = test_app_state_with_workspace(dir.path());
         let id = unique_session_id();
-        insert_live_session(&state, &id);
+        insert_live_session_with_workspace_metadata(&state, &id);
         set_workflow_report_token(&id, "the-token".to_string());
 
         let response = report_workflow_observation(
@@ -460,7 +480,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let state = test_app_state_with_workspace(dir.path());
         let id = unique_session_id();
-        insert_live_session(&state, &id);
+        insert_live_session_with_workspace_metadata(&state, &id);
         set_workflow_report_token(&id, "the-token".to_string());
 
         let first = report_workflow_observation(
@@ -494,7 +514,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let state = test_app_state_with_workspace(dir.path());
         let id = unique_session_id();
-        insert_live_session(&state, &id);
+        insert_live_session_with_workspace_metadata(&state, &id);
         set_workflow_report_token(&id, "the-token".to_string());
 
         let first = report_workflow_observation(
@@ -594,7 +614,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let state = test_app_state_with_workspace(dir.path());
         let id = unique_session_id();
-        insert_live_session(&state, &id);
+        insert_live_session_with_workspace_metadata(&state, &id);
         set_workflow_report_token(&id, "the-token".to_string());
         let max_len = "a".repeat(128);
 
