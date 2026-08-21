@@ -759,20 +759,25 @@ pub(crate) fn resolve_windows_program(program: &str) -> String {
 /// racing exit paths (e.g. DELETE handler + kill-signal branch) cannot clobber
 /// the captured ending snapshot or re-open a finalized session. Returns whether
 /// the transition was applied — callers schedule finalization only on `true`.
-pub(crate) fn set_session_status(state: &Arc<AppState>, id: &str, status: &str) -> bool {
-    set_session_status_inner(state, id, None, status)
+pub(crate) async fn set_session_status(state: &Arc<AppState>, id: &str, status: &str) -> bool {
+    set_session_status_inner(state, id, None, status).await
 }
 
-pub(crate) fn set_session_status_for_generation(
+pub(crate) async fn set_session_status_for_generation(
     state: &Arc<AppState>,
     id: &str,
     generation: crate::runtime::session_runtime::RuntimeGeneration,
     status: &str,
 ) -> bool {
-    set_session_status_inner(state, id, Some(generation), status)
+    set_session_status_inner(state, id, Some(generation), status).await
 }
 
-fn set_session_status_inner(
+/// The metadata read/write/append tail below runs inside `tokio::task::spawn_blocking`,
+/// matching the pattern already used for multi-step `MetadataStore` sequences elsewhere
+/// in this crate (see `select_terminal_plan`/`report_session_plan_path` in
+/// `http/session_handlers.rs`) — it's local `std::fs` I/O and must not block the calling
+/// Tokio worker thread.
+async fn set_session_status_inner(
     state: &Arc<AppState>,
     id: &str,
     expected_generation: Option<crate::runtime::session_runtime::RuntimeGeneration>,
@@ -837,14 +842,6 @@ fn set_session_status_inner(
         }
     };
     if entered_terminal {
-        // Authoritative final size for dead-session replay. Goes through the
-        // same lock-serialized helper live-resize persistence uses
-        // (`session_runtime::persist_terminal_size`) so a live-resize write
-        // deferred onto a blocking-pool thread can never land after this one
-        // and clobber it with a stale size — see that function's doc comment.
-        // Must run before `ws_guard` below acquires `state.workspace`, since
-        // this also locks it internally and the lock isn't reentrant.
-        crate::runtime::session_runtime::persist_terminal_size(state, id, true);
         state.peon.last_output.write().unwrap().remove(id);
     } else if entered_running && state.peon.config.enabled {
         state
@@ -855,77 +852,105 @@ fn set_session_status_inner(
             .entry(id.to_string())
             .or_insert_with(tokio::time::Instant::now);
     }
-    let now = iso_now();
-    let mut applied = handle_decision.unwrap_or(false);
-    let ws_guard = state.workspace.lock().unwrap();
-    if let Some(ref ws) = *ws_guard {
-        if let Some(mut meta) = ws.metadata.read_session(id) {
-            // With no in-memory handle, the persisted lifecycle is the guard authority.
-            if handle_decision.is_none()
-                && matches!(meta.lifecycle_phase.as_str(), "ending" | "ended")
-            {
-                return false;
-            }
-            applied = true;
-            if is_terminal {
-                meta.status = "running".to_string();
-                meta.lifecycle_phase = "ending".to_string();
-                meta.lifecycle = "stopping".to_string();
-                meta.attention = None;
-                meta.connectivity = connectivity_for_status("running").to_string();
-                meta.terminal_outcome = None;
-                meta.pending_terminal_status = Some(status.to_string());
-                meta.ending_observed_status_snapshot =
-                    Some(metadata::ObservedStatusSnapshotMetadata {
-                        value: meta.observed_status.clone(),
-                        source: meta.metadata_source.clone(),
-                        confidence: Some(meta.metadata_confidence),
-                        observed_at: Some(now.clone()),
-                    });
-            } else {
-                meta.status = status.to_string();
-                meta.lifecycle_phase = if status == "creating" {
-                    "creating".to_string()
-                } else {
-                    "active".to_string()
-                };
-                meta.lifecycle = if status == "creating" {
-                    "creating"
-                } else {
-                    "alive"
+
+    let task_state = state.clone();
+    let task_id = id.to_string();
+    let log_id = id.to_string();
+    let status = status.to_string();
+    tokio::task::spawn_blocking(move || {
+        let state = task_state;
+        let id = task_id;
+        if entered_terminal {
+            // Authoritative final size for dead-session replay. Goes through the
+            // same lock-serialized helper live-resize persistence uses
+            // (`session_runtime::persist_terminal_size`) so a live-resize write
+            // deferred onto a blocking-pool thread can never land after this one
+            // and clobber it with a stale size — see that function's doc comment.
+            // Must run before `ws_guard` below acquires `state.workspace`, since
+            // this also locks it internally and the lock isn't reentrant.
+            crate::runtime::session_runtime::persist_terminal_size(&state, &id, true);
+        }
+        let now = iso_now();
+        let mut applied = handle_decision.unwrap_or(false);
+        let ws_guard = state.workspace.lock().unwrap();
+        if let Some(ref ws) = *ws_guard {
+            if let Some(mut meta) = ws.metadata.read_session(&id) {
+                // With no in-memory handle, the persisted lifecycle is the guard authority.
+                if handle_decision.is_none()
+                    && matches!(meta.lifecycle_phase.as_str(), "ending" | "ended")
+                {
+                    return false;
                 }
-                .to_string();
-                meta.connectivity = connectivity_for_status(status).to_string();
-                meta.terminal_outcome = terminal_outcome_for_status(status);
+                applied = true;
+                if is_terminal {
+                    meta.status = "running".to_string();
+                    meta.lifecycle_phase = "ending".to_string();
+                    meta.lifecycle = "stopping".to_string();
+                    meta.attention = None;
+                    meta.connectivity = connectivity_for_status("running").to_string();
+                    meta.terminal_outcome = None;
+                    meta.pending_terminal_status = Some(status.clone());
+                    meta.ending_observed_status_snapshot =
+                        Some(metadata::ObservedStatusSnapshotMetadata {
+                            value: meta.observed_status.clone(),
+                            source: meta.metadata_source.clone(),
+                            confidence: Some(meta.metadata_confidence),
+                            observed_at: Some(now.clone()),
+                        });
+                } else {
+                    meta.status = status.clone();
+                    meta.lifecycle_phase = if status == "creating" {
+                        "creating".to_string()
+                    } else {
+                        "active".to_string()
+                    };
+                    meta.lifecycle = if status == "creating" {
+                        "creating"
+                    } else {
+                        "alive"
+                    }
+                    .to_string();
+                    meta.connectivity = connectivity_for_status(&status).to_string();
+                    meta.terminal_outcome = terminal_outcome_for_status(&status);
+                }
+                meta.last_activity = now.clone();
+                if is_terminal {
+                    meta.observed_status = None;
+                }
+                if session_resume.0.is_some() {
+                    meta.resume = session_resume.0;
+                }
+                if session_resume.1.is_some() {
+                    meta.resumed_from = session_resume.1;
+                }
+                ws.metadata.write_session(&meta);
             }
-            meta.last_activity = now.clone();
-            if is_terminal {
-                meta.observed_status = None;
+            if applied {
+                ws.metadata.append_event(
+                    &id,
+                    &metadata::Event {
+                        event_type: "session.status".into(),
+                        timestamp: now,
+                        status,
+                        observed_status: None,
+                        confidence: None,
+                        summary: None,
+                        source: None,
+                    },
+                );
             }
-            if session_resume.0.is_some() {
-                meta.resume = session_resume.0;
-            }
-            if session_resume.1.is_some() {
-                meta.resumed_from = session_resume.1;
-            }
-            ws.metadata.write_session(&meta);
         }
-        if applied {
-            ws.metadata.append_event(
-                id,
-                &metadata::Event {
-                    event_type: "session.status".into(),
-                    timestamp: now,
-                    status: status.to_string(),
-                    observed_status: None,
-                    confidence: None,
-                    summary: None,
-                    source: None,
-                },
-            );
-        }
-    }
-    applied
+        applied
+    })
+    .await
+    .inspect_err(|error| {
+        tracing::error!(
+            error = %error,
+            session_id = %log_id,
+            "set_session_status: blocking task panicked"
+        );
+    })
+    .unwrap_or(false)
 }
 
 fn final_snapshot_from_inference(
@@ -2682,8 +2707,8 @@ mod tests {
         assert_eq!(second_origin, first_origin);
     }
 
-    #[test]
-    fn set_session_status_updates_registry() {
+    #[tokio::test]
+    async fn set_session_status_updates_registry() {
         let state = Arc::new(crate::AppState {
             sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
             session_pids: std::sync::Mutex::new(std::collections::HashMap::new()),
@@ -2733,7 +2758,7 @@ mod tests {
             },
         );
 
-        set_session_status(&state, "test-2", "running");
+        set_session_status(&state, "test-2", "running").await;
         assert_eq!(
             state
                 .sessions
@@ -2746,7 +2771,7 @@ mod tests {
             "running"
         );
 
-        set_session_status(&state, "test-2", "ended");
+        set_session_status(&state, "test-2", "ended").await;
         let ended = state
             .sessions
             .lock()
@@ -2759,8 +2784,9 @@ mod tests {
         assert_eq!(ended.lifecycle_phase, "ending");
     }
 
-    #[test]
-    fn stale_generation_status_updates_leave_replacement_live_and_persisted_state_unchanged() {
+    #[tokio::test]
+    async fn stale_generation_status_updates_leave_replacement_live_and_persisted_state_unchanged()
+    {
         let session_id = "stale-status-generation";
         let (state, _dir) = prompted_session_state(session_id);
         let (old_generation, replacement_generation) = {
@@ -2796,18 +2822,14 @@ mod tests {
             ws.metadata.write_terminal_size(session_id, 155, 55);
         }
 
-        assert!(!set_session_status_for_generation(
-            &state,
-            session_id,
-            old_generation,
-            "running",
-        ));
-        assert!(!set_session_status_for_generation(
-            &state,
-            session_id,
-            old_generation,
-            "ended",
-        ));
+        assert!(
+            !set_session_status_for_generation(&state, session_id, old_generation, "running",)
+                .await
+        );
+        assert!(
+            !set_session_status_for_generation(&state, session_id, old_generation, "ended",)
+                .await
+        );
 
         let sessions = state.sessions.lock().unwrap();
         let replacement = &sessions[session_id];
@@ -2833,8 +2855,8 @@ mod tests {
         assert_eq!(ws.metadata.read_terminal_size(session_id), Some((155, 55)));
     }
 
-    #[test]
-    fn set_session_status_persists_terminal_size_on_terminal_transition() {
+    #[tokio::test]
+    async fn set_session_status_persists_terminal_size_on_terminal_transition() {
         let dir = tempfile::tempdir().unwrap();
         let state = test_app_state_with_workspace(dir.path());
         let id = "sized-session".to_string();
@@ -2874,15 +2896,15 @@ mod tests {
             },
         );
 
-        set_session_status(&state, &id, "ended");
+        set_session_status(&state, &id, "ended").await;
 
         let ws_guard = state.workspace.lock().unwrap();
         let ws = ws_guard.as_ref().unwrap();
         assert_eq!(ws.metadata.read_terminal_size(&id), Some((120, 40)));
     }
 
-    #[test]
-    fn set_session_status_seeds_peon_last_output_when_session_enters_running() {
+    #[tokio::test]
+    async fn set_session_status_seeds_peon_last_output_when_session_enters_running() {
         let state = Arc::new(crate::AppState {
             sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
             session_pids: std::sync::Mutex::new(std::collections::HashMap::new()),
@@ -2939,7 +2961,7 @@ mod tests {
 
         assert!(state.peon.last_output.read().unwrap().get(&id).is_none());
 
-        set_session_status(&state, &id, "running");
+        set_session_status(&state, &id, "running").await;
 
         assert!(
             state.peon.last_output.read().unwrap().get(&id).is_some(),
@@ -2947,8 +2969,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn set_session_status_running_does_not_reset_existing_peon_last_output() {
+    #[tokio::test]
+    async fn set_session_status_running_does_not_reset_existing_peon_last_output() {
         let state = Arc::new(crate::AppState {
             sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
             session_pids: std::sync::Mutex::new(std::collections::HashMap::new()),
@@ -3011,14 +3033,14 @@ mod tests {
             .unwrap()
             .insert(id.clone(), seeded_at);
 
-        set_session_status(&state, &id, "running");
+        set_session_status(&state, &id, "running").await;
 
         let actual = *state.peon.last_output.read().unwrap().get(&id).unwrap();
         assert_eq!(actual, seeded_at);
     }
 
-    #[test]
-    fn terminal_status_exit_paths_should_transition_through_ending_lifecycle() {
+    #[tokio::test]
+    async fn terminal_status_exit_paths_should_transition_through_ending_lifecycle() {
         let state = Arc::new(crate::AppState {
             sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
             session_pids: std::sync::Mutex::new(std::collections::HashMap::new()),
@@ -3070,7 +3092,7 @@ mod tests {
             },
         );
 
-        set_session_status(&state, "test-ending", "ended");
+        set_session_status(&state, "test-ending", "ended").await;
         let session = state
             .sessions
             .lock()
@@ -3083,8 +3105,8 @@ mod tests {
         assert_eq!(session.lifecycle_phase, "ending");
     }
 
-    #[test]
-    fn repeated_terminal_status_is_a_noop_and_preserves_the_ending_snapshot() {
+    #[tokio::test]
+    async fn repeated_terminal_status_is_a_noop_and_preserves_the_ending_snapshot() {
         let dir = tempfile::tempdir().unwrap();
         let orkworks = dir.path().join(".orkworks");
         std::fs::create_dir_all(orkworks.join("sessions")).unwrap();
@@ -3209,9 +3231,9 @@ mod tests {
         }
 
         // First exit path wins and captures the observed status.
-        assert!(set_session_status(&state, &session_id, "killed"));
+        assert!(set_session_status(&state, &session_id, "killed").await);
         // A racing exit path (e.g. the kill-signal branch) must not re-snapshot.
-        assert!(!set_session_status(&state, &session_id, "killed"));
+        assert!(!set_session_status(&state, &session_id, "killed").await);
 
         let ws_guard = state.workspace.lock().unwrap();
         let ws = ws_guard.as_ref().unwrap();

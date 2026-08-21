@@ -748,7 +748,9 @@ pub(crate) async fn resume_session(
                 &startup_id,
                 run_generation,
                 "error",
-            ) {
+            )
+            .await
+            {
                 crate::runtime::terminal_runtime::schedule_session_ending_finalization(
                     startup_state.clone(),
                     startup_id.clone(),
@@ -1509,7 +1511,9 @@ pub(crate) async fn create_session(
                     &startup_id,
                     run_generation,
                     "error",
-                ) {
+                )
+                .await
+                {
                     crate::runtime::terminal_runtime::schedule_session_ending_finalization(
                         startup_state.clone(),
                         startup_id.clone(),
@@ -2022,7 +2026,7 @@ pub(crate) async fn delete_session(
     };
     match handle {
         Some(kill_tx) => {
-            crate::runtime::terminal_runtime::set_session_status(&state, &id, "killed");
+            crate::runtime::terminal_runtime::set_session_status(&state, &id, "killed").await;
             let _ = kill_tx.send(true);
         }
         None => return axum::http::StatusCode::NOT_FOUND,
@@ -2614,7 +2618,7 @@ mod tests {
         .into_response();
 
         assert_eq!(response.status(), axum::http::StatusCode::OK);
-        set_session_status(&state, &session_id, "ended");
+        set_session_status(&state, &session_id, "ended").await;
 
         let ws = state.workspace.lock().unwrap();
         let updated = ws
