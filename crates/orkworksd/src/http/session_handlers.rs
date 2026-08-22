@@ -14,8 +14,7 @@ use crate::workspace_runtime::orkworks_global_dir;
 use crate::{harness, watcher, SessionHandle, WorkspaceState};
 #[cfg(test)]
 use crate::session_application::{
-    resolve_session_launch, resume_handle_conflicts, try_install_claimed_resume_handle,
-    CreateSessionCommand,
+    resolve_session_launch, CreateSessionCommand,
 };
 use crate::session_application::SessionApplication;
 use axum::{
@@ -25,6 +24,7 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
+use portable_pty::PtySize;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;

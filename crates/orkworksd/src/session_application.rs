@@ -81,7 +81,27 @@ impl SessionApplication {
         let watcher = watcher::MetadataWatcher::start(&global_dir.join("sessions"));
 
         let mut workspace = self.state.workspace.lock().unwrap();
-        *workspace = Some(WorkspaceState { path: path.clone(), metadata: store, watcher });
+        let workflow_observations = crate::workflow_observations::WorkflowObservationStore::open(
+            global_dir.clone(),
+        )
+        .map_err(|error| {
+            tracing::error!(path = %global_dir.display(), %error, "failed to open workflow observation store");
+            SessionError::Internal("failed to open workflow observation store")
+        })?;
+        let recommendation_store = crate::taskmaster::store::RecommendationStore::open(
+            global_dir.clone(),
+        )
+        .map_err(|error| {
+            tracing::error!(path = %global_dir.display(), %error, "failed to open recommendation store");
+            SessionError::Internal("failed to open recommendation store")
+        })?;
+        *workspace = Some(WorkspaceState {
+            path: path.clone(),
+            metadata: store,
+            workflow_observations,
+            recommendation_store,
+            watcher,
+        });
         self.state.bump_harness_probe_generation();
 
         if let Some(workspace) = workspace.as_ref() {
