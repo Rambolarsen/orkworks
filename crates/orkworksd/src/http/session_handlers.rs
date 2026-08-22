@@ -375,8 +375,9 @@ pub(crate) async fn delete_session(
     Path(id): Path<String>,
 ) -> axum::response::Response {
     SessionApplication::new(state)
-        .delete_session(&id, false)
+        .delete_session(&id)
         .await
+        .map(|_| axum::http::StatusCode::OK.into_response())
         .unwrap_or_else(application_error_response)
 }
 
@@ -385,8 +386,9 @@ pub(crate) async fn forget_session(
     Path(id): Path<String>,
 ) -> axum::response::Response {
     SessionApplication::new(state)
-        .delete_session(&id, true)
+        .forget_session(&id)
         .await
+        .map(|_| axum::http::StatusCode::OK.into_response())
         .unwrap_or_else(application_error_response)
 }
 
@@ -398,6 +400,8 @@ fn application_error_response(error: crate::session_application::SessionError) -
             axum::http::StatusCode::BAD_REQUEST.into_response(),
         crate::session_application::SessionError::Conflict =>
             axum::http::StatusCode::CONFLICT.into_response(),
+        crate::session_application::SessionError::ConflictWithMessage(message) =>
+            (axum::http::StatusCode::CONFLICT, message).into_response(),
         crate::session_application::SessionError::NotFound =>
             axum::http::StatusCode::NOT_FOUND.into_response(),
         crate::session_application::SessionError::Internal(_) =>

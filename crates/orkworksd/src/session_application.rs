@@ -5,7 +5,6 @@ use crate::session_view::{connectivity_for_status, terminal_outcome_for_status};
 use crate::plan_handoff::resolve_printed_plan_path;
 use crate::runtime::observed_status::apply_attention_signal;
 use crate::workspace_runtime::parse_hook_observed_at;
-use axum::response::{IntoResponse, Response};
 use portable_pty::PtySize;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -16,6 +15,7 @@ pub(crate) enum SessionError {
     BadRequest(&'static str),
     EmptyBadRequest,
     Conflict,
+    ConflictWithMessage(&'static str),
     NotFound,
     Internal(&'static str),
 }
@@ -32,8 +32,6 @@ pub(crate) struct WorkspaceSnapshot {
 pub(crate) struct SessionApplication {
     state: Arc<AppState>,
 }
-
-pub(crate) type SessionSnapshot = Response;
 
 pub(crate) struct CreateSessionCommand {
     pub(crate) harness_id: Option<String>,
@@ -260,27 +258,63 @@ impl SessionApplication {
         Ok(())
     }
 
-    pub(crate) async fn delete_session(
-        &self,
-        id: &str,
-        forget: bool,
-    ) -> Result<SessionSnapshot, SessionError> {
-        let response = if forget {
-            crate::http::session_handlers::forget_session_legacy(
-                axum::extract::State(self.state.clone()),
-                axum::extract::Path(id.to_string()),
-            )
-            .await
-            .into_response()
-        } else {
-            crate::http::session_handlers::delete_session_legacy(
-                axum::extract::State(self.state.clone()),
-                axum::extract::Path(id.to_string()),
-            )
-            .await
-            .into_response()
-        };
-        Ok(response)
+    pub(crate) async fn delete_session(&self, id: &str) -> Result<(), SessionError> {
+        let kill_tx = self
+            .state
+            .sessions
+            .lock()
+            .unwrap()
+            .get(id)
+            .map(|handle| handle.kill_tx.clone())
+            .ok_or(SessionError::NotFound)?;
+        let _ = kill_tx.send(true);
+        crate::runtime::terminal_runtime::set_session_status(&self.state, id, "killed").await;
+        crate::runtime::session_runtime::clear_ended_session_tracking(&self.state, id);
+        Ok(())
+    }
+
+    pub(crate) async fn forget_session(&self, id: &str) -> Result<(), SessionError> {
+        {
+            let sessions = self.state.sessions.lock().unwrap();
+            if let Some(handle) = sessions.get(id) {
+                if matches!(handle.info.status.as_str(), "live" | "creating" | "running") {
+                    return Err(SessionError::ConflictWithMessage(
+                        "Cannot forget a live session. Kill it first.",
+                    ));
+                }
+            }
+        }
+
+        let workspace_guard = self.state.workspace.lock().unwrap();
+        let workspace = workspace_guard.as_ref().ok_or(SessionError::Conflict)?;
+        if !workspace.metadata.session_file_exists(id) {
+            return Err(SessionError::NotFound);
+        }
+        if let Err(error) = crate::runtime::retention::delete_session_evidence(
+            workspace,
+            id,
+            |session_id| {
+                workspace
+                    .recommendation_store
+                    .delete_referencing_session(session_id)
+                    .map_err(|error| error.to_string())
+            },
+        ) {
+            tracing::error!(session_id = %id, %error, "failed to delete session evidence");
+            if !workspace.metadata.session_file_exists(id) {
+                drop(workspace_guard);
+                self.state.sessions.lock().unwrap().remove(id);
+                crate::runtime::session_runtime::clear_ended_session_tracking(&self.state, id);
+                crate::runtime::session_runtime::clear_forgotten_session_tracking(&self.state, id);
+            }
+            return Err(SessionError::Internal("application operation failed"));
+        }
+        drop(workspace_guard);
+
+        self.state.sessions.lock().unwrap().remove(id);
+        crate::runtime::session_runtime::clear_ended_session_tracking(&self.state, id);
+        crate::runtime::session_runtime::clear_forgotten_session_tracking(&self.state, id);
+        Ok(())
     }
 }
 
@@ -1473,5 +1507,89 @@ mod tests {
         assert_eq!(stored.plan_path.as_ref().unwrap().source, metadata::PlanSource::UserSelected);
         assert!(state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_events(id)
             .iter().any(|event| event.event_type == "session.plan_selected_by_user"));
+    }
+
+    #[tokio::test]
+    async fn delete_session_application_workflow_kills_a_live_session() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "delete-application";
+        let mut meta = crate::test_support::test_session_metadata(
+            id, "Delete", root.path().display().to_string(), "running", "before", "before",
+        );
+        meta.lifecycle = "alive".into();
+        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&meta);
+        state.sessions.lock().unwrap().insert(id.into(), attention_test_handle(id, root.path()));
+
+        SessionApplication::new(state.clone()).delete_session(id).await.unwrap();
+
+        assert_eq!(state.sessions.lock().unwrap()[id].info.status, "running");
+        assert_eq!(state.sessions.lock().unwrap()[id].info.lifecycle_phase, "ending");
+        let stored = state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(id).unwrap();
+        assert_eq!(stored.status, "running");
+        assert_eq!(stored.pending_terminal_status.as_deref(), Some("killed"));
+    }
+
+    #[tokio::test]
+    async fn forget_session_application_rejects_a_live_session() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "forget-live-application";
+        state.sessions.lock().unwrap().insert(id.into(), attention_test_handle(id, root.path()));
+
+        let result = SessionApplication::new(state).forget_session(id).await;
+
+        assert_eq!(result, Err(SessionError::ConflictWithMessage("Cannot forget a live session. Kill it first.")));
+    }
+
+    #[tokio::test]
+    async fn forget_session_application_deletes_metadata_events_and_last_active() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "forget-application";
+        {
+            let ws = state.workspace.lock().unwrap();
+            let store = &ws.as_ref().unwrap().metadata;
+            store.write_session(&crate::test_support::test_session_metadata(
+                id, "Forget", root.path().display().to_string(), "ended", "before", "before",
+            ));
+            store.append_event(id, &metadata::Event {
+                event_type: "test.event".into(), timestamp: "now".into(), status: "ended".into(),
+                observed_status: None, confidence: None, summary: None, source: None,
+            });
+            store.write_workspace_memory(&metadata::WorkspaceMemory {
+                last_active_session_id: Some(id.into()), last_active_at: Some("now".into()), active_harness_ids: vec![],
+            });
+        }
+
+        SessionApplication::new(state.clone()).forget_session(id).await.unwrap();
+
+        let ws = state.workspace.lock().unwrap();
+        let store = &ws.as_ref().unwrap().metadata;
+        assert!(!store.session_file_exists(id));
+        assert!(store.read_events(id).is_empty());
+        assert_eq!(store.read_workspace_memory().unwrap().last_active_session_id, None);
+        assert!(!state.sessions.lock().unwrap().contains_key(id));
+    }
+
+    #[tokio::test]
+    async fn forget_session_application_maps_session_deletion_failure() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "forget-failure-application";
+        {
+            let workspace = state.workspace.lock().unwrap();
+            let store = &workspace.as_ref().unwrap().metadata;
+            store.write_session(&crate::test_support::test_session_metadata(
+                id, "Forget", root.path().display().to_string(), "ended", "before", "before",
+            ));
+            let session_path = store.sessions_dir().join(format!("{id}.json"));
+            std::fs::remove_file(&session_path).unwrap();
+            std::fs::create_dir(&session_path).unwrap();
+        }
+
+        let result = SessionApplication::new(state).forget_session(id).await;
+
+        assert_eq!(result, Err(SessionError::Internal("application operation failed")));
     }
 }
