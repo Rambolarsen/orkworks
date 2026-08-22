@@ -15,6 +15,7 @@ use crate::{harness, watcher, SessionHandle, WorkspaceState};
 #[cfg(test)]
 use crate::session_application::{
     resolve_session_launch, resume_handle_conflicts, try_install_claimed_resume_handle,
+    CreateSessionCommand,
 };
 use crate::session_application::SessionApplication;
 use axum::{
@@ -429,6 +430,8 @@ fn application_error_response(error: crate::session_application::SessionError) -
     match error {
         crate::session_application::SessionError::BadRequest(message) =>
             (axum::http::StatusCode::BAD_REQUEST, message).into_response(),
+        crate::session_application::SessionError::EmptyBadRequest =>
+            axum::http::StatusCode::BAD_REQUEST.into_response(),
         crate::session_application::SessionError::Conflict =>
             axum::http::StatusCode::CONFLICT.into_response(),
         crate::session_application::SessionError::NotFound =>
@@ -6607,7 +6610,7 @@ mod tests {
         let registry = test_resolved_registry();
         let launch = resolve_session_launch(
             &registry,
-            &CreateSessionRequest {
+            &CreateSessionCommand {
                 harness_id: Some("codex".into()),
                 model: None,
                 initial_prompt: None,
@@ -6635,6 +6638,35 @@ mod tests {
         .into_response();
 
         assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn resume_invalid_request_keeps_the_empty_bad_request_body() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let id = "resume-without-metadata";
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&test_session_metadata(
+                id,
+                "Resume without metadata",
+                dir.path().display().to_string(),
+                "ended",
+                "before",
+                "before",
+            ));
+
+        let response = resume_session(State(state), Path(id.into())).await;
+        assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert!(body.is_empty());
     }
 
     /// Regression test for issue #302: `create_session` used to await the PTY
@@ -6724,7 +6756,7 @@ mod tests {
         let registry = test_resolved_registry();
         let launch = resolve_session_launch(
             &registry,
-            &CreateSessionRequest {
+            &CreateSessionCommand {
                 harness_id: Some("opencode".into()),
                 model: None,
                 initial_prompt: None,
@@ -6746,7 +6778,7 @@ mod tests {
         let registry = test_resolved_registry();
         let launch = resolve_session_launch(
             &registry,
-            &CreateSessionRequest {
+            &CreateSessionCommand {
                 harness_id: Some("opencode".into()),
                 model: Some("qwen2.5-coder:latest".into()),
                 initial_prompt: None,
@@ -6764,7 +6796,7 @@ mod tests {
         let registry = test_resolved_registry();
         let launch = resolve_session_launch(
             &registry,
-            &CreateSessionRequest {
+            &CreateSessionCommand {
                 harness_id: Some("codex".into()),
                 model: Some("gpt-5".into()),
                 initial_prompt: None,

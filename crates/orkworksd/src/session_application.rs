@@ -1,8 +1,6 @@
 use crate::{git, metadata, migration, watcher, AppState, WorkspaceState};
 use crate::workspace_runtime::{iso_now, orkworks_global_dir};
-use crate::http::session_handlers::{
-    AttentionReportRequest, CreateSessionRequest, TerminalPlanSelectionRequest,
-};
+use crate::http::session_handlers::{AttentionReportRequest, TerminalPlanSelectionRequest};
 use crate::session_types::{MemoryState, SessionInfo};
 use crate::session_view::{connectivity_for_status, terminal_outcome_for_status};
 use axum::response::{IntoResponse, Response};
@@ -14,6 +12,7 @@ use crate::{harness, peon, SessionHandle};
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum SessionError {
     BadRequest(&'static str),
+    EmptyBadRequest,
     Conflict,
     NotFound,
     Internal(&'static str),
@@ -379,7 +378,7 @@ async fn resume_session_workflow(
             return Err(crate::session_application::SessionError::NotFound);
         };
         let Some(resume) = meta.resume.as_ref() else {
-            return Err(crate::session_application::SessionError::BadRequest("invalid request"));
+            return Err(crate::session_application::SessionError::EmptyBadRequest);
         };
         let session_harness_id = (!meta.harness.is_empty()).then_some(meta.harness.as_str());
         let harness = session_harness_id
@@ -391,7 +390,7 @@ async fn resume_session_workflow(
             .contains(&crate::harness::registry::CapabilityName::Attention);
         let strategy = harness.select_resume_strategy(resume);
         if strategy == harness::ResumeStrategy::None {
-            return Err(crate::session_application::SessionError::BadRequest("invalid request"));
+            return Err(crate::session_application::SessionError::EmptyBadRequest);
         }
         let Some(command) = harness.build_resume(
             strategy.clone(),
@@ -400,7 +399,7 @@ async fn resume_session_workflow(
             meta.repo_root.as_deref(),
             (!meta.model.is_empty()).then_some(meta.model.as_str()),
         ) else {
-            return Err(crate::session_application::SessionError::BadRequest("invalid request"));
+            return Err(crate::session_application::SessionError::EmptyBadRequest);
         };
         (
             meta,
@@ -640,16 +639,16 @@ pub(crate) struct ResolvedSessionLaunch {
 
 pub(crate) fn resolve_session_launch(
     registry: &crate::harness::registry::ResolvedHarnessRegistry,
-    req: &CreateSessionRequest,
+    command: &CreateSessionCommand,
     cwd: String,
 ) -> ResolvedSessionLaunch {
-    let requested_id = req.harness_id.as_deref();
+    let requested_id = command.harness_id.as_deref();
     let harness = requested_id
         .and_then(|id| registry.get(id))
         .filter(|harness| !harness.definition.retired)
         .or_else(|| registry.get("generic-shell"))
         .expect("generic-shell builtin exists");
-    let model = req
+    let model = command
         .model
         .clone()
         .or_else(|| harness.definition.default_model.clone());
@@ -667,13 +666,8 @@ pub(crate) fn resolve_session_launch(
 
 async fn create_session_workflow(
     state: Arc<AppState>,
-    req: crate::session_application::CreateSessionCommand,
+    req: CreateSessionCommand,
 ) -> Result<SessionInfo, crate::session_application::SessionError> {
-    let req = CreateSessionRequest {
-        harness_id: req.harness_id,
-        model: req.model,
-        initial_prompt: req.initial_prompt,
-    };
     let id = uuid::Uuid::new_v4().to_string();
     let (workspace_cwd, workspace_metadata_root) = state
         .workspace
@@ -1074,5 +1068,148 @@ mod tests {
             application.resume_session("missing").await,
             Err(SessionError::Conflict)
         ));
+    }
+
+    #[tokio::test]
+    async fn resume_admission_conflict_is_returned_through_the_application_seam() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "resume-admission-conflict";
+        let mut metadata = crate::test_support::test_session_metadata(
+            id,
+            "Resume conflict",
+            root.path().display().to_string(),
+            "ended",
+            "before",
+            "before",
+        );
+        metadata.cwd = root.path().display().to_string();
+        metadata.harness = "opencode".into();
+        metadata.resume = Some(harness::ResumeMemory {
+            state: harness::ResumeState::Available,
+            preferred_strategy: harness::ResumeStrategy::LatestCwd,
+            harness_session_id: None,
+            latest_fallback: true,
+            last_seen_at: Some("before".into()),
+        });
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
+
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        let mut info = crate::test_support::test_session_info(
+            id,
+            "Resume conflict",
+            root.path().display().to_string(),
+            "running",
+            "before",
+        );
+        info.lifecycle_phase = "active".into();
+        let handle = SessionHandle {
+            info,
+            active_work_hook: false,
+            kill_tx,
+            output_buffer: peon::RingBuffer::new(200),
+            scan_buf: String::new(),
+            pending_work_signal: None,
+            runtime: crate::runtime::session_runtime::SessionRuntime::detached(
+                crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+            ),
+            terminal_attached: false,
+            resume_in_progress: true,
+            at_usage_limit_latched: false,
+            capacity_check_pending: false,
+            output_lines_seen: 0,
+            scan_bytes_seen: 0,
+            resume_scan_origin: None,
+            pending_capacity_visible_once: false,
+        };
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+
+        let result = SessionApplication::new(state).resume_session(id).await;
+
+        assert!(matches!(result, Err(SessionError::Conflict)));
+    }
+
+    #[tokio::test]
+    async fn resume_startup_failure_restores_claim_state_and_publishes_error_metadata() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        state
+            .harness_store
+            .mutate(&state.harness_catalog, |document| {
+                let override_patch = document.overrides.entry("opencode".into()).or_default();
+                override_patch.resume = Some(Some(harness::definition::ResumePatch {
+                    latest_cwd: Some(Some(harness::CommandTemplate {
+                        command: "orkworks-resume-command-that-does-not-exist".into(),
+                        args: vec![],
+                    })),
+                    ..Default::default()
+                }));
+                Ok(())
+            })
+            .unwrap();
+        let id = "resume-startup-failure";
+        let mut metadata = crate::test_support::test_session_metadata(
+            id,
+            "Resume startup failure",
+            root.path().display().to_string(),
+            "ended",
+            "before",
+            "before",
+        );
+        metadata.cwd = root.path().display().to_string();
+        metadata.harness = "opencode".into();
+        metadata.resume = Some(harness::ResumeMemory {
+            state: harness::ResumeState::Available,
+            preferred_strategy: harness::ResumeStrategy::LatestCwd,
+            harness_session_id: None,
+            latest_fallback: true,
+            last_seen_at: Some("before".into()),
+        });
+        let ws = state.workspace.lock().unwrap();
+        ws.as_ref().unwrap().metadata.write_session(&metadata);
+        ws.as_ref().unwrap().metadata.write_terminal_size(id, 120, 40);
+        drop(ws);
+
+        let result = SessionApplication::new(state.clone()).resume_session(id).await;
+
+        assert!(matches!(
+            result,
+            Err(SessionError::Internal("application operation failed"))
+        ));
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                if state
+                    .sessions
+                    .lock()
+                    .unwrap()
+                    .get(id)
+                    .is_some_and(|handle| !handle.resume_in_progress)
+                {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("startup-failure finalization clears the runtime claim");
+        let handle = state.sessions.lock().unwrap().get(id).unwrap().info.clone();
+        assert_eq!(handle.status, "error");
+        assert_eq!(handle.lifecycle_phase, "ended");
+        let ws = state.workspace.lock().unwrap();
+        let stored = ws.as_ref().unwrap().metadata.read_session(id).unwrap();
+        assert_eq!(stored.status, "error");
+        assert_eq!(stored.lifecycle_phase, "ended");
+        assert_ne!(
+            ws.as_ref().unwrap().metadata.read_terminal_size(id),
+            Some((120, 40))
+        );
     }
 }
