@@ -112,6 +112,14 @@ test("ReviewPanel exposes retry after a content request fails", () => {
   assert.match(source, /action=\{\{ label: "Retry", onClick: load \}\}/);
 });
 
+test("ReviewPanel renders plan content as Markdown rather than raw preformatted text", () => {
+  const source = readFileSync(new URL("../src/components/ReviewPanel.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /import ReactMarkdown from "react-markdown"/);
+  assert.match(source, /<ReactMarkdown remarkPlugins=\{\[remarkGfm\]\}>\{content\}<\/ReactMarkdown>/);
+  assert.doesNotMatch(source, /<pre className="review-plan-content">\{content\}<\/pre>/);
+});
+
 test("DockviewApp default layout opens sessions/detail/terminal only (Capacity & Recommendations closed until they carry signal)", () => {
   const source = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
 
