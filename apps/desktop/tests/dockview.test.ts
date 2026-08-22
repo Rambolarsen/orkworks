@@ -112,6 +112,27 @@ test("ReviewPanel exposes retry after a content request fails", () => {
   assert.match(source, /action=\{\{ label: "Retry", onClick: load \}\}/);
 });
 
+test("ReviewPanel renders plan content as Markdown rather than raw preformatted text", () => {
+  const source = readFileSync(new URL("../src/components/ReviewPanel.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /import ReactMarkdown, \{ type Components \} from "react-markdown"/);
+  assert.match(source, /<ReactMarkdown remarkPlugins=\{\[remarkGfm\]\} components=\{markdownComponents\}>\{content\}<\/ReactMarkdown>/);
+  assert.doesNotMatch(source, /<pre className="review-plan-content">\{content\}<\/pre>/);
+});
+
+test("ReviewPanel routes Markdown links through the safe external-link bridge instead of letting them navigate the renderer", () => {
+  // Regression: a plan/spec doc's relative link (e.g. to another spec file)
+  // rendered as an ordinary <a href> would otherwise be same-origin in dev
+  // and pass electron/externalLinks.ts's will-navigate allow-check,
+  // replacing the whole app window instead of doing nothing.
+  const source = readFileSync(new URL("../src/components/ReviewPanel.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /if \(href\?\.startsWith\("#"\)\) return <a href=\{href\}>\{children\}<\/a>;/);
+  assert.match(source, /event\.preventDefault\(\);/);
+  assert.match(source, /window\.orkworks\.openExternalLink\(href\)/);
+  assert.match(source, /const markdownComponents: Components = \{ a: ReviewLink \};/);
+});
+
 test("DockviewApp default layout opens sessions/detail/terminal only (Capacity & Recommendations closed until they carry signal)", () => {
   const source = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
 
