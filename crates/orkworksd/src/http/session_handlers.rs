@@ -139,41 +139,14 @@ pub(crate) async fn request_session_plan_review(
     Path(id): Path<String>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    if let Err(status) = authorize_plan_request(&headers) { return status.into_response(); }
-    let plan_path = {
-        let workspace = state.workspace.lock().unwrap();
-        let Some(workspace) = workspace.as_ref() else { return axum::http::StatusCode::CONFLICT.into_response(); };
-        let Some(meta) = workspace.metadata.read_session(&id) else { return axum::http::StatusCode::NOT_FOUND.into_response(); };
-        if meta.lifecycle != "alive" { return axum::http::StatusCode::CONFLICT.into_response(); }
-        let Some(path) = meta.plan_path else { return axum::http::StatusCode::CONFLICT.into_response(); };
-        let resolved = match resolve_openable_plan_reference(&workspace.path, &path) {
-            Ok(path) => path,
-            Err(_) => return axum::http::StatusCode::CONFLICT.into_response(),
-        };
-        let launch_root = std::path::Path::new(&meta.cwd).canonicalize().ok();
-        let selected_root = path
-            .worktree_root
-            .as_deref()
-            .and_then(|root| std::path::Path::new(root).canonicalize().ok());
-        if selected_root.is_some() && selected_root != launch_root {
-            resolved.to_string_lossy().into_owned()
-        } else {
-            path.relative_path
-        }
-    };
-    let prompt = format!("Please review the plan or specification at {plan_path}. If your tooling can spawn a separate review subagent, delegate the review to it instead of reviewing your own work; otherwise review it yourself. Check for missing requirements, risky assumptions, and unclear steps, then report the findings.\r");
-    match crate::runtime::terminal_runtime::submit_approved_input(&state, &id, prompt).await {
-        Ok(()) => {
-            if let Some(workspace) = state.workspace.lock().unwrap().as_ref() {
-                workspace.metadata.append_event(&id, &metadata::Event {
-                    event_type: "plan_review_requested".into(), timestamp: iso_now(), status: "working".into(),
-                    observed_status: Some("working".into()), confidence: None, summary: Some("User requested plan review.".into()), source: Some("user".into()),
-                });
-            }
-            axum::http::StatusCode::NO_CONTENT.into_response()
-        }
-        Err(()) => axum::http::StatusCode::CONFLICT.into_response(),
+    if let Err(status) = authorize_plan_request(&headers) {
+        return status.into_response();
     }
+    SessionApplication::new(state)
+        .request_plan_review(&id)
+        .await
+        .map(|_| axum::http::StatusCode::NO_CONTENT.into_response())
+        .unwrap_or_else(application_error_response)
 }
 
 pub(crate) async fn report_session_plan_path(

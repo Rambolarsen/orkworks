@@ -257,6 +257,51 @@ impl SessionApplication {
         std::fs::read_to_string(path).map_err(|_| SessionError::Conflict)
     }
 
+    pub(crate) async fn request_plan_review(&self, id: &str) -> Result<(), SessionError> {
+        let plan_path = {
+            let workspace_guard = self.state.workspace.lock().unwrap();
+            let workspace = workspace_guard.as_ref().ok_or(SessionError::Conflict)?;
+            let metadata = workspace.metadata.read_session(id).ok_or(SessionError::NotFound)?;
+            if metadata.lifecycle != "alive" {
+                return Err(SessionError::Conflict);
+            }
+            let path = metadata.plan_path.ok_or(SessionError::Conflict)?;
+            let resolved = resolve_openable_plan_reference(&workspace.path, &path)
+                .map_err(|_| SessionError::Conflict)?;
+            let launch_root = std::path::Path::new(&metadata.cwd).canonicalize().ok();
+            let selected_root = path
+                .worktree_root
+                .as_deref()
+                .and_then(|root| std::path::Path::new(root).canonicalize().ok());
+            if selected_root.is_some() && selected_root != launch_root {
+                resolved.to_string_lossy().into_owned()
+            } else {
+                path.relative_path
+            }
+        };
+        let prompt = format!(
+            "Please review the plan or specification at {plan_path}. If your tooling can spawn a separate review subagent, delegate the review to it instead of reviewing your own work; otherwise review it yourself. Check for missing requirements, risky assumptions, and unclear steps, then report the findings.\r"
+        );
+        crate::runtime::terminal_runtime::submit_approved_input(&self.state, id, prompt)
+            .await
+            .map_err(|_| SessionError::Conflict)?;
+        if let Some(workspace) = self.state.workspace.lock().unwrap().as_ref() {
+            workspace.metadata.append_event(
+                id,
+                &metadata::Event {
+                    event_type: "plan_review_requested".into(),
+                    timestamp: iso_now(),
+                    status: "working".into(),
+                    observed_status: Some("working".into()),
+                    confidence: None,
+                    summary: Some("User requested plan review.".into()),
+                    source: Some("user".into()),
+                },
+            );
+        }
+        Ok(())
+    }
+
     pub(crate) async fn report_attention(
         &self,
         id: &str,
@@ -2208,5 +2253,77 @@ mod tests {
 
         assert_eq!(application.set_active_session("session"), Err(SessionError::Conflict));
         assert_eq!(application.set_active_harnesses(vec!["codex".into()]), Err(SessionError::Conflict));
+    }
+
+    #[tokio::test]
+    async fn plan_review_application_submits_prompt_and_records_event() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root.path().join("specs")).unwrap();
+        std::fs::write(root.path().join("specs/plan.md"), "# plan").unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "plan-review-application";
+        let mut metadata = crate::test_support::test_session_metadata(
+            id, "Plan review", &root.path().display().to_string(), "running", "now", "now",
+        );
+        metadata.lifecycle_phase = "active".into();
+        metadata.lifecycle = "alive".into();
+        metadata.plan_path = Some("specs/plan.md".into());
+        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&metadata);
+
+        let mut handle = attention_test_handle(id, root.path());
+        let (runtime, mut control_rx) = crate::runtime::session_runtime::SessionRuntime::live(24, 80);
+        handle.runtime = runtime;
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+
+        let application = SessionApplication::new(state.clone());
+        let mut request = tokio::spawn(async move { application.request_plan_review(id).await });
+        let crate::runtime::session_runtime::RuntimeCommand::Input { data, accepted } =
+            (tokio::select! {
+                command = control_rx.recv() => command.unwrap(),
+                response = &mut request => panic!("review request returned {:?} before reaching the PTY", response.unwrap()),
+            })
+        else { panic!("expected terminal input"); };
+        assert_eq!(data, "Please review the plan or specification at specs/plan.md. If your tooling can spawn a separate review subagent, delegate the review to it instead of reviewing your own work; otherwise review it yourself. Check for missing requirements, risky assumptions, and unclear steps, then report the findings.\r");
+        assert!(state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_events(id).is_empty());
+        accepted.unwrap().send(Ok(())).unwrap();
+
+        assert_eq!(request.await.unwrap(), Ok(()));
+        let events = state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_events(id);
+        assert!(events.iter().any(|event| event.event_type == "plan_review_requested"));
+    }
+
+    #[tokio::test]
+    async fn plan_review_application_rejects_invalid_references_and_input_delivery() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "plan-review-rejected";
+        let mut metadata = crate::test_support::test_session_metadata(
+            id, "Plan review", &root.path().display().to_string(), "running", "now", "now",
+        );
+        metadata.lifecycle_phase = "active".into();
+        metadata.lifecycle = "alive".into();
+        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&metadata);
+        let application = SessionApplication::new(state.clone());
+
+        assert_eq!(application.request_plan_review(id).await, Err(SessionError::Conflict));
+
+        let plan = root.path().join("plan.md");
+        std::fs::write(&plan, "# plan").unwrap();
+        let mut metadata = state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(id).unwrap();
+        metadata.plan_path = Some("plan.md".into());
+        metadata.lifecycle = "ended".into();
+        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&metadata);
+        assert_eq!(application.request_plan_review(id).await, Err(SessionError::Conflict));
+
+        metadata.lifecycle = "alive".into();
+        metadata.plan_path = Some("missing.md".into());
+        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&metadata);
+        assert_eq!(application.request_plan_review(id).await, Err(SessionError::Conflict));
+
+        metadata.plan_path = Some("plan.md".into());
+        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&metadata);
+        state.sessions.lock().unwrap().insert(id.into(), attention_test_handle(id, root.path()));
+        assert_eq!(application.request_plan_review(id).await, Err(SessionError::Conflict));
+        assert!(state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_events(id).is_empty());
     }
 }
