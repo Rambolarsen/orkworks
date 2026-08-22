@@ -35,6 +35,12 @@ pub(crate) fn refresh_now(state: &Arc<AppState>) {
 }
 
 pub(crate) fn schedule_evaluation(state: Arc<AppState>) {
+    // Workspace opening is also exposed through a synchronous application seam
+    // used by tests and non-HTTP callers. There is no async scheduler to use
+    // in that context; runtime-backed callers still take the normal path.
+    if tokio::runtime::Handle::try_current().is_err() {
+        return;
+    }
     let (generation, workspace_id) = {
         let workspace = state.workspace.lock().unwrap();
         let Some(workspace) = workspace.as_ref() else {
