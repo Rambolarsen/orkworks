@@ -40,6 +40,12 @@ controller was then implemented incrementally until the focused suite passed.
 - `bash .claude/hooks/doc-check.sh` — passed.
 - `bash .claude/hooks/worktree-check.sh` — passed.
 
+The post-commit chained verification rerun was intentionally interrupted by
+the user before it produced output. Therefore there is no fresh post-commit
+verification result for that final chain; the preceding standalone `npx tsc
+--noEmit` and required focused test run both passed before the report-only
+commit.
+
 ## Commit
 
 - `b66462a` — `refactor: deepen workspace session controller`
@@ -48,3 +54,6 @@ controller was then implemented incrementally until the focused suite passed.
 
 - The three legacy `dockview.test.ts` source-shape assertions should be
   updated in a follow-up to inspect the controller seam instead of `App.tsx`.
+- Final post-commit verification was interrupted and could not be confirmed
+  complete; `ps` inspection was also denied by the sandbox, so no claim is
+  made about leftover process state.
