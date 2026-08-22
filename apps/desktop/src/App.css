@@ -677,6 +677,11 @@ html, body, #root {
   color: var(--text-secondary);
 }
 
+.review-plan-content img {
+  max-width: 100%;
+  height: auto;
+}
+
 .review-plan-content a {
   color: var(--accent);
 }
