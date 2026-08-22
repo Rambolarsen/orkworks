@@ -186,7 +186,7 @@ Use normal engineering terminology for all other concepts. Peon and Taskmaster a
 
 ## Architecture
 
-Electron + React/TypeScript frontend (`apps/desktop/`) communicates with a Rust sidecar (`crates/orkworksd/`) over a dynamic localhost HTTP/WebSocket port. The desktop UI uses Dockview draggable panels around xterm.js terminal sessions. The sidecar manages PTY sessions, Git context, the metadata protocol (under `~/.orkworks/workspaces/<hash>/`), Peon observation, and Taskmaster recommendation state.
+Electron + React/TypeScript frontend (`apps/desktop/`) communicates with a Rust sidecar (`crates/orkworksd/`) over a dynamic localhost HTTP/WebSocket port. The desktop UI uses Dockview draggable panels around xterm.js terminal sessions, and renders plan/spec content in the Review tab as Markdown via `react-markdown`/`remark-gfm`. The sidecar manages PTY sessions, Git context, the metadata protocol (under `~/.orkworks/workspaces/<hash>/`), Peon observation, and Taskmaster recommendation state.
 
 An ADR earns a bullet below only while it is `accepted` (not superseded), constrains how agents should write code, and has no independent prose summary elsewhere — once another doc gains prose coverage of an already-inlined ADR, its bullet collapses to a pointer. See [`docs/adr/README.md`](docs/adr/README.md) for the full historical index, including superseded decisions, and [`docs/agents/architecture.md`](docs/agents/architecture.md) for the full inter-component breakdown (port discovery, preload bridge, API data flow, Rust modules, panel layout).
 

@@ -1,9 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import EmptyState from "./EmptyState";
 
-export default function ReviewPanel({ sessionId }: { sessionId: string | null }) {
+// Memoized because ReviewTab re-renders on every ~2s session poll even when
+// sessionId is unchanged; react-markdown re-parses its input on every render
+// with no internal caching, so without this the whole Markdown pipeline
+// would rerun on a timer instead of only when the reviewed content changes.
+function ReviewPanel({ sessionId }: { sessionId: string | null }) {
   const [content, setContent] = useState<string | null>(null);
   const [error, setError] = useState(false);
   const requestId = useRef(0);
@@ -30,3 +34,5 @@ export default function ReviewPanel({ sessionId }: { sessionId: string | null })
     </div>
   );
 }
+
+export default memo(ReviewPanel);
