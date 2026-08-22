@@ -5,10 +5,13 @@ use crate::session_view::{
     connectivity_for_status, derive_memory_state, detect_conflicts, merge_live_session_info,
     resolve_effective_cwds, session_recommendation, terminal_outcome_for_status,
 };
-use crate::workspace_runtime::{iso_now, orkworks_global_dir, parse_hook_observed_at};
-use crate::{
-    git, harness, metadata, migration, peon, watcher, AppState, SessionHandle, WorkspaceState,
-};
+use crate::workspace_runtime::{iso_now, parse_hook_observed_at};
+use crate::{git, harness, metadata, peon, AppState, SessionHandle};
+#[cfg(test)]
+use crate::workspace_runtime::orkworks_global_dir;
+#[cfg(test)]
+use crate::{watcher, WorkspaceState};
+use crate::session_application::SessionApplication;
 use axum::{
     extract::{Path, State},
     http::HeaderMap,
@@ -185,7 +188,7 @@ pub(crate) async fn request_session_plan_review(
     }
 }
 
-pub(crate) async fn select_terminal_plan(
+pub(crate) async fn select_terminal_plan_legacy(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
     headers: HeaderMap,
@@ -265,122 +268,24 @@ pub(crate) async fn set_workspace(
     State(state): State<Arc<AppState>>,
     Json(req): Json<WorkspaceRequest>,
 ) -> impl IntoResponse {
-    let ws_path = PathBuf::from(&req.path);
-    if !ws_path.is_dir() {
-        return (axum::http::StatusCode::BAD_REQUEST, "not a directory").into_response();
+    match SessionApplication::new(state).open_workspace(PathBuf::from(&req.path)) {
+        Ok(snapshot) => Json(WorkspaceResponse {
+            path: snapshot.path,
+            repo_root: snapshot.repo_root,
+            branch: snapshot.branch,
+            dirty: snapshot.dirty,
+            last_active_session_id: snapshot.last_active_session_id,
+            active_harness_ids: snapshot.active_harness_ids,
+        })
+        .into_response(),
+        Err(crate::session_application::SessionError::BadRequest(message)) => {
+            (axum::http::StatusCode::BAD_REQUEST, message).into_response()
+        }
+        Err(crate::session_application::SessionError::Internal(message)) => {
+            (axum::http::StatusCode::INTERNAL_SERVER_ERROR, message).into_response()
+        }
+        Err(_) => axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
-
-    let global_dir = match orkworks_global_dir(&ws_path) {
-        Some(d) => d,
-        None => {
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                "no home directory",
-            )
-                .into_response();
-        }
-    };
-    for dir in &["sessions", "events", "capacity", "skills"] {
-        if let Err(e) = std::fs::create_dir_all(global_dir.join(dir)) {
-            tracing::warn!(path = %global_dir.display(), dir = dir, error = %e, "failed to create metadata dir");
-        }
-    }
-
-    let store = metadata::MetadataStore::new(&global_dir);
-
-    migration::migrate_if_needed(&ws_path, &global_dir);
-
-    let memory = store.read_workspace_memory();
-    let last_active_session_id = memory
-        .as_ref()
-        .and_then(|m| m.last_active_session_id.clone());
-    let active_harness_ids = memory.map(|m| m.active_harness_ids).unwrap_or_default();
-    let watch_dir = global_dir.join("sessions");
-    let watcher = watcher::MetadataWatcher::start(&watch_dir);
-
-    let workflow_observations = match crate::workflow_observations::WorkflowObservationStore::open(
-        global_dir.clone(),
-    ) {
-        Ok(store) => store,
-        Err(e) => {
-            tracing::warn!(path = %global_dir.display(), error = %e, "failed to open workflow observation store");
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                "failed to open workflow observation store",
-            )
-                .into_response();
-        }
-    };
-    let recommendation_store = match crate::taskmaster::store::RecommendationStore::open(
-        global_dir.clone(),
-    ) {
-        Ok(store) => store,
-        Err(e) => {
-            tracing::warn!(path = %global_dir.display(), error = %e, "failed to open recommendation store");
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                "failed to open recommendation store",
-            )
-                .into_response();
-        }
-    };
-    let retained_session_ids = store
-        .read_all_sessions()
-        .into_iter()
-        .map(|session| session.id)
-        .collect::<std::collections::HashSet<_>>();
-    if let Err(e) = recommendation_store.scrub_orphans(&retained_session_ids) {
-        tracing::warn!(path = %global_dir.display(), error = %e, "failed to scrub orphaned recommendations");
-        return (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            "failed to scrub orphaned recommendations",
-        )
-            .into_response();
-    }
-
-    let mut ws = state.workspace.lock().unwrap();
-    *ws = Some(WorkspaceState {
-        path: ws_path.clone(),
-        metadata: store,
-        workflow_observations,
-        recommendation_store,
-        watcher,
-    });
-    state.bump_harness_probe_generation();
-
-    // Reconcile sessions left in "running"/"creating" from a previous daemon
-    // run. This handler also re-runs whenever the Electron app alone
-    // restarts and reconnects to an already-running (detached) sidecar, in
-    // which case state.sessions is NOT empty and still holds live handles —
-    // only a session with no matching in-memory handle is actually orphaned.
-    if let Some(ref ws) = *ws {
-        let now = iso_now();
-        let live_ids: std::collections::HashSet<String> =
-            state.sessions.lock().unwrap().keys().cloned().collect();
-        for meta in ws.metadata.read_all_sessions() {
-            if (meta.status == "running" || meta.status == "creating")
-                && !live_ids.contains(&meta.id)
-            {
-                ws.metadata
-                    .write_session(&metadata::reconcile_orphaned_session(meta, &now));
-            }
-        }
-    }
-
-    drop(ws);
-    crate::taskmaster::evaluator::schedule_evaluation(state.clone());
-
-    let git_ctx = git::detect(&ws_path);
-
-    Json(WorkspaceResponse {
-        path: req.path,
-        repo_root: git_ctx.repo_root,
-        branch: git_ctx.branch,
-        dirty: Some(git_ctx.dirty),
-        last_active_session_id,
-        active_harness_ids,
-    })
-    .into_response()
 }
 
 pub(crate) async fn set_active_session(
@@ -421,6 +326,110 @@ pub(crate) async fn set_active_harnesses(
         return axum::http::StatusCode::OK;
     }
     axum::http::StatusCode::CONFLICT
+}
+
+pub(crate) async fn create_session(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<CreateSessionRequest>,
+) -> axum::response::Response {
+    SessionApplication::new(state)
+        .create_session(crate::session_application::CreateSessionCommand {
+            harness_id: req.harness_id,
+            model: req.model,
+            initial_prompt: req.initial_prompt,
+        })
+        .await
+        .unwrap_or_else(application_error_response)
+}
+
+pub(crate) async fn resume_session(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> axum::response::Response {
+    SessionApplication::new(state)
+        .resume_session(&id)
+        .await
+        .unwrap_or_else(application_error_response)
+}
+
+pub(crate) async fn report_attention(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(req): Json<AttentionReportRequest>,
+) -> axum::response::Response {
+    SessionApplication::new(state)
+        .report_attention(
+            &id,
+            crate::session_application::AttentionSignal {
+                status: req.status,
+                message: req.message,
+                plan_path: req.plan_path,
+                observed_at: req.observed_at,
+                cwd: req.cwd,
+            },
+        )
+        .await
+        .map(|_| axum::http::StatusCode::OK.into_response())
+        .unwrap_or_else(application_error_response)
+}
+
+pub(crate) async fn select_terminal_plan(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Json(req): Json<TerminalPlanSelectionRequest>,
+) -> axum::response::Response {
+    if let Err(status) = authorize_plan_request(&headers) {
+        return status.into_response();
+    }
+    let token = headers
+        .get("x-orkworks-open-plan-token")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_owned();
+    SessionApplication::new(state)
+        .select_plan(
+            &id,
+            crate::session_application::PlanSelection {
+                printed_path: req.printed_path,
+                token,
+            },
+        )
+        .await
+        .unwrap_or_else(application_error_response)
+}
+
+pub(crate) async fn delete_session(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> axum::response::Response {
+    SessionApplication::new(state)
+        .delete_session(&id, false)
+        .await
+        .unwrap_or_else(application_error_response)
+}
+
+pub(crate) async fn forget_session(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> axum::response::Response {
+    SessionApplication::new(state)
+        .delete_session(&id, true)
+        .await
+        .unwrap_or_else(application_error_response)
+}
+
+fn application_error_response(error: crate::session_application::SessionError) -> axum::response::Response {
+    match error {
+        crate::session_application::SessionError::BadRequest(message) =>
+            (axum::http::StatusCode::BAD_REQUEST, message).into_response(),
+        crate::session_application::SessionError::Conflict =>
+            axum::http::StatusCode::CONFLICT.into_response(),
+        crate::session_application::SessionError::NotFound =>
+            axum::http::StatusCode::NOT_FOUND.into_response(),
+        crate::session_application::SessionError::Internal(_) =>
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
 }
 
 fn resume_handle_conflicts(
@@ -578,7 +587,7 @@ fn try_install_claimed_resume_handle(
     })
 }
 
-pub(crate) async fn resume_session(
+pub(crate) async fn resume_session_legacy(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
@@ -915,7 +924,7 @@ pub(crate) async fn report_harness_session(
     }
 }
 
-pub(crate) async fn report_attention(
+pub(crate) async fn report_attention_legacy(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
     Json(req): Json<AttentionReportRequest>,
@@ -1242,7 +1251,7 @@ pub(crate) fn resolve_session_launch(
     }
 }
 
-pub(crate) async fn create_session(
+pub(crate) async fn create_session_legacy(
     State(state): State<Arc<AppState>>,
     Json(req): Json<CreateSessionRequest>,
 ) -> impl IntoResponse {
@@ -2073,7 +2082,7 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
     Json(infos)
 }
 
-pub(crate) async fn delete_session(
+pub(crate) async fn delete_session_legacy(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
@@ -2101,7 +2110,7 @@ pub(crate) async fn delete_session(
     axum::http::StatusCode::OK
 }
 
-pub(crate) async fn forget_session(
+pub(crate) async fn forget_session_legacy(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
