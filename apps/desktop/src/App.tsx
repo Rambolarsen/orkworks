@@ -4,7 +4,6 @@ import DockviewApp from "./components/DockviewApp";
 import NewSessionDialog from "./components/NewSessionDialog";
 import SettingsModal from "./components/SettingsModal";
 import ToastRack from "./components/ToastRack";
-import { mergeSessionsById } from "./sessionSort";
 import { EMPTY_UNREAD_STATE, clearUnread, trackUnread, type UnreadState } from "./sessionUnread";
 import { PANEL_DEFAULTS, buildDefaultLayout } from "./components/DockviewApp";
 import { VOCAB } from "./labels";
@@ -15,23 +14,17 @@ import {
   type SessionAttention,
   type WorkspaceInfo,
   type ProviderRuntimeResponse,
-  createSession,
   listHarnesses,
-  listSessions,
-  deleteSession,
-  forgetSession,
-  resumeSession,
   applyDebugAttention,
   saveActiveHarnesses,
   setActiveWorkspaceSession,
   getProviders,
 } from "./api";
 import { disposeTerminal, getTerminal, pruneTerminals, getLiveTerminalCount, getLiveTerminalIds } from "./terminalStore";
-import { resolvePendingCreates, trackPendingCreate } from "./pendingCreate";
 import { captureRendererHealth, type RendererHealthSample } from "./rendererHealthProbe";
-import { startSessionPolling } from "./sessionPolling";
 import type { AppSettings } from "./appSettingsTypes";
 import type { HarnessConfig, CreateSessionOptions } from "./harnessTypes";
+import { createWorkspaceSessionController } from "./workspaceSessionController";
 
 function App() {
   const [backendStatus, setBackendStatus] = useState<string>("connecting…");
@@ -49,11 +42,24 @@ function App() {
   const [newSessionDialogOpen, setNewSessionDialogOpen] = useState(false);
   const dockviewApiRef = useRef<DockviewApi | null>(null);
   const sessionsHiddenLayoutRef = useRef<string | null>(null);
-  const lastResortAtRef = useRef<Date>(new Date(0));
-  const sessionsRef = useRef<SessionInfo[]>([]);
-  // Ids of sessions just added via the New Session dialog, scoped only to
-  // their creation window — see pendingCreate.ts.
-  const pendingCreateIdsRef = useRef<ReadonlySet<string>>(new Set());
+  const workspaceSessionControllerRef = useRef<ReturnType<typeof createWorkspaceSessionController> | null>(null);
+  if (!workspaceSessionControllerRef.current) {
+    workspaceSessionControllerRef.current = createWorkspaceSessionController({
+      onWorkspace: (info) => {
+        setWorkspaceState(info);
+        setActiveHarnessIds(info.activeHarnessIds ?? []);
+      },
+      onSessions: (next) => setSessions([...next]),
+      onActiveSession: setActiveSessionId,
+      onError: ({ message }) => pushToast("error", message),
+      deps: {
+        // Controller pruning keeps terminal attachments for sessions whose lifecycle !== "dead".
+        pruneTerminals: (ids) => pruneTerminals(ids),
+        disposeTerminal,
+      },
+    });
+  }
+  const workspaceSessionController = workspaceSessionControllerRef.current;
 
   useEffect(() => {
     const intervalMs = settings?.debug?.rendererHealthLogMs ?? 0;
@@ -82,9 +88,7 @@ function App() {
     };
   }, [settings?.debug?.rendererHealthLogMs, dockviewApiRef]);
 
-  useEffect(() => {
-    sessionsRef.current = sessions;
-  }, [sessions]);
+  useEffect(() => () => workspaceSessionController.dispose(), [workspaceSessionController]);
 
   useEffect(() => {
     if (backendStatus !== "connecting…") return;
@@ -118,37 +122,7 @@ function App() {
     };
   }, [backendStatus]);
 
-  const refreshSessions = useCallback(async () => {
-    try {
-      const baseUrl = await window.orkworks.getBackendUrl();
-      const list = await listSessions(baseUrl);
-      pruneTerminals(new Set(list.filter((session) => session.lifecycle !== "dead").map((session) => session.id)));
-
-      const resolution = resolvePendingCreates(pendingCreateIdsRef.current, list);
-      pendingCreateIdsRef.current = resolution.ids;
-      resolution.erroredIds.forEach(() => pushToast("error", "Couldn't start a new session."));
-
-      const [next, nextLastResortAt] = mergeSessionsById(
-        sessionsRef.current,
-        list,
-        lastResortAtRef.current,
-        new Date()
-      );
-      sessionsRef.current = next;
-      lastResortAtRef.current = nextLastResortAt;
-      setSessions(next);
-      return true;
-    } catch {
-      // Silent: polled every 2s; transient failures are reflected by the
-      // backendStatus badge, not by spamming toasts.
-      return false;
-    }
-  }, []);
-
-  useEffect(() => {
-    if (backendStatus !== "connected") return;
-    return startSessionPolling(refreshSessions);
-  }, [backendStatus, refreshSessions]);
+  const refreshSessions = useCallback(() => workspaceSessionController.refreshSessions(), [workspaceSessionController]);
 
   useEffect(() => {
     if (backendStatus !== "connected") return;
@@ -180,20 +154,13 @@ function App() {
     try {
       const info = await window.orkworks.openWorkspace();
       if (info) {
-        setWorkspaceState(info);
-        setActiveHarnessIds(info.activeHarnessIds ?? []);
         setBackendStatus("connecting…");
-        setSessions([]);
-        // Wait for the new workspace's sessions before setting activeSessionId,
-        // so no consumer (e.g. ReviewTab) ever sees a real active id against
-        // an empty ctx.sessions and mistakes "not loaded yet" for "no plan".
-        await refreshSessions();
-        setActiveSessionId(info.lastActiveSessionId ?? null);
+        await workspaceSessionController.openWorkspace(info.path);
       }
     } catch {
       pushToast("error", "Couldn't open workspace.");
     }
-  }, [refreshSessions]);
+  }, [workspaceSessionController]);
 
   useEffect(() => {
     window.orkworks.getSettings().then(setSettings).catch(() => {
@@ -232,19 +199,7 @@ function App() {
   const handleConfirmNewSession = useCallback(async (opts: CreateSessionOptions) => {
     setNewSessionDialogOpen(false);
     try {
-      const baseUrl = await window.orkworks.getBackendUrl();
-      const session = await createSession(baseUrl, opts);
-      pendingCreateIdsRef.current = trackPendingCreate(pendingCreateIdsRef.current, session.id);
-      const [next, nextLastResortAt] = mergeSessionsById(
-        sessionsRef.current,
-        [...sessionsRef.current, session],
-        lastResortAtRef.current,
-        new Date()
-      );
-      sessionsRef.current = next;
-      lastResortAtRef.current = nextLastResortAt;
-      setSessions(next);
-      setActiveSessionId(session.id);
+      await workspaceSessionController.createSession(opts);
 
       const api = dockviewApiRef.current;
       if (api) {
@@ -254,7 +209,7 @@ function App() {
     } catch {
       pushToast("error", "Couldn't start a new session.");
     }
-  }, []);
+  }, [workspaceSessionController]);
 
   // Unread ("changed since you looked") is derived by diffing attention
   // status between session snapshots; selecting a session marks it read.
@@ -264,45 +219,34 @@ function App() {
 
   const handleSelectSession = useCallback((id: string) => {
     setUnreadState((prev) => clearUnread(prev, id));
-    setActiveSessionId(id);
+    workspaceSessionController.selectSession(id);
     const api = dockviewApiRef.current;
     if (api) {
       const panel = api.getPanel("terminal");
       if (panel) panel.api.setActive();
     }
-  }, []);
+  }, [workspaceSessionController]);
 
   const handleKillSession = useCallback(
     async (id: string) => {
       try {
-        const baseUrl = await window.orkworks.getBackendUrl();
-        await deleteSession(baseUrl, id);
-        disposeTerminal(id);
-
-        if (activeSessionId === id) {
-          setActiveSessionId(null);
-        }
-        await refreshSessions();
+        await workspaceSessionController.deleteSession(id, false);
       } catch {
         pushToast("error", "Couldn't end session.");
       }
     },
-    [activeSessionId, refreshSessions],
+    [workspaceSessionController],
   );
 
   const handleForgetSession = useCallback(
     async (id: string) => {
       try {
-        const baseUrl = await window.orkworks.getBackendUrl();
-        await forgetSession(baseUrl, id);
-        disposeTerminal(id);
-        if (activeSessionId === id) setActiveSessionId(null);
-        await refreshSessions();
+        await workspaceSessionController.deleteSession(id, true);
       } catch {
         pushToast("error", "Couldn't delete session.");
       }
     },
-    [activeSessionId, refreshSessions],
+    [workspaceSessionController],
   );
 
   const handleFocusTerminal = useCallback(() => {
@@ -324,7 +268,7 @@ function App() {
     const onSelected = (event: Event) => {
       const sessionId = (event as CustomEvent<{ sessionId?: unknown }>).detail?.sessionId;
       if (typeof sessionId !== "string") return;
-      setActiveSessionId(sessionId);
+      workspaceSessionController.selectSession(sessionId);
       void refreshSessions().then((refreshed) => {
         if (refreshed) handleReviewPlan();
       });
@@ -335,16 +279,12 @@ function App() {
 
   const handleResumeSession = useCallback(async (id: string) => {
     try {
-      disposeTerminal(id);
-      const baseUrl = await window.orkworks.getBackendUrl();
-      const session = await resumeSession(baseUrl, id);
-      setSessions((prev) => prev.map(s => s.id === id ? session : s));
-      setActiveSessionId(session.id);
+      await workspaceSessionController.resumeSession(id);
       setResumeTick(t => t + 1);
     } catch {
       pushToast("error", "Couldn't resume session.");
     }
-  }, []);
+  }, [workspaceSessionController]);
 
   const handleApplyDebugAttention = useCallback(async (id: string, attention: SessionAttention, message?: string) => {
     try {
@@ -362,19 +302,14 @@ function App() {
     async function loadInitialWorkspace() {
       const info = await window.orkworks.getInitialWorkspace();
       if (!cancelled && info) {
-        setWorkspaceState(info);
-        setActiveHarnessIds(info.activeHarnessIds ?? []);
-        await refreshSessions();
-        if (info.lastActiveSessionId) {
-          setActiveSessionId(info.lastActiveSessionId);
-        }
+        await workspaceSessionController.openWorkspace(info.path);
       }
     }
     loadInitialWorkspace();
     return () => {
       cancelled = true;
     };
-  }, [backendStatus, refreshSessions, workspace]);
+  }, [backendStatus, workspace, workspaceSessionController]);
 
   useEffect(() => {
     if (backendStatus !== "connected" || !workspace || !settings) return;
