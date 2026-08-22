@@ -72,6 +72,7 @@ export function createWorkspaceSessionController(
   const deps = { ...defaultDeps, ...options.deps };
   let disposed = false;
   let foregroundGeneration = 0;
+  let pollingEpoch = 0;
   let sessions: SessionInfo[] = [];
   let activeSessionId: string | null = null;
   let lastResortAt = new Date(0);
@@ -91,12 +92,12 @@ export function createWorkspaceSessionController(
     options.onSessions?.(next);
   };
 
-  async function refreshSessions(): Promise<boolean> {
+  async function refreshSessions(epoch?: number): Promise<boolean> {
     const token = foregroundGeneration;
     try {
       const baseUrl = await deps.getBackendUrl();
       const list = await deps.listSessions(baseUrl);
-      if (!isCurrent(token)) return false;
+      if (!isCurrent(token) || (epoch !== undefined && epoch !== pollingEpoch)) return false;
 
       deps.pruneTerminals(new Set(list.filter((session) => session.lifecycle !== "dead").map((session) => session.id)));
       const resolution = resolvePendingCreates(pendingCreateIds, list);
@@ -122,10 +123,12 @@ export function createWorkspaceSessionController(
     if (disposed) return;
     if (enabled) {
       if (stopPolling === null) {
-        stopPolling = startSessionPolling(refreshSessions, options.pollDelayMs, scheduler);
+        const epoch = ++pollingEpoch;
+        stopPolling = startSessionPolling(() => refreshSessions(epoch), options.pollDelayMs, scheduler);
       }
       return;
     }
+    pollingEpoch += 1;
     stopPolling?.();
     stopPolling = null;
   }
@@ -213,6 +216,7 @@ export function createWorkspaceSessionController(
     if (disposed) return;
     disposed = true;
     foregroundGeneration += 1;
+    pollingEpoch += 1;
     stopPolling?.();
     stopPolling = null;
   }

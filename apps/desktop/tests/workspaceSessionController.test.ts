@@ -169,6 +169,36 @@ test("disposal stops an enabled poll and rejects its late response", async () =>
   assert.equal(polling.callbacks.length, 0);
 });
 
+test("disabling and re-enabling polling rejects the old in-flight response", async () => {
+  const oldList = deferred<SessionInfo[]>();
+  const newList = deferred<SessionInfo[]>();
+  const polling = scheduler();
+  let calls = 0;
+  const snapshots: string[] = [];
+  const controller = createWorkspaceSessionController({
+    deps: deps({
+      listSessions: async () => ++calls === 1 ? oldList.promise : newList.promise,
+    }),
+    scheduler: polling.scheduler,
+    onSessions: (next) => snapshots.push(next.map((item) => item.id).join(",")),
+  });
+
+  controller.setPollingEnabled(true);
+  await new Promise((resolve) => setImmediate(resolve));
+  controller.setPollingEnabled(false);
+  controller.setPollingEnabled(true);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  oldList.resolve([session("old")]);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(snapshots, []);
+
+  newList.resolve([session("new")]);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(snapshots, ["new"]);
+  controller.dispose();
+});
+
 test("only the exact tracked creating id reaching error reports a create error", async () => {
   const errors: string[] = [];
   let polled: SessionInfo[] = [session("tracked", "creating", "creating"), session("other")];

@@ -104,3 +104,11 @@ publication. This fails with the former shared-generation implementation and
 passes with the separated foreground generation.
 
 - `node --experimental-strip-types --test tests/workspaceSessionController.test.ts` — 10/10 passed.
+
+## Poll lifecycle fix
+
+Polling now uses an epoch invalidated on disable, re-enable, and dispose, so
+an old in-flight response cannot publish beside a newly enabled loop. Added a
+regression test for disable → in-flight response → re-enable ordering.
+
+- `node --experimental-strip-types --test tests/workspaceSessionController.test.ts` — 11/11 passed.
