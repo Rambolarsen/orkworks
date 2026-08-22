@@ -91,6 +91,12 @@ function App() {
   useEffect(() => () => workspaceSessionController.dispose(), [workspaceSessionController]);
 
   useEffect(() => {
+    const enabled = backendStatus === "connected" && workspace !== null;
+    workspaceSessionController.setPollingEnabled(enabled);
+    return () => workspaceSessionController.setPollingEnabled(false);
+  }, [backendStatus, workspace, workspaceSessionController]);
+
+  useEffect(() => {
     if (backendStatus !== "connecting…") return;
     let cancelled = false;
 

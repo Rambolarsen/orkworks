@@ -43,6 +43,7 @@ export interface WorkspaceSessionControllerOptions {
 }
 
 export interface WorkspaceSessionController {
+  setPollingEnabled(enabled: boolean): void;
   openWorkspace(path: string): Promise<void>;
   refreshSessions(): Promise<boolean>;
   createSession(options: CreateSessionOptions): Promise<void>;
@@ -70,7 +71,7 @@ export function createWorkspaceSessionController(
 ): WorkspaceSessionController {
   const deps = { ...defaultDeps, ...options.deps };
   let disposed = false;
-  let generation = 0;
+  let foregroundGeneration = 0;
   let sessions: SessionInfo[] = [];
   let activeSessionId: string | null = null;
   let lastResortAt = new Date(0);
@@ -83,7 +84,7 @@ export function createWorkspaceSessionController(
     options.onError?.({ key, message });
   };
 
-  const isCurrent = (token: number): boolean => !disposed && token === generation;
+  const isCurrent = (token: number): boolean => !disposed && token === foregroundGeneration;
 
   const publishSessions = (next: SessionInfo[]): void => {
     sessions = next;
@@ -91,7 +92,7 @@ export function createWorkspaceSessionController(
   };
 
   async function refreshSessions(): Promise<boolean> {
-    const token = ++generation;
+    const token = foregroundGeneration;
     try {
       const baseUrl = await deps.getBackendUrl();
       const list = await deps.listSessions(baseUrl);
@@ -115,10 +116,22 @@ export function createWorkspaceSessionController(
   const scheduler = options.scheduler ?? (typeof window === "undefined"
     ? { set: () => 0, clear: () => {} }
     : undefined);
-  const stopPolling = startSessionPolling(refreshSessions, options.pollDelayMs, scheduler);
+  let stopPolling: (() => void) | null = null;
+
+  function setPollingEnabled(enabled: boolean): void {
+    if (disposed) return;
+    if (enabled) {
+      if (stopPolling === null) {
+        stopPolling = startSessionPolling(refreshSessions, options.pollDelayMs, scheduler);
+      }
+      return;
+    }
+    stopPolling?.();
+    stopPolling = null;
+  }
 
   async function openWorkspace(path: string): Promise<void> {
-    const token = ++generation;
+    const token = ++foregroundGeneration;
     try {
       const baseUrl = await deps.getBackendUrl();
       const info = await deps.setWorkspace(baseUrl, path);
@@ -128,7 +141,7 @@ export function createWorkspaceSessionController(
       options.onActiveSession?.(null);
       publishSessions([]);
       const refreshed = await refreshSessions();
-      if (!refreshed || !isCurrent(generation)) return;
+      if (!refreshed || !isCurrent(token)) return;
       const restored = info.lastActiveSessionId;
       const match = restored && sessions.find((session) => session.id === restored);
       if (match && match.lifecycle !== "dead") {
@@ -141,7 +154,7 @@ export function createWorkspaceSessionController(
   }
 
   async function createSession(optionsForCreate: CreateSessionOptions): Promise<void> {
-    const token = ++generation;
+    const token = ++foregroundGeneration;
     try {
       const baseUrl = await deps.getBackendUrl();
       const created = await deps.createSession(baseUrl, optionsForCreate);
@@ -158,7 +171,7 @@ export function createWorkspaceSessionController(
   }
 
   async function resumeSession(id: string): Promise<void> {
-    const token = ++generation;
+    const token = ++foregroundGeneration;
     deps.disposeTerminal(id);
     try {
       const baseUrl = await deps.getBackendUrl();
@@ -179,7 +192,7 @@ export function createWorkspaceSessionController(
   }
 
   async function deleteSession(id: string, forget: boolean): Promise<void> {
-    const token = ++generation;
+    const token = ++foregroundGeneration;
     try {
       const baseUrl = await deps.getBackendUrl();
       if (forget) await deps.forgetSession(baseUrl, id);
@@ -199,9 +212,10 @@ export function createWorkspaceSessionController(
   function dispose(): void {
     if (disposed) return;
     disposed = true;
-    generation += 1;
-    stopPolling();
+    foregroundGeneration += 1;
+    stopPolling?.();
+    stopPolling = null;
   }
 
-  return { openWorkspace, refreshSessions, createSession, resumeSession, selectSession, deleteSession, dispose };
+  return { setPollingEnabled, openWorkspace, refreshSessions, createSession, resumeSession, selectSession, deleteSession, dispose };
 }

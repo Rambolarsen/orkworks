@@ -522,10 +522,10 @@ test("EmptyState is the single empty-state primitive across the app", () => {
 });
 
 test("App restores the last active session from the initial workspace", () => {
-  const source = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/workspaceSessionController.ts", import.meta.url), "utf8");
 
   assert.match(source, /info\.lastActiveSessionId/);
-  assert.match(source, /setActiveSessionId\(info\.lastActiveSessionId\)/);
+  assert.match(source, /options\.onActiveSession\?\.\(match\.id\)/);
 });
 
 test("preload exposes settings and hotkey capture APIs", () => {
@@ -580,12 +580,11 @@ test("TerminalPanel replays dead sessions without retaining their interactive ha
     new URL("../src/components/TerminalPanel.tsx", import.meta.url),
     "utf8",
   );
-  const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
-
+  const controller = readFileSync(new URL("../src/workspaceSessionController.ts", import.meta.url), "utf8");
   assert.match(terminalPanel, /renderTerminalPresentation/);
   assert.match(terminalPanel, /HistoricalTerminal/);
-  assert.match(app, /pruneTerminals\(/);
-  assert.match(app, /session\.lifecycle !== "dead"/);
+  assert.match(controller, /pruneTerminals\(/);
+  assert.match(controller, /session\.lifecycle !== "dead"/);
 });
 
 test("App activates shared terminal panel on session create", () => {
@@ -692,16 +691,16 @@ test("attachTerminal keeps a stable identity across starting transitions, so a s
 });
 
 test("handleOpenWorkspace refreshes sessions before setting activeSessionId, so no consumer sees a real active id with an empty session list", () => {
-  const source = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/workspaceSessionController.ts", import.meta.url), "utf8");
 
-  const start = source.indexOf("const handleOpenWorkspace");
-  const end = source.indexOf("\n  }, [", start);
+  const start = source.indexOf("async function openWorkspace");
+  const end = source.indexOf("\n  async function createSession", start);
   const body = source.slice(start, end);
 
-  const refreshIndex = body.indexOf("await refreshSessions()");
-  const setActiveIndex = body.indexOf("setActiveSessionId(info.lastActiveSessionId");
-  assert.ok(refreshIndex !== -1, "handleOpenWorkspace should await refreshSessions()");
-  assert.ok(setActiveIndex !== -1, "handleOpenWorkspace should set activeSessionId from info.lastActiveSessionId");
+  const refreshIndex = body.indexOf("const refreshed = await refreshSessions()");
+  const setActiveIndex = body.indexOf("options.onActiveSession?.(match.id)");
+  assert.ok(refreshIndex !== -1, "openWorkspace should await refreshSessions()");
+  assert.ok(setActiveIndex !== -1, "openWorkspace should publish the restored active session");
   assert.ok(
     refreshIndex < setActiveIndex,
     "refreshSessions() must resolve before activeSessionId is set, otherwise a consumer reading ctx.sessions " +

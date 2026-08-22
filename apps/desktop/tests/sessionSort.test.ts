@@ -119,18 +119,12 @@ test("mergeSessionsById sorts an initial polling snapshot deterministically", ()
   assert.deepEqual(merged, sortSessions(incoming));
 });
 
-test("App combines a creation response with the current snapshot before merging", () => {
-  const source = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+test("the workspace controller combines a creation response with the current snapshot before merging", () => {
+  const source = readFileSync(new URL("../src/workspaceSessionController.ts", import.meta.url), "utf8");
 
-  // Ref declarations required for the new pure-function shape
-  assert.match(source, /const\s+lastResortAtRef\s*=\s*useRef<Date>\s*\(\s*new Date\s*\(\s*0\s*\)\s*\)/);
-  assert.match(source, /const\s+sessionsRef\s*=\s*useRef<SessionInfo\[\]>\s*\(\s*\[\s*\]\s*\)/);
-  // The mirror effect keeps sessionsRef.current in sync with the sessions state
-  assert.match(source, /useEffect\s*\(\s*\(\s*\)\s*=>\s*\{\s*sessionsRef\.current\s*=\s*sessions\s*;\s*\}\s*,\s*\[\s*sessions\s*\]\s*\)/);
-  // The creation-path merge site uses the tuple-destructure pattern with refs and new Date()
   assert.match(
     source,
-    /const\s+\[\s*\w+\s*,\s*\w+\s*\]\s*=\s*mergeSessionsById\s*\(\s*sessionsRef\.current\s*,\s*\[\s*\.\.\.sessionsRef\.current\s*,\s*session\s*\]\s*,\s*lastResortAtRef\.current\s*,\s*new Date\s*\(\s*\)\s*\)/,
+    /mergeSessionsById\(sessions, \[\.\.\.sessions, created\], lastResortAt, new Date\(\)\)/,
   );
 });
 

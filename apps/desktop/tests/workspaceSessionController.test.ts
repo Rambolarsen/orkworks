@@ -73,7 +73,7 @@ function deps(overrides: Partial<WorkspaceSessionControllerDeps> = {}): Workspac
   };
 }
 
-test("the controller owns one polling loop and starts no second loop per refresh", async () => {
+test("the controller starts one polling loop only when explicitly enabled", async () => {
   const polling = scheduler();
   let lists = 0;
   const controller = createWorkspaceSessionController({
@@ -81,9 +81,39 @@ test("the controller owns one polling loop and starts no second loop per refresh
     scheduler: polling.scheduler,
   });
 
+  assert.equal(polling.callbacks.length, 0);
+  controller.setPollingEnabled(true);
   await controller.refreshSessions();
   assert.equal(lists, 2);
   assert.equal(polling.callbacks.length, 1);
+  controller.setPollingEnabled(true);
+  assert.equal(polling.callbacks.length, 1);
+  controller.dispose();
+});
+
+test("a poll response cannot make an in-flight foreground create stale", async () => {
+  const pollList = deferred<SessionInfo[]>();
+  const create = deferred<SessionInfo>();
+  const published: string[] = [];
+  let lists = 0;
+  const controller = createWorkspaceSessionController({
+    deps: deps({
+      listSessions: async () => {
+        lists += 1;
+        return lists === 1 ? pollList.promise : [];
+      },
+      createSession: async () => create.promise,
+    }),
+    onSessions: (next) => published.push(next.map((item) => item.id).join(",")),
+    scheduler: scheduler().scheduler,
+  });
+  controller.setPollingEnabled(true);
+  const creating = controller.createSession({} satisfies CreateSessionOptions);
+  create.resolve(session("created", "creating", "creating"));
+  await creating;
+  pollList.resolve([]);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.ok(published.includes("created"));
   controller.dispose();
 });
 
@@ -124,6 +154,23 @@ test("dispose makes late workspace and poll work no-ops", async () => {
   assert.deepEqual(snapshots, []);
 });
 
+test("disposal stops an enabled poll and rejects its late response", async () => {
+  const pending = deferred<SessionInfo[]>();
+  const polling = scheduler();
+  const snapshots: SessionInfo[][] = [];
+  const controller = createWorkspaceSessionController({
+    deps: deps({ listSessions: async () => pending.promise }),
+    scheduler: polling.scheduler,
+    onSessions: (next) => snapshots.push([...next]),
+  });
+  controller.setPollingEnabled(true);
+  controller.dispose();
+  pending.resolve([session("late")]);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(snapshots, []);
+  assert.equal(polling.callbacks.length, 0);
+});
+
 test("only the exact tracked creating id reaching error reports a create error", async () => {
   const errors: string[] = [];
   let polled: SessionInfo[] = [session("tracked", "creating", "creating"), session("other")];
@@ -140,12 +187,26 @@ test("only the exact tracked creating id reaching error reports a create error",
   controller.dispose();
 });
 
-test("restores last active session only after a matching live snapshot", async () => {
+test("restores a matching live last active session after the refreshed snapshot", async () => {
   const active: Array<string | null> = [];
   const controller = createWorkspaceSessionController({
     deps: deps({
       setWorkspace: async () => workspace("workspace", "remembered"),
-      listSessions: async () => [session("other")],
+      listSessions: async () => [session("remembered")],
+    }),
+    onActiveSession: (id) => active.push(id),
+  });
+  await controller.openWorkspace("workspace");
+  assert.deepEqual(active, [null, "remembered"]);
+  controller.dispose();
+});
+
+test("does not restore a matching dead last active session", async () => {
+  const active: Array<string | null> = [];
+  const controller = createWorkspaceSessionController({
+    deps: deps({
+      setWorkspace: async () => workspace("workspace", "remembered"),
+      listSessions: async () => [session("remembered", "dead", "ended")],
     }),
     onActiveSession: (id) => active.push(id),
   });

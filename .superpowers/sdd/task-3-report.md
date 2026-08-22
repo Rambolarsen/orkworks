@@ -57,3 +57,41 @@ commit.
 - Final post-commit verification was interrupted and could not be confirmed
   complete; `ps` inspection was also denied by the sandbox, so no claim is
   made about leftover process state.
+
+## Review fix
+
+### Files
+
+- `apps/desktop/src/workspaceSessionController.ts`
+  - Split foreground-operation invalidation from refresh/poll work.
+  - Added `setPollingEnabled()` so construction is timer-free and App owns
+    the connected-workspace lifecycle seam.
+  - Preserved superseded foreground and disposed-operation rejection.
+- `apps/desktop/src/App.tsx`
+  - Enables polling only after backend connection and workspace publication;
+    disables it during lifecycle cleanup.
+- `apps/desktop/tests/workspaceSessionController.test.ts`
+  - Added poll/foreground race, explicit polling ownership, live/dead
+    restoration, and post-disposal coverage.
+- `apps/desktop/tests/dockview.test.ts`
+  - Completed the three extraction-aware source-shape assertions while
+    preserving the existing uncommitted changes.
+- `apps/desktop/tests/sessionSort.test.ts`
+  - Updated one remaining extraction-era source-shape assertion to inspect
+    the controller.
+
+### Tests and commands
+
+- TDD red: focused controller tests failed because `setPollingEnabled()` was
+  absent.
+- TDD green: `node --experimental-strip-types --test tests/workspaceSessionController.test.ts tests/dockview.test.ts` — 73/73 passed.
+- `./node_modules/.bin/tsc --noEmit` — passed, exit 0.
+- `node --experimental-strip-types --test tests/*.test.ts tests/*.test.mjs` — 362/362 passed.
+- `git diff --check` — passed.
+- `pnpm exec tsc --noEmit` — sandbox EPERM while opening pnpm's temporary
+  wrapper; direct local `tsc` produced the same successful type-check.
+
+### Concerns
+
+- Node test runs continue to emit existing module-type warnings; no test
+  failures or new runtime warnings were introduced.
