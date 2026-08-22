@@ -1,5 +1,5 @@
 use crate::harness::registry::ResolvedHarness;
-use crate::plan_handoff::{normalize_reported_plan_path, resolve_openable_plan_reference};
+use crate::plan_handoff::resolve_openable_plan_reference;
 use crate::session_types::{MemoryState, SessionInfo};
 use crate::session_view::{
     connectivity_for_status, derive_memory_state, detect_conflicts, merge_live_session_info,
@@ -197,41 +197,11 @@ pub(crate) async fn report_session_plan_path(
     Json(req): Json<PlanPathReportRequest>,
 ) -> impl IntoResponse {
     let result = tokio::task::spawn_blocking(move || {
-        let workspace = state.workspace.lock().unwrap();
-        let Some(workspace) = workspace.as_ref() else { return Err(axum::http::StatusCode::CONFLICT); };
-        let Some(mut metadata) = workspace.metadata.read_session(&id) else { return Err(axum::http::StatusCode::NOT_FOUND); };
-        if metadata.lifecycle != "alive" { return Err(axum::http::StatusCode::CONFLICT); }
-        if metadata.plan_path.as_ref().is_some_and(|reference| reference.source == metadata::PlanSource::UserSelected) {
-            return Ok(());
-        }
-        let relative = normalize_reported_plan_path(&workspace.path, &req.plan_path)
-            .map_err(|_| axum::http::StatusCode::BAD_REQUEST)?;
-        metadata.plan_path = Some(metadata::PlanReference {
-            worktree_root: Some(workspace.path.to_string_lossy().into_owned()),
-            relative_path: relative,
-            source: metadata::PlanSource::HookReported,
-        });
-        // The session JSON is the source of truth. Use the fallible writer
-        // and only append the hooked event when the write actually
-        // landed, so the event log cannot claim a path association that
-        // the session file does not reflect.
-        workspace
-            .metadata
-            .try_write_session(&metadata)
-            .map_err(|error| {
-                tracing::error!(error = %error, session = %id, "plan path session write failed");
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR
-            })?;
-        workspace.metadata.append_event(&id, &metadata::Event {
-            event_type: "session.plan_path_hooked".into(), timestamp: iso_now(), status: metadata.status.clone(),
-            observed_status: metadata.observed_status.clone(), confidence: Some(1.0),
-            summary: None, source: Some("agent".into()),
-        });
-        Ok(())
+        SessionApplication::new(state).report_plan_path(&id, &req.plan_path)
     }).await;
     match result {
         Ok(Ok(())) => axum::http::StatusCode::NO_CONTENT.into_response(),
-        Ok(Err(status)) => status.into_response(),
+        Ok(Err(error)) => application_error_response(error),
         Err(error) => { tracing::error!(error = %error, "plan path metadata task failed"); axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response() }
     }
 }

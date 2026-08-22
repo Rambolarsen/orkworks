@@ -2,7 +2,7 @@ use crate::{git, metadata, migration, watcher, AppState, WorkspaceState};
 use crate::workspace_runtime::{iso_now, orkworks_global_dir};
 use crate::session_types::{MemoryState, SessionInfo};
 use crate::session_view::{connectivity_for_status, terminal_outcome_for_status};
-use crate::plan_handoff::resolve_printed_plan_path;
+use crate::plan_handoff::{normalize_reported_plan_path, resolve_printed_plan_path};
 use crate::runtime::observed_status::apply_attention_signal;
 use crate::workspace_runtime::parse_hook_observed_at;
 use portable_pty::PtySize;
@@ -196,6 +196,53 @@ impl SessionApplication {
         }
 
         Ok(result)
+    }
+
+    pub(crate) fn report_plan_path(
+        &self,
+        id: &str,
+        reported_path: &str,
+    ) -> Result<(), SessionError> {
+        let workspace_guard = self.state.workspace.lock().unwrap();
+        let workspace = workspace_guard.as_ref().ok_or(SessionError::Conflict)?;
+        let mut metadata = workspace.metadata.read_session(id).ok_or(SessionError::NotFound)?;
+        if metadata.lifecycle != "alive" {
+            return Err(SessionError::Conflict);
+        }
+        if metadata
+            .plan_path
+            .as_ref()
+            .is_some_and(|reference| reference.source == metadata::PlanSource::UserSelected)
+        {
+            return Ok(());
+        }
+        let relative = normalize_reported_plan_path(&workspace.path, reported_path)
+            .map_err(|_| SessionError::EmptyBadRequest)?;
+        metadata.plan_path = Some(metadata::PlanReference {
+            worktree_root: Some(workspace.path.to_string_lossy().into_owned()),
+            relative_path: relative,
+            source: metadata::PlanSource::HookReported,
+        });
+        workspace
+            .metadata
+            .try_write_session(&metadata)
+            .map_err(|error| {
+                tracing::error!(error = %error, session = %id, "plan path session write failed");
+                SessionError::Internal("application operation failed")
+            })?;
+        workspace.metadata.append_event(
+            id,
+            &metadata::Event {
+                event_type: "session.plan_path_hooked".into(),
+                timestamp: iso_now(),
+                status: metadata.status.clone(),
+                observed_status: metadata.observed_status.clone(),
+                confidence: Some(1.0),
+                summary: None,
+                source: Some("agent".into()),
+            },
+        );
+        Ok(())
     }
 
     pub(crate) async fn report_attention(
@@ -1504,6 +1551,118 @@ mod tests {
                 .and_then(|resume| resume.harness_session_id.as_deref()),
             Some("native-harness-report-live")
         );
+    }
+
+    #[test]
+    fn report_plan_path_application_preserves_selection_and_validates_session_state() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let application = SessionApplication::new(state.clone());
+
+        assert_eq!(
+            application.report_plan_path("missing", root.path().join("plan.md").to_str().unwrap()),
+            Err(SessionError::NotFound)
+        );
+
+        let mut dead = crate::test_support::test_session_metadata(
+            "dead-plan", "Dead plan", root.path().display().to_string(), "ended", "before", "before",
+        );
+        dead.lifecycle = "ended".into();
+        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&dead);
+        assert_eq!(
+            application.report_plan_path("dead-plan", root.path().join("plan.md").to_str().unwrap()),
+            Err(SessionError::Conflict)
+        );
+
+        let mut invalid = crate::test_support::test_session_metadata(
+            "invalid-plan", "Invalid plan", root.path().display().to_string(), "running", "before", "before",
+        );
+        invalid.lifecycle = "alive".into();
+        invalid.lifecycle_phase = "active".into();
+        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&invalid);
+        assert_eq!(
+            application.report_plan_path("invalid-plan", "../outside.md"),
+            Err(SessionError::EmptyBadRequest)
+        );
+
+        let mut selected = crate::test_support::test_session_metadata(
+            "selected-plan", "Selected plan", root.path().display().to_string(), "running", "before", "before",
+        );
+        selected.lifecycle = "alive".into();
+        selected.lifecycle_phase = "active".into();
+        selected.plan_path = Some(metadata::PlanReference {
+            worktree_root: Some(root.path().display().to_string()),
+            relative_path: "user-plan.md".into(),
+            source: metadata::PlanSource::UserSelected,
+        });
+        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&selected);
+        application.report_plan_path("selected-plan", root.path().join("hook-plan.md").to_str().unwrap()).unwrap();
+        assert_eq!(
+            state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session("selected-plan").unwrap().plan_path.unwrap().relative_path,
+            "user-plan.md"
+        );
+
+        *state.workspace.lock().unwrap() = None;
+        assert_eq!(
+            application.report_plan_path("missing", "plan.md"),
+            Err(SessionError::Conflict)
+        );
+    }
+
+    #[test]
+    fn report_plan_path_application_normalizes_and_appends_agent_event_without_attention_change() {
+        let root = tempfile::tempdir().unwrap();
+        let plan_dir = root.path().join("docs/superpowers/plans");
+        std::fs::create_dir_all(&plan_dir).unwrap();
+        let plan = plan_dir.join("plan.md");
+        std::fs::write(&plan, "# plan").unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "hook-plan";
+        let mut session = crate::test_support::test_session_metadata(
+            id, "Hook plan", root.path().display().to_string(), "running", "before", "before",
+        );
+        session.lifecycle = "alive".into();
+        session.lifecycle_phase = "active".into();
+        session.attention = Some("working".into());
+        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&session);
+
+        SessionApplication::new(state.clone())
+            .report_plan_path(id, plan.to_str().unwrap())
+            .unwrap();
+
+        let stored = state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(id).unwrap();
+        let reference = stored.plan_path.unwrap();
+        assert_eq!(reference.relative_path, "docs/superpowers/plans/plan.md");
+        assert_eq!(reference.source, metadata::PlanSource::HookReported);
+        assert_eq!(stored.attention.as_deref(), Some("working"));
+        let event = state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_events(id).into_iter().find(|event| event.event_type == "session.plan_path_hooked").unwrap();
+        assert_eq!(event.source.as_deref(), Some("agent"));
+        assert_eq!(event.confidence, Some(1.0));
+    }
+
+    #[test]
+    fn report_plan_path_application_does_not_append_event_when_session_write_fails() {
+        let root = tempfile::tempdir().unwrap();
+        let plan_dir = root.path().join("docs/superpowers/plans");
+        std::fs::create_dir_all(&plan_dir).unwrap();
+        let plan = plan_dir.join("plan.md");
+        std::fs::write(&plan, "# plan").unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "write-fails-plan";
+        let mut session = crate::test_support::test_session_metadata(
+            id, "Write fails", root.path().display().to_string(), "running", "before", "before",
+        );
+        session.lifecycle = "alive".into();
+        session.lifecycle_phase = "active".into();
+        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&session);
+        let sessions_path = state.workspace.lock().unwrap().as_ref().unwrap().metadata.sessions_dir();
+        std::fs::create_dir_all(sessions_path.join(format!("{id}.json.tmp"))).unwrap();
+
+        assert_eq!(
+            SessionApplication::new(state.clone()).report_plan_path(id, plan.to_str().unwrap()),
+            Err(SessionError::Internal("application operation failed"))
+        );
+        assert!(state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_events(id).into_iter().all(|event| event.event_type != "session.plan_path_hooked"));
     }
 
     #[tokio::test]
