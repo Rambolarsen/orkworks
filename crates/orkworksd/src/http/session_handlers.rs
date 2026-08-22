@@ -339,6 +339,7 @@ pub(crate) async fn create_session(
             initial_prompt: req.initial_prompt,
         })
         .await
+        .map(|info| Json(info).into_response())
         .unwrap_or_else(application_error_response)
 }
 
@@ -349,6 +350,7 @@ pub(crate) async fn resume_session(
     SessionApplication::new(state)
         .resume_session(&id)
         .await
+        .map(|info| Json(info).into_response())
         .unwrap_or_else(application_error_response)
 }
 
@@ -587,10 +589,11 @@ fn try_install_claimed_resume_handle(
     })
 }
 
-pub(crate) async fn resume_session_legacy(
-    State(state): State<Arc<AppState>>,
-    Path(id): Path<String>,
-) -> impl IntoResponse {
+pub(crate) async fn resume_session_workflow(
+    state: Arc<AppState>,
+    id: &str,
+) -> Result<SessionInfo, crate::session_application::SessionError> {
+    let id = id.to_string();
     let now = iso_now();
     let expected_generation = state
         .sessions
@@ -606,13 +609,13 @@ pub(crate) async fn resume_session_legacy(
     let (meta, command, strategy, resume_flags, capacity_check_pending, active_work_hook) = {
         let ws_guard = state.workspace.lock().unwrap();
         let Some(ref ws) = *ws_guard else {
-            return axum::http::StatusCode::CONFLICT.into_response();
+            return Err(crate::session_application::SessionError::Conflict);
         };
         let Some(meta) = ws.metadata.read_session(&id) else {
-            return axum::http::StatusCode::NOT_FOUND.into_response();
+            return Err(crate::session_application::SessionError::NotFound);
         };
         let Some(resume) = meta.resume.as_ref() else {
-            return axum::http::StatusCode::BAD_REQUEST.into_response();
+            return Err(crate::session_application::SessionError::BadRequest("invalid request"));
         };
         let session_harness_id = (!meta.harness.is_empty()).then_some(meta.harness.as_str());
         let harness = session_harness_id
@@ -624,7 +627,7 @@ pub(crate) async fn resume_session_legacy(
             .contains(&crate::harness::registry::CapabilityName::Attention);
         let strategy = harness.select_resume_strategy(resume);
         if strategy == harness::ResumeStrategy::None {
-            return axum::http::StatusCode::BAD_REQUEST.into_response();
+            return Err(crate::session_application::SessionError::BadRequest("invalid request"));
         }
         let Some(command) = harness.build_resume(
             strategy.clone(),
@@ -633,7 +636,7 @@ pub(crate) async fn resume_session_legacy(
             meta.repo_root.as_deref(),
             (!meta.model.is_empty()).then_some(meta.model.as_str()),
         ) else {
-            return axum::http::StatusCode::BAD_REQUEST.into_response();
+            return Err(crate::session_application::SessionError::BadRequest("invalid request"));
         };
         (
             meta,
@@ -746,7 +749,7 @@ pub(crate) async fn resume_session_legacy(
             expected_generation,
         ) {
             Ok(admission) => admission,
-            Err(()) => return axum::http::StatusCode::CONFLICT.into_response(),
+            Err(()) => return Err(crate::session_application::SessionError::Conflict),
         }
     };
     let run_generation = admission.generation();
@@ -838,7 +841,7 @@ pub(crate) async fn resume_session_legacy(
         Ok(()) => {}
         Err(error) => {
             tracing::error!(session_id = %id, %error, "failed to start resumed session runtime");
-            return axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            return Err(crate::session_application::SessionError::Internal("application operation failed"));
         }
     }
     let info = state
@@ -867,7 +870,7 @@ pub(crate) async fn resume_session_legacy(
         }
     }
 
-    Json(info).into_response()
+    Ok(info)
 }
 
 pub(crate) async fn report_harness_session(
@@ -1251,10 +1254,15 @@ pub(crate) fn resolve_session_launch(
     }
 }
 
-pub(crate) async fn create_session_legacy(
-    State(state): State<Arc<AppState>>,
-    Json(req): Json<CreateSessionRequest>,
-) -> impl IntoResponse {
+pub(crate) async fn create_session_workflow(
+    state: Arc<AppState>,
+    req: crate::session_application::CreateSessionCommand,
+) -> Result<SessionInfo, crate::session_application::SessionError> {
+    let req = CreateSessionRequest {
+        harness_id: req.harness_id,
+        model: req.model,
+        initial_prompt: req.initial_prompt,
+    };
     let id = uuid::Uuid::new_v4().to_string();
     let (workspace_cwd, workspace_metadata_root) = state
         .workspace
@@ -1285,11 +1293,9 @@ pub(crate) async fn create_session_legacy(
             .get(id)
             .is_some_and(|harness| harness.definition.retired)
     }) {
-        return (
-            axum::http::StatusCode::BAD_REQUEST,
+        return Err(crate::session_application::SessionError::BadRequest(
             "The selected coding tool is retired and cannot start new sessions.",
-        )
-            .into_response();
+        ));
     }
     let mut resolved_launch = resolve_session_launch(&registry, &req, cwd.clone());
     let integration_enabled = if let Some(harness) = resolved_launch
@@ -1591,7 +1597,7 @@ pub(crate) async fn create_session_legacy(
         }
     });
 
-    Json(info).into_response()
+    Ok(info)
 }
 
 fn enrich_sessions_with_git_context<F>(

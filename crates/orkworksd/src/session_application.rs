@@ -1,8 +1,7 @@
 use crate::{git, metadata, migration, watcher, AppState, WorkspaceState};
 use crate::workspace_runtime::{iso_now, orkworks_global_dir};
-use crate::http::session_handlers::{
-    AttentionReportRequest, CreateSessionRequest, TerminalPlanSelectionRequest,
-};
+use crate::http::session_handlers::{AttentionReportRequest, TerminalPlanSelectionRequest};
+use crate::session_types::SessionInfo;
 use axum::response::{IntoResponse, Response};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -117,26 +116,12 @@ impl SessionApplication {
     pub(crate) async fn create_session(
         &self,
         request: CreateSessionCommand,
-    ) -> Result<SessionSnapshot, SessionError> {
-        Ok(crate::http::session_handlers::create_session_legacy(
-            axum::extract::State(self.state.clone()),
-            axum::Json(CreateSessionRequest {
-                harness_id: request.harness_id,
-                model: request.model,
-                initial_prompt: request.initial_prompt,
-            }),
-        )
-        .await
-        .into_response())
+    ) -> Result<SessionInfo, SessionError> {
+        crate::http::session_handlers::create_session_workflow(self.state.clone(), request).await
     }
 
-    pub(crate) async fn resume_session(&self, id: &str) -> Result<SessionSnapshot, SessionError> {
-        Ok(crate::http::session_handlers::resume_session_legacy(
-            axum::extract::State(self.state.clone()),
-            axum::extract::Path(id.to_string()),
-        )
-        .await
-        .into_response())
+    pub(crate) async fn resume_session(&self, id: &str) -> Result<SessionInfo, SessionError> {
+        crate::http::session_handlers::resume_session_workflow(self.state.clone(), id).await
     }
 
     pub(crate) async fn report_attention(
@@ -168,7 +153,7 @@ impl SessionApplication {
         &self,
         id: &str,
         selection: PlanSelection,
-    ) -> Result<SessionSnapshot, SessionError> {
+    ) -> Result<axum::response::Response, SessionError> {
         let PlanSelection { printed_path, token } = selection;
         Ok(crate::http::session_handlers::select_terminal_plan_legacy(
             axum::extract::State(self.state.clone()),
@@ -234,5 +219,45 @@ mod tests {
         let snapshot = application.open_workspace(root.path().to_path_buf()).unwrap();
 
         assert_eq!(snapshot.path, root.path().to_string_lossy());
+    }
+
+    #[tokio::test]
+    async fn create_returns_pre_spawn_info_after_persisting_creating_session() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let application = SessionApplication::new(state.clone());
+
+        let info = application
+            .create_session(CreateSessionCommand {
+                harness_id: Some("generic-shell".into()),
+                model: None,
+                initial_prompt: None,
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(info.status, "creating");
+        assert!(state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(&info.id)
+            .is_some());
+    }
+
+    #[tokio::test]
+    async fn resume_without_a_workspace_returns_conflict() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        *state.workspace.lock().unwrap() = None;
+        let application = SessionApplication::new(state);
+
+        assert!(matches!(
+            application.resume_session("missing").await,
+            Err(SessionError::Conflict)
+        ));
     }
 }
