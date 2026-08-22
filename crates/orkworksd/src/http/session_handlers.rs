@@ -1,11 +1,11 @@
 use crate::harness::registry::ResolvedHarness;
-use crate::plan_handoff::{normalize_reported_plan_path, resolve_openable_plan_reference, resolve_printed_plan_path};
+use crate::plan_handoff::{normalize_reported_plan_path, resolve_openable_plan_reference};
 use crate::session_types::{MemoryState, SessionInfo};
 use crate::session_view::{
     connectivity_for_status, derive_memory_state, detect_conflicts, merge_live_session_info,
     resolve_effective_cwds, session_recommendation, terminal_outcome_for_status,
 };
-use crate::workspace_runtime::{iso_now, parse_hook_observed_at};
+use crate::workspace_runtime::iso_now;
 use crate::{git, metadata, peon, AppState};
 #[cfg(test)]
 use crate::workspace_runtime::orkworks_global_dir;
@@ -191,37 +191,6 @@ pub(crate) async fn request_session_plan_review(
         }
         Err(()) => axum::http::StatusCode::CONFLICT.into_response(),
     }
-}
-
-pub(crate) async fn select_terminal_plan_legacy(
-    State(state): State<Arc<AppState>>,
-    Path(id): Path<String>,
-    headers: HeaderMap,
-    Json(req): Json<TerminalPlanSelectionRequest>,
-) -> impl IntoResponse {
-    if let Err(status) = authorize_plan_request(&headers) { return status.into_response(); }
-    let result = tokio::task::spawn_blocking(move || {
-        let workspace = state.workspace.lock().unwrap();
-        let Some(workspace) = workspace.as_ref() else { return Err(axum::http::StatusCode::CONFLICT); };
-        let Some(mut meta) = workspace.metadata.read_session(&id) else { return Err(axum::http::StatusCode::NOT_FOUND); };
-        let (worktree_root, relative_path) = resolve_printed_plan_path(std::path::Path::new(&meta.cwd), &req.printed_path)
-            .map_err(|error| {
-                tracing::warn!(session_id = %id, printed_path = %req.printed_path, %error, "select_terminal_plan: plan path resolution failed");
-                axum::http::StatusCode::CONFLICT
-            })?;
-        meta.plan_path = Some(metadata::PlanReference {
-            worktree_root: Some(worktree_root.to_string_lossy().into_owned()),
-            relative_path,
-            source: metadata::PlanSource::UserSelected,
-        });
-        workspace.metadata.try_write_session(&meta).map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
-        workspace.metadata.append_event(&id, &metadata::Event {
-            event_type: "session.plan_selected_by_user".into(), timestamp: iso_now(), status: meta.status.clone(),
-            observed_status: meta.observed_status.clone(), confidence: Some(1.0), summary: None, source: Some("user".into()),
-        });
-        Ok(())
-    }).await;
-    match result { Ok(Ok(())) => axum::http::StatusCode::NO_CONTENT.into_response(), Ok(Err(status)) => status.into_response(), Err(_) => axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response() }
 }
 
 pub(crate) async fn report_session_plan_path(
@@ -926,184 +895,6 @@ pub(crate) async fn report_harness_session(
         metadata::HarnessSessionMergeResult::Invalid => {
             axum::http::StatusCode::BAD_REQUEST.into_response()
         }
-    }
-}
-
-pub(crate) async fn report_attention_legacy(
-    State(state): State<Arc<AppState>>,
-    Path(id): Path<String>,
-    Json(req): Json<AttentionReportRequest>,
-) -> impl IntoResponse {
-    let observed_at = match req.observed_at.as_deref() {
-        Some(raw) => match parse_hook_observed_at(raw) {
-            Ok(timestamp) => Some(timestamp),
-            Err(()) => return axum::http::StatusCode::BAD_REQUEST.into_response(),
-        },
-        None => None,
-    };
-    let active_alias = matches!(req.status.as_str(), "thinking" | "reasoning");
-    if !active_alias && !peon::is_valid_observed_status(&req.status) {
-        return axum::http::StatusCode::BAD_REQUEST.into_response();
-    }
-    let supports_active_work = state
-        .sessions
-        .lock()
-        .unwrap()
-        .get(&id)
-        .is_some_and(|handle| handle.active_work_hook);
-    let Some(status) = normalize_hook_attention_status(&req.status, supports_active_work) else {
-        return axum::http::StatusCode::BAD_REQUEST.into_response();
-    };
-
-    if observed_at.is_some_and(|timestamp| {
-        state
-            .sessions
-            .lock()
-            .unwrap()
-            .get(&id)
-            .and_then(|handle| handle.runtime.accepted_input_at)
-            .is_some_and(|accepted_at| timestamp <= accepted_at)
-    }) {
-        return axum::http::StatusCode::OK.into_response();
-    }
-
-    // Record the harness's self-reported cwd (issue #241 / ADR 0032) whenever
-    // one accompanies this report. Gated behind the same staleness check as
-    // the attention status above — a delayed/superseded hook event carries an
-    // equally stale cwd, and since this is the top-priority tier in
-    // resolve_effective_cwds, a stale write here can't be corrected by the
-    // more-accurate live probe underneath it. An empty string is treated as
-    // "nothing reported" rather than clearing a previously-known value.
-    if let Some(cwd) = req.cwd.as_deref().filter(|c| !c.is_empty()) {
-        state
-            .peon
-            .reported_cwd
-            .write()
-            .unwrap()
-            .insert(id.clone(), cwd.to_string());
-    }
-
-    let now = iso_now();
-    let persist_state = state.clone();
-    let persist_id = id.clone();
-    let persist_status = status.clone();
-    let message = req.message.clone();
-    let plan_path = req.plan_path.clone();
-    let observed_at_for_commit = observed_at;
-    let result = match tokio::task::spawn_blocking(move || {
-        // Workspace existence is checked unconditionally first, matching the
-        // pre-refactor order: a torn-down workspace must always mean 409, not
-        // 200, regardless of whether this particular report also turns out to
-        // be stale.
-        if persist_state.workspace.lock().unwrap().is_none() {
-            return Err(axum::http::StatusCode::CONFLICT);
-        }
-        if observed_at_for_commit.is_some_and(|timestamp| {
-            persist_state
-                .sessions
-                .lock()
-                .unwrap()
-                .get(&persist_id)
-                .and_then(|handle| handle.runtime.accepted_input_at)
-                .is_some_and(|accepted_at| timestamp <= accepted_at)
-        }) {
-            return Ok(metadata::AttentionMergeResult::Ignored);
-        }
-        match crate::runtime::observed_status::apply_attention_signal(
-            &persist_state,
-            &persist_id,
-            &persist_status,
-            message.as_deref(),
-            &plan_path,
-            &now,
-            "agent",
-            1.0,
-            observed_at_for_commit,
-        ) {
-            Some(result) => Ok(result),
-            None => Err(axum::http::StatusCode::CONFLICT),
-        }
-    })
-    .await
-    {
-        Ok(Ok(result)) => result,
-        Ok(Err(status)) => return status.into_response(),
-        Err(error) => {
-            tracing::error!(error = %error, "attention metadata task failed");
-            return axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
-    };
-
-    if result == metadata::AttentionMergeResult::Accepted && status == "working" {
-        if let Some(observed_at) = observed_at {
-            clear_claude_capacity_after_working(&state, &id, observed_at);
-        }
-    }
-
-    if result == metadata::AttentionMergeResult::Accepted {
-        let mut bufs = state.peon.input_buf.write().unwrap();
-        if bufs
-            .get(&id)
-            .is_some_and(|buf| !peon::is_descriptive_input(buf))
-        {
-            bufs.remove(&id);
-        }
-    }
-
-    match result {
-        metadata::AttentionMergeResult::Accepted => axum::http::StatusCode::OK.into_response(),
-        metadata::AttentionMergeResult::Ignored => axum::http::StatusCode::OK.into_response(),
-        metadata::AttentionMergeResult::NotFound => {
-            axum::http::StatusCode::NOT_FOUND.into_response()
-        }
-        // The signal was lost, not delivered — a 200 here would tell the
-        // harness hook its notification landed when it didn't.
-        metadata::AttentionMergeResult::PersistFailed => {
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response()
-        }
-    }
-}
-
-fn clear_claude_capacity_after_working(
-    state: &Arc<AppState>,
-    id: &str,
-    observed_at: chrono::DateTime<chrono::Utc>,
-) {
-    let mut sessions = state.sessions.lock().unwrap();
-    let Some(harness_id) = sessions
-        .get(id)
-        .and_then(|handle| handle.info.harness_id.as_deref())
-        .map(str::to_owned)
-        .filter(|harness_id| *harness_id == "claude-code")
-    else {
-        return;
-    };
-    if sessions.values().any(|handle| {
-        handle.info.harness_id.as_deref() == Some(harness_id.as_str())
-            && handle.at_usage_limit_latched
-            && handle
-                .runtime
-                .usage_limit_latched_at
-                .is_some_and(|latched_at| latched_at > observed_at)
-    }) {
-        return;
-    }
-    for handle in sessions.values_mut() {
-        if handle.info.harness_id.as_deref() == Some(harness_id.as_str()) {
-            handle.at_usage_limit_latched = false;
-            handle.runtime.usage_limit_latched_at = None;
-            handle.resume_scan_origin = Some((handle.output_lines_seen, handle.scan_bytes_seen));
-        }
-    }
-}
-
-fn normalize_hook_attention_status(status: &str, supports_active_work: bool) -> Option<String> {
-    match status {
-        "working" | "thinking" | "reasoning" if supports_active_work => Some("working".into()),
-        "waiting_for_input" | "blocked" | "failed" | "done" | "stale" | "idle" => {
-            Some(status.into())
-        }
-        _ => None,
     }
 }
 
@@ -3627,6 +3418,10 @@ mod tests {
         .into_response();
 
         assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
+        assert!(axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap()
+            .is_empty());
     }
 
     #[tokio::test]

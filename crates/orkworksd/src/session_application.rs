@@ -139,10 +139,10 @@ impl SessionApplication {
             .as_deref()
             .map(parse_hook_observed_at)
             .transpose()
-            .map_err(|_| SessionError::BadRequest("invalid request"))?;
+            .map_err(|_| SessionError::EmptyBadRequest)?;
         let active_alias = matches!(signal.status.as_str(), "thinking" | "reasoning");
         if !active_alias && !peon::is_valid_observed_status(&signal.status) {
-            return Err(SessionError::BadRequest("invalid request"));
+            return Err(SessionError::EmptyBadRequest);
         }
         let supports_active_work = self
             .state
@@ -152,7 +152,7 @@ impl SessionApplication {
             .get(id)
             .is_some_and(|handle| handle.active_work_hook);
         let status = normalize_hook_attention_status(&signal.status, supports_active_work)
-            .ok_or(SessionError::BadRequest("invalid request"))?;
+            .ok_or(SessionError::EmptyBadRequest)?;
         if observed_at.is_some_and(|timestamp| {
             self.state
                 .sessions
@@ -1129,6 +1129,32 @@ fn clear_claude_capacity_after_working(
 mod tests {
     use super::*;
 
+    fn attention_test_handle(id: &str, cwd: &std::path::Path) -> SessionHandle {
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        SessionHandle {
+            info: crate::test_support::test_session_info(
+                id, "Attention", cwd.display().to_string(), "running", "now",
+            ),
+            active_work_hook: false,
+            kill_tx,
+            output_buffer: peon::RingBuffer::new(200),
+            scan_buf: String::new(),
+            pending_work_signal: None,
+            runtime: crate::runtime::session_runtime::SessionRuntime::detached(
+                crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+            ),
+            terminal_attached: false,
+            resume_in_progress: false,
+            at_usage_limit_latched: false,
+            capacity_check_pending: false,
+            output_lines_seen: 0,
+            scan_bytes_seen: 0,
+            resume_scan_origin: None,
+            pending_capacity_visible_once: false,
+        }
+    }
+
     #[test]
     fn opening_a_workspace_returns_its_application_snapshot() {
         let root = tempfile::tempdir().unwrap();
@@ -1329,7 +1355,7 @@ mod tests {
         let state = crate::test_support::test_app_state_with_workspace(root.path());
         let id = "attention-application";
         let mut meta = crate::test_support::test_session_metadata(
-            id, "Attention", &root.path().display().to_string(), "running", "before", "before",
+            id, "Attention", root.path().display().to_string(), "running", "before", "before",
         );
         meta.lifecycle = "alive".into();
         meta.lifecycle_phase = "active".into();
@@ -1354,7 +1380,75 @@ mod tests {
             status: "invalid".into(), message: None, plan_path: metadata::PlanPathUpdate::Unchanged,
             observed_at: None, cwd: None,
         }).await;
-        assert!(matches!(result, Err(SessionError::BadRequest(_))));
+        assert!(matches!(result, Err(SessionError::EmptyBadRequest)));
+    }
+
+    #[tokio::test]
+    async fn report_attention_application_seam_ignores_stale_signal() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "attention-stale-application";
+        let mut meta = crate::test_support::test_session_metadata(
+            id, "Attention", root.path().display().to_string(), "running", "before", "before",
+        );
+        meta.lifecycle = "alive".into();
+        meta.lifecycle_phase = "active".into();
+        meta.observed_status = Some("working".into());
+        meta.attention = Some("working".into());
+        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&meta);
+        let mut handle = attention_test_handle(id, root.path());
+        handle.runtime.accepted_input_at = Some(parse_hook_observed_at("2026-08-22T08:00:01.000000Z").unwrap());
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+
+        SessionApplication::new(state.clone())
+            .report_attention(id, AttentionSignal {
+                status: "waiting_for_input".into(), message: Some("old".into()),
+                plan_path: metadata::PlanPathUpdate::Unchanged,
+                observed_at: Some("2026-08-22T08:00:00.000000Z".into()), cwd: Some("/stale".into()),
+            }).await.unwrap();
+
+        let stored = state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(id).unwrap();
+        assert_eq!(stored.observed_status.as_deref(), Some("working"));
+        assert_eq!(state.peon.reported_cwd.read().unwrap().get(id), None);
+    }
+
+    #[tokio::test]
+    async fn report_attention_application_seam_returns_persistence_failure() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "attention-persist-failure";
+        let mut meta = crate::test_support::test_session_metadata(
+            id, "Attention", root.path().display().to_string(), "running", "before", "before",
+        );
+        meta.lifecycle = "alive".into();
+        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&meta);
+        std::fs::create_dir_all(root.path().join(".orkworks-test/sessions/attention-persist-failure.json.tmp")).unwrap();
+
+        let result = SessionApplication::new(state).report_attention(id, AttentionSignal {
+            status: "waiting_for_input".into(), message: Some("not persisted".into()),
+            plan_path: metadata::PlanPathUpdate::Unchanged, observed_at: None, cwd: None,
+        }).await;
+
+        assert!(matches!(result, Err(SessionError::Internal("application operation failed"))));
+    }
+
+    #[tokio::test]
+    async fn select_plan_application_seam_rejects_unresolvable_path() {
+        let root = tempfile::tempdir().unwrap();
+        git2::Repository::init(root.path()).unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "plan-rejected-application";
+        let mut meta = crate::test_support::test_session_metadata(
+            id, "Plan", root.path().display().to_string(), "running", "before", "before",
+        );
+        meta.cwd = root.path().display().to_string();
+        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&meta);
+
+        let result = SessionApplication::new(state).select_plan(id, PlanSelection {
+            printed_path: "../outside-plan.md".into(),
+        }).await;
+
+        assert!(matches!(result, Err(SessionError::Conflict)));
     }
 
     #[tokio::test]
@@ -1366,7 +1460,7 @@ mod tests {
         let state = crate::test_support::test_app_state_with_workspace(root.path());
         let id = "plan-application";
         let mut meta = crate::test_support::test_session_metadata(
-            id, "Plan", &root.path().display().to_string(), "running", "before", "before",
+            id, "Plan", root.path().display().to_string(), "running", "before", "before",
         );
         meta.cwd = root.path().display().to_string();
         state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&meta);
