@@ -1232,6 +1232,33 @@ mod tests {
         assert_eq!(snapshot.path, root.path().to_string_lossy());
     }
 
+    #[test]
+    fn resume_handle_conflicts_for_metadata_pid_attachment_and_claim() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut handle = attention_test_handle("resume-stale-predicate", dir.path());
+        handle.info.lifecycle_phase = "active".into();
+        let mut session_pids = std::collections::HashMap::new();
+
+        assert!(resume_handle_conflicts(
+            &handle,
+            false,
+            session_pids.contains_key("resume-stale-predicate"),
+        ));
+        session_pids.insert("resume-stale-predicate".to_string(), 42);
+        assert!(resume_handle_conflicts(
+            &handle,
+            false,
+            session_pids.contains_key("resume-stale-predicate"),
+        ));
+        assert!(resume_handle_conflicts(&handle, true, true));
+        handle.terminal_attached = true;
+        assert!(resume_handle_conflicts(&handle, true, false));
+        handle.terminal_attached = false;
+        assert!(!resume_handle_conflicts(&handle, true, false));
+        handle.resume_in_progress = true;
+        assert!(resume_handle_conflicts(&handle, true, false));
+    }
+
     #[tokio::test]
     async fn create_returns_pre_spawn_info_after_persisting_creating_session() {
         let root = tempfile::tempdir().unwrap();
