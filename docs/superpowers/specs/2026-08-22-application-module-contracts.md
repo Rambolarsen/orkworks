@@ -128,12 +128,12 @@ completed. `resume_session` currently has the synchronous behavior above.
 | `POST /workspace` | `200` JSON workspace | `400` non-directory; `500` no home |
 | `POST /workspace/active-session` / `PUT /workspace/active-harnesses` | `200` empty | `409` no workspace |
 | `POST /sessions` | `200` JSON `SessionInfo` in `creating` | `400` retired/invalid launch |
-| `POST /sessions/:id/resume` | `200` JSON `SessionInfo` in `creating` | `400` no resume; `404` unknown; `409` admission conflict |
+| `POST /sessions/:id/resume` | `200` JSON `SessionInfo` in `creating` | `400` no resume; `404` unknown; `409` admission conflict; `500` startup failure |
 | `POST /sessions/:id/attention` | `200` empty for accepted/ignored | `400` invalid input; `404` unknown; `409` lost claim; `500` persistence |
 | `POST /sessions/:id/plan-path` | `200` empty | `404` unknown; `409` lost claim; `500` persistence |
-| `POST /sessions/:id/plan/select` | `200` empty | `401` invalid token; `503` token unavailable; current resolution/conflict errors |
-| `GET /sessions/:id/plan` | `200` `{ content }` | `401` invalid token; `503` token unavailable; current session/plan errors |
-| `POST /sessions/:id/plan/review` | `200` empty | `401` invalid token; `503` token unavailable; current session/plan/runtime errors |
+| `POST /sessions/:id/select-terminal-plan` | `200` empty | `401` invalid token; `503` token unavailable; current resolution/conflict errors |
+| `GET /sessions/:id/plan-content` | `200` `{ content }` | `401` invalid token; `503` token unavailable; current session/plan errors |
+| `POST /sessions/:id/request-plan-review` | `200` empty | `401` invalid token; `503` token unavailable; current session/plan/runtime errors |
 | `DELETE /sessions/:id` | `200` empty | `404` no live handle |
 | `DELETE /sessions/:id/forget` | `200` empty | `404` missing file; `409` live/no workspace; `500` delete failure |
 
