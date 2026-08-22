@@ -128,24 +128,9 @@ pub(crate) async fn get_session_plan_content(
     if let Err(status) = authorize_plan_request(&headers) {
         return status.into_response();
     }
-    let (workspace_root, plan_path) = {
-        let workspace = state.workspace.lock().unwrap();
-        let Some(workspace) = workspace.as_ref() else {
-            return axum::http::StatusCode::CONFLICT.into_response();
-        };
-        let Some(metadata) = workspace.metadata.read_session(&id) else {
-            return axum::http::StatusCode::NOT_FOUND.into_response();
-        };
-        let Some(plan_path) = metadata.plan_path else {
-            return axum::http::StatusCode::CONFLICT.into_response();
-        };
-        (workspace.path.clone(), plan_path)
-    };
-    match resolve_openable_plan_reference(&workspace_root, &plan_path)
-        .and_then(|path| std::fs::read_to_string(path).map_err(|error| error.to_string()))
-    {
+    match SessionApplication::new(state).read_plan_content(&id) {
         Ok(content) => Json(PlanContentResponse { content }).into_response(),
-        Err(_) => axum::http::StatusCode::CONFLICT.into_response(),
+        Err(error) => application_error_response(error),
     }
 }
 

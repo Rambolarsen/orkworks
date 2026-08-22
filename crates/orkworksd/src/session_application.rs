@@ -2,7 +2,9 @@ use crate::{git, metadata, migration, watcher, AppState, WorkspaceState};
 use crate::workspace_runtime::{iso_now, orkworks_global_dir};
 use crate::session_types::{MemoryState, SessionInfo};
 use crate::session_view::{connectivity_for_status, terminal_outcome_for_status};
-use crate::plan_handoff::{normalize_reported_plan_path, resolve_printed_plan_path};
+use crate::plan_handoff::{
+    normalize_reported_plan_path, resolve_openable_plan_reference, resolve_printed_plan_path,
+};
 use crate::runtime::observed_status::apply_attention_signal;
 use crate::workspace_runtime::parse_hook_observed_at;
 use portable_pty::PtySize;
@@ -243,6 +245,16 @@ impl SessionApplication {
             },
         );
         Ok(())
+    }
+
+    pub(crate) fn read_plan_content(&self, id: &str) -> Result<String, SessionError> {
+        let workspace_guard = self.state.workspace.lock().unwrap();
+        let workspace = workspace_guard.as_ref().ok_or(SessionError::Conflict)?;
+        let metadata = workspace.metadata.read_session(id).ok_or(SessionError::NotFound)?;
+        let plan_path = metadata.plan_path.ok_or(SessionError::Conflict)?;
+        let path = resolve_openable_plan_reference(&workspace.path, &plan_path)
+            .map_err(|_| SessionError::Conflict)?;
+        std::fs::read_to_string(path).map_err(|_| SessionError::Conflict)
     }
 
     pub(crate) async fn report_attention(
@@ -1607,6 +1619,63 @@ mod tests {
             application.report_plan_path("missing", "plan.md"),
             Err(SessionError::Conflict)
         );
+    }
+
+    #[test]
+    fn read_plan_content_application_returns_persisted_markdown() {
+        let root = tempfile::tempdir().unwrap();
+        let plan_dir = root.path().join("docs/superpowers/plans");
+        std::fs::create_dir_all(&plan_dir).unwrap();
+        std::fs::write(plan_dir.join("plan.md"), "# persisted plan\n").unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let mut session = crate::test_support::test_session_metadata(
+            "plan-content",
+            "Plan content",
+            root.path().display().to_string(),
+            "running",
+            "now",
+            "now",
+        );
+        session.plan_path = Some("docs/superpowers/plans/plan.md".into());
+        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&session);
+
+        assert_eq!(
+            SessionApplication::new(state).read_plan_content("plan-content"),
+            Ok("# persisted plan\n".into())
+        );
+    }
+
+    #[test]
+    fn read_plan_content_application_maps_lookup_and_file_failures_to_conflict_or_not_found() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let application = SessionApplication::new(state.clone());
+
+        assert_eq!(application.read_plan_content("missing"), Err(SessionError::NotFound));
+
+        let mut no_plan = crate::test_support::test_session_metadata(
+            "no-plan", "No plan", root.path().display().to_string(), "running", "now", "now",
+        );
+        no_plan.plan_path = None;
+        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&no_plan);
+        assert_eq!(application.read_plan_content("no-plan"), Err(SessionError::Conflict));
+
+        let mut invalid = crate::test_support::test_session_metadata(
+            "invalid-plan", "Invalid plan", root.path().display().to_string(), "running", "now", "now",
+        );
+        invalid.plan_path = Some("../outside.md".into());
+        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&invalid);
+        assert_eq!(application.read_plan_content("invalid-plan"), Err(SessionError::Conflict));
+
+        let mut unreadable = crate::test_support::test_session_metadata(
+            "unreadable-plan", "Unreadable plan", root.path().display().to_string(), "running", "now", "now",
+        );
+        unreadable.plan_path = Some("docs/superpowers/plans/missing.md".into());
+        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&unreadable);
+        assert_eq!(application.read_plan_content("unreadable-plan"), Err(SessionError::Conflict));
+
+        *state.workspace.lock().unwrap() = None;
+        assert_eq!(application.read_plan_content("no-plan"), Err(SessionError::Conflict));
     }
 
     #[test]
