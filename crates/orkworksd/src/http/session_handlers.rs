@@ -389,20 +389,15 @@ pub(crate) async fn select_terminal_plan(
     if let Err(status) = authorize_plan_request(&headers) {
         return status.into_response();
     }
-    let token = headers
-        .get("x-orkworks-open-plan-token")
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or_default()
-        .to_owned();
     SessionApplication::new(state)
         .select_plan(
             &id,
             crate::session_application::PlanSelection {
                 printed_path: req.printed_path,
-                token,
             },
         )
         .await
+        .map(|_| axum::http::StatusCode::NO_CONTENT.into_response())
         .unwrap_or_else(application_error_response)
 }
 

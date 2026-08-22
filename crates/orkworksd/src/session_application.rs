@@ -1,8 +1,10 @@
 use crate::{git, metadata, migration, watcher, AppState, WorkspaceState};
 use crate::workspace_runtime::{iso_now, orkworks_global_dir};
-use crate::http::session_handlers::{AttentionReportRequest, TerminalPlanSelectionRequest};
 use crate::session_types::{MemoryState, SessionInfo};
 use crate::session_view::{connectivity_for_status, terminal_outcome_for_status};
+use crate::plan_handoff::resolve_printed_plan_path;
+use crate::runtime::observed_status::apply_attention_signal;
+use crate::workspace_runtime::parse_hook_observed_at;
 use axum::response::{IntoResponse, Response};
 use portable_pty::PtySize;
 use std::path::PathBuf;
@@ -49,7 +51,6 @@ pub(crate) struct AttentionSignal {
 
 pub(crate) struct PlanSelection {
     pub(crate) printed_path: String,
-    pub(crate) token: String,
 }
 
 impl SessionApplication {
@@ -133,48 +134,130 @@ impl SessionApplication {
         id: &str,
         signal: AttentionSignal,
     ) -> Result<(), SessionError> {
-        let response = crate::http::session_handlers::report_attention_legacy(
-            axum::extract::State(self.state.clone()),
-            axum::extract::Path(id.to_string()),
-            axum::Json(AttentionReportRequest {
-                status: signal.status,
-                message: signal.message,
-                plan_path: signal.plan_path,
-                observed_at: signal.observed_at,
-                cwd: signal.cwd,
-            }),
-        )
+        let observed_at = signal
+            .observed_at
+            .as_deref()
+            .map(parse_hook_observed_at)
+            .transpose()
+            .map_err(|_| SessionError::BadRequest("invalid request"))?;
+        let active_alias = matches!(signal.status.as_str(), "thinking" | "reasoning");
+        if !active_alias && !peon::is_valid_observed_status(&signal.status) {
+            return Err(SessionError::BadRequest("invalid request"));
+        }
+        let supports_active_work = self
+            .state
+            .sessions
+            .lock()
+            .unwrap()
+            .get(id)
+            .is_some_and(|handle| handle.active_work_hook);
+        let status = normalize_hook_attention_status(&signal.status, supports_active_work)
+            .ok_or(SessionError::BadRequest("invalid request"))?;
+        if observed_at.is_some_and(|timestamp| {
+            self.state
+                .sessions
+                .lock()
+                .unwrap()
+                .get(id)
+                .and_then(|handle| handle.runtime.accepted_input_at)
+                .is_some_and(|accepted_at| timestamp <= accepted_at)
+        }) {
+            return self.workspace_exists().then_some(()).ok_or(SessionError::Conflict);
+        }
+        if let Some(cwd) = signal.cwd.as_deref().filter(|cwd| !cwd.is_empty()) {
+            self.state
+                .peon
+                .reported_cwd
+                .write()
+                .unwrap()
+                .insert(id.to_string(), cwd.to_string());
+        }
+        let state = self.state.clone();
+        let id = id.to_string();
+        let merge_id = id.clone();
+        let merge_status = status.clone();
+        let message = signal.message;
+        let plan_path = signal.plan_path;
+        let result = tokio::task::spawn_blocking(move || {
+            if !state.workspace.lock().unwrap().is_some() {
+                return Err(SessionError::Conflict);
+            }
+            if observed_at.is_some_and(|timestamp| {
+                state
+                    .sessions
+                    .lock()
+                    .unwrap()
+                    .get(&merge_id)
+                    .and_then(|handle| handle.runtime.accepted_input_at)
+                    .is_some_and(|accepted_at| timestamp <= accepted_at)
+            }) {
+                return Ok(metadata::AttentionMergeResult::Ignored);
+            }
+            apply_attention_signal(
+                &state, &merge_id, &merge_status, message.as_deref(), &plan_path, &iso_now(), "agent", 1.0,
+                observed_at,
+            )
+            .ok_or(SessionError::Conflict)
+        })
         .await
-        .into_response();
-        if response.status().is_success() {
-            Ok(())
-        } else {
-            Err(error_for_status(response.status()))
+        .map_err(|error| {
+            tracing::error!(%error, "attention metadata task failed");
+            SessionError::Internal("application operation failed")
+        })??;
+        if result == metadata::AttentionMergeResult::Accepted && status == "working" {
+            if let Some(observed_at) = observed_at {
+                clear_claude_capacity_after_working(&self.state, &id, observed_at);
+            }
+        }
+        if result == metadata::AttentionMergeResult::Accepted {
+            let mut bufs = self.state.peon.input_buf.write().unwrap();
+            if bufs.get(&id).is_some_and(|buf| !peon::is_descriptive_input(buf)) {
+                bufs.remove(&id);
+            }
+        }
+        match result {
+            metadata::AttentionMergeResult::Accepted | metadata::AttentionMergeResult::Ignored => Ok(()),
+            metadata::AttentionMergeResult::NotFound => Err(SessionError::NotFound),
+            metadata::AttentionMergeResult::PersistFailed => Err(SessionError::Internal("application operation failed")),
         }
     }
+
+    fn workspace_exists(&self) -> bool { self.state.workspace.lock().unwrap().is_some() }
 
     pub(crate) async fn select_plan(
         &self,
         id: &str,
         selection: PlanSelection,
-    ) -> Result<axum::response::Response, SessionError> {
-        let PlanSelection { printed_path, token } = selection;
-        Ok(crate::http::session_handlers::select_terminal_plan_legacy(
-            axum::extract::State(self.state.clone()),
-            axum::extract::Path(id.to_string()),
-            {
-                let mut headers = axum::http::HeaderMap::new();
-                if let Ok(value) = axum::http::HeaderValue::from_str(&token) {
-                    headers.insert("x-orkworks-open-plan-token", value);
-                }
-                headers
-            },
-            axum::Json(TerminalPlanSelectionRequest {
-                printed_path,
-            }),
-        )
-        .await
-        .into_response())
+    ) -> Result<(), SessionError> {
+        let PlanSelection { printed_path } = selection;
+        let state = self.state.clone();
+        let id = id.to_string();
+        tokio::task::spawn_blocking(move || {
+            let workspace = state.workspace.lock().unwrap();
+            let workspace = workspace.as_ref().ok_or(SessionError::Conflict)?;
+            let mut meta = workspace.metadata.read_session(&id).ok_or(SessionError::NotFound)?;
+            let (worktree_root, relative_path) = resolve_printed_plan_path(
+                std::path::Path::new(&meta.cwd),
+                &printed_path,
+            ).map_err(|error| {
+                tracing::warn!(session_id = %id, printed_path = %printed_path, %error, "select_terminal_plan: plan path resolution failed");
+                SessionError::Conflict
+            })?;
+            meta.plan_path = Some(metadata::PlanReference {
+                worktree_root: Some(worktree_root.to_string_lossy().into_owned()),
+                relative_path,
+                source: metadata::PlanSource::UserSelected,
+            });
+            workspace.metadata.try_write_session(&meta)
+                .map_err(|_| SessionError::Internal("application operation failed"))?;
+            workspace.metadata.append_event(&id, &metadata::Event {
+                event_type: "session.plan_selected_by_user".into(), timestamp: iso_now(),
+                status: meta.status, observed_status: meta.observed_status,
+                confidence: Some(1.0), summary: None, source: Some("user".into()),
+            });
+            Ok(())
+        }).await.map_err(|_| SessionError::Internal("application operation failed"))??;
+        Ok(())
     }
 
     pub(crate) async fn delete_session(
@@ -1006,12 +1089,39 @@ async fn create_session_workflow(
 }
 
 
-fn error_for_status(status: axum::http::StatusCode) -> SessionError {
+fn normalize_hook_attention_status(status: &str, supports_active_work: bool) -> Option<String> {
     match status {
-        axum::http::StatusCode::BAD_REQUEST => SessionError::BadRequest("invalid request"),
-        axum::http::StatusCode::NOT_FOUND => SessionError::NotFound,
-        axum::http::StatusCode::CONFLICT => SessionError::Conflict,
-        _ => SessionError::Internal("application operation failed"),
+        "working" | "thinking" | "reasoning" if supports_active_work => Some("working".into()),
+        "waiting_for_input" | "blocked" | "failed" | "done" | "stale" | "idle" => {
+            Some(status.into())
+        }
+        _ => None,
+    }
+}
+
+fn clear_claude_capacity_after_working(
+    state: &Arc<AppState>,
+    id: &str,
+    observed_at: chrono::DateTime<chrono::Utc>,
+) {
+    let mut sessions = state.sessions.lock().unwrap();
+    let Some(harness_id) = sessions
+        .get(id)
+        .and_then(|handle| handle.info.harness_id.as_deref())
+        .map(str::to_owned)
+        .filter(|harness_id| *harness_id == "claude-code")
+    else { return; };
+    if sessions.values().any(|handle| {
+        handle.info.harness_id.as_deref() == Some(harness_id.as_str())
+            && handle.at_usage_limit_latched
+            && handle.runtime.usage_limit_latched_at.is_some_and(|latched_at| latched_at > observed_at)
+    }) { return; }
+    for handle in sessions.values_mut() {
+        if handle.info.harness_id.as_deref() == Some(harness_id.as_str()) {
+            handle.at_usage_limit_latched = false;
+            handle.runtime.usage_limit_latched_at = None;
+            handle.resume_scan_origin = Some((handle.output_lines_seen, handle.scan_bytes_seen));
+        }
     }
 }
 
@@ -1211,5 +1321,63 @@ mod tests {
             ws.as_ref().unwrap().metadata.read_terminal_size(id),
             Some((120, 40))
         );
+    }
+
+    #[tokio::test]
+    async fn report_attention_application_seam_persists_an_accepted_signal() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "attention-application";
+        let mut meta = crate::test_support::test_session_metadata(
+            id, "Attention", &root.path().display().to_string(), "running", "before", "before",
+        );
+        meta.lifecycle = "alive".into();
+        meta.lifecycle_phase = "active".into();
+        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&meta);
+
+        SessionApplication::new(state.clone())
+            .report_attention(id, AttentionSignal {
+                status: "waiting_for_input".into(), message: Some("question".into()),
+                plan_path: metadata::PlanPathUpdate::Unchanged, observed_at: None, cwd: None,
+            }).await.unwrap();
+
+        let stored = state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(id).unwrap();
+        assert_eq!(stored.observed_status.as_deref(), Some("waiting_for_input"));
+        assert_eq!(stored.attention.as_deref(), Some("needs_you"));
+    }
+
+    #[tokio::test]
+    async fn report_attention_application_seam_rejects_invalid_status() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let result = SessionApplication::new(state).report_attention("missing", AttentionSignal {
+            status: "invalid".into(), message: None, plan_path: metadata::PlanPathUpdate::Unchanged,
+            observed_at: None, cwd: None,
+        }).await;
+        assert!(matches!(result, Err(SessionError::BadRequest(_))));
+    }
+
+    #[tokio::test]
+    async fn select_plan_application_seam_persists_user_selected_reference_and_event() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join("docs/superpowers/plans")).unwrap();
+        std::fs::write(root.path().join("docs/superpowers/plans/task.md"), "# task").unwrap();
+        git2::Repository::init(root.path()).unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "plan-application";
+        let mut meta = crate::test_support::test_session_metadata(
+            id, "Plan", &root.path().display().to_string(), "running", "before", "before",
+        );
+        meta.cwd = root.path().display().to_string();
+        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&meta);
+
+        SessionApplication::new(state.clone()).select_plan(id, PlanSelection {
+            printed_path: "docs/superpowers/plans/task.md".into(),
+        }).await.unwrap();
+
+        let stored = state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(id).unwrap();
+        assert_eq!(stored.plan_path.as_ref().unwrap().source, metadata::PlanSource::UserSelected);
+        assert!(state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_events(id)
+            .iter().any(|event| event.event_type == "session.plan_selected_by_user"));
     }
 }
