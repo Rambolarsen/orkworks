@@ -5,9 +5,9 @@
 - `docs/superpowers/specs/2026-08-22-application-module-contracts.md` — current Rust handler, renderer controller, and Electron settings draft/commit contract.
 - `.superpowers/sdd/task-1-report.md` — this report.
 
-No production code was refactored and no additional characterization tests were
-needed: the inspected Rust handler tests and requested desktop tests already
-pin the brief's required behaviors.
+No production code was refactored and no tests were changed. The contract now
+distinguishes current behavior from Tasks 2–4 obligations; existing tests do
+not pin all future controller behavior.
 
 ## Contract decisions
 
@@ -16,14 +16,20 @@ pin the brief's required behaviors.
 - Current handler symbols, request/result shapes, status/body mappings,
   workspace lookup, generation-aware admission, side-effect ordering, and
   compensation rules are frozen in the spec.
-- Create/resume return the persisted/pre-spawn `creating` view; startup failure
-  is observed asynchronously through polling.
-- Renderer polling has one owner; exact returned session IDs correlate pending
-  creates; stale/disposed async results are rejected; restoration waits for the
-  session list; terminal pruning precedes snapshot publication.
+- Create returns the pre-spawn `creating` view and reports startup failure
+  asynchronously; resume currently awaits startup and returns `500` on startup
+  failure, as asserted by the existing test. Detached/pre-spawn resume success
+  is a future target, not current behavior.
+- Renderer polling has one owner and exact returned session IDs correlate
+  pending creates. Restoration waits for the session list and terminal pruning
+  precedes snapshot publication; stale/disposed result rejection remains a
+  future controller obligation.
 - Electron-main owns settings defaults and persistence. Verification is
   diagnostic only, never mutates saved provider settings, and failed saves keep
-  the renderer draft.
+  the renderer draft. Current saves are independent by domain; a durable
+  Electron save may succeed while a sidecar push failure is logged for retry.
+- Wire details include omitted empty `activeHarnessIds`, explicit plan route
+  mappings, and compatibility-sensitive `SessionInfo` serialization.
 
 ## Test commands and results
 

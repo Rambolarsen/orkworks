@@ -19,7 +19,7 @@ Current request/response symbols are:
 | Symbol | Wire shape / result |
 | --- | --- |
 | `WorkspaceRequest` | `{ "path": string }` |
-| `WorkspaceResponse` | `{ path, repo_root, branch, dirty, lastActiveSessionId, activeHarnessIds }` |
+| `WorkspaceResponse` | `{ path, repo_root, branch, dirty, lastActiveSessionId[, activeHarnessIds] }`; empty `activeHarnessIds` is omitted |
 | `ActiveSessionRequest` | `{ "sessionId": string }` |
 | `ActiveHarnessesRequest` | `{ "activeHarnessIds": string[] }` |
 | `CreateSessionRequest` | `{ harnessId?: string, model?: string, initialPrompt?: string }` |
@@ -28,7 +28,7 @@ Current request/response symbols are:
 | `TerminalPlanSelectionRequest` | `{ printedPath: string }` |
 | `HarnessSessionReportRequest` | `{ harnessSessionId, source, confidence }` |
 | `PlanContentResponse` | `{ content: string }` |
-| `SessionInfo` | renderer-facing session projection from `session_types.rs` |
+| `SessionInfo` | renderer-facing session projection from `session_types.rs`; serialization is compatibility-sensitive |
 
 The handler symbols consumed by the router and tests are
 `set_workspace`, `set_active_session`, `set_active_harnesses`,
@@ -60,9 +60,12 @@ session, and `400` when resume metadata or a usable resume strategy/command is
 absent. Admission claims/replaces an ended stale handle under the existing
 runtime generation checks; an attached/live/ending/racing handle returns
 `409`. It resets the persisted run to `creating`, clears prior terminal-size
-and final/attention state, and starts the runtime asynchronously. The `200`
-JSON result is a `SessionInfo` in `creating` state; startup failure is
-asynchronous and transitions the session to `error`.
+and final/attention state, and starts the runtime. The `200` JSON result is a
+`SessionInfo` in `creating` state, but the current handler awaits runtime
+startup before completing. Startup failure commits the claim, transitions the
+session to `error`, and returns `500`; the existing startup-failure test
+asserts this. Detached/pre-spawn resume success is a future
+application/controller target, not current compatibility.
 
 `report_attention` accepts the valid observed statuses and the active aliases
 `thinking`/`reasoning` only when the harness advertises active-work support.
@@ -114,8 +117,9 @@ corresponding metadata transition; then start/continue detached runtime work.
 Failed startup compensates by committing the claim and publishing `error` via
 the generation-guarded runtime transition. Resume clears stale terminal-size
 state before the new runtime starts. Forget removes durable state before
-removing the in-memory handle. No handler may make a successful response mean
-that detached PTY startup has completed.
+removing the in-memory handle. For `create_session`, success means only that
+the pre-spawn `creating` record was accepted; it does not mean PTY startup
+completed. `resume_session` currently has the synchronous behavior above.
 
 ## HTTP mapping table
 
@@ -126,6 +130,10 @@ that detached PTY startup has completed.
 | `POST /sessions` | `200` JSON `SessionInfo` in `creating` | `400` retired/invalid launch |
 | `POST /sessions/:id/resume` | `200` JSON `SessionInfo` in `creating` | `400` no resume; `404` unknown; `409` admission conflict |
 | `POST /sessions/:id/attention` | `200` empty for accepted/ignored | `400` invalid input; `404` unknown; `409` lost claim; `500` persistence |
+| `POST /sessions/:id/plan-path` | `200` empty | `404` unknown; `409` lost claim; `500` persistence |
+| `POST /sessions/:id/plan/select` | `200` empty | `401` invalid token; `503` token unavailable; current resolution/conflict errors |
+| `GET /sessions/:id/plan` | `200` `{ content }` | `401` invalid token; `503` token unavailable; current session/plan errors |
+| `POST /sessions/:id/plan/review` | `200` empty | `401` invalid token; `503` token unavailable; current session/plan/runtime errors |
 | `DELETE /sessions/:id` | `200` empty | `404` no live handle |
 | `DELETE /sessions/:id/forget` | `200` empty | `404` missing file; `409` live/no workspace; `500` delete failure |
 
@@ -137,20 +145,17 @@ the current `setWorkspace(baseUrl, path)` wrapper owns the HTTP call. The
 future controller must preserve this seam rather than allowing renderer code
 to discover filesystem paths or call Electron APIs directly.
 
-There is one polling owner: `App.tsx`'s `refreshSessions` started through
-`startSessionPolling` in `sessionPolling.ts`. Poll failures are silent and
-retry; disposal sets `stopped` and clears the scheduled timer. Every async
-controller operation (workspace load, poll, create, resume, delete, forget,
-settings load/save, and verification) must carry an operation generation or
-cancellation token. Results from an older generation, or after disposal, are
-discarded and must not mutate state or produce notifications.
+Current behavior: `App.tsx` owns `refreshSessions` through
+`startSessionPolling` in `sessionPolling.ts`; poll failures are silent and
+retry, and disposal stops the polling timer. Generation/cancellation,
+stale-result rejection, and post-disposal no-op behavior are future controller
+obligations for every async operation.
 
-Workspace switching clears sessions, refreshes the new workspace's session
-list, and only then restores `lastActiveSessionId`; this ordering prevents an
-active ID from temporarily referring to no loaded session. If the restored
-ID is absent/dead, the controller must reject it and continue with no active
-session. Deletion of the active session clears the active ID after the delete
-operation and refresh; forgetting follows the same rule for historical rows.
+Current behavior: workspace switching clears sessions, refreshes the new
+workspace's session list, and then restores `lastActiveSessionId`, but does
+not validate presence or dead state. Current deletion/forgetting clears the
+active ID before refresh. Future controller obligations are to reject
+absent/dead restored IDs and define intended post-operation deletion ordering.
 
 Create responses are correlated by the exact returned session ID through
 `trackPendingCreate`/`resolvePendingCreates`. A pending ID remains pending for
@@ -190,23 +195,28 @@ not write `settings.json`, mutate saved provider settings, or replace the
 draft. Verification failure is surfaced as a result/error while the draft is
 retained.
 
-`commit` validates and persists the selected hotkeys, retention, debug,
+Current behavior: `SettingsModal` saves domains independently and has no
+unified discard/commit transaction. The future controller's `commit` validates
+and persists the selected hotkeys, retention, debug,
 providers, and integrations through their existing Electron handlers. A
 successful domain save returns `{ ok: true, settings: rendererSettings(...) }`
 and updates the committed settings/menu. Retention/provider saves also push
-the normalized values to the sidecar; sidecar application errors are not
-allowed to silently claim a durable Electron save succeeded. A failed domain
-save retains the renderer draft so the user can retry or discard it. Provider
-verification is never part of the provider commit and cannot mutate saved
-settings.
+the normalized values to the sidecar. A durable Electron save can succeed
+while that sidecar push fails; the failure is logged and represented as
+pending/stale application for retry. A failed domain save retains the renderer
+draft so the user can retry or discard it. Provider verification is never part
+of the provider commit and cannot mutate saved settings.
 
 ## Existing characterization coverage
 
-The current tests already pin the required behavior without additional test
-changes: Rust `session_handlers` tests cover workspace reconciliation,
-resume admission/rollback, attention validation/staleness/persistence,
-delete/forget behavior, and plan handling; desktop tests cover API response
+Existing coverage is narrower than the future contract: Rust tests cover
+workspace reconciliation, resume admission/rollback/startup failure,
+attention validation/staleness/persistence, delete/forget behavior, create's
+pre-spawn response, and plan handling; desktop tests cover API response
 errors, workspace restoration ordering, polling ownership, exact pending-create
 ID correlation, settings defaults/normalization, and Ollama verification's
-preload contract. Future module work must keep those assertions green and add
-characterization only for a behavior absent from this document and the tests.
+preload contract. Tasks 2–4 must add tests for generation/cancellation and
+post-disposal behavior, absent/dead restoration and deletion ordering, unified
+settings draft/discard/commit and sidecar-failure retention, and exact wire
+compatibility including omitted empty `activeHarnessIds`, plan routes, and
+`SessionInfo` serialization.
