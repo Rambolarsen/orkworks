@@ -91,6 +91,44 @@ SessionMetadata (on disk)
 
 An earlier `domain/session/` + `application/session/` + `infrastructure/session_*` layer existed as a typed alternative to the above (a `Session` aggregate with a 5-variant `SessionStatus` enum, `MemoryState`, `AttentionState`, `WorkPhase`, `LifecyclePhase`, domain events, a `SessionRepository` port, and command handlers). It was never wired into any production code path — `SessionModule` was constructed only to populate an unread `AppState` field, and its PTY adapters were unimplemented stubs. It has been deleted. Two gaps would need to be closed before a typed state machine like this could work: it modeled only the 5-variant `SessionStatus` enum where production status vocabulary is the larger untyped set documented above, and it had no representation of PTY runtime state (`kill_tx`, output buffers, `SessionRuntime`) at all. See [issue #181](https://github.com/Rambolarsen/orkworks/issues/181) for the idea captured for future work.
 
+## Workflow observation feedback loop
+
+The durable `WorkflowObservation` contract and Peon/Taskmaster feedback loop
+are implemented in `crates/orkworksd/src/`. The current-summary snapshot
+(`summary`, `summarySource`, `summaryConfidence`, and `summaryObservedAt`) and
+the replacement of summary-checkpoint history remain pending under
+[issue #313](https://github.com/Rambolarsen/orkworks/issues/313).
+
+`SessionMetadata` gains a current-summary snapshot: `summary` alongside
+`summarySource` (`agent` | `peon`), `summaryConfidence`, and
+`summaryObservedAt`, all four written or cleared together — replacing the
+durable summary-checkpoint mechanism superseded ADR 0024 added to the event
+log. `label` (ADR 0029, restated by ADR 0042) is unaffected: it stays a
+one-shot, Peon-authored topic outside this snapshot and outside the
+`metadata_source`/`metadata_confidence` precedence system.
+
+A new, independent record type, `WorkflowObservation`, answers "what made
+this work harder than necessary?" rather than "what is happening now?":
+
+```text
+WorkflowObservation
+  id, sequence, sessionId, observedAt
+  kind        repetition | obstacle | missing_context | assumption |
+              correction | workaround | verification_gap
+  description (<= 500 Unicode scalar values)
+  evidence    (<= 2,000 Unicode scalar values)
+  reportedImpact  low | medium | high
+  source      agent (fixed confidence 0.9) | peon (own confidence)
+  confidence, fingerprint, idempotencyKeyHash (not API-exposed)
+```
+
+Observations are immutable while retained, workspace-scoped but
+session-segmented on disk, and never participate in the `SessionMetadata`
+source-priority overwrite rules above — an agent report and a Peon
+observation coexist rather than competing. See the "Workflow observations and the current-summary snapshot (design)"
+section of [`docs/agents/architecture.md`](./architecture.md) for storage
+paths, routes, and the recording module's interface.
+
 ## Related files
 
 - `crates/orkworksd/src/metadata.rs`

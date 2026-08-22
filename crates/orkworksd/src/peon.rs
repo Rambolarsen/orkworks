@@ -138,6 +138,22 @@ impl RingBuffer {
             .collect()
     }
 
+    pub fn snapshot_after_with_revisions(&self, revision: u64) -> Option<RingSnapshot> {
+        let lines: Vec<(u64, String)> = self
+            .lines
+            .iter()
+            .filter(|(line_revision, _)| *line_revision > revision)
+            .cloned()
+            .collect();
+        let first_revision = lines.first().map(|(revision, _)| *revision)?;
+        let last_revision = lines.last().map(|(revision, _)| *revision)?;
+        Some(RingSnapshot {
+            first_revision,
+            last_revision,
+            lines: lines.into_iter().map(|(_, line)| line).collect(),
+        })
+    }
+
     pub fn has_after(&self, revision: u64) -> bool {
         self.lines
             .back()
@@ -162,6 +178,23 @@ impl RingBuffer {
     pub fn len(&self) -> usize {
         self.lines.len()
     }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RingSnapshot {
+    pub first_revision: u64,
+    pub last_revision: u64,
+    pub lines: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct PeonOutputCapture {
+    pub(crate) lines: Vec<String>,
+    pub(crate) input_generation: u64,
+    pub(crate) min_revision: u64,
+    pub(crate) first_revision: u64,
+    pub(crate) last_revision: u64,
+    pub(crate) runtime_instance_id: String,
 }
 
 /// Strips ANSI CSI escape sequences (e.g. \x1b[31m) so pattern matching works on raw PTY output.
@@ -559,6 +592,7 @@ Available fields:
 - detectedHarness: name of the AI coding harness visible in the terminal (e.g. \"claude-code\", \"opencode\", \"codex\", \"aider\", \"gemini-cli\"), or omit if not detectable
 - detectedModel: model identifier visible in the terminal output (e.g. \"claude-sonnet-4-5\", \"gpt-4o\"), or omit if not detectable
 - harnessSessionId: the harness's internal session identifier visible in terminal output (e.g. a UUID, session hex string, or ID shown in a \"resume\" or \"continue\" prompt), or omit if not detectable
+- workflowObservations: array of at most five concrete workflow-friction candidates. Each candidate must have kind (one of repetition, obstacle, missing_context, assumption, correction, workaround, verification_gap), description, evidence, reportedImpact (low, medium, or high), and confidence from 0.0 to 1.0. Only report friction that made the work harder than necessary; never report ordinary progress, terminal redraws, or speculative advice.
 
 If a line starting with '[User input]:' is present, it is what the user just typed to the AI coding tool. Use it to derive a short, direct, present-tense summary of what the user is doing — like a commit-message subject line. NEVER start the summary with \"User\", \"User is\", \"User wants\", \"User asked\", \"User requested\", or \"User typed\". Examples: \"Fixing peon model detection\" not \"User is fixing peon model detection\". \"Reviewing PR feedback\" not \"User wants to review PR feedback\". Keep it under 8 words. The summary must name the concrete task topic, never a generic instruction or control narration such as \"instructing the agent\" or \"continuing current task execution\". Preserve every explicit PR number from the user input (for example, \"PR #249\" or \"pull request #249\").";
 
@@ -571,6 +605,17 @@ const VALID_STATUSES: &[&str] = &[
     "working",
     "idle",
 ];
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct PeonWorkflowObservation {
+    pub kind: crate::workflow_observations::ObservationKind,
+    pub description: String,
+    pub evidence: String,
+    #[serde(rename = "reportedImpact")]
+    pub reported_impact: crate::workflow_observations::Impact,
+    pub confidence: f64,
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PeonInference {
@@ -601,6 +646,8 @@ pub struct PeonInference {
     pub detected_model: Option<String>,
     #[serde(rename = "harnessSessionId", default)]
     pub harness_session_id: Option<String>,
+    #[serde(rename = "workflowObservations", default)]
+    pub workflow_observations: Vec<PeonWorkflowObservation>,
 }
 
 pub fn extract_json(raw: &str) -> Option<String> {
@@ -646,6 +693,18 @@ pub fn validate_inference(inf: &PeonInference) -> Result<(), String> {
             return Err(format!(
                 "invalid status '{}', must be one of {:?}",
                 status, VALID_STATUSES
+            ));
+        }
+    }
+
+    if inf.workflow_observations.len() > 5 {
+        return Err("workflow observation candidates exceed the maximum of five".to_string());
+    }
+    for candidate in &inf.workflow_observations {
+        if !(0.0..=1.0).contains(&candidate.confidence) {
+            return Err(format!(
+                "workflow observation confidence {} out of range [0.0, 1.0]",
+                candidate.confidence
             ));
         }
     }
@@ -794,6 +853,19 @@ mod tests {
     }
 
     #[test]
+    fn ring_buffer_snapshot_after_reports_the_captured_revision_range() {
+        let mut buf = RingBuffer::new(5);
+        let boundary = buf.push("old".into());
+        let first = buf.push("new one".into());
+        let last = buf.push("new two".into());
+
+        let snapshot = buf.snapshot_after_with_revisions(boundary).unwrap();
+        assert_eq!(snapshot.first_revision, first);
+        assert_eq!(snapshot.last_revision, last);
+        assert_eq!(snapshot.lines, vec!["new one", "new two"]);
+    }
+
+    #[test]
     fn test_ring_buffer_capacity_enforcement() {
         let mut buf = RingBuffer::new(2);
         buf.push("a".into());
@@ -918,6 +990,7 @@ mod tests {
             detected_harness: None,
             detected_model: None,
             harness_session_id: None,
+            workflow_observations: Vec::new(),
         };
         assert!(validate_inference(&inf).is_ok());
     }
@@ -940,6 +1013,7 @@ mod tests {
             detected_harness: None,
             detected_model: None,
             harness_session_id: None,
+            workflow_observations: Vec::new(),
         };
         assert!(validate_inference(&inf).is_err());
     }
@@ -962,6 +1036,7 @@ mod tests {
             detected_harness: None,
             detected_model: None,
             harness_session_id: None,
+            workflow_observations: Vec::new(),
         };
         assert!(validate_inference(&inf).is_err());
 
@@ -981,8 +1056,68 @@ mod tests {
             detected_harness: None,
             detected_model: None,
             harness_session_id: None,
+            workflow_observations: Vec::new(),
         };
         assert!(validate_inference(&inf2).is_err());
+    }
+
+    #[test]
+    fn peon_parses_workflow_observation_candidates_with_camel_case_impact() {
+        let raw = r#"{
+            "observedStatus": "working",
+            "confidence": 0.8,
+            "workflowObservations": [{
+                "kind": "verification_gap",
+                "description": "The same integration test had to be rerun manually",
+                "evidence": "cargo test failed once because the fixture was stale",
+                "reportedImpact": "medium",
+                "confidence": 0.75
+            }]
+        }"#;
+
+        let inference = parse_inference(raw).expect("valid Peon response");
+        assert_eq!(inference.workflow_observations.len(), 1);
+        assert_eq!(
+            inference.workflow_observations[0].kind,
+            crate::workflow_observations::ObservationKind::VerificationGap
+        );
+        assert_eq!(
+            inference.workflow_observations[0].reported_impact,
+            crate::workflow_observations::Impact::Medium
+        );
+    }
+
+    #[test]
+    fn peon_rejects_observation_candidate_confidence_out_of_range() {
+        let raw = r#"{
+            "confidence": 0.8,
+            "workflowObservations": [{
+                "kind": "obstacle",
+                "description": "A command was blocked",
+                "evidence": "The command returned permission denied",
+                "reportedImpact": "high",
+                "confidence": 1.1
+            }]
+        }"#;
+
+        assert!(parse_inference(raw).is_none());
+    }
+
+    #[test]
+    fn peon_limits_workflow_observation_candidates_to_five() {
+        let raw = r#"{
+            "confidence": 0.8,
+            "workflowObservations": [
+                {"kind":"obstacle","description":"one","evidence":"e","reportedImpact":"low","confidence":0.7},
+                {"kind":"obstacle","description":"two","evidence":"e","reportedImpact":"low","confidence":0.7},
+                {"kind":"obstacle","description":"three","evidence":"e","reportedImpact":"low","confidence":0.7},
+                {"kind":"obstacle","description":"four","evidence":"e","reportedImpact":"low","confidence":0.7},
+                {"kind":"obstacle","description":"five","evidence":"e","reportedImpact":"low","confidence":0.7},
+                {"kind":"obstacle","description":"six","evidence":"e","reportedImpact":"low","confidence":0.7}
+            ]
+        }"#;
+
+        assert!(parse_inference(raw).is_none());
     }
 
     #[test]

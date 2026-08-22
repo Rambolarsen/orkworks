@@ -3,7 +3,12 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import type { SessionInfo, WorkspaceInfo } from "../src/api.ts";
-import { forgetSession, listHarnesses } from "../src/api.ts";
+import {
+  dismissTaskmasterRecommendation,
+  forgetSession,
+  getTaskmasterRecommendations,
+  listHarnesses,
+} from "../src/api.ts";
 
 test("SessionInfo type accepts metadata fields", () => {
   const session: SessionInfo = {
@@ -212,6 +217,40 @@ test("listHarnesses throws on a malformed envelope missing harnesses", async () 
     Promise.resolve(new Response(JSON.stringify({ notHarnesses: [] }), { status: 200 }));
   try {
     await assert.rejects(() => listHarnesses("http://localhost:0"), /malformed response/);
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+});
+
+test("Taskmaster API reads the recommendations envelope and encodes recommendation ids", async () => {
+  const origFetch = globalThis.fetch;
+  let requestUrl = "";
+  globalThis.fetch = (url: string | URL | Request, _init?: RequestInit) => {
+    requestUrl = String(url);
+    return Promise.resolve(new Response(JSON.stringify({ recommendations: [], diagnostics: [] }), { status: 200 }));
+  };
+  try {
+    const response = await getTaskmasterRecommendations("http://localhost:0");
+    assert.deepEqual(response, { recommendations: [], diagnostics: [] });
+    await dismissTaskmasterRecommendation("http://localhost:0", "rec/with spaces");
+    assert.match(requestUrl, /rec%2Fwith%20spaces\/dismiss$/);
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+});
+
+test("Taskmaster dismissal sends an optional reason and accepts a successful response", async () => {
+  const origFetch = globalThis.fetch;
+  let init: RequestInit | undefined;
+  globalThis.fetch = (_url: string | URL | Request, requestInit?: RequestInit) => {
+    init = requestInit;
+    return Promise.resolve(new Response(null, { status: 204 }));
+  };
+  try {
+    await dismissTaskmasterRecommendation("http://localhost:0", "rec-1", "Not actionable");
+    assert.equal(init?.method, "POST");
+    assert.equal(init?.headers && (init.headers as Record<string, string>)["Content-Type"], "application/json");
+    assert.equal(init?.body, JSON.stringify({ reason: "Not actionable" }));
   } finally {
     globalThis.fetch = origFetch;
   }

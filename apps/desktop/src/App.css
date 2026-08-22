@@ -1748,3 +1748,31 @@ html, body, #root {
 .new-session-config-item input[type="checkbox"] {
   accent-color: var(--accent-strong);
 }
+.recommendations-panel {
+  height: 100%; overflow: auto; padding: var(--space-4); background: var(--surface-1);
+}
+.recommendations-panel-header, .recommendation-card-header {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3);
+}
+.recommendations-panel-header { margin-bottom: var(--space-4); }
+.recommendations-panel h2, .recommendation-card h3 { margin: 0; color: var(--text-primary); }
+.recommendations-panel-header p, .recommendation-reason, .recommendation-card p { color: var(--text-muted); }
+.recommendations-panel-header button, .recommendation-sessions button, .recommendation-evidence-row button, .recommendation-dismiss {
+  border: 1px solid var(--border-default); border-radius: var(--radius-sm); padding: var(--space-1) var(--space-3);
+  color: var(--text-primary); background: var(--surface-2); font: inherit; cursor: pointer;
+}
+.recommendations-panel-header button:hover, .recommendation-sessions button:hover, .recommendation-evidence-row button:hover, .recommendation-dismiss:hover:not(:disabled) { background: var(--surface-active); }
+.recommendation-card { margin-bottom: var(--space-4); padding: var(--space-4); border: 1px solid var(--border-default); border-radius: var(--radius-md); background: var(--surface-2); }
+.recommendation-target, .recommendation-impact, .recommendation-evidence-row span { font-size: var(--text-sm); color: var(--text-muted); }
+.recommendation-impact { padding: var(--space-1) var(--space-2); border-radius: var(--radius-pill); background: var(--state-warn-bg); }
+.recommendation-impact--high { color: var(--state-error); } .recommendation-impact--medium { color: var(--state-warn); } .recommendation-impact--low { color: var(--state-ok); }
+.recommendation-proposal { margin: var(--space-4) 0 var(--space-2); color: var(--text-primary) !important; font-weight: 600; }
+.recommendation-facts { display: grid; gap: var(--space-2); margin: var(--space-4) 0; }
+.recommendation-facts div { display: flex; justify-content: space-between; gap: var(--space-3); }
+.recommendation-facts dt { color: var(--text-muted); } .recommendation-facts dd { color: var(--text-primary); text-align: right; }
+.recommendation-sessions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.recommendation-evidence { margin: var(--space-4) 0; } .recommendation-evidence summary { cursor: pointer; color: var(--text-primary); }
+.recommendation-evidence-row { display: grid; gap: var(--space-1); margin-top: var(--space-3); padding-left: var(--space-3); border-left: 2px solid var(--border-subtle); }
+.recommendation-evidence-row p { margin: 0; } .recommendation-error { color: var(--state-error) !important; }
+.recommendations-diagnostics { margin-bottom: var(--space-4); padding: var(--space-3); border: 1px solid var(--state-warn); border-radius: var(--radius-sm); color: var(--text-primary); }
+.recommendations-diagnostics p { margin-top: var(--space-1); color: var(--text-muted); } .recommendation-dismiss:disabled { cursor: wait; opacity: .65; }

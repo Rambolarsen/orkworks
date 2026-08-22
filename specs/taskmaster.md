@@ -262,6 +262,15 @@ From `.orkworks/events/<session-id>.ndjson`:
 - chain depth
 - model/harnesses already used
 
+### Workflow observations
+
+From the shared workflow-evidence module (`workspace_observations`), not from raw event or terminal text:
+
+- immutable `WorkflowObservation` records: `id`, `sequence`, `sessionId`, `observedAt`, `kind`, `description`, `evidence`, `reportedImpact`, `source`, `confidence`, `fingerprint`
+- accepted within the active workspace only, ordered by `sequence`
+
+Taskmaster reads workflow observations for a different purpose than session snapshots: session snapshots (including the current-summary snapshot — `summary`/`summarySource`/`summaryConfidence`/`summaryObservedAt`, see `specs/orkworks-mvp.md`) describe current work for coordination and handoff prompts; workflow observations describe durable friction used only to propose workflow improvements. Taskmaster never parses activity-summary prose to manufacture workflow evidence, and it never mutates or amends a stored observation. See [ADR 0042](../docs/adr/0042-workflow-observations-replace-summary-checkpoints.md) for the full rationale.
+
 ### User preferences
 
 Examples:
@@ -305,6 +314,7 @@ Initial recommendation types:
 - `wait_for_capacity` — postpone a model-specific action until capacity resets
 - `avoid_parallel_session` — warn against starting more work in a shared dirty workspace
 - `archive_completed_session` — suggest clearing completed runtime clutter after downstream work is complete
+- `improve_workflow` — passive, evidence-backed suggestion to update instructions, a skill, a test, tooling, or documentation, derived from correlated `WorkflowObservation` records (see "Workflow-improvement recommendations" below)
 
 Recommendation types describe intent. The shared recommendation engine selects the best available harness/model for intents that require a new session.
 
@@ -389,6 +399,69 @@ THEN surface the work as ready for user acceptance
 ```
 
 Taskmaster may say that the work is ready for the user. It must not mark the work accepted or merge it.
+
+## Workflow-improvement recommendations
+
+`improve_workflow` is the passive variant of the canonical recommendation contract described above. It never starts, resumes, or focuses a session; it exposes no accept/execute action; and it never edits repository files, instructions, skills, tests, or tooling itself. It is a proposal for the user to act on manually.
+
+### Eligibility
+
+Taskmaster reevaluates five seconds after the latest accepted workflow observation in the active workspace, so a burst of related records can be considered together, and reconstructs its view from persisted observations after a restart. A deterministic evaluator considers a cluster eligible when either:
+
+- it contains at least two distinct observations sharing a fingerprint, each with confidence ≥ `0.6`; or
+- it contains one observation with `reportedImpact: high` and confidence ≥ `0.8`.
+
+Two inference results over the same unchanged Peon evidence window count as one observation; a genuinely repeated action produces a later evidence range and therefore a distinct, separately-countable occurrence. Recurrence may span one session or multiple sessions; the recommendation states which. Version 1 never combines different fingerprints — this keeps the evaluator deterministic. Observations below `0.6` confidence, and high-impact observations below `0.8` confidence, are not cited or counted, though they may remain stored as supporting context.
+
+### Kind-to-target mapping
+
+Every observation kind maps to a fixed target surface and recommendation-text template. The template is presentation, not evidence — every recurrence, session, impact, and confidence claim in the recommendation is computed from the cited observations.
+
+| Observation kind | Default target | Proposed-improvement template |
+| --- | --- | --- |
+| `repetition` | `tooling` | Automate or remove repeated work: `<description>` |
+| `obstacle` | `tooling` | Remove or document the obstacle: `<description>` |
+| `missing_context` | `instructions` | Add missing repository context: `<description>` |
+| `assumption` | `instructions` | Make the required assumption explicit: `<description>` |
+| `correction` | `instructions` | Prevent this recurring correction: `<description>` |
+| `workaround` | `tooling` | Replace the workaround with a supported path: `<description>` |
+| `verification_gap` | `test` | Add reliable verification for: `<description>` |
+
+### Recommendation shape
+
+`improve_workflow` carries all shared recommendation fields (see "Recommendation contract" below) with `targetSessionId`, `suggestedHarnessId`, `suggestedModel`, `suggestedWorkingDirectory`, and `suggestedPrompt` all `null`, `requiresApproval: false`, and priority derived from the highest cited impact. Confidence is conservative: `high` only when every qualifying cited observation is at least `0.8`; otherwise `medium`. It adds a `workflowImprovement` object:
+
+```text
+workflowImprovement
+  proposedImprovement
+  targetSurface       instructions | skill | test | tooling | documentation
+  observationIds
+  recurrenceCount
+  affectedSessionIds
+  impact
+  expectedBenefit
+  supersedesRecommendationId null or dismissed predecessor ID
+  dismissalWatermark null or dismissed evidence watermark
+```
+
+Each canonical `evidence` entry embeds an immutable snapshot of a cited observation (ID, sequence, session ID, kind, description, evidence text, impact, source, confidence, observed time), so ordinary observation-segment trimming cannot invalidate an existing proposed or dismissed card. A recommendation cannot claim more recurrences or sessions than its evidence contains. A proposed recommendation may be updated with later qualifying evidence while retaining its identity and lifecycle history.
+
+For this passive variant, only `proposed`, `dismissed`, and `superseded` are reachable in the first version; the remaining canonical statuses stay valid for shared deserialization but are never produced by this evaluator.
+
+### Deduplication and dismissal watermark
+
+The dedupe family is `improve_workflow:v1:<target-surface>:<observation-fingerprint>`; it never uses generated prose, and only one proposed member of a family may exist at a time.
+
+Dismissal stores a `dismissalWatermark` containing `dismissedAt`, `dismissedThroughSequence`, the qualifying observation IDs and count, highest impact, and affected session IDs. The evaluator compares later durable observations against that fixed watermark without mutating or resurfacing the dismissed record unless either:
+
+- the highest cited impact increases; or
+- at least two qualifying observations have a sequence greater than `dismissedThroughSequence`, including one from a session not represented in the watermark.
+
+When either condition holds, Taskmaster creates one new `proposed` recommendation in the same dedupe family with the dismissed ID in `supersedesRecommendationId`. The dismissed record remains immutable history. Unchanged evidence cannot create a duplicate.
+
+### Presentation
+
+The Taskmaster surface presents one card per active `improve_workflow` recommendation, showing the proposed improvement and target surface, why Taskmaster is suggesting it now, recurrence count and affected sessions, impact/confidence/expected benefit, expandable supporting observations (source and timestamp), and a single `Dismiss` action. The first version presents recommendations only — it does not create a GitHub issue, start an implementation session, or edit repository files.
 
 ## Review-session handoff
 
@@ -617,6 +690,12 @@ Proposed WebSocket event:
 
 - `taskmaster.recommendation.updated`
 
+Workflow observations reach Taskmaster through a session-scoped sidecar route rather than a Taskmaster route directly:
+
+- `POST /sessions/:id/workflow-observations` — authenticated, harness-neutral explicit workflow-observation report (see `specs/orkworks-mvp.md`)
+
+`improve_workflow` recommendations use only `GET /taskmaster/recommendations` (list) and `POST /taskmaster/recommendations/:id/dismiss` from the API above — `accept` and `refresh` have no effect for this passive variant, since it exposes no accept/execute action and Taskmaster's five-second correlation debounce drives its own reevaluation.
+
 Accepting a recommendation that starts a session should use the existing session creation path. The created session records:
 
 - `parentSessionId`
@@ -796,6 +875,9 @@ The action overview continues to answer what needs attention now. Taskmaster rec
 - [ ] Chain depth and review-count limits prevent indefinite session spawning.
 - [ ] Capacity changes can supersede or rerank a proposed recommendation.
 - [ ] Taskmaster never writes terminal input, modifies source files, or performs Git workflow actions directly.
+- [ ] Two sessions that each produce a matching workflow observation (same fingerprint, confidence ≥ `0.6`) can produce one evidence-backed `improve_workflow` recommendation citing both.
+- [ ] `improve_workflow` recommendations expose no accept/execute action and only ever reach `proposed`, `dismissed`, or `superseded` status.
+- [ ] Dismissing an `improve_workflow` recommendation persists an evidence watermark and does not resurface it from unchanged evidence.
 
 ## Non-goals reaffirmed
 

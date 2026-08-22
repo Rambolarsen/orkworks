@@ -1,4 +1,5 @@
 use axum::{
+    extract::DefaultBodyLimit,
     routing::{delete, get, post, put},
     Router,
 };
@@ -23,7 +24,9 @@ mod providers;
 mod runtime;
 mod session_types;
 mod session_view;
+mod taskmaster;
 mod watcher;
+mod workflow_observations;
 mod workspace_runtime;
 
 use crate::harness::definition::{BuiltinDocument, EMBEDDED_BUILTINS};
@@ -45,6 +48,10 @@ use crate::http::session_handlers::{
 get_session_plan_content, request_session_plan_review, report_attention, report_harness_session, report_session_plan_path, resume_session, select_terminal_plan,
     set_active_harnesses, set_active_session, set_workspace,
 };
+use crate::http::taskmaster_handlers::{
+    dismiss_recommendation, get_recommendation, list_recommendations,
+};
+use crate::http::workflow_observation_handlers::report_workflow_observation;
 use crate::runtime::peon_runtime::peon_loop;
 use crate::runtime::retention::retention_cleanup_task;
 use crate::runtime::terminal_http::{
@@ -78,6 +85,8 @@ struct SessionHandle {
 struct WorkspaceState {
     path: PathBuf,
     metadata: metadata::MetadataStore,
+    workflow_observations: workflow_observations::WorkflowObservationStore,
+    recommendation_store: taskmaster::store::RecommendationStore,
     #[allow(dead_code)]
     watcher: watcher::MetadataWatcher,
 }
@@ -274,11 +283,30 @@ pub(crate) fn build_router(state: Arc<AppState>) -> Router {
             post(request_session_plan_review),
         )
         .route("/settings/retention", post(set_retention))
+        .route("/taskmaster/recommendations", get(list_recommendations))
+        .route(
+            "/taskmaster/recommendations/:id",
+            get(get_recommendation),
+        )
+        .route(
+            "/taskmaster/recommendations/:id/dismiss",
+            post(dismiss_recommendation),
+        )
         .route("/harnesses", get(list_harnesses).post(create_harness))
         .route("/harnesses/:id", put(update_harness).delete(delete_harness))
         .route("/sessions/:id/terminal", get(session_terminal_handler))
         .route("/sessions/:id/terminal-output", get(get_terminal_output))
         .route("/sessions/:id/summary-log", get(get_summary_log))
+        .merge(
+            // Isolated so the 8 KiB body cap (ADR 0042) applies only to this
+            // route, not the rest of the API.
+            Router::new()
+                .route(
+                    "/sessions/:id/workflow-observations",
+                    post(report_workflow_observation),
+                )
+                .layer(DefaultBodyLimit::max(8 * 1024)),
+        )
         .layer(cors)
         .with_state(state)
 }
@@ -394,6 +422,14 @@ pub(crate) mod test_support {
             workspace: Mutex::new(Some(WorkspaceState {
                 path: path.to_path_buf(),
                 metadata: metadata::MetadataStore::new(&metadata_root),
+                workflow_observations: workflow_observations::WorkflowObservationStore::open(
+                    metadata_root.clone(),
+                )
+                .expect("open workflow observation store"),
+                recommendation_store: taskmaster::store::RecommendationStore::open(
+                    metadata_root.clone(),
+                )
+                .expect("open recommendation store"),
                 watcher: watcher::MetadataWatcher::start(&metadata_root.join("sessions")),
             })),
             peon: PeonState {
@@ -427,6 +463,14 @@ pub(crate) mod test_support {
         *state.workspace.lock().unwrap() = Some(WorkspaceState {
             path: path.to_path_buf(),
             metadata: metadata::MetadataStore::new(&metadata_root),
+            workflow_observations: workflow_observations::WorkflowObservationStore::open(
+                metadata_root.clone(),
+            )
+            .expect("open workflow observation store"),
+            recommendation_store: taskmaster::store::RecommendationStore::open(
+                metadata_root.clone(),
+            )
+            .expect("open recommendation store"),
             watcher: watcher::MetadataWatcher::start(&metadata_root.join("sessions")),
         });
         state.bump_harness_probe_generation();
