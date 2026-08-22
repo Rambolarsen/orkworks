@@ -1,10 +1,15 @@
 use crate::{git, metadata, migration, watcher, AppState, WorkspaceState};
 use crate::workspace_runtime::{iso_now, orkworks_global_dir};
-use crate::http::session_handlers::{AttentionReportRequest, TerminalPlanSelectionRequest};
-use crate::session_types::SessionInfo;
+use crate::http::session_handlers::{
+    AttentionReportRequest, CreateSessionRequest, TerminalPlanSelectionRequest,
+};
+use crate::session_types::{MemoryState, SessionInfo};
+use crate::session_view::{connectivity_for_status, terminal_outcome_for_status};
 use axum::response::{IntoResponse, Response};
+use portable_pty::PtySize;
 use std::path::PathBuf;
 use std::sync::Arc;
+use crate::{harness, peon, SessionHandle};
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum SessionError {
@@ -117,11 +122,11 @@ impl SessionApplication {
         &self,
         request: CreateSessionCommand,
     ) -> Result<SessionInfo, SessionError> {
-        crate::http::session_handlers::create_session_workflow(self.state.clone(), request).await
+        create_session_workflow(self.state.clone(), request).await
     }
 
     pub(crate) async fn resume_session(&self, id: &str) -> Result<SessionInfo, SessionError> {
-        crate::http::session_handlers::resume_session_workflow(self.state.clone(), id).await
+        resume_session_workflow(self.state.clone(), id).await
     }
 
     pub(crate) async fn report_attention(
@@ -196,6 +201,816 @@ impl SessionApplication {
         Ok(response)
     }
 }
+
+pub(crate) fn resume_handle_conflicts(
+    handle: &SessionHandle,
+    metadata_ended: bool,
+    has_tracked_pid: bool,
+) -> bool {
+    handle.info.lifecycle_phase == "ending"
+        || handle.resume_in_progress
+        || handle.terminal_attached
+        || !metadata_ended
+        || has_tracked_pid
+}
+
+struct ResumeRollback {
+    workspace_path: PathBuf,
+    metadata: metadata::SessionMetadata,
+    terminal_size: Option<(u16, u16)>,
+}
+
+pub(crate) struct ResumeAdmission {
+    state: Arc<AppState>,
+    id: String,
+    generation: crate::runtime::session_runtime::RuntimeGeneration,
+    previous_handle: Option<SessionHandle>,
+    rollback: Option<ResumeRollback>,
+    committed: bool,
+}
+
+impl ResumeAdmission {
+    pub(crate) fn generation(&self) -> crate::runtime::session_runtime::RuntimeGeneration {
+        self.generation
+    }
+
+    pub(crate) fn arm_rollback(
+        &mut self,
+        workspace_path: PathBuf,
+        metadata: metadata::SessionMetadata,
+        terminal_size: Option<(u16, u16)>,
+    ) {
+        self.rollback = Some(ResumeRollback {
+            workspace_path,
+            metadata,
+            terminal_size,
+        });
+    }
+
+    pub(crate) fn commit(mut self) {
+        self.committed = true;
+        self.previous_handle = None;
+        self.rollback = None;
+    }
+}
+
+impl Drop for ResumeAdmission {
+    fn drop(&mut self) {
+        if self.committed {
+            return;
+        }
+
+        let restored_generation = {
+            let mut sessions = self.state.sessions.lock().unwrap();
+            if !sessions.get(&self.id).is_some_and(|handle| {
+                handle.runtime.run_generation() == self.generation
+                    && handle.resume_in_progress
+                    && !handle.runtime.startup_spawned()
+            }) {
+                None
+            } else {
+                match self.previous_handle.take() {
+                    Some(previous) => {
+                        let generation = previous.runtime.run_generation();
+                        sessions.insert(self.id.clone(), previous);
+                        Some(Some(generation))
+                    }
+                    None => {
+                        sessions.remove(&self.id);
+                        Some(None)
+                    }
+                }
+            }
+        };
+        let Some(restored_generation) = restored_generation else {
+            return;
+        };
+
+        let Some(rollback) = self.rollback.take() else {
+            return;
+        };
+        let ws_guard = self.state.workspace.lock().unwrap();
+        let Some(ws) = ws_guard
+            .as_ref()
+            .filter(|workspace| workspace.path == rollback.workspace_path)
+        else {
+            return;
+        };
+        // Another resume may claim the restored handle while cancellation is
+        // waiting for the workspace lock. Recheck the post-rollback registry
+        // state and keep the sessions lock through both persisted restorations
+        // so a newer generation can never be overwritten after this check.
+        let sessions = self.state.sessions.lock().unwrap();
+        let still_owns_persisted_rollback = match restored_generation {
+            Some(generation) => sessions
+                .get(&self.id)
+                .is_some_and(|handle| handle.runtime.run_generation() == generation),
+            None => !sessions.contains_key(&self.id),
+        };
+        if !still_owns_persisted_rollback {
+            return;
+        }
+        ws.metadata.write_session(&rollback.metadata);
+        match rollback.terminal_size {
+            Some((cols, rows)) => ws.metadata.write_terminal_size(&self.id, cols, rows),
+            None => ws.metadata.clear_terminal_size(&self.id),
+        }
+    }
+}
+
+pub(crate) fn try_install_claimed_resume_handle(
+    state: &Arc<AppState>,
+    id: &str,
+    mut replacement: SessionHandle,
+    metadata_ended: bool,
+    expected_generation: Option<crate::runtime::session_runtime::RuntimeGeneration>,
+) -> Result<ResumeAdmission, ()> {
+    let mut sessions = state.sessions.lock().unwrap();
+    let current_generation = sessions
+        .get(id)
+        .map(|handle| handle.runtime.run_generation());
+    let has_tracked_pid = state.session_pids.lock().unwrap().contains_key(id);
+    if current_generation != expected_generation
+        || !metadata_ended
+        || has_tracked_pid
+        || sessions
+            .get(id)
+            .is_some_and(|handle| resume_handle_conflicts(handle, metadata_ended, has_tracked_pid))
+    {
+        return Err(());
+    }
+
+    replacement.resume_in_progress = true;
+    let generation = replacement.runtime.run_generation();
+    let previous_handle = sessions.insert(id.to_string(), replacement);
+    Ok(ResumeAdmission {
+        state: state.clone(),
+        id: id.to_string(),
+        generation,
+        previous_handle,
+        rollback: None,
+        committed: false,
+    })
+}
+
+async fn resume_session_workflow(
+    state: Arc<AppState>,
+    id: &str,
+) -> Result<SessionInfo, crate::session_application::SessionError> {
+    let id = id.to_string();
+    let now = iso_now();
+    let expected_generation = state
+        .sessions
+        .lock()
+        .unwrap()
+        .get(&id)
+        .map(|handle| handle.runtime.run_generation());
+    let registry = state
+        .harness_catalog
+        .read()
+        .expect("harness catalog lock poisoned")
+        .clone();
+    let (meta, command, strategy, resume_flags, capacity_check_pending, active_work_hook) = {
+        let ws_guard = state.workspace.lock().unwrap();
+        let Some(ref ws) = *ws_guard else {
+            return Err(crate::session_application::SessionError::Conflict);
+        };
+        let Some(meta) = ws.metadata.read_session(&id) else {
+            return Err(crate::session_application::SessionError::NotFound);
+        };
+        let Some(resume) = meta.resume.as_ref() else {
+            return Err(crate::session_application::SessionError::BadRequest("invalid request"));
+        };
+        let session_harness_id = (!meta.harness.is_empty()).then_some(meta.harness.as_str());
+        let harness = session_harness_id
+            .and_then(|id| registry.get(id))
+            .or_else(|| registry.get("generic-shell"))
+            .expect("generic-shell builtin exists");
+        let active_work_hook = harness
+            .effective_capabilities
+            .contains(&crate::harness::registry::CapabilityName::Attention);
+        let strategy = harness.select_resume_strategy(resume);
+        if strategy == harness::ResumeStrategy::None {
+            return Err(crate::session_application::SessionError::BadRequest("invalid request"));
+        }
+        let Some(command) = harness.build_resume(
+            strategy.clone(),
+            &meta.cwd,
+            resume.harness_session_id.as_deref(),
+            meta.repo_root.as_deref(),
+            (!meta.model.is_empty()).then_some(meta.model.as_str()),
+        ) else {
+            return Err(crate::session_application::SessionError::BadRequest("invalid request"));
+        };
+        (
+            meta,
+            command,
+            strategy,
+            harness.resume_flags(),
+            !harness.capacity_patterns().is_empty(),
+            active_work_hook,
+        )
+    };
+
+    let (kill_tx, _kill_rx) = tokio::sync::watch::channel(false);
+    let info = SessionInfo {
+        id: id.clone(),
+        label: meta.label.clone(),
+        harness_id: (!meta.harness.is_empty()).then(|| meta.harness.clone()),
+        model_provider_id: meta.provider_id.clone(),
+        model_id: (!meta.model.is_empty()).then(|| meta.model.clone()),
+        harness: (!meta.harness.is_empty()).then(|| meta.harness.clone()),
+        model: (!meta.model.is_empty()).then(|| meta.model.clone()),
+        work_phase: meta.work_phase.clone(),
+        lifecycle_phase: "creating".into(),
+        lifecycle: "creating".into(),
+        attention: None,
+        status: "creating".into(),
+        connectivity: Some(connectivity_for_status("creating").into()),
+        terminal_outcome: terminal_outcome_for_status("creating"),
+        cwd: command.cwd.clone(),
+        created_at: meta.created_at.clone(),
+        last_activity_at: Some(now.clone()),
+        last_output_at: None,
+        // The frozen final state belongs to the previous run; a resumed session
+        // is live again and must not resurface it as attention.
+        final_observed_status: None,
+        observed_status: None,
+        summary: meta.summary.clone(),
+        next_action: meta.next_action.clone(),
+        needs_user_input: None,
+        detected_question: None,
+        suggested_options: None,
+        blocker_description: None,
+        failed_command: None,
+        failed_test: None,
+        capacity_hints: None,
+        at_usage_limit: None,
+        capacity_check_pending: capacity_check_pending.then_some(true),
+        usage_limit_reset_hint: None,
+        metadata_source: Some("process".into()),
+        metadata_confidence: Some(1.0),
+        repo_root: meta.repo_root.clone(),
+        branch: meta.branch.clone(),
+        dirty: meta.dirty,
+        changed_files: meta.changed_files,
+        is_worktree: meta.is_worktree,
+        conflict_warning: None,
+        recommendation: None,
+        peon_last_inference: None,
+        memory_state: MemoryState::Live,
+        resume_strategy: strategy.clone(),
+        resume: meta.resume.clone(),
+        resume_options: metadata::derive_resume_options(
+            &strategy,
+            meta.resume.as_ref(),
+            resume_flags.0,
+            resume_flags.1,
+            resume_flags.2,
+        ),
+        resumed_from: meta.resumed_from.clone(),
+        has_openable_plan: None,
+        provider: meta.provider_label.clone(),
+        provider_model: meta.provider_model.clone(),
+        provider_state: meta.provider_state.clone(),
+    };
+
+    let (runtime, control_rx) = crate::runtime::session_runtime::SessionRuntime::live(
+        crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+        crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+    );
+    let output_tx = runtime.output_tx.clone();
+
+    let replacement = SessionHandle {
+        info: info.clone(),
+        active_work_hook,
+        kill_tx: kill_tx.clone(),
+        output_buffer: peon::RingBuffer::new(state.peon.config.max_lines),
+        scan_buf: String::new(),
+        pending_work_signal: None,
+        runtime,
+        terminal_attached: false,
+        resume_in_progress: false,
+        at_usage_limit_latched: false,
+        capacity_check_pending,
+        output_lines_seen: 0,
+        scan_bytes_seen: 0,
+        resume_scan_origin: capacity_check_pending.then_some((0, 0)),
+        pending_capacity_visible_once: false,
+    };
+    let mut admission = match try_install_claimed_resume_handle(
+        &state,
+        &id,
+        replacement,
+        meta.lifecycle_phase == "ended",
+        expected_generation,
+    ) {
+        Ok(admission) => admission,
+        Err(()) => return Err(crate::session_application::SessionError::Conflict),
+    };
+    let run_generation = admission.generation();
+
+    {
+        let ws_guard = state.workspace.lock().unwrap();
+        if let Some(ref ws) = *ws_guard {
+            admission.arm_rollback(
+                ws.path.clone(),
+                meta.clone(),
+                ws.metadata.read_terminal_size(&id),
+            );
+            // Drop any recorded terminal-size sidecar from the prior run before the
+            // resumed runtime starts. If the daemon exits before the resumed run
+            // reaches another terminal-status transition there is no in-memory
+            // handle to overwrite the size, so leaving the prior grid in place
+            // would replay the new run's output against a stale grid. Clearing
+            // falls back to documented fit-to-container replay for that case.
+            ws.metadata.clear_terminal_size(&id);
+            if let Some(mut stored_meta) = ws.metadata.read_session(&id) {
+                stored_meta.status = "creating".to_string();
+                stored_meta.lifecycle_phase = "creating".to_string();
+                stored_meta.lifecycle = "creating".to_string();
+                stored_meta.attention = None;
+                stored_meta.pending_terminal_status = None;
+                stored_meta.ending_observed_status_snapshot = None;
+                stored_meta.final_observed_status_snapshot = None;
+                stored_meta.observed_status = None;
+                stored_meta.connectivity = connectivity_for_status("creating").to_string();
+                stored_meta.terminal_outcome = None;
+                stored_meta.last_activity = now.clone();
+                stored_meta.resume = meta.resume.clone();
+                stored_meta.resume_options = meta.resume_options.clone();
+                stored_meta.resumed_from = meta.resumed_from.clone();
+                ws.metadata.write_session(&stored_meta);
+            }
+        }
+    }
+
+    let startup_state = state.clone();
+    let startup_id = id.clone();
+    let startup_task = tokio::spawn(async move {
+        let start_result = crate::runtime::session_runtime::start_session_runtime(
+            startup_state.clone(),
+            startup_id.clone(),
+            command,
+            None,
+            control_rx,
+            output_tx,
+            kill_tx.subscribe(),
+            PtySize {
+                rows: crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                cols: crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                pixel_width: 0,
+                pixel_height: 0,
+            },
+        )
+        .await;
+
+        if let Err(error) = &start_result {
+            admission.commit();
+            tracing::error!(session_id = %startup_id, %error, "failed to start resumed session runtime");
+            if crate::runtime::terminal_runtime::set_session_status_for_generation(
+                &startup_state,
+                &startup_id,
+                run_generation,
+                "error",
+            )
+            .await
+            {
+                crate::runtime::terminal_runtime::schedule_session_ending_finalization(
+                    startup_state.clone(),
+                    startup_id.clone(),
+                    run_generation,
+                    "error".into(),
+                );
+            }
+        } else {
+            admission.commit();
+        }
+        start_result
+    });
+    let start_result = startup_task
+        .await
+        .map_err(|error| format!("resumed runtime startup task failed: {error}"))
+        .and_then(|result| result);
+
+    match start_result {
+        Ok(()) => {}
+        Err(error) => {
+            tracing::error!(session_id = %id, %error, "failed to start resumed session runtime");
+            return Err(crate::session_application::SessionError::Internal("application operation failed"));
+        }
+    }
+    let info = state
+        .sessions
+        .lock()
+        .unwrap()
+        .get(&id)
+        .map(|handle| handle.info.clone())
+        .expect("resumed session remains registered");
+
+    {
+        let ws_guard = state.workspace.lock().unwrap();
+        if let Some(ref ws) = *ws_guard {
+            ws.metadata.append_event(
+                &id,
+                &metadata::Event {
+                    event_type: "session.resumed".into(),
+                    timestamp: now,
+                    status: "running".into(),
+                    observed_status: None,
+                    confidence: None,
+                    summary: None,
+                    source: None,
+                },
+            );
+        }
+    }
+
+    Ok(info)
+}
+
+pub(crate) struct ResolvedSessionLaunch {
+    pub(crate) session_harness_id: Option<String>,
+    pub(crate) active_work_hook: bool,
+    pub(crate) model: Option<String>,
+    pub(crate) command: harness::CommandSpec,
+    pub(crate) provider_id: Option<String>,
+    pub(crate) provider_label: Option<String>,
+}
+
+pub(crate) fn resolve_session_launch(
+    registry: &crate::harness::registry::ResolvedHarnessRegistry,
+    req: &CreateSessionRequest,
+    cwd: String,
+) -> ResolvedSessionLaunch {
+    let requested_id = req.harness_id.as_deref();
+    let harness = requested_id
+        .and_then(|id| registry.get(id))
+        .filter(|harness| !harness.definition.retired)
+        .or_else(|| registry.get("generic-shell"))
+        .expect("generic-shell builtin exists");
+    let model = req
+        .model
+        .clone()
+        .or_else(|| harness.definition.default_model.clone());
+    ResolvedSessionLaunch {
+        session_harness_id: Some(harness.definition.id.clone()),
+        active_work_hook: harness
+            .effective_capabilities
+            .contains(&crate::harness::registry::CapabilityName::Attention),
+        command: harness.build_launch(&cwd, model.as_deref()),
+        provider_id: None,
+        provider_label: None,
+        model,
+    }
+}
+
+async fn create_session_workflow(
+    state: Arc<AppState>,
+    req: crate::session_application::CreateSessionCommand,
+) -> Result<SessionInfo, crate::session_application::SessionError> {
+    let req = CreateSessionRequest {
+        harness_id: req.harness_id,
+        model: req.model,
+        initial_prompt: req.initial_prompt,
+    };
+    let id = uuid::Uuid::new_v4().to_string();
+    let (workspace_cwd, workspace_metadata_root) = state
+        .workspace
+        .lock()
+        .unwrap()
+        .as_ref()
+        .map(|workspace| {
+            (
+                workspace.path.display().to_string(),
+                workspace.metadata.root_path(),
+            )
+        })
+        .unzip();
+    let cwd = workspace_cwd
+        .or_else(|| {
+            std::env::current_dir()
+                .ok()
+                .map(|path| path.display().to_string())
+        })
+        .unwrap_or_else(|| "/".into());
+    let registry = state
+        .harness_catalog
+        .read()
+        .expect("harness catalog lock poisoned")
+        .clone();
+    if req.harness_id.as_deref().is_some_and(|id| {
+        registry
+            .get(id)
+            .is_some_and(|harness| harness.definition.retired)
+    }) {
+        return Err(crate::session_application::SessionError::BadRequest(
+            "The selected coding tool is retired and cannot start new sessions.",
+        ));
+    }
+    let mut resolved_launch = resolve_session_launch(&registry, &req, cwd.clone());
+    let integration_enabled = if let Some(harness) = resolved_launch
+        .session_harness_id
+        .as_deref()
+        .and_then(|id| registry.get(id))
+    {
+        let metadata_root = workspace_metadata_root.clone();
+        let harness_id = harness.definition.id.clone();
+        let registry = registry.clone();
+        match tokio::task::spawn_blocking(move || {
+            registry.get(&harness_id).map_or(Ok(false), |harness| {
+                harness.integration_launch_enabled(metadata_root.as_deref())
+            })
+        })
+        .await
+        {
+            Ok(Ok(enabled)) => enabled,
+            Ok(Err(error)) => {
+                tracing::warn!(
+                    code = error.code(),
+                    "harness launch integration state was ignored"
+                );
+                false
+            }
+            Err(error) => {
+                tracing::warn!(%error, "harness launch integration state task failed");
+                false
+            }
+        }
+    } else {
+        false
+    };
+    if let Some(harness) = resolved_launch
+        .session_harness_id
+        .as_deref()
+        .and_then(|id| registry.get(id))
+    {
+        let reporter = crate::harness::integration::default_reporter_path();
+        if let Err(error) = harness.augment_launch_for_integration(
+            &mut resolved_launch.command,
+            integration_enabled,
+            reporter.as_deref(),
+        ) {
+            tracing::warn!(
+                code = error.code(),
+                "harness launch integration was not applied"
+            );
+        }
+    }
+
+    let (kill_tx, _kill_rx) = tokio::sync::watch::channel(false);
+
+    let git_ctx = git::detect(&PathBuf::from(&cwd));
+    let now = iso_now();
+    let mut info = SessionInfo {
+        id: id.clone(),
+        label: crate::session_types::placeholder_label(&id),
+        harness_id: resolved_launch.session_harness_id.clone(),
+        model_provider_id: resolved_launch.provider_id.clone(),
+        model_id: resolved_launch.model.clone(),
+        harness: resolved_launch.session_harness_id.clone(),
+        model: resolved_launch.model.clone(),
+        work_phase: "unknown".into(),
+        lifecycle_phase: "creating".into(),
+        lifecycle: "creating".into(),
+        attention: None,
+        status: "creating".into(),
+        connectivity: Some(connectivity_for_status("creating").into()),
+        terminal_outcome: terminal_outcome_for_status("creating"),
+        cwd,
+        created_at: now.clone(),
+        last_activity_at: Some(now.clone()),
+        last_output_at: None,
+        final_observed_status: None,
+        observed_status: None,
+        summary: None,
+        next_action: None,
+        needs_user_input: None,
+        detected_question: None,
+        suggested_options: None,
+        blocker_description: None,
+        failed_command: None,
+        failed_test: None,
+        capacity_hints: None,
+        at_usage_limit: None,
+        capacity_check_pending: None,
+        usage_limit_reset_hint: None,
+        metadata_source: None,
+        metadata_confidence: None,
+        repo_root: git_ctx.repo_root.clone(),
+        branch: git_ctx.branch.clone(),
+        dirty: Some(git_ctx.dirty),
+        changed_files: Some(git_ctx.changed_files),
+        is_worktree: Some(git_ctx.is_worktree),
+        conflict_warning: None,
+        recommendation: None,
+        peon_last_inference: None,
+        memory_state: MemoryState::Live,
+        resume_strategy: harness::ResumeStrategy::None,
+        resume: Some(harness::ResumeMemory {
+            state: harness::ResumeState::Available,
+            preferred_strategy: harness::ResumeStrategy::LatestCwd,
+            harness_session_id: None,
+            latest_fallback: true,
+            last_seen_at: Some(now.clone()),
+        }),
+        resume_options: vec![],
+        resumed_from: None,
+        has_openable_plan: None,
+        provider: resolved_launch.provider_label.clone(),
+        provider_model: None,
+        provider_state: None,
+    };
+
+    let command = resolved_launch.command.clone();
+    let initial_prompt = req.initial_prompt.clone();
+    // A hookless harness never gets a `report_attention` call, so the initial
+    // prompt (written straight to the PTY in `start_session_runtime`) must arm
+    // the same fallback a typed-and-submitted command would, or the session's
+    // first turn never promotes past creating/idle while Peon is disabled.
+    let pending_work_signal = initial_prompt
+        .as_deref()
+        .filter(|prompt| !prompt.is_empty() && !resolved_launch.active_work_hook)
+        .map(|prompt| {
+            crate::runtime::session_runtime::arm_pending_work_signal(
+                prompt,
+                tokio::time::Instant::now(),
+            )
+        });
+    // The initial prompt is written straight to the PTY (bypassing the
+    // keystroke-based label seeding in terminal_runtime.rs), so it never gets
+    // a chance at seeding the label there. Seed it here instead: the
+    // synchronous fallback below (so the title is never blank) plus Peon's
+    // topic-inference queue for the real, LLM-phrased topic (ADR 0029).
+    if let Some(prompt) = initial_prompt.as_deref() {
+        let label_line: String = prompt.chars().take(100).collect();
+        if peon::is_descriptive_input(&label_line) {
+            info.label = label_line.clone();
+            crate::runtime::terminal_runtime::queue_label_hint(&state, &id, prompt.to_string());
+        }
+    }
+
+    let (runtime, control_rx) = crate::runtime::session_runtime::SessionRuntime::live(
+        crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+        crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+    );
+    let run_generation = runtime.run_generation();
+    let output_tx = runtime.output_tx.clone();
+    state.sessions.lock().unwrap().insert(
+        id.clone(),
+        SessionHandle {
+            info: info.clone(),
+            active_work_hook: resolved_launch.active_work_hook,
+            kill_tx: kill_tx.clone(),
+            output_buffer: peon::RingBuffer::new(state.peon.config.max_lines),
+            scan_buf: String::new(),
+            pending_work_signal,
+            runtime,
+            terminal_attached: false,
+            resume_in_progress: false,
+            at_usage_limit_latched: false,
+            capacity_check_pending: false,
+            output_lines_seen: 0,
+            scan_bytes_seen: 0,
+            resume_scan_origin: None,
+            pending_capacity_visible_once: false,
+        },
+    );
+
+    // Persist the creating record before the PTY reader exists. The runtime
+    // promotes it to alive immediately after spawn, before it can classify
+    // output, so the first output cannot be lost between memory and metadata.
+    let created_at = iso_now();
+    {
+        let ws_guard = state.workspace.lock().unwrap();
+        if let Some(ref ws) = *ws_guard {
+            let meta_git_ctx = git::detect(&ws.path);
+            ws.metadata.write_session(&metadata::SessionMetadata {
+                id: id.clone(),
+                label: info.label.clone(),
+                workspace: ws.path.display().to_string(),
+                task: String::new(),
+                harness: resolved_launch
+                    .session_harness_id
+                    .clone()
+                    .unwrap_or_default(),
+                model: resolved_launch.model.clone().unwrap_or_default(),
+                cwd: info.cwd.clone(),
+                status: "creating".into(),
+                work_phase: "unknown".into(),
+                lifecycle_phase: "creating".into(),
+                lifecycle: "creating".into(),
+                attention: None,
+                plan_path: None,
+                connectivity: "online".into(),
+                terminal_outcome: None,
+                pending_terminal_status: None,
+                observed_status: None,
+                ending_observed_status_snapshot: None,
+                final_observed_status_snapshot: None,
+                summary: None,
+                next_action: None,
+                needs_user_input: None,
+                detected_question: None,
+                suggested_options: None,
+                blocker_description: None,
+                failed_command: None,
+                failed_test: None,
+                capacity_hints: None,
+                peon_last_inference: None,
+                provider_id: resolved_launch.provider_id.clone(),
+                provider_label: resolved_launch.provider_label.clone(),
+                provider_model: None,
+                provider_state: None,
+                created_at: created_at.clone(),
+                last_activity: created_at.clone(),
+        last_output_at: None,
+                metadata_source: "process".into(),
+                metadata_confidence: 1.0,
+                repo_root: meta_git_ctx.repo_root.clone(),
+                branch: meta_git_ctx.branch.clone(),
+                dirty: Some(meta_git_ctx.dirty),
+                changed_files: Some(meta_git_ctx.changed_files),
+                is_worktree: Some(meta_git_ctx.is_worktree),
+                last_user_input: None,
+                resume: info.resume.clone(),
+                resume_options: vec![],
+                harness_session_id_source: None,
+                harness_session_id_confidence: None,
+                harness_session_id_captured_at: None,
+                resumed_from: info.resumed_from.clone(),
+            });
+        }
+    }
+
+    // Spawn detached rather than awaiting: awaiting here would delay this
+    // handler's response until after the PTY spawn completes, so the client
+    // would never actually observe `status: "creating"` (issue #302) — the
+    // response below always reports the pre-spawn record. Mirrors the
+    // pattern resume_session's startup_task already proved safe, including
+    // the generation guards that keep it correct against concurrent deletion.
+    let startup_state = state.clone();
+    let startup_id = id.clone();
+    tokio::spawn(async move {
+        match crate::runtime::session_runtime::start_session_runtime(
+            startup_state.clone(),
+            startup_id.clone(),
+            command,
+            initial_prompt,
+            control_rx,
+            output_tx,
+            kill_tx.subscribe(),
+            PtySize {
+                rows: crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                cols: crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                pixel_width: 0,
+                pixel_height: 0,
+            },
+        )
+        .await
+        {
+            Ok(()) => {
+                let now = iso_now();
+                let ws_guard = startup_state.workspace.lock().unwrap();
+                if let Some(ref ws) = *ws_guard {
+                    ws.metadata.append_event(
+                        &startup_id,
+                        &metadata::Event {
+                            event_type: "session.created".into(),
+                            timestamp: now,
+                            status: "running".into(),
+                            observed_status: None,
+                            confidence: None,
+                            summary: None,
+                            source: None,
+                        },
+                    );
+                }
+            }
+            Err(error) => {
+                tracing::error!(session_id = %startup_id, %error, "failed to start session runtime");
+                if crate::runtime::terminal_runtime::set_session_status_for_generation(
+                    &startup_state,
+                    &startup_id,
+                    run_generation,
+                    "error",
+                )
+                .await
+                {
+                    crate::runtime::terminal_runtime::schedule_session_ending_finalization(
+                        startup_state.clone(),
+                        startup_id.clone(),
+                        run_generation,
+                        "error".into(),
+                    );
+                }
+            }
+        }
+    });
+
+    Ok(info)
+}
+
 
 fn error_for_status(status: axum::http::StatusCode) -> SessionError {
     match status {
