@@ -264,40 +264,22 @@ pub(crate) async fn set_active_session(
     State(state): State<Arc<AppState>>,
     Json(req): Json<ActiveSessionRequest>,
 ) -> impl IntoResponse {
-    let now = iso_now();
-    let ws_guard = state.workspace.lock().unwrap();
-    if let Some(ref ws) = *ws_guard {
-        let existing = ws.metadata.read_workspace_memory();
-        ws.metadata
-            .write_workspace_memory(&metadata::WorkspaceMemory {
-                last_active_session_id: Some(req.session_id),
-                last_active_at: Some(now),
-                active_harness_ids: existing.map(|m| m.active_harness_ids).unwrap_or_default(),
-            });
-        return axum::http::StatusCode::OK;
+    match SessionApplication::new(state).set_active_session(&req.session_id) {
+        Ok(()) => axum::http::StatusCode::OK,
+        Err(crate::session_application::SessionError::Conflict) => axum::http::StatusCode::CONFLICT,
+        Err(_) => axum::http::StatusCode::INTERNAL_SERVER_ERROR,
     }
-    axum::http::StatusCode::CONFLICT
 }
 
 pub(crate) async fn set_active_harnesses(
     State(state): State<Arc<AppState>>,
     Json(req): Json<ActiveHarnessesRequest>,
 ) -> impl IntoResponse {
-    let now = iso_now();
-    let ws_guard = state.workspace.lock().unwrap();
-    if let Some(ref ws) = *ws_guard {
-        let existing = ws.metadata.read_workspace_memory();
-        ws.metadata
-            .write_workspace_memory(&metadata::WorkspaceMemory {
-                last_active_session_id: existing
-                    .as_ref()
-                    .and_then(|m| m.last_active_session_id.clone()),
-                last_active_at: Some(now),
-                active_harness_ids: req.active_harness_ids,
-            });
-        return axum::http::StatusCode::OK;
+    match SessionApplication::new(state).set_active_harnesses(req.active_harness_ids) {
+        Ok(()) => axum::http::StatusCode::OK,
+        Err(crate::session_application::SessionError::Conflict) => axum::http::StatusCode::CONFLICT,
+        Err(_) => axum::http::StatusCode::INTERNAL_SERVER_ERROR,
     }
-    axum::http::StatusCode::CONFLICT
 }
 
 pub(crate) async fn create_session(

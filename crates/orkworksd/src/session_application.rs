@@ -290,6 +290,35 @@ impl SessionApplication {
         Ok(())
     }
 
+    pub(crate) fn set_active_session(&self, session_id: &str) -> Result<(), SessionError> {
+        let workspace_guard = self.state.workspace.lock().unwrap();
+        let workspace = workspace_guard.as_ref().ok_or(SessionError::Conflict)?;
+        let existing = workspace.metadata.read_workspace_memory();
+        workspace.metadata.write_workspace_memory(&metadata::WorkspaceMemory {
+            last_active_session_id: Some(session_id.to_string()),
+            last_active_at: Some(iso_now()),
+            active_harness_ids: existing.map(|memory| memory.active_harness_ids).unwrap_or_default(),
+        });
+        Ok(())
+    }
+
+    pub(crate) fn set_active_harnesses(
+        &self,
+        active_harness_ids: Vec<String>,
+    ) -> Result<(), SessionError> {
+        let workspace_guard = self.state.workspace.lock().unwrap();
+        let workspace = workspace_guard.as_ref().ok_or(SessionError::Conflict)?;
+        let existing = workspace.metadata.read_workspace_memory();
+        workspace.metadata.write_workspace_memory(&metadata::WorkspaceMemory {
+            last_active_session_id: existing
+                .as_ref()
+                .and_then(|memory| memory.last_active_session_id.clone()),
+            last_active_at: Some(iso_now()),
+            active_harness_ids,
+        });
+        Ok(())
+    }
+
     pub(crate) async fn delete_session(&self, id: &str) -> Result<(), SessionError> {
         let kill_tx = self
             .state
@@ -1650,5 +1679,88 @@ mod tests {
         let result = SessionApplication::new(state).forget_session(id).await;
 
         assert_eq!(result, Err(SessionError::Internal("application operation failed")));
+    }
+
+    #[test]
+    fn set_active_session_application_preserves_active_harnesses() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_workspace_memory(&metadata::WorkspaceMemory {
+                last_active_session_id: Some("before-session".into()),
+                last_active_at: Some("before-time".into()),
+                active_harness_ids: vec!["codex".into(), "claude".into()],
+            });
+
+        SessionApplication::new(state.clone())
+            .set_active_session("after-session")
+            .unwrap();
+
+        let memory = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_workspace_memory()
+            .unwrap();
+        assert_eq!(memory.last_active_session_id.as_deref(), Some("after-session"));
+        assert_eq!(memory.active_harness_ids, vec!["codex", "claude"]);
+        assert_ne!(memory.last_active_at.as_deref(), Some("before-time"));
+        assert!(memory.last_active_at.is_some());
+    }
+
+    #[test]
+    fn set_active_harnesses_application_preserves_active_session() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_workspace_memory(&metadata::WorkspaceMemory {
+                last_active_session_id: Some("active-session".into()),
+                last_active_at: Some("before-time".into()),
+                active_harness_ids: vec!["before".into()],
+            });
+
+        SessionApplication::new(state.clone())
+            .set_active_harnesses(vec!["aider".into(), "gemini".into()])
+            .unwrap();
+
+        let memory = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_workspace_memory()
+            .unwrap();
+        assert_eq!(memory.last_active_session_id.as_deref(), Some("active-session"));
+        assert_eq!(memory.active_harness_ids, vec!["aider", "gemini"]);
+        assert_ne!(memory.last_active_at.as_deref(), Some("before-time"));
+        assert!(memory.last_active_at.is_some());
+    }
+
+    #[test]
+    fn active_memory_commands_conflict_without_workspace() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        *state.workspace.lock().unwrap() = None;
+        let application = SessionApplication::new(state);
+
+        assert_eq!(application.set_active_session("session"), Err(SessionError::Conflict));
+        assert_eq!(application.set_active_harnesses(vec!["codex".into()]), Err(SessionError::Conflict));
     }
 }
