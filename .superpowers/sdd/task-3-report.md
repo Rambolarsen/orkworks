@@ -42,9 +42,7 @@ controller was then implemented incrementally until the focused suite passed.
 
 ## Commit
 
-To be filled after committing the implementation:
-
-- `<commit hash>`
+- `b66462a` — `refactor: deepen workspace session controller`
 
 ## Concerns
 
