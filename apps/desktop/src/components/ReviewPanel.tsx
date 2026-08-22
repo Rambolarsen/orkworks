@@ -1,7 +1,33 @@
-import { memo, useCallback, useEffect, useRef, useState } from "react";
-import ReactMarkdown from "react-markdown";
+import { memo, useCallback, useEffect, useRef, useState, type ComponentProps } from "react";
+import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import EmptyState from "./EmptyState";
+
+// A same-document "#fragment" link is safe to leave to the browser's native
+// handling (in-page scroll, no navigation event). Anything else — a relative
+// path, an absolute path, or a full URL — must not be allowed to navigate
+// the renderer directly: Electron's will-navigate guard in
+// electron/externalLinks.ts only blocks cross-origin navigation, so a
+// same-origin relative link (e.g. to another spec file, common in these
+// docs) would otherwise replace the app window instead of doing nothing.
+// Route it through the same openExternalLink bridge terminal links use,
+// which only ever acts on http(s) URLs and silently no-ops everything else.
+function ReviewLink({ href, children }: ComponentProps<"a">) {
+  if (href?.startsWith("#")) return <a href={href}>{children}</a>;
+  return (
+    <a
+      href={href}
+      onClick={(event) => {
+        event.preventDefault();
+        if (href) void window.orkworks.openExternalLink(href);
+      }}
+    >
+      {children}
+    </a>
+  );
+}
+
+const markdownComponents: Components = { a: ReviewLink };
 
 // Memoized because ReviewTab re-renders on every ~2s session poll even when
 // sessionId is unchanged; react-markdown re-parses its input on every render
@@ -30,7 +56,7 @@ function ReviewPanel({ sessionId }: { sessionId: string | null }) {
   if (content === null) return <EmptyState message="Loading plan…" />;
   return (
     <div className="review-plan-content">
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{content}</ReactMarkdown>
     </div>
   );
 }
