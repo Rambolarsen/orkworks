@@ -11,7 +11,6 @@ import { createSettingsController } from "../settingsController";
 
 // The controller delegates to the existing window.orkworks.verifyOllama and
 // window.orkworks.saveProviderSettings IPC methods; the modal never bypasses it.
-// settingsController's verification generation replaces the old verifyRequestRef guard.
 
 type HotkeyAction = keyof HotkeySettings;
 type OllamaVerificationViewState =
@@ -65,6 +64,7 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
   const [peonModelDraft, setPeonModelDraft] = useState<string | null>(initialSettings.providers.peonModel);
   const [ollamaBaseUrlDraft, setOllamaBaseUrlDraft] = useState<string>(initialSettings.providers.ollamaBaseUrl);
   const [ollamaVerification, setOllamaVerification] = useState<OllamaVerificationViewState>({ phase: "idle" });
+  const verifyRequestRef = useRef(0);
   const [activeDraft, setActiveDraft] = useState<string[]>(() =>
     normalizeActiveHarnessIds(harnesses, activeHarnessIds),
   );
@@ -186,12 +186,15 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
   }
 
   async function verifyOllamaDraft(baseUrl: string) {
+    const requestId = ++verifyRequestRef.current;
     const normalizedDraft = normalizeBaseUrlDraft(baseUrl);
     setOllamaVerification({ phase: "checking", requestedBaseUrl: normalizedDraft });
     try {
       const result = await settingsController.verifyOllama(baseUrl);
+      if (requestId !== verifyRequestRef.current) return;
       setOllamaVerification({ phase: "done", result });
     } catch (error) {
+      if (requestId !== verifyRequestRef.current) return;
       setOllamaVerification({
         phase: "done",
         result: failedVerificationResult(
@@ -258,6 +261,11 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
       settingsController.updateDraft("hotkeys", draft);
       const result = await settingsController.commit();
       if (result.ok) {
+        const retentionPending = Boolean(result.retentionApplyStatus?.lastApplyError);
+        const providerPending = Boolean(result.providerApplyStatus?.lastApplyError);
+        if (retentionPending) setRetentionSaveStatus("Saved locally; sidecar pending");
+        if (providerPending) setProviderSaveStatus("Saved locally; sidecar pending");
+        if (retentionPending || providerPending) return;
         onSaved(result.settings);
         onClose();
       } else {
@@ -420,6 +428,7 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
                 placeholder="http://127.0.0.1:11434"
                 value={ollamaBaseUrlDraft}
                 onChange={(e) => {
+                  verifyRequestRef.current++;
                   setOllamaVerification({ phase: "idle" });
                   setOllamaBaseUrlDraft(e.target.value.trim());
                 }}

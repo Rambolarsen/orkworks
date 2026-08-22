@@ -95,6 +95,15 @@ impl SessionApplication {
             tracing::error!(path = %global_dir.display(), %error, "failed to open recommendation store");
             SessionError::Internal("failed to open recommendation store")
         })?;
+        let retained_session_ids = store
+            .read_all_sessions()
+            .into_iter()
+            .map(|session| session.id)
+            .collect::<std::collections::HashSet<_>>();
+        if let Err(error) = recommendation_store.scrub_orphans(&retained_session_ids) {
+            tracing::warn!(path = %global_dir.display(), %error, "failed to scrub orphaned recommendations");
+            return Err(SessionError::Internal("failed to scrub orphaned recommendations"));
+        }
         *workspace = Some(WorkspaceState {
             path: path.clone(),
             metadata: store,
@@ -124,6 +133,9 @@ impl SessionApplication {
                 }
             }
         }
+
+        drop(workspace);
+        crate::taskmaster::evaluator::schedule_evaluation(self.state.clone());
 
         let git_context = git::detect(&path);
         Ok(WorkspaceSnapshot {

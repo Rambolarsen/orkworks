@@ -1,12 +1,12 @@
 import type { AppSettings, DebugSettings, HotkeySettings, RetentionSettings, SaveHotkeysResult } from "./appSettingsTypes.ts";
-import type { OllamaVerificationResponse, ProviderApplyStatus, ProviderSettings } from "./providerTypes.ts";
+import type { OllamaVerificationResponse, ProviderApplyStatus, ProviderSettings, RetentionApplyStatus } from "./providerTypes.ts";
 
 export type SettingsDomain = "hotkeys" | "retention" | "debug" | "providers";
 
 export interface SettingsControllerApi {
   getSettings: () => Promise<AppSettings>;
   saveHotkeys: (value: HotkeySettings) => Promise<SaveHotkeysResult>;
-  saveRetention: (value: RetentionSettings) => Promise<{ ok: boolean }>;
+  saveRetention: (value: RetentionSettings) => Promise<{ ok: boolean; retentionApplyStatus?: RetentionApplyStatus }>;
   saveDebugSettings: (value: DebugSettings) => Promise<{ ok: true; settings: AppSettings }>;
   saveProviderSettings: (value: ProviderSettings) => Promise<{
     ok: true;
@@ -17,7 +17,7 @@ export interface SettingsControllerApi {
 }
 
 export type SettingsCommitResult =
-  | { ok: true; settings: AppSettings; providerApplyStatus?: ProviderApplyStatus }
+  | { ok: true; settings: AppSettings; providerApplyStatus?: ProviderApplyStatus; retentionApplyStatus?: RetentionApplyStatus }
   | { ok: false; failedDomain: SettingsDomain; error: unknown; settings: AppSettings };
 
 export interface SettingsControllerSnapshot {
@@ -92,6 +92,7 @@ export function createSettingsController(api: SettingsControllerApi = window.ork
   async function commit(): Promise<SettingsCommitResult> {
     if (!draft || !committed) throw new Error("Settings must be loaded before commit");
     let providerApplyStatus: ProviderApplyStatus | undefined;
+    let retentionApplyStatus: RetentionApplyStatus | undefined;
 
     for (const domain of domains) {
       if (deepEqual(draft[domain], committed[domain])) continue;
@@ -103,6 +104,7 @@ export function createSettingsController(api: SettingsControllerApi = window.ork
         } else if (domain === "retention") {
           const result = await api.saveRetention(draft.retention);
           if (!result.ok) throw new SettingsDomainError(result);
+          retentionApplyStatus = result.retentionApplyStatus;
           committed = { ...committed, retention: clone(draft.retention) };
         } else if (domain === "debug") {
           const result = await api.saveDebugSettings(draft.debug);
@@ -118,7 +120,7 @@ export function createSettingsController(api: SettingsControllerApi = window.ork
       }
     }
 
-    return { ok: true, settings: clone(committed), providerApplyStatus };
+    return { ok: true, settings: clone(committed), providerApplyStatus, retentionApplyStatus };
   }
 
   return { load, updateDraft, discard, verifyOllama, resetHotkey, commit, snapshot };

@@ -24,6 +24,8 @@ export interface ProviderApplyStatus {
   lastApplyError: string | null;
 }
 
+export type RetentionApplyStatus = ProviderApplyStatus;
+
 export interface ProviderModelsResponse {
   models: string[];
 }

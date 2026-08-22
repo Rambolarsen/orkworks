@@ -6,12 +6,11 @@ use crate::session_view::{
     resolve_effective_cwds, session_recommendation, terminal_outcome_for_status,
 };
 use crate::workspace_runtime::iso_now;
-use crate::{git, metadata, peon, AppState};
+use crate::{git, harness, metadata, peon, AppState, SessionHandle};
 #[cfg(test)]
 use crate::workspace_runtime::orkworks_global_dir;
 #[cfg(test)]
-#[cfg(test)]
-use crate::{harness, watcher, SessionHandle, WorkspaceState};
+use crate::{watcher, WorkspaceState};
 #[cfg(test)]
 use crate::session_application::{
     resolve_session_launch, CreateSessionCommand,

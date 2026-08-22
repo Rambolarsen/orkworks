@@ -230,18 +230,25 @@ app.whenReady().then(() => {
     writeSettings(app.getPath("userData"), nextSettings);
     currentSettings = nextSettings;
 
+    let retentionApplyStatus = { appliedRevision: null, appliedAt: null, lastApplyError: null as string | null };
     try {
       const port = await portPromise;
-      await fetch(`http://127.0.0.1:${port}/settings/retention`, {
+      const response = await fetch(`http://127.0.0.1:${port}/settings/retention`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(nextSettings.retention),
       });
+      retentionApplyStatus = {
+        appliedRevision: null,
+        appliedAt: response.ok ? new Date().toISOString() : null,
+        lastApplyError: response.ok ? null : `settings push failed: ${response.status}`,
+      };
     } catch {
       console.warn("[main] failed to push retention to sidecar (will retry on next save)");
+      retentionApplyStatus.lastApplyError = "settings push failed";
     }
 
-    return { ok: true };
+    return { ok: true, retentionApplyStatus };
   });
 
   ipcMain.handle("save-debug-settings", async (_event, debug: unknown) => {
@@ -271,11 +278,11 @@ app.whenReady().then(() => {
     currentSettings = nextSettings;
 
     const port = await portPromise;
-    await pushProviderSettings(`http://127.0.0.1:${port}`, nextSettings.providers);
+    const providerApplyStatus = await pushProviderSettings(`http://127.0.0.1:${port}`, nextSettings.providers);
 
     providerModels.delete("ollama");
 
-    return { ok: true, settings: rendererSettings(currentSettings) };
+    return { ok: true, settings: rendererSettings(currentSettings), providerApplyStatus };
   });
 
   ipcMain.handle("verify-ollama", async (_event, baseUrl: string) => {

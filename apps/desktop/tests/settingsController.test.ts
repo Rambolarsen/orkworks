@@ -93,6 +93,25 @@ test("verification is diagnostic and a late rejection cannot replace a newer res
   assert.equal(controller.snapshot().draft.providers.ollamaBaseUrl, settings.providers.ollamaBaseUrl);
 });
 
+test("verification is diagnostic and a late success cannot replace a newer result", async () => {
+  let resolveOld!: (value: Awaited<ReturnType<SettingsControllerApi["verifyOllama"]>>) => void;
+  let resolveNew!: (value: Awaited<ReturnType<SettingsControllerApi["verifyOllama"]>>) => void;
+  const { api } = apiFor({
+    verifyOllama: (url) => url.includes("old")
+      ? new Promise((resolve) => { resolveOld = resolve; })
+      : new Promise((resolve) => { resolveNew = resolve; }),
+  });
+  const controller = createSettingsController(api);
+  await controller.load();
+  const old = controller.verifyOllama("http://old");
+  const newer = controller.verifyOllama("http://new");
+  resolveNew({ ok: true, normalizedBaseUrl: "http://new", status: "connected", reasonCode: "connected", httpStatus: 200, models: [], excludedModels: [], diagnostic: null });
+  await newer;
+  resolveOld({ ok: true, normalizedBaseUrl: "http://old", status: "connected", reasonCode: "connected", httpStatus: 200, models: [], excludedModels: [], diagnostic: null });
+  await old;
+  assert.equal(controller.snapshot().verification?.normalizedBaseUrl, "http://new");
+});
+
 test("commit saves changed domains in deterministic order", async () => {
   const { api, calls } = apiFor();
   const controller = createSettingsController(api);
@@ -129,4 +148,17 @@ test("successful provider persistence preserves a stale or pending sidecar resul
   const result = await controller.commit();
   assert.equal(result.ok, true);
   assert.deepEqual(result.providerApplyStatus, sidecar);
+});
+
+test("successful retention persistence preserves a stale or pending sidecar result", async () => {
+  const sidecar = { appliedRevision: null, appliedAt: null, lastApplyError: "sidecar unavailable" };
+  const { api } = apiFor({
+    saveRetention: async () => ({ ok: true, retentionApplyStatus: sidecar }),
+  });
+  const controller = createSettingsController(api);
+  await controller.load();
+  controller.updateDraft("retention", { ...settings.retention, maxSessions: 8 });
+  const result = await controller.commit();
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.retentionApplyStatus, sidecar);
 });

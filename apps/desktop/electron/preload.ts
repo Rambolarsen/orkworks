@@ -9,9 +9,11 @@ contextBridge.exposeInMainWorld("orkworks", {
   saveLayout: (json: string): Promise<void> => ipcRenderer.invoke("save-layout", json),
   getSettings: (): Promise<unknown> => ipcRenderer.invoke("get-settings"),
   saveHotkeys: (hotkeys: unknown): Promise<unknown> => ipcRenderer.invoke("save-hotkeys", hotkeys),
-  saveRetention: (retention: unknown): Promise<unknown> => ipcRenderer.invoke("save-retention", retention),
+  saveRetention: (retention: unknown): Promise<{ ok: boolean; retentionApplyStatus?: { appliedRevision: number | null; appliedAt: string | null; lastApplyError: string | null } }> =>
+    ipcRenderer.invoke("save-retention", retention),
   saveDebugSettings: (debug: unknown): Promise<unknown> => ipcRenderer.invoke("save-debug-settings", debug),
-  saveProviderSettings: (providers: unknown): Promise<unknown> => ipcRenderer.invoke("save-provider-settings", providers),
+  saveProviderSettings: (providers: unknown): Promise<{ ok: true; settings: unknown; providerApplyStatus?: { appliedRevision: number | null; appliedAt: string | null; lastApplyError: string | null } }> =>
+    ipcRenderer.invoke("save-provider-settings", providers),
   verifyOllama: (baseUrl: string): Promise<unknown> => ipcRenderer.invoke("verify-ollama", baseUrl),
   getProviderModels: (providerId: string): Promise<unknown> => ipcRenderer.invoke("get-provider-models", providerId),
   getProviderLabels: (): Promise<unknown> => ipcRenderer.invoke("get-provider-labels"),
