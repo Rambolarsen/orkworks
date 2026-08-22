@@ -1,12 +1,17 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { acceleratorFromKeyboardEvent } from "../hotkeyCapture";
-import type { AppSettings, DebugSettings, HotkeySettings, RetentionSettings, SaveHotkeysResult } from "../appSettingsTypes";
+import type { AppSettings, DebugSettings, HotkeySettings, RetentionSettings } from "../appSettingsTypes";
 import type { ProviderSettings, ProviderModelsResponse, OllamaVerificationResponse } from "../providerTypes";
 import type { ProviderRuntimeResponse } from "../api";
 import type { HarnessConfig } from "../harnessTypes";
 import { normalizeActiveHarnessIds, selectableHarnesses } from "../newSessionDialogState";
 import ProviderSettingsSection from "./ProviderSettingsSection";
 import HarnessIntegrationSection from "./HarnessIntegrationSection";
+import { createSettingsController } from "../settingsController";
+
+// The controller delegates to the existing window.orkworks.verifyOllama and
+// window.orkworks.saveProviderSettings IPC methods; the modal never bypasses it.
+// settingsController's verification generation replaces the old verifyRequestRef guard.
 
 type HotkeyAction = keyof HotkeySettings;
 type OllamaVerificationViewState =
@@ -39,7 +44,11 @@ const INTEGRATION_HARNESS_IDS = ["claude-code", "gemini", "copilot", "codex", "o
 
 export default function SettingsModal({ initialSettings, harnesses, activeHarnessIds, providerRuntime, onClose, onSaved, onSaveActiveHarnesses }: SettingsModalProps) {
   const modalRef = useRef<HTMLElement>(null);
-  const verifyRequestRef = useRef(0);
+  const settingsControllerRef = useRef<ReturnType<typeof createSettingsController> | null>(null);
+  if (!settingsControllerRef.current) {
+    settingsControllerRef.current = createSettingsController(window.orkworks, initialSettings);
+  }
+  const settingsController = settingsControllerRef.current;
   const defaultHotkeys = initialSettings.defaultHotkeys;
   const [draft, setDraft] = useState<HotkeySettings>(initialSettings.hotkeys);
   const [capturing, setCapturing] = useState<HotkeyAction | null>(null);
@@ -178,14 +187,11 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
 
   async function verifyOllamaDraft(baseUrl: string) {
     const normalizedDraft = normalizeBaseUrlDraft(baseUrl);
-    const requestId = ++verifyRequestRef.current;
     setOllamaVerification({ phase: "checking", requestedBaseUrl: normalizedDraft });
     try {
-      const result = await window.orkworks.verifyOllama(baseUrl);
-      if (requestId !== verifyRequestRef.current) return;
+      const result = await settingsController.verifyOllama(baseUrl);
       setOllamaVerification({ phase: "done", result });
     } catch (error) {
-      if (requestId !== verifyRequestRef.current) return;
       setOllamaVerification({
         phase: "done",
         result: failedVerificationResult(
@@ -232,24 +238,16 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
 
   async function saveRetention(rt: RetentionSettings) {
     setRetentionSaveStatus(null);
-    try {
-      await window.orkworks.saveRetention(rt);
-      setRetentionSaveStatus("Saved");
-    } catch {
-      setRetentionSaveStatus("Couldn't save retention settings.");
-    }
+    setRetention(rt);
+    settingsController.updateDraft("retention", rt);
+    setRetentionSaveStatus("Pending save");
   }
 
   async function saveDebugSettings(debug: DebugSettings) {
     setDebugSaveStatus(null);
-    try {
-      const result = await window.orkworks.saveDebugSettings(debug);
-      setDebugSettings(result.settings.debug);
-      onSaved(result.settings);
-      setDebugSaveStatus("Saved");
-    } catch {
-      setDebugSaveStatus("Couldn't save debug settings.");
-    }
+    setDebugSettings(debug);
+    settingsController.updateDraft("debug", debug);
+    setDebugSaveStatus("Pending save");
   }
 
   async function save() {
@@ -257,12 +255,13 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
     setErrors({});
     setSaveError(null);
     try {
-      const result: SaveHotkeysResult = await window.orkworks.saveHotkeys(draft);
+      settingsController.updateDraft("hotkeys", draft);
+      const result = await settingsController.commit();
       if (result.ok) {
         onSaved(result.settings);
         onClose();
       } else {
-        setErrors(result.errors);
+        setSaveError(`Couldn't save ${result.failedDomain} settings.`);
       }
     } catch {
       setSaveError("Settings could not be saved. The active shortcuts were not changed.");
@@ -279,7 +278,7 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
         : normalizeBaseUrlDraft(ollamaBaseUrlDraft);
     const next = { ...providerDraft, peonModel: model, ollamaBaseUrl: nextBaseUrl };
     setProviderDraft(next);
-    await persistProviderSettings(next);
+    settingsController.updateDraft("providers", next);
   }
 
   function toggleHarness(id: string) {
@@ -300,18 +299,10 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
     }
   }
 
-  async function persistProviderSettings(settings: ProviderSettings, verifySavedOllama = false) {
-    try {
-      const result = await window.orkworks.saveProviderSettings(settings);
-      setProviderDraft(result.settings.providers);
-      onSaved(result.settings);
-      setProviderSaveStatus("Saved");
-      if (verifySavedOllama) {
-        await verifyOllamaDraft(result.settings.providers.ollamaBaseUrl);
-      }
-    } catch {
-      setProviderSaveStatus("Couldn't save model provider settings.");
-    }
+  function persistProviderSettings(settings: ProviderSettings) {
+    setProviderDraft(settings);
+    settingsController.updateDraft("providers", settings);
+    setProviderSaveStatus("Pending save");
   }
 
   return (
@@ -322,7 +313,7 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
             <h2 id="settings-title">Settings</h2>
             <p>Configure OrkWorks desktop preferences.</p>
           </div>
-          <button className="settings-icon-button" type="button" onClick={onClose} aria-label="Close settings">
+          <button className="settings-icon-button" type="button" onClick={() => { settingsController.discard(); onClose(); }} aria-label="Close settings">
             Close
           </button>
         </header>
@@ -429,7 +420,6 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
                 placeholder="http://127.0.0.1:11434"
                 value={ollamaBaseUrlDraft}
                 onChange={(e) => {
-                  verifyRequestRef.current += 1;
                   setOllamaVerification({ phase: "idle" });
                   setOllamaBaseUrlDraft(e.target.value.trim());
                 }}
@@ -437,8 +427,7 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
                   const normalized = normalizeBaseUrlDraft(ollamaBaseUrlDraft);
                   if (normalized !== providerDraft.ollamaBaseUrl && (normalized.startsWith("http://") || normalized.startsWith("https://"))) {
                     const next = { ...providerDraft, ollamaBaseUrl: normalized };
-                    setProviderDraft(next);
-                    persistProviderSettings(next, true);
+                    persistProviderSettings(next);
                   }
                 }}
               />
@@ -465,7 +454,7 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
                       aria-label={`Use ${model} for Peon`}
                       onClick={() => {
                         setPeonModelDraft(model);
-                        savePeonModel(model);
+                        void savePeonModel(model);
                       }}
                     >
                       Use this model
@@ -507,7 +496,10 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
                 <button type="button" onClick={() => setCapturing(row.action)}>Edit</button>
                 <button
                   type="button"
-                  onClick={() => setDraft((current) => ({ ...current, [row.action]: defaultHotkeys[row.action] }))}
+                  onClick={() => {
+                    settingsController.resetHotkey(row.action);
+                    setDraft((current) => ({ ...current, [row.action]: defaultHotkeys[row.action] }));
+                  }}
                 >
                   Reset
                 </button>
@@ -577,9 +569,12 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
         </div>
 
         <footer className="settings-modal-footer">
-          <button type="button" onClick={() => setDraft({ ...defaultHotkeys })}>Restore defaults</button>
+          <button type="button" onClick={() => {
+            settingsController.updateDraft("hotkeys", { ...defaultHotkeys });
+            setDraft({ ...defaultHotkeys });
+          }}>Restore defaults</button>
           <span className="settings-footer-spacer" />
-          <button type="button" onClick={onClose}>Cancel</button>
+          <button type="button" onClick={() => { settingsController.discard(); onClose(); }}>Cancel</button>
           <button type="button" className="settings-primary-button" disabled={saving} onClick={save}>
             {saving ? "Saving..." : "Save"}
           </button>
