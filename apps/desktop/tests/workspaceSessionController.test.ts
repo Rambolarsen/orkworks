@@ -94,26 +94,24 @@ test("the controller starts one polling loop only when explicitly enabled", asyn
 test("a poll response cannot make an in-flight foreground create stale", async () => {
   const pollList = deferred<SessionInfo[]>();
   const create = deferred<SessionInfo>();
-  const published: string[] = [];
-  let lists = 0;
+  const active: Array<string | null> = [];
   const controller = createWorkspaceSessionController({
     deps: deps({
-      listSessions: async () => {
-        lists += 1;
-        return lists === 1 ? pollList.promise : [];
-      },
+      listSessions: async () => pollList.promise,
       createSession: async () => create.promise,
     }),
-    onSessions: (next) => published.push(next.map((item) => item.id).join(",")),
+    onActiveSession: (id) => active.push(id),
     scheduler: scheduler().scheduler,
   });
-  controller.setPollingEnabled(true);
   const creating = controller.createSession({} satisfies CreateSessionOptions);
-  create.resolve(session("created", "creating", "creating"));
-  await creating;
+  await new Promise((resolve) => setImmediate(resolve));
+  controller.setPollingEnabled(true);
+  await new Promise((resolve) => setImmediate(resolve));
   pollList.resolve([]);
   await new Promise((resolve) => setImmediate(resolve));
-  assert.ok(published.includes("created"));
+  create.resolve(session("created", "creating", "creating"));
+  await creating;
+  assert.deepEqual(active, ["created"]);
   controller.dispose();
 });
 

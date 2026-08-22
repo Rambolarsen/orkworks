@@ -95,3 +95,12 @@ commit.
 
 - Node test runs continue to emit existing module-type warnings; no test
   failures or new runtime warnings were introduced.
+
+## Re-review fix
+
+The poll/foreground regression test now keeps the create pending before
+polling begins, resolves the poll first, and asserts active-session
+publication. This fails with the former shared-generation implementation and
+passes with the separated foreground generation.
+
+- `node --experimental-strip-types --test tests/workspaceSessionController.test.ts` — 10/10 passed.
