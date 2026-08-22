@@ -159,6 +159,45 @@ impl SessionApplication {
         resume_session_workflow(self.state.clone(), id).await
     }
 
+    pub(crate) fn report_harness_session(
+        &self,
+        id: &str,
+        report: metadata::HarnessSessionReport,
+    ) -> Result<metadata::HarnessSessionMergeResult, SessionError> {
+        if !metadata::valid_harness_session_report(&report) {
+            return Ok(metadata::HarnessSessionMergeResult::Invalid);
+        }
+
+        let now = iso_now();
+        let result = {
+            let workspace = self.state.workspace.lock().unwrap();
+            let Some(workspace) = workspace.as_ref() else {
+                return Err(SessionError::Conflict);
+            };
+            workspace
+                .metadata
+                .merge_harness_session_report(id, &report, &now)
+        };
+
+        if result == metadata::HarnessSessionMergeResult::Accepted {
+            let updated_resume = {
+                let workspace = self.state.workspace.lock().unwrap();
+                workspace
+                    .as_ref()
+                    .and_then(|workspace| workspace.metadata.read_session(id))
+                    .and_then(|meta| meta.resume)
+            };
+            if let Some(updated_resume) = updated_resume {
+                let mut sessions = self.state.sessions.lock().unwrap();
+                if let Some(handle) = sessions.get_mut(id) {
+                    handle.info.resume = Some(updated_resume);
+                }
+            }
+        }
+
+        Ok(result)
+    }
+
     pub(crate) async fn report_attention(
         &self,
         id: &str,
@@ -1286,6 +1325,185 @@ mod tests {
         assert!(!resume_handle_conflicts(&handle, true, false));
         handle.resume_in_progress = true;
         assert!(resume_handle_conflicts(&handle, true, false));
+    }
+
+    fn harness_session_report(id: &str, confidence: f64) -> metadata::HarnessSessionReport {
+        metadata::HarnessSessionReport {
+            harness_session_id: format!("native-{id}"),
+            source: "test".into(),
+            confidence,
+        }
+    }
+
+    #[test]
+    fn harness_session_report_application_accepts_and_persists_report() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "harness-report-accepted";
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&crate::test_support::test_session_metadata(
+                id,
+                "Harness report",
+                root.path().display().to_string(),
+                "running",
+                "before",
+                "before",
+            ));
+
+        let result = SessionApplication::new(state.clone())
+            .report_harness_session(id, harness_session_report(id, 0.9))
+            .unwrap();
+
+        assert_eq!(result, metadata::HarnessSessionMergeResult::Accepted);
+        let stored = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
+        assert_eq!(
+            stored
+                .resume
+                .as_ref()
+                .and_then(|resume| resume.harness_session_id.as_deref()),
+            Some("native-harness-report-accepted")
+        );
+    }
+
+    #[test]
+    fn harness_session_report_application_ignores_lower_confidence() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "harness-report-lower";
+        let mut metadata = crate::test_support::test_session_metadata(
+            id,
+            "Harness report",
+            root.path().display().to_string(),
+            "running",
+            "before",
+            "before",
+        );
+        metadata.resume = Some(harness::ResumeMemory {
+            state: harness::ResumeState::Available,
+            preferred_strategy: harness::ResumeStrategy::Exact,
+            harness_session_id: Some("native-existing".into()),
+            latest_fallback: true,
+            last_seen_at: Some("before".into()),
+        });
+        metadata.harness_session_id_confidence = Some(0.9);
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
+
+        let result = SessionApplication::new(state)
+            .report_harness_session(id, harness_session_report(id, 0.2))
+            .unwrap();
+
+        assert_eq!(
+            result,
+            metadata::HarnessSessionMergeResult::IgnoredLowerConfidence
+        );
+    }
+
+    #[test]
+    fn harness_session_report_application_distinguishes_invalid_and_missing() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let application = SessionApplication::new(state.clone());
+
+        assert_eq!(
+            application
+                .report_harness_session(
+                    "missing",
+                    metadata::HarnessSessionReport {
+                        harness_session_id: "bad id".into(),
+                        source: "test".into(),
+                        confidence: 0.9,
+                    },
+                )
+                .unwrap(),
+            metadata::HarnessSessionMergeResult::Invalid
+        );
+        assert_eq!(
+            application
+                .report_harness_session("missing", harness_session_report("missing", 0.9))
+                .unwrap(),
+            metadata::HarnessSessionMergeResult::NotFound
+        );
+    }
+
+    #[test]
+    fn harness_session_report_application_conflicts_without_workspace() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        *state.workspace.lock().unwrap() = None;
+
+        assert_eq!(
+            SessionApplication::new(state)
+                .report_harness_session("missing", harness_session_report("missing", 0.9)),
+            Err(SessionError::Conflict)
+        );
+    }
+
+    #[test]
+    fn harness_session_report_application_updates_live_resume_projection() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "harness-report-live";
+        let mut metadata = crate::test_support::test_session_metadata(
+            id,
+            "Harness report",
+            root.path().display().to_string(),
+            "running",
+            "before",
+            "before",
+        );
+        metadata.resume = Some(harness::ResumeMemory {
+            state: harness::ResumeState::Available,
+            preferred_strategy: harness::ResumeStrategy::LatestCwd,
+            harness_session_id: None,
+            latest_fallback: true,
+            last_seen_at: Some("before".into()),
+        });
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
+        let mut handle = attention_test_handle(id, root.path());
+        handle.info.resume = metadata.resume.clone();
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+
+        let result = SessionApplication::new(state.clone())
+            .report_harness_session(id, harness_session_report(id, 0.9))
+            .unwrap();
+
+        assert_eq!(result, metadata::HarnessSessionMergeResult::Accepted);
+        assert_eq!(
+            state.sessions.lock().unwrap()[id]
+                .info
+                .resume
+                .as_ref()
+                .and_then(|resume| resume.harness_session_id.as_deref()),
+            Some("native-harness-report-live")
+        );
     }
 
     #[tokio::test]

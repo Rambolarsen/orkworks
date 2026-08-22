@@ -400,34 +400,13 @@ pub(crate) async fn report_harness_session(
         confidence: req.confidence,
     };
 
-    if !metadata::valid_harness_session_report(&report) {
-        return axum::http::StatusCode::BAD_REQUEST.into_response();
-    }
-
-    let now = iso_now();
-    let result = {
-        let ws_guard = state.workspace.lock().unwrap();
-        let Some(ref ws) = *ws_guard else {
+    let result = match SessionApplication::new(state).report_harness_session(&id, report) {
+        Ok(result) => result,
+        Err(crate::session_application::SessionError::Conflict) => {
             return axum::http::StatusCode::CONFLICT.into_response();
-        };
-        ws.metadata.merge_harness_session_report(&id, &report, &now)
-    };
-
-    if result == metadata::HarnessSessionMergeResult::Accepted {
-        let updated_resume = {
-            let ws_guard = state.workspace.lock().unwrap();
-            ws_guard
-                .as_ref()
-                .and_then(|ws| ws.metadata.read_session(&id))
-                .and_then(|meta| meta.resume)
-        };
-        if let Some(updated_resume) = updated_resume {
-            let mut sessions = state.sessions.lock().unwrap();
-            if let Some(handle) = sessions.get_mut(&id) {
-                handle.info.resume = Some(updated_resume);
-            }
         }
-    }
+        Err(_) => return axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    };
 
     match result {
         metadata::HarnessSessionMergeResult::Accepted
