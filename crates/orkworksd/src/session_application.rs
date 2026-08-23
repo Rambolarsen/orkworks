@@ -81,193 +81,193 @@ impl SessionApplication {
         status: &str,
     ) -> bool {
         let state = self.state.clone();
-    let task_state = state.clone();
-    let task_id = id.to_string();
-    let status = status.to_string();
-    tokio::task::spawn_blocking(move || {
-        let state = task_state;
-        let id = task_id;
-        let is_terminal = matches!(status.as_str(), "killed" | "ended" | "error");
-        let (handle_decision, session_resume, entered_running, entered_terminal) = {
-            let mut sessions = state.sessions.lock().unwrap();
-            if expected_generation.is_some_and(|expected| {
-                !sessions
-                    .get(&id)
-                    .is_some_and(|handle| handle.runtime.run_generation() == expected)
-            }) {
-                return false;
-            }
-            if let Some(handle) = sessions.get_mut(&id) {
-                if !is_terminal
-                    && matches!(handle.info.lifecycle_phase.as_str(), "ending" | "ended")
-                {
+        let task_state = state.clone();
+        let task_id = id.to_string();
+        let status = status.to_string();
+        tokio::task::spawn_blocking(move || {
+            let state = task_state;
+            let id = task_id;
+            let is_terminal = matches!(status.as_str(), "killed" | "ended" | "error");
+            let (handle_decision, session_resume, entered_running, entered_terminal) = {
+                let mut sessions = state.sessions.lock().unwrap();
+                if expected_generation.is_some_and(|expected| {
+                    !sessions
+                        .get(&id)
+                        .is_some_and(|handle| handle.runtime.run_generation() == expected)
+                }) {
                     return false;
                 }
-                let entered_running = !is_terminal
-                    && status == "running"
-                    && handle.info.status != "running";
-                if is_terminal
-                    && matches!(handle.info.lifecycle_phase.as_str(), "ending" | "ended")
-                {
-                    return false;
-                }
-                if is_terminal {
-                    handle.info.status = "running".to_string();
-                    handle.info.lifecycle_phase = "ending".to_string();
-                    handle.info.lifecycle = "stopping".to_string();
-                    handle.info.attention = None;
-                    handle.info.connectivity =
-                        Some(connectivity_for_status("running").to_string());
-                    handle.info.terminal_outcome = None;
-                } else {
-                    handle.info.status = status.clone();
-                    handle.info.lifecycle_phase = if status == "creating" {
-                        "creating".to_string()
-                    } else {
-                        "active".to_string()
-                    };
-                    handle.info.lifecycle = if status == "creating" {
-                        "creating"
-                    } else {
-                        "alive"
+                if let Some(handle) = sessions.get_mut(&id) {
+                    if !is_terminal
+                        && matches!(handle.info.lifecycle_phase.as_str(), "ending" | "ended")
+                    {
+                        return false;
                     }
-                    .to_string();
-                    handle.info.connectivity = Some(connectivity_for_status(&status).to_string());
-                    handle.info.terminal_outcome = terminal_outcome_for_status(&status);
-                }
-                handle.info.last_activity_at = Some(iso_now());
-                if is_terminal {
-                    handle.info.observed_status = None;
-                }
-                (
-                    Some(true),
-                    (handle.info.resume.clone(), handle.info.resumed_from.clone()),
-                    entered_running,
-                    is_terminal,
-                )
-            } else {
-                (None, (None, None), false, false)
-            }
-        };
-        if entered_terminal {
-            state.peon.last_output.write().unwrap().remove(&id);
-            // Authoritative final size for dead-session replay. Goes through the
-            // same lock-serialized helper live-resize persistence uses
-            // (`SessionApplication::persist_terminal_size`) so a live-resize write
-            // deferred onto a blocking-pool thread can never land after this one
-            // and clobber it with a stale size — see that operation's doc comment.
-            // Must run before `ws_guard` below acquires `state.workspace`, since
-            // this also locks it internally and the lock isn't reentrant.
-            crate::session_application::SessionApplication::new(state.clone())
-                .persist_terminal_size(&id, true);
-        } else if entered_running && state.peon.config.enabled {
-            state
-                .peon
-                .last_output
-                .write()
-                .unwrap()
-                .entry(id.clone())
-                .or_insert_with(tokio::time::Instant::now);
-        }
-        let now = iso_now();
-        let mut applied = handle_decision.unwrap_or(false);
-        let ws_guard = state.workspace.lock().unwrap();
-        if let Some(ref ws) = *ws_guard {
-            if let Some(mut meta) = ws.metadata.read_session(&id) {
-                // With no in-memory handle, the persisted lifecycle is the guard authority.
-                if handle_decision.is_none()
-                    && matches!(meta.lifecycle_phase.as_str(), "ending" | "ended")
-                {
-                    return false;
-                }
-                applied = true;
-                if is_terminal {
-                    meta.status = "running".to_string();
-                    meta.lifecycle_phase = "ending".to_string();
-                    meta.lifecycle = "stopping".to_string();
-                    meta.attention = None;
-                    meta.connectivity = connectivity_for_status("running").to_string();
-                    meta.terminal_outcome = None;
-                    meta.pending_terminal_status = Some(status.clone());
-                    meta.ending_observed_status_snapshot =
-                        Some(metadata::ObservedStatusSnapshotMetadata {
-                            value: meta.observed_status.clone(),
-                            source: meta.metadata_source.clone(),
-                            confidence: Some(meta.metadata_confidence),
-                            observed_at: Some(now.clone()),
-                        });
-                } else {
-                    meta.status = status.clone();
-                    meta.lifecycle_phase = if status == "creating" {
-                        "creating".to_string()
-                    } else {
-                        "active".to_string()
-                    };
-                    meta.lifecycle = if status == "creating" {
-                        "creating"
-                    } else {
-                        "alive"
+                    let entered_running =
+                        !is_terminal && status == "running" && handle.info.status != "running";
+                    if is_terminal
+                        && matches!(handle.info.lifecycle_phase.as_str(), "ending" | "ended")
+                    {
+                        return false;
                     }
-                    .to_string();
-                    meta.connectivity = connectivity_for_status(&status).to_string();
-                    meta.terminal_outcome = terminal_outcome_for_status(&status);
+                    if is_terminal {
+                        handle.info.status = "running".to_string();
+                        handle.info.lifecycle_phase = "ending".to_string();
+                        handle.info.lifecycle = "stopping".to_string();
+                        handle.info.attention = None;
+                        handle.info.connectivity =
+                            Some(connectivity_for_status("running").to_string());
+                        handle.info.terminal_outcome = None;
+                    } else {
+                        handle.info.status = status.clone();
+                        handle.info.lifecycle_phase = if status == "creating" {
+                            "creating".to_string()
+                        } else {
+                            "active".to_string()
+                        };
+                        handle.info.lifecycle = if status == "creating" {
+                            "creating"
+                        } else {
+                            "alive"
+                        }
+                        .to_string();
+                        handle.info.connectivity =
+                            Some(connectivity_for_status(&status).to_string());
+                        handle.info.terminal_outcome = terminal_outcome_for_status(&status);
+                    }
+                    handle.info.last_activity_at = Some(iso_now());
+                    if is_terminal {
+                        handle.info.observed_status = None;
+                    }
+                    (
+                        Some(true),
+                        (handle.info.resume.clone(), handle.info.resumed_from.clone()),
+                        entered_running,
+                        is_terminal,
+                    )
+                } else {
+                    (None, (None, None), false, false)
                 }
-                meta.last_activity = now.clone();
-                if is_terminal {
-                    meta.observed_status = None;
-                }
-                if session_resume.0.is_some() {
-                    meta.resume = session_resume.0;
-                }
-                if session_resume.1.is_some() {
-                    meta.resumed_from = session_resume.1;
-                }
-                ws.metadata.write_session(&meta);
+            };
+            if entered_terminal {
+                state.peon.last_output.write().unwrap().remove(&id);
+                // Authoritative final size for dead-session replay. Goes through the
+                // same lock-serialized helper live-resize persistence uses
+                // (`SessionApplication::persist_terminal_size`) so a live-resize write
+                // deferred onto a blocking-pool thread can never land after this one
+                // and clobber it with a stale size — see that operation's doc comment.
+                // Must run before `ws_guard` below acquires `state.workspace`, since
+                // this also locks it internally and the lock isn't reentrant.
+                crate::session_application::SessionApplication::new(state.clone())
+                    .persist_terminal_size(&id, true);
+            } else if entered_running && state.peon.config.enabled {
+                state
+                    .peon
+                    .last_output
+                    .write()
+                    .unwrap()
+                    .entry(id.clone())
+                    .or_insert_with(tokio::time::Instant::now);
             }
-            if applied {
-                ws.metadata.append_event(
-                    &id,
-                    &metadata::Event {
-                        event_type: "session.status".into(),
-                        timestamp: now,
-                        status,
-                        observed_status: None,
-                        confidence: None,
-                        summary: None,
-                        source: None,
-                    },
-                );
+            let now = iso_now();
+            let mut applied = handle_decision.unwrap_or(false);
+            let ws_guard = state.workspace.lock().unwrap();
+            if let Some(ref ws) = *ws_guard {
+                if let Some(mut meta) = ws.metadata.read_session(&id) {
+                    // With no in-memory handle, the persisted lifecycle is the guard authority.
+                    if handle_decision.is_none()
+                        && matches!(meta.lifecycle_phase.as_str(), "ending" | "ended")
+                    {
+                        return false;
+                    }
+                    applied = true;
+                    if is_terminal {
+                        meta.status = "running".to_string();
+                        meta.lifecycle_phase = "ending".to_string();
+                        meta.lifecycle = "stopping".to_string();
+                        meta.attention = None;
+                        meta.connectivity = connectivity_for_status("running").to_string();
+                        meta.terminal_outcome = None;
+                        meta.pending_terminal_status = Some(status.clone());
+                        meta.ending_observed_status_snapshot =
+                            Some(metadata::ObservedStatusSnapshotMetadata {
+                                value: meta.observed_status.clone(),
+                                source: meta.metadata_source.clone(),
+                                confidence: Some(meta.metadata_confidence),
+                                observed_at: Some(now.clone()),
+                            });
+                    } else {
+                        meta.status = status.clone();
+                        meta.lifecycle_phase = if status == "creating" {
+                            "creating".to_string()
+                        } else {
+                            "active".to_string()
+                        };
+                        meta.lifecycle = if status == "creating" {
+                            "creating"
+                        } else {
+                            "alive"
+                        }
+                        .to_string();
+                        meta.connectivity = connectivity_for_status(&status).to_string();
+                        meta.terminal_outcome = terminal_outcome_for_status(&status);
+                    }
+                    meta.last_activity = now.clone();
+                    if is_terminal {
+                        meta.observed_status = None;
+                    }
+                    if session_resume.0.is_some() {
+                        meta.resume = session_resume.0;
+                    }
+                    if session_resume.1.is_some() {
+                        meta.resumed_from = session_resume.1;
+                    }
+                    ws.metadata.write_session(&meta);
+                }
+                if applied {
+                    ws.metadata.append_event(
+                        &id,
+                        &metadata::Event {
+                            event_type: "session.status".into(),
+                            timestamp: now,
+                            status,
+                            observed_status: None,
+                            confidence: None,
+                            summary: None,
+                            source: None,
+                        },
+                    );
+                }
             }
-        }
-        applied
-    })
-    .await
-    .unwrap_or_else(|error| {
-        // A poisoned lock (from an unrelated panic elsewhere) is the only realistic
-        // cause of a panic here — this crate treats poisoned locks as fatal
-        // everywhere via `.lock().unwrap()`. Log with session context (more durable
-        // than the bare panic hook in a daemon) and resume the unwind rather than
-        // quietly returning `false`: a caller that sees `false` moves on assuming
-        // the transition never happened, but the in-memory sessions-lock mutation
-        // above may already have applied it, which would leave the session
-        // permanently stuck in "ending" with finalization never scheduled.
-        //
-        // This deliberately differs from every other `spawn_blocking(...).await`
-        // call site in this crate (`select_terminal_plan`, `report_session_plan_path`,
-        // the harness/provider handlers), which convert a `JoinError` into a safe
-        // fallback (a 500 status, `None`, `false`) instead of re-panicking. Those
-        // sites can do that safely because a panic inside their closures happens
-        // *before* any caller-visible mutation — there's nothing for the fallback to
-        // contradict. Do not copy the graceful-fallback tail here without first
-        // checking whether the same "already mutated in-memory before the panic
-        // could happen" condition applies.
-        tracing::error!(
-            error = %error,
-            session_id = %id,
-            "set_session_status: blocking task panicked"
-        );
-        std::panic::resume_unwind(error.into_panic())
-    })
+            applied
+        })
+        .await
+        .unwrap_or_else(|error| {
+            // A poisoned lock (from an unrelated panic elsewhere) is the only realistic
+            // cause of a panic here — this crate treats poisoned locks as fatal
+            // everywhere via `.lock().unwrap()`. Log with session context (more durable
+            // than the bare panic hook in a daemon) and resume the unwind rather than
+            // quietly returning `false`: a caller that sees `false` moves on assuming
+            // the transition never happened, but the in-memory sessions-lock mutation
+            // above may already have applied it, which would leave the session
+            // permanently stuck in "ending" with finalization never scheduled.
+            //
+            // This deliberately differs from every other `spawn_blocking(...).await`
+            // call site in this crate (`select_terminal_plan`, `report_session_plan_path`,
+            // the harness/provider handlers), which convert a `JoinError` into a safe
+            // fallback (a 500 status, `None`, `false`) instead of re-panicking. Those
+            // sites can do that safely because a panic inside their closures happens
+            // *before* any caller-visible mutation — there's nothing for the fallback to
+            // contradict. Do not copy the graceful-fallback tail here without first
+            // checking whether the same "already mutated in-memory before the panic
+            // could happen" condition applies.
+            tracing::error!(
+                error = %error,
+                session_id = %id,
+                "set_session_status: blocking task panicked"
+            );
+            std::panic::resume_unwind(error.into_panic())
+        })
     }
 
 
