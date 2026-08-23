@@ -9,6 +9,7 @@ import { formatImpact, formatRecurrence, formatTargetSurface, sortedEvidence } f
 import EmptyState from "./EmptyState";
 
 interface RecommendationsPanelProps {
+  hasWorkspace: boolean;
   onSelectSession?: (id: string) => void;
 }
 
@@ -84,7 +85,7 @@ function RecommendationCard({
   );
 }
 
-function RecommendationsPanel({ onSelectSession }: RecommendationsPanelProps) {
+function RecommendationsPanel({ hasWorkspace, onSelectSession }: RecommendationsPanelProps) {
   const [recommendations, setRecommendations] = useState<WorkflowRecommendation[]>([]);
   const [diagnostics, setDiagnostics] = useState<ObservationDiagnostic[]>([]);
   const [error, setError] = useState<string>();
@@ -104,6 +105,11 @@ function RecommendationsPanel({ onSelectSession }: RecommendationsPanelProps) {
   }, []);
 
   useEffect(() => {
+    // The panel mounts as part of the default layout, before the sidecar's
+    // async /workspace bootstrap has necessarily completed. Fetching before
+    // that finishes races a 409 (no workspace set yet) into the console and
+    // the error banner on every startup, so wait for the workspace instead.
+    if (!hasWorkspace) return;
     let cancelled = false;
     void refresh();
     const timer = window.setInterval(() => {
@@ -113,7 +119,7 @@ function RecommendationsPanel({ onSelectSession }: RecommendationsPanelProps) {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [refresh]);
+  }, [refresh, hasWorkspace]);
 
   async function dismiss(id: string) {
     setDismissing(id);
@@ -136,7 +142,7 @@ function RecommendationsPanel({ onSelectSession }: RecommendationsPanelProps) {
     <section className="recommendations-panel">
       <div className="recommendations-panel-header">
         <div><h2>Recommendations</h2><p>Evidence-backed workflow improvements.</p></div>
-        <button type="button" onClick={() => void refresh()}>Reload</button>
+        <button type="button" disabled={!hasWorkspace} onClick={() => void refresh()}>Reload</button>
       </div>
       {error && <p className="recommendation-error" role="alert">{error}</p>}
       <DiagnosticList diagnostics={diagnostics} />

@@ -112,7 +112,7 @@ function CapPanel() {
 
 function RecPanel() {
   const ctx = useContext(DockviewContext);
-  return <RecommendationsPanel onSelectSession={ctx.onSelectSession} />;
+  return <RecommendationsPanel hasWorkspace={!!ctx.workspace} onSelectSession={ctx.onSelectSession} />;
 }
 
 const COMPONENTS = {

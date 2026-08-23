@@ -111,3 +111,22 @@ test("Recommendations panel links affected sessions through the shared selection
   assert.match(panel, /onSelectSession\?\./);
   assert.match(dockview, /onSelectSession=\{ctx\.onSelectSession\}/);
 });
+
+test("Recommendations panel does not poll the sidecar before a workspace is loaded", () => {
+  // Regression: the panel mounts as part of the default layout and used to
+  // fetch immediately, racing the sidecar's async /workspace bootstrap and
+  // surfacing a spurious 409 in the console and error banner on every
+  // startup. It must gate polling on workspace readiness instead.
+  const panel = readFileSync(
+    new URL("../src/components/RecommendationsPanel.tsx", import.meta.url),
+    "utf8",
+  );
+  const dockview = readFileSync(
+    new URL("../src/components/DockviewApp.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(panel, /hasWorkspace: boolean/);
+  assert.match(panel, /if \(!hasWorkspace\) return;/);
+  assert.match(dockview, /hasWorkspace=\{!!ctx\.workspace\}/);
+});
