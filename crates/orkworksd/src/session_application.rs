@@ -23,6 +23,13 @@ pub(crate) enum SessionError {
     Internal(&'static str),
 }
 
+#[derive(Debug)]
+pub(crate) enum WorkflowObservationPersistenceError {
+    NoWorkspace,
+    SessionNotInWorkspace,
+    Record(crate::workflow_observations::RecordError),
+}
+
 pub(crate) struct WorkspaceSnapshot {
     pub(crate) path: String,
     pub(crate) repo_root: Option<String>,
@@ -435,6 +442,35 @@ impl SessionApplication {
             accepted_observation,
             output_range_completed,
         }
+    }
+
+    /// Records one authenticated Agent workflow observation. The HTTP layer
+    /// owns authentication and request validation; this operation owns the
+    /// active-workspace/session checks and server-selected Agent origin while
+    /// the workspace lock is held.
+    pub(crate) fn record_agent_workflow_observation(
+        &self,
+        session_id: &str,
+        idempotency_key: &str,
+        candidate: crate::workflow_observations::ObservationCandidate,
+    ) -> Result<crate::workflow_observations::RecordOutcome, WorkflowObservationPersistenceError>
+    {
+        let workspace_guard = self.state.workspace.lock().unwrap();
+        let Some(workspace) = workspace_guard.as_ref() else {
+            return Err(WorkflowObservationPersistenceError::NoWorkspace);
+        };
+        if workspace.metadata.read_session(session_id).is_none() {
+            return Err(WorkflowObservationPersistenceError::SessionNotInWorkspace);
+        }
+        workspace
+            .workflow_observations
+            .record_observation(
+                session_id,
+                crate::workflow_observations::ObservationOrigin::Agent,
+                idempotency_key,
+                candidate,
+            )
+            .map_err(WorkflowObservationPersistenceError::Record)
     }
 
     /// Arms the first capacity recheck after a usage-limit-latched session
@@ -2600,6 +2636,79 @@ fn clear_claude_capacity_after_working(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn records_agent_workflow_observation_through_application() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "agent-workflow-observation-application";
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&crate::test_support::test_session_metadata(
+                id,
+                "Agent observation",
+                &root.path().display().to_string(),
+                "running",
+                "before",
+                "before",
+            ));
+
+        let result = SessionApplication::new(state.clone()).record_agent_workflow_observation(
+            id,
+            "agent-key-1",
+            crate::workflow_observations::ObservationCandidate {
+                kind: crate::workflow_observations::ObservationKind::Obstacle,
+                description: "The same command needed another retry".into(),
+                evidence: "cargo test failed again".into(),
+                reported_impact: crate::workflow_observations::Impact::Medium,
+                confidence: Some(0.1),
+            },
+        );
+
+        let observation = match result.unwrap() {
+            crate::workflow_observations::RecordOutcome::Accepted(observation) => observation,
+            other => panic!("expected accepted observation, got {other:?}"),
+        };
+        assert_eq!(observation.session_id, id);
+        assert_eq!(observation.source, crate::workflow_observations::ObservationSource::Agent);
+        assert_eq!(observation.confidence, 0.9);
+    }
+
+    #[test]
+    fn agent_workflow_observation_requires_active_workspace_session() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let candidate = crate::workflow_observations::ObservationCandidate {
+            kind: crate::workflow_observations::ObservationKind::Obstacle,
+            description: "The command needed another retry".into(),
+            evidence: "cargo test failed again".into(),
+            reported_impact: crate::workflow_observations::Impact::Medium,
+            confidence: None,
+        };
+
+        let missing_session = SessionApplication::new(state.clone())
+            .record_agent_workflow_observation("missing-session", "agent-key", candidate.clone());
+        assert!(matches!(
+            missing_session,
+            Err(WorkflowObservationPersistenceError::SessionNotInWorkspace)
+        ));
+
+        *state.workspace.lock().unwrap() = None;
+        let missing_workspace = SessionApplication::new(state).record_agent_workflow_observation(
+            "missing-session",
+            "agent-key",
+            candidate,
+        );
+        assert!(matches!(
+            missing_workspace,
+            Err(WorkflowObservationPersistenceError::NoWorkspace)
+        ));
+    }
 
     #[test]
     fn records_peon_observations_with_stable_duplicate_keys() {
