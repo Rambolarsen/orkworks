@@ -111,3 +111,52 @@ test("Recommendations panel links affected sessions through the shared selection
   assert.match(panel, /onSelectSession\?\./);
   assert.match(dockview, /onSelectSession=\{ctx\.onSelectSession\}/);
 });
+
+test("Recommendations panel does not poll the sidecar before a workspace is loaded", () => {
+  // Regression: the panel mounts as part of the default layout and used to
+  // fetch immediately, racing the sidecar's async /workspace bootstrap and
+  // surfacing a spurious 409 in the console and error banner on every
+  // startup. It must gate polling on workspace readiness instead.
+  const panel = readFileSync(
+    new URL("../src/components/RecommendationsPanel.tsx", import.meta.url),
+    "utf8",
+  );
+  const dockview = readFileSync(
+    new URL("../src/components/DockviewApp.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(panel, /hasWorkspace: boolean/);
+  assert.match(panel, /if \(!hasWorkspace\) \{/);
+  assert.match(dockview, /hasWorkspace=\{!!ctx\.workspace && !ctx\.isSwitchingWorkspace\}/);
+});
+
+test("Recommendations polling also pauses across a workspace switch, not just initial startup", () => {
+  // Regression: ctx.workspace alone isn't enough. handleOpenWorkspace keeps
+  // the OLD WorkspaceInfo set (non-null) for the entire duration Electron
+  // kills the old sidecar and boots a new one on a new port; only once the
+  // new sidecar's POST /workspace has already succeeded does it flip to the
+  // NEW WorkspaceInfo. A poll tick landing in that window hits the same 409
+  // this PR set out to fix, just via the sidecar-restart path instead of
+  // app startup. isSwitchingWorkspace must be true for that whole window.
+  const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+  const dockview = readFileSync(
+    new URL("../src/components/DockviewApp.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(app, /setIsSwitchingWorkspace\(true\)/);
+  assert.match(app, /setIsSwitchingWorkspace\(false\)/);
+  assert.match(dockview, /isSwitchingWorkspace: boolean/);
+});
+
+test("Recommendations panel drops the previous workspace's data instead of leaving it displayed mid-switch", () => {
+  const panel = readFileSync(
+    new URL("../src/components/RecommendationsPanel.tsx", import.meta.url),
+    "utf8",
+  );
+
+  const guardBlock = panel.slice(panel.indexOf("if (!hasWorkspace) {"));
+  assert.match(guardBlock, /setRecommendations\(\[\]\)/);
+  assert.match(guardBlock, /setDiagnostics\(\[\]\)/);
+});
