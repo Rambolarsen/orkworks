@@ -638,39 +638,22 @@ fn record_terminal_input_impl(
     // reinserted under the new epoch.
     if !is_sensitive {
         with_label_epoch_read(state, id, |epoch| {
-            let mut queue_topic_inference = false;
-            let ws_guard = state.workspace.lock().unwrap();
-            if let Some(ref ws) = *ws_guard {
-                if let Some(mut meta) = ws.metadata.read_session(id) {
-                    if label_worthy && is_placeholder_label(&meta.label, id) {
-                        meta.label = label_line.clone();
-                        queue_topic_inference = true;
-                    }
-                    meta.last_user_input = Some(label_line.clone());
-                    ws.metadata.write_session(&meta);
-                }
-            }
+            let queue_topic_inference = crate::session_application::SessionApplication::new(
+                state.clone(),
+            )
+            .record_user_input_topic(id, &label_line, label_worthy);
 
             // Reuses the same decision as the metadata write above (rather
             // than re-checking the in-memory label independently) so the two
             // copies of the label can never disagree about whether this line
             // seeded it.
             if queue_topic_inference {
-                if let Some(handle) = state.sessions.lock().unwrap().get_mut(id) {
-                    handle.info.label = label_line.clone();
-                }
                 queue_label_hint_at_epoch(state, id, line, epoch);
             }
         });
     }
 
     Some(())
-}
-
-/// Whether `label` is still the creation-time placeholder for `id`, i.e. the
-/// label has not yet been seeded from any descriptive input.
-fn is_placeholder_label(label: &str, id: &str) -> bool {
-    label == crate::session_types::placeholder_label(id)
 }
 
 /// Whether `line` is exactly a label-reset command declared by the session's

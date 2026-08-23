@@ -71,6 +71,10 @@ pub(crate) struct PeonObservationRecordResult {
     pub(crate) output_range_completed: bool,
 }
 
+fn is_placeholder_label(label: &str, id: &str) -> bool {
+    label == crate::session_types::placeholder_label(id)
+}
+
 // Serializes authoritative terminal-transition writes and best-effort live
 // resize writes together. The operation re-reads the current runtime size
 // under the sessions lock and checks the lifecycle while holding the shared
@@ -199,6 +203,37 @@ impl SessionApplication {
             return;
         }
         handle.resume_scan_origin = Some((handle.output_lines_seen, handle.scan_bytes_seen));
+    }
+
+    /// Records accepted, non-sensitive user input and seeds the session topic
+    /// exactly once when the persisted label is still the placeholder. The
+    /// caller owns sensitivity/descriptive classification and any epoch guard
+    /// that surrounds this mutation and subsequent refinement queueing.
+    pub(crate) fn record_user_input_topic(
+        &self,
+        id: &str,
+        label_line: &str,
+        label_worthy: bool,
+    ) -> bool {
+        let mut seeded_label = false;
+        let workspace_guard = self.state.workspace.lock().unwrap();
+        if let Some(workspace) = workspace_guard.as_ref() {
+            if let Some(mut metadata) = workspace.metadata.read_session(id) {
+                if label_worthy && is_placeholder_label(&metadata.label, id) {
+                    metadata.label = label_line.to_string();
+                    seeded_label = true;
+                }
+                metadata.last_user_input = Some(label_line.to_string());
+                workspace.metadata.write_session(&metadata);
+            }
+        }
+
+        if seeded_label {
+            if let Some(handle) = self.state.sessions.lock().unwrap().get_mut(id) {
+                handle.info.label = label_line.to_string();
+            }
+        }
+        seeded_label
     }
 
     /// Applies a process status transition to persisted metadata and the live session.
@@ -3868,6 +3903,114 @@ mod tests {
             crate::session_types::placeholder_label(live_only_id)
         );
         assert_eq!(state.peon.label_epochs.read().unwrap().get(live_only_id), Some(&8));
+    }
+
+    #[test]
+    fn record_user_input_topic_persists_metadata_only_and_does_not_queue_without_seed() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "input-topic-metadata-only";
+        let metadata = crate::test_support::test_session_metadata(
+            id,
+            "Existing topic",
+            &root.path().display().to_string(),
+            "running",
+            "now",
+            "now",
+        );
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
+
+        let queued = SessionApplication::new(state.clone())
+            .record_user_input_topic(id, "follow up", false);
+
+        assert!(!queued);
+        let stored = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
+        assert_eq!(stored.last_user_input.as_deref(), Some("follow up"));
+        assert_eq!(stored.label, "Existing topic");
+        assert!(state.sessions.lock().unwrap().get(id).is_none());
+    }
+
+    #[test]
+    fn record_user_input_topic_seeds_placeholder_and_mirrors_live_label_once() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "input-topic-seed";
+        let placeholder = crate::session_types::placeholder_label(id);
+        let mut metadata = crate::test_support::test_session_metadata(
+            id,
+            &placeholder,
+            &root.path().display().to_string(),
+            "running",
+            "now",
+            "now",
+        );
+        metadata.label = placeholder.clone();
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
+        let mut handle = attention_test_handle(id, root.path());
+        handle.info.label = placeholder;
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+
+        assert!(SessionApplication::new(state.clone()).record_user_input_topic(
+            id,
+            "add retry logic",
+            true,
+        ));
+        assert_eq!(
+            state.sessions.lock().unwrap()[id].info.label,
+            "add retry logic"
+        );
+        assert!(
+            !SessionApplication::new(state.clone()).record_user_input_topic(
+                id,
+                "replace topic",
+                true,
+            )
+        );
+        let stored = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
+        assert_eq!(stored.label, "add retry logic");
+        assert_eq!(stored.last_user_input.as_deref(), Some("replace topic"));
+    }
+
+    #[test]
+    fn record_user_input_topic_missing_state_is_safe_noop() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+
+        assert!(!SessionApplication::new(state).record_user_input_topic(
+            "missing-input-topic",
+            "describe work",
+            true,
+        ));
     }
 
     #[test]
