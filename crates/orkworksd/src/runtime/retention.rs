@@ -1,4 +1,5 @@
-use crate::AppState;
+use crate::{metadata::SessionMetadata, AppState};
+use std::collections::HashSet;
 use std::sync::Arc;
 
 pub(crate) fn delete_session_evidence(
@@ -31,6 +32,45 @@ pub(crate) fn delete_session_evidence(
         })?;
     }
     Ok(())
+}
+
+fn select_expired_candidates(
+    candidates: &[SessionMetadata],
+    cutoff: chrono::DateTime<chrono::Utc>,
+    protected_ids: &HashSet<String>,
+) -> Vec<String> {
+    let mut ordered: Vec<&SessionMetadata> = candidates.iter().collect();
+    ordered.sort_by(|a, b| a.last_activity.cmp(&b.last_activity));
+    ordered
+        .into_iter()
+        .filter(|session| !protected_ids.contains(&session.id))
+        .filter_map(|session| {
+            chrono::DateTime::parse_from_rfc3339(&session.last_activity)
+                .ok()
+                .filter(|parsed| *parsed < cutoff)
+                .map(|_| session.id.clone())
+        })
+        .collect()
+}
+
+fn select_count_candidates(
+    candidates: &[SessionMetadata],
+    max_sessions: usize,
+    protected_ids: &HashSet<String>,
+) -> Vec<String> {
+    if max_sessions == 0 || candidates.len() <= max_sessions {
+        return Vec::new();
+    }
+
+    let to_delete = candidates.len() - max_sessions;
+    let mut ordered: Vec<&SessionMetadata> = candidates.iter().collect();
+    ordered.sort_by(|a, b| a.last_activity.cmp(&b.last_activity));
+    ordered
+        .into_iter()
+        .filter(|session| !protected_ids.contains(&session.id))
+        .take(to_delete)
+        .map(|session| session.id.clone())
+        .collect()
 }
 
 pub(crate) async fn retention_cleanup_task(state: Arc<AppState>) {
@@ -71,14 +111,7 @@ pub(crate) async fn retention_cleanup_once(
 
     if config.max_age_days > 0 {
         let cutoff = now - chrono::Duration::days(config.max_age_days as i64);
-        let mut expired: Vec<String> = Vec::new();
-        for s in &candidates {
-            if let Ok(parsed) = chrono::DateTime::parse_from_rfc3339(&s.last_activity) {
-                if parsed < cutoff {
-                    expired.push(s.id.clone());
-                }
-            }
-        }
+        let expired = select_expired_candidates(&candidates, cutoff, &HashSet::new());
         if !expired.is_empty() {
             let mut deleted_expired = Vec::new();
             let ws_guard = state.workspace.lock().unwrap();
@@ -115,23 +148,21 @@ pub(crate) async fn retention_cleanup_once(
     }
 
     if config.max_sessions > 0 && candidates.len() > config.max_sessions {
-        let to_delete = candidates.len() - config.max_sessions;
         let ws_guard = state.workspace.lock().unwrap();
         if let Some(ref ws) = *ws_guard {
             let mut sessions = state.sessions.lock().unwrap();
-            let eligible: Vec<_> = candidates
+            let protected_ids = sessions
                 .iter()
-                .filter(|s| {
-                    !sessions.get(&s.id).is_some_and(|h| {
-                        h.info.status == "live"
-                            || h.info.status == "creating"
-                            || h.info.status == "running"
-                    })
+                .filter(|(_, handle)| {
+                    handle.info.status == "live"
+                        || handle.info.status == "creating"
+                        || handle.info.status == "running"
                 })
-                .take(to_delete)
+                .map(|(id, _)| id.clone())
                 .collect();
-            for s in eligible {
-                if sessions.get(&s.id).is_some_and(|h| {
+            let eligible = select_count_candidates(&candidates, config.max_sessions, &protected_ids);
+            for id in eligible {
+                if sessions.get(&id).is_some_and(|h| {
                     h.info.status == "live"
                         || h.info.status == "creating"
                         || h.info.status == "running"
@@ -139,24 +170,24 @@ pub(crate) async fn retention_cleanup_once(
                     continue;
                 }
                 tracing::info!(
-                    session_id = %s.id,
+                    session_id = %id,
                     max_sessions = config.max_sessions,
                     "retention: deleting session (exceeds max)"
                 );
-                if let Err(error) = delete_session_evidence(ws, &s.id, |session_id| {
+                if let Err(error) = delete_session_evidence(ws, &id, |session_id| {
                     ws.recommendation_store
                         .delete_referencing_session(session_id)
                         .map_err(|error| error.to_string())
                 }) {
-                    tracing::error!(session_id = %s.id, %error, "retention: failed to delete session");
-                    if !ws.metadata.session_file_exists(&s.id) {
-                        sessions.remove(&s.id);
-                        all_deleted.push(s.id.clone());
+                    tracing::error!(session_id = %id, %error, "retention: failed to delete session");
+                    if !ws.metadata.session_file_exists(&id) {
+                        sessions.remove(&id);
+                        all_deleted.push(id);
                     }
                     continue;
                 }
-                sessions.remove(&s.id);
-                all_deleted.push(s.id.clone());
+                sessions.remove(&id);
+                all_deleted.push(id);
             }
         }
     }
@@ -184,6 +215,66 @@ mod tests {
     use crate::workflow_observations::{
         Impact, ObservationCandidate, ObservationKind, ObservationOrigin,
     };
+    use std::collections::HashSet;
+
+    fn retention_test_session(id: &str, last_activity: &str) -> metadata::SessionMetadata {
+        test_session_metadata(
+            id,
+            id,
+            "/tmp/orkworks-retention-tests",
+            "ended",
+            last_activity,
+            last_activity,
+        )
+    }
+
+    #[test]
+    fn expired_candidates_ignore_invalid_timestamps_and_protected_sessions() {
+        let candidates = vec![
+            retention_test_session("newest", "2024-01-10T00:00:00Z"),
+            retention_test_session("invalid", "not-a-timestamp"),
+            retention_test_session("protected", "2024-01-02T00:00:00Z"),
+            retention_test_session("oldest", "2024-01-01T00:00:00Z"),
+        ];
+        let protected = HashSet::from(["protected".to_string()]);
+        let cutoff = chrono::DateTime::parse_from_rfc3339("2024-01-05T00:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+
+        assert_eq!(
+            select_expired_candidates(&candidates, cutoff, &protected),
+            vec!["oldest"]
+        );
+    }
+
+    #[test]
+    fn count_candidates_select_oldest_eligible_sessions_only() {
+        let candidates = vec![
+            retention_test_session("newest", "2024-01-04T00:00:00Z"),
+            retention_test_session("middle", "2024-01-03T00:00:00Z"),
+            retention_test_session("protected", "2024-01-02T00:00:00Z"),
+            retention_test_session("oldest", "2024-01-01T00:00:00Z"),
+        ];
+        let protected = HashSet::from(["protected".to_string()]);
+
+        assert_eq!(
+            select_count_candidates(&candidates, 2, &protected),
+            vec!["oldest", "middle"]
+        );
+    }
+
+    #[test]
+    fn count_selection_can_run_after_age_candidates_are_removed() {
+        let remaining = vec![
+            retention_test_session("newer", "2024-01-04T00:00:00Z"),
+            retention_test_session("oldest-remaining", "2024-01-03T00:00:00Z"),
+        ];
+
+        assert_eq!(
+            select_count_candidates(&remaining, 1, &HashSet::new()),
+            vec!["oldest-remaining"]
+        );
+    }
 
     fn record_test_observation(
         store: &crate::workflow_observations::WorkflowObservationStore,
