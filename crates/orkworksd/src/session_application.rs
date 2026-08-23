@@ -5531,22 +5531,71 @@ mod tests {
         let state = crate::test_support::test_app_state_with_workspace(root.path());
         let application = SessionApplication::new(state.clone());
 
+        {
+            let workspace = state.workspace.lock().unwrap();
+            for key in ["first-query-observation", "second-query-observation"] {
+                workspace
+                    .as_ref()
+                    .unwrap()
+                    .workflow_observations
+                    .record_observation(
+                        "workflow-query-session",
+                        crate::workflow_observations::ObservationOrigin::Peon,
+                        key,
+                        crate::workflow_observations::ObservationCandidate {
+                            kind: crate::workflow_observations::ObservationKind::Obstacle,
+                            description: "The setup blocks progress".into(),
+                            evidence: "The same command failed twice".into(),
+                            reported_impact: crate::workflow_observations::Impact::Medium,
+                            confidence: Some(0.8),
+                        },
+                    )
+                    .unwrap();
+            }
+        }
         application.refresh_workflow_recommendations();
         let (recommendations, diagnostics) = application.list_recommendations().unwrap();
 
-        assert_eq!(recommendations.len(), 0);
+        assert_eq!(recommendations.len(), 1);
+        assert_eq!(recommendations[0].source_session_ids, ["workflow-query-session"]);
         assert!(diagnostics.is_empty());
     }
 
     #[test]
-    fn get_recommendation_returns_none_for_unknown_id_under_the_application() {
+    fn get_recommendation_returns_persisted_recommendation_under_the_application() {
         let root = tempfile::tempdir().unwrap();
         let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let application = SessionApplication::new(state.clone());
 
-        assert!(SessionApplication::new(state)
-            .get_recommendation("missing")
-            .unwrap()
-            .is_none());
+        {
+            let workspace = state.workspace.lock().unwrap();
+            for key in ["first-query-observation", "second-query-observation"] {
+                workspace
+                    .as_ref()
+                    .unwrap()
+                    .workflow_observations
+                    .record_observation(
+                        "workflow-query-session",
+                        crate::workflow_observations::ObservationOrigin::Peon,
+                        key,
+                        crate::workflow_observations::ObservationCandidate {
+                            kind: crate::workflow_observations::ObservationKind::Obstacle,
+                            description: "The setup blocks progress".into(),
+                            evidence: "The same command failed twice".into(),
+                            reported_impact: crate::workflow_observations::Impact::Medium,
+                            confidence: Some(0.8),
+                        },
+                    )
+                    .unwrap();
+            }
+        }
+        application.refresh_workflow_recommendations();
+        let expected = application.list_recommendations().unwrap().0.pop().unwrap();
+
+        assert_eq!(
+            application.get_recommendation(&expected.id).unwrap(),
+            Some(expected)
+        );
     }
 
     #[test]
