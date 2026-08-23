@@ -1,6 +1,7 @@
 use crate::http::ErrorResponse;
-use crate::taskmaster::{Recommendation, RecommendationStatus, RecommendationType};
+use crate::session_application::{RecommendationDismissError, SessionApplication};
 use crate::taskmaster::store::StoreError;
+use crate::taskmaster::Recommendation;
 use crate::AppState;
 use axum::{
     extract::{Path, State},
@@ -75,26 +76,11 @@ pub(crate) async fn dismiss_recommendation(
     {
         return StatusCode::UNPROCESSABLE_ENTITY.into_response();
     }
-    let workspace = state.workspace.lock().unwrap();
-    let Some(workspace) = workspace.as_ref() else {
-        return StatusCode::CONFLICT.into_response();
-    };
-    let Some(existing) = (match workspace.recommendation_store.get(&id) {
-        Ok(recommendation) => recommendation,
-        Err(error) => return store_error(error),
-    }) else {
-        return StatusCode::NOT_FOUND.into_response();
-    };
-    if existing.recommendation_type != RecommendationType::ImproveWorkflow
-        || existing.status != RecommendationStatus::Proposed
-    {
-        return StatusCode::CONFLICT.into_response();
-    }
-    match workspace.recommendation_store.dismiss(&id, chrono::Utc::now().to_rfc3339())
-    {
+    match SessionApplication::new(state).dismiss_recommendation(&id) {
         Ok(Some(recommendation)) => Json(recommendation).into_response(),
         Ok(None) => StatusCode::NOT_FOUND.into_response(),
-        Err(error) => store_error(error),
+        Err(RecommendationDismissError::Conflict) => StatusCode::CONFLICT.into_response(),
+        Err(RecommendationDismissError::Store(error)) => store_error(error),
     }
 }
 

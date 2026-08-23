@@ -6,6 +6,7 @@ use crate::plan_handoff::{
     normalize_reported_plan_path, resolve_openable_plan_reference, resolve_printed_plan_path,
 };
 use crate::runtime::observed_status::apply_live_attention_fields;
+use crate::taskmaster::{RecommendationStatus, RecommendationType};
 use crate::workspace_runtime::parse_hook_observed_at;
 use portable_pty::PtySize;
 use sha2::{Digest, Sha256};
@@ -28,6 +29,12 @@ pub(crate) enum WorkflowObservationPersistenceError {
     NoWorkspace,
     SessionNotInWorkspace,
     Record(crate::workflow_observations::RecordError),
+}
+
+#[derive(Debug)]
+pub(crate) enum RecommendationDismissError {
+    Conflict,
+    Store(crate::taskmaster::store::StoreError),
 }
 
 pub(crate) struct WorkspaceSnapshot {
@@ -157,6 +164,32 @@ impl SessionApplication {
                 tracing::warn!(recommendation_id = %proposal.id, %error, "failed to persist Taskmaster recommendation");
             }
         }
+    }
+
+    pub(crate) fn dismiss_recommendation(
+        &self,
+        id: &str,
+    ) -> Result<Option<crate::taskmaster::Recommendation>, RecommendationDismissError> {
+        let workspace_guard = self.state.workspace.lock().unwrap();
+        let workspace = workspace_guard
+            .as_ref()
+            .ok_or(RecommendationDismissError::Conflict)?;
+        let Some(existing) = workspace
+            .recommendation_store
+            .get(id)
+            .map_err(RecommendationDismissError::Store)?
+        else {
+            return Ok(None);
+        };
+        if existing.recommendation_type != RecommendationType::ImproveWorkflow
+            || existing.status != RecommendationStatus::Proposed
+        {
+            return Err(RecommendationDismissError::Conflict);
+        }
+        workspace
+            .recommendation_store
+            .dismiss(id, chrono::Utc::now().to_rfc3339())
+            .map_err(RecommendationDismissError::Store)
     }
 
     /// Persists one Peon observation under one workspace snapshot.
@@ -5383,6 +5416,57 @@ mod tests {
             .unwrap();
         assert_eq!(proposals.len(), 1);
         assert_eq!(proposals[0].source_session_ids, vec!["workflow-refresh-session"]);
+    }
+
+    #[test]
+    fn dismiss_recommendation_persists_the_transition_under_the_application() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        {
+            let workspace = state.workspace.lock().unwrap();
+            let workspace = workspace.as_ref().unwrap();
+            for key in ["first", "second"] {
+                workspace
+                    .workflow_observations
+                    .record_observation(
+                        "workflow-dismiss-session",
+                        crate::workflow_observations::ObservationOrigin::Peon,
+                        key,
+                        crate::workflow_observations::ObservationCandidate {
+                            kind: crate::workflow_observations::ObservationKind::Obstacle,
+                            description: "The setup blocks progress".into(),
+                            evidence: "The same command failed twice".into(),
+                            reported_impact: crate::workflow_observations::Impact::Medium,
+                            confidence: Some(0.8),
+                        },
+                    )
+                    .unwrap();
+            }
+        }
+
+        let application = SessionApplication::new(state.clone());
+        application.refresh_workflow_recommendations();
+        let recommendation_id = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .recommendation_store
+            .list()
+            .unwrap()
+            .pop()
+            .unwrap()
+            .id;
+        let dismissed = application
+            .dismiss_recommendation(&recommendation_id)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(
+            dismissed.status,
+            crate::taskmaster::RecommendationStatus::Dismissed
+        );
     }
 
     #[test]
