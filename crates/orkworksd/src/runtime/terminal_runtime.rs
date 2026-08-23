@@ -1198,92 +1198,6 @@ fn fallback_final_snapshot(
         })
 }
 
-/// `fallback_terminal_status` is the terminal status the exit path intended;
-/// it is used when metadata is unavailable (no workspace open, file missing),
-/// since `pending_terminal_status` is only persisted there.
-pub(crate) fn complete_session_ending(
-    state: &Arc<AppState>,
-    id: &str,
-    generation: crate::runtime::session_runtime::RuntimeGeneration,
-    final_snapshot: metadata::ObservedStatusSnapshotMetadata,
-    fallback_terminal_status: &str,
-) -> bool {
-    {
-        let sessions = state.sessions.lock().unwrap();
-        if !sessions.get(id).is_some_and(|handle| {
-            handle.runtime.run_generation() == generation
-                && handle.info.lifecycle_phase == "ending"
-        }) {
-            return false;
-        }
-    }
-
-    let now = iso_now();
-    let mut final_status: Option<String> = None;
-
-    {
-        let ws_guard = state.workspace.lock().unwrap();
-        if let Some(ref ws) = *ws_guard {
-            if let Some(mut meta) = ws.metadata.read_session(id) {
-                if meta.lifecycle_phase == "ended" {
-                    return false;
-                }
-                let pending = meta
-                    .pending_terminal_status
-                    .clone()
-                    .unwrap_or_else(|| fallback_terminal_status.into());
-                meta.status = pending.clone();
-                meta.lifecycle_phase = "ended".into();
-                meta.lifecycle = "dead".into();
-                meta.attention = None;
-                meta.connectivity = connectivity_for_status(&pending).to_string();
-                meta.terminal_outcome = terminal_outcome_for_status(&pending);
-                meta.pending_terminal_status = None;
-                meta.ending_observed_status_snapshot = None;
-                meta.final_observed_status_snapshot = Some(final_snapshot.clone());
-                meta.observed_status = None;
-                meta.last_activity = now.clone();
-                ws.metadata.write_session(&meta);
-                ws.metadata.append_event(
-                    id,
-                    &metadata::Event {
-                        event_type: "session.status".into(),
-                        timestamp: now.clone(),
-                        status: pending.clone(),
-                        observed_status: final_snapshot.value.clone(),
-                        confidence: final_snapshot.confidence,
-                        summary: None,
-                        source: None,
-                    },
-                );
-                final_status = Some(pending);
-            }
-        }
-    }
-
-    let pending = final_status.unwrap_or_else(|| fallback_terminal_status.into());
-    let mut sessions = state.sessions.lock().unwrap();
-    if let Some(handle) = sessions.get_mut(id) {
-        if handle.runtime.run_generation() != generation
-            || handle.info.lifecycle_phase == "ended"
-        {
-            return false;
-        }
-        handle.info.status = pending.clone();
-        handle.info.lifecycle_phase = "ended".into();
-        handle.info.lifecycle = "dead".into();
-        handle.info.attention = None;
-        handle.info.connectivity = Some(connectivity_for_status(&pending).to_string());
-        handle.info.terminal_outcome = terminal_outcome_for_status(&pending);
-        handle.info.observed_status = None;
-        handle.info.final_observed_status = final_snapshot.value.clone();
-        handle.info.last_activity_at = Some(now);
-        handle.resume_in_progress = false;
-        return true;
-    }
-    false
-}
-
 pub(crate) async fn finalize_session_ending(
     state: Arc<AppState>,
     id: String,
@@ -1437,8 +1351,7 @@ pub(crate) async fn finalize_session_ending(
         crate::taskmaster::evaluator::schedule_evaluation(state.clone());
     }
 
-    complete_session_ending(
-        &state,
+    crate::session_application::SessionApplication::new(state.clone()).complete_session_ending(
         &id,
         generation,
         final_snapshot,
@@ -3793,8 +3706,7 @@ mod tests {
         let generation = state.sessions.lock().unwrap()[&session_id]
             .runtime
             .run_generation();
-        complete_session_ending(
-            &state,
+        crate::session_application::SessionApplication::new(state.clone()).complete_session_ending(
             &session_id,
             generation,
             metadata::ObservedStatusSnapshotMetadata {

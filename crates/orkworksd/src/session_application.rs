@@ -63,6 +63,94 @@ impl SessionApplication {
         Self { state }
     }
 
+    /// Completes an ending session after the runtime has collected its final
+    /// observed-status snapshot. The sessions/workspace/sessions lock order is
+    /// deliberate: the initial generation guard prevents stale runtimes from
+    /// finalizing a replacement, while the final guard prevents a replacement
+    /// from being overwritten after persisted finalization.
+    pub(crate) fn complete_session_ending(
+        &self,
+        id: &str,
+        generation: crate::runtime::session_runtime::RuntimeGeneration,
+        final_snapshot: metadata::ObservedStatusSnapshotMetadata,
+        fallback_terminal_status: &str,
+    ) -> bool {
+        {
+            let sessions = self.state.sessions.lock().unwrap();
+            if !sessions.get(id).is_some_and(|handle| {
+                handle.runtime.run_generation() == generation
+                    && handle.info.lifecycle_phase == "ending"
+            }) {
+                return false;
+            }
+        }
+
+        let now = iso_now();
+        let mut final_status: Option<String> = None;
+
+        {
+            let ws_guard = self.state.workspace.lock().unwrap();
+            if let Some(ref ws) = *ws_guard {
+                if let Some(mut meta) = ws.metadata.read_session(id) {
+                    if meta.lifecycle_phase == "ended" {
+                        return false;
+                    }
+                    let pending = meta
+                        .pending_terminal_status
+                        .clone()
+                        .unwrap_or_else(|| fallback_terminal_status.into());
+                    meta.status = pending.clone();
+                    meta.lifecycle_phase = "ended".into();
+                    meta.lifecycle = "dead".into();
+                    meta.attention = None;
+                    meta.connectivity = connectivity_for_status(&pending).to_string();
+                    meta.terminal_outcome = terminal_outcome_for_status(&pending);
+                    meta.pending_terminal_status = None;
+                    meta.ending_observed_status_snapshot = None;
+                    meta.final_observed_status_snapshot = Some(final_snapshot.clone());
+                    meta.observed_status = None;
+                    meta.last_activity = now.clone();
+                    ws.metadata.write_session(&meta);
+                    ws.metadata.append_event(
+                        id,
+                        &metadata::Event {
+                            event_type: "session.status".into(),
+                            timestamp: now.clone(),
+                            status: pending.clone(),
+                            observed_status: final_snapshot.value.clone(),
+                            confidence: final_snapshot.confidence,
+                            summary: None,
+                            source: None,
+                        },
+                    );
+                    final_status = Some(pending);
+                }
+            }
+        }
+
+        let pending = final_status.unwrap_or_else(|| fallback_terminal_status.into());
+        let mut sessions = self.state.sessions.lock().unwrap();
+        if let Some(handle) = sessions.get_mut(id) {
+            if handle.runtime.run_generation() != generation
+                || handle.info.lifecycle_phase == "ended"
+            {
+                return false;
+            }
+            handle.info.status = pending.clone();
+            handle.info.lifecycle_phase = "ended".into();
+            handle.info.lifecycle = "dead".into();
+            handle.info.attention = None;
+            handle.info.connectivity = Some(connectivity_for_status(&pending).to_string());
+            handle.info.terminal_outcome = terminal_outcome_for_status(&pending);
+            handle.info.observed_status = None;
+            handle.info.final_observed_status = final_snapshot.value.clone();
+            handle.info.last_activity_at = Some(now);
+            handle.resume_in_progress = false;
+            return true;
+        }
+        false
+    }
+
     pub(crate) fn open_workspace(
         &self,
         path: PathBuf,
@@ -1479,6 +1567,93 @@ mod tests {
         let snapshot = application.open_workspace(root.path().to_path_buf()).unwrap();
 
         assert_eq!(snapshot.path, root.path().to_string_lossy());
+    }
+
+    #[test]
+    fn complete_session_ending_application_projects_pending_status_and_snapshot() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "complete-ending-application";
+        let mut metadata = crate::test_support::test_session_metadata(
+            id,
+            "Ending",
+            &root.path().display().to_string(),
+            "running",
+            "before",
+            "before",
+        );
+        metadata.lifecycle = "stopping".into();
+        metadata.lifecycle_phase = "ending".into();
+        metadata.pending_terminal_status = Some("killed".into());
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
+
+        let mut handle = attention_test_handle(id, root.path());
+        handle.info.lifecycle_phase = "ending".into();
+        handle.resume_in_progress = true;
+        let generation = handle.runtime.run_generation();
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+
+        let snapshot = metadata::ObservedStatusSnapshotMetadata {
+            value: Some("blocked".into()),
+            source: "peon".into(),
+            confidence: Some(0.91),
+            observed_at: Some("after".into()),
+        };
+        assert!(SessionApplication::new(state.clone()).complete_session_ending(
+            id,
+            generation,
+            snapshot.clone(),
+            "error",
+        ));
+
+        let live = state.sessions.lock().unwrap()[id].info.clone();
+        assert_eq!(live.status, "killed");
+        assert_eq!(live.lifecycle_phase, "ended");
+        assert_eq!(live.connectivity.as_deref(), Some("offline"));
+        assert_eq!(live.final_observed_status.as_deref(), Some("blocked"));
+        assert!(!state.sessions.lock().unwrap()[id].resume_in_progress);
+        let stored = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
+        assert_eq!(stored.pending_terminal_status, None);
+        assert_eq!(stored.final_observed_status_snapshot, Some(snapshot));
+    }
+
+    #[test]
+    fn complete_session_ending_application_uses_fallback_without_workspace() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "complete-ending-no-workspace";
+        let mut handle = attention_test_handle(id, root.path());
+        handle.info.lifecycle_phase = "ending".into();
+        let generation = handle.runtime.run_generation();
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+        *state.workspace.lock().unwrap() = None;
+
+        assert!(SessionApplication::new(state.clone()).complete_session_ending(
+            id,
+            generation,
+            metadata::canonical_null_snapshot("recovery", None),
+            "error",
+        ));
+
+        let live = state.sessions.lock().unwrap()[id].info.clone();
+        assert_eq!(live.status, "error");
+        assert_eq!(live.lifecycle_phase, "ended");
+        assert_eq!(live.terminal_outcome.as_deref(), Some("error"));
     }
 
     #[test]
