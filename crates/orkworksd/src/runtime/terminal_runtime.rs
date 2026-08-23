@@ -482,20 +482,6 @@ pub(crate) fn collect_input_line(buf: &mut String, data: &str) -> (Option<String
     (result, line_completed)
 }
 
-fn mark_usage_limit_recheck_on_input(state: &Arc<AppState>, id: &str) {
-    let mut sessions = state.sessions.lock().unwrap();
-    let Some(handle) = sessions.get_mut(id) else {
-        return;
-    };
-    if !handle.at_usage_limit_latched
-        || handle.capacity_check_pending
-        || handle.resume_scan_origin.is_some()
-    {
-        return;
-    }
-    handle.resume_scan_origin = Some((handle.output_lines_seen, handle.scan_bytes_seen));
-}
-
 /// Records accepted terminal input for usage-limit rechecks, labels, and pending work signals.
 /// Call only once delivery is actually accepted — never for input dropped by
 /// `PendingActionQueue`.
@@ -540,7 +526,8 @@ fn record_terminal_input_impl(
     output_boundary: Option<u64>,
 ) -> Option<()> {
     if !data.is_empty() {
-        mark_usage_limit_recheck_on_input(state, id);
+        crate::session_application::SessionApplication::new(state.clone())
+            .arm_usage_limit_recheck(id);
     }
 
     let (collected_line, line_completed, in_progress_buf, buf_grew) = {
@@ -2676,7 +2663,8 @@ mod tests {
             .info
             .harness_id = Some("codex-wrapper".into());
 
-        mark_usage_limit_recheck_on_input(&state, &id);
+        crate::session_application::SessionApplication::new(state.clone())
+            .arm_usage_limit_recheck(&id);
         let first_origin = state
             .sessions
             .lock()
@@ -2695,7 +2683,8 @@ mod tests {
             handle.scan_bytes_seen += 3;
         }
 
-        mark_usage_limit_recheck_on_input(&state, &id);
+        crate::session_application::SessionApplication::new(state.clone())
+            .arm_usage_limit_recheck(&id);
         let second_origin = state
             .sessions
             .lock()

@@ -70,6 +70,22 @@ impl SessionApplication {
         Self { state }
     }
 
+    /// Arms the first capacity recheck after a usage-limit-latched session
+    /// receives accepted input. This is live runtime bookkeeping only.
+    pub(crate) fn arm_usage_limit_recheck(&self, id: &str) {
+        let mut sessions = self.state.sessions.lock().unwrap();
+        let Some(handle) = sessions.get_mut(id) else {
+            return;
+        };
+        if !handle.at_usage_limit_latched
+            || handle.capacity_check_pending
+            || handle.resume_scan_origin.is_some()
+        {
+            return;
+        }
+        handle.resume_scan_origin = Some((handle.output_lines_seen, handle.scan_bytes_seen));
+    }
+
     /// Applies a process status transition to persisted metadata and the live session.
     ///
     /// The entire workflow remains on one blocking task so the live mutation, terminal-size
@@ -1973,6 +1989,119 @@ mod tests {
             resume_scan_origin: None,
             pending_capacity_visible_once: false,
         }
+    }
+
+    fn usage_limit_test_state(id: &str) -> Arc<AppState> {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let mut handle = attention_test_handle(id, root.path());
+        handle.at_usage_limit_latched = true;
+        handle.output_lines_seen = 7;
+        handle.scan_bytes_seen = 11;
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+        state
+    }
+
+    #[test]
+    fn arm_usage_limit_recheck_captures_current_origin() {
+        let state = usage_limit_test_state("arm-usage-limit");
+
+        SessionApplication::new(state.clone()).arm_usage_limit_recheck("arm-usage-limit");
+
+        assert_eq!(
+            state
+                .sessions
+                .lock()
+                .unwrap()
+                .get("arm-usage-limit")
+                .unwrap()
+                .resume_scan_origin,
+            Some((7, 11))
+        );
+    }
+
+    #[test]
+    fn arm_usage_limit_recheck_does_not_overwrite_existing_origin() {
+        let state = usage_limit_test_state("arm-once");
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .get_mut("arm-once")
+            .unwrap()
+            .resume_scan_origin = Some((1, 2));
+
+        SessionApplication::new(state.clone()).arm_usage_limit_recheck("arm-once");
+
+        assert_eq!(
+            state
+                .sessions
+                .lock()
+                .unwrap()
+                .get("arm-once")
+                .unwrap()
+                .resume_scan_origin,
+            Some((1, 2))
+        );
+    }
+
+    #[test]
+    fn arm_usage_limit_recheck_skips_pending_capacity_check() {
+        let state = usage_limit_test_state("arm-pending");
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .get_mut("arm-pending")
+            .unwrap()
+            .capacity_check_pending = true;
+
+        SessionApplication::new(state.clone()).arm_usage_limit_recheck("arm-pending");
+
+        assert_eq!(
+            state
+                .sessions
+                .lock()
+                .unwrap()
+                .get("arm-pending")
+                .unwrap()
+                .resume_scan_origin,
+            None
+        );
+    }
+
+    #[test]
+    fn arm_usage_limit_recheck_skips_unlatched_session() {
+        let state = usage_limit_test_state("arm-unlatched");
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .get_mut("arm-unlatched")
+            .unwrap()
+            .at_usage_limit_latched = false;
+
+        SessionApplication::new(state.clone()).arm_usage_limit_recheck("arm-unlatched");
+
+        assert_eq!(
+            state
+                .sessions
+                .lock()
+                .unwrap()
+                .get("arm-unlatched")
+                .unwrap()
+                .resume_scan_origin,
+            None
+        );
+    }
+
+    #[test]
+    fn arm_usage_limit_recheck_missing_session_is_noop() {
+        let state = usage_limit_test_state("arm-present");
+
+        SessionApplication::new(state.clone()).arm_usage_limit_recheck("arm-missing");
+
+        assert!(state.sessions.lock().unwrap().get("arm-missing").is_none());
     }
 
     #[test]
