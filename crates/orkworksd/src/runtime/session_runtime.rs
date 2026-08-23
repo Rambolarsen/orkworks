@@ -1,6 +1,5 @@
 use crate::runtime::observed_status::{
-    apply_process_transition_to_handle, apply_process_transition_to_meta,
-    process_transition_fields, ProcessTransition,
+    apply_process_transition_to_handle, process_transition_fields, ProcessTransition,
 };
 use crate::runtime::terminal_runtime::{
     clear_workflow_report_token, clear_workflow_report_token_if_matches, make_pty_system,
@@ -1179,19 +1178,14 @@ pub(crate) async fn start_session_runtime(
                                 .persist_printed_plan_fallback(&driver_id, &plan_path);
                             }
 
-                            {
-                                let ws_guard = driver_state.workspace.lock().unwrap();
-                                if let Some(ref ws) = *ws_guard {
-                                    if let Some(mut meta) = ws.metadata.read_session(&driver_id) {
-                                        if promoted_working {
-                                            let fields = process_transition_fields(
-                                                ProcessTransition::CommittedWorking,
-                                            );
-                                            apply_process_transition_to_meta(&mut meta, &fields);
-                                            ws.metadata.write_session(&meta);
-                                        }
-                                    }
-                                }
+                            if promoted_working {
+                                crate::session_application::SessionApplication::new(
+                                    driver_state.clone(),
+                                )
+                                .persist_process_transition(
+                                    &driver_id,
+                                    ProcessTransition::CommittedWorking,
+                                );
                             }
 
                             if !raw_persist_lines.is_empty() {

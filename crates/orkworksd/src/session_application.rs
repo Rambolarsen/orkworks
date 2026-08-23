@@ -1236,6 +1236,28 @@ impl SessionApplication {
         true
     }
 
+    /// Persists a process-owned status transition after the runtime has
+    /// promoted its live session handle. The sessions lock is intentionally
+    /// not acquired here; runtime callers release it before this workspace
+    /// metadata write.
+    pub(crate) fn persist_process_transition(
+        &self,
+        session_id: &str,
+        transition: crate::runtime::observed_status::ProcessTransition,
+    ) -> bool {
+        let workspace_guard = self.state.workspace.lock().unwrap();
+        let Some(workspace) = workspace_guard.as_ref() else {
+            return false;
+        };
+        let Some(mut metadata) = workspace.metadata.read_session(session_id) else {
+            return false;
+        };
+        let fields = crate::runtime::observed_status::process_transition_fields(transition);
+        crate::runtime::observed_status::apply_process_transition_to_meta(&mut metadata, &fields);
+        workspace.metadata.write_session(&metadata);
+        true
+    }
+
     pub(crate) fn read_plan_content(&self, id: &str) -> Result<String, SessionError> {
         let workspace_guard = self.state.workspace.lock().unwrap();
         let workspace = workspace_guard.as_ref().ok_or(SessionError::Conflict)?;
@@ -3447,6 +3469,72 @@ mod tests {
 
         *state.workspace.lock().unwrap() = None;
         assert!(!application.persist_printed_plan_fallback(id, "specs/fallback.md"));
+    }
+
+    #[test]
+    fn persist_process_transition_updates_metadata_and_clears_prompt_fields() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "process-transition-application";
+        let mut session = crate::test_support::test_session_metadata(
+            id,
+            "Process transition",
+            root.path().display().to_string(),
+            "running",
+            "before",
+            "before",
+        );
+        session.lifecycle = "alive".into();
+        session.lifecycle_phase = "active".into();
+        session.connectivity = "online".into();
+        session.terminal_outcome = None;
+        session.needs_user_input = Some(true);
+        session.detected_question = Some("continue?".into());
+        session.suggested_options = Some(vec!["yes".into()]);
+        session.metadata_source = "agent".into();
+        session.metadata_confidence = 0.7;
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&session);
+
+        assert!(SessionApplication::new(state.clone()).persist_process_transition(
+            id,
+            crate::runtime::observed_status::ProcessTransition::CommittedWorking,
+        ));
+
+        let stored = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
+        assert_eq!(stored.observed_status.as_deref(), Some("working"));
+        assert_eq!(stored.attention.as_deref(), Some("working"));
+        assert_eq!(stored.metadata_source, "process");
+        assert_eq!(stored.metadata_confidence, 1.0);
+        assert!(stored.needs_user_input.is_none());
+        assert!(stored.detected_question.is_none());
+        assert!(stored.suggested_options.is_none());
+    }
+
+    #[test]
+    fn persist_process_transition_is_a_safe_noop_without_workspace_or_session() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let application = SessionApplication::new(state.clone());
+        let transition = crate::runtime::observed_status::ProcessTransition::CommittedWorking;
+
+        assert!(!application.persist_process_transition("missing", transition));
+        *state.workspace.lock().unwrap() = None;
+        assert!(!application.persist_process_transition("missing", transition));
     }
 
     #[test]
