@@ -5,7 +5,6 @@ use crate::session_view::{
     connectivity_for_status, derive_memory_state, detect_conflicts, merge_live_session_info,
     resolve_effective_cwds, session_recommendation, terminal_outcome_for_status,
 };
-use crate::workspace_runtime::iso_now;
 use crate::{git, harness, metadata, peon, AppState, SessionHandle};
 #[cfg(test)]
 use crate::workspace_runtime::orkworks_global_dir;
@@ -15,7 +14,9 @@ use crate::{watcher, WorkspaceState};
 use crate::session_application::{
     resolve_session_launch, CreateSessionCommand,
 };
-use crate::session_application::{try_install_claimed_resume_handle, SessionApplication};
+use crate::session_application::{
+    try_install_claimed_resume_handle, DebugAttentionSignal, SessionApplication, SessionError,
+};
 use axum::{
     extract::{Path, State},
     http::HeaderMap,
@@ -362,83 +363,24 @@ pub(crate) async fn apply_debug_attention(
     Path(id): Path<String>,
     Json(req): Json<DebugAttentionRequest>,
 ) -> impl IntoResponse {
-    if !matches!(
-        req.attention.as_str(),
-        "working" | "idle" | "needs_you" | "blocked" | "failed" | "capped"
-    ) {
-        return axum::http::StatusCode::BAD_REQUEST.into_response();
-    }
-
-    let observed_status = if req.attention == "needs_you" {
-        "waiting_for_input".to_string()
-    } else {
-        req.attention.clone()
-    };
-    let is_capped = req.attention == "capped";
-    let summary_message = if is_capped { None } else { req.message.clone() };
-
-    let now = iso_now();
-    let persist_state = state.clone();
-    let persist_id = id.clone();
-    let persist_status = observed_status.clone();
-    let persist_message = req.message.clone();
-    let result = match tokio::task::spawn_blocking(move || {
-        // This bypasses apply_attention_signal's self-locking shell and holds
-        // the workspace/sessions locks itself, like mark_committed_input_working
-        // does -- the lifecycle precheck and usage_limit_reset_hint write both
-        // need to stay atomic with the attention-field write, not split into
-        // separately-locked critical sections a concurrent call could interleave
-        // with.
-        let ws_guard = persist_state.workspace.lock().unwrap();
-        let Some(ref ws) = *ws_guard else {
-            return Err(axum::http::StatusCode::CONFLICT);
-        };
-        match ws.metadata.read_session(&persist_id) {
-            None => return Err(axum::http::StatusCode::NOT_FOUND),
-            Some(meta) if meta.lifecycle != "alive" => {
-                return Err(axum::http::StatusCode::BAD_REQUEST);
-            }
-            Some(_) => {}
+    let result = match SessionApplication::new(state).apply_debug_attention(
+        &id,
+        DebugAttentionSignal {
+            attention: req.attention,
+            message: req.message,
+        },
+    ).await {
+        Ok(result) => result,
+        Err(SessionError::EmptyBadRequest) => {
+            return axum::http::StatusCode::BAD_REQUEST.into_response();
         }
-        let result = ws.metadata.merge_agent_attention_signal_with_plan(
-            &persist_id,
-            &persist_status,
-            summary_message.as_deref(),
-            &metadata::PlanPathUpdate::Unchanged,
-            &now,
-            "debug",
-            0.0,
-        );
-        if result == metadata::AttentionMergeResult::Accepted {
-            if let Some(handle) = persist_state.sessions.lock().unwrap().get_mut(&persist_id) {
-                crate::runtime::observed_status::apply_live_attention_fields(
-                    &mut handle.info,
-                    &persist_status,
-                    summary_message.as_deref(),
-                    "debug",
-                    0.0,
-                );
-                if is_capped {
-                    if persist_message.is_some() {
-                        handle.info.usage_limit_reset_hint = persist_message.clone();
-                    }
-                } else {
-                    // Moving off capped must not leave a stale reset hint that
-                    // can propagate to other live sessions on the harness.
-                    handle.info.usage_limit_reset_hint = None;
-                }
-            }
+        Err(SessionError::Conflict) => {
+            return axum::http::StatusCode::CONFLICT.into_response();
         }
-        Ok(result)
-    })
-    .await
-    {
-        Ok(Ok(result)) => result,
-        Ok(Err(status)) => return status.into_response(),
-        Err(error) => {
-            tracing::error!(error = %error, "debug attention metadata task failed");
-            return axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        Err(SessionError::NotFound) => {
+            return axum::http::StatusCode::NOT_FOUND.into_response();
         }
+        Err(_) => return axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     };
 
     match result {

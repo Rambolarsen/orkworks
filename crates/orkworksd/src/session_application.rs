@@ -49,6 +49,11 @@ pub(crate) struct AttentionSignal {
     pub(crate) cwd: Option<String>,
 }
 
+pub(crate) struct DebugAttentionSignal {
+    pub(crate) attention: String,
+    pub(crate) message: Option<String>,
+}
+
 pub(crate) struct PlanSelection {
     pub(crate) printed_path: String,
 }
@@ -198,6 +203,78 @@ impl SessionApplication {
         }
 
         Ok(result)
+    }
+
+    pub(crate) async fn apply_debug_attention(
+        &self,
+        id: &str,
+        signal: DebugAttentionSignal,
+    ) -> Result<metadata::AttentionMergeResult, SessionError> {
+        if !matches!(
+            signal.attention.as_str(),
+            "working" | "idle" | "needs_you" | "blocked" | "failed" | "capped"
+        ) {
+            return Err(SessionError::EmptyBadRequest);
+        }
+
+        let observed_status = if signal.attention == "needs_you" {
+            "waiting_for_input".to_string()
+        } else {
+            signal.attention.clone()
+        };
+        let is_capped = signal.attention == "capped";
+        let summary_message = if is_capped { None } else { signal.message.clone() };
+        let state = self.state.clone();
+        let id = id.to_string();
+        let persist_message = signal.message;
+        tokio::task::spawn_blocking(move || {
+            // Keep the workspace and sessions locks in this order. The
+            // lifecycle check, persisted merge, and live reset-hint update
+            // must remain one atomic critical section.
+            let workspace_guard = state.workspace.lock().unwrap();
+            let workspace = workspace_guard.as_ref().ok_or(SessionError::Conflict)?;
+            match workspace.metadata.read_session(&id) {
+                None => return Err(SessionError::NotFound),
+                Some(meta) if meta.lifecycle != "alive" => {
+                    return Err(SessionError::EmptyBadRequest)
+                }
+                Some(_) => {}
+            }
+
+            let result = workspace.metadata.merge_agent_attention_signal_with_plan(
+                &id,
+                &observed_status,
+                summary_message.as_deref(),
+                &metadata::PlanPathUpdate::Unchanged,
+                &iso_now(),
+                "debug",
+                0.0,
+            );
+            if result == metadata::AttentionMergeResult::Accepted {
+                if let Some(handle) = state.sessions.lock().unwrap().get_mut(&id) {
+                    crate::runtime::observed_status::apply_live_attention_fields(
+                        &mut handle.info,
+                        &observed_status,
+                        summary_message.as_deref(),
+                        "debug",
+                        0.0,
+                    );
+                    if is_capped {
+                        if persist_message.is_some() {
+                            handle.info.usage_limit_reset_hint = persist_message;
+                        }
+                    } else {
+                        handle.info.usage_limit_reset_hint = None;
+                    }
+                }
+            }
+            Ok(result)
+        })
+        .await
+        .map_err(|error| {
+            tracing::error!(%error, "debug attention metadata task failed");
+            SessionError::Internal("application operation failed")
+        })?
     }
 
     pub(crate) fn report_plan_path(
@@ -2325,5 +2402,40 @@ mod tests {
         state.sessions.lock().unwrap().insert(id.into(), attention_test_handle(id, root.path()));
         assert_eq!(application.request_plan_review(id).await, Err(SessionError::Conflict));
         assert!(state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_events(id).is_empty());
+    }
+
+    #[tokio::test]
+    async fn debug_attention_application_maps_needs_you_and_updates_live_state() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "debug-attention-application";
+        let mut metadata = crate::test_support::test_session_metadata(
+            id, "Debug attention", &root.path().display().to_string(), "running", "now", "now",
+        );
+        metadata.lifecycle_phase = "active".into();
+        metadata.lifecycle = "alive".into();
+        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&metadata);
+        state.sessions.lock().unwrap().insert(id.into(), attention_test_handle(id, root.path()));
+
+        let application = SessionApplication::new(state.clone());
+        assert_eq!(
+            application
+                .apply_debug_attention(
+                    id,
+                    DebugAttentionSignal {
+                        attention: "needs_you".into(),
+                        message: Some("Answer required".into()),
+                    },
+                )
+                .await,
+            Ok(metadata::AttentionMergeResult::Accepted)
+        );
+
+        let persisted = state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(id).unwrap();
+        assert_eq!(persisted.observed_status.as_deref(), Some("waiting_for_input"));
+        assert_eq!(persisted.metadata_source, "debug");
+        assert_eq!(persisted.metadata_confidence, 0.0);
+        assert_eq!(state.sessions.lock().unwrap()[id].info.observed_status.as_deref(), Some("waiting_for_input"));
+        assert_eq!(state.sessions.lock().unwrap()[id].info.summary.as_deref(), Some("Answer required"));
     }
 }
