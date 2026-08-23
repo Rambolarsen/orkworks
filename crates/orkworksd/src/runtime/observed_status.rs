@@ -145,47 +145,6 @@ pub(crate) fn apply_attention_signal(
     Some(result)
 }
 
-/// Self-locking; used by the peon idle-timer sweep. `mark_committed_input_working`
-/// bypasses this and calls `apply_process_transition_to_meta`/`_to_handle`
-/// directly, since it must keep both locks held to atomically bump its own
-/// input-generation bookkeeping alongside the status write (see issue #193).
-///
-/// For `IdleTimeout` only: applies solely when the session's current persisted
-/// `observed_status` is `None` or `"working"` -- a session already in a more
-/// specific state (e.g. `capped`) must not be silently downgraded by a
-/// background sweep. Applies to both stores together or neither: previously
-/// the live handle could be overwritten even when the persisted gate rejected
-/// the write, letting disk and memory disagree.
-///
-/// This gate is idle-sweep-specific reasoning, not a universal rule for every
-/// `ProcessTransition` -- `CommittedWorking`'s real semantics are unconditional
-/// (committed input must flip a `blocked`/`capped`/`waiting_for_input` session
-/// back to `working`), so it is intentionally excluded here rather than
-/// applied to every kind this function might ever be called with.
-pub(crate) fn apply_process_transition(state: &Arc<AppState>, id: &str, kind: ProcessTransition) {
-    let fields = process_transition_fields(kind);
-    let ws_guard = state.workspace.lock().unwrap();
-    let Some(ws) = ws_guard.as_ref() else {
-        return;
-    };
-    let Some(mut meta) = ws.metadata.read_session(id) else {
-        return;
-    };
-    if matches!(kind, ProcessTransition::IdleTimeout)
-        && !matches!(meta.observed_status.as_deref(), None | Some("working"))
-    {
-        return;
-    }
-    apply_process_transition_to_meta(&mut meta, &fields);
-    if ws.metadata.try_write_session(&meta).is_err() {
-        tracing::warn!(session_id = %id, "failed to persist process transition");
-        return;
-    }
-    if let Some(handle) = state.sessions.lock().unwrap().get_mut(id) {
-        apply_process_transition_to_handle(&mut handle.info, &fields);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -487,65 +446,6 @@ mod tests {
         assert_eq!(result, None);
     }
 
-    #[test]
-    fn apply_process_transition_applies_to_both_stores_when_gate_passes() {
-        let dir = tempfile::tempdir().unwrap();
-        let state = crate::test_support::test_app_state_with_workspace(dir.path());
-        state
-            .sessions
-            .lock()
-            .unwrap()
-            .insert("s1".into(), test_handle("s1"));
-        {
-            let ws = state.workspace.lock().unwrap();
-            ws.as_ref()
-                .unwrap()
-                .metadata
-                .write_session(&alive_meta("s1"));
-        }
-
-        apply_process_transition(&state, "s1", ProcessTransition::IdleTimeout);
-
-        let persisted = {
-            let ws = state.workspace.lock().unwrap();
-            ws.as_ref().unwrap().metadata.read_session("s1").unwrap()
-        };
-        assert_eq!(persisted.observed_status.as_deref(), Some("idle"));
-        assert_eq!(persisted.metadata_confidence, 1.0);
-        let sessions = state.sessions.lock().unwrap();
-        assert_eq!(
-            sessions.get("s1").unwrap().info.observed_status.as_deref(),
-            Some("idle")
-        );
-    }
-
-    #[test]
-    fn apply_process_transition_skips_both_stores_when_gate_fails() {
-        let dir = tempfile::tempdir().unwrap();
-        let state = crate::test_support::test_app_state_with_workspace(dir.path());
-        state
-            .sessions
-            .lock()
-            .unwrap()
-            .insert("s1".into(), test_handle("s1"));
-        {
-            let mut meta = alive_meta("s1");
-            meta.observed_status = Some("capped".into());
-            let ws = state.workspace.lock().unwrap();
-            ws.as_ref().unwrap().metadata.write_session(&meta);
-        }
-
-        apply_process_transition(&state, "s1", ProcessTransition::IdleTimeout);
-
-        let persisted = {
-            let ws = state.workspace.lock().unwrap();
-            ws.as_ref().unwrap().metadata.read_session("s1").unwrap()
-        };
-        assert_eq!(persisted.observed_status.as_deref(), Some("capped"));
-        let sessions = state.sessions.lock().unwrap();
-        assert_eq!(sessions.get("s1").unwrap().info.observed_status, None);
-    }
-
     /// One `workspace`-then-`sessions` critical section covers the persist
     /// and the mirror together, so two concurrent calls for the same
     /// session can never leave the two stores disagreeing -- whichever call
@@ -632,36 +532,4 @@ mod tests {
         assert_eq!(live.summary.as_deref(), persisted.summary.as_deref());
     }
 
-    /// Regression test: apply_process_transition must not update the live
-    /// handle when the persisted write fails, or disk and memory disagree --
-    /// exactly the failure mode this module exists to prevent (caught in PR
-    /// #208 review).
-    #[test]
-    fn apply_process_transition_does_not_update_handle_when_persist_fails() {
-        let dir = tempfile::tempdir().unwrap();
-        let state = crate::test_support::test_app_state_with_workspace(dir.path());
-        state
-            .sessions
-            .lock()
-            .unwrap()
-            .insert("s1".into(), test_handle("s1"));
-        {
-            let ws = state.workspace.lock().unwrap();
-            let metadata = &ws.as_ref().unwrap().metadata;
-            metadata.write_session(&alive_meta("s1"));
-            // A directory squatting on the atomic-write temp path makes the
-            // write fail while the session file itself remains readable.
-            std::fs::create_dir_all(metadata.sessions_dir().join("s1.json.tmp")).unwrap();
-        }
-
-        apply_process_transition(&state, "s1", ProcessTransition::IdleTimeout);
-
-        let persisted = {
-            let ws = state.workspace.lock().unwrap();
-            ws.as_ref().unwrap().metadata.read_session("s1").unwrap()
-        };
-        assert_ne!(persisted.observed_status.as_deref(), Some("idle"));
-        let sessions = state.sessions.lock().unwrap();
-        assert_eq!(sessions.get("s1").unwrap().info.observed_status, None);
-    }
 }

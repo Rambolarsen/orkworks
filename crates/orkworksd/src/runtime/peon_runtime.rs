@@ -597,11 +597,8 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
             }
 
             for id in &silent_ids {
-                crate::runtime::observed_status::apply_process_transition(
-                    &state,
-                    id,
-                    crate::runtime::observed_status::ProcessTransition::IdleTimeout,
-                );
+                crate::session_application::SessionApplication::new(state.clone())
+                    .apply_idle_timeout(id);
             }
         }
     }

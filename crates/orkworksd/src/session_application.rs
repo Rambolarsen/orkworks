@@ -190,6 +190,36 @@ impl SessionApplication {
         );
     }
 
+    /// Applies the Peon idle-timeout transition to persisted metadata and the
+    /// live session. The persisted state is re-read while the workspace and
+    /// sessions locks are held in that order; the live projection happens
+    /// only after persistence succeeds.
+    pub(crate) fn apply_idle_timeout(&self, id: &str) {
+        let ws_guard = self.state.workspace.lock().unwrap();
+        let Some(ws) = ws_guard.as_ref() else {
+            return;
+        };
+        let mut sessions = self.state.sessions.lock().unwrap();
+        let Some(handle) = sessions.get_mut(id) else {
+            return;
+        };
+        let Some(mut meta) = ws.metadata.read_session(id) else {
+            return;
+        };
+        if !matches!(meta.observed_status.as_deref(), None | Some("working")) {
+            return;
+        }
+        let fields = crate::runtime::observed_status::process_transition_fields(
+            crate::runtime::observed_status::ProcessTransition::IdleTimeout,
+        );
+        crate::runtime::observed_status::apply_process_transition_to_meta(&mut meta, &fields);
+        if ws.metadata.try_write_session(&meta).is_err() {
+            tracing::warn!(session_id = %id, "failed to persist idle timeout transition");
+            return;
+        }
+        crate::runtime::observed_status::apply_process_transition_to_handle(&mut handle.info, &fields);
+    }
+
     /// Completes an ending session after the runtime has collected its final
     /// observed-status snapshot. The sessions/workspace/sessions lock order is
     /// deliberate: the initial generation guard prevents stale runtimes from
@@ -1683,6 +1713,118 @@ mod tests {
             resume_scan_origin: None,
             pending_capacity_visible_once: false,
         }
+    }
+
+    #[test]
+    fn apply_idle_timeout_projects_idle_after_persisted_working_gate() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "idle-timeout-application";
+        let mut metadata = crate::test_support::test_session_metadata(
+            id,
+            "Idle timeout",
+            &root.path().display().to_string(),
+            "running",
+            "before",
+            "before",
+        );
+        metadata.lifecycle = "alive".into();
+        metadata.lifecycle_phase = "active".into();
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .insert(id.into(), attention_test_handle(id, root.path()));
+
+        SessionApplication::new(state.clone()).apply_idle_timeout(id);
+
+        let stored = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
+        assert_eq!(stored.observed_status.as_deref(), Some("idle"));
+        assert_eq!(state.sessions.lock().unwrap()[id].info.observed_status.as_deref(), Some("idle"));
+    }
+
+    #[test]
+    fn apply_idle_timeout_skips_specific_persisted_state() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "idle-timeout-specific";
+        let mut metadata = crate::test_support::test_session_metadata(
+            id,
+            "Specific state",
+            &root.path().display().to_string(),
+            "running",
+            "before",
+            "before",
+        );
+        metadata.lifecycle = "alive".into();
+        metadata.lifecycle_phase = "active".into();
+        metadata.observed_status = Some("capped".into());
+        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&metadata);
+        state.sessions.lock().unwrap().insert(id.into(), attention_test_handle(id, root.path()));
+
+        SessionApplication::new(state.clone()).apply_idle_timeout(id);
+
+        let stored = state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(id).unwrap();
+        assert_eq!(stored.observed_status.as_deref(), Some("capped"));
+        assert_eq!(state.sessions.lock().unwrap()[id].info.observed_status, None);
+    }
+
+    #[test]
+    fn apply_idle_timeout_does_not_project_when_persist_fails() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "idle-timeout-write-failure";
+        let mut metadata = crate::test_support::test_session_metadata(
+            id,
+            "Write failure",
+            &root.path().display().to_string(),
+            "running",
+            "before",
+            "before",
+        );
+        metadata.lifecycle = "alive".into();
+        metadata.lifecycle_phase = "active".into();
+        let sessions_dir = {
+            let workspace = state.workspace.lock().unwrap();
+            let store = &workspace.as_ref().unwrap().metadata;
+            store.write_session(&metadata);
+            store.sessions_dir()
+        };
+        std::fs::create_dir_all(sessions_dir.join(format!("{id}.json.tmp"))).unwrap();
+        state.sessions.lock().unwrap().insert(id.into(), attention_test_handle(id, root.path()));
+
+        SessionApplication::new(state.clone()).apply_idle_timeout(id);
+
+        let persisted = state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(id).unwrap();
+        assert_ne!(persisted.observed_status.as_deref(), Some("idle"));
+        assert_eq!(state.sessions.lock().unwrap()[id].info.observed_status, None);
+    }
+
+    #[test]
+    fn apply_idle_timeout_ignores_missing_workspace_or_session() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let application = SessionApplication::new(state.clone());
+
+        application.apply_idle_timeout("missing");
+        *state.workspace.lock().unwrap() = None;
+        application.apply_idle_timeout("missing");
     }
 
     #[test]
