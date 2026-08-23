@@ -55,6 +55,12 @@ pub(crate) struct DebugAttentionSignal {
     pub(crate) message: Option<String>,
 }
 
+pub(crate) enum DebugHintMutation {
+    Preserve,
+    Clear,
+    Set(String),
+}
+
 /// The normalized input to the shared attention merge operation. Callers own
 /// transport validation and policy-specific cleanup; this operation owns the
 /// workspace → sessions critical section and keeps the two stores in sync.
@@ -71,6 +77,7 @@ pub(crate) struct AttentionMergeSignal {
     pub(crate) update_hook_timestamp: bool,
     pub(crate) clear_pending_work_signal: bool,
     pub(crate) require_alive: bool,
+    pub(crate) debug_hint_mutation: Option<DebugHintMutation>,
 }
 
 pub(crate) struct PlanSelection {
@@ -1247,6 +1254,15 @@ impl SessionApplication {
                 if signal.clear_pending_work_signal {
                     handle.pending_work_signal = None;
                 }
+                match &signal.debug_hint_mutation {
+                    Some(DebugHintMutation::Preserve) | None => {}
+                    Some(DebugHintMutation::Clear) => {
+                        handle.info.usage_limit_reset_hint = None;
+                    }
+                    Some(DebugHintMutation::Set(message)) => {
+                        handle.info.usage_limit_reset_hint = Some(message.clone());
+                    }
+                }
             }
         }
         Ok(result)
@@ -1271,9 +1287,16 @@ impl SessionApplication {
         };
         let is_capped = signal.attention == "capped";
         let summary_message = if is_capped { None } else { signal.message.clone() };
+        let debug_hint_mutation = if is_capped {
+            signal
+                .message
+                .map(DebugHintMutation::Set)
+                .unwrap_or(DebugHintMutation::Preserve)
+        } else {
+            DebugHintMutation::Clear
+        };
         let application = SessionApplication::new(self.state.clone());
         let id = id.to_string();
-        let persist_message = signal.message;
         tokio::task::spawn_blocking(move || {
             let result = application.apply_attention_signal(AttentionMergeSignal {
                 session_id: id.clone(),
@@ -1288,19 +1311,8 @@ impl SessionApplication {
                 update_hook_timestamp: false,
                 clear_pending_work_signal: false,
                 require_alive: true,
+                debug_hint_mutation: Some(debug_hint_mutation),
             })?;
-            if result == metadata::AttentionMergeResult::Accepted {
-                let mut sessions = application.state.sessions.lock().unwrap();
-                if let Some(handle) = sessions.get_mut(&id) {
-                    if is_capped {
-                        if persist_message.is_some() {
-                            handle.info.usage_limit_reset_hint = persist_message;
-                        }
-                    } else {
-                        handle.info.usage_limit_reset_hint = None;
-                    }
-                }
-            }
             Ok(result)
         })
         .await
@@ -1539,6 +1551,7 @@ impl SessionApplication {
                 update_hook_timestamp: true,
                 clear_pending_work_signal: true,
                 require_alive: false,
+                debug_hint_mutation: None,
             })
         })
         .await
@@ -4139,6 +4152,7 @@ mod tests {
             update_hook_timestamp: true,
             clear_pending_work_signal: true,
             require_alive: false,
+            debug_hint_mutation: None,
         });
 
         assert_eq!(result, Ok(metadata::AttentionMergeResult::Accepted));
@@ -4178,6 +4192,7 @@ mod tests {
             update_hook_timestamp: true,
             clear_pending_work_signal: true,
             require_alive: false,
+            debug_hint_mutation: None,
         });
 
         assert_eq!(result, Ok(metadata::AttentionMergeResult::Ignored));
@@ -4215,6 +4230,7 @@ mod tests {
             update_hook_timestamp: false,
             clear_pending_work_signal: false,
             require_alive: true,
+            debug_hint_mutation: Some(DebugHintMutation::Preserve),
         });
 
         assert_eq!(result, Ok(metadata::AttentionMergeResult::Accepted));
@@ -4262,6 +4278,7 @@ mod tests {
                     update_hook_timestamp: false,
                     clear_pending_work_signal: true,
                     require_alive: false,
+                    debug_hint_mutation: None,
                 })
             })
         })
