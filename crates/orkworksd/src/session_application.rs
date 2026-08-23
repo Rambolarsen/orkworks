@@ -720,6 +720,17 @@ impl SessionApplication {
         }
     }
 
+    /// Trims persisted terminal output after runtime has drained all pending
+    /// output batches and the persistence writer has completed.
+    pub(crate) fn trim_terminal_output(&self, session_id: &str) {
+        let workspace_guard = self.state.workspace.lock().unwrap();
+        if let Some(workspace) = workspace_guard.as_ref() {
+            workspace
+                .metadata
+                .trim_terminal_output(session_id, metadata::TERMINAL_OUTPUT_MAX_LINES);
+        }
+    }
+
     /// Records an input frame accepted by the PTY and, for a completed line,
     /// commits the process-owned working transition. The workspace-to-sessions
     /// lock order is deliberate: persisted and live state must not diverge.
@@ -3524,6 +3535,49 @@ mod tests {
         assert!(!root
             .path()
             .join(".orkworks/events/terminal-output-missing-workspace.terminal")
+            .exists());
+    }
+
+    #[test]
+    fn trim_terminal_output_keeps_recent_records_in_active_workspace() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "terminal-output-trim-application";
+        let output_path = root
+            .path()
+            .join(".orkworks-test/events/terminal-output-trim-application.terminal");
+        std::fs::create_dir_all(output_path.parent().unwrap()).unwrap();
+        let content = (0..=crate::metadata::TERMINAL_OUTPUT_MAX_LINES)
+            .map(|index| format!("line {index}\n"))
+            .collect::<String>();
+        std::fs::write(&output_path, content).unwrap();
+
+        SessionApplication::new(state.clone()).trim_terminal_output(id);
+
+        let stored = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_terminal_output(id, crate::metadata::TERMINAL_OUTPUT_MAX_LINES + 1);
+        assert_eq!(stored.len(), crate::metadata::TERMINAL_OUTPUT_MAX_LINES);
+        assert_eq!(stored.first().unwrap().text(), "line 1");
+        assert_eq!(stored.last().unwrap().text(), "line 1000");
+    }
+
+    #[test]
+    fn trim_terminal_output_is_a_noop_without_workspace() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        *state.workspace.lock().unwrap() = None;
+
+        SessionApplication::new(state).trim_terminal_output("terminal-output-trim-missing");
+
+        assert!(!root
+            .path()
+            .join(".orkworks-test/events/terminal-output-trim-missing.terminal")
             .exists());
     }
 

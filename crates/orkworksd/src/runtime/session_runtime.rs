@@ -9,7 +9,7 @@ use crate::runtime::terminal_runtime::{
 };
 #[cfg(windows)]
 use crate::runtime::terminal_runtime::resolve_windows_program;
-use crate::{harness, metadata, peon, plan_handoff, AppState};
+use crate::{harness, peon, plan_handoff, AppState};
 use chrono::{DateTime, Utc};
 use portable_pty::{CommandBuilder, PtySize, PtySystem};
 use std::collections::VecDeque;
@@ -1229,10 +1229,8 @@ pub(crate) async fn start_session_runtime(
                                 drop(persist_tx);
                                 let _ = persist_writer.await;
                                 let _ = tokio::task::spawn_blocking(move || {
-                                    let ws_guard = trim_state.workspace.lock().unwrap();
-                                    if let Some(ref ws) = *ws_guard {
-                                        ws.metadata.trim_terminal_output(&trim_id, metadata::TERMINAL_OUTPUT_MAX_LINES);
-                                    }
+                                    crate::session_application::SessionApplication::new(trim_state)
+                                        .trim_terminal_output(&trim_id);
                                 })
                                 .await;
                             });
@@ -1271,10 +1269,8 @@ pub(crate) async fn start_session_runtime(
                                 drop(persist_tx);
                                 let _ = persist_writer.await;
                                 let _ = tokio::task::spawn_blocking(move || {
-                                    let ws_guard = trim_state.workspace.lock().unwrap();
-                                    if let Some(ref ws) = *ws_guard {
-                                        ws.metadata.trim_terminal_output(&trim_id, metadata::TERMINAL_OUTPUT_MAX_LINES);
-                                    }
+                                    crate::session_application::SessionApplication::new(trim_state)
+                                        .trim_terminal_output(&trim_id);
                                 })
                                 .await;
                             });
