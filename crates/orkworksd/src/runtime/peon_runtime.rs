@@ -17,20 +17,6 @@ fn output_inference_is_current(
     captured_generation == current_generation && captured_min_revision == current_min_revision
 }
 
-fn input_label_epoch_is_current(captured_epoch: u64, current_epoch: u64) -> bool {
-    captured_epoch == current_epoch
-}
-
-#[cfg(test)]
-mod epoch_tests {
-    #[test]
-    fn input_label_epoch_is_current_only_for_the_same_epoch() {
-        assert!(super::input_label_epoch_is_current(4, 4));
-        assert!(!super::input_label_epoch_is_current(4, 5));
-    }
-
-}
-
 pub(crate) async fn peon_loop(state: Arc<AppState>) {
     let interval = state.peon.config.interval_secs;
     tracing::info!(interval_secs = interval, harness = %state.peon.config.harness, "peon started");
