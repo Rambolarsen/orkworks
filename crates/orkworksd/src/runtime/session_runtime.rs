@@ -683,20 +683,6 @@ pub(crate) fn clear_ended_session_tracking(state: &AppState, id: &str) {
     clear_workflow_report_token(id);
 }
 
-/// Clears state that is only retained while a session remains resumable. This
-/// is separate from PTY-exit cleanup because a killed session can still be
-/// resumed, while forgotten/retention-deleted sessions cannot.
-///
-/// Also clears any queued label work: once the session is gone, `peon_loop`
-/// bails out early on a missing session handle (see the `sessions.get`
-/// checks in `peon_runtime.rs`) and would otherwise leave an orphaned
-/// `label_hint`/`label_pending` entry queued forever.
-pub(crate) fn clear_forgotten_session_tracking(state: &AppState, id: &str) {
-    state.peon.label_epochs.write().unwrap().remove(id);
-    state.peon.label_hint.write().unwrap().remove(id);
-    state.peon.label_pending.write().unwrap().remove(id);
-}
-
 /// Applies an exit callback only while its runtime generation still owns the
 /// session ID. Marking the handle as ending first prevents resume admission
 /// from replacing it while the remaining runtime-owned side tables are
@@ -1373,7 +1359,8 @@ mod tests {
             Some(&3)
         );
 
-        clear_forgotten_session_tracking(&state, "epoch-cleanup");
+        crate::session_application::SessionApplication::new(state.clone())
+            .clear_forgotten_session_tracking("epoch-cleanup");
         assert!(!state
             .peon
             .label_epochs
@@ -1399,7 +1386,8 @@ mod tests {
             .unwrap()
             .insert("label-cleanup".into());
 
-        clear_forgotten_session_tracking(&state, "label-cleanup");
+        crate::session_application::SessionApplication::new(state.clone())
+            .clear_forgotten_session_tracking("label-cleanup");
 
         assert!(!state
             .peon

@@ -882,6 +882,16 @@ impl SessionApplication {
         true
     }
 
+    /// Clears label work that cannot be consumed after a session is forgotten.
+    /// The side tables are independent of workspace and session lifecycle
+    /// locks, so this deliberately acquires only their existing write guards
+    /// in order.
+    pub(crate) fn clear_forgotten_session_tracking(&self, id: &str) {
+        self.state.peon.label_epochs.write().unwrap().remove(id);
+        self.state.peon.label_hint.write().unwrap().remove(id);
+        self.state.peon.label_pending.write().unwrap().remove(id);
+    }
+
     /// Persists a validated Peon input label while preventing a reset from
     /// racing between the durable and live projections.
     pub(crate) fn persist_input_label(
@@ -1576,7 +1586,7 @@ impl SessionApplication {
                 drop(workspace_guard);
                 self.state.sessions.lock().unwrap().remove(id);
                 crate::runtime::session_runtime::clear_ended_session_tracking(&self.state, id);
-                crate::runtime::session_runtime::clear_forgotten_session_tracking(&self.state, id);
+                self.clear_forgotten_session_tracking(id);
             }
             return Err(SessionError::Internal("application operation failed"));
         }
@@ -1584,7 +1594,7 @@ impl SessionApplication {
 
         self.state.sessions.lock().unwrap().remove(id);
         crate::runtime::session_runtime::clear_ended_session_tracking(&self.state, id);
-        crate::runtime::session_runtime::clear_forgotten_session_tracking(&self.state, id);
+        self.clear_forgotten_session_tracking(id);
         Ok(())
     }
 }
@@ -4641,6 +4651,40 @@ mod tests {
             crate::session_types::placeholder_label(live_only_id)
         );
         assert_eq!(state.peon.label_epochs.read().unwrap().get(live_only_id), Some(&8));
+    }
+
+    #[test]
+    fn clear_forgotten_session_tracking_removes_all_label_side_tables() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "clear-forgotten-application";
+        state.peon.label_epochs.write().unwrap().insert(id.into(), 4);
+        state.peon.label_hint.write().unwrap().insert(
+            id.into(),
+            crate::LabelHint {
+                text: "stale topic".into(),
+                epoch: 4,
+            },
+        );
+        state.peon.label_pending.write().unwrap().insert(id.into());
+
+        SessionApplication::new(state.clone()).clear_forgotten_session_tracking(id);
+
+        assert!(!state.peon.label_epochs.read().unwrap().contains_key(id));
+        assert!(!state.peon.label_hint.read().unwrap().contains_key(id));
+        assert!(!state.peon.label_pending.read().unwrap().contains(id));
+    }
+
+    #[test]
+    fn clear_forgotten_session_tracking_ignores_missing_ids() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+
+        SessionApplication::new(state.clone()).clear_forgotten_session_tracking("missing");
+
+        assert!(state.peon.label_epochs.read().unwrap().is_empty());
+        assert!(state.peon.label_hint.read().unwrap().is_empty());
+        assert!(state.peon.label_pending.read().unwrap().is_empty());
     }
 
     #[test]

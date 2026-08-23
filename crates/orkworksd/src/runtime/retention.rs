@@ -202,7 +202,8 @@ pub(crate) async fn retention_cleanup_once(
         drop(peon_inference);
         drop(peon_output);
         for id in &all_deleted {
-            crate::runtime::session_runtime::clear_forgotten_session_tracking(state, id);
+            crate::session_application::SessionApplication::new(state.clone())
+                .clear_forgotten_session_tracking(id);
         }
     }
 }
