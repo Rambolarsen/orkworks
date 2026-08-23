@@ -121,16 +121,16 @@ impl SessionApplication {
         }
     }
 
-    /// Persists one Peon inference when its source priority permits the merge.
+    /// Persists one Peon observation under one workspace snapshot.
     ///
     /// The workspace lock covers both the priority read and metadata merge so
     /// a workspace switch cannot separate the decision from the write. The
     /// caller retains ownership of active-hook normalization, live projection,
     /// and retry scheduling.
-    pub(crate) fn persist_peon_inference(
+    pub(crate) fn persist_peon_observation(
         &self,
         session_id: &str,
-        inference: &peon::PeonInference,
+        inference: Option<&peon::PeonInference>,
         provider_observation: Option<&crate::providers::ProviderObservation>,
         history_summary: Option<&str>,
         timestamp: &str,
@@ -145,6 +145,21 @@ impl SessionApplication {
             };
         };
         let workspace_path = Some(workspace.path.clone());
+
+        if let Some(observation) = provider_observation {
+            workspace
+                .metadata
+                .persist_provider_context(session_id, observation);
+        }
+
+        let Some(inference) = inference else {
+            return PeonInferencePersistenceResult {
+                inference_persisted: false,
+                permanent_hold: false,
+                label_update: None,
+                workspace_path,
+            };
+        };
 
         let (should_write, is_permanent) = workspace
             .metadata
@@ -4174,11 +4189,17 @@ mod tests {
             harness_session_id: None,
             workflow_observations: Vec::new(),
         };
+        let provider_observation = crate::providers::ProviderObservation {
+            provider_id: "claude-code".into(),
+            provider_label: "Claude Code".into(),
+            provider_model: Some("sonnet".into()),
+            provider_state: "healthy".into(),
+        };
 
-        let result = SessionApplication::new(state.clone()).persist_peon_inference(
+        let result = SessionApplication::new(state.clone()).persist_peon_observation(
             id,
-            &inference,
-            None,
+            Some(&inference),
+            Some(&provider_observation),
             Some("Need a decision"),
             "later",
         );
@@ -4189,6 +4210,8 @@ mod tests {
         let stored = state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(id).unwrap();
         assert_eq!(stored.observed_status.as_deref(), Some("blocked"));
         assert_eq!(stored.summary.as_deref(), Some("Need a decision"));
+        assert_eq!(stored.provider_id.as_deref(), Some("claude-code"));
+        assert_eq!(stored.provider_model.as_deref(), Some("sonnet"));
     }
 
     #[test]
@@ -4226,9 +4249,9 @@ mod tests {
             workflow_observations: Vec::new(),
         };
 
-        let result = SessionApplication::new(state.clone()).persist_peon_inference(
+        let result = SessionApplication::new(state.clone()).persist_peon_observation(
             id,
-            &inference,
+            Some(&inference),
             None,
             Some("Should not land"),
             "later",

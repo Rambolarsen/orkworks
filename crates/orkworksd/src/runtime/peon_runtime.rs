@@ -274,19 +274,10 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                     Some("done" | "idle" | "stale")
                 );
 
-                if let Some(ref obs) = provider_result.observation {
-                    let workspace_guard = state_clone.workspace.lock().unwrap();
-                    if let Some(ref ws) = *workspace_guard {
-                        ws.metadata.persist_provider_context(&id, obs);
-                    }
-                }
-
-                let mut inference_persisted = false;
-                let mut permanent_hold = false;
-                let mut label_update = None;
                 let mut output_range_completed = false;
                 let mut accepted_observation = false;
-                if let Some(mut inf) = inference {
+                let mut inference = inference;
+                if let Some(inf) = inference.as_mut() {
                     // Active-hook sessions are hook-authoritative for the working
                     // transition specifically: Peon may still persist summary/label/
                     // etc, but must not be the one to flip observed_status to working
@@ -295,22 +286,27 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                     if active_work_hook && inf.observed_status.as_deref() == Some("working") {
                         inf.observed_status = None;
                     }
-                    let history_summary =
-                        peon::work_history_summary(&output_snapshot, inf.summary.as_deref());
-                    let persistence = crate::session_application::SessionApplication::new(
-                        state_clone.clone(),
-                    )
-                    .persist_peon_inference(
-                        &id,
-                        &inf,
-                        provider_result.observation.as_ref(),
-                        history_summary.as_deref(),
-                        &now_iso,
-                    );
-                    inference_persisted = persistence.inference_persisted;
-                    permanent_hold = persistence.permanent_hold;
-                    label_update = persistence.label_update;
-                    let captured_workspace_path = persistence.workspace_path;
+                }
+                let history_summary = inference
+                    .as_ref()
+                    .and_then(|inf| {
+                        peon::work_history_summary(&output_snapshot, inf.summary.as_deref())
+                    });
+                let persistence = crate::session_application::SessionApplication::new(
+                    state_clone.clone(),
+                )
+                .persist_peon_observation(
+                    &id,
+                    inference.as_ref(),
+                    provider_result.observation.as_ref(),
+                    history_summary.as_deref(),
+                    &now_iso,
+                );
+                let inference_persisted = persistence.inference_persisted;
+                let permanent_hold = persistence.permanent_hold;
+                let label_update = persistence.label_update;
+                let captured_workspace_path = persistence.workspace_path;
+                if let Some(inf) = inference.as_ref() {
                     if let Some((generation, _min_revision, first_revision, last_revision, runtime_instance_id)) =
                         output_boundary.as_ref()
                     {
