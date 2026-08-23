@@ -5,7 +5,7 @@ use crate::session_view::{connectivity_for_status, terminal_outcome_for_status};
 use crate::plan_handoff::{
     normalize_reported_plan_path, resolve_openable_plan_reference, resolve_printed_plan_path,
 };
-use crate::runtime::observed_status::apply_attention_signal;
+use crate::runtime::observed_status::apply_live_attention_fields;
 use crate::workspace_runtime::parse_hook_observed_at;
 use portable_pty::PtySize;
 use sha2::{Digest, Sha256};
@@ -53,6 +53,24 @@ pub(crate) struct AttentionSignal {
 pub(crate) struct DebugAttentionSignal {
     pub(crate) attention: String,
     pub(crate) message: Option<String>,
+}
+
+/// The normalized input to the shared attention merge operation. Callers own
+/// transport validation and policy-specific cleanup; this operation owns the
+/// workspace → sessions critical section and keeps the two stores in sync.
+pub(crate) struct AttentionMergeSignal {
+    pub(crate) session_id: String,
+    pub(crate) observed_status: String,
+    pub(crate) message: Option<String>,
+    pub(crate) plan_path: metadata::PlanPathUpdate,
+    pub(crate) timestamp: String,
+    pub(crate) source: String,
+    pub(crate) confidence: f64,
+    pub(crate) observed_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub(crate) reject_stale_observed_at: bool,
+    pub(crate) update_hook_timestamp: bool,
+    pub(crate) clear_pending_work_signal: bool,
+    pub(crate) require_alive: bool,
 }
 
 pub(crate) struct PlanSelection {
@@ -1166,6 +1184,74 @@ impl SessionApplication {
         Ok(result)
     }
 
+    /// Applies one normalized attention signal while holding the workspace
+    /// and sessions locks in that order. The metadata merge, stale hook
+    /// rejection, lifecycle check, live projection, and hook-only runtime
+    /// bookkeeping are one critical section so the durable and live stores
+    /// cannot observe different winners.
+    pub(crate) fn apply_attention_signal(
+        &self,
+        signal: AttentionMergeSignal,
+    ) -> Result<metadata::AttentionMergeResult, SessionError> {
+        let workspace_guard = self.state.workspace.lock().unwrap();
+        let workspace = workspace_guard.as_ref().ok_or(SessionError::Conflict)?;
+        let mut sessions = self.state.sessions.lock().unwrap();
+        let handle = sessions.get(&signal.session_id);
+
+        if signal.require_alive {
+            match workspace.metadata.read_session(&signal.session_id) {
+                None => return Err(SessionError::NotFound),
+                Some(meta) if meta.lifecycle != "alive" => {
+                    return Err(SessionError::EmptyBadRequest)
+                }
+                Some(_) => {}
+            }
+        }
+
+        if signal.reject_stale_observed_at
+            && signal.observed_at.is_some_and(|timestamp| {
+                handle.is_some_and(|handle| {
+                    handle
+                        .runtime
+                        .last_hook_attention_at
+                        .is_some_and(|previous| timestamp <= previous)
+                })
+            })
+        {
+            return Ok(metadata::AttentionMergeResult::Ignored);
+        }
+
+        let result = workspace.metadata.merge_agent_attention_signal_with_plan(
+            &signal.session_id,
+            &signal.observed_status,
+            signal.message.as_deref(),
+            &signal.plan_path,
+            &signal.timestamp,
+            &signal.source,
+            signal.confidence,
+        );
+        if result == metadata::AttentionMergeResult::Accepted {
+            if let Some(handle) = sessions.get_mut(&signal.session_id) {
+                apply_live_attention_fields(
+                    &mut handle.info,
+                    &signal.observed_status,
+                    signal.message.as_deref(),
+                    &signal.source,
+                    signal.confidence,
+                );
+                if signal.update_hook_timestamp {
+                    if let Some(observed_at) = signal.observed_at {
+                        handle.runtime.last_hook_attention_at = Some(observed_at);
+                    }
+                }
+                if signal.clear_pending_work_signal {
+                    handle.pending_work_signal = None;
+                }
+            }
+        }
+        Ok(result)
+    }
+
     pub(crate) async fn apply_debug_attention(
         &self,
         id: &str,
@@ -1185,41 +1271,27 @@ impl SessionApplication {
         };
         let is_capped = signal.attention == "capped";
         let summary_message = if is_capped { None } else { signal.message.clone() };
-        let state = self.state.clone();
+        let application = SessionApplication::new(self.state.clone());
         let id = id.to_string();
         let persist_message = signal.message;
         tokio::task::spawn_blocking(move || {
-            // Keep the workspace and sessions locks in this order. The
-            // lifecycle check, persisted merge, and live reset-hint update
-            // must remain one atomic critical section.
-            let workspace_guard = state.workspace.lock().unwrap();
-            let workspace = workspace_guard.as_ref().ok_or(SessionError::Conflict)?;
-            match workspace.metadata.read_session(&id) {
-                None => return Err(SessionError::NotFound),
-                Some(meta) if meta.lifecycle != "alive" => {
-                    return Err(SessionError::EmptyBadRequest)
-                }
-                Some(_) => {}
-            }
-
-            let result = workspace.metadata.merge_agent_attention_signal_with_plan(
-                &id,
-                &observed_status,
-                summary_message.as_deref(),
-                &metadata::PlanPathUpdate::Unchanged,
-                &iso_now(),
-                "debug",
-                0.0,
-            );
+            let result = application.apply_attention_signal(AttentionMergeSignal {
+                session_id: id.clone(),
+                observed_status,
+                message: summary_message,
+                plan_path: metadata::PlanPathUpdate::Unchanged,
+                timestamp: iso_now(),
+                source: "debug".into(),
+                confidence: 0.0,
+                observed_at: None,
+                reject_stale_observed_at: false,
+                update_hook_timestamp: false,
+                clear_pending_work_signal: false,
+                require_alive: true,
+            })?;
             if result == metadata::AttentionMergeResult::Accepted {
-                if let Some(handle) = state.sessions.lock().unwrap().get_mut(&id) {
-                    crate::runtime::observed_status::apply_live_attention_fields(
-                        &mut handle.info,
-                        &observed_status,
-                        summary_message.as_deref(),
-                        "debug",
-                        0.0,
-                    );
+                let mut sessions = application.state.sessions.lock().unwrap();
+                if let Some(handle) = sessions.get_mut(&id) {
                     if is_capped {
                         if persist_message.is_some() {
                             handle.info.usage_limit_reset_hint = persist_message;
@@ -1443,9 +1515,6 @@ impl SessionApplication {
         let message = signal.message;
         let plan_path = signal.plan_path;
         let result = tokio::task::spawn_blocking(move || {
-            if !state.workspace.lock().unwrap().is_some() {
-                return Err(SessionError::Conflict);
-            }
             if observed_at.is_some_and(|timestamp| {
                 state
                     .sessions
@@ -1457,11 +1526,20 @@ impl SessionApplication {
             }) {
                 return Ok(metadata::AttentionMergeResult::Ignored);
             }
-            apply_attention_signal(
-                &state, &merge_id, &merge_status, message.as_deref(), &plan_path, &iso_now(), "agent", 1.0,
+            SessionApplication::new(state).apply_attention_signal(AttentionMergeSignal {
+                session_id: merge_id,
+                observed_status: merge_status,
+                message,
+                plan_path,
+                timestamp: iso_now(),
+                source: "agent".into(),
+                confidence: 1.0,
                 observed_at,
-            )
-            .ok_or(SessionError::Conflict)
+                reject_stale_observed_at: true,
+                update_hook_timestamp: true,
+                clear_pending_work_signal: true,
+                require_alive: false,
+            })
         })
         .await
         .map_err(|error| {
@@ -4029,6 +4107,175 @@ mod tests {
             observed_at: None, cwd: None,
         }).await;
         assert!(matches!(result, Err(SessionError::EmptyBadRequest)));
+    }
+
+    #[test]
+    fn attention_merge_application_mirrors_accepted_hook_and_clears_pending_work() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "attention-merge-hook";
+        let mut meta = crate::test_support::test_session_metadata(
+            id, "Attention", root.path().display().to_string(), "running", "before", "before",
+        );
+        meta.lifecycle = "alive".into();
+        meta.lifecycle_phase = "active".into();
+        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&meta);
+        let mut handle = attention_test_handle(id, root.path());
+        handle.pending_work_signal = Some(crate::runtime::session_runtime::arm_pending_work_signal(
+            "y", tokio::time::Instant::now(),
+        ));
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+
+        let result = SessionApplication::new(state.clone()).apply_attention_signal(AttentionMergeSignal {
+            session_id: id.into(),
+            observed_status: "waiting_for_input".into(),
+            message: Some("question".into()),
+            plan_path: metadata::PlanPathUpdate::Unchanged,
+            timestamp: "2026-01-01T00:00:00Z".into(),
+            source: "agent".into(),
+            confidence: 1.0,
+            observed_at: Some(parse_hook_observed_at("2026-01-01T00:00:01.000000Z").unwrap()),
+            reject_stale_observed_at: true,
+            update_hook_timestamp: true,
+            clear_pending_work_signal: true,
+            require_alive: false,
+        });
+
+        assert_eq!(result, Ok(metadata::AttentionMergeResult::Accepted));
+        let sessions = state.sessions.lock().unwrap();
+        let live = sessions.get(id).unwrap();
+        assert!(live.pending_work_signal.is_none());
+        assert_eq!(live.info.attention.as_deref(), Some("needs_you"));
+        assert_eq!(live.runtime.last_hook_attention_at.unwrap().to_rfc3339(), "2026-01-01T00:00:01+00:00");
+        assert_eq!(state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(id).unwrap().attention.as_deref(), Some("needs_you"));
+    }
+
+    #[test]
+    fn attention_merge_application_ignores_stale_hook_without_mutating_either_store() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "attention-merge-stale";
+        let mut meta = crate::test_support::test_session_metadata(
+            id, "Attention", root.path().display().to_string(), "running", "before", "before",
+        );
+        meta.lifecycle = "alive".into();
+        meta.lifecycle_phase = "active".into();
+        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&meta);
+        let mut handle = attention_test_handle(id, root.path());
+        handle.runtime.last_hook_attention_at = Some(parse_hook_observed_at("2026-01-01T00:00:02.000000Z").unwrap());
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+
+        let result = SessionApplication::new(state.clone()).apply_attention_signal(AttentionMergeSignal {
+            session_id: id.into(),
+            observed_status: "working".into(),
+            message: Some("stale".into()),
+            plan_path: metadata::PlanPathUpdate::Unchanged,
+            timestamp: "2026-01-01T00:00:00Z".into(),
+            source: "agent".into(),
+            confidence: 1.0,
+            observed_at: Some(parse_hook_observed_at("2026-01-01T00:00:01.000000Z").unwrap()),
+            reject_stale_observed_at: true,
+            update_hook_timestamp: true,
+            clear_pending_work_signal: true,
+            require_alive: false,
+        });
+
+        assert_eq!(result, Ok(metadata::AttentionMergeResult::Ignored));
+        assert!(state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(id).unwrap().summary.is_none());
+        assert!(state.sessions.lock().unwrap().get(id).unwrap().info.summary.is_none());
+    }
+
+    #[test]
+    fn attention_merge_application_debug_options_preserve_hook_bookkeeping() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "attention-merge-debug";
+        let mut meta = crate::test_support::test_session_metadata(
+            id, "Attention", root.path().display().to_string(), "running", "before", "before",
+        );
+        meta.lifecycle = "alive".into();
+        meta.lifecycle_phase = "active".into();
+        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&meta);
+        let mut handle = attention_test_handle(id, root.path());
+        handle.pending_work_signal = Some(crate::runtime::session_runtime::arm_pending_work_signal(
+            "y", tokio::time::Instant::now(),
+        ));
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+
+        let result = SessionApplication::new(state.clone()).apply_attention_signal(AttentionMergeSignal {
+            session_id: id.into(),
+            observed_status: "waiting_for_input".into(),
+            message: None,
+            plan_path: metadata::PlanPathUpdate::Unchanged,
+            timestamp: "2026-01-01T00:00:00Z".into(),
+            source: "debug".into(),
+            confidence: 0.0,
+            observed_at: None,
+            reject_stale_observed_at: false,
+            update_hook_timestamp: false,
+            clear_pending_work_signal: false,
+            require_alive: true,
+        });
+
+        assert_eq!(result, Ok(metadata::AttentionMergeResult::Accepted));
+        let sessions = state.sessions.lock().unwrap();
+        let live = sessions.get(id).unwrap();
+        assert!(live.pending_work_signal.is_some());
+        assert!(live.runtime.last_hook_attention_at.is_none());
+        assert_eq!(live.info.metadata_source.as_deref(), Some("debug"));
+    }
+
+    #[test]
+    fn attention_merge_application_keeps_live_and_persisted_winners_together() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "attention-merge-concurrent";
+        let mut meta = crate::test_support::test_session_metadata(
+            id, "Attention", root.path().display().to_string(), "running", "before", "before",
+        );
+        meta.lifecycle = "alive".into();
+        meta.lifecycle_phase = "active".into();
+        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&meta);
+        state.sessions.lock().unwrap().insert(id.into(), attention_test_handle(id, root.path()));
+
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let calls = [
+            ("waiting_for_input", "A"),
+            ("blocked", "B"),
+        ]
+        .into_iter()
+        .map(|(status, message)| {
+            let state = state.clone();
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                SessionApplication::new(state).apply_attention_signal(AttentionMergeSignal {
+                    session_id: id.into(),
+                    observed_status: status.into(),
+                    message: Some(message.into()),
+                    plan_path: metadata::PlanPathUpdate::Unchanged,
+                    timestamp: "2026-01-01T00:00:00Z".into(),
+                    source: "agent".into(),
+                    confidence: 1.0,
+                    observed_at: None,
+                    reject_stale_observed_at: false,
+                    update_hook_timestamp: false,
+                    clear_pending_work_signal: true,
+                    require_alive: false,
+                })
+            })
+        })
+        .collect::<Vec<_>>();
+        for call in calls {
+            assert_eq!(call.join().unwrap(), Ok(metadata::AttentionMergeResult::Accepted));
+        }
+
+        let persisted = state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(id).unwrap();
+        let sessions = state.sessions.lock().unwrap();
+        let live = &sessions.get(id).unwrap().info;
+        assert_eq!(live.observed_status.as_deref(), persisted.observed_status.as_deref());
+        assert_eq!(live.attention.as_deref(), persisted.attention.as_deref());
+        assert_eq!(live.summary.as_deref(), persisted.summary.as_deref());
     }
 
     #[test]
