@@ -39,6 +39,7 @@ function App() {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [unreadState, setUnreadState] = useState<UnreadState>(EMPTY_UNREAD_STATE);
   const [workspace, setWorkspaceState] = useState<WorkspaceInfo | null>(null);
+  const [isSwitchingWorkspace, setIsSwitchingWorkspace] = useState(false);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [providerRuntime, setProviderRuntime] = useState<ProviderRuntimeResponse | null>(null);
@@ -177,6 +178,16 @@ function App() {
   }, []);
 
   const handleOpenWorkspace = useCallback(async () => {
+    // window.orkworks.openWorkspace() shows a native picker, then (if
+    // confirmed) kills the old sidecar and boots a new one on a new port
+    // before its own POST /workspace resolves. `workspace` state stays
+    // pointed at the OLD workspace for that entire window, so anything
+    // gated only on "is a workspace set" (e.g. RecommendationsPanel's
+    // polling) would keep hitting the backend and could race a poll tick
+    // against the new sidecar's not-yet-set workspace, reproducing the
+    // startup 409 via a switch instead. isSwitchingWorkspace covers that
+    // whole window regardless of outcome (confirmed, cancelled, or failed).
+    setIsSwitchingWorkspace(true);
     try {
       const info = await window.orkworks.openWorkspace();
       if (info) {
@@ -192,6 +203,8 @@ function App() {
       }
     } catch {
       pushToast("error", "Couldn't open workspace.");
+    } finally {
+      setIsSwitchingWorkspace(false);
     }
   }, [refreshSessions]);
 
@@ -533,6 +546,7 @@ function App() {
       <DockviewApp
         backendStatus={backendStatus}
         workspace={workspace}
+        isSwitchingWorkspace={isSwitchingWorkspace}
         debugSettings={settings?.debug ?? { showSessionIds: false, rendererHealthLogMs: 0 }}
         sessions={sessions}
         activeSessionId={activeSessionId}

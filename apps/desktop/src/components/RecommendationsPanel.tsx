@@ -106,15 +106,20 @@ function RecommendationsPanel({ hasWorkspace, onSelectSession }: Recommendations
 
   useEffect(() => {
     // The panel mounts as part of the default layout, before the sidecar's
-    // async /workspace bootstrap has necessarily completed. Fetching before
-    // that finishes races a 409 (no workspace set yet) into the console and
-    // the error banner on every startup, so wait for the workspace instead.
-    if (!hasWorkspace) return;
+    // async /workspace bootstrap has necessarily completed, and hasWorkspace
+    // also drops while App.tsx is mid-switch to a different workspace (see
+    // isSwitchingWorkspace there). Fetching in either window races a 409
+    // (no workspace set yet on the current/new sidecar) into the console
+    // and the error banner, so wait for a ready workspace instead — and
+    // drop whatever was on screen for the previous one rather than leaving
+    // it visible until the next successful poll.
+    if (!hasWorkspace) {
+      setRecommendations([]);
+      setDiagnostics([]);
+      setError(undefined);
+      return;
+    }
     let cancelled = false;
-    // App-level workspace state is currently monotonic (null -> set, never
-    // cleared back to null), so the initial refresh() below can't outlive a
-    // workspace becoming unset again. If that ever changes, this refresh()
-    // call needs the same `cancelled` guard the interval callback has.
     void refresh();
     const timer = window.setInterval(() => {
       if (!cancelled) void refresh();

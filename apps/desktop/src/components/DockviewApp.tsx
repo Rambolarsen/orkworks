@@ -20,6 +20,7 @@ import ReviewPanel from "./ReviewPanel";
 interface DockviewAppData {
   backendStatus: string;
   workspace: WorkspaceInfo | null;
+  isSwitchingWorkspace: boolean;
   debugSettings: DebugSettings;
   sessions: SessionInfo[];
   activeSessionId: string | null;
@@ -112,7 +113,12 @@ function CapPanel() {
 
 function RecPanel() {
   const ctx = useContext(DockviewContext);
-  return <RecommendationsPanel hasWorkspace={!!ctx.workspace} onSelectSession={ctx.onSelectSession} />;
+  return (
+    <RecommendationsPanel
+      hasWorkspace={!!ctx.workspace && !ctx.isSwitchingWorkspace}
+      onSelectSession={ctx.onSelectSession}
+    />
+  );
 }
 
 const COMPONENTS = {
