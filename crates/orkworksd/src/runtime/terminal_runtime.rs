@@ -912,100 +912,25 @@ pub(crate) async fn finalize_session_ending(
         }
     }
 
+    let final_scan = crate::session_application::SessionApplication::new(state.clone())
+        .persist_final_peon_scan(&id, generation, scan_result.as_ref());
+    if !final_scan.should_finalize {
+        return;
+    }
+
+    let final_observation_accepted = final_scan.observation_accepted;
     let inferred_snapshot = final_snapshot_from_inference(
         scan_result
             .as_ref()
             .and_then(|result| result.inference.as_ref()),
         &now,
     );
-    let mut final_observation_accepted = false;
-    let final_snapshot = {
-        let ws_guard = state.workspace.lock().unwrap();
-        let meta = ws_guard
-            .as_ref()
-            .and_then(|ws| ws.metadata.read_session(&id));
-
-        if meta.as_ref().is_some_and(|m| m.lifecycle_phase == "ended") {
-            return;
-        }
-
-        if let (Some(ref ws), Some(ref result)) = (ws_guard.as_ref(), scan_result.as_ref()) {
-            if let Some(ref observation) = result.observation {
-                ws.metadata.persist_provider_context(&id, observation);
-            }
-            if let (Some(ref inference), Some(_session)) = (result.inference.as_ref(), meta.as_ref()) {
-                for (index, candidate) in inference.workflow_observations.iter().enumerate() {
-                    let key = format!("final-scan:{generation}:{index}");
-                    let mut recorded = false;
-                    for attempt in 0..3 {
-                        let result = ws.workflow_observations.record_observation(
-                            &id,
-                            crate::workflow_observations::ObservationOrigin::Peon,
-                            &key,
-                            crate::workflow_observations::ObservationCandidate {
-                                kind: candidate.kind,
-                                description: candidate.description.clone(),
-                                evidence: candidate.evidence.clone(),
-                                reported_impact: candidate.reported_impact,
-                                confidence: Some(candidate.confidence),
-                            },
-                        );
-                        match result {
-                            Ok(crate::workflow_observations::RecordOutcome::Accepted(_)) => {
-                                final_observation_accepted = true;
-                                recorded = true;
-                                break;
-                            }
-                            Ok(crate::workflow_observations::RecordOutcome::Duplicate { .. }) => {
-                                // The final scan may race a retry of the live
-                                // Peon path; the evidence is already durable.
-                                recorded = true;
-                                break;
-                            }
-                            Err(error)
-                                if attempt < 2
-                                    && matches!(
-                                        error,
-                                        crate::workflow_observations::RecordError::PersistFailed
-                                            | crate::workflow_observations::RecordError::Degraded
-                                            | crate::workflow_observations::RecordError::RateLimited
-                                    ) => {}
-                            Err(error) => {
-                                tracing::warn!(
-                                    session_id = %id,
-                                    candidate_index = index,
-                                    %error,
-                                    "final peon workflow observation could not be recorded"
-                                );
-                                break;
-                            }
-                        }
-                    }
-                    if !recorded {
-                        tracing::warn!(
-                            session_id = %id,
-                            candidate_index = index,
-                            "final peon workflow observation remained unrecorded after retries"
-                        );
-                    }
-                }
-            }
-            if result.inference.is_none() {
-                tracing::warn!(
-                    session_id = %id,
-                    timeout_secs = state.peon.config.final_scan_timeout_secs,
-                    "final peon scan returned no inference; finalizing with fallback snapshot"
-                );
-            }
-        }
-
-        inferred_snapshot.unwrap_or_else(|| match meta {
-            Some(ref meta) => fallback_final_snapshot(meta, &now),
-            // Metadata unavailable: still complete the ending so the in-memory
-            // session does not stay stuck in the "ending" phase.
-            None => metadata::canonical_null_snapshot("recovery", Some(now.clone())),
-        })
-    };
+    let final_snapshot = inferred_snapshot.unwrap_or_else(|| match final_scan.metadata.as_ref() {
+        Some(meta) => fallback_final_snapshot(meta, &now),
+        // Metadata unavailable: still complete the ending so the in-memory
+        // session does not stay stuck in the "ending" phase.
+        None => metadata::canonical_null_snapshot("recovery", Some(now.clone())),
+    });
 
     if final_observation_accepted {
         crate::taskmaster::evaluator::schedule_evaluation(state.clone());

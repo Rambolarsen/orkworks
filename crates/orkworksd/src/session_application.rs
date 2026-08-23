@@ -78,6 +78,12 @@ pub(crate) struct PeonInferencePersistenceResult {
     pub(crate) workspace_path: Option<PathBuf>,
 }
 
+pub(crate) struct FinalPeonScanResult {
+    pub(crate) should_finalize: bool,
+    pub(crate) observation_accepted: bool,
+    pub(crate) metadata: Option<metadata::SessionMetadata>,
+}
+
 fn is_placeholder_label(label: &str, id: &str) -> bool {
     label == crate::session_types::placeholder_label(id)
 }
@@ -204,6 +210,128 @@ impl SessionApplication {
                     workspace_path,
                 }
             }
+        }
+    }
+
+    /// Persists the final Peon scan under one workspace snapshot.
+    ///
+    /// The metadata existence/lifecycle check happens before provider context
+    /// or workflow evidence is written. The caller retains final-snapshot
+    /// selection, timeout handling, evaluator scheduling, and completion.
+    pub(crate) fn persist_final_peon_scan(
+        &self,
+        session_id: &str,
+        generation: u64,
+        scan_result: Option<&crate::providers::ProviderRunResult>,
+    ) -> FinalPeonScanResult {
+        let workspace_guard = self.state.workspace.lock().unwrap();
+        let Some(workspace) = workspace_guard.as_ref() else {
+            return FinalPeonScanResult {
+                should_finalize: true,
+                observation_accepted: false,
+                metadata: None,
+            };
+        };
+
+        let metadata = workspace.metadata.read_session(session_id);
+        if metadata
+            .as_ref()
+            .is_some_and(|session| session.lifecycle_phase == "ended")
+        {
+            return FinalPeonScanResult {
+                should_finalize: false,
+                observation_accepted: false,
+                metadata,
+            };
+        }
+        if metadata.is_none() {
+            return FinalPeonScanResult {
+                should_finalize: true,
+                observation_accepted: false,
+                metadata,
+            };
+        }
+
+        let Some(scan_result) = scan_result else {
+            return FinalPeonScanResult {
+                should_finalize: true,
+                observation_accepted: false,
+                metadata,
+            };
+        };
+
+        if let Some(observation) = scan_result.observation.as_ref() {
+            workspace
+                .metadata
+                .persist_provider_context(session_id, observation);
+        }
+
+        if scan_result.inference.is_none() {
+            tracing::warn!(
+                session_id = %session_id,
+                timeout_secs = self.state.peon.config.final_scan_timeout_secs,
+                "final peon scan returned no inference; finalizing with fallback snapshot"
+            );
+        }
+
+        let mut observation_accepted = false;
+        if let Some(inference) = scan_result.inference.as_ref() {
+            for (index, candidate) in inference.workflow_observations.iter().enumerate() {
+                let key = format!("final-scan:{generation}:{index}");
+                let mut recorded = false;
+                for attempt in 0..3 {
+                    let result = workspace.workflow_observations.record_observation(
+                        session_id,
+                        crate::workflow_observations::ObservationOrigin::Peon,
+                        &key,
+                        crate::workflow_observations::ObservationCandidate {
+                            kind: candidate.kind,
+                            description: candidate.description.clone(),
+                            evidence: candidate.evidence.clone(),
+                            reported_impact: candidate.reported_impact,
+                            confidence: Some(candidate.confidence),
+                        },
+                    );
+                    match result {
+                        Ok(crate::workflow_observations::RecordOutcome::Accepted(_)) => {
+                            observation_accepted = true;
+                            recorded = true;
+                            break;
+                        }
+                        Ok(crate::workflow_observations::RecordOutcome::Duplicate { .. }) => {
+                            // A retry of the live Peon path may have already
+                            // made this final-scan evidence durable.
+                            recorded = true;
+                            break;
+                        }
+                        Err(error)
+                            if attempt < 2 && is_retryable_observation_record_error(&error) =>
+                        {}
+                        Err(error) => {
+                            tracing::warn!(
+                                session_id = %session_id,
+                                candidate_index = index,
+                                %error,
+                                "final peon workflow observation could not be recorded"
+                            );
+                            break;
+                        }
+                    }
+                }
+                if !recorded {
+                    tracing::warn!(
+                        session_id = %session_id,
+                        candidate_index = index,
+                        "final peon workflow observation remained unrecorded after retries"
+                    );
+                }
+            }
+        }
+
+        FinalPeonScanResult {
+            should_finalize: true,
+            observation_accepted,
+            metadata,
         }
     }
 
@@ -2303,6 +2431,180 @@ mod tests {
             .unwrap();
         assert_eq!(observations.len(), 1);
         assert_eq!(observations[0].source, crate::workflow_observations::ObservationSource::Peon);
+    }
+
+    #[test]
+    fn persists_final_peon_scan_and_treats_duplicate_as_durable_without_acceptance() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "final-scan-application";
+        let mut metadata = crate::test_support::test_session_metadata(
+            id,
+            "Final scan",
+            &root.path().display().to_string(),
+            "ending",
+            "before",
+            "before",
+        );
+        metadata.lifecycle_phase = "ending".into();
+        metadata.lifecycle = "live".into();
+        metadata.terminal_outcome = None;
+        metadata.pending_terminal_status = Some("ended".into());
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
+        let candidate = peon::PeonWorkflowObservation {
+            kind: crate::workflow_observations::ObservationKind::Obstacle,
+            description: "The final scan found a retry".into(),
+            evidence: "retry output".into(),
+            reported_impact: crate::workflow_observations::Impact::Medium,
+            confidence: 0.9,
+        };
+        let scan = crate::providers::ProviderRunResult {
+            inference: Some(peon::PeonInference {
+                observed_status: Some("done".into()),
+                phase: None,
+                summary: None,
+                next_action: None,
+                needs_user_input: None,
+                detected_question: None,
+                suggested_options: None,
+                blocker_description: None,
+                failed_command: None,
+                failed_test: None,
+                capacity_hints: None,
+                confidence: 0.9,
+                detected_harness: None,
+                detected_model: None,
+                harness_session_id: None,
+                workflow_observations: vec![candidate],
+            }),
+            observation: Some(crate::providers::ProviderObservation {
+                provider_id: "provider-a".into(),
+                provider_label: "Provider A".into(),
+                provider_model: Some("model-a".into()),
+                provider_state: "healthy".into(),
+            }),
+            attempts: vec![],
+            runtime: std::collections::HashMap::new(),
+        };
+
+        let first = SessionApplication::new(state.clone())
+            .persist_final_peon_scan(id, 7, Some(&scan));
+        assert!(first.should_finalize);
+        assert!(first.observation_accepted);
+        assert_eq!(first.metadata.unwrap().lifecycle_phase, "ending");
+
+        let duplicate = SessionApplication::new(state.clone())
+            .persist_final_peon_scan(id, 7, Some(&scan));
+        assert!(duplicate.should_finalize);
+        assert!(!duplicate.observation_accepted);
+        assert_eq!(
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .workflow_observations
+                .workspace_observations()
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn persists_provider_context_for_final_scan_without_inference() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "final-scan-provider-only";
+        let mut metadata = crate::test_support::test_session_metadata(
+            id,
+            "Final scan",
+            &root.path().display().to_string(),
+            "ending",
+            "before",
+            "before",
+        );
+        metadata.lifecycle_phase = "ending".into();
+        metadata.lifecycle = "live".into();
+        metadata.terminal_outcome = None;
+        metadata.pending_terminal_status = Some("ended".into());
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
+        let scan = crate::providers::ProviderRunResult {
+            inference: None,
+            observation: Some(crate::providers::ProviderObservation {
+                provider_id: "provider-a".into(),
+                provider_label: "Provider A".into(),
+                provider_model: None,
+                provider_state: "degraded".into(),
+            }),
+            attempts: vec![],
+            runtime: std::collections::HashMap::new(),
+        };
+
+        let result = SessionApplication::new(state.clone())
+            .persist_final_peon_scan(id, 8, Some(&scan));
+        assert!(result.should_finalize);
+        assert!(!result.observation_accepted);
+        let persisted = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
+        assert_eq!(persisted.provider_id.as_deref(), Some("provider-a"));
+        assert_eq!(persisted.provider_state.as_deref(), Some("degraded"));
+    }
+
+    #[test]
+    fn rejects_missing_or_ended_final_scan_sessions_before_writes() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let missing = SessionApplication::new(state.clone())
+            .persist_final_peon_scan("missing-final-scan", 1, None);
+        assert!(missing.should_finalize);
+        assert!(!missing.observation_accepted);
+        assert!(missing.metadata.is_none());
+
+        let id = "ended-final-scan";
+        let metadata = crate::test_support::test_session_metadata(
+            id,
+            "Ended scan",
+            &root.path().display().to_string(),
+            "ended",
+            "before",
+            "before",
+        );
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
+        let ended = SessionApplication::new(state)
+            .persist_final_peon_scan(id, 1, None);
+        assert!(!ended.should_finalize);
+        assert!(!ended.observation_accepted);
+        assert_eq!(ended.metadata.unwrap().lifecycle_phase, "ended");
     }
 
     #[test]
