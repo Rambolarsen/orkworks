@@ -953,12 +953,13 @@ async fn set_session_status_inner(
             state.peon.last_output.write().unwrap().remove(&id);
             // Authoritative final size for dead-session replay. Goes through the
             // same lock-serialized helper live-resize persistence uses
-            // (`session_runtime::persist_terminal_size`) so a live-resize write
+            // (`SessionApplication::persist_terminal_size`) so a live-resize write
             // deferred onto a blocking-pool thread can never land after this one
-            // and clobber it with a stale size — see that function's doc comment.
+            // and clobber it with a stale size — see that operation's doc comment.
             // Must run before `ws_guard` below acquires `state.workspace`, since
             // this also locks it internally and the lock isn't reentrant.
-            crate::runtime::session_runtime::persist_terminal_size(&state, &id, true);
+            crate::session_application::SessionApplication::new(state.clone())
+                .persist_terminal_size(&id, true);
         } else if entered_running && state.peon.config.enabled {
             state
                 .peon

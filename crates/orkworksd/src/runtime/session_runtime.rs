@@ -590,47 +590,6 @@ pub(crate) async fn send_runtime_input(
     accepted_rx.await.map_err(|_| ())?
 }
 
-// Serializes every `.terminal-size` write — both the authoritative
-// terminal-status transition (`persist_terminal_size(.., authoritative: true)`
-// in terminal_runtime.rs) and best-effort live-resize persistence below — behind
-// one process-wide lock. `persist_terminal_size` re-reads the session's current
-// state at write time rather than trusting a value captured earlier, so with
-// this lock serializing "read current state, then write" as one atomic step
-// across both callers, whichever write actually runs last always reflects the
-// true current state and there is no interleaving where a stale live-resize
-// value reaches disk after the transition's authoritative write. A dedicated
-// static (rather than a new `AppState` field) keeps this local to the one
-// module that owns terminal-size persistence.
-static TERMINAL_SIZE_WRITE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-/// See `TERMINAL_SIZE_WRITE_LOCK` above. `authoritative` is true only for the
-/// terminal-status transition itself, which must still write even though it
-/// just flipped `lifecycle_phase` to "ending"/"ended"; every other (live-resize)
-/// caller backs off once that phase is observed, since the transition already
-/// owns (or will own) the final write.
-pub(crate) fn persist_terminal_size(state: &Arc<AppState>, id: &str, authoritative: bool) {
-    let _write_guard = TERMINAL_SIZE_WRITE_LOCK.lock().unwrap();
-    let snapshot = {
-        let sessions = state.sessions.lock().unwrap();
-        sessions.get(id).map(|handle| {
-            (
-                matches!(handle.info.lifecycle_phase.as_str(), "ending" | "ended"),
-                handle.runtime.last_cols,
-                handle.runtime.last_rows,
-            )
-        })
-    };
-    let Some((is_terminal, cols, rows)) = snapshot else {
-        return;
-    };
-    if is_terminal && !authoritative {
-        return;
-    }
-    if let Some(ref ws) = *state.workspace.lock().unwrap() {
-        ws.metadata.write_terminal_size(id, cols, rows);
-    }
-}
-
 pub(crate) async fn update_runtime_size(
     state: &Arc<AppState>,
     id: &str,
@@ -656,8 +615,11 @@ pub(crate) async fn update_runtime_size(
     if changed {
         let state = state.clone();
         let id = id.to_string();
-        let _ = tokio::task::spawn_blocking(move || persist_terminal_size(&state, &id, false))
-            .await;
+        let _ = tokio::task::spawn_blocking(move || {
+            crate::session_application::SessionApplication::new(state)
+                .persist_terminal_size(&id, false)
+        })
+        .await;
     }
     tx.send(RuntimeCommand::Resize { rows, cols })
         .await
@@ -2974,7 +2936,8 @@ mod tests {
 
     #[test]
     fn persist_terminal_size_authoritative_call_writes_through_ending_phase() {
-        // The terminal-status transition calls persist_terminal_size(.., true)
+        // The terminal-status transition calls the application operation with
+        // `authoritative: true`
         // *after* it has already flipped lifecycle_phase to "ending" — it must
         // still write its own size rather than backing off like a live-resize
         // caller would.
@@ -3007,7 +2970,8 @@ mod tests {
             },
         );
 
-        persist_terminal_size(&state, &id, true);
+        crate::session_application::SessionApplication::new(state.clone())
+            .persist_terminal_size(&id, true);
 
         let ws_guard = state.workspace.lock().unwrap();
         let ws = ws_guard.as_ref().unwrap();
@@ -3016,7 +2980,7 @@ mod tests {
 
     #[test]
     fn persist_terminal_size_non_authoritative_call_always_reads_current_state_not_a_stale_value() {
-        // Unlike the pre-fix implementation, this function takes no cols/rows
+        // Unlike the pre-fix implementation, this operation takes no cols/rows
         // parameters at all — it re-reads whatever is currently in
         // `handle.runtime` at the moment it actually writes. That structurally
         // rules out the race a deferred (spawn_blocking) live-resize write used
@@ -3063,7 +3027,8 @@ mod tests {
             handle.runtime.last_cols = 210;
         }
 
-        persist_terminal_size(&state, &id, false);
+        crate::session_application::SessionApplication::new(state.clone())
+            .persist_terminal_size(&id, false);
 
         let ws_guard = state.workspace.lock().unwrap();
         let ws = ws_guard.as_ref().unwrap();

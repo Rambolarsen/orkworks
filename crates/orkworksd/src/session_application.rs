@@ -58,9 +58,45 @@ pub(crate) struct PlanSelection {
     pub(crate) printed_path: String,
 }
 
+// Serializes authoritative terminal-transition writes and best-effort live
+// resize writes together. The operation re-reads the current runtime size
+// under the sessions lock and checks the lifecycle while holding the shared
+// write lock, so a deferred live resize cannot overwrite a final write with a
+// stale snapshot.
+static TERMINAL_SIZE_WRITE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 impl SessionApplication {
     pub(crate) fn new(state: Arc<AppState>) -> Self {
         Self { state }
+    }
+
+    /// Persists the current runtime terminal size for dead-session replay.
+    ///
+    /// The sessions lock is released before the workspace lock is acquired.
+    /// `authoritative` is used only by the terminal-status transition, which
+    /// must write after the runtime enters `ending` or `ended`; live-resize
+    /// writes back off during those phases.
+    pub(crate) fn persist_terminal_size(&self, id: &str, authoritative: bool) {
+        let _write_guard = TERMINAL_SIZE_WRITE_LOCK.lock().unwrap();
+        let snapshot = {
+            let sessions = self.state.sessions.lock().unwrap();
+            sessions.get(id).map(|handle| {
+                (
+                    matches!(handle.info.lifecycle_phase.as_str(), "ending" | "ended"),
+                    handle.runtime.last_cols,
+                    handle.runtime.last_rows,
+                )
+            })
+        };
+        let Some((is_terminal, cols, rows)) = snapshot else {
+            return;
+        };
+        if is_terminal && !authoritative {
+            return;
+        }
+        if let Some(ref ws) = *self.state.workspace.lock().unwrap() {
+            ws.metadata.write_terminal_size(id, cols, rows);
+        }
     }
 
     /// Records an input frame accepted by the PTY and, for a completed line,
@@ -2406,6 +2442,54 @@ mod tests {
             observed_at: None, cwd: None,
         }).await;
         assert!(matches!(result, Err(SessionError::EmptyBadRequest)));
+    }
+
+    #[test]
+    fn persist_terminal_size_writes_authoritative_size_during_ending() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "terminal-size-application".to_string();
+        let mut info = crate::test_support::test_session_info(
+            id.clone(),
+            "Terminal size",
+            root.path().display().to_string(),
+            "ended",
+            "before",
+        );
+        info.lifecycle_phase = "ending".into();
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        state.sessions.lock().unwrap().insert(
+            id.clone(),
+            SessionHandle {
+                info,
+                kill_tx,
+                output_buffer: peon::RingBuffer::new(200),
+                scan_buf: String::new(),
+                pending_work_signal: None,
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(40, 120),
+                terminal_attached: false,
+                resume_in_progress: false,
+                at_usage_limit_latched: false,
+                capacity_check_pending: false,
+                output_lines_seen: 0,
+                scan_bytes_seen: 0,
+                resume_scan_origin: None,
+                pending_capacity_visible_once: false,
+                active_work_hook: false,
+            },
+        );
+
+        SessionApplication::new(state.clone()).persist_terminal_size(&id, true);
+
+        let workspace = state.workspace.lock().unwrap();
+        assert_eq!(
+            workspace
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_terminal_size(&id),
+            Some((120, 40))
+        );
     }
 
     #[tokio::test]
