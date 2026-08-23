@@ -5467,6 +5467,21 @@ mod tests {
             dismissed.status,
             crate::taskmaster::RecommendationStatus::Dismissed
         );
+        let reloaded = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .recommendation_store
+            .get(&recommendation_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(reloaded.status, crate::taskmaster::RecommendationStatus::Dismissed);
+        assert!(reloaded
+            .workflow_improvement
+            .dismissal_watermark
+            .is_some());
     }
 
     #[test]
