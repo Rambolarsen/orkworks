@@ -705,6 +705,21 @@ impl SessionApplication {
         }
     }
 
+    /// Appends one already-parsed terminal-output batch under the workspace
+    /// lock. Runtime owns batching, backpressure, and blocking-task scheduling.
+    pub(crate) fn append_terminal_output_batch(
+        &self,
+        session_id: &str,
+        records: &[metadata::TerminalOutputRecord],
+    ) {
+        let workspace_guard = self.state.workspace.lock().unwrap();
+        if let Some(workspace) = workspace_guard.as_ref() {
+            workspace
+                .metadata
+                .append_terminal_output_records(session_id, records);
+        }
+    }
+
     /// Records an input frame accepted by the PTY and, for a completed line,
     /// commits the process-owned working transition. The workspace-to-sessions
     /// lock order is deliberate: persisted and live state must not diverge.
@@ -3469,6 +3484,47 @@ mod tests {
 
         *state.workspace.lock().unwrap() = None;
         assert!(!application.persist_printed_plan_fallback(id, "specs/fallback.md"));
+    }
+
+    #[test]
+    fn append_terminal_output_batch_persists_records_in_order() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let application = SessionApplication::new(state.clone());
+        let id = "terminal-output-application";
+        let records = vec![
+            crate::metadata::TerminalOutputRecord::raw("first", "\r\n"),
+            crate::metadata::TerminalOutputRecord::raw("second", "\n"),
+        ];
+
+        application.append_terminal_output_batch(id, &records);
+
+        let stored = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_terminal_output(id, 10);
+        assert_eq!(stored, records);
+    }
+
+    #[test]
+    fn append_terminal_output_batch_is_a_noop_without_workspace() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        *state.workspace.lock().unwrap() = None;
+
+        SessionApplication::new(state).append_terminal_output_batch(
+            "terminal-output-missing-workspace",
+            &[crate::metadata::TerminalOutputRecord::raw("ignored", "\n")],
+        );
+
+        assert!(!root
+            .path()
+            .join(".orkworks/events/terminal-output-missing-workspace.terminal")
+            .exists());
     }
 
     #[test]

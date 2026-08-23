@@ -960,10 +960,8 @@ pub(crate) async fn start_session_runtime(
             let st = persist_state.clone();
             let i = persist_id.clone();
             let _ = tokio::task::spawn_blocking(move || {
-                let ws_guard = st.workspace.lock().unwrap();
-                if let Some(ref ws) = *ws_guard {
-                    ws.metadata.append_terminal_output_records(&i, &lines);
-                }
+                crate::session_application::SessionApplication::new(st)
+                    .append_terminal_output_batch(&i, &lines);
             })
             .await;
         }
