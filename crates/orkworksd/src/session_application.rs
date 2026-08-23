@@ -63,6 +63,97 @@ impl SessionApplication {
         Self { state }
     }
 
+    /// Records an input frame accepted by the PTY and, for a completed line,
+    /// commits the process-owned working transition. The workspace-to-sessions
+    /// lock order is deliberate: persisted and live state must not diverge.
+    pub(crate) fn commit_accepted_input(
+        &self,
+        id: &str,
+        output_boundary: Option<u64>,
+        line_completed: bool,
+    ) {
+        let ws_guard = self.state.workspace.lock().unwrap();
+        let mut sessions = self.state.sessions.lock().unwrap();
+        let Some(handle) = sessions.get_mut(id) else {
+            return;
+        };
+        if handle.info.lifecycle != "alive" {
+            return;
+        }
+        let already_working = handle.info.observed_status.as_deref() == Some("working")
+            && handle.info.attention.as_deref() == Some("working")
+            && handle.info.metadata_source.as_deref() == Some("process")
+            && handle.info.metadata_confidence == Some(1.0)
+            && handle.info.needs_user_input.is_none()
+            && handle.info.detected_question.is_none()
+            && handle.info.suggested_options.is_none()
+            && handle.pending_work_signal.is_none();
+        let commit_working = !already_working && line_completed;
+        let Some(next_generation) = handle.runtime.input_generation.checked_add(1) else {
+            tracing::warn!(session_id = %id, "input generation overflow");
+            return;
+        };
+        let accepted_at = chrono::Utc::now();
+        if !commit_working || already_working {
+            handle.runtime.input_generation = next_generation;
+            handle.runtime.accepted_input_at = Some(accepted_at);
+            handle.runtime.min_peon_output_revision =
+                output_boundary.unwrap_or(handle.runtime.peon_output_revision);
+            drop(sessions);
+            drop(ws_guard);
+            self.state.peon.last_output.write().unwrap().insert(
+                id.to_string(),
+                tokio::time::Instant::now(),
+            );
+            return;
+        }
+        let fields = crate::runtime::observed_status::process_transition_fields(
+            crate::runtime::observed_status::ProcessTransition::CommittedWorking,
+        );
+        if ws_guard.is_none() {
+            crate::runtime::observed_status::apply_process_transition_to_handle(
+                &mut handle.info,
+                &fields,
+            );
+            handle.pending_work_signal = None;
+            handle.runtime.input_generation = next_generation;
+            handle.runtime.accepted_input_at = Some(accepted_at);
+            handle.runtime.min_peon_output_revision =
+                output_boundary.unwrap_or(handle.runtime.peon_output_revision);
+            drop(sessions);
+            drop(ws_guard);
+            self.state.peon.last_output.write().unwrap().insert(
+                id.to_string(),
+                tokio::time::Instant::now(),
+            );
+            return;
+        }
+        let ws = ws_guard.as_ref().expect("workspace checked above");
+        let Some(mut meta) = ws.metadata.read_session(id) else {
+            return;
+        };
+        if meta.lifecycle != "alive" {
+            return;
+        }
+        crate::runtime::observed_status::apply_process_transition_to_meta(&mut meta, &fields);
+        if ws.metadata.try_write_session(&meta).is_err() {
+            tracing::warn!(session_id = %id, "failed to persist input attention transition");
+            return;
+        }
+        crate::runtime::observed_status::apply_process_transition_to_handle(&mut handle.info, &fields);
+        handle.pending_work_signal = None;
+        handle.runtime.input_generation = next_generation;
+        handle.runtime.accepted_input_at = Some(accepted_at);
+        handle.runtime.min_peon_output_revision =
+            output_boundary.unwrap_or(handle.runtime.peon_output_revision);
+        drop(sessions);
+        drop(ws_guard);
+        self.state.peon.last_output.write().unwrap().insert(
+            id.to_string(),
+            tokio::time::Instant::now(),
+        );
+    }
+
     /// Completes an ending session after the runtime has collected its final
     /// observed-status snapshot. The sessions/workspace/sessions lock order is
     /// deliberate: the initial generation guard prevents stale runtimes from
@@ -1654,6 +1745,75 @@ mod tests {
         assert_eq!(live.status, "error");
         assert_eq!(live.lifecycle_phase, "ended");
         assert_eq!(live.terminal_outcome.as_deref(), Some("error"));
+    }
+
+    #[test]
+    fn commit_accepted_input_updates_detached_live_session_without_persisted_state() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "commit-input-detached";
+        let mut handle = attention_test_handle(id, root.path());
+        handle.info.attention = Some("needs_you".into());
+        handle.info.observed_status = Some("waiting_for_input".into());
+        handle.info.needs_user_input = Some(true);
+        let prior_generation = handle.runtime.input_generation;
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+        *state.workspace.lock().unwrap() = None;
+
+        SessionApplication::new(state.clone()).commit_accepted_input(
+            id,
+            Some(7),
+            true,
+        );
+
+        let sessions = state.sessions.lock().unwrap();
+        let live = &sessions[id];
+        assert_eq!(live.info.attention.as_deref(), Some("working"));
+        assert_eq!(live.info.observed_status.as_deref(), Some("working"));
+        assert_eq!(live.runtime.input_generation, prior_generation + 1);
+        assert_eq!(live.runtime.min_peon_output_revision, 7);
+        assert!(live.runtime.accepted_input_at.is_some());
+    }
+
+    #[test]
+    fn commit_accepted_input_advances_partial_frame_without_working_transition() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "commit-input-partial";
+        let mut handle = attention_test_handle(id, root.path());
+        handle.info.attention = Some("needs_you".into());
+        handle.info.observed_status = Some("waiting_for_input".into());
+        handle.info.needs_user_input = Some(true);
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+        *state.workspace.lock().unwrap() = None;
+
+        SessionApplication::new(state.clone()).commit_accepted_input(id, Some(3), false);
+
+        let sessions = state.sessions.lock().unwrap();
+        let live = &sessions[id];
+        assert_eq!(live.info.attention.as_deref(), Some("needs_you"));
+        assert_eq!(live.info.observed_status.as_deref(), Some("waiting_for_input"));
+        assert_eq!(live.runtime.input_generation, 1);
+        assert_eq!(live.runtime.min_peon_output_revision, 3);
+        assert!(live.runtime.accepted_input_at.is_some());
+    }
+
+    #[test]
+    fn commit_accepted_input_ignores_generation_overflow() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "commit-input-overflow";
+        let mut handle = attention_test_handle(id, root.path());
+        handle.runtime.input_generation = u64::MAX;
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+        *state.workspace.lock().unwrap() = None;
+
+        SessionApplication::new(state.clone()).commit_accepted_input(id, Some(3), true);
+
+        let sessions = state.sessions.lock().unwrap();
+        let live = &sessions[id];
+        assert_eq!(live.runtime.input_generation, u64::MAX);
+        assert!(live.runtime.accepted_input_at.is_none());
     }
 
     #[test]

@@ -584,7 +584,8 @@ fn record_terminal_input_impl(
         // collect_input_line reports no completed line for a bare Enter with
         // nothing typed yet (a very common case: accepting a prompt's
         // default answer), which must still count as a submitted line here.
-        mark_committed_input_working(state, id, output_boundary, line_completed);
+        crate::session_application::SessionApplication::new(state.clone())
+            .commit_accepted_input(id, output_boundary, line_completed);
     }
 
     // Narrow single-key work-signal arming (#273, restoring the #179 fix that
@@ -794,109 +795,6 @@ pub(crate) fn queue_label_hint(state: &Arc<AppState>, id: &str, line: String) {
     with_label_epoch_read(state, id, |epoch| {
         queue_label_hint_at_epoch(state, id, line, epoch)
     });
-}
-
-/// Caller contract, not enforced here: only call this for a non-empty frame
-/// whose delivery to the PTY was actually accepted. `line_completed` is
-/// whether this frame finished a submitted line (`\r`/`\n` seen outside
-/// bracketed paste). Only submitted input commits the working transition.
-/// Every accepted frame still advances the invalidation boundary and idle
-/// baseline below, whether or not it commits.
-fn mark_committed_input_working(
-    state: &Arc<AppState>,
-    id: &str,
-    output_boundary: Option<u64>,
-    line_completed: bool,
-) {
-    let ws_guard = state.workspace.lock().unwrap();
-    let mut sessions = state.sessions.lock().unwrap();
-    let Some(handle) = sessions.get_mut(id) else {
-        return;
-    };
-    if handle.info.lifecycle != "alive" {
-        return;
-    }
-    let already_working = handle.info.observed_status.as_deref() == Some("working")
-        && handle.info.attention.as_deref() == Some("working")
-        && handle.info.metadata_source.as_deref() == Some("process")
-        && handle.info.metadata_confidence == Some(1.0)
-        && handle.info.needs_user_input.is_none()
-        && handle.info.detected_question.is_none()
-        && handle.info.suggested_options.is_none()
-        && handle.pending_work_signal.is_none();
-    let commit_working = !already_working && line_completed;
-    let Some(next_generation) = handle.runtime.input_generation.checked_add(1) else {
-        tracing::warn!(session_id = %id, "input generation overflow");
-        return;
-    };
-    let accepted_at = chrono::Utc::now();
-    if !commit_working || already_working {
-        handle.runtime.input_generation = next_generation;
-        handle.runtime.accepted_input_at = Some(accepted_at);
-        handle.runtime.min_peon_output_revision =
-            output_boundary.unwrap_or(handle.runtime.peon_output_revision);
-        drop(sessions);
-        drop(ws_guard);
-        state
-            .peon
-            .last_output
-            .write()
-            .unwrap()
-            .insert(id.to_string(), tokio::time::Instant::now());
-        return;
-    }
-    let fields = crate::runtime::observed_status::process_transition_fields(
-        crate::runtime::observed_status::ProcessTransition::CommittedWorking,
-    );
-    if ws_guard.is_none() {
-        // A detached test/runtime has no metadata store, so there is no
-        // durable state to diverge from. Keep its live terminal contract
-        // explicit here; workspace-backed sessions take the atomic path below.
-        crate::runtime::observed_status::apply_process_transition_to_handle(
-            &mut handle.info,
-            &fields,
-        );
-        handle.pending_work_signal = None;
-        handle.runtime.input_generation = next_generation;
-        handle.runtime.accepted_input_at = Some(accepted_at);
-        handle.runtime.min_peon_output_revision =
-            output_boundary.unwrap_or(handle.runtime.peon_output_revision);
-        drop(sessions);
-        drop(ws_guard);
-        state
-            .peon
-            .last_output
-            .write()
-            .unwrap()
-            .insert(id.to_string(), tokio::time::Instant::now());
-        return;
-    }
-    let ws = ws_guard.as_ref().expect("workspace checked above");
-    let Some(mut meta) = ws.metadata.read_session(id) else {
-        return;
-    };
-    if meta.lifecycle != "alive" {
-        return;
-    }
-    crate::runtime::observed_status::apply_process_transition_to_meta(&mut meta, &fields);
-    if ws.metadata.try_write_session(&meta).is_err() {
-        tracing::warn!(session_id = %id, "failed to persist input attention transition");
-        return;
-    }
-    crate::runtime::observed_status::apply_process_transition_to_handle(&mut handle.info, &fields);
-    handle.pending_work_signal = None;
-    handle.runtime.input_generation = next_generation;
-    handle.runtime.accepted_input_at = Some(accepted_at);
-    handle.runtime.min_peon_output_revision =
-        output_boundary.unwrap_or(handle.runtime.peon_output_revision);
-    drop(sessions);
-    drop(ws_guard);
-    state
-        .peon
-        .last_output
-        .write()
-        .unwrap()
-        .insert(id.to_string(), tokio::time::Instant::now());
 }
 
 pub(crate) fn should_forward_terminal_env(key: &str) -> bool {
