@@ -1078,6 +1078,39 @@ impl SessionApplication {
         true
     }
 
+    /// Returns whether `line` exactly names a label-reset command declared by
+    /// the session's persisted harness. The workspace lock is released before
+    /// consulting the harness catalog so the two stores never overlap.
+    pub(crate) fn is_persisted_harness_label_reset(&self, id: &str, line: &str) -> bool {
+        let harness_id = {
+            let workspace_guard = self.state.workspace.lock().unwrap();
+            let Some(workspace) = workspace_guard.as_ref() else {
+                return false;
+            };
+            let Some(metadata) = workspace.metadata.read_session(id) else {
+                return false;
+            };
+            metadata.harness
+        };
+        if harness_id.is_empty() {
+            return false;
+        }
+
+        let trimmed = line.trim();
+        let registry = self
+            .state
+            .harness_catalog
+            .read()
+            .expect("harness catalog lock poisoned");
+        registry.get(&harness_id).is_some_and(|harness| {
+            harness
+                .definition
+                .label_reset_commands
+                .iter()
+                .any(|command| command == trimmed)
+        })
+    }
+
     /// Clears label work that cannot be consumed after a session is forgotten.
     /// The side tables are independent of workspace and session lifecycle
     /// locks, so this deliberately acquires only their existing write guards

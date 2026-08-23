@@ -656,42 +656,6 @@ fn record_terminal_input_impl(
     Some(())
 }
 
-/// Whether `line` is exactly a label-reset command declared by the session's
-/// *persisted* harness (ADR 0040).
-///
-/// Deliberately strict: `SessionMetadata.harness` is the only harness
-/// consulted — never the live `SessionInfo.harness_id`, and never some other
-/// harness that happens to declare the same command — and the trimmed line
-/// must equal a declared command exactly, with no prefix matching and no case
-/// folding. An absent or unknown harness ID never resets.
-fn reset_command_for_persisted_harness(state: &Arc<AppState>, id: &str, line: &str) -> bool {
-    let harness_id = {
-        let ws_guard = state.workspace.lock().unwrap();
-        let Some(ws) = ws_guard.as_ref() else {
-            return false;
-        };
-        let Some(meta) = ws.metadata.read_session(id) else {
-            return false;
-        };
-        meta.harness
-    };
-    if harness_id.is_empty() {
-        return false;
-    }
-    let trimmed = line.trim();
-    let registry = state
-        .harness_catalog
-        .read()
-        .expect("harness catalog lock poisoned");
-    registry.get(&harness_id).is_some_and(|harness| {
-        harness
-            .definition
-            .label_reset_commands
-            .iter()
-            .any(|command| command == trimmed)
-    })
-}
-
 /// Applies a harness-declared conversation reset (ADR 0040): both copies of
 /// the label return to the ADR 0029 placeholder and queued label work is
 /// discarded, so the placeholder stays visible until the next descriptive
@@ -700,11 +664,11 @@ fn reset_command_for_persisted_harness(state: &Arc<AppState>, id: &str, line: &s
 /// Call only for input that was actually delivered and classified
 /// non-sensitive.
 fn reset_label_for_declared_command(state: &Arc<AppState>, id: &str, line: &str) -> bool {
-    if !reset_command_for_persisted_harness(state, id, line) {
+    let application = crate::session_application::SessionApplication::new(state.clone());
+    if !application.is_persisted_harness_label_reset(id, line) {
         return false;
     }
-    crate::session_application::SessionApplication::new(state.clone())
-        .reset_session_topic(id)
+    application.reset_session_topic(id)
 }
 
 /// Queues Peon's `InputLabel` refinement for `line`, tagged with the
@@ -1923,6 +1887,24 @@ mod tests {
 
         assert!(state.peon.label_hint.read().unwrap().get(id).is_none());
         assert_eq!(label_epoch(&state, id), 1);
+    }
+
+    #[test]
+    fn application_reset_lookup_uses_persisted_harness_and_exact_trimmed_match() {
+        let id = "application-reset-lookup";
+        let (state, _dir) = prompted_session_state(id);
+        set_harness(&state, id, "claude-code");
+        let application = crate::session_application::SessionApplication::new(state.clone());
+
+        assert!(application.is_persisted_harness_label_reset(id, "  /new\r\n"));
+        assert!(!application.is_persisted_harness_label_reset(id, "/NEW"));
+        assert!(!application.is_persisted_harness_label_reset(id, "/new extra"));
+
+        set_harness(&state, id, "unknown-harness");
+        assert!(!application.is_persisted_harness_label_reset(id, "/new"));
+
+        *state.workspace.lock().unwrap() = None;
+        assert!(!application.is_persisted_harness_label_reset(id, "/new"));
     }
 
     fn live_label(state: &Arc<crate::AppState>, session_id: &str) -> String {
