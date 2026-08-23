@@ -4,34 +4,11 @@
 //! evaluator and serialized model cannot drift. This module is the stable
 //! Taskmaster-facing seam for the next coordinator increment.
 
-pub(crate) use super::evaluate_workflow_improvements;
-
-use crate::AppState;
+use crate::{AppState, session_application::SessionApplication};
 use std::sync::Arc;
 
 pub(crate) fn refresh_now(state: &Arc<AppState>) {
-    let workspace = state.workspace.lock().unwrap();
-    let Some(workspace) = workspace.as_ref() else {
-        return;
-    };
-    let Ok(observations) = workspace.workflow_observations.workspace_observations() else {
-        return;
-    };
-    let Ok(existing) = workspace.recommendation_store.list() else {
-        return;
-    };
-    let now = chrono::Utc::now().to_rfc3339();
-    let proposals = evaluate_workflow_improvements(
-        &observations,
-        &existing,
-        &workspace.path.display().to_string(),
-        &now,
-    );
-    for proposal in proposals {
-        if let Err(error) = workspace.recommendation_store.put(&proposal) {
-            tracing::warn!(recommendation_id = %proposal.id, %error, "failed to persist Taskmaster recommendation");
-        }
-    }
+    SessionApplication::new(state.clone()).refresh_workflow_recommendations();
 }
 
 pub(crate) fn schedule_evaluation(state: Arc<AppState>) {

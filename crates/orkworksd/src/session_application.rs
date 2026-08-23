@@ -83,6 +83,33 @@ impl SessionApplication {
         Self { state }
     }
 
+    /// Evaluates the current workspace's workflow evidence and persists the
+    /// resulting recommendations while holding the workspace lock.
+    pub(crate) fn refresh_workflow_recommendations(&self) {
+        let workspace_guard = self.state.workspace.lock().unwrap();
+        let Some(workspace) = workspace_guard.as_ref() else {
+            return;
+        };
+        let Ok(observations) = workspace.workflow_observations.workspace_observations() else {
+            return;
+        };
+        let Ok(existing) = workspace.recommendation_store.list() else {
+            return;
+        };
+        let now = chrono::Utc::now().to_rfc3339();
+        let proposals = crate::taskmaster::evaluate_workflow_improvements(
+            &observations,
+            &existing,
+            &workspace.path.display().to_string(),
+            &now,
+        );
+        for proposal in proposals {
+            if let Err(error) = workspace.recommendation_store.put(&proposal) {
+                tracing::warn!(recommendation_id = %proposal.id, %error, "failed to persist Taskmaster recommendation");
+            }
+        }
+    }
+
     /// Records Peon workflow observations for one captured output range.
     ///
     /// Workspace attribution, stable idempotency keys, persistence, and retry
@@ -3841,5 +3868,53 @@ mod tests {
             crate::session_types::placeholder_label(live_only_id)
         );
         assert_eq!(state.peon.label_epochs.read().unwrap().get(live_only_id), Some(&8));
+    }
+
+    #[test]
+    fn refresh_workflow_recommendations_is_a_noop_without_workspace() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        *state.workspace.lock().unwrap() = None;
+
+        SessionApplication::new(state).refresh_workflow_recommendations();
+    }
+
+    #[test]
+    fn refresh_workflow_recommendations_persists_evaluated_proposals() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        {
+            let workspace = state.workspace.lock().unwrap();
+            let workspace = workspace.as_ref().unwrap();
+            for (key, evidence) in [("first", "first failure"), ("second", "second failure")] {
+                workspace
+                    .workflow_observations
+                    .record_observation(
+                        "workflow-refresh-session",
+                        crate::workflow_observations::ObservationOrigin::Peon,
+                        key,
+                        crate::workflow_observations::ObservationCandidate {
+                            kind: crate::workflow_observations::ObservationKind::Obstacle,
+                            description: "The setup blocks progress".into(),
+                            evidence: evidence.into(),
+                            reported_impact: crate::workflow_observations::Impact::Medium,
+                            confidence: Some(0.8),
+                        },
+                    )
+                    .unwrap();
+            }
+        }
+
+        SessionApplication::new(state.clone()).refresh_workflow_recommendations();
+
+        let workspace = state.workspace.lock().unwrap();
+        let proposals = workspace
+            .as_ref()
+            .unwrap()
+            .recommendation_store
+            .list()
+            .unwrap();
+        assert_eq!(proposals.len(), 1);
+        assert_eq!(proposals[0].source_session_ids, vec!["workflow-refresh-session"]);
     }
 }
