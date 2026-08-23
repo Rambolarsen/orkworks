@@ -220,26 +220,9 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                                 .is_some_and(|hint| peon::is_usable_input_label(label, &hint.text))
                         })
                     {
-                        let epoch_guard = state_clone.peon.label_epochs.read().unwrap();
-                        let current_epoch = epoch_guard.get(&id).copied().unwrap_or(0);
-                        if hint.as_ref().is_some_and(|hint| {
-                            input_label_epoch_is_current(hint.epoch, current_epoch)
-                        }) {
-                            // Keep the epoch read guard through both writes so
-                            // reset_label_for_declared_command cannot advance
-                            // the epoch between the durable and live updates.
-                            let ws_guard = state_clone.workspace.lock().unwrap();
-                            if let Some(ref ws) = *ws_guard {
-                                if let Some(mut meta) = ws.metadata.read_session(&id) {
-                                    meta.label = label.clone();
-                                    ws.metadata.write_session(&meta);
-                                }
-                            }
-                            if let Some(handle) =
-                                state_clone.sessions.lock().unwrap().get_mut(&id)
-                            {
-                                handle.info.label = label;
-                            }
+                        if let Some(hint) = hint.as_ref() {
+                            crate::session_application::SessionApplication::new(state_clone.clone())
+                                .persist_input_label(&id, label, hint.epoch);
                         }
                     }
                     }

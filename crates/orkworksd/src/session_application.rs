@@ -882,6 +882,36 @@ impl SessionApplication {
         true
     }
 
+    /// Persists a validated Peon input label while preventing a reset from
+    /// racing between the durable and live projections.
+    pub(crate) fn persist_input_label(
+        &self,
+        id: &str,
+        label: String,
+        captured_epoch: u64,
+    ) -> bool {
+        let epochs = self.state.peon.label_epochs.read().unwrap();
+        let current_epoch = epochs.get(id).copied().unwrap_or(0);
+        if captured_epoch != current_epoch {
+            return false;
+        }
+
+        let mut updated = false;
+        let ws_guard = self.state.workspace.lock().unwrap();
+        if let Some(ws) = ws_guard.as_ref() {
+            if let Some(mut meta) = ws.metadata.read_session(id) {
+                meta.label = label.clone();
+                ws.metadata.write_session(&meta);
+                updated = true;
+            }
+        }
+        if let Some(handle) = self.state.sessions.lock().unwrap().get_mut(id) {
+            handle.info.label = label;
+            updated = true;
+        }
+        updated
+    }
+
     /// Completes an ending session after the runtime has collected its final
     /// observed-status snapshot. The sessions/workspace/sessions lock order is
     /// deliberate: the initial generation guard prevents stale runtimes from
@@ -4611,6 +4641,94 @@ mod tests {
             crate::session_types::placeholder_label(live_only_id)
         );
         assert_eq!(state.peon.label_epochs.read().unwrap().get(live_only_id), Some(&8));
+    }
+
+    #[test]
+    fn persist_input_label_updates_durable_and_live_copies() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "persist-input-label-both";
+        let metadata = crate::test_support::test_session_metadata(
+            id, "Old topic", &root.path().display().to_string(), "running", "now", "now",
+        );
+        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&metadata);
+        let handle = attention_test_handle(id, root.path());
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+        state.peon.label_epochs.write().unwrap().insert(id.into(), 4);
+
+        assert!(SessionApplication::new(state.clone()).persist_input_label(id, "New topic".into(), 4));
+        assert_eq!(
+            state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(id).unwrap().label,
+            "New topic"
+        );
+        assert_eq!(state.sessions.lock().unwrap()[id].info.label, "New topic");
+    }
+
+    #[test]
+    fn persist_input_label_updates_live_copy_without_workspace() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "persist-input-label-live-only";
+        let handle = attention_test_handle(id, root.path());
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+        *state.workspace.lock().unwrap() = None;
+        state.peon.label_epochs.write().unwrap().insert(id.into(), 2);
+
+        assert!(SessionApplication::new(state.clone()).persist_input_label(id, "Live topic".into(), 2));
+        assert_eq!(state.sessions.lock().unwrap()[id].info.label, "Live topic");
+    }
+
+    #[test]
+    fn persist_input_label_updates_durable_copy_without_live_session() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "persist-input-label-metadata-only";
+        let metadata = crate::test_support::test_session_metadata(
+            id, "Old topic", &root.path().display().to_string(), "running", "now", "now",
+        );
+        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&metadata);
+        state.peon.label_epochs.write().unwrap().insert(id.into(), 7);
+
+        assert!(SessionApplication::new(state.clone()).persist_input_label(id, "Metadata topic".into(), 7));
+        assert_eq!(
+            state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(id).unwrap().label,
+            "Metadata topic"
+        );
+        assert!(!state.sessions.lock().unwrap().contains_key(id));
+    }
+
+    #[test]
+    fn persist_input_label_ignores_stale_epoch() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "persist-input-label-stale";
+        let metadata = crate::test_support::test_session_metadata(
+            id, "Old topic", &root.path().display().to_string(), "running", "now", "now",
+        );
+        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&metadata);
+        let mut handle = attention_test_handle(id, root.path());
+        handle.info.label = "Live old topic".into();
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+        state.peon.label_epochs.write().unwrap().insert(id.into(), 5);
+
+        assert!(!SessionApplication::new(state.clone()).persist_input_label(id, "Stale topic".into(), 4));
+        assert_eq!(
+            state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(id).unwrap().label,
+            "Old topic"
+        );
+        assert_eq!(state.sessions.lock().unwrap()[id].info.label, "Live old topic");
+    }
+
+    #[test]
+    fn persist_input_label_is_noop_without_workspace_or_live_session() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "persist-input-label-noop";
+        *state.workspace.lock().unwrap() = None;
+        state.peon.label_epochs.write().unwrap().insert(id.into(), 3);
+
+        assert!(!SessionApplication::new(state.clone()).persist_input_label(id, "Unused topic".into(), 3));
+        assert!(!state.sessions.lock().unwrap().contains_key(id));
     }
 
     #[test]
