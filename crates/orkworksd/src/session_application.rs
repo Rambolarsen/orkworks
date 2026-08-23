@@ -239,6 +239,34 @@ impl SessionApplication {
         }
     }
 
+    /// Resets a session's conversation topic after the runtime has confirmed
+    /// a harness-declared reset command. The label epoch write guard spans the
+    /// epoch bump, queued-work clearing, and both label projections so an
+    /// older refinement cannot restore the previous conversation's label.
+    pub(crate) fn reset_session_topic(&self, id: &str) -> bool {
+        let placeholder = crate::session_types::placeholder_label(id);
+        let mut epochs = self.state.peon.label_epochs.write().unwrap();
+        let epoch = epochs.entry(id.to_string()).or_insert(0);
+        *epoch = epoch.saturating_add(1);
+        self.state.peon.label_hint.write().unwrap().remove(id);
+        self.state.peon.label_pending.write().unwrap().remove(id);
+
+        {
+            let ws_guard = self.state.workspace.lock().unwrap();
+            if let Some(ref ws) = *ws_guard {
+                if let Some(mut meta) = ws.metadata.read_session(id) {
+                    meta.label = placeholder.clone();
+                    ws.metadata.write_session(&meta);
+                }
+            }
+        }
+        if let Some(handle) = self.state.sessions.lock().unwrap().get_mut(id) {
+            handle.info.label = placeholder;
+        }
+
+        true
+    }
+
     /// Completes an ending session after the runtime has collected its final
     /// observed-status snapshot. The sessions/workspace/sessions lock order is
     /// deliberate: the initial generation guard prevents stale runtimes from
@@ -3152,5 +3180,70 @@ mod tests {
         assert_eq!(persisted.metadata_confidence, 0.0);
         assert_eq!(state.sessions.lock().unwrap()[id].info.observed_status.as_deref(), Some("waiting_for_input"));
         assert_eq!(state.sessions.lock().unwrap()[id].info.summary.as_deref(), Some("Answer required"));
+    }
+
+    #[test]
+    fn reset_session_topic_clears_queued_label_work_and_resets_both_copies() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "reset-topic-application";
+        let mut metadata = crate::test_support::test_session_metadata(
+            id, "Old topic", &root.path().display().to_string(), "running", "now", "now",
+        );
+        metadata.label = "Old topic".into();
+        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&metadata);
+        let mut handle = attention_test_handle(id, root.path());
+        handle.info.label = "Old topic".into();
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+        state.peon.label_epochs.write().unwrap().insert(id.into(), 4);
+        state.peon.label_hint.write().unwrap().insert(id.into(), crate::LabelHint {
+            text: "stale topic".into(), epoch: 4,
+        });
+        state.peon.label_pending.write().unwrap().insert(id.into());
+
+        assert!(SessionApplication::new(state.clone()).reset_session_topic(id));
+
+        let placeholder = crate::session_types::placeholder_label(id);
+        assert_eq!(state.sessions.lock().unwrap()[id].info.label, placeholder);
+        assert_eq!(state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(id).unwrap().label, placeholder);
+        assert_eq!(state.peon.label_epochs.read().unwrap().get(id), Some(&5));
+        assert!(state.peon.label_hint.read().unwrap().get(id).is_none());
+        assert!(!state.peon.label_pending.read().unwrap().contains(id));
+    }
+
+    #[test]
+    fn reset_session_topic_persists_without_live_handle_and_resets_live_without_workspace() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let metadata_only_id = "reset-topic-metadata-only";
+        let mut metadata = crate::test_support::test_session_metadata(
+            metadata_only_id,
+            "Old metadata topic",
+            &root.path().display().to_string(),
+            "running",
+            "now",
+            "now",
+        );
+        metadata.label = "Old metadata topic".into();
+        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&metadata);
+        state.peon.label_epochs.write().unwrap().insert(metadata_only_id.into(), 2);
+        assert!(SessionApplication::new(state.clone()).reset_session_topic(metadata_only_id));
+        assert_eq!(
+            state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(metadata_only_id).unwrap().label,
+            crate::session_types::placeholder_label(metadata_only_id)
+        );
+
+        let live_only_id = "reset-topic-live-only";
+        let mut handle = attention_test_handle(live_only_id, root.path());
+        handle.info.label = "Old live topic".into();
+        state.sessions.lock().unwrap().insert(live_only_id.into(), handle);
+        *state.workspace.lock().unwrap() = None;
+        state.peon.label_epochs.write().unwrap().insert(live_only_id.into(), 7);
+        assert!(SessionApplication::new(state.clone()).reset_session_topic(live_only_id));
+        assert_eq!(
+            state.sessions.lock().unwrap()[live_only_id].info.label,
+            crate::session_types::placeholder_label(live_only_id)
+        );
+        assert_eq!(state.peon.label_epochs.read().unwrap().get(live_only_id), Some(&8));
     }
 }

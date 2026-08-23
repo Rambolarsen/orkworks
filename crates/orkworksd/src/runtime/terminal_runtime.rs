@@ -734,32 +734,8 @@ fn reset_label_for_declared_command(state: &Arc<AppState>, id: &str, line: &str)
     if !reset_command_for_persisted_harness(state, id, line) {
         return false;
     }
-
-    let placeholder = crate::session_types::placeholder_label(id);
-    // The epoch write guard is held across the whole reset — the bump, the
-    // stale-work clearing, and both label writes — so a label refinement
-    // (which holds the epoch read guard while it checks its own epoch) can
-    // never interleave and restore the old conversation's title.
-    let mut epochs = state.peon.label_epochs.write().unwrap();
-    let epoch = epochs.entry(id.to_string()).or_insert(0);
-    *epoch = epoch.saturating_add(1);
-    state.peon.label_hint.write().unwrap().remove(id);
-    state.peon.label_pending.write().unwrap().remove(id);
-
-    {
-        let ws_guard = state.workspace.lock().unwrap();
-        if let Some(ref ws) = *ws_guard {
-            if let Some(mut meta) = ws.metadata.read_session(id) {
-                meta.label = placeholder.clone();
-                ws.metadata.write_session(&meta);
-            }
-        }
-    }
-    if let Some(handle) = state.sessions.lock().unwrap().get_mut(id) {
-        handle.info.label = placeholder;
-    }
-
-    true
+    crate::session_application::SessionApplication::new(state.clone())
+        .reset_session_topic(id)
 }
 
 /// Queues Peon's `InputLabel` refinement for `line`, tagged with the
