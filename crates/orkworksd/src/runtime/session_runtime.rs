@@ -1173,23 +1173,10 @@ pub(crate) async fn start_session_runtime(
                                 .iter()
                                 .find_map(|line| plan_handoff::printed_plan_path(line.text()))
                             {
-                                let ws_guard = driver_state.workspace.lock().unwrap();
-                                if let Some(ref ws) = *ws_guard {
-                                    if plan_handoff::resolve_openable_plan(&ws.path, &plan_path).is_ok() {
-                                        if let Some(mut meta) = ws.metadata.read_session(&driver_id) {
-                                            if meta.plan_path.is_none()
-                                                && !ws.metadata.plan_path_is_explicitly_cleared(&driver_id)
-                                            {
-                            meta.plan_path = Some(crate::metadata::PlanReference {
-                                worktree_root: Some(ws.path.to_string_lossy().into_owned()),
-                                relative_path: plan_path,
-                                source: crate::metadata::PlanSource::TerminalFallback,
-                            });
-                                                ws.metadata.write_session(&meta);
-                                            }
-                                        }
-                                    }
-                                }
+                                crate::session_application::SessionApplication::new(
+                                    driver_state.clone(),
+                                )
+                                .persist_printed_plan_fallback(&driver_id, &plan_path);
                             }
 
                             {

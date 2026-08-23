@@ -1,4 +1,4 @@
-use crate::{git, metadata, migration, watcher, AppState, WorkspaceState};
+use crate::{git, metadata, migration, plan_handoff, watcher, AppState, WorkspaceState};
 use crate::workspace_runtime::{iso_now, orkworks_global_dir};
 use crate::session_types::{MemoryState, SessionInfo};
 use crate::session_view::{connectivity_for_status, terminal_outcome_for_status};
@@ -1203,6 +1203,37 @@ impl SessionApplication {
             },
         );
         Ok(())
+    }
+
+    pub(crate) fn persist_printed_plan_fallback(
+        &self,
+        session_id: &str,
+        printed_path: &str,
+    ) -> bool {
+        let workspace_guard = self.state.workspace.lock().unwrap();
+        let Some(workspace) = workspace_guard.as_ref() else {
+            return false;
+        };
+        if plan_handoff::resolve_openable_plan(&workspace.path, printed_path).is_err() {
+            return false;
+        }
+        let Some(mut metadata) = workspace.metadata.read_session(session_id) else {
+            return false;
+        };
+        if metadata.plan_path.is_some()
+            || workspace
+                .metadata
+                .plan_path_is_explicitly_cleared(session_id)
+        {
+            return false;
+        }
+        metadata.plan_path = Some(metadata::PlanReference {
+            worktree_root: Some(workspace.path.to_string_lossy().into_owned()),
+            relative_path: printed_path.to_string(),
+            source: metadata::PlanSource::TerminalFallback,
+        });
+        workspace.metadata.write_session(&metadata);
+        true
     }
 
     pub(crate) fn read_plan_content(&self, id: &str) -> Result<String, SessionError> {
@@ -3351,6 +3382,71 @@ mod tests {
             application.report_plan_path("missing", "plan.md"),
             Err(SessionError::Conflict)
         );
+    }
+
+    #[test]
+    fn printed_plan_fallback_persists_valid_path_and_preserves_existing_plan() {
+        let root = tempfile::tempdir().unwrap();
+        git2::Repository::init(root.path()).unwrap();
+        let plan = root.path().join("docs/superpowers/plans/fallback.md");
+        std::fs::create_dir_all(plan.parent().unwrap()).unwrap();
+        std::fs::write(&plan, "# fallback\n").unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let application = SessionApplication::new(state.clone());
+        let id = "printed-fallback";
+        let mut session = crate::test_support::test_session_metadata(
+            id, "Fallback", root.path().display().to_string(), "running", "now", "now",
+        );
+        session.lifecycle = "alive".into();
+        session.lifecycle_phase = "active".into();
+        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&session);
+
+        assert!(application.persist_printed_plan_fallback(id, "docs/superpowers/plans/fallback.md"));
+        let stored = state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(id).unwrap();
+        let reference = stored.plan_path.unwrap();
+        assert_eq!(reference.relative_path, "docs/superpowers/plans/fallback.md");
+        assert_eq!(reference.worktree_root, Some(root.path().display().to_string()));
+        assert_eq!(reference.source, metadata::PlanSource::TerminalFallback);
+        assert!(!application.persist_printed_plan_fallback(id, "docs/superpowers/plans/fallback.md"));
+    }
+
+    #[test]
+    fn printed_plan_fallback_protects_explicit_clear_and_ignores_invalid_state() {
+        let root = tempfile::tempdir().unwrap();
+        git2::Repository::init(root.path()).unwrap();
+        let plan = root.path().join("specs/fallback.md");
+        std::fs::create_dir_all(plan.parent().unwrap()).unwrap();
+        std::fs::write(&plan, "# fallback\n").unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let outside_plan = outside.path().join("outside.md");
+        std::fs::write(&outside_plan, "# outside\n").unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let application = SessionApplication::new(state.clone());
+        let id = "printed-clear";
+        let mut session = crate::test_support::test_session_metadata(
+            id, "Fallback", root.path().display().to_string(), "running", "now", "now",
+        );
+        session.lifecycle = "alive".into();
+        session.lifecycle_phase = "active".into();
+        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&session);
+
+        assert!(!application.persist_printed_plan_fallback(id, "specs/missing.md"));
+        assert!(!application.persist_printed_plan_fallback(id, outside_plan.to_str().unwrap()));
+        let result = state.workspace.lock().unwrap().as_ref().unwrap().metadata
+            .merge_agent_attention_signal_with_plan(
+                id,
+                "waiting_for_input",
+                None,
+                &metadata::PlanPathUpdate::Clear,
+                "now",
+                "agent",
+                1.0,
+            );
+        assert_eq!(result, metadata::AttentionMergeResult::Accepted);
+        assert!(!application.persist_printed_plan_fallback(id, "specs/fallback.md"));
+
+        *state.workspace.lock().unwrap() = None;
+        assert!(!application.persist_printed_plan_fallback(id, "specs/fallback.md"));
     }
 
     #[test]
