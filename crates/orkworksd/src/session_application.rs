@@ -99,6 +99,23 @@ impl SessionApplication {
         }
     }
 
+    /// Persists output recency without allowing delayed writes to move the
+    /// stored timestamp backwards. The metadata read, monotonicity check, and
+    /// write stay adjacent under the workspace lock.
+    pub(crate) fn persist_output_recency(&self, id: &str, timestamp: String) {
+        let ws_guard = self.state.workspace.lock().unwrap();
+        let Some(ws) = ws_guard.as_ref() else {
+            return;
+        };
+        let Some(mut meta) = ws.metadata.read_session(id) else {
+            return;
+        };
+        if should_persist_output_recency(meta.last_output_at.as_deref(), &timestamp) {
+            meta.last_output_at = Some(timestamp);
+            ws.metadata.write_session(&meta);
+        }
+    }
+
     /// Records an input frame accepted by the PTY and, for a completed line,
     /// commits the process-owned working transition. The workspace-to-sessions
     /// lock order is deliberate: persisted and live state must not diverge.
@@ -896,6 +913,19 @@ impl ResumeAdmission {
         self.previous_handle = None;
         self.rollback = None;
     }
+}
+
+fn should_persist_output_recency(existing: Option<&str>, incoming: &str) -> bool {
+    let Ok(incoming) = chrono::DateTime::parse_from_rfc3339(incoming) else {
+        return false;
+    };
+    let Some(existing) = existing else {
+        return true;
+    };
+    let Ok(existing) = chrono::DateTime::parse_from_rfc3339(existing) else {
+        return true;
+    };
+    incoming >= existing
 }
 
 impl Drop for ResumeAdmission {
@@ -2673,6 +2703,89 @@ mod tests {
                 .read_terminal_size(&id),
             Some((120, 40))
         );
+    }
+
+    #[test]
+    fn persist_output_recency_applies_monotonic_timestamps() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "output-recency-application";
+        let mut metadata = crate::test_support::test_session_metadata(
+            id, "Output recency", &root.path().display().to_string(), "running", "now", "now",
+        );
+        metadata.last_output_at = Some("2026-07-29T10:00:00Z".into());
+        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&metadata);
+        let application = SessionApplication::new(state.clone());
+
+        application.persist_output_recency(id, "2026-07-29T10:00:01Z".into());
+        application.persist_output_recency(id, "2026-07-29T10:00:01Z".into());
+        application.persist_output_recency(id, "2026-07-29T09:59:59Z".into());
+
+        let stored = state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(id).unwrap();
+        assert_eq!(stored.last_output_at.as_deref(), Some("2026-07-29T10:00:01Z"));
+    }
+
+    #[test]
+    fn persist_output_recency_writes_new_timestamp_without_existing_value() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "output-recency-new";
+        let metadata = crate::test_support::test_session_metadata(
+            id, "Output recency", &root.path().display().to_string(), "running", "now", "now",
+        );
+        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&metadata);
+
+        SessionApplication::new(state.clone())
+            .persist_output_recency(id, "2026-07-29T10:00:00Z".into());
+
+        let stored = state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(id).unwrap();
+        assert_eq!(stored.last_output_at.as_deref(), Some("2026-07-29T10:00:00Z"));
+    }
+
+    #[test]
+    fn persist_output_recency_replaces_malformed_stored_timestamp() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "output-recency-malformed-stored";
+        let mut metadata = crate::test_support::test_session_metadata(
+            id, "Output recency", &root.path().display().to_string(), "running", "now", "now",
+        );
+        metadata.last_output_at = Some("not-a-timestamp".into());
+        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&metadata);
+
+        SessionApplication::new(state.clone())
+            .persist_output_recency(id, "2026-07-29T10:00:00Z".into());
+
+        let stored = state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(id).unwrap();
+        assert_eq!(stored.last_output_at.as_deref(), Some("2026-07-29T10:00:00Z"));
+    }
+
+    #[test]
+    fn persist_output_recency_ignores_malformed_incoming_timestamp() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "output-recency-malformed-incoming";
+        let mut metadata = crate::test_support::test_session_metadata(
+            id, "Output recency", &root.path().display().to_string(), "running", "now", "now",
+        );
+        metadata.last_output_at = Some("2026-07-29T10:00:00Z".into());
+        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&metadata);
+
+        SessionApplication::new(state.clone()).persist_output_recency(id, "not-a-timestamp".into());
+
+        let stored = state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(id).unwrap();
+        assert_eq!(stored.last_output_at.as_deref(), Some("2026-07-29T10:00:00Z"));
+    }
+
+    #[test]
+    fn persist_output_recency_ignores_missing_workspace_and_session() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let application = SessionApplication::new(state.clone());
+
+        application.persist_output_recency("missing", "2026-07-29T10:00:00Z".into());
+        *state.workspace.lock().unwrap() = None;
+        application.persist_output_recency("missing", "2026-07-29T10:00:01Z".into());
     }
 
     #[tokio::test]

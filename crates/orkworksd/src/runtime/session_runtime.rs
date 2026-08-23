@@ -414,31 +414,6 @@ fn output_recency_timestamp(data: &[u8], timestamp: String) -> Option<String> {
     (!data.is_empty()).then_some(timestamp)
 }
 
-fn should_persist_output_recency(existing: Option<&str>, incoming: &str) -> bool {
-    let Ok(incoming) = DateTime::parse_from_rfc3339(incoming) else {
-        return false;
-    };
-    let Some(existing) = existing else {
-        return true;
-    };
-    let Ok(existing) = DateTime::parse_from_rfc3339(existing) else {
-        return true;
-    };
-    incoming >= existing
-}
-
-fn persist_output_recency(state: &Arc<AppState>, id: &str, timestamp: String) {
-    let ws_guard = state.workspace.lock().unwrap();
-    if let Some(ref ws) = *ws_guard {
-        if let Some(mut meta) = ws.metadata.read_session(id) {
-            if should_persist_output_recency(meta.last_output_at.as_deref(), &timestamp) {
-                meta.last_output_at = Some(timestamp);
-                ws.metadata.write_session(&meta);
-            }
-        }
-    }
-}
-
 async fn flush_output_recency(state: &Arc<AppState>, id: &str) {
     let timestamp = state
         .sessions
@@ -449,7 +424,10 @@ async fn flush_output_recency(state: &Arc<AppState>, id: &str) {
     if let Some(timestamp) = timestamp {
         let state = state.clone();
         let id = id.to_string();
-        let _ = tokio::task::spawn_blocking(move || persist_output_recency(&state, &id, timestamp)).await;
+        let _ = tokio::task::spawn_blocking(move || {
+            crate::session_application::SessionApplication::new(state)
+                .persist_output_recency(&id, timestamp)
+        }).await;
     }
 }
 
@@ -1169,7 +1147,8 @@ pub(crate) async fn start_session_runtime(
                                 let state = driver_state.clone();
                                 let id = driver_id.clone();
                                 tokio::task::spawn_blocking(move || {
-                                    persist_output_recency(&state, &id, timestamp)
+                                    crate::session_application::SessionApplication::new(state)
+                                        .persist_output_recency(&id, timestamp)
                                 });
                             }
                             if let Some(delay) = output_flush_delay {
@@ -1488,22 +1467,6 @@ mod tests {
             Some(std::time::Duration::from_secs(4))
         );
         assert_eq!(runtime.flush_output_recency(), Some(second));
-    }
-
-    #[test]
-    fn output_recency_persistence_never_replaces_a_newer_timestamp() {
-        assert!(!should_persist_output_recency(
-            Some("2026-07-29T10:00:01Z"),
-            "2026-07-29T10:00:00Z",
-        ));
-        assert!(should_persist_output_recency(
-            Some("2026-07-29T10:00:00Z"),
-            "2026-07-29T10:00:01Z",
-        ));
-        assert!(!should_persist_output_recency(
-            Some("2026-07-29T10:00:00Z"),
-            "not-a-timestamp",
-        ));
     }
 
     #[test]
