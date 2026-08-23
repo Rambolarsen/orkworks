@@ -200,9 +200,6 @@ impl SessionApplication {
             return;
         };
         let mut sessions = self.state.sessions.lock().unwrap();
-        let Some(handle) = sessions.get_mut(id) else {
-            return;
-        };
         let Some(mut meta) = ws.metadata.read_session(id) else {
             return;
         };
@@ -217,7 +214,12 @@ impl SessionApplication {
             tracing::warn!(session_id = %id, "failed to persist idle timeout transition");
             return;
         }
-        crate::runtime::observed_status::apply_process_transition_to_handle(&mut handle.info, &fields);
+        if let Some(handle) = sessions.get_mut(id) {
+            crate::runtime::observed_status::apply_process_transition_to_handle(
+                &mut handle.info,
+                &fields,
+            );
+        }
     }
 
     /// Completes an ending session after the runtime has collected its final
@@ -1757,6 +1759,45 @@ mod tests {
             .unwrap();
         assert_eq!(stored.observed_status.as_deref(), Some("idle"));
         assert_eq!(state.sessions.lock().unwrap()[id].info.observed_status.as_deref(), Some("idle"));
+    }
+
+    #[test]
+    fn apply_idle_timeout_persists_idle_for_metadata_only_session() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "idle-timeout-orphan";
+        let mut metadata = crate::test_support::test_session_metadata(
+            id,
+            "Orphaned idle timeout",
+            &root.path().display().to_string(),
+            "running",
+            "before",
+            "before",
+        );
+        metadata.lifecycle = "alive".into();
+        metadata.lifecycle_phase = "active".into();
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
+
+        SessionApplication::new(state.clone()).apply_idle_timeout(id);
+
+        let stored = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
+        assert_eq!(stored.observed_status.as_deref(), Some("idle"));
+        assert!(!state.sessions.lock().unwrap().contains_key(id));
     }
 
     #[test]
