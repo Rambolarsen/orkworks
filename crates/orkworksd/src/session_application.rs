@@ -215,8 +215,10 @@ impl SessionApplication {
 
     /// Persists the final Peon scan under one workspace snapshot.
     ///
-    /// The metadata existence/lifecycle check happens before provider context
-    /// or workflow evidence is written. The caller retains final-snapshot
+    /// The ended-session lifecycle check happens before provider context or
+    /// workflow evidence is written. Provider context is attempted whenever a
+    /// workspace and scan result exist; workflow evidence additionally
+    /// requires session metadata. The caller retains final-snapshot
     /// selection, timeout handling, evaluator scheduling, and completion.
     pub(crate) fn persist_final_peon_scan(
         &self,
@@ -244,14 +246,6 @@ impl SessionApplication {
                 metadata,
             };
         }
-        if metadata.is_none() {
-            return FinalPeonScanResult {
-                should_finalize: true,
-                observation_accepted: false,
-                metadata,
-            };
-        }
-
         let Some(scan_result) = scan_result else {
             return FinalPeonScanResult {
                 should_finalize: true,
@@ -265,6 +259,14 @@ impl SessionApplication {
                 .metadata
                 .persist_provider_context(session_id, observation);
         }
+
+        let Some(metadata) = metadata else {
+            return FinalPeonScanResult {
+                should_finalize: true,
+                observation_accepted: false,
+                metadata: None,
+            };
+        };
 
         if scan_result.inference.is_none() {
             tracing::warn!(
@@ -331,7 +333,7 @@ impl SessionApplication {
         FinalPeonScanResult {
             should_finalize: true,
             observation_accepted,
-            metadata,
+            metadata: Some(metadata),
         }
     }
 
@@ -2582,6 +2584,23 @@ mod tests {
         assert!(missing.should_finalize);
         assert!(!missing.observation_accepted);
         assert!(missing.metadata.is_none());
+
+        let provider_scan = crate::providers::ProviderRunResult {
+            inference: None,
+            observation: Some(crate::providers::ProviderObservation {
+                provider_id: "provider-missing-session".into(),
+                provider_label: "Provider Missing Session".into(),
+                provider_model: None,
+                provider_state: "healthy".into(),
+            }),
+            attempts: vec![],
+            runtime: std::collections::HashMap::new(),
+        };
+        let missing_with_provider = SessionApplication::new(state.clone())
+            .persist_final_peon_scan("missing-final-scan", 2, Some(&provider_scan));
+        assert!(missing_with_provider.should_finalize);
+        assert!(!missing_with_provider.observation_accepted);
+        assert!(missing_with_provider.metadata.is_none());
 
         let id = "ended-final-scan";
         let metadata = crate::test_support::test_session_metadata(
