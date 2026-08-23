@@ -1,5 +1,7 @@
 use crate::http::ErrorResponse;
-use crate::session_application::{RecommendationDismissError, SessionApplication};
+use crate::session_application::{
+    RecommendationDismissError, RecommendationQueryError, SessionApplication,
+};
 use crate::taskmaster::store::StoreError;
 use crate::taskmaster::Recommendation;
 use crate::AppState;
@@ -38,30 +40,28 @@ fn store_error(error: StoreError) -> Response {
 }
 
 pub(crate) async fn list_recommendations(State(state): State<Arc<AppState>>) -> Response {
-    let workspace = state.workspace.lock().unwrap();
-    let Some(workspace) = workspace.as_ref() else {
-        return StatusCode::CONFLICT.into_response();
+    let (recommendations, diagnostics) = match SessionApplication::new(state).list_recommendations()
+    {
+        Ok(result) => result,
+        Err(RecommendationQueryError::Conflict) => return StatusCode::CONFLICT.into_response(),
+        Err(RecommendationQueryError::Store(error)) => return store_error(error),
     };
-    let recommendations = match workspace.recommendation_store.list() {
-        Ok(recommendations) => recommendations,
-        Err(error) => return store_error(error),
-    };
-    let diagnostics = workspace.workflow_observations.diagnostics();
-    Json(RecommendationListResponse { recommendations, diagnostics }).into_response()
+    Json(RecommendationListResponse {
+        recommendations,
+        diagnostics,
+    })
+    .into_response()
 }
 
 pub(crate) async fn get_recommendation(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Response {
-    let workspace = state.workspace.lock().unwrap();
-    let Some(workspace) = workspace.as_ref() else {
-        return StatusCode::CONFLICT.into_response();
-    };
-    match workspace.recommendation_store.get(&id) {
+    match SessionApplication::new(state).get_recommendation(&id) {
         Ok(Some(recommendation)) => Json(recommendation).into_response(),
         Ok(None) => StatusCode::NOT_FOUND.into_response(),
-        Err(error) => store_error(error),
+        Err(RecommendationQueryError::Conflict) => StatusCode::CONFLICT.into_response(),
+        Err(RecommendationQueryError::Store(error)) => store_error(error),
     }
 }
 

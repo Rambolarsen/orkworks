@@ -37,6 +37,12 @@ pub(crate) enum RecommendationDismissError {
     Store(crate::taskmaster::store::StoreError),
 }
 
+#[derive(Debug)]
+pub(crate) enum RecommendationQueryError {
+    Conflict,
+    Store(crate::taskmaster::store::StoreError),
+}
+
 pub(crate) struct WorkspaceSnapshot {
     pub(crate) path: String,
     pub(crate) repo_root: Option<String>,
@@ -164,6 +170,41 @@ impl SessionApplication {
                 tracing::warn!(recommendation_id = %proposal.id, %error, "failed to persist Taskmaster recommendation");
             }
         }
+    }
+
+    pub(crate) fn list_recommendations(
+        &self,
+    ) -> Result<
+        (
+            Vec<crate::taskmaster::Recommendation>,
+            Vec<crate::workflow_observations::ObservationDiagnostic>,
+        ),
+        RecommendationQueryError,
+    > {
+        let workspace_guard = self.state.workspace.lock().unwrap();
+        let workspace = workspace_guard
+            .as_ref()
+            .ok_or(RecommendationQueryError::Conflict)?;
+        let recommendations = workspace
+            .recommendation_store
+            .list()
+            .map_err(RecommendationQueryError::Store)?;
+        let diagnostics = workspace.workflow_observations.diagnostics();
+        Ok((recommendations, diagnostics))
+    }
+
+    pub(crate) fn get_recommendation(
+        &self,
+        id: &str,
+    ) -> Result<Option<crate::taskmaster::Recommendation>, RecommendationQueryError> {
+        let workspace_guard = self.state.workspace.lock().unwrap();
+        let workspace = workspace_guard
+            .as_ref()
+            .ok_or(RecommendationQueryError::Conflict)?;
+        workspace
+            .recommendation_store
+            .get(id)
+            .map_err(RecommendationQueryError::Store)
     }
 
     pub(crate) fn dismiss_recommendation(
@@ -5482,6 +5523,47 @@ mod tests {
             .workflow_improvement
             .dismissal_watermark
             .is_some());
+    }
+
+    #[test]
+    fn list_recommendations_returns_recommendations_and_diagnostics_under_the_application() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let application = SessionApplication::new(state.clone());
+
+        application.refresh_workflow_recommendations();
+        let (recommendations, diagnostics) = application.list_recommendations().unwrap();
+
+        assert_eq!(recommendations.len(), 0);
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn get_recommendation_returns_none_for_unknown_id_under_the_application() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+
+        assert!(SessionApplication::new(state)
+            .get_recommendation("missing")
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn recommendation_queries_return_conflict_without_a_workspace() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        *state.workspace.lock().unwrap() = None;
+        let application = SessionApplication::new(state);
+
+        assert!(matches!(
+            application.list_recommendations(),
+            Err(RecommendationQueryError::Conflict)
+        ));
+        assert!(matches!(
+            application.get_recommendation("missing"),
+            Err(RecommendationQueryError::Conflict)
+        ));
     }
 
     #[test]
