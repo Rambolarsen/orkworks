@@ -129,6 +129,18 @@ pub(crate) struct FinalPeonScanResult {
     pub(crate) metadata: Option<metadata::SessionMetadata>,
 }
 
+pub(crate) struct TerminalOutputQuery {
+    pub(crate) lines: Vec<metadata::TerminalOutputRecord>,
+    pub(crate) size: Option<(u16, u16)>,
+}
+
+pub(crate) struct SummaryLogQueryEntry {
+    pub(crate) timestamp: String,
+    pub(crate) summary: String,
+    pub(crate) source: String,
+    pub(crate) confidence: Option<f64>,
+}
+
 fn is_placeholder_label(label: &str, id: &str) -> bool {
     label == crate::session_types::placeholder_label(id)
 }
@@ -864,6 +876,55 @@ impl SessionApplication {
                 .metadata
                 .trim_terminal_output(session_id, metadata::TERMINAL_OUTPUT_MAX_LINES);
         }
+    }
+
+    pub(crate) fn get_terminal_output(&self, session_id: &str) -> TerminalOutputQuery {
+        let workspace_guard = self.state.workspace.lock().unwrap();
+        let Some(workspace) = workspace_guard.as_ref() else {
+            return TerminalOutputQuery {
+                lines: Vec::new(),
+                size: None,
+            };
+        };
+        TerminalOutputQuery {
+            lines: workspace
+                .metadata
+                .read_terminal_output(session_id, metadata::TERMINAL_OUTPUT_MAX_LINES),
+            size: workspace.metadata.read_terminal_size(session_id),
+        }
+    }
+
+    pub(crate) fn get_summary_log(&self, session_id: &str) -> Vec<SummaryLogQueryEntry> {
+        let workspace_guard = self.state.workspace.lock().unwrap();
+        let Some(workspace) = workspace_guard.as_ref() else {
+            return Vec::new();
+        };
+        if workspace.metadata.read_session(session_id).is_none() {
+            return Vec::new();
+        }
+        workspace
+            .metadata
+            .read_events(session_id)
+            .into_iter()
+            .filter_map(|event| {
+                let metadata::Event {
+                    timestamp,
+                    confidence,
+                    summary: Some(summary),
+                    source: Some(source),
+                    ..
+                } = event
+                else {
+                    return None;
+                };
+                Some(SummaryLogQueryEntry {
+                    timestamp,
+                    summary,
+                    source,
+                    confidence,
+                })
+            })
+            .collect()
     }
 
     /// Records an input frame accepted by the PTY and, for a completed line,
@@ -3864,6 +3925,92 @@ mod tests {
             .path()
             .join(".orkworks/events/terminal-output-missing-workspace.terminal")
             .exists());
+    }
+
+    #[test]
+    fn terminal_metadata_queries_return_output_size_and_empty_missing_workspace() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "terminal-query-application";
+        let records = vec![crate::metadata::TerminalOutputRecord::raw("line", "\r\n")];
+        {
+            let workspace = state.workspace.lock().unwrap();
+            let workspace = workspace.as_ref().unwrap();
+            workspace.metadata.append_terminal_output_records(id, &records);
+            workspace.metadata.write_terminal_size(id, 120, 40);
+        }
+
+        let application = SessionApplication::new(state.clone());
+        let query = application.get_terminal_output(id);
+        assert_eq!(query.lines, records);
+        assert_eq!(query.size, Some((120, 40)));
+
+        *state.workspace.lock().unwrap() = None;
+        let query = application.get_terminal_output(id);
+        assert!(query.lines.is_empty());
+        assert_eq!(query.size, None);
+    }
+
+    #[test]
+    fn summary_log_query_filters_incomplete_events_and_orphan_sessions() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "summary-query-application";
+        {
+            let workspace = state.workspace.lock().unwrap();
+            let workspace = workspace.as_ref().unwrap();
+            workspace.metadata.write_session(&crate::test_support::test_session_metadata(
+                    id,
+                    "Summary query",
+                    root.path().display().to_string(),
+                    "ended",
+                    "t0",
+                    "t0",
+                ));
+            for event in [
+                metadata::Event {
+                    event_type: "status".into(),
+                    timestamp: "t0".into(),
+                    status: "ended".into(),
+                    observed_status: None,
+                    confidence: None,
+                    summary: None,
+                    source: None,
+                },
+                metadata::Event {
+                    event_type: "checkpoint".into(),
+                    timestamp: "t1".into(),
+                    status: "working".into(),
+                    observed_status: Some("working".into()),
+                    confidence: Some(0.9),
+                    summary: Some("Checkpoint".into()),
+                    source: Some("peon".into()),
+                },
+                metadata::Event {
+                    event_type: "checkpoint".into(),
+                    timestamp: "t2".into(),
+                    status: "working".into(),
+                    observed_status: Some("working".into()),
+                    confidence: None,
+                    summary: Some("No source".into()),
+                    source: None,
+                },
+            ] {
+                workspace.metadata.append_event(id, &event);
+            }
+        }
+
+        let application = SessionApplication::new(state.clone());
+        let entries = application.get_summary_log(id);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].timestamp, "t1");
+        assert_eq!(entries[0].summary, "Checkpoint");
+        assert_eq!(entries[0].source, "peon");
+        assert_eq!(entries[0].confidence, Some(0.9));
+        assert!(application.get_summary_log("orphan").is_empty());
+
+        *state.workspace.lock().unwrap() = None;
+        assert!(application.get_summary_log(id).is_empty());
     }
 
     #[test]
