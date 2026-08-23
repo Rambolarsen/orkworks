@@ -1,6 +1,5 @@
 use crate::workspace_runtime::iso_now;
 use crate::{peon, providers, AppState};
-use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
 #[derive(Clone, Copy)]
@@ -22,41 +21,6 @@ fn input_label_epoch_is_current(captured_epoch: u64, current_epoch: u64) -> bool
     captured_epoch == current_epoch
 }
 
-fn peon_observation_key(
-    runtime_instance_id: &str,
-    session_id: &str,
-    input_generation: u64,
-    first_revision: u64,
-    last_revision: u64,
-    candidate_index: usize,
-) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(b"peon-v1|");
-    hasher.update(runtime_instance_id.as_bytes());
-    hasher.update(b"|");
-    hasher.update(session_id.as_bytes());
-    hasher.update(b"|");
-    hasher.update(input_generation.to_string().as_bytes());
-    hasher.update(b"|");
-    hasher.update(first_revision.to_string().as_bytes());
-    hasher.update(b"|");
-    hasher.update(last_revision.to_string().as_bytes());
-    hasher.update(b"|");
-    hasher.update(candidate_index.to_string().as_bytes());
-    hex::encode(hasher.finalize())
-}
-
-fn should_retry_observation_record(
-    error: &crate::workflow_observations::RecordError,
-) -> bool {
-    matches!(
-        error,
-        crate::workflow_observations::RecordError::PersistFailed
-            | crate::workflow_observations::RecordError::RateLimited
-            | crate::workflow_observations::RecordError::Degraded
-    )
-}
-
 #[cfg(test)]
 mod epoch_tests {
     #[test]
@@ -65,59 +29,6 @@ mod epoch_tests {
         assert!(!super::input_label_epoch_is_current(4, 5));
     }
 
-    #[test]
-    fn peon_observation_key_binds_the_runtime_and_captured_range() {
-        let first = super::peon_observation_key("runtime-a", "session", 2, 10, 12, 0);
-        let same = super::peon_observation_key("runtime-a", "session", 2, 10, 12, 0);
-        let new_runtime = super::peon_observation_key("runtime-b", "session", 2, 10, 12, 0);
-        let new_range = super::peon_observation_key("runtime-a", "session", 2, 11, 12, 0);
-
-        assert_eq!(first, same);
-        assert_ne!(first, new_runtime);
-        assert_ne!(first, new_range);
-    }
-
-    #[test]
-    fn retrying_a_capture_keeps_the_original_key_when_new_output_arrives() {
-        let capture = crate::peon::PeonOutputCapture {
-            lines: vec!["first output".into()],
-            input_generation: 4,
-            min_revision: 10,
-            first_revision: 11,
-            last_revision: 11,
-            runtime_instance_id: "runtime-a".into(),
-        };
-        let initial_key = super::peon_observation_key(
-            &capture.runtime_instance_id,
-            "session",
-            capture.input_generation,
-            capture.first_revision,
-            capture.last_revision,
-            0,
-        );
-        let retry_key = super::peon_observation_key(
-            &capture.runtime_instance_id,
-            "session",
-            capture.input_generation,
-            capture.first_revision,
-            capture.last_revision,
-            0,
-        );
-
-        assert_eq!(initial_key, retry_key);
-        assert_eq!(capture.lines, vec!["first output"]);
-    }
-
-    #[test]
-    fn transient_observation_record_errors_keep_the_capture_for_retry() {
-        use crate::workflow_observations::RecordError;
-
-        assert!(super::should_retry_observation_record(&RecordError::PersistFailed));
-        assert!(super::should_retry_observation_record(&RecordError::RateLimited));
-        assert!(super::should_retry_observation_record(&RecordError::Degraded));
-        assert!(!super::should_retry_observation_record(&RecordError::EmptyEvidence));
-        assert!(!super::should_retry_observation_record(&RecordError::IdempotencyConflict));
-    }
 }
 
 pub(crate) async fn peon_loop(state: Arc<AppState>) {
@@ -428,70 +339,31 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                         }
                     };
 
-                if let Some((generation, _min_revision, first_revision, last_revision, runtime_instance_id)) =
-                    output_boundary.as_ref()
+                    let captured_workspace_path =
+                        ws_guard.as_ref().map(|workspace| workspace.path.clone());
+                    drop(ws_guard);
+                    if let Some((generation, _min_revision, first_revision, last_revision, runtime_instance_id)) =
+                        output_boundary.as_ref()
                     {
-                        let workspace_owns_session = ws_guard.as_ref().is_some_and(|ws| {
-                            ws.metadata.read_session(&id).is_some()
-                        });
-                        if !workspace_owns_session {
-                            // A detached runtime can outlive a workspace
-                            // switch. Never write its observations into the
-                            // newly active workspace, and do not retain the
-                            // old capture for a workspace that no longer owns
-                            // the session.
-                            output_range_completed = true;
-                        } else {
-                        let mut range_completed = true;
-                        for (candidate_index, candidate) in
-                            inf.workflow_observations.iter().enumerate()
-                        {
-                            let key = peon_observation_key(
-                                runtime_instance_id,
-                                &id,
-                                *generation,
-                                *first_revision,
-                                *last_revision,
-                                candidate_index,
-                            );
-                            let result = ws_guard
-                                .as_ref()
-                                .map(|ws| {
-                                    ws.workflow_observations.record_observation(
-                                        &id,
-                                        crate::workflow_observations::ObservationOrigin::Peon,
-                                        &key,
-                                        crate::workflow_observations::ObservationCandidate {
-                                            kind: candidate.kind,
-                                            description: candidate.description.clone(),
-                                            evidence: candidate.evidence.clone(),
-                                            reported_impact: candidate.reported_impact,
-                                            confidence: Some(candidate.confidence),
-                                        },
-                                    )
-                                })
-                                .unwrap_or_else(|| {
-                                    Err(crate::workflow_observations::RecordError::PersistFailed)
-                                });
-                            if matches!(
-                                &result,
-                                Ok(crate::workflow_observations::RecordOutcome::Accepted(_))
-                            ) {
-                                accepted_observation = true;
-                            }
-                            if result
-                                .as_ref()
-                                .is_err_and(|error| should_retry_observation_record(error))
-                            {
-                                range_completed = false;
-                            }
-                        }
-                        output_range_completed = range_completed;
-                        }
+                        let result = crate::session_application::SessionApplication::new(
+                            state_clone.clone(),
+                        )
+                        .record_peon_workflow_observations(
+                            &id,
+                            captured_workspace_path.as_deref(),
+                            &crate::session_application::PeonObservationOutputRange {
+                                runtime_instance_id: runtime_instance_id.clone(),
+                                run_generation: *generation,
+                                first_revision: *first_revision,
+                                last_revision: *last_revision,
+                            },
+                            &inf.workflow_observations,
+                        );
+                        accepted_observation = result.accepted_observation;
+                        output_range_completed = result.output_range_completed;
                     }
                 }
 
-                drop(ws_guard);
                 if accepted_observation {
                     crate::taskmaster::evaluator::schedule_evaluation(state_clone.clone());
                 }

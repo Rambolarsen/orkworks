@@ -8,7 +8,8 @@ use crate::plan_handoff::{
 use crate::runtime::observed_status::apply_attention_signal;
 use crate::workspace_runtime::parse_hook_observed_at;
 use portable_pty::PtySize;
-use std::path::PathBuf;
+use sha2::{Digest, Sha256};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use crate::{harness, peon, SessionHandle};
 
@@ -58,6 +59,18 @@ pub(crate) struct PlanSelection {
     pub(crate) printed_path: String,
 }
 
+pub(crate) struct PeonObservationOutputRange {
+    pub(crate) runtime_instance_id: String,
+    pub(crate) run_generation: u64,
+    pub(crate) first_revision: u64,
+    pub(crate) last_revision: u64,
+}
+
+pub(crate) struct PeonObservationRecordResult {
+    pub(crate) accepted_observation: bool,
+    pub(crate) output_range_completed: bool,
+}
+
 // Serializes authoritative terminal-transition writes and best-effort live
 // resize writes together. The operation re-reads the current runtime size
 // under the sessions lock and checks the lifecycle while holding the shared
@@ -68,6 +81,81 @@ static TERMINAL_SIZE_WRITE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(()
 impl SessionApplication {
     pub(crate) fn new(state: Arc<AppState>) -> Self {
         Self { state }
+    }
+
+    /// Records Peon workflow observations for one captured output range.
+    ///
+    /// Workspace attribution, stable idempotency keys, persistence, and retry
+    /// classification live here. The caller retains ownership of capture
+    /// cursors, retry timers, and evaluator scheduling.
+    pub(crate) fn record_peon_workflow_observations(
+        &self,
+        session_id: &str,
+        captured_workspace_path: Option<&Path>,
+        output_range: &PeonObservationOutputRange,
+        candidates: &[peon::PeonWorkflowObservation],
+    ) -> PeonObservationRecordResult {
+        let workspace_guard = self.state.workspace.lock().unwrap();
+        let Some(workspace) = workspace_guard.as_ref() else {
+            return PeonObservationRecordResult {
+                accepted_observation: false,
+                output_range_completed: true,
+            };
+        };
+        if !workspace_path_matches(&workspace.path, captured_workspace_path) {
+            return PeonObservationRecordResult {
+                accepted_observation: false,
+                output_range_completed: true,
+            };
+        }
+        if workspace.metadata.read_session(session_id).is_none() {
+            return PeonObservationRecordResult {
+                accepted_observation: false,
+                output_range_completed: true,
+            };
+        }
+
+        let mut accepted_observation = false;
+        let mut output_range_completed = true;
+        for (candidate_index, candidate) in candidates.iter().enumerate() {
+            let key = peon_observation_key(
+                &output_range.runtime_instance_id,
+                session_id,
+                output_range.run_generation,
+                output_range.first_revision,
+                output_range.last_revision,
+                candidate_index,
+            );
+            let result = workspace.workflow_observations.record_observation(
+                session_id,
+                crate::workflow_observations::ObservationOrigin::Peon,
+                &key,
+                crate::workflow_observations::ObservationCandidate {
+                    kind: candidate.kind,
+                    description: candidate.description.clone(),
+                    evidence: candidate.evidence.clone(),
+                    reported_impact: candidate.reported_impact,
+                    confidence: Some(candidate.confidence),
+                },
+            );
+            if matches!(
+                &result,
+                Ok(crate::workflow_observations::RecordOutcome::Accepted(_))
+            ) {
+                accepted_observation = true;
+            }
+            if result
+                .as_ref()
+                .is_err_and(is_retryable_observation_record_error)
+            {
+                output_range_completed = false;
+            }
+        }
+
+        PeonObservationRecordResult {
+            accepted_observation,
+            output_range_completed,
+        }
     }
 
     /// Arms the first capacity recheck after a usage-limit-latched session
@@ -1107,6 +1195,45 @@ impl SessionApplication {
     }
 }
 
+fn workspace_path_matches(active_path: &Path, captured_path: Option<&Path>) -> bool {
+    captured_path.is_some_and(|captured| captured == active_path)
+}
+
+fn peon_observation_key(
+    runtime_instance_id: &str,
+    session_id: &str,
+    run_generation: u64,
+    first_revision: u64,
+    last_revision: u64,
+    candidate_index: usize,
+) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(b"peon-v1|");
+    hasher.update(runtime_instance_id.as_bytes());
+    hasher.update(b"|");
+    hasher.update(session_id.as_bytes());
+    hasher.update(b"|");
+    hasher.update(run_generation.to_string().as_bytes());
+    hasher.update(b"|");
+    hasher.update(first_revision.to_string().as_bytes());
+    hasher.update(b"|");
+    hasher.update(last_revision.to_string().as_bytes());
+    hasher.update(b"|");
+    hasher.update(candidate_index.to_string().as_bytes());
+    hex::encode(hasher.finalize())
+}
+
+fn is_retryable_observation_record_error(
+    error: &crate::workflow_observations::RecordError,
+) -> bool {
+    matches!(
+        error,
+        crate::workflow_observations::RecordError::PersistFailed
+            | crate::workflow_observations::RecordError::RateLimited
+            | crate::workflow_observations::RecordError::Degraded
+    )
+}
+
 pub(crate) fn resume_handle_conflicts(
     handle: &SessionHandle,
     metadata_ended: bool,
@@ -1964,6 +2091,72 @@ fn clear_claude_capacity_after_working(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn records_peon_observations_with_stable_duplicate_keys() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "workflow-observation-application";
+        let metadata = crate::test_support::test_session_metadata(
+            id,
+            "Workflow observation",
+            &root.path().display().to_string(),
+            "running",
+            "before",
+            "before",
+        );
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
+
+        let range = PeonObservationOutputRange {
+            runtime_instance_id: "runtime-a".into(),
+            run_generation: 4,
+            first_revision: 10,
+            last_revision: 12,
+        };
+        let candidates = vec![peon::PeonWorkflowObservation {
+            kind: crate::workflow_observations::ObservationKind::Obstacle,
+            description: "A command required an extra retry".into(),
+            evidence: "retry output".into(),
+            reported_impact: crate::workflow_observations::Impact::Medium,
+            confidence: 0.8,
+        }];
+
+        let first = SessionApplication::new(state.clone())
+            .record_peon_workflow_observations(id, Some(root.path()), &range, &candidates);
+        assert!(first.accepted_observation);
+        assert!(first.output_range_completed);
+
+        let duplicate = SessionApplication::new(state.clone())
+            .record_peon_workflow_observations(id, Some(root.path()), &range, &candidates);
+        assert!(!duplicate.accepted_observation);
+        assert!(duplicate.output_range_completed);
+        let observations = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .workflow_observations
+            .workspace_observations()
+            .unwrap();
+        assert_eq!(observations.len(), 1);
+        assert_eq!(observations[0].source, crate::workflow_observations::ObservationSource::Peon);
+    }
+
+    #[test]
+    fn observation_key_binds_runtime_and_captured_range() {
+        let first = peon_observation_key("runtime-a", "session", 2, 10, 12, 0);
+        assert_eq!(first, peon_observation_key("runtime-a", "session", 2, 10, 12, 0));
+        assert_ne!(first, peon_observation_key("runtime-b", "session", 2, 10, 12, 0));
+        assert_ne!(first, peon_observation_key("runtime-a", "session", 2, 11, 12, 0));
+    }
 
     fn attention_test_handle(id: &str, cwd: &std::path::Path) -> SessionHandle {
         let (kill_tx, _) = tokio::sync::watch::channel(false);
