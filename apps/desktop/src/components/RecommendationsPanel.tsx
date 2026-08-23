@@ -111,6 +111,10 @@ function RecommendationsPanel({ hasWorkspace, onSelectSession }: Recommendations
     // the error banner on every startup, so wait for the workspace instead.
     if (!hasWorkspace) return;
     let cancelled = false;
+    // App-level workspace state is currently monotonic (null -> set, never
+    // cleared back to null), so the initial refresh() below can't outlive a
+    // workspace becoming unset again. If that ever changes, this refresh()
+    // call needs the same `cancelled` guard the interval callback has.
     void refresh();
     const timer = window.setInterval(() => {
       if (!cancelled) void refresh();
