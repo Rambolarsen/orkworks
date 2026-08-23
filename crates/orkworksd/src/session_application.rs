@@ -892,6 +892,20 @@ impl SessionApplication {
         self.state.peon.label_pending.write().unwrap().remove(id);
     }
 
+    /// Clears runtime-owned state once a session's PTY process is gone.
+    /// Label epochs and queued label work remain because ended sessions can be
+    /// resumed and still belong to the current conversation.
+    pub(crate) fn clear_ended_session_tracking(&self, id: &str) {
+        self.state.peon.last_output.write().unwrap().remove(id);
+        self.state.peon.last_inference.write().unwrap().remove(id);
+        self.state.peon.input_buf.write().unwrap().remove(id);
+        self.state.peon.reported_cwd.write().unwrap().remove(id);
+        self.state.session_pids.lock().unwrap().remove(id);
+        // ADR 0042: a dead session's reporting capability must stop working
+        // immediately, even if a caller captured the token beforehand.
+        crate::runtime::terminal_runtime::clear_workflow_report_token(id);
+    }
+
     /// Persists a validated Peon input label while preventing a reset from
     /// racing between the durable and live projections.
     pub(crate) fn persist_input_label(
@@ -1550,7 +1564,7 @@ impl SessionApplication {
             .ok_or(SessionError::NotFound)?;
         let _ = kill_tx.send(true);
         crate::runtime::terminal_runtime::set_session_status(&self.state, id, "killed").await;
-        crate::runtime::session_runtime::clear_ended_session_tracking(&self.state, id);
+        self.clear_ended_session_tracking(id);
         Ok(())
     }
 
@@ -1585,7 +1599,7 @@ impl SessionApplication {
             if !workspace.metadata.session_file_exists(id) {
                 drop(workspace_guard);
                 self.state.sessions.lock().unwrap().remove(id);
-                crate::runtime::session_runtime::clear_ended_session_tracking(&self.state, id);
+                self.clear_ended_session_tracking(id);
                 self.clear_forgotten_session_tracking(id);
             }
             return Err(SessionError::Internal("application operation failed"));
@@ -1593,7 +1607,7 @@ impl SessionApplication {
         drop(workspace_guard);
 
         self.state.sessions.lock().unwrap().remove(id);
-        crate::runtime::session_runtime::clear_ended_session_tracking(&self.state, id);
+        self.clear_ended_session_tracking(id);
         self.clear_forgotten_session_tracking(id);
         Ok(())
     }
@@ -4685,6 +4699,73 @@ mod tests {
         assert!(state.peon.label_epochs.read().unwrap().is_empty());
         assert!(state.peon.label_hint.read().unwrap().is_empty());
         assert!(state.peon.label_pending.read().unwrap().is_empty());
+    }
+
+    #[test]
+    fn clear_ended_session_tracking_removes_runtime_state_but_preserves_label_work() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "clear-ended-application";
+        let token = "ended-session-report-token";
+
+        state
+            .peon
+            .last_output
+            .write()
+            .unwrap()
+            .insert(id.into(), tokio::time::Instant::now());
+        state
+            .peon
+            .last_inference
+            .write()
+            .unwrap()
+            .insert(id.into(), "working".into());
+        state
+            .peon
+            .input_buf
+            .write()
+            .unwrap()
+            .insert(id.into(), "pending input".into());
+        state
+            .peon
+            .reported_cwd
+            .write()
+            .unwrap()
+            .insert(id.into(), "/tmp/ended-session".into());
+        state
+            .session_pids
+            .lock()
+            .unwrap()
+            .insert(id.into(), 4242);
+        crate::runtime::terminal_runtime::set_workflow_report_token(id, token.into());
+
+        state.peon.label_epochs.write().unwrap().insert(id.into(), 7);
+        state.peon.label_hint.write().unwrap().insert(
+            id.into(),
+            crate::LabelHint {
+                text: "queued topic".into(),
+                epoch: 7,
+            },
+        );
+        state.peon.label_pending.write().unwrap().insert(id.into());
+
+        SessionApplication::new(state.clone()).clear_ended_session_tracking(id);
+
+        assert!(!state.peon.last_output.read().unwrap().contains_key(id));
+        assert!(!state.peon.last_inference.read().unwrap().contains_key(id));
+        assert!(!state.peon.input_buf.read().unwrap().contains_key(id));
+        assert!(!state.peon.reported_cwd.read().unwrap().contains_key(id));
+        assert!(!state.session_pids.lock().unwrap().contains_key(id));
+        assert!(!crate::runtime::terminal_runtime::verify_workflow_report_token(id, token));
+        assert_eq!(state.peon.label_epochs.read().unwrap().get(id), Some(&7));
+        assert_eq!(
+            state.peon.label_hint.read().unwrap().get(id),
+            Some(&crate::LabelHint {
+                text: "queued topic".into(),
+                epoch: 7,
+            })
+        );
+        assert!(state.peon.label_pending.read().unwrap().contains(id));
     }
 
     #[test]

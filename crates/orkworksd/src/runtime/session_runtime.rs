@@ -2,7 +2,7 @@ use crate::runtime::observed_status::{
     apply_process_transition_to_handle, process_transition_fields, ProcessTransition,
 };
 use crate::runtime::terminal_runtime::{
-    clear_workflow_report_token, clear_workflow_report_token_if_matches, make_pty_system,
+    clear_workflow_report_token_if_matches, make_pty_system,
     new_workflow_report_token,
     schedule_session_ending_finalization, session_env_overrides, set_session_status_for_generation,
     set_workflow_report_token, should_forward_terminal_env, terminal_env_overrides,
@@ -666,23 +666,6 @@ async fn capture_startup_runtime_state(
     (initial_size, pending_commands)
 }
 
-/// Clears per-session in-memory side tables once a session's PTY process is
-/// gone (naturally exited, wait-errored, or failed to finish setup). The pid
-/// removal in particular matters: once the process is gone its pid could be
-/// reused by an unrelated OS process, so a stale entry left behind risks a
-/// future live-cwd probe (issue #241) attributing a stranger's cwd to this
-/// session.
-pub(crate) fn clear_ended_session_tracking(state: &AppState, id: &str) {
-    state.peon.last_output.write().unwrap().remove(id);
-    state.peon.last_inference.write().unwrap().remove(id);
-    state.peon.input_buf.write().unwrap().remove(id);
-    state.peon.reported_cwd.write().unwrap().remove(id);
-    state.session_pids.lock().unwrap().remove(id);
-    // ADR 0042: a dead session's reporting capability must stop working
-    // immediately, even if a caller captured the token beforehand.
-    clear_workflow_report_token(id);
-}
-
 /// Applies an exit callback only while its runtime generation still owns the
 /// session ID. Marking the handle as ending first prevents resume admission
 /// from replacing it while the remaining runtime-owned side tables are
@@ -721,7 +704,8 @@ pub(crate) async fn handle_runtime_exit(
         handle.runtime.attached_generation = None;
         handle.terminal_attached = false;
     }
-    clear_ended_session_tracking(state, id);
+    crate::session_application::SessionApplication::new(state.clone())
+        .clear_ended_session_tracking(id);
     flush_output_recency(state, id).await;
     schedule_session_ending_finalization(
         state.clone(),
@@ -757,7 +741,8 @@ fn abort_post_spawn_startup(
         return false;
     };
 
-    clear_ended_session_tracking(state, id);
+    crate::session_application::SessionApplication::new(state.clone())
+        .clear_ended_session_tracking(id);
     if lifecycle_phase != "ending" {
         return false;
     }
@@ -1348,7 +1333,8 @@ mod tests {
             .unwrap()
             .insert("epoch-cleanup".into(), 3);
 
-        clear_ended_session_tracking(&state, "epoch-cleanup");
+        crate::session_application::SessionApplication::new(state.clone())
+            .clear_ended_session_tracking("epoch-cleanup");
         assert_eq!(
             state
                 .peon
