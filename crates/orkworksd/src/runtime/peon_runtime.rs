@@ -246,7 +246,6 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                     state_clone.peon.in_flight.write().unwrap().remove(&id);
                     return;
                 }
-                let ws_guard = state_clone.workspace.lock().unwrap();
                 let active_work_hook = {
                     let sessions = state_clone.sessions.lock().unwrap();
                     sessions.get(&id).and_then(|handle| {
@@ -276,7 +275,8 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                 );
 
                 if let Some(ref obs) = provider_result.observation {
-                    if let Some(ref ws) = *ws_guard {
+                    let workspace_guard = state_clone.workspace.lock().unwrap();
+                    if let Some(ref ws) = *workspace_guard {
                         ws.metadata.persist_provider_context(&id, obs);
                     }
                 }
@@ -297,51 +297,20 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                     }
                     let history_summary =
                         peon::work_history_summary(&output_snapshot, inf.summary.as_deref());
-                    // Collect label update while holding the input-boundary lock.
-                    label_update = {
-                        if let Some(ref ws) = *ws_guard {
-                            let (should_write, is_permanent) = ws
-                                .metadata
-                                .read_session(&id)
-                                .map(|m| {
-                                    let age = ws.metadata.session_modified_secs_ago(&id);
-                                    let overwrite =
-                                        peon::peon_should_overwrite(&m.metadata_source, age);
-                                    (overwrite, m.metadata_source == "user")
-                                })
-                                .unwrap_or((true, false));
-                            if should_write {
-                                match ws.metadata.merge_peon_inference_with_history(
-                                    &id,
-                                    &inf,
-                                    &now_iso,
-                                    provider_result.observation.as_ref(),
-                                    history_summary.as_deref(),
-                                ) {
-                                    Ok(()) => {
-                                        inference_persisted = true;
-                                        history_summary
-                                            .as_ref()
-                                            .map(|s| s.chars().take(100).collect())
-                                    }
-                                    Err(error) => {
-                                        tracing::warn!(session_id = %id, %error, "peon: inference not persisted");
-                                        None
-                                    }
-                                }
-                            } else {
-                                tracing::debug!(session_id = %id, "peon: skipping, higher-priority source exists");
-                                permanent_hold = is_permanent;
-                                None
-                            }
-                        } else {
-                            None
-                        }
-                    };
-
-                    let captured_workspace_path =
-                        ws_guard.as_ref().map(|workspace| workspace.path.clone());
-                    drop(ws_guard);
+                    let persistence = crate::session_application::SessionApplication::new(
+                        state_clone.clone(),
+                    )
+                    .persist_peon_inference(
+                        &id,
+                        &inf,
+                        provider_result.observation.as_ref(),
+                        history_summary.as_deref(),
+                        &now_iso,
+                    );
+                    inference_persisted = persistence.inference_persisted;
+                    permanent_hold = persistence.permanent_hold;
+                    label_update = persistence.label_update;
+                    let captured_workspace_path = persistence.workspace_path;
                     if let Some((generation, _min_revision, first_revision, last_revision, runtime_instance_id)) =
                         output_boundary.as_ref()
                     {

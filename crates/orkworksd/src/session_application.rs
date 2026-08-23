@@ -71,6 +71,13 @@ pub(crate) struct PeonObservationRecordResult {
     pub(crate) output_range_completed: bool,
 }
 
+pub(crate) struct PeonInferencePersistenceResult {
+    pub(crate) inference_persisted: bool,
+    pub(crate) permanent_hold: bool,
+    pub(crate) label_update: Option<String>,
+    pub(crate) workspace_path: Option<PathBuf>,
+}
+
 fn is_placeholder_label(label: &str, id: &str) -> bool {
     label == crate::session_types::placeholder_label(id)
 }
@@ -110,6 +117,77 @@ impl SessionApplication {
         for proposal in proposals {
             if let Err(error) = workspace.recommendation_store.put(&proposal) {
                 tracing::warn!(recommendation_id = %proposal.id, %error, "failed to persist Taskmaster recommendation");
+            }
+        }
+    }
+
+    /// Persists one Peon inference when its source priority permits the merge.
+    ///
+    /// The workspace lock covers both the priority read and metadata merge so
+    /// a workspace switch cannot separate the decision from the write. The
+    /// caller retains ownership of active-hook normalization, live projection,
+    /// and retry scheduling.
+    pub(crate) fn persist_peon_inference(
+        &self,
+        session_id: &str,
+        inference: &peon::PeonInference,
+        provider_observation: Option<&crate::providers::ProviderObservation>,
+        history_summary: Option<&str>,
+        timestamp: &str,
+    ) -> PeonInferencePersistenceResult {
+        let workspace_guard = self.state.workspace.lock().unwrap();
+        let Some(workspace) = workspace_guard.as_ref() else {
+            return PeonInferencePersistenceResult {
+                inference_persisted: false,
+                permanent_hold: false,
+                label_update: None,
+                workspace_path: None,
+            };
+        };
+        let workspace_path = Some(workspace.path.clone());
+
+        let (should_write, is_permanent) = workspace
+            .metadata
+            .read_session(session_id)
+            .map(|metadata| {
+                let age = workspace.metadata.session_modified_secs_ago(session_id);
+                let overwrite = peon::peon_should_overwrite(&metadata.metadata_source, age);
+                (overwrite, metadata.metadata_source == "user")
+            })
+            .unwrap_or((true, false));
+
+        if !should_write {
+            tracing::debug!(session_id, "peon: skipping, higher-priority source exists");
+            return PeonInferencePersistenceResult {
+                inference_persisted: false,
+                permanent_hold: is_permanent,
+                label_update: None,
+                workspace_path,
+            };
+        }
+
+        match workspace.metadata.merge_peon_inference_with_history(
+            session_id,
+            inference,
+            timestamp,
+            provider_observation,
+            history_summary,
+        ) {
+            Ok(()) => PeonInferencePersistenceResult {
+                inference_persisted: true,
+                permanent_hold: false,
+                label_update: history_summary
+                    .map(|summary| summary.chars().take(100).collect()),
+                workspace_path,
+            },
+            Err(error) => {
+                tracing::warn!(session_id, %error, "peon: inference not persisted");
+                PeonInferencePersistenceResult {
+                    inference_persisted: false,
+                    permanent_hold: false,
+                    label_update: None,
+                    workspace_path,
+                }
             }
         }
     }
@@ -4059,5 +4137,108 @@ mod tests {
             .unwrap();
         assert_eq!(proposals.len(), 1);
         assert_eq!(proposals[0].source_session_ids, vec!["workflow-refresh-session"]);
+    }
+
+    #[test]
+    fn persist_peon_inference_merges_eligible_metadata_and_returns_history_label() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "peon-inference-application";
+        let mut metadata = crate::test_support::test_session_metadata(
+            id,
+            "Peon inference",
+            &root.path().display().to_string(),
+            "running",
+            "now",
+            "now",
+        );
+        metadata.lifecycle_phase = "active".into();
+        metadata.lifecycle = "alive".into();
+        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&metadata);
+
+        let inference = crate::peon::PeonInference {
+            observed_status: Some("blocked".into()),
+            phase: None,
+            summary: Some("Need a decision".into()),
+            next_action: None,
+            needs_user_input: Some(true),
+            detected_question: None,
+            suggested_options: None,
+            blocker_description: Some("Waiting on review".into()),
+            failed_command: None,
+            failed_test: None,
+            capacity_hints: None,
+            confidence: 0.8,
+            detected_harness: None,
+            detected_model: None,
+            harness_session_id: None,
+            workflow_observations: Vec::new(),
+        };
+
+        let result = SessionApplication::new(state.clone()).persist_peon_inference(
+            id,
+            &inference,
+            None,
+            Some("Need a decision"),
+            "later",
+        );
+
+        assert!(result.inference_persisted);
+        assert!(!result.permanent_hold);
+        assert_eq!(result.label_update.as_deref(), Some("Need a decision"));
+        let stored = state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(id).unwrap();
+        assert_eq!(stored.observed_status.as_deref(), Some("blocked"));
+        assert_eq!(stored.summary.as_deref(), Some("Need a decision"));
+    }
+
+    #[test]
+    fn persist_peon_inference_reports_user_source_as_permanent_hold() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "peon-inference-user-hold";
+        let mut metadata = crate::test_support::test_session_metadata(
+            id,
+            "User topic",
+            &root.path().display().to_string(),
+            "running",
+            "now",
+            "now",
+        );
+        metadata.metadata_source = "user".into();
+        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&metadata);
+
+        let inference = crate::peon::PeonInference {
+            observed_status: Some("blocked".into()),
+            phase: None,
+            summary: Some("Should not land".into()),
+            next_action: None,
+            needs_user_input: None,
+            detected_question: None,
+            suggested_options: None,
+            blocker_description: None,
+            failed_command: None,
+            failed_test: None,
+            capacity_hints: None,
+            confidence: 0.8,
+            detected_harness: None,
+            detected_model: None,
+            harness_session_id: None,
+            workflow_observations: Vec::new(),
+        };
+
+        let result = SessionApplication::new(state.clone()).persist_peon_inference(
+            id,
+            &inference,
+            None,
+            Some("Should not land"),
+            "later",
+        );
+
+        assert!(!result.inference_persisted);
+        assert!(result.permanent_hold);
+        assert!(result.label_update.is_none());
+        let stored = state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(id).unwrap();
+        assert_eq!(stored.summary, None);
+        assert_eq!(stored.metadata_source, "user");
     }
 }
