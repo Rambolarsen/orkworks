@@ -17,8 +17,19 @@ test("dev server uses the desktop Vite config and root", () => {
 test("dev script launches Electron through pnpm instead of npx", () => {
   const config = electronSpawnConfig("/tmp/orkworks/apps/desktop", "http://localhost:5173/");
 
-  assert.equal(config.command, "pnpm");
-  assert.deepEqual(config.args, ["exec", "electron", "."]);
   assert.equal(config.options.cwd, "/tmp/orkworks/apps/desktop");
   assert.equal(config.options.env.VITE_DEV_SERVER_URL, "http://localhost:5173/");
+
+  if (process.platform === "win32") {
+    // Windows .CMD wrappers require shell:true; folding args into the
+    // command string (instead of a separate args array) avoids Node's
+    // DEP0190 shell-arg-concatenation warning.
+    assert.equal(config.command, "pnpm.CMD exec electron .");
+    assert.deepEqual(config.args, []);
+    assert.equal(config.options.shell, true);
+  } else {
+    assert.equal(config.command, "pnpm");
+    assert.deepEqual(config.args, ["exec", "electron", "."]);
+    assert.equal(config.options.shell, false);
+  }
 });
