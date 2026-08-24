@@ -9,7 +9,7 @@ import { readLayoutMemory, writeLayoutMemory } from "./layoutMemory";
 import type { AppSettings } from "./settingsMemory";
 import { DEFAULT_HOTKEYS, DEFAULT_RETENTION, loadSettingsForStartup, normalizeDebugSettings, normalizeProviderSettings, normalizeRetention, readSettings, settingsWithHotkeys, validateHotkeys, writeSettings } from "./settingsMemory";
 import { pushProviderSettings } from "./providerSettingsSync";
-import type { ProviderSettings } from "./providerTypes";
+import type { ProviderApplyStatus, ProviderSettings } from "./providerTypes";
 import { buildMenuTemplate } from "./menuTemplate";
 import { getSessionPlanContent, requestSessionPlanReview, selectTerminalPlan } from "./planOpener";
 import { configureExternalLinks, openExternalLink } from "./externalLinks";
@@ -230,7 +230,11 @@ app.whenReady().then(() => {
     writeSettings(app.getPath("userData"), nextSettings);
     currentSettings = nextSettings;
 
-    let retentionApplyStatus = { appliedRevision: null, appliedAt: null, lastApplyError: null as string | null };
+    let retentionApplyStatus: ProviderApplyStatus = {
+      appliedRevision: null,
+      appliedAt: null,
+      lastApplyError: null,
+    };
     try {
       const port = await portPromise;
       const response = await fetch(`http://127.0.0.1:${port}/settings/retention`, {
