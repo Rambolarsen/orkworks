@@ -109,10 +109,26 @@ Tests should cover draft-versus-persisted state, failed saves retaining drafts, 
 
 ## Sequencing
 
-1. Implement and validate the Rust session application seam.
-2. Implement and validate the renderer workspace/session controller.
-3. Implement and validate the settings workflow controller.
-4. Reassess `AppState` and cross-application contracts only after the three seams exist.
+1. Freeze the exact contracts, ownership rules, compatibility mappings, and acceptance tests for all three seams.
+2. Implement and validate the Rust session application seam.
+3. Implement and validate the renderer workspace/session controller against the existing Rust/REST contract.
+4. Implement and validate the settings workflow controller against the existing Electron/preload contract.
+5. Run cross-seam compatibility checks and reassess `AppState` only after the three seams exist.
+
+## Review corrections and execution constraints
+
+The implementation plan must resolve these points before implementation tasks begin:
+
+- Replace every `likely` path and undefined type with an exact file, symbol, constructor, parameter type, return type, and error type.
+- Treat the plans as sequentially dependent, not independently parallelizable. Contract-freeze and integration checkpoints are mandatory.
+- The Rust application object must have an explicit ownership model around the existing `Arc<AppState>` and must not duplicate session state.
+- Each Rust use case must document side-effect ordering, failure compensation, lifecycle concurrency behavior, workspace identity lookup, blocking versus async work, and its HTTP status/body compatibility mapping.
+- The renderer controller must accept a workspace path for workspace changes, use a generation or cancellation token to reject stale async results, define the sole owner of polling, and specify post-disposal behavior.
+- The renderer controller must define active-session restoration and deletion transitions, pending-create correlation, terminal-pruning order, and notification deduplication behavior.
+- The settings workflow must expose explicit load, draft update, discard, verify, commit, and reset operations for every settings domain it owns. Provider verification must have a result/error/timeout contract and must not mutate saved state.
+- Electron persistence must use the existing atomic settings-write behavior or an explicit revision/field-update protocol so independent domain saves cannot overwrite newer unrelated changes.
+- New tests must pin current REST responses, preload contracts, persistence formats, status/event ordering, and active-session behavior before moving implementation behind the new seams.
+- Every implementation task must include the applicable nested `AGENTS.md`, branch/worktree, TDD, verification, doc-currency, and worktree-currency requirements.
 
 ## Non-goals
 
