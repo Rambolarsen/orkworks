@@ -619,6 +619,7 @@ mod tests {
         String::from_utf8_lossy(&output.stderr).into_owned()
     }
 
+    #[cfg(unix)]
     #[test]
     fn report_harness_event_runs_and_forwards_cwd_from_a_real_claude_payload() {
         let trace = run_report_harness_event_sh_trace(

@@ -5,11 +5,13 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/doc-check.sh\""
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/doc-check.sh\"",
+            "shell": "bash"
           },
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/worktree-check.sh\""
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/worktree-check.sh\"",
+            "shell": "bash"
           }
         ]
       }
@@ -20,7 +22,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "command -v node >/dev/null 2>&1 && node \".claude/hooks/ponytail/hooks/ponytail-activate.js\" || exit 0",
+            "command": "node",
+            "args": [".claude/hooks/ponytail/hooks/ponytail-activate.js"],
             "timeout": 5,
             "statusMessage": "Loading ponytail mode..."
           }
@@ -31,8 +34,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "command -v node >/dev/null 2>&1 && node \".claude/hooks/ponytail/hooks/ponytail-activate.js\" || exit 0",
-            "commandWindows": "if (Get-Command node -ErrorAction SilentlyContinue) { node \"$env:CLAUDE_PLUGIN_ROOT\\hooks\\ponytail-activate.js\" }",
+            "command": "node",
+            "args": [".claude/hooks/ponytail/hooks/ponytail-activate.js"],
             "timeout": 5,
             "statusMessage": "Loading ponytail mode..."
           }
@@ -43,7 +46,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "SCRIPT=\".claude/hooks/agent-skills/hooks/session-start.sh\"; [ -f \"$SCRIPT\" ] || SCRIPT=\"${CLAUDE_PROJECT_DIR}/.claude/hooks/session-start.sh\"; [ -f \"$SCRIPT\" ]&& bash \"$SCRIPT\" || true"
+            "command": "SCRIPT=\".claude/hooks/agent-skills/hooks/session-start.sh\"; [ -f \"$SCRIPT\" ] || SCRIPT=\"${CLAUDE_PROJECT_DIR}/.claude/hooks/session-start.sh\"; [ -f \"$SCRIPT\" ]&& bash \"$SCRIPT\" || true",
+            "shell": "bash"
           }
         ]
       },
@@ -53,7 +57,8 @@
           {
             "type": "command",
             "async": false,
-            "command": "\".claude/hooks/superpowers/hooks/run-hook.cmd\" session-start"
+            "command": "\".claude/hooks/superpowers/hooks/run-hook.cmd\" session-start",
+            "shell": "bash"
           }
         ]
       }
@@ -63,7 +68,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "command -v node >/dev/null 2>&1 && node \".claude/hooks/ponytail/hooks/ponytail-mode-tracker.js\" || exit 0",
+            "command": "node",
+            "args": [".claude/hooks/ponytail/hooks/ponytail-mode-tracker.js"],
             "timeout": 5,
             "statusMessage": "Tracking ponytail mode..."
           }
@@ -73,8 +79,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "command -v node >/dev/null 2>&1 && node \".claude/hooks/ponytail/hooks/ponytail-mode-tracker.js\" || exit 0",
-            "commandWindows": "if (Get-Command node -ErrorAction SilentlyContinue) { node \"$env:CLAUDE_PLUGIN_ROOT\\hooks\\ponytail-mode-tracker.js\" }",
+            "command": "node",
+            "args": [".claude/hooks/ponytail/hooks/ponytail-mode-tracker.js"],
             "timeout": 5,
             "statusMessage": "Tracking ponytail mode..."
           }
