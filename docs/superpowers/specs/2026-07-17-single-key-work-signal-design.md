@@ -1,5 +1,20 @@
 # Single-Key Work Signal Design
 
+> **Superseded (2026-08-24):** the arm-then-wait-for-output mechanism this
+> doc describes (`pending_work_signal`/`consume_pending_work_signal` for the
+> single-key case) has been replaced by a direct commit through the same
+> `mark_committed_input_working` path a completed line already uses — no
+> output confirmation. The output-gating assumed a TUI's redraw is invisible
+> to this heuristic; Claude Code's own input-box redraw on every keystroke
+> proved that false and caused a live false positive (`working` appearing one
+> keystroke into composing a reply, before submission). The narrow gate
+> below (attention/source/hook/printable-keystroke conjunction) is otherwise
+> unchanged — only the promotion mechanism changed. See the implementation
+> note in `docs/superpowers/specs/2026-07-28-terminal-input-working-status-design.md`
+> ("Narrowed exception") and `docs/superpowers/specs/2026-07-21-committed-input-working-design.md`
+> for the design this now matches. The rest of this document is retained for
+> historical context (the gate rationale and edge cases below still apply).
+
 ## Goal
 
 Restore the `needs_you → working` attention transition for Claude Code sessions
