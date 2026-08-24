@@ -1,16 +1,15 @@
 use crate::runtime::observed_status::{
-    apply_process_transition_to_handle, apply_process_transition_to_meta,
-    process_transition_fields, ProcessTransition,
+    apply_process_transition_to_handle, process_transition_fields, ProcessTransition,
 };
 use crate::runtime::terminal_runtime::{
-    clear_workflow_report_token, clear_workflow_report_token_if_matches, make_pty_system,
+    clear_workflow_report_token_if_matches, make_pty_system,
     new_workflow_report_token,
     schedule_session_ending_finalization, session_env_overrides, set_session_status_for_generation,
     set_workflow_report_token, should_forward_terminal_env, terminal_env_overrides,
 };
 #[cfg(windows)]
 use crate::runtime::terminal_runtime::resolve_windows_program;
-use crate::{harness, metadata, peon, plan_handoff, AppState};
+use crate::{harness, peon, plan_handoff, AppState};
 use chrono::{DateTime, Utc};
 use portable_pty::{CommandBuilder, PtySize, PtySystem};
 use std::collections::VecDeque;
@@ -414,31 +413,6 @@ fn output_recency_timestamp(data: &[u8], timestamp: String) -> Option<String> {
     (!data.is_empty()).then_some(timestamp)
 }
 
-fn should_persist_output_recency(existing: Option<&str>, incoming: &str) -> bool {
-    let Ok(incoming) = DateTime::parse_from_rfc3339(incoming) else {
-        return false;
-    };
-    let Some(existing) = existing else {
-        return true;
-    };
-    let Ok(existing) = DateTime::parse_from_rfc3339(existing) else {
-        return true;
-    };
-    incoming >= existing
-}
-
-fn persist_output_recency(state: &Arc<AppState>, id: &str, timestamp: String) {
-    let ws_guard = state.workspace.lock().unwrap();
-    if let Some(ref ws) = *ws_guard {
-        if let Some(mut meta) = ws.metadata.read_session(id) {
-            if should_persist_output_recency(meta.last_output_at.as_deref(), &timestamp) {
-                meta.last_output_at = Some(timestamp);
-                ws.metadata.write_session(&meta);
-            }
-        }
-    }
-}
-
 async fn flush_output_recency(state: &Arc<AppState>, id: &str) {
     let timestamp = state
         .sessions
@@ -449,7 +423,10 @@ async fn flush_output_recency(state: &Arc<AppState>, id: &str) {
     if let Some(timestamp) = timestamp {
         let state = state.clone();
         let id = id.to_string();
-        let _ = tokio::task::spawn_blocking(move || persist_output_recency(&state, &id, timestamp)).await;
+        let _ = tokio::task::spawn_blocking(move || {
+            crate::session_application::SessionApplication::new(state)
+                .persist_output_recency(&id, timestamp)
+        }).await;
     }
 }
 
@@ -590,47 +567,6 @@ pub(crate) async fn send_runtime_input(
     accepted_rx.await.map_err(|_| ())?
 }
 
-// Serializes every `.terminal-size` write — both the authoritative
-// terminal-status transition (`persist_terminal_size(.., authoritative: true)`
-// in terminal_runtime.rs) and best-effort live-resize persistence below — behind
-// one process-wide lock. `persist_terminal_size` re-reads the session's current
-// state at write time rather than trusting a value captured earlier, so with
-// this lock serializing "read current state, then write" as one atomic step
-// across both callers, whichever write actually runs last always reflects the
-// true current state and there is no interleaving where a stale live-resize
-// value reaches disk after the transition's authoritative write. A dedicated
-// static (rather than a new `AppState` field) keeps this local to the one
-// module that owns terminal-size persistence.
-static TERMINAL_SIZE_WRITE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-/// See `TERMINAL_SIZE_WRITE_LOCK` above. `authoritative` is true only for the
-/// terminal-status transition itself, which must still write even though it
-/// just flipped `lifecycle_phase` to "ending"/"ended"; every other (live-resize)
-/// caller backs off once that phase is observed, since the transition already
-/// owns (or will own) the final write.
-pub(crate) fn persist_terminal_size(state: &Arc<AppState>, id: &str, authoritative: bool) {
-    let _write_guard = TERMINAL_SIZE_WRITE_LOCK.lock().unwrap();
-    let snapshot = {
-        let sessions = state.sessions.lock().unwrap();
-        sessions.get(id).map(|handle| {
-            (
-                matches!(handle.info.lifecycle_phase.as_str(), "ending" | "ended"),
-                handle.runtime.last_cols,
-                handle.runtime.last_rows,
-            )
-        })
-    };
-    let Some((is_terminal, cols, rows)) = snapshot else {
-        return;
-    };
-    if is_terminal && !authoritative {
-        return;
-    }
-    if let Some(ref ws) = *state.workspace.lock().unwrap() {
-        ws.metadata.write_terminal_size(id, cols, rows);
-    }
-}
-
 pub(crate) async fn update_runtime_size(
     state: &Arc<AppState>,
     id: &str,
@@ -656,8 +592,11 @@ pub(crate) async fn update_runtime_size(
     if changed {
         let state = state.clone();
         let id = id.to_string();
-        let _ = tokio::task::spawn_blocking(move || persist_terminal_size(&state, &id, false))
-            .await;
+        let _ = tokio::task::spawn_blocking(move || {
+            crate::session_application::SessionApplication::new(state)
+                .persist_terminal_size(&id, false)
+        })
+        .await;
     }
     tx.send(RuntimeCommand::Resize { rows, cols })
         .await
@@ -727,37 +666,6 @@ async fn capture_startup_runtime_state(
     (initial_size, pending_commands)
 }
 
-/// Clears per-session in-memory side tables once a session's PTY process is
-/// gone (naturally exited, wait-errored, or failed to finish setup). The pid
-/// removal in particular matters: once the process is gone its pid could be
-/// reused by an unrelated OS process, so a stale entry left behind risks a
-/// future live-cwd probe (issue #241) attributing a stranger's cwd to this
-/// session.
-pub(crate) fn clear_ended_session_tracking(state: &AppState, id: &str) {
-    state.peon.last_output.write().unwrap().remove(id);
-    state.peon.last_inference.write().unwrap().remove(id);
-    state.peon.input_buf.write().unwrap().remove(id);
-    state.peon.reported_cwd.write().unwrap().remove(id);
-    state.session_pids.lock().unwrap().remove(id);
-    // ADR 0042: a dead session's reporting capability must stop working
-    // immediately, even if a caller captured the token beforehand.
-    clear_workflow_report_token(id);
-}
-
-/// Clears state that is only retained while a session remains resumable. This
-/// is separate from PTY-exit cleanup because a killed session can still be
-/// resumed, while forgotten/retention-deleted sessions cannot.
-///
-/// Also clears any queued label work: once the session is gone, `peon_loop`
-/// bails out early on a missing session handle (see the `sessions.get`
-/// checks in `peon_runtime.rs`) and would otherwise leave an orphaned
-/// `label_hint`/`label_pending` entry queued forever.
-pub(crate) fn clear_forgotten_session_tracking(state: &AppState, id: &str) {
-    state.peon.label_epochs.write().unwrap().remove(id);
-    state.peon.label_hint.write().unwrap().remove(id);
-    state.peon.label_pending.write().unwrap().remove(id);
-}
-
 /// Applies an exit callback only while its runtime generation still owns the
 /// session ID. Marking the handle as ending first prevents resume admission
 /// from replacing it while the remaining runtime-owned side tables are
@@ -796,7 +704,8 @@ pub(crate) async fn handle_runtime_exit(
         handle.runtime.attached_generation = None;
         handle.terminal_attached = false;
     }
-    clear_ended_session_tracking(state, id);
+    crate::session_application::SessionApplication::new(state.clone())
+        .clear_ended_session_tracking(id);
     flush_output_recency(state, id).await;
     schedule_session_ending_finalization(
         state.clone(),
@@ -832,7 +741,8 @@ fn abort_post_spawn_startup(
         return false;
     };
 
-    clear_ended_session_tracking(state, id);
+    crate::session_application::SessionApplication::new(state.clone())
+        .clear_ended_session_tracking(id);
     if lifecycle_phase != "ending" {
         return false;
     }
@@ -1021,10 +931,8 @@ pub(crate) async fn start_session_runtime(
             let st = persist_state.clone();
             let i = persist_id.clone();
             let _ = tokio::task::spawn_blocking(move || {
-                let ws_guard = st.workspace.lock().unwrap();
-                if let Some(ref ws) = *ws_guard {
-                    ws.metadata.append_terminal_output_records(&i, &lines);
-                }
+                crate::session_application::SessionApplication::new(st)
+                    .append_terminal_output_batch(&i, &lines);
             })
             .await;
         }
@@ -1207,7 +1115,8 @@ pub(crate) async fn start_session_runtime(
                                 let state = driver_state.clone();
                                 let id = driver_id.clone();
                                 tokio::task::spawn_blocking(move || {
-                                    persist_output_recency(&state, &id, timestamp)
+                                    crate::session_application::SessionApplication::new(state)
+                                        .persist_output_recency(&id, timestamp)
                                 });
                             }
                             if let Some(delay) = output_flush_delay {
@@ -1232,38 +1141,20 @@ pub(crate) async fn start_session_runtime(
                                 .iter()
                                 .find_map(|line| plan_handoff::printed_plan_path(line.text()))
                             {
-                                let ws_guard = driver_state.workspace.lock().unwrap();
-                                if let Some(ref ws) = *ws_guard {
-                                    if plan_handoff::resolve_openable_plan(&ws.path, &plan_path).is_ok() {
-                                        if let Some(mut meta) = ws.metadata.read_session(&driver_id) {
-                                            if meta.plan_path.is_none()
-                                                && !ws.metadata.plan_path_is_explicitly_cleared(&driver_id)
-                                            {
-                            meta.plan_path = Some(crate::metadata::PlanReference {
-                                worktree_root: Some(ws.path.to_string_lossy().into_owned()),
-                                relative_path: plan_path,
-                                source: crate::metadata::PlanSource::TerminalFallback,
-                            });
-                                                ws.metadata.write_session(&meta);
-                                            }
-                                        }
-                                    }
-                                }
+                                crate::session_application::SessionApplication::new(
+                                    driver_state.clone(),
+                                )
+                                .persist_printed_plan_fallback(&driver_id, &plan_path);
                             }
 
-                            {
-                                let ws_guard = driver_state.workspace.lock().unwrap();
-                                if let Some(ref ws) = *ws_guard {
-                                    if let Some(mut meta) = ws.metadata.read_session(&driver_id) {
-                                        if promoted_working {
-                                            let fields = process_transition_fields(
-                                                ProcessTransition::CommittedWorking,
-                                            );
-                                            apply_process_transition_to_meta(&mut meta, &fields);
-                                            ws.metadata.write_session(&meta);
-                                        }
-                                    }
-                                }
+                            if promoted_working {
+                                crate::session_application::SessionApplication::new(
+                                    driver_state.clone(),
+                                )
+                                .persist_process_transition(
+                                    &driver_id,
+                                    ProcessTransition::CommittedWorking,
+                                );
                             }
 
                             if !raw_persist_lines.is_empty() {
@@ -1309,10 +1200,8 @@ pub(crate) async fn start_session_runtime(
                                 drop(persist_tx);
                                 let _ = persist_writer.await;
                                 let _ = tokio::task::spawn_blocking(move || {
-                                    let ws_guard = trim_state.workspace.lock().unwrap();
-                                    if let Some(ref ws) = *ws_guard {
-                                        ws.metadata.trim_terminal_output(&trim_id, metadata::TERMINAL_OUTPUT_MAX_LINES);
-                                    }
+                                    crate::session_application::SessionApplication::new(trim_state)
+                                        .trim_terminal_output(&trim_id);
                                 })
                                 .await;
                             });
@@ -1351,10 +1240,8 @@ pub(crate) async fn start_session_runtime(
                                 drop(persist_tx);
                                 let _ = persist_writer.await;
                                 let _ = tokio::task::spawn_blocking(move || {
-                                    let ws_guard = trim_state.workspace.lock().unwrap();
-                                    if let Some(ref ws) = *ws_guard {
-                                        ws.metadata.trim_terminal_output(&trim_id, metadata::TERMINAL_OUTPUT_MAX_LINES);
-                                    }
+                                    crate::session_application::SessionApplication::new(trim_state)
+                                        .trim_terminal_output(&trim_id);
                                 })
                                 .await;
                             });
@@ -1446,7 +1333,8 @@ mod tests {
             .unwrap()
             .insert("epoch-cleanup".into(), 3);
 
-        clear_ended_session_tracking(&state, "epoch-cleanup");
+        crate::session_application::SessionApplication::new(state.clone())
+            .clear_ended_session_tracking("epoch-cleanup");
         assert_eq!(
             state
                 .peon
@@ -1457,7 +1345,8 @@ mod tests {
             Some(&3)
         );
 
-        clear_forgotten_session_tracking(&state, "epoch-cleanup");
+        crate::session_application::SessionApplication::new(state.clone())
+            .clear_forgotten_session_tracking("epoch-cleanup");
         assert!(!state
             .peon
             .label_epochs
@@ -1483,7 +1372,8 @@ mod tests {
             .unwrap()
             .insert("label-cleanup".into());
 
-        clear_forgotten_session_tracking(&state, "label-cleanup");
+        crate::session_application::SessionApplication::new(state.clone())
+            .clear_forgotten_session_tracking("label-cleanup");
 
         assert!(!state
             .peon
@@ -1526,22 +1416,6 @@ mod tests {
             Some(std::time::Duration::from_secs(4))
         );
         assert_eq!(runtime.flush_output_recency(), Some(second));
-    }
-
-    #[test]
-    fn output_recency_persistence_never_replaces_a_newer_timestamp() {
-        assert!(!should_persist_output_recency(
-            Some("2026-07-29T10:00:01Z"),
-            "2026-07-29T10:00:00Z",
-        ));
-        assert!(should_persist_output_recency(
-            Some("2026-07-29T10:00:00Z"),
-            "2026-07-29T10:00:01Z",
-        ));
-        assert!(!should_persist_output_recency(
-            Some("2026-07-29T10:00:00Z"),
-            "not-a-timestamp",
-        ));
     }
 
     #[test]
@@ -2974,7 +2848,8 @@ mod tests {
 
     #[test]
     fn persist_terminal_size_authoritative_call_writes_through_ending_phase() {
-        // The terminal-status transition calls persist_terminal_size(.., true)
+        // The terminal-status transition calls the application operation with
+        // `authoritative: true`
         // *after* it has already flipped lifecycle_phase to "ending" — it must
         // still write its own size rather than backing off like a live-resize
         // caller would.
@@ -3007,7 +2882,8 @@ mod tests {
             },
         );
 
-        persist_terminal_size(&state, &id, true);
+        crate::session_application::SessionApplication::new(state.clone())
+            .persist_terminal_size(&id, true);
 
         let ws_guard = state.workspace.lock().unwrap();
         let ws = ws_guard.as_ref().unwrap();
@@ -3016,7 +2892,7 @@ mod tests {
 
     #[test]
     fn persist_terminal_size_non_authoritative_call_always_reads_current_state_not_a_stale_value() {
-        // Unlike the pre-fix implementation, this function takes no cols/rows
+        // Unlike the pre-fix implementation, this operation takes no cols/rows
         // parameters at all — it re-reads whatever is currently in
         // `handle.runtime` at the moment it actually writes. That structurally
         // rules out the race a deferred (spawn_blocking) live-resize write used
@@ -3063,7 +2939,8 @@ mod tests {
             handle.runtime.last_cols = 210;
         }
 
-        persist_terminal_size(&state, &id, false);
+        crate::session_application::SessionApplication::new(state.clone())
+            .persist_terminal_size(&id, false);
 
         let ws_guard = state.workspace.lock().unwrap();
         let ws = ws_guard.as_ref().unwrap();

@@ -1,6 +1,6 @@
 import type { WorkspaceInfo } from "./api";
 import type { AppSettings, DebugSettings, HotkeySettings, RetentionSettings, SaveHotkeysResult } from "./appSettingsTypes";
-import type { ProviderSettings, ProviderModelsResponse, ProviderLabelsResponse, OllamaVerificationResponse } from "./providerTypes";
+import type { ProviderSettings, ProviderModelsResponse, ProviderLabelsResponse, OllamaVerificationResponse, ProviderApplyStatus, RetentionApplyStatus } from "./providerTypes";
 import type { HarnessConfig, IntegrationStatusResult } from "./harnessTypes";
 
 declare global {
@@ -14,9 +14,9 @@ declare global {
       saveLayout: (json: string) => Promise<void>;
       getSettings: () => Promise<AppSettings>;
       saveHotkeys: (hotkeys: HotkeySettings) => Promise<SaveHotkeysResult>;
-      saveRetention: (retention: RetentionSettings) => Promise<{ ok: boolean }>;
+      saveRetention: (retention: RetentionSettings) => Promise<{ ok: boolean; retentionApplyStatus?: RetentionApplyStatus }>;
       saveDebugSettings: (debug: DebugSettings) => Promise<{ ok: true; settings: AppSettings }>;
-      saveProviderSettings: (providers: ProviderSettings) => Promise<{ ok: true; settings: AppSettings }>;
+      saveProviderSettings: (providers: ProviderSettings) => Promise<{ ok: true; settings: AppSettings; providerApplyStatus?: ProviderApplyStatus }>;
       verifyOllama: (baseUrl: string) => Promise<OllamaVerificationResponse>;
       getProviderModels: (providerId: string) => Promise<ProviderModelsResponse>;
       getProviderLabels: () => Promise<ProviderLabelsResponse>;

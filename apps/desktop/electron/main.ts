@@ -9,7 +9,7 @@ import { readLayoutMemory, writeLayoutMemory } from "./layoutMemory";
 import type { AppSettings } from "./settingsMemory";
 import { DEFAULT_HOTKEYS, DEFAULT_RETENTION, loadSettingsForStartup, normalizeDebugSettings, normalizeProviderSettings, normalizeRetention, readSettings, settingsWithHotkeys, validateHotkeys, writeSettings } from "./settingsMemory";
 import { pushProviderSettings } from "./providerSettingsSync";
-import type { ProviderSettings } from "./providerTypes";
+import type { ProviderApplyStatus, ProviderSettings } from "./providerTypes";
 import { buildMenuTemplate } from "./menuTemplate";
 import { getSessionPlanContent, requestSessionPlanReview, selectTerminalPlan } from "./planOpener";
 import { configureExternalLinks, openExternalLink } from "./externalLinks";
@@ -230,18 +230,29 @@ app.whenReady().then(() => {
     writeSettings(app.getPath("userData"), nextSettings);
     currentSettings = nextSettings;
 
+    let retentionApplyStatus: ProviderApplyStatus = {
+      appliedRevision: null,
+      appliedAt: null,
+      lastApplyError: null,
+    };
     try {
       const port = await portPromise;
-      await fetch(`http://127.0.0.1:${port}/settings/retention`, {
+      const response = await fetch(`http://127.0.0.1:${port}/settings/retention`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(nextSettings.retention),
       });
+      retentionApplyStatus = {
+        appliedRevision: null,
+        appliedAt: response.ok ? new Date().toISOString() : null,
+        lastApplyError: response.ok ? null : `settings push failed: ${response.status}`,
+      };
     } catch {
       console.warn("[main] failed to push retention to sidecar (will retry on next save)");
+      retentionApplyStatus.lastApplyError = "settings push failed";
     }
 
-    return { ok: true };
+    return { ok: true, retentionApplyStatus };
   });
 
   ipcMain.handle("save-debug-settings", async (_event, debug: unknown) => {
@@ -271,11 +282,11 @@ app.whenReady().then(() => {
     currentSettings = nextSettings;
 
     const port = await portPromise;
-    await pushProviderSettings(`http://127.0.0.1:${port}`, nextSettings.providers);
+    const providerApplyStatus = await pushProviderSettings(`http://127.0.0.1:${port}`, nextSettings.providers);
 
     providerModels.delete("ollama");
 
-    return { ok: true, settings: rendererSettings(currentSettings) };
+    return { ok: true, settings: rendererSettings(currentSettings), providerApplyStatus };
   });
 
   ipcMain.handle("verify-ollama", async (_event, baseUrl: string) => {

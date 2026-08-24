@@ -19,7 +19,10 @@ test("preload and window typing expose verifyOllama", () => {
 
 test("SettingsModal guards against stale verification results", () => {
   const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
-  assert.match(source, /verifyRequestRef/);
+  assert.match(source, /const verifyRequestRef = useRef\(0\)/);
+  assert.match(source, /const requestId = \+\+verifyRequestRef\.current/);
+  assert.match(source, /if \(requestId !== verifyRequestRef\.current\) return/);
+  assert.match(source, /verifyRequestRef\.current\+\+/);
   assert.match(source, /setOllamaVerification\(\{ phase: "idle" }\)/);
   assert.doesNotMatch(source, /result\.normalizedBaseUrl !== normalizedDraft/);
 });

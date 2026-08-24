@@ -1,13 +1,21 @@
 use crate::harness::registry::ResolvedHarness;
-use crate::plan_handoff::{normalize_reported_plan_path, resolve_openable_plan_reference, resolve_printed_plan_path};
+use crate::plan_handoff::resolve_openable_plan_reference;
 use crate::session_types::{MemoryState, SessionInfo};
 use crate::session_view::{
     connectivity_for_status, derive_memory_state, detect_conflicts, merge_live_session_info,
     resolve_effective_cwds, session_recommendation, terminal_outcome_for_status,
 };
-use crate::workspace_runtime::{iso_now, orkworks_global_dir, parse_hook_observed_at};
-use crate::{
-    git, harness, metadata, migration, peon, watcher, AppState, SessionHandle, WorkspaceState,
+use crate::{git, harness, metadata, peon, AppState, SessionHandle};
+#[cfg(test)]
+use crate::workspace_runtime::orkworks_global_dir;
+#[cfg(test)]
+use crate::{watcher, WorkspaceState};
+#[cfg(test)]
+use crate::session_application::{
+    resolve_session_launch, CreateSessionCommand,
+};
+use crate::session_application::{
+    try_install_claimed_resume_handle, DebugAttentionSignal, SessionApplication, SessionError,
 };
 use axum::{
     extract::{Path, State},
@@ -15,7 +23,6 @@ use axum::{
     response::IntoResponse,
     Json,
 };
-use portable_pty::PtySize;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -122,24 +129,9 @@ pub(crate) async fn get_session_plan_content(
     if let Err(status) = authorize_plan_request(&headers) {
         return status.into_response();
     }
-    let (workspace_root, plan_path) = {
-        let workspace = state.workspace.lock().unwrap();
-        let Some(workspace) = workspace.as_ref() else {
-            return axum::http::StatusCode::CONFLICT.into_response();
-        };
-        let Some(metadata) = workspace.metadata.read_session(&id) else {
-            return axum::http::StatusCode::NOT_FOUND.into_response();
-        };
-        let Some(plan_path) = metadata.plan_path else {
-            return axum::http::StatusCode::CONFLICT.into_response();
-        };
-        (workspace.path.clone(), plan_path)
-    };
-    match resolve_openable_plan_reference(&workspace_root, &plan_path)
-        .and_then(|path| std::fs::read_to_string(path).map_err(|error| error.to_string()))
-    {
+    match SessionApplication::new(state).read_plan_content(&id) {
         Ok(content) => Json(PlanContentResponse { content }).into_response(),
-        Err(_) => axum::http::StatusCode::CONFLICT.into_response(),
+        Err(error) => application_error_response(error),
     }
 }
 
@@ -148,72 +140,14 @@ pub(crate) async fn request_session_plan_review(
     Path(id): Path<String>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    if let Err(status) = authorize_plan_request(&headers) { return status.into_response(); }
-    let plan_path = {
-        let workspace = state.workspace.lock().unwrap();
-        let Some(workspace) = workspace.as_ref() else { return axum::http::StatusCode::CONFLICT.into_response(); };
-        let Some(meta) = workspace.metadata.read_session(&id) else { return axum::http::StatusCode::NOT_FOUND.into_response(); };
-        if meta.lifecycle != "alive" { return axum::http::StatusCode::CONFLICT.into_response(); }
-        let Some(path) = meta.plan_path else { return axum::http::StatusCode::CONFLICT.into_response(); };
-        let resolved = match resolve_openable_plan_reference(&workspace.path, &path) {
-            Ok(path) => path,
-            Err(_) => return axum::http::StatusCode::CONFLICT.into_response(),
-        };
-        let launch_root = std::path::Path::new(&meta.cwd).canonicalize().ok();
-        let selected_root = path
-            .worktree_root
-            .as_deref()
-            .and_then(|root| std::path::Path::new(root).canonicalize().ok());
-        if selected_root.is_some() && selected_root != launch_root {
-            resolved.to_string_lossy().into_owned()
-        } else {
-            path.relative_path
-        }
-    };
-    let prompt = format!("Please review the plan or specification at {plan_path}. If your tooling can spawn a separate review subagent, delegate the review to it instead of reviewing your own work; otherwise review it yourself. Check for missing requirements, risky assumptions, and unclear steps, then report the findings.\r");
-    match crate::runtime::terminal_runtime::submit_approved_input(&state, &id, prompt).await {
-        Ok(()) => {
-            if let Some(workspace) = state.workspace.lock().unwrap().as_ref() {
-                workspace.metadata.append_event(&id, &metadata::Event {
-                    event_type: "plan_review_requested".into(), timestamp: iso_now(), status: "working".into(),
-                    observed_status: Some("working".into()), confidence: None, summary: Some("User requested plan review.".into()), source: Some("user".into()),
-                });
-            }
-            axum::http::StatusCode::NO_CONTENT.into_response()
-        }
-        Err(()) => axum::http::StatusCode::CONFLICT.into_response(),
+    if let Err(status) = authorize_plan_request(&headers) {
+        return status.into_response();
     }
-}
-
-pub(crate) async fn select_terminal_plan(
-    State(state): State<Arc<AppState>>,
-    Path(id): Path<String>,
-    headers: HeaderMap,
-    Json(req): Json<TerminalPlanSelectionRequest>,
-) -> impl IntoResponse {
-    if let Err(status) = authorize_plan_request(&headers) { return status.into_response(); }
-    let result = tokio::task::spawn_blocking(move || {
-        let workspace = state.workspace.lock().unwrap();
-        let Some(workspace) = workspace.as_ref() else { return Err(axum::http::StatusCode::CONFLICT); };
-        let Some(mut meta) = workspace.metadata.read_session(&id) else { return Err(axum::http::StatusCode::NOT_FOUND); };
-        let (worktree_root, relative_path) = resolve_printed_plan_path(std::path::Path::new(&meta.cwd), &req.printed_path)
-            .map_err(|error| {
-                tracing::warn!(session_id = %id, printed_path = %req.printed_path, %error, "select_terminal_plan: plan path resolution failed");
-                axum::http::StatusCode::CONFLICT
-            })?;
-        meta.plan_path = Some(metadata::PlanReference {
-            worktree_root: Some(worktree_root.to_string_lossy().into_owned()),
-            relative_path,
-            source: metadata::PlanSource::UserSelected,
-        });
-        workspace.metadata.try_write_session(&meta).map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
-        workspace.metadata.append_event(&id, &metadata::Event {
-            event_type: "session.plan_selected_by_user".into(), timestamp: iso_now(), status: meta.status.clone(),
-            observed_status: meta.observed_status.clone(), confidence: Some(1.0), summary: None, source: Some("user".into()),
-        });
-        Ok(())
-    }).await;
-    match result { Ok(Ok(())) => axum::http::StatusCode::NO_CONTENT.into_response(), Ok(Err(status)) => status.into_response(), Err(_) => axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response() }
+    SessionApplication::new(state)
+        .request_plan_review(&id)
+        .await
+        .map(|_| axum::http::StatusCode::NO_CONTENT.into_response())
+        .unwrap_or_else(application_error_response)
 }
 
 pub(crate) async fn report_session_plan_path(
@@ -222,41 +156,11 @@ pub(crate) async fn report_session_plan_path(
     Json(req): Json<PlanPathReportRequest>,
 ) -> impl IntoResponse {
     let result = tokio::task::spawn_blocking(move || {
-        let workspace = state.workspace.lock().unwrap();
-        let Some(workspace) = workspace.as_ref() else { return Err(axum::http::StatusCode::CONFLICT); };
-        let Some(mut metadata) = workspace.metadata.read_session(&id) else { return Err(axum::http::StatusCode::NOT_FOUND); };
-        if metadata.lifecycle != "alive" { return Err(axum::http::StatusCode::CONFLICT); }
-        if metadata.plan_path.as_ref().is_some_and(|reference| reference.source == metadata::PlanSource::UserSelected) {
-            return Ok(());
-        }
-        let relative = normalize_reported_plan_path(&workspace.path, &req.plan_path)
-            .map_err(|_| axum::http::StatusCode::BAD_REQUEST)?;
-        metadata.plan_path = Some(metadata::PlanReference {
-            worktree_root: Some(workspace.path.to_string_lossy().into_owned()),
-            relative_path: relative,
-            source: metadata::PlanSource::HookReported,
-        });
-        // The session JSON is the source of truth. Use the fallible writer
-        // and only append the hooked event when the write actually
-        // landed, so the event log cannot claim a path association that
-        // the session file does not reflect.
-        workspace
-            .metadata
-            .try_write_session(&metadata)
-            .map_err(|error| {
-                tracing::error!(error = %error, session = %id, "plan path session write failed");
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR
-            })?;
-        workspace.metadata.append_event(&id, &metadata::Event {
-            event_type: "session.plan_path_hooked".into(), timestamp: iso_now(), status: metadata.status.clone(),
-            observed_status: metadata.observed_status.clone(), confidence: Some(1.0),
-            summary: None, source: Some("agent".into()),
-        });
-        Ok(())
+        SessionApplication::new(state).report_plan_path(&id, &req.plan_path)
     }).await;
     match result {
         Ok(Ok(())) => axum::http::StatusCode::NO_CONTENT.into_response(),
-        Ok(Err(status)) => status.into_response(),
+        Ok(Err(error)) => application_error_response(error),
         Err(error) => { tracing::error!(error = %error, "plan path metadata task failed"); axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response() }
     }
 }
@@ -265,600 +169,153 @@ pub(crate) async fn set_workspace(
     State(state): State<Arc<AppState>>,
     Json(req): Json<WorkspaceRequest>,
 ) -> impl IntoResponse {
-    let ws_path = PathBuf::from(&req.path);
-    if !ws_path.is_dir() {
-        return (axum::http::StatusCode::BAD_REQUEST, "not a directory").into_response();
+    match SessionApplication::new(state).open_workspace(PathBuf::from(&req.path)) {
+        Ok(snapshot) => Json(WorkspaceResponse {
+            path: snapshot.path,
+            repo_root: snapshot.repo_root,
+            branch: snapshot.branch,
+            dirty: snapshot.dirty,
+            last_active_session_id: snapshot.last_active_session_id,
+            active_harness_ids: snapshot.active_harness_ids,
+        })
+        .into_response(),
+        Err(crate::session_application::SessionError::BadRequest(message)) => {
+            (axum::http::StatusCode::BAD_REQUEST, message).into_response()
+        }
+        Err(crate::session_application::SessionError::Internal(message)) => {
+            (axum::http::StatusCode::INTERNAL_SERVER_ERROR, message).into_response()
+        }
+        Err(_) => axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
-
-    let global_dir = match orkworks_global_dir(&ws_path) {
-        Some(d) => d,
-        None => {
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                "no home directory",
-            )
-                .into_response();
-        }
-    };
-    for dir in &["sessions", "events", "capacity", "skills"] {
-        if let Err(e) = std::fs::create_dir_all(global_dir.join(dir)) {
-            tracing::warn!(path = %global_dir.display(), dir = dir, error = %e, "failed to create metadata dir");
-        }
-    }
-
-    let store = metadata::MetadataStore::new(&global_dir);
-
-    migration::migrate_if_needed(&ws_path, &global_dir);
-
-    let memory = store.read_workspace_memory();
-    let last_active_session_id = memory
-        .as_ref()
-        .and_then(|m| m.last_active_session_id.clone());
-    let active_harness_ids = memory.map(|m| m.active_harness_ids).unwrap_or_default();
-    let watch_dir = global_dir.join("sessions");
-    let watcher = watcher::MetadataWatcher::start(&watch_dir);
-
-    let workflow_observations = match crate::workflow_observations::WorkflowObservationStore::open(
-        global_dir.clone(),
-    ) {
-        Ok(store) => store,
-        Err(e) => {
-            tracing::warn!(path = %global_dir.display(), error = %e, "failed to open workflow observation store");
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                "failed to open workflow observation store",
-            )
-                .into_response();
-        }
-    };
-    let recommendation_store = match crate::taskmaster::store::RecommendationStore::open(
-        global_dir.clone(),
-    ) {
-        Ok(store) => store,
-        Err(e) => {
-            tracing::warn!(path = %global_dir.display(), error = %e, "failed to open recommendation store");
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                "failed to open recommendation store",
-            )
-                .into_response();
-        }
-    };
-    let retained_session_ids = store
-        .read_all_sessions()
-        .into_iter()
-        .map(|session| session.id)
-        .collect::<std::collections::HashSet<_>>();
-    if let Err(e) = recommendation_store.scrub_orphans(&retained_session_ids) {
-        tracing::warn!(path = %global_dir.display(), error = %e, "failed to scrub orphaned recommendations");
-        return (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            "failed to scrub orphaned recommendations",
-        )
-            .into_response();
-    }
-
-    let mut ws = state.workspace.lock().unwrap();
-    *ws = Some(WorkspaceState {
-        path: ws_path.clone(),
-        metadata: store,
-        workflow_observations,
-        recommendation_store,
-        watcher,
-    });
-    state.bump_harness_probe_generation();
-
-    // Reconcile sessions left in "running"/"creating" from a previous daemon
-    // run. This handler also re-runs whenever the Electron app alone
-    // restarts and reconnects to an already-running (detached) sidecar, in
-    // which case state.sessions is NOT empty and still holds live handles —
-    // only a session with no matching in-memory handle is actually orphaned.
-    if let Some(ref ws) = *ws {
-        let now = iso_now();
-        let live_ids: std::collections::HashSet<String> =
-            state.sessions.lock().unwrap().keys().cloned().collect();
-        for meta in ws.metadata.read_all_sessions() {
-            if (meta.status == "running" || meta.status == "creating")
-                && !live_ids.contains(&meta.id)
-            {
-                ws.metadata
-                    .write_session(&metadata::reconcile_orphaned_session(meta, &now));
-            }
-        }
-    }
-
-    drop(ws);
-    crate::taskmaster::evaluator::schedule_evaluation(state.clone());
-
-    let git_ctx = git::detect(&ws_path);
-
-    Json(WorkspaceResponse {
-        path: req.path,
-        repo_root: git_ctx.repo_root,
-        branch: git_ctx.branch,
-        dirty: Some(git_ctx.dirty),
-        last_active_session_id,
-        active_harness_ids,
-    })
-    .into_response()
 }
 
 pub(crate) async fn set_active_session(
     State(state): State<Arc<AppState>>,
     Json(req): Json<ActiveSessionRequest>,
 ) -> impl IntoResponse {
-    let now = iso_now();
-    let ws_guard = state.workspace.lock().unwrap();
-    if let Some(ref ws) = *ws_guard {
-        let existing = ws.metadata.read_workspace_memory();
-        ws.metadata
-            .write_workspace_memory(&metadata::WorkspaceMemory {
-                last_active_session_id: Some(req.session_id),
-                last_active_at: Some(now),
-                active_harness_ids: existing.map(|m| m.active_harness_ids).unwrap_or_default(),
-            });
-        return axum::http::StatusCode::OK;
+    match SessionApplication::new(state).set_active_session(&req.session_id) {
+        Ok(()) => axum::http::StatusCode::OK,
+        Err(crate::session_application::SessionError::Conflict) => axum::http::StatusCode::CONFLICT,
+        Err(_) => axum::http::StatusCode::INTERNAL_SERVER_ERROR,
     }
-    axum::http::StatusCode::CONFLICT
 }
 
 pub(crate) async fn set_active_harnesses(
     State(state): State<Arc<AppState>>,
     Json(req): Json<ActiveHarnessesRequest>,
 ) -> impl IntoResponse {
-    let now = iso_now();
-    let ws_guard = state.workspace.lock().unwrap();
-    if let Some(ref ws) = *ws_guard {
-        let existing = ws.metadata.read_workspace_memory();
-        ws.metadata
-            .write_workspace_memory(&metadata::WorkspaceMemory {
-                last_active_session_id: existing
-                    .as_ref()
-                    .and_then(|m| m.last_active_session_id.clone()),
-                last_active_at: Some(now),
-                active_harness_ids: req.active_harness_ids,
-            });
-        return axum::http::StatusCode::OK;
-    }
-    axum::http::StatusCode::CONFLICT
-}
-
-fn resume_handle_conflicts(
-    handle: &SessionHandle,
-    metadata_ended: bool,
-    has_tracked_pid: bool,
-) -> bool {
-    handle.info.lifecycle_phase == "ending"
-        || handle.resume_in_progress
-        || handle.terminal_attached
-        || !metadata_ended
-        || has_tracked_pid
-}
-
-struct ResumeRollback {
-    workspace_path: PathBuf,
-    metadata: metadata::SessionMetadata,
-    terminal_size: Option<(u16, u16)>,
-}
-
-struct ResumeAdmission {
-    state: Arc<AppState>,
-    id: String,
-    generation: crate::runtime::session_runtime::RuntimeGeneration,
-    previous_handle: Option<SessionHandle>,
-    rollback: Option<ResumeRollback>,
-    committed: bool,
-}
-
-impl ResumeAdmission {
-    fn generation(&self) -> crate::runtime::session_runtime::RuntimeGeneration {
-        self.generation
-    }
-
-    fn arm_rollback(
-        &mut self,
-        workspace_path: PathBuf,
-        metadata: metadata::SessionMetadata,
-        terminal_size: Option<(u16, u16)>,
-    ) {
-        self.rollback = Some(ResumeRollback {
-            workspace_path,
-            metadata,
-            terminal_size,
-        });
-    }
-
-    fn commit(mut self) {
-        self.committed = true;
-        self.previous_handle = None;
-        self.rollback = None;
+    match SessionApplication::new(state).set_active_harnesses(req.active_harness_ids) {
+        Ok(()) => axum::http::StatusCode::OK,
+        Err(crate::session_application::SessionError::Conflict) => axum::http::StatusCode::CONFLICT,
+        Err(_) => axum::http::StatusCode::INTERNAL_SERVER_ERROR,
     }
 }
 
-impl Drop for ResumeAdmission {
-    fn drop(&mut self) {
-        if self.committed {
-            return;
-        }
-
-        let restored_generation = {
-            let mut sessions = self.state.sessions.lock().unwrap();
-            if !sessions.get(&self.id).is_some_and(|handle| {
-                handle.runtime.run_generation() == self.generation
-                    && handle.resume_in_progress
-                    && !handle.runtime.startup_spawned()
-            }) {
-                None
-            } else {
-                match self.previous_handle.take() {
-                    Some(previous) => {
-                        let generation = previous.runtime.run_generation();
-                        sessions.insert(self.id.clone(), previous);
-                        Some(Some(generation))
-                    }
-                    None => {
-                        sessions.remove(&self.id);
-                        Some(None)
-                    }
-                }
-            }
-        };
-        let Some(restored_generation) = restored_generation else {
-            return;
-        };
-
-        let Some(rollback) = self.rollback.take() else {
-            return;
-        };
-        let ws_guard = self.state.workspace.lock().unwrap();
-        let Some(ws) = ws_guard
-            .as_ref()
-            .filter(|workspace| workspace.path == rollback.workspace_path)
-        else {
-            return;
-        };
-        // Another resume may claim the restored handle while cancellation is
-        // waiting for the workspace lock. Recheck the post-rollback registry
-        // state and keep the sessions lock through both persisted restorations
-        // so a newer generation can never be overwritten after this check.
-        let sessions = self.state.sessions.lock().unwrap();
-        let still_owns_persisted_rollback = match restored_generation {
-            Some(generation) => sessions
-                .get(&self.id)
-                .is_some_and(|handle| handle.runtime.run_generation() == generation),
-            None => !sessions.contains_key(&self.id),
-        };
-        if !still_owns_persisted_rollback {
-            return;
-        }
-        ws.metadata.write_session(&rollback.metadata);
-        match rollback.terminal_size {
-            Some((cols, rows)) => ws.metadata.write_terminal_size(&self.id, cols, rows),
-            None => ws.metadata.clear_terminal_size(&self.id),
-        }
-    }
-}
-
-fn try_install_claimed_resume_handle(
-    state: &Arc<AppState>,
-    id: &str,
-    mut replacement: SessionHandle,
-    metadata_ended: bool,
-    expected_generation: Option<crate::runtime::session_runtime::RuntimeGeneration>,
-) -> Result<ResumeAdmission, ()> {
-    // The caller performs the persisted-metadata recheck immediately before
-    // admission. Keeping this helper free of the workspace lock is essential:
-    // rollback tests and callers may deliberately hold that lock while
-    // coordinating generation replacement.
-    let mut sessions = state.sessions.lock().unwrap();
-    let current_generation = sessions
-        .get(id)
-        .map(|handle| handle.runtime.run_generation());
-    let has_tracked_pid = state.session_pids.lock().unwrap().contains_key(id);
-    if current_generation != expected_generation
-        || !metadata_ended
-        || has_tracked_pid
-        || sessions
-            .get(id)
-            .is_some_and(|handle| resume_handle_conflicts(handle, metadata_ended, has_tracked_pid))
-    {
-        return Err(());
-    }
-
-    replacement.resume_in_progress = true;
-    let generation = replacement.runtime.run_generation();
-    let previous_handle = sessions.insert(id.to_string(), replacement);
-    Ok(ResumeAdmission {
-        state: state.clone(),
-        id: id.to_string(),
-        generation,
-        previous_handle,
-        rollback: None,
-        committed: false,
-    })
+pub(crate) async fn create_session(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<CreateSessionRequest>,
+) -> axum::response::Response {
+    SessionApplication::new(state)
+        .create_session(crate::session_application::CreateSessionCommand {
+            harness_id: req.harness_id,
+            model: req.model,
+            initial_prompt: req.initial_prompt,
+        })
+        .await
+        .map(|info| Json(info).into_response())
+        .unwrap_or_else(application_error_response)
 }
 
 pub(crate) async fn resume_session(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
-) -> impl IntoResponse {
-    let now = iso_now();
-    let expected_generation = state
-        .sessions
-        .lock()
-        .unwrap()
-        .get(&id)
-        .map(|handle| handle.runtime.run_generation());
-    let registry = state
-        .harness_catalog
-        .read()
-        .expect("harness catalog lock poisoned")
-        .clone();
-    let (meta, command, strategy, resume_flags, capacity_check_pending, active_work_hook) = {
-        let ws_guard = state.workspace.lock().unwrap();
-        let Some(ref ws) = *ws_guard else {
-            return axum::http::StatusCode::CONFLICT.into_response();
-        };
-        let Some(meta) = ws.metadata.read_session(&id) else {
-            return axum::http::StatusCode::NOT_FOUND.into_response();
-        };
-        let Some(resume) = meta.resume.as_ref() else {
-            return axum::http::StatusCode::BAD_REQUEST.into_response();
-        };
-        let session_harness_id = (!meta.harness.is_empty()).then_some(meta.harness.as_str());
-        let harness = session_harness_id
-            .and_then(|id| registry.get(id))
-            .or_else(|| registry.get("generic-shell"))
-            .expect("generic-shell builtin exists");
-        let active_work_hook = harness
-            .effective_capabilities
-            .contains(&crate::harness::registry::CapabilityName::Attention);
-        let strategy = harness.select_resume_strategy(resume);
-        if strategy == harness::ResumeStrategy::None {
-            return axum::http::StatusCode::BAD_REQUEST.into_response();
-        }
-        let Some(command) = harness.build_resume(
-            strategy.clone(),
-            &meta.cwd,
-            resume.harness_session_id.as_deref(),
-            meta.repo_root.as_deref(),
-            (!meta.model.is_empty()).then_some(meta.model.as_str()),
-        ) else {
-            return axum::http::StatusCode::BAD_REQUEST.into_response();
-        };
-        (
-            meta,
-            command,
-            strategy,
-            harness.resume_flags(),
-            !harness.capacity_patterns().is_empty(),
-            active_work_hook,
-        )
-    };
+) -> axum::response::Response {
+    SessionApplication::new(state)
+        .resume_session(&id)
+        .await
+        .map(|info| Json(info).into_response())
+        .unwrap_or_else(application_error_response)
+}
 
-    let (kill_tx, _kill_rx) = tokio::sync::watch::channel(false);
-    let info = SessionInfo {
-        id: id.clone(),
-        label: meta.label.clone(),
-        harness_id: (!meta.harness.is_empty()).then(|| meta.harness.clone()),
-        model_provider_id: meta.provider_id.clone(),
-        model_id: (!meta.model.is_empty()).then(|| meta.model.clone()),
-        harness: (!meta.harness.is_empty()).then(|| meta.harness.clone()),
-        model: (!meta.model.is_empty()).then(|| meta.model.clone()),
-        work_phase: meta.work_phase.clone(),
-        lifecycle_phase: "creating".into(),
-        lifecycle: "creating".into(),
-        attention: None,
-        status: "creating".into(),
-        connectivity: Some(connectivity_for_status("creating").into()),
-        terminal_outcome: terminal_outcome_for_status("creating"),
-        cwd: command.cwd.clone(),
-        created_at: meta.created_at.clone(),
-        last_activity_at: Some(now.clone()),
-        last_output_at: None,
-        // The frozen final state belongs to the previous run; a resumed session
-        // is live again and must not resurface it as attention.
-        final_observed_status: None,
-        observed_status: None,
-        summary: meta.summary.clone(),
-        next_action: meta.next_action.clone(),
-        needs_user_input: None,
-        detected_question: None,
-        suggested_options: None,
-        blocker_description: None,
-        failed_command: None,
-        failed_test: None,
-        capacity_hints: None,
-        at_usage_limit: None,
-        capacity_check_pending: capacity_check_pending.then_some(true),
-        usage_limit_reset_hint: None,
-        metadata_source: Some("process".into()),
-        metadata_confidence: Some(1.0),
-        repo_root: meta.repo_root.clone(),
-        branch: meta.branch.clone(),
-        dirty: meta.dirty,
-        changed_files: meta.changed_files,
-        is_worktree: meta.is_worktree,
-        conflict_warning: None,
-        recommendation: None,
-        peon_last_inference: None,
-        memory_state: MemoryState::Live,
-        resume_strategy: strategy.clone(),
-        resume: meta.resume.clone(),
-        resume_options: metadata::derive_resume_options(
-            &strategy,
-            meta.resume.as_ref(),
-            resume_flags.0,
-            resume_flags.1,
-            resume_flags.2,
-        ),
-        resumed_from: meta.resumed_from.clone(),
-        has_openable_plan: None,
-        provider: meta.provider_label.clone(),
-        provider_model: meta.provider_model.clone(),
-        provider_state: meta.provider_state.clone(),
-    };
-
-    let (runtime, control_rx) = crate::runtime::session_runtime::SessionRuntime::live(
-        crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
-        crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
-    );
-    let output_tx = runtime.output_tx.clone();
-
-    let replacement = SessionHandle {
-        info: info.clone(),
-        active_work_hook,
-        kill_tx: kill_tx.clone(),
-        output_buffer: peon::RingBuffer::new(state.peon.config.max_lines),
-        scan_buf: String::new(),
-        pending_work_signal: None,
-        runtime,
-        terminal_attached: false,
-        resume_in_progress: false,
-        at_usage_limit_latched: false,
-        capacity_check_pending,
-        output_lines_seen: 0,
-        scan_bytes_seen: 0,
-        resume_scan_origin: capacity_check_pending.then_some((0, 0)),
-        pending_capacity_visible_once: false,
-    };
-    let mut admission = {
-        let ws_guard = state.workspace.lock().unwrap();
-        let metadata_ended = ws_guard.as_ref().is_some_and(|ws| {
-            ws.metadata
-                .read_session(&id)
-                .is_some_and(|metadata| metadata.lifecycle_phase == "ended")
-        });
-        match try_install_claimed_resume_handle(
-            &state,
+pub(crate) async fn report_attention(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(req): Json<AttentionReportRequest>,
+) -> axum::response::Response {
+    SessionApplication::new(state)
+        .report_attention(
             &id,
-            replacement,
-            metadata_ended,
-            expected_generation,
-        ) {
-            Ok(admission) => admission,
-            Err(()) => return axum::http::StatusCode::CONFLICT.into_response(),
-        }
-    };
-    let run_generation = admission.generation();
-
-    {
-        let ws_guard = state.workspace.lock().unwrap();
-        if let Some(ref ws) = *ws_guard {
-            admission.arm_rollback(
-                ws.path.clone(),
-                meta.clone(),
-                ws.metadata.read_terminal_size(&id),
-            );
-            // Drop any recorded terminal-size sidecar from the prior run before the
-            // resumed runtime starts. If the daemon exits before the resumed run
-            // reaches another terminal-status transition there is no in-memory
-            // handle to overwrite the size, so leaving the prior grid in place
-            // would replay the new run's output against a stale grid. Clearing
-            // falls back to documented fit-to-container replay for that case.
-            ws.metadata.clear_terminal_size(&id);
-            if let Some(mut stored_meta) = ws.metadata.read_session(&id) {
-                stored_meta.status = "creating".to_string();
-                stored_meta.lifecycle_phase = "creating".to_string();
-                stored_meta.lifecycle = "creating".to_string();
-                stored_meta.attention = None;
-                stored_meta.pending_terminal_status = None;
-                stored_meta.ending_observed_status_snapshot = None;
-                stored_meta.final_observed_status_snapshot = None;
-                stored_meta.observed_status = None;
-                stored_meta.connectivity = connectivity_for_status("creating").to_string();
-                stored_meta.terminal_outcome = None;
-                stored_meta.last_activity = now.clone();
-                stored_meta.resume = meta.resume.clone();
-                stored_meta.resume_options = meta.resume_options.clone();
-                stored_meta.resumed_from = meta.resumed_from.clone();
-                ws.metadata.write_session(&stored_meta);
-            }
-        }
-    }
-
-    let startup_state = state.clone();
-    let startup_id = id.clone();
-    let startup_task = tokio::spawn(async move {
-        let start_result = crate::runtime::session_runtime::start_session_runtime(
-            startup_state.clone(),
-            startup_id.clone(),
-            command,
-            None,
-            control_rx,
-            output_tx,
-            kill_tx.subscribe(),
-            PtySize {
-                rows: crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
-                cols: crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
-                pixel_width: 0,
-                pixel_height: 0,
+            crate::session_application::AttentionSignal {
+                status: req.status,
+                message: req.message,
+                plan_path: req.plan_path,
+                observed_at: req.observed_at,
+                cwd: req.cwd,
             },
         )
-        .await;
-
-        if let Err(error) = &start_result {
-            admission.commit();
-            tracing::error!(session_id = %startup_id, %error, "failed to start resumed session runtime");
-            if crate::runtime::terminal_runtime::set_session_status_for_generation(
-                &startup_state,
-                &startup_id,
-                run_generation,
-                "error",
-            )
-            .await
-            {
-                crate::runtime::terminal_runtime::schedule_session_ending_finalization(
-                    startup_state.clone(),
-                    startup_id.clone(),
-                    run_generation,
-                    "error".into(),
-                );
-            }
-        } else {
-            admission.commit();
-        }
-        start_result
-    });
-    let start_result = startup_task
         .await
-        .map_err(|error| format!("resumed runtime startup task failed: {error}"))
-        .and_then(|result| result);
+        .map(|_| axum::http::StatusCode::OK.into_response())
+        .unwrap_or_else(application_error_response)
+}
 
-    match start_result {
-        Ok(()) => {}
-        Err(error) => {
-            tracing::error!(session_id = %id, %error, "failed to start resumed session runtime");
-            return axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
+pub(crate) async fn select_terminal_plan(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Json(req): Json<TerminalPlanSelectionRequest>,
+) -> axum::response::Response {
+    if let Err(status) = authorize_plan_request(&headers) {
+        return status.into_response();
     }
-    let info = state
-        .sessions
-        .lock()
-        .unwrap()
-        .get(&id)
-        .map(|handle| handle.info.clone())
-        .expect("resumed session remains registered");
+    SessionApplication::new(state)
+        .select_plan(
+            &id,
+            crate::session_application::PlanSelection {
+                printed_path: req.printed_path,
+            },
+        )
+        .await
+        .map(|_| axum::http::StatusCode::NO_CONTENT.into_response())
+        .unwrap_or_else(application_error_response)
+}
 
-    {
-        let ws_guard = state.workspace.lock().unwrap();
-        if let Some(ref ws) = *ws_guard {
-            ws.metadata.append_event(
-                &id,
-                &metadata::Event {
-                    event_type: "session.resumed".into(),
-                    timestamp: now,
-                    status: "running".into(),
-                    observed_status: None,
-                    confidence: None,
-                    summary: None,
-                    source: None,
-                },
-            );
-        }
+pub(crate) async fn delete_session(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> axum::response::Response {
+    SessionApplication::new(state)
+        .delete_session(&id)
+        .await
+        .map(|_| axum::http::StatusCode::OK.into_response())
+        .unwrap_or_else(application_error_response)
+}
+
+pub(crate) async fn forget_session(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> axum::response::Response {
+    SessionApplication::new(state)
+        .forget_session(&id)
+        .await
+        .map(|_| axum::http::StatusCode::OK.into_response())
+        .unwrap_or_else(application_error_response)
+}
+
+fn application_error_response(error: crate::session_application::SessionError) -> axum::response::Response {
+    match error {
+        crate::session_application::SessionError::BadRequest(message) =>
+            (axum::http::StatusCode::BAD_REQUEST, message).into_response(),
+        crate::session_application::SessionError::EmptyBadRequest =>
+            axum::http::StatusCode::BAD_REQUEST.into_response(),
+        crate::session_application::SessionError::Conflict =>
+            axum::http::StatusCode::CONFLICT.into_response(),
+        crate::session_application::SessionError::ConflictWithMessage(message) =>
+            (axum::http::StatusCode::CONFLICT, message).into_response(),
+        crate::session_application::SessionError::NotFound =>
+            axum::http::StatusCode::NOT_FOUND.into_response(),
+        crate::session_application::SessionError::Internal(_) =>
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
-
-    Json(info).into_response()
 }
 
 pub(crate) async fn report_harness_session(
@@ -872,34 +329,13 @@ pub(crate) async fn report_harness_session(
         confidence: req.confidence,
     };
 
-    if !metadata::valid_harness_session_report(&report) {
-        return axum::http::StatusCode::BAD_REQUEST.into_response();
-    }
-
-    let now = iso_now();
-    let result = {
-        let ws_guard = state.workspace.lock().unwrap();
-        let Some(ref ws) = *ws_guard else {
+    let result = match SessionApplication::new(state).report_harness_session(&id, report) {
+        Ok(result) => result,
+        Err(crate::session_application::SessionError::Conflict) => {
             return axum::http::StatusCode::CONFLICT.into_response();
-        };
-        ws.metadata.merge_harness_session_report(&id, &report, &now)
-    };
-
-    if result == metadata::HarnessSessionMergeResult::Accepted {
-        let updated_resume = {
-            let ws_guard = state.workspace.lock().unwrap();
-            ws_guard
-                .as_ref()
-                .and_then(|ws| ws.metadata.read_session(&id))
-                .and_then(|meta| meta.resume)
-        };
-        if let Some(updated_resume) = updated_resume {
-            let mut sessions = state.sessions.lock().unwrap();
-            if let Some(handle) = sessions.get_mut(&id) {
-                handle.info.resume = Some(updated_resume);
-            }
         }
-    }
+        Err(_) => return axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    };
 
     match result {
         metadata::HarnessSessionMergeResult::Accepted
@@ -915,184 +351,6 @@ pub(crate) async fn report_harness_session(
     }
 }
 
-pub(crate) async fn report_attention(
-    State(state): State<Arc<AppState>>,
-    Path(id): Path<String>,
-    Json(req): Json<AttentionReportRequest>,
-) -> impl IntoResponse {
-    let observed_at = match req.observed_at.as_deref() {
-        Some(raw) => match parse_hook_observed_at(raw) {
-            Ok(timestamp) => Some(timestamp),
-            Err(()) => return axum::http::StatusCode::BAD_REQUEST.into_response(),
-        },
-        None => None,
-    };
-    let active_alias = matches!(req.status.as_str(), "thinking" | "reasoning");
-    if !active_alias && !peon::is_valid_observed_status(&req.status) {
-        return axum::http::StatusCode::BAD_REQUEST.into_response();
-    }
-    let supports_active_work = state
-        .sessions
-        .lock()
-        .unwrap()
-        .get(&id)
-        .is_some_and(|handle| handle.active_work_hook);
-    let Some(status) = normalize_hook_attention_status(&req.status, supports_active_work) else {
-        return axum::http::StatusCode::BAD_REQUEST.into_response();
-    };
-
-    if observed_at.is_some_and(|timestamp| {
-        state
-            .sessions
-            .lock()
-            .unwrap()
-            .get(&id)
-            .and_then(|handle| handle.runtime.accepted_input_at)
-            .is_some_and(|accepted_at| timestamp <= accepted_at)
-    }) {
-        return axum::http::StatusCode::OK.into_response();
-    }
-
-    // Record the harness's self-reported cwd (issue #241 / ADR 0032) whenever
-    // one accompanies this report. Gated behind the same staleness check as
-    // the attention status above — a delayed/superseded hook event carries an
-    // equally stale cwd, and since this is the top-priority tier in
-    // resolve_effective_cwds, a stale write here can't be corrected by the
-    // more-accurate live probe underneath it. An empty string is treated as
-    // "nothing reported" rather than clearing a previously-known value.
-    if let Some(cwd) = req.cwd.as_deref().filter(|c| !c.is_empty()) {
-        state
-            .peon
-            .reported_cwd
-            .write()
-            .unwrap()
-            .insert(id.clone(), cwd.to_string());
-    }
-
-    let now = iso_now();
-    let persist_state = state.clone();
-    let persist_id = id.clone();
-    let persist_status = status.clone();
-    let message = req.message.clone();
-    let plan_path = req.plan_path.clone();
-    let observed_at_for_commit = observed_at;
-    let result = match tokio::task::spawn_blocking(move || {
-        // Workspace existence is checked unconditionally first, matching the
-        // pre-refactor order: a torn-down workspace must always mean 409, not
-        // 200, regardless of whether this particular report also turns out to
-        // be stale.
-        if persist_state.workspace.lock().unwrap().is_none() {
-            return Err(axum::http::StatusCode::CONFLICT);
-        }
-        if observed_at_for_commit.is_some_and(|timestamp| {
-            persist_state
-                .sessions
-                .lock()
-                .unwrap()
-                .get(&persist_id)
-                .and_then(|handle| handle.runtime.accepted_input_at)
-                .is_some_and(|accepted_at| timestamp <= accepted_at)
-        }) {
-            return Ok(metadata::AttentionMergeResult::Ignored);
-        }
-        match crate::runtime::observed_status::apply_attention_signal(
-            &persist_state,
-            &persist_id,
-            &persist_status,
-            message.as_deref(),
-            &plan_path,
-            &now,
-            "agent",
-            1.0,
-            observed_at_for_commit,
-        ) {
-            Some(result) => Ok(result),
-            None => Err(axum::http::StatusCode::CONFLICT),
-        }
-    })
-    .await
-    {
-        Ok(Ok(result)) => result,
-        Ok(Err(status)) => return status.into_response(),
-        Err(error) => {
-            tracing::error!(error = %error, "attention metadata task failed");
-            return axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
-    };
-
-    if result == metadata::AttentionMergeResult::Accepted && status == "working" {
-        if let Some(observed_at) = observed_at {
-            clear_claude_capacity_after_working(&state, &id, observed_at);
-        }
-    }
-
-    if result == metadata::AttentionMergeResult::Accepted {
-        let mut bufs = state.peon.input_buf.write().unwrap();
-        if bufs
-            .get(&id)
-            .is_some_and(|buf| !peon::is_descriptive_input(buf))
-        {
-            bufs.remove(&id);
-        }
-    }
-
-    match result {
-        metadata::AttentionMergeResult::Accepted => axum::http::StatusCode::OK.into_response(),
-        metadata::AttentionMergeResult::Ignored => axum::http::StatusCode::OK.into_response(),
-        metadata::AttentionMergeResult::NotFound => {
-            axum::http::StatusCode::NOT_FOUND.into_response()
-        }
-        // The signal was lost, not delivered — a 200 here would tell the
-        // harness hook its notification landed when it didn't.
-        metadata::AttentionMergeResult::PersistFailed => {
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response()
-        }
-    }
-}
-
-fn clear_claude_capacity_after_working(
-    state: &Arc<AppState>,
-    id: &str,
-    observed_at: chrono::DateTime<chrono::Utc>,
-) {
-    let mut sessions = state.sessions.lock().unwrap();
-    let Some(harness_id) = sessions
-        .get(id)
-        .and_then(|handle| handle.info.harness_id.as_deref())
-        .map(str::to_owned)
-        .filter(|harness_id| *harness_id == "claude-code")
-    else {
-        return;
-    };
-    if sessions.values().any(|handle| {
-        handle.info.harness_id.as_deref() == Some(harness_id.as_str())
-            && handle.at_usage_limit_latched
-            && handle
-                .runtime
-                .usage_limit_latched_at
-                .is_some_and(|latched_at| latched_at > observed_at)
-    }) {
-        return;
-    }
-    for handle in sessions.values_mut() {
-        if handle.info.harness_id.as_deref() == Some(harness_id.as_str()) {
-            handle.at_usage_limit_latched = false;
-            handle.runtime.usage_limit_latched_at = None;
-            handle.resume_scan_origin = Some((handle.output_lines_seen, handle.scan_bytes_seen));
-        }
-    }
-}
-
-fn normalize_hook_attention_status(status: &str, supports_active_work: bool) -> Option<String> {
-    match status {
-        "working" | "thinking" | "reasoning" if supports_active_work => Some("working".into()),
-        "waiting_for_input" | "blocked" | "failed" | "done" | "stale" | "idle" => {
-            Some(status.into())
-        }
-        _ => None,
-    }
-}
-
 /// Dev-only convenience for exercising UI/runtime convergence without a real
 /// coding-agent session. Writes through the same merge path as `report_attention`
 /// but tagged `source = "debug"`, `confidence = 0.0` — the lowest documented
@@ -1105,83 +363,24 @@ pub(crate) async fn apply_debug_attention(
     Path(id): Path<String>,
     Json(req): Json<DebugAttentionRequest>,
 ) -> impl IntoResponse {
-    if !matches!(
-        req.attention.as_str(),
-        "working" | "idle" | "needs_you" | "blocked" | "failed" | "capped"
-    ) {
-        return axum::http::StatusCode::BAD_REQUEST.into_response();
-    }
-
-    let observed_status = if req.attention == "needs_you" {
-        "waiting_for_input".to_string()
-    } else {
-        req.attention.clone()
-    };
-    let is_capped = req.attention == "capped";
-    let summary_message = if is_capped { None } else { req.message.clone() };
-
-    let now = iso_now();
-    let persist_state = state.clone();
-    let persist_id = id.clone();
-    let persist_status = observed_status.clone();
-    let persist_message = req.message.clone();
-    let result = match tokio::task::spawn_blocking(move || {
-        // This bypasses apply_attention_signal's self-locking shell and holds
-        // the workspace/sessions locks itself, like mark_committed_input_working
-        // does -- the lifecycle precheck and usage_limit_reset_hint write both
-        // need to stay atomic with the attention-field write, not split into
-        // separately-locked critical sections a concurrent call could interleave
-        // with.
-        let ws_guard = persist_state.workspace.lock().unwrap();
-        let Some(ref ws) = *ws_guard else {
-            return Err(axum::http::StatusCode::CONFLICT);
-        };
-        match ws.metadata.read_session(&persist_id) {
-            None => return Err(axum::http::StatusCode::NOT_FOUND),
-            Some(meta) if meta.lifecycle != "alive" => {
-                return Err(axum::http::StatusCode::BAD_REQUEST);
-            }
-            Some(_) => {}
+    let result = match SessionApplication::new(state).apply_debug_attention(
+        &id,
+        DebugAttentionSignal {
+            attention: req.attention,
+            message: req.message,
+        },
+    ).await {
+        Ok(result) => result,
+        Err(SessionError::EmptyBadRequest) => {
+            return axum::http::StatusCode::BAD_REQUEST.into_response();
         }
-        let result = ws.metadata.merge_agent_attention_signal_with_plan(
-            &persist_id,
-            &persist_status,
-            summary_message.as_deref(),
-            &metadata::PlanPathUpdate::Unchanged,
-            &now,
-            "debug",
-            0.0,
-        );
-        if result == metadata::AttentionMergeResult::Accepted {
-            if let Some(handle) = persist_state.sessions.lock().unwrap().get_mut(&persist_id) {
-                crate::runtime::observed_status::apply_live_attention_fields(
-                    &mut handle.info,
-                    &persist_status,
-                    summary_message.as_deref(),
-                    "debug",
-                    0.0,
-                );
-                if is_capped {
-                    if persist_message.is_some() {
-                        handle.info.usage_limit_reset_hint = persist_message.clone();
-                    }
-                } else {
-                    // Moving off capped must not leave a stale reset hint that
-                    // can propagate to other live sessions on the harness.
-                    handle.info.usage_limit_reset_hint = None;
-                }
-            }
+        Err(SessionError::Conflict) => {
+            return axum::http::StatusCode::CONFLICT.into_response();
         }
-        Ok(result)
-    })
-    .await
-    {
-        Ok(Ok(result)) => result,
-        Ok(Err(status)) => return status.into_response(),
-        Err(error) => {
-            tracing::error!(error = %error, "debug attention metadata task failed");
-            return axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        Err(SessionError::NotFound) => {
+            return axum::http::StatusCode::NOT_FOUND.into_response();
         }
+        Err(_) => return axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     };
 
     match result {
@@ -1204,385 +403,6 @@ pub(crate) struct CreateSessionRequest {
     pub(crate) model: Option<String>,
     #[serde(rename = "initialPrompt", default)]
     pub(crate) initial_prompt: Option<String>,
-}
-
-pub(crate) struct ResolvedSessionLaunch {
-    pub(crate) session_harness_id: Option<String>,
-    pub(crate) active_work_hook: bool,
-    pub(crate) model: Option<String>,
-    pub(crate) command: harness::CommandSpec,
-    pub(crate) provider_id: Option<String>,
-    pub(crate) provider_label: Option<String>,
-}
-
-pub(crate) fn resolve_session_launch(
-    registry: &crate::harness::registry::ResolvedHarnessRegistry,
-    req: &CreateSessionRequest,
-    cwd: String,
-) -> ResolvedSessionLaunch {
-    let requested_id = req.harness_id.as_deref();
-    let harness = requested_id
-        .and_then(|id| registry.get(id))
-        .filter(|harness| !harness.definition.retired)
-        .or_else(|| registry.get("generic-shell"))
-        .expect("generic-shell builtin exists");
-    let model = req
-        .model
-        .clone()
-        .or_else(|| harness.definition.default_model.clone());
-    ResolvedSessionLaunch {
-        session_harness_id: Some(harness.definition.id.clone()),
-        active_work_hook: harness
-            .effective_capabilities
-            .contains(&crate::harness::registry::CapabilityName::Attention),
-        command: harness.build_launch(&cwd, model.as_deref()),
-        provider_id: None,
-        provider_label: None,
-        model,
-    }
-}
-
-pub(crate) async fn create_session(
-    State(state): State<Arc<AppState>>,
-    Json(req): Json<CreateSessionRequest>,
-) -> impl IntoResponse {
-    let id = uuid::Uuid::new_v4().to_string();
-    let (workspace_cwd, workspace_metadata_root) = state
-        .workspace
-        .lock()
-        .unwrap()
-        .as_ref()
-        .map(|workspace| {
-            (
-                workspace.path.display().to_string(),
-                workspace.metadata.root_path(),
-            )
-        })
-        .unzip();
-    let cwd = workspace_cwd
-        .or_else(|| {
-            std::env::current_dir()
-                .ok()
-                .map(|path| path.display().to_string())
-        })
-        .unwrap_or_else(|| "/".into());
-    let registry = state
-        .harness_catalog
-        .read()
-        .expect("harness catalog lock poisoned")
-        .clone();
-    if req.harness_id.as_deref().is_some_and(|id| {
-        registry
-            .get(id)
-            .is_some_and(|harness| harness.definition.retired)
-    }) {
-        return (
-            axum::http::StatusCode::BAD_REQUEST,
-            "The selected coding tool is retired and cannot start new sessions.",
-        )
-            .into_response();
-    }
-    let mut resolved_launch = resolve_session_launch(&registry, &req, cwd.clone());
-    let integration_enabled = if let Some(harness) = resolved_launch
-        .session_harness_id
-        .as_deref()
-        .and_then(|id| registry.get(id))
-    {
-        let metadata_root = workspace_metadata_root.clone();
-        let harness_id = harness.definition.id.clone();
-        let registry = registry.clone();
-        match tokio::task::spawn_blocking(move || {
-            registry.get(&harness_id).map_or(Ok(false), |harness| {
-                harness.integration_launch_enabled(metadata_root.as_deref())
-            })
-        })
-        .await
-        {
-            Ok(Ok(enabled)) => enabled,
-            Ok(Err(error)) => {
-                tracing::warn!(
-                    code = error.code(),
-                    "harness launch integration state was ignored"
-                );
-                false
-            }
-            Err(error) => {
-                tracing::warn!(%error, "harness launch integration state task failed");
-                false
-            }
-        }
-    } else {
-        false
-    };
-    if let Some(harness) = resolved_launch
-        .session_harness_id
-        .as_deref()
-        .and_then(|id| registry.get(id))
-    {
-        let reporter = crate::harness::integration::default_reporter_path();
-        if let Err(error) = harness.augment_launch_for_integration(
-            &mut resolved_launch.command,
-            integration_enabled,
-            reporter.as_deref(),
-        ) {
-            tracing::warn!(
-                code = error.code(),
-                "harness launch integration was not applied"
-            );
-        }
-    }
-
-    let (kill_tx, _kill_rx) = tokio::sync::watch::channel(false);
-
-    let git_ctx = git::detect(&PathBuf::from(&cwd));
-    let now = iso_now();
-    let mut info = SessionInfo {
-        id: id.clone(),
-        label: crate::session_types::placeholder_label(&id),
-        harness_id: resolved_launch.session_harness_id.clone(),
-        model_provider_id: resolved_launch.provider_id.clone(),
-        model_id: resolved_launch.model.clone(),
-        harness: resolved_launch.session_harness_id.clone(),
-        model: resolved_launch.model.clone(),
-        work_phase: "unknown".into(),
-        lifecycle_phase: "creating".into(),
-        lifecycle: "creating".into(),
-        attention: None,
-        status: "creating".into(),
-        connectivity: Some(connectivity_for_status("creating").into()),
-        terminal_outcome: terminal_outcome_for_status("creating"),
-        cwd,
-        created_at: now.clone(),
-        last_activity_at: Some(now.clone()),
-        last_output_at: None,
-        final_observed_status: None,
-        observed_status: None,
-        summary: None,
-        next_action: None,
-        needs_user_input: None,
-        detected_question: None,
-        suggested_options: None,
-        blocker_description: None,
-        failed_command: None,
-        failed_test: None,
-        capacity_hints: None,
-        at_usage_limit: None,
-        capacity_check_pending: None,
-        usage_limit_reset_hint: None,
-        metadata_source: None,
-        metadata_confidence: None,
-        repo_root: git_ctx.repo_root.clone(),
-        branch: git_ctx.branch.clone(),
-        dirty: Some(git_ctx.dirty),
-        changed_files: Some(git_ctx.changed_files),
-        is_worktree: Some(git_ctx.is_worktree),
-        conflict_warning: None,
-        recommendation: None,
-        peon_last_inference: None,
-        memory_state: MemoryState::Live,
-        resume_strategy: harness::ResumeStrategy::None,
-        resume: Some(harness::ResumeMemory {
-            state: harness::ResumeState::Available,
-            preferred_strategy: harness::ResumeStrategy::LatestCwd,
-            harness_session_id: None,
-            latest_fallback: true,
-            last_seen_at: Some(now.clone()),
-        }),
-        resume_options: vec![],
-        resumed_from: None,
-        has_openable_plan: None,
-        provider: resolved_launch.provider_label.clone(),
-        provider_model: None,
-        provider_state: None,
-    };
-
-    let command = resolved_launch.command.clone();
-    let initial_prompt = req.initial_prompt.clone();
-    // A hookless harness never gets a `report_attention` call, so the initial
-    // prompt (written straight to the PTY in `start_session_runtime`) must arm
-    // the same fallback a typed-and-submitted command would, or the session's
-    // first turn never promotes past creating/idle while Peon is disabled.
-    let pending_work_signal = initial_prompt
-        .as_deref()
-        .filter(|prompt| !prompt.is_empty() && !resolved_launch.active_work_hook)
-        .map(|prompt| {
-            crate::runtime::session_runtime::arm_pending_work_signal(
-                prompt,
-                tokio::time::Instant::now(),
-            )
-        });
-    // The initial prompt is written straight to the PTY (bypassing the
-    // keystroke-based label seeding in terminal_runtime.rs), so it never gets
-    // a chance at seeding the label there. Seed it here instead: the
-    // synchronous fallback below (so the title is never blank) plus Peon's
-    // topic-inference queue for the real, LLM-phrased topic (ADR 0029).
-    if let Some(prompt) = initial_prompt.as_deref() {
-        let label_line: String = prompt.chars().take(100).collect();
-        if peon::is_descriptive_input(&label_line) {
-            info.label = label_line.clone();
-            crate::runtime::terminal_runtime::queue_label_hint(&state, &id, prompt.to_string());
-        }
-    }
-
-    let (runtime, control_rx) = crate::runtime::session_runtime::SessionRuntime::live(
-        crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
-        crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
-    );
-    let run_generation = runtime.run_generation();
-    let output_tx = runtime.output_tx.clone();
-    state.sessions.lock().unwrap().insert(
-        id.clone(),
-        SessionHandle {
-            info: info.clone(),
-            active_work_hook: resolved_launch.active_work_hook,
-            kill_tx: kill_tx.clone(),
-            output_buffer: peon::RingBuffer::new(state.peon.config.max_lines),
-            scan_buf: String::new(),
-            pending_work_signal,
-            runtime,
-            terminal_attached: false,
-            resume_in_progress: false,
-            at_usage_limit_latched: false,
-            capacity_check_pending: false,
-            output_lines_seen: 0,
-            scan_bytes_seen: 0,
-            resume_scan_origin: None,
-            pending_capacity_visible_once: false,
-        },
-    );
-
-    // Persist the creating record before the PTY reader exists. The runtime
-    // promotes it to alive immediately after spawn, before it can classify
-    // output, so the first output cannot be lost between memory and metadata.
-    let created_at = iso_now();
-    {
-        let ws_guard = state.workspace.lock().unwrap();
-        if let Some(ref ws) = *ws_guard {
-            let meta_git_ctx = git::detect(&ws.path);
-            ws.metadata.write_session(&metadata::SessionMetadata {
-                id: id.clone(),
-                label: info.label.clone(),
-                workspace: ws.path.display().to_string(),
-                task: String::new(),
-                harness: resolved_launch
-                    .session_harness_id
-                    .clone()
-                    .unwrap_or_default(),
-                model: resolved_launch.model.clone().unwrap_or_default(),
-                cwd: info.cwd.clone(),
-                status: "creating".into(),
-                work_phase: "unknown".into(),
-                lifecycle_phase: "creating".into(),
-                lifecycle: "creating".into(),
-                attention: None,
-                plan_path: None,
-                connectivity: "online".into(),
-                terminal_outcome: None,
-                pending_terminal_status: None,
-                observed_status: None,
-                ending_observed_status_snapshot: None,
-                final_observed_status_snapshot: None,
-                summary: None,
-                next_action: None,
-                needs_user_input: None,
-                detected_question: None,
-                suggested_options: None,
-                blocker_description: None,
-                failed_command: None,
-                failed_test: None,
-                capacity_hints: None,
-                peon_last_inference: None,
-                provider_id: resolved_launch.provider_id.clone(),
-                provider_label: resolved_launch.provider_label.clone(),
-                provider_model: None,
-                provider_state: None,
-                created_at: created_at.clone(),
-                last_activity: created_at.clone(),
-        last_output_at: None,
-                metadata_source: "process".into(),
-                metadata_confidence: 1.0,
-                repo_root: meta_git_ctx.repo_root.clone(),
-                branch: meta_git_ctx.branch.clone(),
-                dirty: Some(meta_git_ctx.dirty),
-                changed_files: Some(meta_git_ctx.changed_files),
-                is_worktree: Some(meta_git_ctx.is_worktree),
-                last_user_input: None,
-                resume: info.resume.clone(),
-                resume_options: vec![],
-                harness_session_id_source: None,
-                harness_session_id_confidence: None,
-                harness_session_id_captured_at: None,
-                resumed_from: info.resumed_from.clone(),
-            });
-        }
-    }
-
-    // Spawn detached rather than awaiting: awaiting here would delay this
-    // handler's response until after the PTY spawn completes, so the client
-    // would never actually observe `status: "creating"` (issue #302) — the
-    // response below always reports the pre-spawn record. Mirrors the
-    // pattern resume_session's startup_task already proved safe, including
-    // the generation guards that keep it correct against concurrent deletion.
-    let startup_state = state.clone();
-    let startup_id = id.clone();
-    tokio::spawn(async move {
-        match crate::runtime::session_runtime::start_session_runtime(
-            startup_state.clone(),
-            startup_id.clone(),
-            command,
-            initial_prompt,
-            control_rx,
-            output_tx,
-            kill_tx.subscribe(),
-            PtySize {
-                rows: crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
-                cols: crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
-                pixel_width: 0,
-                pixel_height: 0,
-            },
-        )
-        .await
-        {
-            Ok(()) => {
-                let now = iso_now();
-                let ws_guard = startup_state.workspace.lock().unwrap();
-                if let Some(ref ws) = *ws_guard {
-                    ws.metadata.append_event(
-                        &startup_id,
-                        &metadata::Event {
-                            event_type: "session.created".into(),
-                            timestamp: now,
-                            status: "running".into(),
-                            observed_status: None,
-                            confidence: None,
-                            summary: None,
-                            source: None,
-                        },
-                    );
-                }
-            }
-            Err(error) => {
-                tracing::error!(session_id = %startup_id, %error, "failed to start session runtime");
-                if crate::runtime::terminal_runtime::set_session_status_for_generation(
-                    &startup_state,
-                    &startup_id,
-                    run_generation,
-                    "error",
-                )
-                .await
-                {
-                    crate::runtime::terminal_runtime::schedule_session_ending_finalization(
-                        startup_state.clone(),
-                        startup_id.clone(),
-                        run_generation,
-                        "error".into(),
-                    );
-                }
-            }
-        }
-    });
-
-    Json(info).into_response()
 }
 
 fn enrich_sessions_with_git_context<F>(
@@ -2071,85 +891,6 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
             .map(|(_, w)| w.clone());
     }
     Json(infos)
-}
-
-pub(crate) async fn delete_session(
-    State(state): State<Arc<AppState>>,
-    Path(id): Path<String>,
-) -> impl IntoResponse {
-    let handle = {
-        let sessions = state.sessions.lock().unwrap();
-        sessions.get(&id).map(|h| h.kill_tx.clone())
-    };
-    match handle {
-        Some(kill_tx) => {
-            // Send the kill signal before the (now-async, awaiting) status
-            // transition below, not after: if this request's future is dropped
-            // mid-await (e.g. client disconnect), everything after the await
-            // point never runs. A synchronous channel send has no yield point,
-            // so it can't be interrupted that way — and it's safe to run first
-            // because the PTY's own exit path (`handle_runtime_exit`) redundantly
-            // re-applies the same "killed" status transition once the process
-            // actually exits, guarded by the same ending/ended no-op check this
-            // function's doc comment already describes for racing exit paths.
-            let _ = kill_tx.send(true);
-            crate::runtime::terminal_runtime::set_session_status(&state, &id, "killed").await;
-        }
-        None => return axum::http::StatusCode::NOT_FOUND,
-    }
-    crate::runtime::session_runtime::clear_ended_session_tracking(&state, &id);
-    axum::http::StatusCode::OK
-}
-
-pub(crate) async fn forget_session(
-    State(state): State<Arc<AppState>>,
-    Path(id): Path<String>,
-) -> impl IntoResponse {
-    let ws_guard = state.workspace.lock().unwrap();
-    let ws = match &*ws_guard {
-        Some(ws) => ws,
-        None => return axum::http::StatusCode::CONFLICT.into_response(),
-    };
-    let mut sessions = state.sessions.lock().unwrap();
-    if let Some(h) = sessions.get(&id) {
-        if h.info.status == "live" || h.info.status == "creating" || h.info.status == "running" {
-            return (
-                axum::http::StatusCode::CONFLICT,
-                "Cannot forget a live session. Kill it first.",
-            )
-                .into_response();
-        }
-    }
-
-    // Existence, not parseability: a corrupt-but-present metadata file must
-    // still be forgettable, or the session becomes undeletable via the API.
-    if !ws.metadata.session_file_exists(&id) {
-        return axum::http::StatusCode::NOT_FOUND.into_response();
-    }
-
-    if let Err(error) = crate::runtime::retention::delete_session_evidence(ws, &id, |session_id| {
-        ws.recommendation_store
-            .delete_referencing_session(session_id)
-            .map_err(|error| error.to_string())
-    }) {
-        tracing::error!(session_id = %id, %error, "failed to delete session evidence");
-        if !ws.metadata.session_file_exists(&id) {
-            sessions.remove(&id);
-            drop(ws_guard);
-            drop(sessions);
-            crate::runtime::session_runtime::clear_ended_session_tracking(&state, &id);
-            crate::runtime::session_runtime::clear_forgotten_session_tracking(&state, &id);
-        }
-        return axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response();
-    }
-    drop(ws_guard);
-
-    sessions.remove(&id);
-    drop(sessions);
-    crate::runtime::session_runtime::clear_ended_session_tracking(&state, &id);
-    crate::runtime::session_runtime::clear_forgotten_session_tracking(&state, &id);
-
-    axum::http::StatusCode::OK.into_response()
 }
 
 #[cfg(test)]
@@ -2703,33 +1444,6 @@ mod tests {
             Some("native-123")
         );
         assert_ne!(updated_resume.last_seen_at.as_deref(), Some("before"));
-    }
-
-    #[test]
-    fn resume_handle_conflicts_for_metadata_pid_attachment_and_claim() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut handle = attention_test_handle("resume-stale-predicate", dir.path());
-        handle.info.lifecycle_phase = "active".into();
-        let mut session_pids = HashMap::new();
-
-        assert!(resume_handle_conflicts(
-            &handle,
-            false,
-            session_pids.contains_key("resume-stale-predicate"),
-        ));
-        session_pids.insert("resume-stale-predicate".to_string(), 42);
-        assert!(resume_handle_conflicts(
-            &handle,
-            false,
-            session_pids.contains_key("resume-stale-predicate"),
-        ));
-        assert!(resume_handle_conflicts(&handle, true, true));
-        handle.terminal_attached = true;
-        assert!(resume_handle_conflicts(&handle, true, false));
-        handle.terminal_attached = false;
-        assert!(!resume_handle_conflicts(&handle, true, false));
-        handle.resume_in_progress = true;
-        assert!(resume_handle_conflicts(&handle, true, false));
     }
 
     #[tokio::test]
@@ -3992,6 +2706,10 @@ mod tests {
         .into_response();
 
         assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
+        assert!(axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap()
+            .is_empty());
     }
 
     #[tokio::test]
@@ -6970,7 +5688,7 @@ mod tests {
         let registry = test_resolved_registry();
         let launch = resolve_session_launch(
             &registry,
-            &CreateSessionRequest {
+            &CreateSessionCommand {
                 harness_id: Some("codex".into()),
                 model: None,
                 initial_prompt: None,
@@ -6998,6 +5716,35 @@ mod tests {
         .into_response();
 
         assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn resume_invalid_request_keeps_the_empty_bad_request_body() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let id = "resume-without-metadata";
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&test_session_metadata(
+                id,
+                "Resume without metadata",
+                dir.path().display().to_string(),
+                "ended",
+                "before",
+                "before",
+            ));
+
+        let response = resume_session(State(state), Path(id.into())).await;
+        assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert!(body.is_empty());
     }
 
     /// Regression test for issue #302: `create_session` used to await the PTY
@@ -7087,7 +5834,7 @@ mod tests {
         let registry = test_resolved_registry();
         let launch = resolve_session_launch(
             &registry,
-            &CreateSessionRequest {
+            &CreateSessionCommand {
                 harness_id: Some("opencode".into()),
                 model: None,
                 initial_prompt: None,
@@ -7109,7 +5856,7 @@ mod tests {
         let registry = test_resolved_registry();
         let launch = resolve_session_launch(
             &registry,
-            &CreateSessionRequest {
+            &CreateSessionCommand {
                 harness_id: Some("opencode".into()),
                 model: Some("qwen2.5-coder:latest".into()),
                 initial_prompt: None,
@@ -7127,7 +5874,7 @@ mod tests {
         let registry = test_resolved_registry();
         let launch = resolve_session_launch(
             &registry,
-            &CreateSessionRequest {
+            &CreateSessionCommand {
                 harness_id: Some("codex".into()),
                 model: Some("gpt-5".into()),
                 initial_prompt: None,

@@ -16,18 +16,19 @@
 //! - `Idempotency-Key` header validation and the fixed request vocabulary
 //!   (`kind`, `description`, `evidence`, `reportedImpact` only, via
 //!   `#[serde(deny_unknown_fields)]`); and
-//! - mapping the validated request onto `ObservationOrigin::Agent` and
-//!   calling `record_observation`.
+//! - mapping the validated request onto an Agent observation candidate and
+//!   handing it to `SessionApplication` for workspace-scoped persistence.
 //!
 //! Everything else -- confidence policy, fingerprinting, deduplication,
 //! bounded persistence -- stays inside `workflow_observations`, which this
 //! module calls but never modifies.
 
 use crate::runtime::terminal_runtime::{record_report_attempt, verify_workflow_report_token};
+use crate::session_application::{SessionApplication, WorkflowObservationPersistenceError};
 use crate::taskmaster::evaluator::schedule_evaluation;
 use crate::session_types::MemoryState;
 use crate::workflow_observations::{
-    self, ObservationCandidate, ObservationOrigin, RecordError, RecordOutcome,
+    self, ObservationCandidate, RecordError, RecordOutcome,
 };
 use crate::AppState;
 use axum::{
@@ -65,18 +66,6 @@ struct WorkflowObservationReportResponse {
     sequence: u64,
     accepted_at: String,
     duplicate: bool,
-}
-
-/// Errors that can occur while running the durable store call inside
-/// `spawn_blocking`, distinct from the request-shape validation this
-/// handler performs itself before ever reaching that point.
-enum PersistError {
-    /// No workspace is currently active; this session capability outlived
-    /// its workspace context.
-    NoWorkspace,
-    /// The live process session belongs to a different workspace.
-    SessionNotInWorkspace,
-    Record(RecordError),
 }
 
 pub(crate) async fn report_workflow_observation(
@@ -138,19 +127,11 @@ pub(crate) async fn report_workflow_observation(
     let blocking_state = state.clone();
     let blocking_id = id.clone();
     let join_result = tokio::task::spawn_blocking(move || {
-        let workspace = blocking_state.workspace.lock().unwrap();
-        let ws = workspace.as_ref().ok_or(PersistError::NoWorkspace)?;
-        if ws.metadata.read_session(&blocking_id).is_none() {
-            return Err(PersistError::SessionNotInWorkspace);
-        }
-        ws.workflow_observations
-            .record_observation(
-                &blocking_id,
-                ObservationOrigin::Agent,
-                &idempotency_key,
-                candidate,
-            )
-            .map_err(PersistError::Record)
+        SessionApplication::new(blocking_state).record_agent_workflow_observation(
+            &blocking_id,
+            &idempotency_key,
+            candidate,
+        )
     })
     .await;
 
@@ -182,15 +163,19 @@ pub(crate) async fn report_workflow_observation(
             duplicate: true,
         })
         .into_response(),
-        Err(PersistError::NoWorkspace) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
-        Err(PersistError::SessionNotInWorkspace) => StatusCode::UNAUTHORIZED.into_response(),
-        Err(PersistError::Record(RecordError::IdempotencyConflict)) => {
+        Err(WorkflowObservationPersistenceError::NoWorkspace) => {
+            StatusCode::SERVICE_UNAVAILABLE.into_response()
+        }
+        Err(WorkflowObservationPersistenceError::SessionNotInWorkspace) => {
+            StatusCode::UNAUTHORIZED.into_response()
+        }
+        Err(WorkflowObservationPersistenceError::Record(RecordError::IdempotencyConflict)) => {
             StatusCode::CONFLICT.into_response()
         }
-        Err(PersistError::Record(RecordError::RateLimited)) => {
+        Err(WorkflowObservationPersistenceError::Record(RecordError::RateLimited)) => {
             StatusCode::TOO_MANY_REQUESTS.into_response()
         }
-        Err(PersistError::Record(
+        Err(WorkflowObservationPersistenceError::Record(
             RecordError::EmptySessionId
             | RecordError::EmptyIdempotencyKey
             | RecordError::EmptyDescription
@@ -203,10 +188,12 @@ pub(crate) async fn report_workflow_observation(
         // reject it as missing/out-of-range here. Matched exhaustively
         // rather than a wildcard so a future RecordError variant fails to
         // compile instead of silently falling through.
-        Err(PersistError::Record(
+        Err(WorkflowObservationPersistenceError::Record(
             RecordError::MissingConfidence | RecordError::ConfidenceOutOfRange,
         )) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
-        Err(PersistError::Record(RecordError::Degraded | RecordError::PersistFailed)) => {
+        Err(WorkflowObservationPersistenceError::Record(
+            RecordError::Degraded | RecordError::PersistFailed,
+        )) => {
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
         }
     }

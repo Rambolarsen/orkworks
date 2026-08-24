@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { pushProviderSettings } from "../electron/providerSettingsSync.ts";
+import type { ProviderEffectiveState } from "../electron/providerTypes.ts";
 import type { ProviderSettings } from "../src/providerTypes.ts";
 
 function sampleProviderSettings(revision: number): ProviderSettings {
@@ -16,6 +17,11 @@ function sampleProviderSettings(revision: number): ProviderSettings {
     ],
   };
 }
+
+test("Electron provider state typing accepts the runtime checking state", () => {
+  const state: ProviderEffectiveState = "checking_capacity";
+  assert.equal(state, "checking_capacity");
+});
 
 test("pushProviderSettings posts saved settings to the sidecar and records success", async () => {
   const calls: Array<{ url: string; body: unknown }> = [];

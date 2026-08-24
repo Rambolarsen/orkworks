@@ -1,4 +1,5 @@
 use crate::runtime::terminal_runtime::handle_session_terminal;
+use crate::session_application::SessionApplication;
 use crate::{metadata, AppState};
 use axum::{
     extract::{
@@ -37,28 +38,21 @@ pub(crate) async fn get_terminal_output(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
-    let state_clone = state.clone();
-    let id_clone = id.clone();
-    let (lines, size) = tokio::task::spawn_blocking(move || {
-        let ws_guard = state_clone.workspace.lock().unwrap();
-        match &*ws_guard {
-            Some(ws) => (
-                ws.metadata
-                    .read_terminal_output(&id_clone, metadata::TERMINAL_OUTPUT_MAX_LINES),
-                ws.metadata.read_terminal_size(&id_clone),
-            ),
-            None => (Vec::new(), None),
-        }
+    let query = tokio::task::spawn_blocking(move || {
+        SessionApplication::new(state).get_terminal_output(&id)
     })
     .await
     .unwrap_or_else(|error| {
         tracing::error!(%error, "terminal-output metadata task failed");
-        (Vec::new(), None)
+        crate::session_application::TerminalOutputQuery {
+            lines: Vec::new(),
+            size: None,
+        }
     });
     Json(TerminalOutputResponse {
-        lines,
-        cols: size.map(|(cols, _)| cols),
-        rows: size.map(|(_, rows)| rows),
+        lines: query.lines,
+        cols: query.size.map(|(cols, _)| cols),
+        rows: query.size.map(|(_, rows)| rows),
     })
 }
 
@@ -67,34 +61,16 @@ pub(crate) async fn get_summary_log(
     Path(id): Path<String>,
 ) -> impl IntoResponse {
     let entries = tokio::task::spawn_blocking(move || {
-        let ws_guard = state.workspace.lock().unwrap();
-        match &*ws_guard {
-            Some(ws) if ws.metadata.read_session(&id).is_some() => ws
-                .metadata
-                .read_events(&id)
-                .into_iter()
-                .filter_map(|event| {
-                    let metadata::Event {
-                        timestamp,
-                        confidence,
-                        summary: Some(summary),
-                        source: Some(source),
-                        ..
-                    } = event
-                    else {
-                        return None;
-                    };
-                    Some(SummaryLogEntry {
-                        timestamp,
-                        summary,
-                        source,
-                        confidence,
-                    })
-                })
-                .collect(),
-            Some(_) => Vec::new(),
-            None => Vec::new(),
-        }
+        SessionApplication::new(state)
+            .get_summary_log(&id)
+            .into_iter()
+            .map(|entry| SummaryLogEntry {
+                timestamp: entry.timestamp,
+                summary: entry.summary,
+                source: entry.source,
+                confidence: entry.confidence,
+            })
+            .collect()
     })
     .await
     .unwrap_or_else(|error| {

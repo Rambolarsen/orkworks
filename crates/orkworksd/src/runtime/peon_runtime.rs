@@ -1,6 +1,5 @@
 use crate::workspace_runtime::iso_now;
 use crate::{peon, providers, AppState};
-use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
 #[derive(Clone, Copy)]
@@ -16,108 +15,6 @@ fn output_inference_is_current(
     current_min_revision: u64,
 ) -> bool {
     captured_generation == current_generation && captured_min_revision == current_min_revision
-}
-
-fn input_label_epoch_is_current(captured_epoch: u64, current_epoch: u64) -> bool {
-    captured_epoch == current_epoch
-}
-
-fn peon_observation_key(
-    runtime_instance_id: &str,
-    session_id: &str,
-    input_generation: u64,
-    first_revision: u64,
-    last_revision: u64,
-    candidate_index: usize,
-) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(b"peon-v1|");
-    hasher.update(runtime_instance_id.as_bytes());
-    hasher.update(b"|");
-    hasher.update(session_id.as_bytes());
-    hasher.update(b"|");
-    hasher.update(input_generation.to_string().as_bytes());
-    hasher.update(b"|");
-    hasher.update(first_revision.to_string().as_bytes());
-    hasher.update(b"|");
-    hasher.update(last_revision.to_string().as_bytes());
-    hasher.update(b"|");
-    hasher.update(candidate_index.to_string().as_bytes());
-    hex::encode(hasher.finalize())
-}
-
-fn should_retry_observation_record(
-    error: &crate::workflow_observations::RecordError,
-) -> bool {
-    matches!(
-        error,
-        crate::workflow_observations::RecordError::PersistFailed
-            | crate::workflow_observations::RecordError::RateLimited
-            | crate::workflow_observations::RecordError::Degraded
-    )
-}
-
-#[cfg(test)]
-mod epoch_tests {
-    #[test]
-    fn input_label_epoch_is_current_only_for_the_same_epoch() {
-        assert!(super::input_label_epoch_is_current(4, 4));
-        assert!(!super::input_label_epoch_is_current(4, 5));
-    }
-
-    #[test]
-    fn peon_observation_key_binds_the_runtime_and_captured_range() {
-        let first = super::peon_observation_key("runtime-a", "session", 2, 10, 12, 0);
-        let same = super::peon_observation_key("runtime-a", "session", 2, 10, 12, 0);
-        let new_runtime = super::peon_observation_key("runtime-b", "session", 2, 10, 12, 0);
-        let new_range = super::peon_observation_key("runtime-a", "session", 2, 11, 12, 0);
-
-        assert_eq!(first, same);
-        assert_ne!(first, new_runtime);
-        assert_ne!(first, new_range);
-    }
-
-    #[test]
-    fn retrying_a_capture_keeps_the_original_key_when_new_output_arrives() {
-        let capture = crate::peon::PeonOutputCapture {
-            lines: vec!["first output".into()],
-            input_generation: 4,
-            min_revision: 10,
-            first_revision: 11,
-            last_revision: 11,
-            runtime_instance_id: "runtime-a".into(),
-        };
-        let initial_key = super::peon_observation_key(
-            &capture.runtime_instance_id,
-            "session",
-            capture.input_generation,
-            capture.first_revision,
-            capture.last_revision,
-            0,
-        );
-        let retry_key = super::peon_observation_key(
-            &capture.runtime_instance_id,
-            "session",
-            capture.input_generation,
-            capture.first_revision,
-            capture.last_revision,
-            0,
-        );
-
-        assert_eq!(initial_key, retry_key);
-        assert_eq!(capture.lines, vec!["first output"]);
-    }
-
-    #[test]
-    fn transient_observation_record_errors_keep_the_capture_for_retry() {
-        use crate::workflow_observations::RecordError;
-
-        assert!(super::should_retry_observation_record(&RecordError::PersistFailed));
-        assert!(super::should_retry_observation_record(&RecordError::RateLimited));
-        assert!(super::should_retry_observation_record(&RecordError::Degraded));
-        assert!(!super::should_retry_observation_record(&RecordError::EmptyEvidence));
-        assert!(!super::should_retry_observation_record(&RecordError::IdempotencyConflict));
-    }
 }
 
 pub(crate) async fn peon_loop(state: Arc<AppState>) {
@@ -309,33 +206,15 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                                 .is_some_and(|hint| peon::is_usable_input_label(label, &hint.text))
                         })
                     {
-                        let epoch_guard = state_clone.peon.label_epochs.read().unwrap();
-                        let current_epoch = epoch_guard.get(&id).copied().unwrap_or(0);
-                        if hint.as_ref().is_some_and(|hint| {
-                            input_label_epoch_is_current(hint.epoch, current_epoch)
-                        }) {
-                            // Keep the epoch read guard through both writes so
-                            // reset_label_for_declared_command cannot advance
-                            // the epoch between the durable and live updates.
-                            let ws_guard = state_clone.workspace.lock().unwrap();
-                            if let Some(ref ws) = *ws_guard {
-                                if let Some(mut meta) = ws.metadata.read_session(&id) {
-                                    meta.label = label.clone();
-                                    ws.metadata.write_session(&meta);
-                                }
-                            }
-                            if let Some(handle) =
-                                state_clone.sessions.lock().unwrap().get_mut(&id)
-                            {
-                                handle.info.label = label;
-                            }
+                        if let Some(hint) = hint.as_ref() {
+                            crate::session_application::SessionApplication::new(state_clone.clone())
+                                .persist_input_label(&id, label, hint.epoch);
                         }
                     }
                     }
                     state_clone.peon.in_flight.write().unwrap().remove(&id);
                     return;
                 }
-                let ws_guard = state_clone.workspace.lock().unwrap();
                 let active_work_hook = {
                     let sessions = state_clone.sessions.lock().unwrap();
                     sessions.get(&id).and_then(|handle| {
@@ -364,18 +243,10 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                     Some("done" | "idle" | "stale")
                 );
 
-                if let Some(ref obs) = provider_result.observation {
-                    if let Some(ref ws) = *ws_guard {
-                        ws.metadata.persist_provider_context(&id, obs);
-                    }
-                }
-
-                let mut inference_persisted = false;
-                let mut permanent_hold = false;
-                let mut label_update = None;
                 let mut output_range_completed = false;
                 let mut accepted_observation = false;
-                if let Some(mut inf) = inference {
+                let mut inference = inference;
+                if let Some(inf) = inference.as_mut() {
                     // Active-hook sessions are hook-authoritative for the working
                     // transition specifically: Peon may still persist summary/label/
                     // etc, but must not be the one to flip observed_status to working
@@ -384,114 +255,49 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                     if active_work_hook && inf.observed_status.as_deref() == Some("working") {
                         inf.observed_status = None;
                     }
-                    let history_summary =
-                        peon::work_history_summary(&output_snapshot, inf.summary.as_deref());
-                    // Collect label update while holding the input-boundary lock.
-                    label_update = {
-                        if let Some(ref ws) = *ws_guard {
-                            let (should_write, is_permanent) = ws
-                                .metadata
-                                .read_session(&id)
-                                .map(|m| {
-                                    let age = ws.metadata.session_modified_secs_ago(&id);
-                                    let overwrite =
-                                        peon::peon_should_overwrite(&m.metadata_source, age);
-                                    (overwrite, m.metadata_source == "user")
-                                })
-                                .unwrap_or((true, false));
-                            if should_write {
-                                match ws.metadata.merge_peon_inference_with_history(
-                                    &id,
-                                    &inf,
-                                    &now_iso,
-                                    provider_result.observation.as_ref(),
-                                    history_summary.as_deref(),
-                                ) {
-                                    Ok(()) => {
-                                        inference_persisted = true;
-                                        history_summary
-                                            .as_ref()
-                                            .map(|s| s.chars().take(100).collect())
-                                    }
-                                    Err(error) => {
-                                        tracing::warn!(session_id = %id, %error, "peon: inference not persisted");
-                                        None
-                                    }
-                                }
-                            } else {
-                                tracing::debug!(session_id = %id, "peon: skipping, higher-priority source exists");
-                                permanent_hold = is_permanent;
-                                None
-                            }
-                        } else {
-                            None
-                        }
-                    };
-
-                if let Some((generation, _min_revision, first_revision, last_revision, runtime_instance_id)) =
-                    output_boundary.as_ref()
+                }
+                let history_summary = inference
+                    .as_ref()
+                    .and_then(|inf| {
+                        peon::work_history_summary(&output_snapshot, inf.summary.as_deref())
+                    });
+                let persistence = crate::session_application::SessionApplication::new(
+                    state_clone.clone(),
+                )
+                .persist_peon_observation(
+                    &id,
+                    inference.as_ref(),
+                    provider_result.observation.as_ref(),
+                    history_summary.as_deref(),
+                    &now_iso,
+                );
+                let inference_persisted = persistence.inference_persisted;
+                let permanent_hold = persistence.permanent_hold;
+                let label_update = persistence.label_update;
+                let captured_workspace_path = persistence.workspace_path;
+                if let Some(inf) = inference.as_ref() {
+                    if let Some((generation, _min_revision, first_revision, last_revision, runtime_instance_id)) =
+                        output_boundary.as_ref()
                     {
-                        let workspace_owns_session = ws_guard.as_ref().is_some_and(|ws| {
-                            ws.metadata.read_session(&id).is_some()
-                        });
-                        if !workspace_owns_session {
-                            // A detached runtime can outlive a workspace
-                            // switch. Never write its observations into the
-                            // newly active workspace, and do not retain the
-                            // old capture for a workspace that no longer owns
-                            // the session.
-                            output_range_completed = true;
-                        } else {
-                        let mut range_completed = true;
-                        for (candidate_index, candidate) in
-                            inf.workflow_observations.iter().enumerate()
-                        {
-                            let key = peon_observation_key(
-                                runtime_instance_id,
-                                &id,
-                                *generation,
-                                *first_revision,
-                                *last_revision,
-                                candidate_index,
-                            );
-                            let result = ws_guard
-                                .as_ref()
-                                .map(|ws| {
-                                    ws.workflow_observations.record_observation(
-                                        &id,
-                                        crate::workflow_observations::ObservationOrigin::Peon,
-                                        &key,
-                                        crate::workflow_observations::ObservationCandidate {
-                                            kind: candidate.kind,
-                                            description: candidate.description.clone(),
-                                            evidence: candidate.evidence.clone(),
-                                            reported_impact: candidate.reported_impact,
-                                            confidence: Some(candidate.confidence),
-                                        },
-                                    )
-                                })
-                                .unwrap_or_else(|| {
-                                    Err(crate::workflow_observations::RecordError::PersistFailed)
-                                });
-                            if matches!(
-                                &result,
-                                Ok(crate::workflow_observations::RecordOutcome::Accepted(_))
-                            ) {
-                                accepted_observation = true;
-                            }
-                            if result
-                                .as_ref()
-                                .is_err_and(|error| should_retry_observation_record(error))
-                            {
-                                range_completed = false;
-                            }
-                        }
-                        output_range_completed = range_completed;
-                        }
+                        let result = crate::session_application::SessionApplication::new(
+                            state_clone.clone(),
+                        )
+                        .record_peon_workflow_observations(
+                            &id,
+                            captured_workspace_path.as_deref(),
+                            &crate::session_application::PeonObservationOutputRange {
+                                runtime_instance_id: runtime_instance_id.clone(),
+                                run_generation: *generation,
+                                first_revision: *first_revision,
+                                last_revision: *last_revision,
+                            },
+                            &inf.workflow_observations,
+                        );
+                        accepted_observation = result.accepted_observation;
+                        output_range_completed = result.output_range_completed;
                     }
                 }
 
-                drop(ws_guard);
                 if accepted_observation {
                     crate::taskmaster::evaluator::schedule_evaluation(state_clone.clone());
                 }
@@ -597,11 +403,8 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
             }
 
             for id in &silent_ids {
-                crate::runtime::observed_status::apply_process_transition(
-                    &state,
-                    id,
-                    crate::runtime::observed_status::ProcessTransition::IdleTimeout,
-                );
+                crate::session_application::SessionApplication::new(state.clone())
+                    .apply_idle_timeout(id);
             }
         }
     }

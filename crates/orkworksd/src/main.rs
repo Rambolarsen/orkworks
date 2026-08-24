@@ -23,6 +23,7 @@ mod procfs;
 mod providers;
 mod runtime;
 mod session_types;
+mod session_application;
 mod session_view;
 mod taskmaster;
 mod watcher;

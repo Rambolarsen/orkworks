@@ -1,5 +1,4 @@
 use crate::runtime::session_runtime::STARTUP_PENDING_INPUT_BYTES as QUEUED_INPUT_CAP_BYTES;
-use crate::session_view::{connectivity_for_status, terminal_outcome_for_status};
 use crate::workspace_runtime::iso_now;
 use crate::{metadata, peon, providers, AppState};
 use axum::extract::ws::{Message, WebSocket};
@@ -483,20 +482,6 @@ pub(crate) fn collect_input_line(buf: &mut String, data: &str) -> (Option<String
     (result, line_completed)
 }
 
-fn mark_usage_limit_recheck_on_input(state: &Arc<AppState>, id: &str) {
-    let mut sessions = state.sessions.lock().unwrap();
-    let Some(handle) = sessions.get_mut(id) else {
-        return;
-    };
-    if !handle.at_usage_limit_latched
-        || handle.capacity_check_pending
-        || handle.resume_scan_origin.is_some()
-    {
-        return;
-    }
-    handle.resume_scan_origin = Some((handle.output_lines_seen, handle.scan_bytes_seen));
-}
-
 /// Records accepted terminal input for usage-limit rechecks, labels, and pending work signals.
 /// Call only once delivery is actually accepted — never for input dropped by
 /// `PendingActionQueue`.
@@ -541,7 +526,8 @@ fn record_terminal_input_impl(
     output_boundary: Option<u64>,
 ) -> Option<()> {
     if !data.is_empty() {
-        mark_usage_limit_recheck_on_input(state, id);
+        crate::session_application::SessionApplication::new(state.clone())
+            .arm_usage_limit_recheck(id);
     }
 
     let (collected_line, line_completed, in_progress_buf, buf_grew) = {
@@ -584,7 +570,8 @@ fn record_terminal_input_impl(
         // collect_input_line reports no completed line for a bare Enter with
         // nothing typed yet (a very common case: accepting a prompt's
         // default answer), which must still count as a submitted line here.
-        mark_committed_input_working(state, id, output_boundary, line_completed);
+        crate::session_application::SessionApplication::new(state.clone())
+            .commit_accepted_input(id, output_boundary, line_completed);
     }
 
     // Narrow single-key work-signal arming (#273, restoring the #179 fix that
@@ -651,75 +638,22 @@ fn record_terminal_input_impl(
     // reinserted under the new epoch.
     if !is_sensitive {
         with_label_epoch_read(state, id, |epoch| {
-            let mut queue_topic_inference = false;
-            let ws_guard = state.workspace.lock().unwrap();
-            if let Some(ref ws) = *ws_guard {
-                if let Some(mut meta) = ws.metadata.read_session(id) {
-                    if label_worthy && is_placeholder_label(&meta.label, id) {
-                        meta.label = label_line.clone();
-                        queue_topic_inference = true;
-                    }
-                    meta.last_user_input = Some(label_line.clone());
-                    ws.metadata.write_session(&meta);
-                }
-            }
+            let queue_topic_inference = crate::session_application::SessionApplication::new(
+                state.clone(),
+            )
+            .record_user_input_topic(id, &label_line, label_worthy);
 
             // Reuses the same decision as the metadata write above (rather
             // than re-checking the in-memory label independently) so the two
             // copies of the label can never disagree about whether this line
             // seeded it.
             if queue_topic_inference {
-                if let Some(handle) = state.sessions.lock().unwrap().get_mut(id) {
-                    handle.info.label = label_line.clone();
-                }
                 queue_label_hint_at_epoch(state, id, line, epoch);
             }
         });
     }
 
     Some(())
-}
-
-/// Whether `label` is still the creation-time placeholder for `id`, i.e. the
-/// label has not yet been seeded from any descriptive input.
-fn is_placeholder_label(label: &str, id: &str) -> bool {
-    label == crate::session_types::placeholder_label(id)
-}
-
-/// Whether `line` is exactly a label-reset command declared by the session's
-/// *persisted* harness (ADR 0040).
-///
-/// Deliberately strict: `SessionMetadata.harness` is the only harness
-/// consulted — never the live `SessionInfo.harness_id`, and never some other
-/// harness that happens to declare the same command — and the trimmed line
-/// must equal a declared command exactly, with no prefix matching and no case
-/// folding. An absent or unknown harness ID never resets.
-fn reset_command_for_persisted_harness(state: &Arc<AppState>, id: &str, line: &str) -> bool {
-    let harness_id = {
-        let ws_guard = state.workspace.lock().unwrap();
-        let Some(ws) = ws_guard.as_ref() else {
-            return false;
-        };
-        let Some(meta) = ws.metadata.read_session(id) else {
-            return false;
-        };
-        meta.harness
-    };
-    if harness_id.is_empty() {
-        return false;
-    }
-    let trimmed = line.trim();
-    let registry = state
-        .harness_catalog
-        .read()
-        .expect("harness catalog lock poisoned");
-    registry.get(&harness_id).is_some_and(|harness| {
-        harness
-            .definition
-            .label_reset_commands
-            .iter()
-            .any(|command| command == trimmed)
-    })
 }
 
 /// Applies a harness-declared conversation reset (ADR 0040): both copies of
@@ -730,35 +664,11 @@ fn reset_command_for_persisted_harness(state: &Arc<AppState>, id: &str, line: &s
 /// Call only for input that was actually delivered and classified
 /// non-sensitive.
 fn reset_label_for_declared_command(state: &Arc<AppState>, id: &str, line: &str) -> bool {
-    if !reset_command_for_persisted_harness(state, id, line) {
+    let application = crate::session_application::SessionApplication::new(state.clone());
+    if !application.is_persisted_harness_label_reset(id, line) {
         return false;
     }
-
-    let placeholder = crate::session_types::placeholder_label(id);
-    // The epoch write guard is held across the whole reset — the bump, the
-    // stale-work clearing, and both label writes — so a label refinement
-    // (which holds the epoch read guard while it checks its own epoch) can
-    // never interleave and restore the old conversation's title.
-    let mut epochs = state.peon.label_epochs.write().unwrap();
-    let epoch = epochs.entry(id.to_string()).or_insert(0);
-    *epoch = epoch.saturating_add(1);
-    state.peon.label_hint.write().unwrap().remove(id);
-    state.peon.label_pending.write().unwrap().remove(id);
-
-    {
-        let ws_guard = state.workspace.lock().unwrap();
-        if let Some(ref ws) = *ws_guard {
-            if let Some(mut meta) = ws.metadata.read_session(id) {
-                meta.label = placeholder.clone();
-                ws.metadata.write_session(&meta);
-            }
-        }
-    }
-    if let Some(handle) = state.sessions.lock().unwrap().get_mut(id) {
-        handle.info.label = placeholder;
-    }
-
-    true
+    application.reset_session_topic(id)
 }
 
 /// Queues Peon's `InputLabel` refinement for `line`, tagged with the
@@ -794,109 +704,6 @@ pub(crate) fn queue_label_hint(state: &Arc<AppState>, id: &str, line: String) {
     with_label_epoch_read(state, id, |epoch| {
         queue_label_hint_at_epoch(state, id, line, epoch)
     });
-}
-
-/// Caller contract, not enforced here: only call this for a non-empty frame
-/// whose delivery to the PTY was actually accepted. `line_completed` is
-/// whether this frame finished a submitted line (`\r`/`\n` seen outside
-/// bracketed paste). Only submitted input commits the working transition.
-/// Every accepted frame still advances the invalidation boundary and idle
-/// baseline below, whether or not it commits.
-fn mark_committed_input_working(
-    state: &Arc<AppState>,
-    id: &str,
-    output_boundary: Option<u64>,
-    line_completed: bool,
-) {
-    let ws_guard = state.workspace.lock().unwrap();
-    let mut sessions = state.sessions.lock().unwrap();
-    let Some(handle) = sessions.get_mut(id) else {
-        return;
-    };
-    if handle.info.lifecycle != "alive" {
-        return;
-    }
-    let already_working = handle.info.observed_status.as_deref() == Some("working")
-        && handle.info.attention.as_deref() == Some("working")
-        && handle.info.metadata_source.as_deref() == Some("process")
-        && handle.info.metadata_confidence == Some(1.0)
-        && handle.info.needs_user_input.is_none()
-        && handle.info.detected_question.is_none()
-        && handle.info.suggested_options.is_none()
-        && handle.pending_work_signal.is_none();
-    let commit_working = !already_working && line_completed;
-    let Some(next_generation) = handle.runtime.input_generation.checked_add(1) else {
-        tracing::warn!(session_id = %id, "input generation overflow");
-        return;
-    };
-    let accepted_at = chrono::Utc::now();
-    if !commit_working || already_working {
-        handle.runtime.input_generation = next_generation;
-        handle.runtime.accepted_input_at = Some(accepted_at);
-        handle.runtime.min_peon_output_revision =
-            output_boundary.unwrap_or(handle.runtime.peon_output_revision);
-        drop(sessions);
-        drop(ws_guard);
-        state
-            .peon
-            .last_output
-            .write()
-            .unwrap()
-            .insert(id.to_string(), tokio::time::Instant::now());
-        return;
-    }
-    let fields = crate::runtime::observed_status::process_transition_fields(
-        crate::runtime::observed_status::ProcessTransition::CommittedWorking,
-    );
-    if ws_guard.is_none() {
-        // A detached test/runtime has no metadata store, so there is no
-        // durable state to diverge from. Keep its live terminal contract
-        // explicit here; workspace-backed sessions take the atomic path below.
-        crate::runtime::observed_status::apply_process_transition_to_handle(
-            &mut handle.info,
-            &fields,
-        );
-        handle.pending_work_signal = None;
-        handle.runtime.input_generation = next_generation;
-        handle.runtime.accepted_input_at = Some(accepted_at);
-        handle.runtime.min_peon_output_revision =
-            output_boundary.unwrap_or(handle.runtime.peon_output_revision);
-        drop(sessions);
-        drop(ws_guard);
-        state
-            .peon
-            .last_output
-            .write()
-            .unwrap()
-            .insert(id.to_string(), tokio::time::Instant::now());
-        return;
-    }
-    let ws = ws_guard.as_ref().expect("workspace checked above");
-    let Some(mut meta) = ws.metadata.read_session(id) else {
-        return;
-    };
-    if meta.lifecycle != "alive" {
-        return;
-    }
-    crate::runtime::observed_status::apply_process_transition_to_meta(&mut meta, &fields);
-    if ws.metadata.try_write_session(&meta).is_err() {
-        tracing::warn!(session_id = %id, "failed to persist input attention transition");
-        return;
-    }
-    crate::runtime::observed_status::apply_process_transition_to_handle(&mut handle.info, &fields);
-    handle.pending_work_signal = None;
-    handle.runtime.input_generation = next_generation;
-    handle.runtime.accepted_input_at = Some(accepted_at);
-    handle.runtime.min_peon_output_revision =
-        output_boundary.unwrap_or(handle.runtime.peon_output_revision);
-    drop(sessions);
-    drop(ws_guard);
-    state
-        .peon
-        .last_output
-        .write()
-        .unwrap()
-        .insert(id.to_string(), tokio::time::Instant::now());
 }
 
 pub(crate) fn should_forward_terminal_env(key: &str) -> bool {
@@ -983,192 +790,9 @@ async fn set_session_status_inner(
     expected_generation: Option<crate::runtime::session_runtime::RuntimeGeneration>,
     status: &str,
 ) -> bool {
-    let task_state = state.clone();
-    let task_id = id.to_string();
-    let status = status.to_string();
-    tokio::task::spawn_blocking(move || {
-        let state = task_state;
-        let id = task_id;
-        let is_terminal = matches!(status.as_str(), "killed" | "ended" | "error");
-        let (handle_decision, session_resume, entered_running, entered_terminal) = {
-            let mut sessions = state.sessions.lock().unwrap();
-            if expected_generation.is_some_and(|expected| {
-                !sessions
-                    .get(&id)
-                    .is_some_and(|handle| handle.runtime.run_generation() == expected)
-            }) {
-                return false;
-            }
-            if let Some(handle) = sessions.get_mut(&id) {
-                if !is_terminal
-                    && matches!(handle.info.lifecycle_phase.as_str(), "ending" | "ended")
-                {
-                    return false;
-                }
-                let entered_running = !is_terminal
-                    && status == "running"
-                    && handle.info.status != "running";
-                if is_terminal
-                    && matches!(handle.info.lifecycle_phase.as_str(), "ending" | "ended")
-                {
-                    return false;
-                }
-                if is_terminal {
-                    handle.info.status = "running".to_string();
-                    handle.info.lifecycle_phase = "ending".to_string();
-                    handle.info.lifecycle = "stopping".to_string();
-                    handle.info.attention = None;
-                    handle.info.connectivity =
-                        Some(connectivity_for_status("running").to_string());
-                    handle.info.terminal_outcome = None;
-                } else {
-                    handle.info.status = status.clone();
-                    handle.info.lifecycle_phase = if status == "creating" {
-                        "creating".to_string()
-                    } else {
-                        "active".to_string()
-                    };
-                    handle.info.lifecycle = if status == "creating" {
-                        "creating"
-                    } else {
-                        "alive"
-                    }
-                    .to_string();
-                    handle.info.connectivity = Some(connectivity_for_status(&status).to_string());
-                    handle.info.terminal_outcome = terminal_outcome_for_status(&status);
-                }
-                handle.info.last_activity_at = Some(iso_now());
-                if is_terminal {
-                    handle.info.observed_status = None;
-                }
-                (
-                    Some(true),
-                    (handle.info.resume.clone(), handle.info.resumed_from.clone()),
-                    entered_running,
-                    is_terminal,
-                )
-            } else {
-                (None, (None, None), false, false)
-            }
-        };
-        if entered_terminal {
-            state.peon.last_output.write().unwrap().remove(&id);
-            // Authoritative final size for dead-session replay. Goes through the
-            // same lock-serialized helper live-resize persistence uses
-            // (`session_runtime::persist_terminal_size`) so a live-resize write
-            // deferred onto a blocking-pool thread can never land after this one
-            // and clobber it with a stale size — see that function's doc comment.
-            // Must run before `ws_guard` below acquires `state.workspace`, since
-            // this also locks it internally and the lock isn't reentrant.
-            crate::runtime::session_runtime::persist_terminal_size(&state, &id, true);
-        } else if entered_running && state.peon.config.enabled {
-            state
-                .peon
-                .last_output
-                .write()
-                .unwrap()
-                .entry(id.clone())
-                .or_insert_with(tokio::time::Instant::now);
-        }
-        let now = iso_now();
-        let mut applied = handle_decision.unwrap_or(false);
-        let ws_guard = state.workspace.lock().unwrap();
-        if let Some(ref ws) = *ws_guard {
-            if let Some(mut meta) = ws.metadata.read_session(&id) {
-                // With no in-memory handle, the persisted lifecycle is the guard authority.
-                if handle_decision.is_none()
-                    && matches!(meta.lifecycle_phase.as_str(), "ending" | "ended")
-                {
-                    return false;
-                }
-                applied = true;
-                if is_terminal {
-                    meta.status = "running".to_string();
-                    meta.lifecycle_phase = "ending".to_string();
-                    meta.lifecycle = "stopping".to_string();
-                    meta.attention = None;
-                    meta.connectivity = connectivity_for_status("running").to_string();
-                    meta.terminal_outcome = None;
-                    meta.pending_terminal_status = Some(status.clone());
-                    meta.ending_observed_status_snapshot =
-                        Some(metadata::ObservedStatusSnapshotMetadata {
-                            value: meta.observed_status.clone(),
-                            source: meta.metadata_source.clone(),
-                            confidence: Some(meta.metadata_confidence),
-                            observed_at: Some(now.clone()),
-                        });
-                } else {
-                    meta.status = status.clone();
-                    meta.lifecycle_phase = if status == "creating" {
-                        "creating".to_string()
-                    } else {
-                        "active".to_string()
-                    };
-                    meta.lifecycle = if status == "creating" {
-                        "creating"
-                    } else {
-                        "alive"
-                    }
-                    .to_string();
-                    meta.connectivity = connectivity_for_status(&status).to_string();
-                    meta.terminal_outcome = terminal_outcome_for_status(&status);
-                }
-                meta.last_activity = now.clone();
-                if is_terminal {
-                    meta.observed_status = None;
-                }
-                if session_resume.0.is_some() {
-                    meta.resume = session_resume.0;
-                }
-                if session_resume.1.is_some() {
-                    meta.resumed_from = session_resume.1;
-                }
-                ws.metadata.write_session(&meta);
-            }
-            if applied {
-                ws.metadata.append_event(
-                    &id,
-                    &metadata::Event {
-                        event_type: "session.status".into(),
-                        timestamp: now,
-                        status,
-                        observed_status: None,
-                        confidence: None,
-                        summary: None,
-                        source: None,
-                    },
-                );
-            }
-        }
-        applied
-    })
-    .await
-    .unwrap_or_else(|error| {
-        // A poisoned lock (from an unrelated panic elsewhere) is the only realistic
-        // cause of a panic here — this crate treats poisoned locks as fatal
-        // everywhere via `.lock().unwrap()`. Log with session context (more durable
-        // than the bare panic hook in a daemon) and resume the unwind rather than
-        // quietly returning `false`: a caller that sees `false` moves on assuming
-        // the transition never happened, but the in-memory sessions-lock mutation
-        // above may already have applied it, which would leave the session
-        // permanently stuck in "ending" with finalization never scheduled.
-        //
-        // This deliberately differs from every other `spawn_blocking(...).await`
-        // call site in this crate (`select_terminal_plan`, `report_session_plan_path`,
-        // the harness/provider handlers), which convert a `JoinError` into a safe
-        // fallback (a 500 status, `None`, `false`) instead of re-panicking. Those
-        // sites can do that safely because a panic inside their closures happens
-        // *before* any caller-visible mutation — there's nothing for the fallback to
-        // contradict. Do not copy the graceful-fallback tail here without first
-        // checking whether the same "already mutated in-memory before the panic
-        // could happen" condition applies.
-        tracing::error!(
-            error = %error,
-            session_id = %id,
-            "set_session_status: blocking task panicked"
-        );
-        std::panic::resume_unwind(error.into_panic())
-    })
+    crate::session_application::SessionApplication::new(state.clone())
+        .transition_session_status(id, expected_generation, status)
+        .await
 }
 
 fn final_snapshot_from_inference(
@@ -1196,92 +820,6 @@ fn fallback_final_snapshot(
         .unwrap_or_else(|| {
             metadata::canonical_null_snapshot("recovery", Some(observed_at.to_string()))
         })
-}
-
-/// `fallback_terminal_status` is the terminal status the exit path intended;
-/// it is used when metadata is unavailable (no workspace open, file missing),
-/// since `pending_terminal_status` is only persisted there.
-pub(crate) fn complete_session_ending(
-    state: &Arc<AppState>,
-    id: &str,
-    generation: crate::runtime::session_runtime::RuntimeGeneration,
-    final_snapshot: metadata::ObservedStatusSnapshotMetadata,
-    fallback_terminal_status: &str,
-) -> bool {
-    {
-        let sessions = state.sessions.lock().unwrap();
-        if !sessions.get(id).is_some_and(|handle| {
-            handle.runtime.run_generation() == generation
-                && handle.info.lifecycle_phase == "ending"
-        }) {
-            return false;
-        }
-    }
-
-    let now = iso_now();
-    let mut final_status: Option<String> = None;
-
-    {
-        let ws_guard = state.workspace.lock().unwrap();
-        if let Some(ref ws) = *ws_guard {
-            if let Some(mut meta) = ws.metadata.read_session(id) {
-                if meta.lifecycle_phase == "ended" {
-                    return false;
-                }
-                let pending = meta
-                    .pending_terminal_status
-                    .clone()
-                    .unwrap_or_else(|| fallback_terminal_status.into());
-                meta.status = pending.clone();
-                meta.lifecycle_phase = "ended".into();
-                meta.lifecycle = "dead".into();
-                meta.attention = None;
-                meta.connectivity = connectivity_for_status(&pending).to_string();
-                meta.terminal_outcome = terminal_outcome_for_status(&pending);
-                meta.pending_terminal_status = None;
-                meta.ending_observed_status_snapshot = None;
-                meta.final_observed_status_snapshot = Some(final_snapshot.clone());
-                meta.observed_status = None;
-                meta.last_activity = now.clone();
-                ws.metadata.write_session(&meta);
-                ws.metadata.append_event(
-                    id,
-                    &metadata::Event {
-                        event_type: "session.status".into(),
-                        timestamp: now.clone(),
-                        status: pending.clone(),
-                        observed_status: final_snapshot.value.clone(),
-                        confidence: final_snapshot.confidence,
-                        summary: None,
-                        source: None,
-                    },
-                );
-                final_status = Some(pending);
-            }
-        }
-    }
-
-    let pending = final_status.unwrap_or_else(|| fallback_terminal_status.into());
-    let mut sessions = state.sessions.lock().unwrap();
-    if let Some(handle) = sessions.get_mut(id) {
-        if handle.runtime.run_generation() != generation
-            || handle.info.lifecycle_phase == "ended"
-        {
-            return false;
-        }
-        handle.info.status = pending.clone();
-        handle.info.lifecycle_phase = "ended".into();
-        handle.info.lifecycle = "dead".into();
-        handle.info.attention = None;
-        handle.info.connectivity = Some(connectivity_for_status(&pending).to_string());
-        handle.info.terminal_outcome = terminal_outcome_for_status(&pending);
-        handle.info.observed_status = None;
-        handle.info.final_observed_status = final_snapshot.value.clone();
-        handle.info.last_activity_at = Some(now);
-        handle.resume_in_progress = false;
-        return true;
-    }
-    false
 }
 
 pub(crate) async fn finalize_session_ending(
@@ -1338,107 +876,31 @@ pub(crate) async fn finalize_session_ending(
         }
     }
 
+    let final_scan = crate::session_application::SessionApplication::new(state.clone())
+        .persist_final_peon_scan(&id, generation, scan_result.as_ref());
+    if !final_scan.should_finalize {
+        return;
+    }
+
+    let final_observation_accepted = final_scan.observation_accepted;
     let inferred_snapshot = final_snapshot_from_inference(
         scan_result
             .as_ref()
             .and_then(|result| result.inference.as_ref()),
         &now,
     );
-    let mut final_observation_accepted = false;
-    let final_snapshot = {
-        let ws_guard = state.workspace.lock().unwrap();
-        let meta = ws_guard
-            .as_ref()
-            .and_then(|ws| ws.metadata.read_session(&id));
-
-        if meta.as_ref().is_some_and(|m| m.lifecycle_phase == "ended") {
-            return;
-        }
-
-        if let (Some(ref ws), Some(ref result)) = (ws_guard.as_ref(), scan_result.as_ref()) {
-            if let Some(ref observation) = result.observation {
-                ws.metadata.persist_provider_context(&id, observation);
-            }
-            if let (Some(ref inference), Some(_session)) = (result.inference.as_ref(), meta.as_ref()) {
-                for (index, candidate) in inference.workflow_observations.iter().enumerate() {
-                    let key = format!("final-scan:{generation}:{index}");
-                    let mut recorded = false;
-                    for attempt in 0..3 {
-                        let result = ws.workflow_observations.record_observation(
-                            &id,
-                            crate::workflow_observations::ObservationOrigin::Peon,
-                            &key,
-                            crate::workflow_observations::ObservationCandidate {
-                                kind: candidate.kind,
-                                description: candidate.description.clone(),
-                                evidence: candidate.evidence.clone(),
-                                reported_impact: candidate.reported_impact,
-                                confidence: Some(candidate.confidence),
-                            },
-                        );
-                        match result {
-                            Ok(crate::workflow_observations::RecordOutcome::Accepted(_)) => {
-                                final_observation_accepted = true;
-                                recorded = true;
-                                break;
-                            }
-                            Ok(crate::workflow_observations::RecordOutcome::Duplicate { .. }) => {
-                                // The final scan may race a retry of the live
-                                // Peon path; the evidence is already durable.
-                                recorded = true;
-                                break;
-                            }
-                            Err(error)
-                                if attempt < 2
-                                    && matches!(
-                                        error,
-                                        crate::workflow_observations::RecordError::PersistFailed
-                                            | crate::workflow_observations::RecordError::Degraded
-                                            | crate::workflow_observations::RecordError::RateLimited
-                                    ) => {}
-                            Err(error) => {
-                                tracing::warn!(
-                                    session_id = %id,
-                                    candidate_index = index,
-                                    %error,
-                                    "final peon workflow observation could not be recorded"
-                                );
-                                break;
-                            }
-                        }
-                    }
-                    if !recorded {
-                        tracing::warn!(
-                            session_id = %id,
-                            candidate_index = index,
-                            "final peon workflow observation remained unrecorded after retries"
-                        );
-                    }
-                }
-            }
-            if result.inference.is_none() {
-                tracing::warn!(
-                    session_id = %id,
-                    timeout_secs = state.peon.config.final_scan_timeout_secs,
-                    "final peon scan returned no inference; finalizing with fallback snapshot"
-                );
-            }
-        }
-
-        inferred_snapshot.unwrap_or_else(|| match meta {
-            Some(ref meta) => fallback_final_snapshot(meta, &now),
-            // Metadata unavailable: still complete the ending so the in-memory
-            // session does not stay stuck in the "ending" phase.
-            None => metadata::canonical_null_snapshot("recovery", Some(now.clone())),
-        })
-    };
+    let final_snapshot = inferred_snapshot.unwrap_or_else(|| match final_scan.metadata.as_ref() {
+        Some(meta) => fallback_final_snapshot(meta, &now),
+        // Metadata unavailable: still complete the ending so the in-memory
+        // session does not stay stuck in the "ending" phase.
+        None => metadata::canonical_null_snapshot("recovery", Some(now.clone())),
+    });
 
     if final_observation_accepted {
         crate::taskmaster::evaluator::schedule_evaluation(state.clone());
     }
 
-    complete_session_ending(
-        &state,
+    crate::session_application::SessionApplication::new(state.clone()).complete_session_ending(
         &id,
         generation,
         final_snapshot,
@@ -2427,6 +1889,24 @@ mod tests {
         assert_eq!(label_epoch(&state, id), 1);
     }
 
+    #[test]
+    fn application_reset_lookup_uses_persisted_harness_and_exact_trimmed_match() {
+        let id = "application-reset-lookup";
+        let (state, _dir) = prompted_session_state(id);
+        set_harness(&state, id, "claude-code");
+        let application = crate::session_application::SessionApplication::new(state.clone());
+
+        assert!(application.is_persisted_harness_label_reset(id, "  /new\r\n"));
+        assert!(!application.is_persisted_harness_label_reset(id, "/NEW"));
+        assert!(!application.is_persisted_harness_label_reset(id, "/new extra"));
+
+        set_harness(&state, id, "unknown-harness");
+        assert!(!application.is_persisted_harness_label_reset(id, "/new"));
+
+        *state.workspace.lock().unwrap() = None;
+        assert!(!application.is_persisted_harness_label_reset(id, "/new"));
+    }
+
     fn live_label(state: &Arc<crate::AppState>, session_id: &str) -> String {
         state.sessions.lock().unwrap()[session_id].info.label.clone()
     }
@@ -3073,7 +2553,8 @@ mod tests {
             .info
             .harness_id = Some("codex-wrapper".into());
 
-        mark_usage_limit_recheck_on_input(&state, &id);
+        crate::session_application::SessionApplication::new(state.clone())
+            .arm_usage_limit_recheck(&id);
         let first_origin = state
             .sessions
             .lock()
@@ -3092,7 +2573,8 @@ mod tests {
             handle.scan_bytes_seen += 3;
         }
 
-        mark_usage_limit_recheck_on_input(&state, &id);
+        crate::session_application::SessionApplication::new(state.clone())
+            .arm_usage_limit_recheck(&id);
         let second_origin = state
             .sessions
             .lock()
@@ -3793,8 +3275,7 @@ mod tests {
         let generation = state.sessions.lock().unwrap()[&session_id]
             .runtime
             .run_generation();
-        complete_session_ending(
-            &state,
+        crate::session_application::SessionApplication::new(state.clone()).complete_session_ending(
             &session_id,
             generation,
             metadata::ObservedStatusSnapshotMetadata {
