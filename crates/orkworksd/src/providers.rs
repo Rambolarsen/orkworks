@@ -1677,6 +1677,43 @@ mod tests {
     }
 
     #[test]
+    fn inference_omits_model_argument_for_provider_without_model_support() {
+        let invocations = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let manager = ProviderManager::for_tests_with_registry(
+            vec![ProviderDefinition {
+                id: "aider".into(),
+                label: "Aider".into(),
+                command: "aider".into(),
+                default_args: vec!["--stdin".into()],
+                model_arg_template: Some("--model={model}".into()),
+                supports_model: false,
+                timeout_secs: 30,
+                prompt_transport: PromptTransport::Stdin,
+                list_models_command: None,
+                list_models_args: vec![],
+                static_models: vec![],
+                http_list_models: false,
+            }],
+            ProviderSettingsPayload {
+                peon_model: Some("global-model".into()),
+                ..sample_settings(vec![entry("aider").model(Some("provider-model"))])
+            },
+            vec![fake_provider("aider")
+                .stdout(r#"{"observedStatus":"working","confidence":0.9}"#)
+                .with_invocations(invocations.clone())],
+        );
+
+        let result = manager.run_inference(PeonScope::Session, &["terminal line".to_owned()]);
+
+        assert!(result.inference.is_some());
+        assert_eq!(
+            result.observation.unwrap().provider_model.as_deref(),
+            Some("provider-model")
+        );
+        assert_eq!(invocations.lock().unwrap()[0].0, vec!["--stdin"]);
+    }
+
+    #[test]
     fn ollama_request_uses_resolved_entry_model() {
         let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
         let address = listener.local_addr().unwrap();
