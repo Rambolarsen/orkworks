@@ -1,5 +1,6 @@
 use crate::harness::registry::ResolvedHarness;
 use crate::plan_handoff::resolve_openable_plan_reference;
+use crate::session_projection::SessionProjection;
 use crate::session_types::{MemoryState, SessionInfo};
 use crate::session_view::{
     connectivity_for_status, derive_memory_state, detect_conflicts, merge_live_session_info,
@@ -451,6 +452,7 @@ fn enrich_sessions_with_git_context<F>(
 }
 
 pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let projected_infos = SessionProjection::new(state.clone()).list();
     let registry = state
         .harness_catalog
         .read()
@@ -522,7 +524,7 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
     let mut pending_transitions: Vec<(String, bool, bool)> = Vec::new();
     let mut capped_recheck_resets: HashSet<String> = HashSet::new();
     let mut capped_clear_baselines: HashMap<String, (u64, u64)> = HashMap::new();
-    let mut infos: Vec<SessionInfo> = live_sessions
+    let mut capacity_infos: Vec<SessionInfo> = live_sessions
         .into_iter()
         .map(
             |(
@@ -702,7 +704,7 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
         let (resume_exact, resume_latest_cwd, resume_latest_repo) = resolved_harness
             .map(ResolvedHarness::resume_flags)
             .unwrap_or_default();
-        infos.push(SessionInfo {
+        capacity_infos.push(SessionInfo {
             id: meta.id.clone(),
             label: meta.label.clone(),
             harness_id: (!meta.harness.is_empty()).then(|| meta.harness.clone()),
@@ -768,6 +770,23 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
             provider_model: meta.provider_model.clone(),
             provider_state: meta.provider_state.clone(),
         });
+    }
+
+    // SessionProjection owns canonical live/remembered assembly. The legacy
+    // capacity pass above still computes runtime-only transitions from its
+    // snapshots until Task 5 moves that state machine into the projection.
+    let mut infos = projected_infos;
+    for info in &mut infos {
+        let Some(capacity_info) = capacity_infos.iter().find(|candidate| candidate.id == info.id)
+        else {
+            continue;
+        };
+        info.at_usage_limit = capacity_info.at_usage_limit;
+        info.capacity_check_pending = capacity_info.capacity_check_pending;
+        info.usage_limit_reset_hint = capacity_info.usage_limit_reset_hint.clone();
+        if capacity_info.at_usage_limit == Some(true) && info.lifecycle == "alive" {
+            info.attention = capacity_info.attention.clone();
+        }
     }
 
     // Write back newly latched usage limits so they survive ring buffer scroll-off.
