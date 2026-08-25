@@ -349,7 +349,13 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
                 key={item.key}
                 type="button"
                 className={`settings-nav-button${activeSection === item.key ? " settings-nav-button--active" : ""}`}
-                onClick={() => setActiveSection(item.key)}
+                onClick={() => {
+                  // Leaving the Hotkeys tab mid-capture would otherwise leave the
+                  // window-level keydown listener armed with no visible target row,
+                  // silently assigning the next keystroke typed anywhere else.
+                  setCapturing(null);
+                  setActiveSection(item.key);
+                }}
               >
                 {item.label}
               </button>
@@ -381,7 +387,7 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
                               <HarnessDetectionStatus harnessId={h.id} />
                             )}
                           </div>
-                          <Toggle checked={activeDraft.includes(h.id)} onChange={() => toggleHarness(h.id)} />
+                          <Toggle checked={activeDraft.includes(h.id)} onChange={() => toggleHarness(h.id)} ariaLabel={h.name} />
                         </div>
                         {INTEGRATION_HARNESS_IDS.includes(h.id) && activeDraft.includes(h.id) && (
                           <HarnessIntegrationSection harnessId={h.id} harnessName={h.name} harness={h} />
@@ -533,30 +539,31 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
                 <div className="hotkey-list">
                   {hotkeyRows.map((row) => (
                     <div className={`hotkey-row ${capturing === row.action ? "hotkey-row--capturing" : ""}`} key={row.action}>
-                      <div>
+                      <div className="hotkey-row-label">
                         <div className="hotkey-label">{row.label}</div>
                         {errors[row.action]?.map((error) => (
                           <div className="hotkey-error" key={error}>{error}</div>
                         ))}
                       </div>
-                      <kbd className="hotkey-value">
-                        {capturing === row.action ? "Press shortcut..." : draft[row.action] ?? "Unset"}
-                      </kbd>
-                      <Button variant="ghost" size="sm" onClick={() => setCapturing(row.action)}>Edit</Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          settingsController.resetHotkey(row.action);
-                          setDraft((current) => ({ ...current, [row.action]: defaultHotkeys[row.action] }));
-                        }}
-                      >
-                        Reset
-                      </Button>
+                      <div className="hotkey-row-controls">
+                        <kbd className="hotkey-value">
+                          {capturing === row.action ? "Press shortcut..." : draft[row.action] ?? "Unset"}
+                        </kbd>
+                        <Button variant="ghost" size="sm" onClick={() => setCapturing(row.action)}>Edit</Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            settingsController.resetHotkey(row.action);
+                            setDraft((current) => ({ ...current, [row.action]: defaultHotkeys[row.action] }));
+                          }}
+                        >
+                          Reset
+                        </Button>
+                      </div>
                     </div>
                   ))}
                 </div>
-                {saveError && <div className="settings-save-error">{saveError}</div>}
               </div>
             )}
 
@@ -622,6 +629,8 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
             )}
           </div>
         </div>
+
+        {saveError && <div className="settings-save-error">{saveError}</div>}
 
         <footer className="settings-modal-footer">
           <Button variant="secondary" size="sm" onClick={() => {

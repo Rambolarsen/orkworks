@@ -5,6 +5,8 @@ interface HarnessDetectionStatusProps {
   harnessId: string;
 }
 
+type DetectionState = "loading" | "detected" | "not-detected" | "unknown";
+
 /**
  * Always-on "Detected"/"Not detected" indicator for a coding-tool row.
  * Independent of whether the tool is enabled — HarnessIntegrationSection
@@ -26,14 +28,22 @@ export default function HarnessDetectionStatus({ harnessId }: HarnessDetectionSt
     };
   }, [harnessId]);
 
-  const detected = result?.ok ? result.status.toolDetected : null;
+  const state: DetectionState =
+    result === null
+      ? "loading"
+      : !result.ok
+        ? "unknown"
+        : result.status.toolDetected
+          ? "detected"
+          : "not-detected";
+
+  const text =
+    state === "loading" ? "Checking…" : state === "unknown" ? "Unknown" : state === "detected" ? "Detected" : "Not detected";
 
   return (
     <span className="harness-detection-status">
-      <span className={`harness-detection-dot${detected ? " harness-detection-dot--ok" : ""}`} />
-      <span className="harness-detection-text">
-        {detected === null ? "Checking…" : detected ? "Detected" : "Not detected"}
-      </span>
+      <span className={`harness-detection-dot${state === "detected" ? " harness-detection-dot--ok" : ""}`} />
+      <span className="harness-detection-text">{text}</span>
     </span>
   );
 }
