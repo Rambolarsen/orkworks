@@ -52,7 +52,7 @@ test("does not recognize plan-looking paths outside supported roots", () => {
   }
 });
 
-test("provides a multiline link from xterm's wrapped buffer", async () => {
+test("provides a single-row link for each xterm-wrapped buffer row", async () => {
   const terminal = new Terminal({ cols: 12, rows: 4 });
   await new Promise<void>((resolve) => terminal.write("specs/wrapped-plan.md", resolve));
   const provider = createTerminalPlanLinkProvider(terminal, async () => {});
@@ -60,7 +60,32 @@ test("provides a multiline link from xterm's wrapped buffer", async () => {
     provider.provideLinks(2, resolve);
   });
   assert.equal(links?.[0]?.text, "specs/wrapped-plan.md");
-  assert.notEqual(links?.[0]?.range.start.y, links?.[0]?.range.end.y);
+  assert.equal(links?.[0]?.range.start.y, 2);
+  assert.equal(links?.[0]?.range.end.y, 2);
+  terminal.dispose();
+});
+
+test("exposes each wrapped absolute-path row as a clickable single-row range", async () => {
+  const terminal = new Terminal({ cols: 80, rows: 8 });
+  const expected = "/Users/froomiebot/workspace/orkworks-provider-model-selection/docs/superpowers/specs/2026-08-25-provider-model-selection-design.md";
+  await new Promise<void>((resolve) => terminal.write(
+    "• The provider-scoped model design is written and committed at " + expected + ".",
+    resolve,
+  ));
+  const activated: string[] = [];
+  const provider = createTerminalPlanLinkProvider(terminal, async (path) => { activated.push(path); });
+
+  for (const row of [1, 2, 3]) {
+    const links = await new Promise<any>((resolve) => provider.provideLinks(row, resolve));
+    assert.equal(links?.length, 1);
+    assert.equal(links[0].text, expected);
+    assert.equal(links[0].range.start.y, row);
+    assert.equal(links[0].range.end.y, row);
+    links[0].activate();
+  }
+
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(activated, [expected, expected, expected]);
   terminal.dispose();
 });
 
@@ -109,7 +134,7 @@ test("still finds a wrapped link that stays within the scan cap", async () => {
   const filler = "xy".repeat(50); // wraps into 50 rows at cols=2, well under the cap
   await new Promise<void>((resolve) => terminal.write(filler + "specs/plan.md", resolve));
   const provider = createTerminalPlanLinkProvider(terminal, async () => {});
-  const links = await new Promise<any>((resolve) => provider.provideLinks(1, resolve));
+  const links = await new Promise<any>((resolve) => provider.provideLinks(51, resolve));
   assert.equal(links?.[0]?.text, "specs/plan.md");
   terminal.dispose();
 });
