@@ -1799,8 +1799,11 @@ mod tests {
                 .parse::<usize>()
                 .unwrap();
             while request.len() < headers_end + content_length {
-                let n = stream.read(&mut chunk).unwrap();
-                request.extend_from_slice(&chunk[..n]);
+                match stream.read(&mut chunk) {
+                    Ok(0) => return Err("Ollama test server received a truncated request".into()),
+                    Ok(n) => request.extend_from_slice(&chunk[..n]),
+                    Err(error) => return Err(format!("Ollama test server read failed: {error}")),
+                }
             }
             *captured_body.lock().unwrap() =
                 String::from_utf8(request[headers_end..headers_end + content_length].to_vec())
