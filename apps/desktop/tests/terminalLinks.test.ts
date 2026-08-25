@@ -32,8 +32,24 @@ test("recognizes supported Windows paths and spaces", () => {
   );
 });
 
+test("recognizes quoted absolute paths and normalizes Windows separator padding", () => {
+  assert.deepEqual(
+    terminalPlanPaths("Wrote `/Users/me/repo/docs/superpowers/plans/review.md` and C:\\repo\\docs\\ superpowers\\ specs\\plan.md"),
+    [
+      "/Users/me/repo/docs/superpowers/plans/review.md",
+      "C:\\repo\\docs\\superpowers\\specs\\plan.md",
+    ],
+  );
+});
+
 test("does not recognize generic Markdown paths", () => {
   assert.deepEqual(terminalPlanPaths("See docs/readme.md and notes/plan.md"), []);
+});
+
+test("does not recognize plan-looking paths outside supported roots", () => {
+  for (const path of ["docs/plans/plan.md", "docs/specs/spec.md", "/repo/docs/plans/other.md"]) {
+    assert.deepEqual(terminalPlanPaths(path), [], path);
+  }
 });
 
 test("provides a multiline link from xterm's wrapped buffer", async () => {
@@ -45,6 +61,22 @@ test("provides a multiline link from xterm's wrapped buffer", async () => {
   });
   assert.equal(links?.[0]?.text, "specs/wrapped-plan.md");
   assert.notEqual(links?.[0]?.range.start.y, links?.[0]?.range.end.y);
+  terminal.dispose();
+});
+
+test("keeps an absolute plan link across a hard terminal line break", async () => {
+  const terminal = new Terminal({ cols: 120, rows: 4 });
+  await new Promise<void>((resolve) => terminal.write(
+    "/Users/froomiebot/workspace/orkworks-harness-version-status/docs/\n"
+      + "superpowers/specs/2026-08-25-harness-version-status-design.md",
+    resolve,
+  ));
+  const provider = createTerminalPlanLinkProvider(terminal, async () => {});
+  const expected = "/Users/froomiebot/workspace/orkworks-harness-version-status/docs/superpowers/specs/2026-08-25-harness-version-status-design.md";
+  for (const row of [1, 2]) {
+    const links = await new Promise<any>((resolve) => provider.provideLinks(row, resolve));
+    assert.equal(links?.[0]?.text, expected);
+  }
   terminal.dispose();
 });
 
