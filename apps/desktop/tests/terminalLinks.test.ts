@@ -52,7 +52,7 @@ test("does not recognize plan-looking paths outside supported roots", () => {
   }
 });
 
-test("provides a multiline link from xterm's wrapped buffer", async () => {
+test("provides a single-row link for each xterm-wrapped buffer row", async () => {
   const terminal = new Terminal({ cols: 12, rows: 4 });
   await new Promise<void>((resolve) => terminal.write("specs/wrapped-plan.md", resolve));
   const provider = createTerminalPlanLinkProvider(terminal, async () => {});
