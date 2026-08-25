@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { HarnessConfig, IntegrationStatusResult } from "../harnessTypes";
-import { isAttentionSignal } from "../harnessIntegrationPresentation";
+import { isAttentionSignal, shouldShowInstalledConfirmation } from "../harnessIntegrationPresentation";
 
 // Mirrors the sole direct-reference condition in the backend probe
 // (crates/orkworksd/src/harness/detect.rs::probe_installed_tool): POSIX
@@ -118,15 +118,16 @@ export default function HarnessIntegrationSection({ harnessId, harnessName, harn
       )}
       {integration?.ok && integration.status.registration === "installed" && (
         <>
-          {integration.status.activation === "needs_trust" ? (
-            <span className="settings-config-status">
-              Installed — approve the hook inside {harnessName} (run /hooks) to activate it
-            </span>
-          ) : (
-            <span className="settings-config-status settings-config-status--ok">
-              {isAttentionSignal(harnessId) ? "✓ Attention hooks installed" : "✓ Session capture hook installed"}
-            </span>
-          )}
+          {shouldShowInstalledConfirmation(integration.status.diagnostics) &&
+            (integration.status.activation === "needs_trust" ? (
+              <span className="settings-config-status">
+                Installed — approve the hook inside {harnessName} (run /hooks) to activate it
+              </span>
+            ) : (
+              <span className="settings-config-status settings-config-status--ok">
+                {isAttentionSignal(harnessId) ? "✓ Attention hooks installed" : "✓ Session capture hook installed"}
+              </span>
+            ))}
           <button type="button" onClick={uninstallIntegrationHandler} disabled={integrationBusy}>
             {integrationBusy ? "Removing…" : "Uninstall"}
           </button>

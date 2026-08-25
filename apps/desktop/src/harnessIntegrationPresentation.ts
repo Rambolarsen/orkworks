@@ -5,3 +5,9 @@
 export function isAttentionSignal(harnessId: string): boolean {
   return harnessId !== "codex" && harnessId !== "opencode";
 }
+
+export function shouldShowInstalledConfirmation(
+  diagnostics: ReadonlyArray<{ code: string }>,
+): boolean {
+  return !diagnostics.some((diagnostic) => diagnostic.code === "unsupported_tool_version");
+}
