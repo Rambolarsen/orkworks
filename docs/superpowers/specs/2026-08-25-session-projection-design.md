@@ -27,11 +27,18 @@ Introduce a `SessionProjection` module whose caller-facing operation is:
 pub(crate) fn list(&self) -> Vec<SessionInfo>
 ```
 
+The implementation lives in a new `crates/orkworksd/src/session_projection.rs`
+module. `session_view.rs` remains the home for pure view helpers and field
+projections; it is not made responsible for locks, filesystem reads, or live
+state write-back. `SessionProjection` and its constructor are `pub(crate)`;
+the Git detector injection used by tests remains private to the module.
+
 Projection is intentionally non-failing at the public seam. Missing,
-unreadable, or corrupt per-session metadata follows the current behavior: the
-record is omitted or the available live/persisted fields are used. Git and
-process-cwd probing also degrade to the existing fallback values. There is no
-new HTTP error mapping in this slice.
+unreadable, or corrupt per-session metadata follows the current behavior: a
+remembered record is omitted; a live record remains projected from its live
+handle with no persisted overlay. A missing sessions directory produces no
+remembered records. Git and process-cwd probing degrade to the existing
+fallback values. There is no new projection error mapping in this slice.
 
 The module may borrow the existing `Arc<AppState>`, but it must not create a
 second session registry, runtime owner, or metadata authority. `AppState.sessions`
@@ -49,8 +56,10 @@ serialization shape changes are in scope.
 “Non-failing” describes recoverable data-source failures only: missing or
 malformed metadata, process-cwd failures, and Git failures degrade to the
 existing fallbacks. A poisoned lock or panic remains a daemon failure. If the
-blocking task returns a `JoinError`, the adapter returns the existing generic
-`500 Internal Server Error` response rather than fabricating a partial list.
+blocking task returns a `JoinError`, the adapter returns HTTP 500 with an
+empty body; it does not fabricate a partial list. This is the only new
+failure mapping introduced by moving the synchronous work into
+`spawn_blocking`.
 
 ## Behavior and invariants
 
@@ -81,8 +90,9 @@ created from the captured root; it must not borrow `WorkspaceState` across
 blocking I/O. Before applying any write-back, the projection rechecks that the
 workspace identity is still current. If the workspace changed, it discards
 the snapshot's write-backs and returns an empty list; the next poll projects
-the newly current workspace. If no workspace is current, the empty-list
-behavior is unchanged.
+the newly current workspace. If no workspace is current, live sessions are
+still returned, remembered sessions are absent, and provider propagation uses
+the live-session snapshot exactly as it does today.
 
 Capacity-latch write-back is compare-before-write: it reacquires the sessions
 lock and writes only when every input used by the write-back still matches the
@@ -91,11 +101,16 @@ output counters, and resume-scan origin. A per-handle runtime generation is the
 preferred identity check; field-by-field comparison is acceptable only when it
 covers that complete set.
 
-Concurrent listings are serialized by one shared projection lock owned by
-`AppState` and held for the complete projection operation, including provider
-capacity update. This prevents an older projection from publishing provider
-state after a newer projection. The lock is coordination only; the existing
-`ProviderManager` remains the provider-state authority.
+Concurrent listings are serialized by one shared `std::sync::Mutex<()>`
+projection lock added to `AppState` and held for the complete projection
+operation, including provider capacity update. Workspace replacement acquires
+the same lock before taking `state.workspace`; therefore a workspace switch
+cannot occur between identity validation and the projection commit. The lock
+order for this seam is: projection lock, then `state.workspace` or
+`state.sessions`, then the provider manager's internal locks. No code may take
+`state.workspace` or `state.sessions` and then wait for the projection lock.
+The coordination lock is not a session or provider-state authority; the
+existing `ProviderManager` remains the provider-state authority.
 
 The projection must not hold `state.sessions` or `state.workspace` while doing
 filesystem reads, process inspection, or Git detection. Any blocking work
@@ -132,6 +147,20 @@ Also pin:
    capacity write-back;
 9. provider-state behavior with and without an open workspace.
 
+The extraction order is fixed: first move the live/remembered snapshot and
+pure `SessionInfo` assembly; next move capacity detection and complete
+compare-before-write state updates; then move cwd/Git enrichment and conflict
+calculation; finally move provider propagation and replace the HTTP body with
+the blocking-task adapter. Each step must leave the existing handler tests
+green before the next step begins.
+
+Provider propagation is keyed by resolved `harness_id`, not
+`model_provider_id`. A live harness is capped when any live session for that
+harness is capped; checking state masks the capped display for that harness;
+the first available reset hint wins; remembered sessions never inherit live
+capacity flags. The provider manager receives the complete recomputed maps
+from the committed projection only.
+
 ## Out of scope
 
 - changing the REST protocol or `SessionInfo` JSON;
@@ -152,5 +181,7 @@ Also pin:
   session or provider-state authority.
 - Existing Rust behavior and tests remain green.
 - The new module is reflected in the Rust module-layout documentation.
+- `set_workspace` and the projection module use the documented projection-lock
+  order without introducing a lock cycle.
 - The full Rust suite passes, and doc/worktree currency checks are run before
   handoff.
