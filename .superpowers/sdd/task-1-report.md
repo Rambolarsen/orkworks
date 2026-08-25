@@ -2,90 +2,69 @@
 
 ## Status
 
-Completed after the authorized scope expansion to the compile-site
-`ProviderSettingsEntry` literals.
+Task 1 is complete in this worktree.
 
-## Files changed
+The required Rust settings contract, normalization helpers, resolver tests,
+and the authorized mechanical `model: None` compile-site additions are present
+and verified. During this session, no additional source-code edits were needed;
+the worktree already matched the brief, so this report was refreshed against
+fresh verification.
 
-- `crates/orkworksd/src/providers.rs`
-- `crates/orkworksd/src/http/session_handlers.rs`
-- `crates/orkworksd/src/runtime/peon_runtime.rs`
-- `crates/orkworksd/src/runtime/terminal_runtime.rs`
-- `.superpowers/sdd/task-1-report.md`
-
-## Implementation summary
+## Requirements coverage
 
 ### `crates/orkworksd/src/providers.rs`
 
-- Added `ProviderSettingsEntry::model: Option<String>` with `#[serde(default)]`
-  for backward-compatible deserialization.
-- Added shared model normalization helpers that trim non-empty values and
-  convert empty/whitespace-only strings to `None`.
-- Added `resolve_provider_model(entry, global_model)` with the required
-  precedence:
-  - entry override
-  - global `peon_model`
-  - no model
-- Normalized both top-level `peon_model` and per-entry `model` values inside
-  `ProviderManager::apply_settings`.
-- Extended the provider tests to cover:
-  - old payloads without `model`
-  - explicit `model: "  llama3  "` deserialization
-  - resolver precedence
-  - trimming/whitespace normalization in `apply_settings`
-- Updated the two existing `ProviderSettingsEntry` test literals in this file to
-  include `model: None`.
+- `ProviderSettingsEntry` includes `model: Option<String>` with
+  `#[serde(default)]` for backward-compatible deserialization.
+- Model normalization trims non-empty values and converts empty or
+  whitespace-only strings to `None`.
+- `resolve_provider_model(entry, global_model)` prefers the per-provider model,
+  then the global `peon_model`, then no model.
+- `ProviderManager::apply_settings` normalizes both the global model and each
+  provider entry model before publishing settings.
+- Provider tests cover:
+  - deserializing old payloads without `model`
+  - deserializing explicit model strings without rewriting them on load
+  - resolver precedence and whitespace handling
+  - `apply_settings` trimming and whitespace-to-`None` normalization
 
-### Mechanical compile-site updates
+### Authorized mechanical compile-site updates
 
-Added `model: None` only, with no behavior change, to the authorized
-`ProviderSettingsEntry` literals in:
+The requested `model: None` literal additions are present, with no behavior
+change, in:
 
 - `crates/orkworksd/src/http/session_handlers.rs`
 - `crates/orkworksd/src/runtime/peon_runtime.rs`
 - `crates/orkworksd/src/runtime/terminal_runtime.rs`
 
-## Focused test command
+## Verification run on August 25, 2026
+
+### Focused Rust tests
 
 ```bash
 cargo test --manifest-path crates/orkworksd/Cargo.toml providers::tests -- --nocapture
 ```
 
-## Focused test output
+Observed result: `27 passed, 0 failed, 794 filtered out`.
 
-```text
-warning: function `with_fake_home` is never used
-warning: unused return value of `into_response` that must be used
-warning: `orkworksd` (bin "orkworksd" test) generated 2 warnings
-Finished `test` profile [unoptimized + debuginfo] target(s) in 14.11s
-Running unittests src/main.rs (crates/orkworksd/target/debug/deps/orkworksd-7ec3f49f5134a4cf)
+### Repo closeout checks
 
-running 27 tests
-...
-test providers::tests::apply_settings_trims_provider_and_global_models_and_clears_whitespace ... ok
-...
-test providers::tests::resolve_provider_model_prefers_entry_then_global_then_none ... ok
-test providers::tests::provider_settings_entry_deserializes_missing_model_as_none ... ok
-test providers::tests::provider_settings_entry_deserializes_explicit_model_string ... ok
-...
-test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 794 filtered out; finished in 0.01s
+```bash
+bash .claude/hooks/doc-check.sh
+bash .claude/hooks/worktree-check.sh
 ```
+
+Observed result: both commands exited cleanly with no output.
 
 ## Self-review
 
-- Verified the only non-`providers.rs` source edits are mechanical `model: None`
-  additions to the newly authorized compile sites.
-- Verified the new behavior remains confined to `providers.rs`.
-- Verified the focused Rust test target passes after the scope expansion.
-
-## Commits
-
-- Rust settings contract commit: `481c0f4e75bbea8092e1fea77e29f1ce52427d38` (`feat: add per-provider Peon model settings`)
-- Report commit: `570c682990ac911531624f60101f47939f32089d` (`docs: update task 1 report`)
+- Confirmed the worktree is clean after verification.
+- Confirmed the authorized compile-site additions are present at the user-named
+  locations.
+- Confirmed the report now reflects the current verified state instead of stale
+  commit metadata.
 
 ## Concerns
 
-- The focused test command still emits two pre-existing warnings unrelated to
-  Task 1:
-  - unused helper `with_fake_home` in `src/main.rs`
-  - ignored `into_response()` result in `src/http/session_handlers.rs`
+- The focused provider test command is green. No Task 1 functional concerns
+  remain from this session.
