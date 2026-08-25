@@ -46,6 +46,12 @@ behavior, and JSON serialization. It must not perform session-policy decisions
 or capacity/provider write-back. No endpoint, field, status vocabulary, or
 serialization shape changes are in scope.
 
+“Non-failing” describes recoverable data-source failures only: missing or
+malformed metadata, process-cwd failures, and Git failures degrade to the
+existing fallbacks. A poisoned lock or panic remains a daemon failure. If the
+blocking task returns a `JoinError`, the adapter returns the existing generic
+`500 Internal Server Error` response rather than fabricating a partial list.
+
 ## Behavior and invariants
 
 The implementation must preserve:
@@ -67,16 +73,29 @@ supplies durable fields and fills fields that are not runtime-owned. The
 existing canonical field mapping remains authoritative.
 
 The projection uses an optimistic two-stage snapshot. It clones the live
-handle observation under `state.sessions`, reads the workspace metadata under
-`state.workspace`, then releases both locks before process-cwd and Git work.
-The snapshot boundary is the consistency point for the returned list; the
-operation does not promise a globally atomic view across concurrent runtime
-events. Capacity-latch write-back is compare-before-write: it reacquires the
-sessions lock and writes only when the live counters and origin still equal the
-values observed in the snapshot. Provider capacity updates are derived from
-that same projection and delegated to the provider manager's existing
-serialization; concurrent listings may recompute the same idempotent state but
-must not introduce a second provider-state authority.
+handle observation under `state.sessions`, then captures the immutable
+workspace metadata root/path and workspace identity under `state.workspace`.
+It releases both locks before constructing a metadata reader and performing
+filesystem reads, process-cwd inspection, or Git work. The metadata reader is
+created from the captured root; it must not borrow `WorkspaceState` across
+blocking I/O. Before applying any write-back, the projection rechecks that the
+workspace identity is still current. If the workspace changed, it discards
+the snapshot's write-backs and returns an empty list; the next poll projects
+the newly current workspace. If no workspace is current, the empty-list
+behavior is unchanged.
+
+Capacity-latch write-back is compare-before-write: it reacquires the sessions
+lock and writes only when every input used by the write-back still matches the
+snapshot, including the run generation, latch, pending flag, visible-once flag,
+output counters, and resume-scan origin. A per-handle runtime generation is the
+preferred identity check; field-by-field comparison is acceptable only when it
+covers that complete set.
+
+Concurrent listings are serialized by one shared projection lock owned by
+`AppState` and held for the complete projection operation, including provider
+capacity update. This prevents an older projection from publishing provider
+state after a newer projection. The lock is coordination only; the existing
+`ProviderManager` remains the provider-state authority.
 
 The projection must not hold `state.sessions` or `state.workspace` while doing
 filesystem reads, process inspection, or Git detection. Any blocking work
@@ -105,7 +124,9 @@ The test set must cover:
 
 Also pin:
 
-6. live-over-remembered precedence and stable response ordering;
+6. live-over-remembered precedence and the existing response ordering contract
+   (live `HashMap` iteration followed by remembered metadata order; no new
+   ordering guarantee);
 7. missing/corrupt metadata fallback and the non-failing projection contract;
 8. concurrent live-handle mutation during projection, including rejected stale
    capacity write-back;
@@ -127,6 +148,8 @@ Also pin:
 - The HTTP adapter contains only orchestration, error/join handling, and JSON
   serialization; all session policy and write-back lives behind the seam.
 - No second live-session map or metadata authority exists.
+- The shared projection lock is documented as coordination state, not a second
+  session or provider-state authority.
 - Existing Rust behavior and tests remain green.
 - The new module is reflected in the Rust module-layout documentation.
 - The full Rust suite passes, and doc/worktree currency checks are run before
