@@ -169,6 +169,8 @@ pub(crate) async fn set_workspace(
     State(state): State<Arc<AppState>>,
     Json(req): Json<WorkspaceRequest>,
 ) -> impl IntoResponse {
+    let projection_state = state.clone();
+    let _projection = projection_state.projection_lock.lock().unwrap();
     match SessionApplication::new(state).open_workspace(PathBuf::from(&req.path)) {
         Ok(snapshot) => Json(WorkspaceResponse {
             path: snapshot.path,
@@ -4708,6 +4710,7 @@ mod tests {
         let orkworks = dir.path().join(".orkworks");
         let state = Arc::new(crate::AppState {
             sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
+            projection_lock: std::sync::Mutex::new(()),
             session_pids: std::sync::Mutex::new(std::collections::HashMap::new()),
             workspace: std::sync::Mutex::new(Some(WorkspaceState {
                 path: dir.path().to_path_buf(),
@@ -5048,6 +5051,7 @@ mod tests {
     async fn list_sessions_uses_live_session_contract_fields_without_metadata() {
         let state = Arc::new(crate::AppState {
             sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
+            projection_lock: std::sync::Mutex::new(()),
             session_pids: std::sync::Mutex::new(std::collections::HashMap::new()),
             workspace: std::sync::Mutex::new(None),
             peon: crate::PeonState {
@@ -5141,6 +5145,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let state = Arc::new(crate::AppState {
             sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
+            projection_lock: std::sync::Mutex::new(()),
             session_pids: std::sync::Mutex::new(std::collections::HashMap::new()),
             workspace: std::sync::Mutex::new(None),
             peon: crate::PeonState {
@@ -5237,6 +5242,7 @@ mod tests {
         };
         let state = Arc::new(crate::AppState {
             sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
+            projection_lock: std::sync::Mutex::new(()),
             session_pids: std::sync::Mutex::new(std::collections::HashMap::new()),
             workspace: std::sync::Mutex::new(None),
             peon: crate::PeonState {
@@ -5314,6 +5320,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let state = Arc::new(crate::AppState {
             sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
+            projection_lock: std::sync::Mutex::new(()),
             session_pids: std::sync::Mutex::new(std::collections::HashMap::new()),
             workspace: std::sync::Mutex::new(None),
             peon: crate::PeonState {
@@ -5809,6 +5816,7 @@ mod tests {
         let orkworks = dir.path().join(".orkworks");
         let state = Arc::new(crate::AppState {
             sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
+            projection_lock: std::sync::Mutex::new(()),
             session_pids: std::sync::Mutex::new(std::collections::HashMap::new()),
             workspace: std::sync::Mutex::new(Some(WorkspaceState {
                 path: dir.path().to_path_buf(),

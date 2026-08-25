@@ -430,6 +430,7 @@ mod tests {
         let id = "label-only".to_string();
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            projection_lock: Mutex::new(()),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(None),
             peon: crate::PeonState {
@@ -541,6 +542,7 @@ mod tests {
         let id = "label-survives-in-flight".to_string();
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            projection_lock: Mutex::new(()),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(None),
             peon: crate::PeonState {
@@ -668,6 +670,7 @@ mod tests {
         let id = "label-persist".to_string();
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            projection_lock: Mutex::new(()),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
@@ -825,6 +828,7 @@ mod tests {
         let id = "label-blank-rejected".to_string();
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            projection_lock: Mutex::new(()),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
@@ -977,6 +981,7 @@ mod tests {
         let call_counter = Arc::new(AtomicUsize::new(0));
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            projection_lock: Mutex::new(()),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
@@ -1143,6 +1148,7 @@ mod tests {
 
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            projection_lock: Mutex::new(()),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
@@ -1337,6 +1343,7 @@ mod tests {
 
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            projection_lock: Mutex::new(()),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
@@ -1454,6 +1461,7 @@ mod tests {
 
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            projection_lock: Mutex::new(()),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
@@ -1575,6 +1583,7 @@ mod tests {
 
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            projection_lock: Mutex::new(()),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(None),
             peon: crate::PeonState {
@@ -1676,6 +1685,7 @@ mod tests {
 
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            projection_lock: Mutex::new(()),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
@@ -1852,6 +1862,7 @@ mod tests {
 
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            projection_lock: Mutex::new(()),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
@@ -2040,6 +2051,7 @@ mod tests {
 
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            projection_lock: Mutex::new(()),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
@@ -2210,6 +2222,7 @@ mod tests {
 
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            projection_lock: Mutex::new(()),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
@@ -2378,6 +2391,7 @@ mod tests {
 
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            projection_lock: Mutex::new(()),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
@@ -2551,6 +2565,7 @@ mod tests {
 
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            projection_lock: Mutex::new(()),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
@@ -2723,6 +2738,7 @@ mod tests {
 
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            projection_lock: Mutex::new(()),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
@@ -2902,6 +2918,7 @@ mod tests {
 
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            projection_lock: Mutex::new(()),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(None), // no workspace → persist is always skipped
             peon: crate::PeonState {
