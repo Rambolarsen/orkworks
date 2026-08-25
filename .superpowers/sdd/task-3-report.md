@@ -21,6 +21,7 @@ Implemented and committed on `fix/provider-model-selection`.
 ## Commits
 
 - `eae98d8 feat: persist provider-specific Peon models`
+- `413692d docs: record task 3 verification report`
 
 ## Commands and results
 
