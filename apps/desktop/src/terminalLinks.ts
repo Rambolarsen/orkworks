@@ -9,7 +9,7 @@ export function terminalLinkHandler(openExternal: (url: string) => Promise<void>
   };
 }
 
-const PLAN_PATH = /(?:\/(?:[^\r\n/]+\/)*(?:docs\/superpowers\/(?:plans|specs)|specs)\/[^\r\n]*?\.md|[A-Za-z]:\\(?:[^\r\n\\]+\\)*(?:docs\\superpowers\\(?:plans|specs)|specs)\\[^\r\n]*?\.md|(?:docs\/superpowers\/(?:plans|specs)|specs)\/[^\r\n]*?\.md|(?:docs\\superpowers\\(?:plans|specs)|specs)\\[^\r\n]*?\.md)\b/g;
+const PLAN_PATH = /(?:\/(?:[^\r\n/]+\/)*(?:docs\/[ \t]*(?:superpowers\/[ \t]*)?(?:plans|specs)|specs)\/[^\r\n]*?\.md|[A-Za-z]:\\(?:[^\r\n\\]+\\)*(?:docs\\[ \t]*(?:superpowers\\[ \t]*)?(?:plans|specs)|specs)\\[^\r\n]*?\.md|(?:docs\/[ \t]*(?:superpowers\/[ \t]*)?(?:plans|specs)|specs)\/[^\r\n]*?\.md|(?:docs\\[ \t]*(?:superpowers\\[ \t]*)?(?:plans|specs)|specs)\\[^\r\n]*?\.md)\b/g;
 
 export function terminalPlanPaths(line: string): string[] {
   return [...line.matchAll(PLAN_PATH)].map((match) => match[0].replace(/\/[ \t]+/g, "/"));
