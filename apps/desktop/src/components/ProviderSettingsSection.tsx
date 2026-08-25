@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ProviderId, ProviderSettings } from "../providerTypes";
 import type { ProviderRuntimeResponse } from "../api";
-import { isAppliedRevisionStale } from "../providerPresentation";
+import { isAppliedRevisionStale, synchronizeProviderModelDrafts } from "../providerPresentation";
 
 interface ProviderSettingsSectionProps {
   providerSettings: ProviderSettings | null;
@@ -17,10 +17,19 @@ export default function ProviderSettingsSection({
   onProviderModelChange,
 }: ProviderSettingsSectionProps) {
   const [modelDrafts, setModelDrafts] = useState<Record<string, string>>({});
+  const committedProviders = useRef<ProviderSettings["providers"]>([]);
 
   useEffect(() => {
-    if (!providerSettings) return;
-    setModelDrafts(Object.fromEntries(providerSettings.providers.map((entry) => [entry.id, entry.model ?? ""])));
+    if (!providerSettings) {
+      committedProviders.current = [];
+      return;
+    }
+    setModelDrafts((drafts) => synchronizeProviderModelDrafts(
+      drafts,
+      committedProviders.current,
+      providerSettings.providers,
+    ));
+    committedProviders.current = providerSettings.providers;
   }, [providerSettings]);
 
   if (!providerSettings) {

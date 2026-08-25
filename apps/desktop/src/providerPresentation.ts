@@ -26,6 +26,20 @@ export function updateProviderModel(
   };
 }
 
+export function synchronizeProviderModelDrafts(
+  drafts: Record<string, string>,
+  previousProviders: readonly ProviderSettingsEntry[],
+  nextProviders: readonly ProviderSettingsEntry[],
+): Record<string, string> {
+  const previousModels = new Map(previousProviders.map((entry) => [entry.id, entry.model ?? ""]));
+  return Object.fromEntries(nextProviders.map((entry) => {
+    const committedModel = entry.model ?? "";
+    const draft = drafts[entry.id];
+    const wasUnchanged = draft === undefined || draft === previousModels.get(entry.id);
+    return [entry.id, wasUnchanged ? committedModel : draft];
+  }));
+}
+
 export function isAppliedRevisionStale(settings: ProviderSettings, runtime: ProviderRuntimeResponse | null): boolean {
   if (!runtime) return true;
   return runtime.appliedRevision !== settings.revision;
