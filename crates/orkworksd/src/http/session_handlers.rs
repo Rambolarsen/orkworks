@@ -1,10 +1,7 @@
-use crate::harness::registry::ResolvedHarness;
-use crate::plan_handoff::resolve_openable_plan_reference;
 use crate::session_projection::SessionProjection;
 use crate::session_types::{MemoryState, SessionInfo};
 use crate::session_view::{
-    connectivity_for_status, derive_memory_state, detect_conflicts, merge_live_session_info,
-    resolve_effective_cwds, session_recommendation, terminal_outcome_for_status,
+    detect_conflicts, resolve_effective_cwds, session_recommendation,
 };
 use crate::{git, harness, metadata, peon, AppState, SessionHandle};
 #[cfg(test)]
@@ -453,6 +450,11 @@ fn enrich_sessions_with_git_context<F>(
 
 pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let projected_infos = SessionProjection::new(state.clone()).list();
+    let projected_by_id: HashMap<String, SessionInfo> = projected_infos
+        .iter()
+        .cloned()
+        .map(|info| (info.id.clone(), info))
+        .collect();
     let registry = state
         .harness_catalog
         .read()
@@ -488,31 +490,6 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
             .collect()
     };
 
-    let ws_guard = state.workspace.lock().unwrap();
-    let workspace_root = ws_guard.as_ref().map(|ws| ws.path.clone());
-    let metadata_map = ws_guard
-        .as_ref()
-        .map(|ws| {
-            let mut metadata = HashMap::new();
-            for (info, _, _, _, _, _, _, _, _) in &live_sessions {
-                if let Some(meta) = ws.metadata.read_session(&info.id) {
-                    metadata.insert(info.id.clone(), meta);
-                }
-            }
-            metadata
-        })
-        .unwrap_or_default();
-
-    let all_metadata_sessions = ws_guard
-        .as_ref()
-        .map(|ws| ws.metadata.read_all_sessions())
-        .unwrap_or_default();
-    drop(ws_guard);
-
-    let all_memory_ids: HashSet<String> = live_sessions
-        .iter()
-        .map(|(info, _, _, _, _, _, _, _, _)| info.id.clone())
-        .collect();
     let capacity_snapshots: HashMap<String, (bool, Option<(u64, u64)>, u64, u64)> = live_sessions
         .iter()
         .map(|(info, _, _, latched, _, lines, bytes, origin, _)| {
@@ -520,11 +497,10 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
         })
         .collect();
 
-    let peon_times = state.peon.last_inference.read().unwrap();
     let mut pending_transitions: Vec<(String, bool, bool)> = Vec::new();
     let mut capped_recheck_resets: HashSet<String> = HashSet::new();
     let mut capped_clear_baselines: HashMap<String, (u64, u64)> = HashMap::new();
-    let mut capacity_infos: Vec<SessionInfo> = live_sessions
+    let capacity_infos: Vec<SessionInfo> = live_sessions
         .into_iter()
         .map(
             |(
@@ -539,21 +515,12 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
                 pending_visible_once,
             )| {
                 let id = info.id.clone();
-                let meta = metadata_map.get(&id);
-                let session_harness_id =
-                    meta.and_then(|m| (!m.harness.is_empty()).then_some(m.harness.as_str()));
-                let resolved_harness = session_harness_id
+                let mut merged = projected_by_id.get(&id).cloned().unwrap_or(info);
+                let resolved_harness = merged
+                    .harness_id
+                    .as_deref()
                     .and_then(|id| registry.get(id))
                     .or_else(|| registry.get("generic-shell"));
-                let mut merged =
-                    merge_live_session_info(info, meta, peon_times.get(&id), resolved_harness);
-                merged.has_openable_plan = meta
-                    .and_then(|metadata| metadata.plan_path.as_ref())
-                    .and_then(|reference| {
-                        workspace_root
-                            .as_deref()
-                            .map(|root| resolve_openable_plan_reference(root, reference).is_ok())
-                    });
                 let fresh_output_since_origin = origin
                     .map(|(line_count, scan_len)| {
                         output_lines_seen > line_count || scan_bytes_seen > scan_len
@@ -690,88 +657,6 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
         )
         .collect();
 
-    // Append remembered (non-live) sessions from metadata
-    for meta in &all_metadata_sessions {
-        if all_memory_ids.contains(&meta.id) {
-            continue;
-        }
-        let session_harness_id = (!meta.harness.is_empty()).then_some(meta.harness.as_str());
-        let resolved_harness = session_harness_id
-            .and_then(|id| registry.get(id))
-            .or_else(|| registry.get("generic-shell"));
-        let (memory_state, resume_strategy) =
-            derive_memory_state(false, meta.resume.as_ref(), resolved_harness);
-        let (resume_exact, resume_latest_cwd, resume_latest_repo) = resolved_harness
-            .map(ResolvedHarness::resume_flags)
-            .unwrap_or_default();
-        capacity_infos.push(SessionInfo {
-            id: meta.id.clone(),
-            label: meta.label.clone(),
-            harness_id: (!meta.harness.is_empty()).then(|| meta.harness.clone()),
-            model_provider_id: meta.provider_id.clone(),
-            model_id: (!meta.model.is_empty()).then(|| meta.model.clone()),
-            harness: (!meta.harness.is_empty()).then(|| meta.harness.clone()),
-            model: (!meta.model.is_empty()).then(|| meta.model.clone()),
-            work_phase: meta.work_phase.clone(),
-            lifecycle_phase: meta.lifecycle_phase.clone(),
-            lifecycle: meta.lifecycle.clone(),
-            attention: meta.attention.clone(),
-            status: meta.status.clone(),
-            connectivity: Some(connectivity_for_status(&meta.status).into()),
-            terminal_outcome: terminal_outcome_for_status(&meta.status),
-            cwd: meta.cwd.clone(),
-            created_at: meta.created_at.clone(),
-            last_activity_at: Some(meta.last_activity.clone()),
-            last_output_at: meta.last_output_at.clone(),
-            final_observed_status: meta
-                .final_observed_status_snapshot
-                .as_ref()
-                .and_then(|snapshot| snapshot.value.clone()),
-            observed_status: meta.observed_status.clone(),
-            summary: meta.summary.clone(),
-            next_action: meta.next_action.clone(),
-            needs_user_input: meta.needs_user_input,
-            detected_question: meta.detected_question.clone(),
-            suggested_options: meta.suggested_options.clone(),
-            blocker_description: meta.blocker_description.clone(),
-            failed_command: meta.failed_command.clone(),
-            failed_test: meta.failed_test.clone(),
-            capacity_hints: meta.capacity_hints.clone(),
-            at_usage_limit: None,
-            capacity_check_pending: None,
-            usage_limit_reset_hint: None,
-            metadata_source: Some(meta.metadata_source.clone()),
-            metadata_confidence: Some(meta.metadata_confidence),
-            peon_last_inference: meta.peon_last_inference.clone(),
-            repo_root: meta.repo_root.clone(),
-            branch: meta.branch.clone(),
-            dirty: meta.dirty,
-            changed_files: meta.changed_files,
-            is_worktree: meta.is_worktree,
-            conflict_warning: None,
-            recommendation: None,
-            memory_state,
-            resume_strategy: resume_strategy.clone(),
-            resume: meta.resume.clone(),
-            resume_options: metadata::derive_resume_options(
-                &resume_strategy,
-                meta.resume.as_ref(),
-                resume_exact,
-                resume_latest_cwd,
-                resume_latest_repo,
-            ),
-            resumed_from: meta.resumed_from.clone(),
-            has_openable_plan: meta.plan_path.as_ref().and_then(|reference| {
-                workspace_root
-                    .as_deref()
-                    .map(|root| resolve_openable_plan_reference(root, reference).is_ok())
-            }),
-            provider: meta.provider_label.clone(),
-            provider_model: meta.provider_model.clone(),
-            provider_state: meta.provider_state.clone(),
-        });
-    }
-
     // SessionProjection owns canonical live/remembered assembly. The legacy
     // capacity pass above still computes runtime-only transitions from its
     // snapshots until Task 5 moves that state machine into the projection.
@@ -788,6 +673,7 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
             info.attention = capacity_info.attention.clone();
         }
     }
+
 
     // Write back newly latched usage limits so they survive ring buffer scroll-off.
     #[cfg(test)]
