@@ -32,8 +32,24 @@ test("recognizes supported Windows paths and spaces", () => {
   );
 });
 
+test("recognizes quoted absolute paths and normalizes Windows separator padding", () => {
+  assert.deepEqual(
+    terminalPlanPaths("Wrote `/Users/me/repo/docs/superpowers/plans/review.md` and C:\\repo\\docs\\ superpowers\\ specs\\plan.md"),
+    [
+      "/Users/me/repo/docs/superpowers/plans/review.md",
+      "C:\\repo\\docs\\superpowers\\specs\\plan.md",
+    ],
+  );
+});
+
 test("does not recognize generic Markdown paths", () => {
   assert.deepEqual(terminalPlanPaths("See docs/readme.md and notes/plan.md"), []);
+});
+
+test("does not recognize plan-looking paths outside supported roots", () => {
+  for (const path of ["docs/plans/plan.md", "docs/specs/spec.md", "/repo/docs/plans/other.md"]) {
+    assert.deepEqual(terminalPlanPaths(path), [], path);
+  }
 });
 
 test("provides a multiline link from xterm's wrapped buffer", async () => {

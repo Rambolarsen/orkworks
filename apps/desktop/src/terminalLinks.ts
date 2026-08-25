@@ -9,10 +9,14 @@ export function terminalLinkHandler(openExternal: (url: string) => Promise<void>
   };
 }
 
-const PLAN_PATH = /(?:\/(?:[^\r\n/]+\/)*(?:docs\/[ \t]*(?:superpowers\/[ \t]*)?(?:plans|specs)|specs)\/[^\r\n]*?\.md|[A-Za-z]:\\(?:[^\r\n\\]+\\)*(?:docs\\[ \t]*(?:superpowers\\[ \t]*)?(?:plans|specs)|specs)\\[^\r\n]*?\.md|(?:docs\/[ \t]*(?:superpowers\/[ \t]*)?(?:plans|specs)|specs)\/[^\r\n]*?\.md|(?:docs\\[ \t]*(?:superpowers\\[ \t]*)?(?:plans|specs)|specs)\\[^\r\n]*?\.md)\b/g;
+const PLAN_PATH = /(?:(?<![A-Za-z0-9_.-])\/(?:[^\r\n/]+\/)*(?:docs\/[ \t]*superpowers\/[ \t]*(?:plans|specs)|specs)\/[^\r\n]*?\.md|[A-Za-z]:\\(?:[^\r\n\\]+\\)*(?:docs\\[ \t]*superpowers\\[ \t]*(?:plans|specs)|specs)\\[^\r\n]*?\.md|(?<![\\/])(?:docs\/[ \t]*superpowers\/[ \t]*(?:plans|specs)|specs)\/[^\r\n]*?\.md|(?<![\\/])(?:docs\\[ \t]*superpowers\\[ \t]*(?:plans|specs)|specs)\\[^\r\n]*?\.md)\b/g;
+
+function normalizePlanPath(path: string): string {
+  return path.replace(/\/[ \t]+/g, "/").replace(/\\[ \t]+/g, "\\");
+}
 
 export function terminalPlanPaths(line: string): string[] {
-  return [...line.matchAll(PLAN_PATH)].map((match) => match[0].replace(/\/[ \t]+/g, "/"));
+  return [...line.matchAll(PLAN_PATH)].map((match) => normalizePlanPath(match[0]));
 }
 
 function columnForTextOffset(line: IBufferLine, offset: number): number {
@@ -100,7 +104,7 @@ export function createTerminalPlanLinkProvider(
       const text = lines.map((part) => part.text).join("");
       const links = [...text.matchAll(PLAN_PATH)].map((match) => {
         const rawPath = match[0];
-        const path = rawPath.replace(/\/[ \t]+/g, "/");
+        const path = normalizePlanPath(rawPath);
         const startOffset = match.index ?? 0;
         const endOffset = startOffset + rawPath.length;
         const start = partAtOffset(lines, startOffset);
