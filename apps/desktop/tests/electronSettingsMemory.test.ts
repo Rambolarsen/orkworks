@@ -357,12 +357,12 @@ test("settings memory seeds default provider settings", () => {
       peonModel: null,
       ollamaBaseUrl: "http://127.0.0.1:11434",
       providers: [
-        { id: "opencode", enabled: true, fallbackOrder: 0, defaultState: "healthy", overrideState: null },
-        { id: "claude-code", enabled: true, fallbackOrder: 1, defaultState: "unknown", overrideState: null },
-        { id: "codex", enabled: true, fallbackOrder: 2, defaultState: "unknown", overrideState: null },
-        { id: "aider", enabled: true, fallbackOrder: 3, defaultState: "unknown", overrideState: null },
-        { id: "copilot", enabled: true, fallbackOrder: 4, defaultState: "unknown", overrideState: null },
-        { id: "ollama", enabled: true, fallbackOrder: 5, defaultState: "unknown", overrideState: null },
+        { id: "opencode", enabled: true, fallbackOrder: 0, defaultState: "healthy", overrideState: null, model: null },
+        { id: "claude-code", enabled: true, fallbackOrder: 1, defaultState: "unknown", overrideState: null, model: null },
+        { id: "codex", enabled: true, fallbackOrder: 2, defaultState: "unknown", overrideState: null, model: null },
+        { id: "aider", enabled: true, fallbackOrder: 3, defaultState: "unknown", overrideState: null, model: null },
+        { id: "copilot", enabled: true, fallbackOrder: 4, defaultState: "unknown", overrideState: null, model: null },
+        { id: "ollama", enabled: true, fallbackOrder: 5, defaultState: "unknown", overrideState: null, model: null },
       ],
     } satisfies ProviderSettings);
   } finally {
@@ -439,7 +439,7 @@ test("startup migration preserves canonical Copilot when legacy duplicate exists
 
     assert.deepEqual(
       settings.providers.providers.filter((provider) => provider.id === "copilot"),
-      [{ id: "copilot", enabled: false, fallbackOrder: 2, defaultState: "unknown", overrideState: null }],
+      [{ id: "copilot", model: null, enabled: false, fallbackOrder: 2, defaultState: "unknown", overrideState: null }],
     );
     const persisted = JSON.parse(readFileSync(settingsPath(dir), "utf8"));
     assert.equal(persisted.providers.providers.filter((provider: { id: string }) => provider.id === "copilot").length, 1);
@@ -539,6 +539,106 @@ test("settings memory normalizes malformed provider payloads", () => {
     assert.equal(settings.providers.providers[0].fallbackOrder, 0);
     assert.equal(settings.providers.providers[0].defaultState, "unknown");
     assert.equal(settings.providers.providers[0].overrideState, "capped");
+    assert.equal(settings.providers.providers[0].model, null);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("settings memory normalizes persisted provider models", () => {
+  const dir = mkdtempSync(join(tmpdir(), "orkworks-settings-"));
+  try {
+    writeFileSync(
+      settingsPath(dir),
+      JSON.stringify({
+        version: 1,
+        providers: {
+          providers: [
+            { id: "claude-code", enabled: false, fallbackOrder: 4, defaultState: "healthy", overrideState: "capped", model: "  llama3  " },
+            { id: "codex", model: "   " },
+            { id: "aider", model: 42 },
+          ],
+        },
+      }),
+    );
+
+    const settings = readSettings(dir);
+
+    assert.deepEqual(settings.providers.providers.find((entry) => entry.id === "claude-code"), {
+      id: "claude-code",
+      enabled: false,
+      fallbackOrder: 3,
+      defaultState: "healthy",
+      overrideState: "capped",
+      model: "llama3",
+    });
+    assert.deepEqual(settings.providers.providers.find((entry) => entry.id === "codex"), {
+      id: "codex",
+      enabled: true,
+      fallbackOrder: 1,
+      defaultState: "unknown",
+      overrideState: null,
+      model: null,
+    });
+    assert.deepEqual(settings.providers.providers.find((entry) => entry.id === "aider"), {
+      id: "aider",
+      enabled: true,
+      fallbackOrder: 2,
+      defaultState: "unknown",
+      overrideState: null,
+      model: null,
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("settings memory preserves normalized provider model through save then read", () => {
+  const dir = mkdtempSync(join(tmpdir(), "orkworks-settings-"));
+  try {
+    writeSettings(dir, {
+      ...DEFAULT_SETTINGS,
+      providers: {
+        ...DEFAULT_SETTINGS.providers,
+        providers: DEFAULT_SETTINGS.providers.providers.map((entry) =>
+          entry.id === "ollama" ? { ...entry, model: "  llama3  " } : entry,
+        ),
+      },
+    });
+
+    const settings = readSettings(dir);
+
+    assert.deepEqual(settings.providers.providers.find((entry) => entry.id === "ollama"), {
+      id: "ollama",
+      enabled: true,
+      fallbackOrder: 5,
+      defaultState: "unknown",
+      overrideState: null,
+      model: "llama3",
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("settings memory keeps legacy top-level peonModel migration separate from provider models", () => {
+  const dir = mkdtempSync(join(tmpdir(), "orkworks-settings-"));
+  try {
+    writeFileSync(
+      settingsPath(dir),
+      JSON.stringify({
+        version: 1,
+        providers: {
+          peonModel: "legacy-model",
+          providers: [{ id: "opencode", model: "provider-model" }],
+        },
+      }),
+    );
+
+    const settings = readSettings(dir);
+
+    assert.equal(settings.providers.peonModel, "legacy-model");
+    assert.equal(settings.providers.providers.find((entry) => entry.id === "opencode")?.model, "provider-model");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -554,8 +654,8 @@ test("settings memory preserves provider revisions and canonical fallback order 
         revision: 7,
         peonModel: "sonnet",
         providers: [
-          { id: "claude-code", enabled: true, fallbackOrder: 9, defaultState: "healthy", overrideState: null },
-          { id: "opencode", enabled: false, fallbackOrder: 2, defaultState: "capped", overrideState: null },
+          { id: "claude-code", enabled: true, fallbackOrder: 9, defaultState: "healthy", overrideState: null, model: null },
+          { id: "opencode", enabled: false, fallbackOrder: 2, defaultState: "capped", overrideState: null, model: null },
         ],
       },
     });
