@@ -1473,6 +1473,8 @@ impl ProviderManager {
 
 #[cfg(test)]
 mod tests {
+    const MAX_OLLAMA_TEST_REQUEST_BYTES: usize = 1024 * 1024;
+
     use super::*;
 
     struct TestEntryBuilder {
@@ -1782,6 +1784,9 @@ mod tests {
                     }
                     Ok(n) => {
                         request.extend_from_slice(&chunk[..n]);
+                        if request.len() > MAX_OLLAMA_TEST_REQUEST_BYTES {
+                            return Err("Ollama test server request exceeded size cap".into());
+                        }
                         if request.windows(4).any(|window| window == b"\r\n\r\n") {
                             break;
                         }
@@ -1792,15 +1797,16 @@ mod tests {
                 .windows(4)
                 .position(|window| window == b"\r\n\r\n")
                 .ok_or("Ollama test server received incomplete request headers")?
-                + 4;
+                .checked_add(4)
+                .ok_or("Ollama test server header length overflowed")?;
             let headers = String::from_utf8_lossy(&request[..headers_end]);
             let content_length_value = headers
                 .lines()
-                .find_map(|line| line.strip_prefix("content-length: "))
-                .or_else(|| {
-                    headers
-                        .lines()
-                        .find_map(|line| line.strip_prefix("Content-Length: "))
+                .find_map(|line| {
+                    let (name, value) = line.split_once(':')?;
+                    name.trim()
+                        .eq_ignore_ascii_case("Content-Length")
+                        .then_some(value.trim())
                 })
                 .ok_or("Ollama test server request is missing Content-Length header")?;
             let content_length = content_length_value.parse::<usize>().map_err(|error| {
@@ -1808,18 +1814,31 @@ mod tests {
                     "Ollama test server received invalid Content-Length '{content_length_value}': {error}"
                 )
             })?;
-            while request.len() < headers_end + content_length {
+            let body_end = headers_end
+                .checked_add(content_length)
+                .filter(|&end| end <= MAX_OLLAMA_TEST_REQUEST_BYTES)
+                .ok_or("Ollama test server request body exceeded size cap")?;
+            while request.len() < body_end {
                 match stream.read(&mut chunk) {
                     Ok(0) => return Err("Ollama test server received a truncated request".into()),
-                    Ok(n) => request.extend_from_slice(&chunk[..n]),
+                    Ok(n) => {
+                        request.extend_from_slice(&chunk[..n]);
+                        if request.len() > MAX_OLLAMA_TEST_REQUEST_BYTES {
+                            return Err("Ollama test server request exceeded size cap".into());
+                        }
+                    }
                     Err(error) => return Err(format!("Ollama test server read failed: {error}")),
                 }
             }
             *captured_body.lock().unwrap() =
-                String::from_utf8(request[headers_end..headers_end + content_length].to_vec())
-                    .map_err(|error| {
-                        format!("Ollama test server received invalid UTF-8 body: {error}")
-                    })?;
+                String::from_utf8(request[headers_end..body_end].to_vec()).map_err(|error| {
+                    format!("Ollama test server received invalid UTF-8 body: {error}")
+                })?;
+            stream
+                .set_write_timeout(Some(Duration::from_secs(2)))
+                .map_err(|error| {
+                    format!("Ollama test server failed to set write timeout: {error}")
+                })?;
             let body =
                 r#"{"response":"{\"observedStatus\":\"working\",\"confidence\":0.9}","done":true}"#;
             write!(
