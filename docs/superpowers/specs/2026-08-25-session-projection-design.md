@@ -55,11 +55,14 @@ serialization shape changes are in scope.
 
 “Non-failing” describes recoverable data-source failures only: missing or
 malformed metadata, process-cwd failures, and Git failures degrade to the
-existing fallbacks. A poisoned lock or panic remains a daemon failure. If the
-blocking task returns a `JoinError`, the adapter returns HTTP 500 with an
-empty body; it does not fabricate a partial list. This is the only new
-failure mapping introduced by moving the synchronous work into
-`spawn_blocking`.
+existing fallbacks. A panic in the blocking task is not recovered as data; the
+panic hook logs it and the request is contained at the task boundary. If the
+blocking task returns any `JoinError` (including a panic), the adapter returns
+HTTP 500 with an empty body; it does not fabricate a partial list. A poisoned
+lock remains poisoned and is not repaired by this adapter. This is the only
+new failure mapping introduced by moving the synchronous work into
+`spawn_blocking`; the implementation must test the join-error response
+without attempting to recover the underlying panic or lock.
 
 ## Behavior and invariants
 
