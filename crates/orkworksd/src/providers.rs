@@ -1767,12 +1767,19 @@ mod tests {
             };
             stream
                 .set_read_timeout(Some(Duration::from_secs(2)))
-                .unwrap();
+                .map_err(|error| {
+                    format!("Ollama test server failed to set read timeout: {error}")
+                })?;
             let mut request = Vec::new();
             let mut chunk = [0_u8; 4096];
             loop {
                 match stream.read(&mut chunk) {
-                    Ok(0) | Err(_) => break,
+                    Ok(0) => {
+                        return Err("Ollama test server received EOF before request headers".into())
+                    }
+                    Err(error) => {
+                        return Err(format!("Ollama test server header read failed: {error}"))
+                    }
                     Ok(n) => {
                         request.extend_from_slice(&chunk[..n]);
                         if request.windows(4).any(|window| window == b"\r\n\r\n") {
@@ -1784,10 +1791,10 @@ mod tests {
             let headers_end = request
                 .windows(4)
                 .position(|window| window == b"\r\n\r\n")
-                .unwrap()
+                .ok_or("Ollama test server received incomplete request headers")?
                 + 4;
             let headers = String::from_utf8_lossy(&request[..headers_end]);
-            let content_length = headers
+            let content_length_value = headers
                 .lines()
                 .find_map(|line| line.strip_prefix("content-length: "))
                 .or_else(|| {
@@ -1795,9 +1802,12 @@ mod tests {
                         .lines()
                         .find_map(|line| line.strip_prefix("Content-Length: "))
                 })
-                .unwrap()
-                .parse::<usize>()
-                .unwrap();
+                .ok_or("Ollama test server request is missing Content-Length header")?;
+            let content_length = content_length_value.parse::<usize>().map_err(|error| {
+                format!(
+                    "Ollama test server received invalid Content-Length '{content_length_value}': {error}"
+                )
+            })?;
             while request.len() < headers_end + content_length {
                 match stream.read(&mut chunk) {
                     Ok(0) => return Err("Ollama test server received a truncated request".into()),
@@ -1807,7 +1817,9 @@ mod tests {
             }
             *captured_body.lock().unwrap() =
                 String::from_utf8(request[headers_end..headers_end + content_length].to_vec())
-                    .unwrap();
+                    .map_err(|error| {
+                        format!("Ollama test server received invalid UTF-8 body: {error}")
+                    })?;
             let body =
                 r#"{"response":"{\"observedStatus\":\"working\",\"confidence\":0.9}","done":true}"#;
             write!(
@@ -1816,7 +1828,7 @@ mod tests {
                 body.len(),
                 body
             )
-            .unwrap();
+            .map_err(|error| format!("Ollama test server failed to write response: {error}"))?;
             Ok::<(), String>(())
         });
 
