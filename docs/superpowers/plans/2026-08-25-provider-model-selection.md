@@ -292,6 +292,14 @@ Expected: PASS. The TypeScript check must confirm both Electron and renderer set
 
 ## Task 5: Synchronize documentation and verify the complete change
 
+### Companion scope note
+
+The user-requested `docs/agents/subagent-model-policy.md` remains part of this
+change as a companion policy document. It is intentionally retained alongside
+the provider-model implementation rather than removed as out-of-scope; its
+delegated-model guidance applies to the implementation and review work that
+produced this plan.
+
 **Files:**
 - Modify: docs/superpowers/specs/2026-08-14-provider-settings-migration-design.md
 - Modify: docs/superpowers/specs/2026-08-25-provider-model-selection-design.md only if implementation clarifies a contract detail

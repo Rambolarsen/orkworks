@@ -1108,7 +1108,11 @@ impl ProviderManager {
                 &args,
                 &invocation_prompt,
                 timeout_secs,
-                resolved_model.as_deref(),
+                if definition.supports_model {
+                    resolved_model.as_deref()
+                } else {
+                    None
+                },
             );
 
             if result.success {
@@ -1135,7 +1139,11 @@ impl ProviderManager {
                     let observation = ProviderObservation {
                         provider_id: entry.id.clone(),
                         provider_label: definition.label.clone(),
-                        provider_model: resolved_model,
+                        provider_model: if definition.supports_model {
+                            resolved_model
+                        } else {
+                            None
+                        },
                         provider_state: state_str.to_string(),
                     };
                     return ProviderRunResult {
@@ -1306,6 +1314,7 @@ pub struct FakeProvider {
     sleep_ms: u64,
     call_count: Option<std::sync::Arc<std::sync::atomic::AtomicUsize>>,
     invocations: Option<std::sync::Arc<std::sync::Mutex<Vec<(Vec<String>, String)>>>>,
+    models: Option<std::sync::Arc<std::sync::Mutex<Vec<Option<String>>>>>,
 }
 
 #[cfg(test)]
@@ -1319,6 +1328,7 @@ impl FakeProvider {
             sleep_ms: 0,
             call_count: None,
             invocations: None,
+            models: None,
         }
     }
 
@@ -1354,6 +1364,14 @@ impl FakeProvider {
         self.invocations = Some(invocations);
         self
     }
+
+    pub fn with_models(
+        mut self,
+        models: std::sync::Arc<std::sync::Mutex<Vec<Option<String>>>>,
+    ) -> Self {
+        self.models = Some(models);
+        self
+    }
 }
 
 #[cfg(test)]
@@ -1370,7 +1388,7 @@ impl ProviderRunner for FakeRunner {
         args: &[String],
         prompt: &str,
         timeout_secs: u64,
-        _model: Option<&str>,
+        model: Option<&str>,
     ) -> InvocationResult {
         match self.specs.get(id) {
             Some(spec) => {
@@ -1382,6 +1400,9 @@ impl ProviderRunner for FakeRunner {
                         .lock()
                         .unwrap()
                         .push((args.to_vec(), prompt.to_owned()));
+                }
+                if let Some(ref models) = spec.models {
+                    models.lock().unwrap().push(model.map(str::to_owned));
                 }
                 if spec.sleep_ms > 0 {
                     if spec.sleep_ms > timeout_secs.saturating_mul(1000) {
@@ -1679,6 +1700,7 @@ mod tests {
     #[test]
     fn inference_omits_model_argument_for_provider_without_model_support() {
         let invocations = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let models = Arc::new(std::sync::Mutex::new(Vec::new()));
         let manager = ProviderManager::for_tests_with_registry(
             vec![ProviderDefinition {
                 id: "aider".into(),
@@ -1700,17 +1722,16 @@ mod tests {
             },
             vec![fake_provider("aider")
                 .stdout(r#"{"observedStatus":"working","confidence":0.9}"#)
-                .with_invocations(invocations.clone())],
+                .with_invocations(invocations.clone())
+                .with_models(models.clone())],
         );
 
         let result = manager.run_inference(PeonScope::Session, &["terminal line".to_owned()]);
 
         assert!(result.inference.is_some());
-        assert_eq!(
-            result.observation.unwrap().provider_model.as_deref(),
-            Some("provider-model")
-        );
+        assert_eq!(result.observation.unwrap().provider_model.as_deref(), None);
         assert_eq!(invocations.lock().unwrap()[0].0, vec!["--stdin"]);
+        assert_eq!(models.lock().unwrap().as_slice(), &[None]);
     }
 
     #[test]

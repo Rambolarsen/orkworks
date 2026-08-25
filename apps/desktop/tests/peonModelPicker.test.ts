@@ -41,6 +41,25 @@ test("pushProviderSettings sends peonModel string to the sidecar", async () => {
   assert.equal(bodies[0]?.peonModel, "deepseek-v4-pro");
 });
 
+test("pushProviderSettings serializes provider override and clearing distinctly", async () => {
+  const bodies: Record<string, any>[] = [];
+  const fetchImpl = async (_url: string, init?: RequestInit) => {
+    bodies.push(JSON.parse(String(init?.body)));
+    return okResponse();
+  };
+  const settings = baseSettings("global-model");
+  settings.providers[1]!.model = "llama3";
+
+  await pushProviderSettings("http://127.0.0.1:4444", settings, fetchImpl);
+  settings.providers[1]!.model = null;
+  await pushProviderSettings("http://127.0.0.1:4444", settings, fetchImpl);
+
+  assert.equal(bodies[0]?.providers?.find((entry: any) => entry.id === "ollama")?.model, "llama3");
+  assert.equal(bodies[1]?.providers?.find((entry: any) => entry.id === "ollama")?.model, null);
+  assert.equal(bodies[0]?.peonModel, "global-model");
+  assert.equal(bodies[1]?.peonModel, "global-model");
+});
+
 test("SettingsModal has a peon model selector", () => {
   const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
   assert.match(source, /Peon model/);
