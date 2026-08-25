@@ -137,7 +137,7 @@ fn status_from_bytes(ctx: &IntegrationContext<'_>, bytes: &[u8]) -> IntegrationS
             message: "The detected OpenCode version is not eligible for this integration.".into(),
             action: None,
         });
-        IntegrationActivation::NeedsTrust
+        IntegrationActivation::Unknown
     } else if registration == IntegrationRegistration::Installed {
         IntegrationActivation::Active
     } else {
@@ -189,9 +189,10 @@ fn error_status(ctx: &IntegrationContext<'_>, error: &IntegrationError) -> Integ
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::path::PathBuf;
 
     use super::*;
-    use crate::harness::integration::ReporterAssetResolver;
+    use crate::harness::integration::{DetectedTool, ReporterAssetResolver};
 
     fn context<'a>(workspace: &'a Path, resolver: &'a ReporterAssetResolver) -> IntegrationContext<'a> {
         IntegrationContext {
@@ -249,6 +250,33 @@ mod tests {
 
         assert_eq!(status.registration, IntegrationRegistration::Absent);
         assert_eq!(status.ownership, IntegrationOwnership::None);
+    }
+
+    #[test]
+    fn status_reports_unknown_for_installed_unsupported_version() {
+        let workspace = gitignored_workspace();
+        let resolver = resolver(workspace.path());
+        HANDLER
+            .install(&context(workspace.path(), &resolver))
+            .unwrap();
+        let detected = DetectedTool {
+            executable: PathBuf::from("opencode"),
+            version: Some("unsupported".into()),
+            compatible: false,
+        };
+        let ctx = IntegrationContext {
+            detected_tool: Some(&detected),
+            ..context(workspace.path(), &resolver)
+        };
+
+        let status = HANDLER.status(&ctx).unwrap();
+
+        assert_eq!(status.registration, IntegrationRegistration::Installed);
+        assert_eq!(status.activation, IntegrationActivation::Unknown);
+        assert!(status
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "unsupported_tool_version"));
     }
 
     #[test]

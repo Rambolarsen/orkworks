@@ -350,6 +350,44 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn codex_status_preserves_needs_trust_for_an_installed_compatible_tool() {
+        use crate::test_support::{make_test_executable, FakePath};
+
+        let dir = tempfile::tempdir().unwrap();
+        init_git_workspace_with_codex_hooks_ignored(dir.path());
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        let state = test_app_state_with_workspace(dir.path());
+
+        let fake_bin_dir = tempfile::tempdir().unwrap();
+        let bin_name = if cfg!(windows) { "codex.exe" } else { "codex" };
+        let bin = fake_bin_dir.path().join(bin_name);
+        std::fs::write(&bin, "#!/bin/sh\necho 'codex-cli 0.114.0'\n").unwrap();
+        make_test_executable(&bin);
+        let _fake_path = FakePath::prepend(fake_bin_dir.path());
+
+        let install_response = install_integration(State(state.clone()), AxumPath("codex".into()))
+            .await
+            .into_response();
+        assert_eq!(install_response.status(), StatusCode::OK);
+
+        let response = get_integration_status(State(state), AxumPath("codex".into()))
+            .await
+            .into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["activation"], "needs_trust");
+        assert!(body["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|diagnostic| diagnostic["code"] != "unsupported_tool_version"));
+    }
+
+    #[tokio::test]
     async fn install_then_uninstall_reports_absent() {
         let dir = tempfile::tempdir().unwrap();
         init_git_workspace_with_claude_settings_ignored(dir.path());
@@ -458,7 +496,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn min_version_gating_marks_a_below_threshold_binary_as_needing_trust() {
+    async fn min_version_gating_marks_an_installed_below_threshold_binary_as_unknown() {
         use crate::harness::definition::{HarnessPatch, VersionRequirement};
         use crate::test_support::{make_test_executable, FakePath};
 
@@ -493,6 +531,12 @@ mod tests {
         make_test_executable(&bin);
         let _fake_path = FakePath::prepend(fake_bin_dir.path());
 
+        let install_response =
+            install_integration(State(state.clone()), AxumPath("copilot".into()))
+                .await
+                .into_response();
+        assert_eq!(install_response.status(), StatusCode::OK);
+
         let response = get_integration_status(State(state), AxumPath("copilot".into()))
             .await
             .into_response();
@@ -502,7 +546,7 @@ mod tests {
             .unwrap();
         let body: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(body["toolDetected"], true);
-        assert_eq!(body["activation"], "needs_trust");
+        assert_eq!(body["activation"], "unknown");
         assert!(body["diagnostics"]
             .as_array()
             .unwrap()
