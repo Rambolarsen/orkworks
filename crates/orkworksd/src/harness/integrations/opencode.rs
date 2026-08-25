@@ -256,7 +256,9 @@ mod tests {
     fn status_reports_unknown_for_installed_unsupported_version() {
         let workspace = gitignored_workspace();
         let resolver = resolver(workspace.path());
-        HANDLER.install(&context(workspace.path(), &resolver)).unwrap();
+        HANDLER
+            .install(&context(workspace.path(), &resolver))
+            .unwrap();
         let detected = DetectedTool {
             executable: PathBuf::from("opencode"),
             version: Some("unsupported".into()),
