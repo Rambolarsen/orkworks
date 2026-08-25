@@ -81,7 +81,7 @@ test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 794 filtered out; f
 ## Commits
 
 - Rust settings contract commit: `481c0f4e75bbea8092e1fea77e29f1ce52427d38` (`feat: add per-provider Peon model settings`)
-- Report commit: pending
+- Report commit: `570c682990ac911531624f60101f47939f32089d` (`docs: update task 1 report`)
 
 ## Concerns
 
