@@ -12,7 +12,7 @@ export function terminalLinkHandler(openExternal: (url: string) => Promise<void>
 const PLAN_PATH = /(?:\/(?:[^\r\n/]+\/)*(?:docs\/superpowers\/(?:plans|specs)|specs)\/[^\r\n]*?\.md|[A-Za-z]:\\(?:[^\r\n\\]+\\)*(?:docs\\superpowers\\(?:plans|specs)|specs)\\[^\r\n]*?\.md|(?:docs\/superpowers\/(?:plans|specs)|specs)\/[^\r\n]*?\.md|(?:docs\\superpowers\\(?:plans|specs)|specs)\\[^\r\n]*?\.md)\b/g;
 
 export function terminalPlanPaths(line: string): string[] {
-  return [...line.matchAll(PLAN_PATH)].map((match) => match[0]);
+  return [...line.matchAll(PLAN_PATH)].map((match) => match[0].replace(/\/[ \t]+/g, "/"));
 }
 
 function columnForTextOffset(line: IBufferLine, offset: number): number {
@@ -51,14 +51,22 @@ function partAtOffset(
 // near this many wrapped rows.
 const MAX_LOGICAL_LINE_ROWS = 200;
 
+function isHardAbsolutePlanContinuation(prefix: string, nextText: string): boolean {
+  const absolutePlanPrefix = /(?:^|\s)\/(?:[^\r\n/]+\/)*docs\/(?:superpowers\/)?$/.test(prefix);
+  const planRootContinuation = /^(?:superpowers\/)?(?:plans|specs)\//.test(nextText.trimStart());
+  return absolutePlanPrefix && planRootContinuation;
+}
+
 function logicalLine(terminal: Terminal, y: number): Array<{ y: number; line: IBufferLine; text: string }> {
   let start = y;
   let backSteps = 0;
-  while (
-    start > 1 &&
-    backSteps < MAX_LOGICAL_LINE_ROWS &&
-    terminal.buffer.active.getLine(start - 1)?.isWrapped
-  ) {
+  while (start > 1 && backSteps < MAX_LOGICAL_LINE_ROWS) {
+    const previous = terminal.buffer.active.getLine(start - 2);
+    const current = terminal.buffer.active.getLine(start - 1);
+    if (!previous || !current || (!current.isWrapped && !isHardAbsolutePlanContinuation(
+      previous.translateToString(true),
+      current.translateToString(true),
+    ))) break;
     start -= 1;
     backSteps += 1;
   }
@@ -67,7 +75,17 @@ function logicalLine(terminal: Terminal, y: number): Array<{ y: number; line: IB
     const line = terminal.buffer.active.getLine(current - 1);
     if (!line) break;
     lines.push({ y: current, line, text: line.translateToString(true) });
-    if (!terminal.buffer.active.getLine(current)?.isWrapped) break;
+    const next = terminal.buffer.active.getLine(current);
+    if (!next) break;
+    if (next.isWrapped) continue;
+
+    // Some harness output includes a real newline while printing a long
+    // absolute path. Treat the narrow `/docs/` -> `superpowers/...` shape as
+    // one path so the later relative `specs/...` fragment is not selected on
+    // its own. Ordinary hard line breaks remain separate.
+    const prefix = lines.map((part) => part.text).join("");
+    const nextText = next.translateToString(true);
+    if (!isHardAbsolutePlanContinuation(prefix, nextText)) break;
   }
   return lines;
 }
@@ -81,9 +99,10 @@ export function createTerminalPlanLinkProvider(
       const lines = logicalLine(terminal, y);
       const text = lines.map((part) => part.text).join("");
       const links = [...text.matchAll(PLAN_PATH)].map((match) => {
-        const path = match[0];
+        const rawPath = match[0];
+        const path = rawPath.replace(/\/[ \t]+/g, "/");
         const startOffset = match.index ?? 0;
-        const endOffset = startOffset + path.length;
+        const endOffset = startOffset + rawPath.length;
         const start = partAtOffset(lines, startOffset);
         const end = partAtOffset(lines, endOffset, true);
         if (!start || !end) return undefined;

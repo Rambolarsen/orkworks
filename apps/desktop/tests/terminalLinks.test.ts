@@ -48,6 +48,22 @@ test("provides a multiline link from xterm's wrapped buffer", async () => {
   terminal.dispose();
 });
 
+test("keeps an absolute plan link across a hard terminal line break", async () => {
+  const terminal = new Terminal({ cols: 120, rows: 4 });
+  await new Promise<void>((resolve) => terminal.write(
+    "/Users/froomiebot/workspace/orkworks-harness-version-status/docs/\n"
+      + "superpowers/specs/2026-08-25-harness-version-status-design.md",
+    resolve,
+  ));
+  const provider = createTerminalPlanLinkProvider(terminal, async () => {});
+  const expected = "/Users/froomiebot/workspace/orkworks-harness-version-status/docs/superpowers/specs/2026-08-25-harness-version-status-design.md";
+  for (const row of [1, 2]) {
+    const links = await new Promise<any>((resolve) => provider.provideLinks(row, resolve));
+    assert.equal(links?.[0]?.text, expected);
+  }
+  terminal.dispose();
+});
+
 test("uses xterm cell widths for a path after a wide character", async () => {
   const terminal = new Terminal({ cols: 80, rows: 2 });
   await new Promise<void>((resolve) => terminal.write("界 specs/plan.md", resolve));
