@@ -48,3 +48,36 @@ red on broad pre-existing formatting drift across unrelated Rust files, includin
 unchanged label-reset code and other sidecar modules. This fix wave leaves those
 files untouched as requested; the new assertion itself was formatted to the
 current formatter output.
+
+## Final review regression coverage
+
+### Change
+
+- Added `codex_status_preserves_needs_trust_for_an_installed_compatible_tool`
+  in `crates/orkworksd/src/http/integration_handlers.rs`.
+- The test installs the Codex hook, provides a fake `codex` executable that
+  reports the compatible minimum version `0.114.0`, then checks the serialized
+  status response. It asserts `activation == "needs_trust"` and confirms no
+  `unsupported_tool_version` diagnostic is present.
+- No production, renderer, or voice code changed.
+
+### TDD evidence
+
+The preserved behavior already existed, so the new test initially passed.
+To prove it protects the intended behavior, the shared handler's installed
+activation branch was temporarily replaced with `IntegrationActivation::Unknown`.
+The new test then failed at its activation assertion (`left: "unknown"`,
+`right: "needs_trust"`). That temporary change was immediately restored before
+the final verification commands below.
+
+### Verification
+
+| Command | Result |
+| --- | --- |
+| `rtk cargo test --manifest-path crates/orkworksd/Cargo.toml codex_status_preserves_needs_trust_for_an_installed_compatible_tool` | PASS — 1 passed, 816 filtered out |
+| Same command with the temporary broken installed-activation branch | Expected RED — 1 failed: `unknown` instead of `needs_trust` |
+| `rtk cargo test --manifest-path crates/orkworksd/Cargo.toml integration_handlers::tests` | PASS — 23 passed, 794 filtered out |
+| `rtk git diff --check` | PASS |
+
+The first attempted exact test filter selected zero tests; it was corrected and
+is not counted as verification evidence.
