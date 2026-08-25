@@ -770,7 +770,7 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
 
     // Write back newly latched usage limits so they survive ring buffer scroll-off.
     #[cfg(test)]
-    tests::run_list_sessions_before_write_back_hook();
+    tests::run_list_sessions_before_write_back_hook(&state);
     {
         let mut sessions = state.sessions.lock().unwrap();
         let mut write_back_snapshot_ids = HashSet::new();
@@ -907,13 +907,26 @@ mod tests {
     use crate::test_support::*;
 
     static PLAN_TOKEN_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    static LIST_SESSIONS_WRITE_BACK_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    static LIST_SESSIONS_BEFORE_WRITE_BACK_HOOK: std::sync::Mutex<
-        Option<Box<dyn FnOnce() + Send>>,
-    > = std::sync::Mutex::new(None);
+    static LIST_SESSIONS_BEFORE_WRITE_BACK_HOOK: std::sync::LazyLock<
+        std::sync::Mutex<HashMap<usize, Box<dyn FnOnce() + Send>>>,
+    > = std::sync::LazyLock::new(|| std::sync::Mutex::new(HashMap::new()));
 
-    pub(super) fn run_list_sessions_before_write_back_hook() {
-        if let Some(hook) = LIST_SESSIONS_BEFORE_WRITE_BACK_HOOK.lock().unwrap().take() {
+    fn install_list_sessions_before_write_back_hook(
+        state: &Arc<AppState>,
+        hook: Box<dyn FnOnce() + Send>,
+    ) {
+        LIST_SESSIONS_BEFORE_WRITE_BACK_HOOK
+            .lock()
+            .unwrap()
+            .insert(Arc::as_ptr(state) as usize, hook);
+    }
+
+    pub(super) fn run_list_sessions_before_write_back_hook(state: &Arc<AppState>) {
+        if let Some(hook) = LIST_SESSIONS_BEFORE_WRITE_BACK_HOOK
+            .lock()
+            .unwrap()
+            .remove(&(Arc::as_ptr(state) as usize))
+        {
             hook();
         }
     }
@@ -1267,9 +1280,31 @@ mod tests {
         assert_eq!(codex.effective_state, "capped");
     }
 
+    #[tokio::test]
+    async fn list_sessions_write_back_hook_is_scoped_to_its_registered_state() {
+        let hook_state_dir = tempfile::tempdir().unwrap();
+        let hook_state = test_app_state_with_workspace(hook_state_dir.path());
+        let other_state_dir = tempfile::tempdir().unwrap();
+        let other_state = test_app_state_with_workspace(other_state_dir.path());
+        let hook_ran = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let hook_ran_for_callback = hook_ran.clone();
+
+        install_list_sessions_before_write_back_hook(&hook_state, Box::new(move || {
+            hook_ran_for_callback.store(true, std::sync::atomic::Ordering::SeqCst);
+        }));
+
+        listed_sessions(other_state).await;
+        assert!(
+            !hook_ran.load(std::sync::atomic::Ordering::SeqCst),
+            "a list_sessions call for another AppState must not consume this state’s hook"
+        );
+
+        listed_sessions(hook_state).await;
+        assert!(hook_ran.load(std::sync::atomic::Ordering::SeqCst));
+    }
+
     #[tokio::test(flavor = "current_thread")]
     async fn list_sessions_rejects_stale_capacity_write_back() {
-        let _write_back_lock = LIST_SESSIONS_WRITE_BACK_TEST_LOCK.lock().unwrap();
         let dir = tempfile::tempdir().unwrap();
         let state = test_app_state_with_workspace(dir.path());
         let session_id = "stale-capacity-write-back".to_string();
@@ -1303,7 +1338,7 @@ mod tests {
 
         let stale_state = state.clone();
         let stale_id = session_id.clone();
-        *LIST_SESSIONS_BEFORE_WRITE_BACK_HOOK.lock().unwrap() = Some(Box::new(move || {
+        install_list_sessions_before_write_back_hook(&state, Box::new(move || {
             let mut sessions = stale_state.sessions.lock().unwrap();
             sessions.get_mut(&stale_id).unwrap().output_lines_seen += 1;
         }));
