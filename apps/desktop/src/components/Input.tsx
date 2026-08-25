@@ -14,7 +14,7 @@ interface InputProps {
   style?: CSSProperties;
 }
 
-/** Labeled text/number field shared by the provider and retention sections. */
+/** Labeled text/number field used by the session retention section. */
 export default function Input({ label, style, ...inputProps }: InputProps) {
   const input = <input className="ui-input" style={style} {...inputProps} />;
 

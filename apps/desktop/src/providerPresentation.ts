@@ -17,26 +17,6 @@ export function isAppliedRevisionStale(settings: ProviderSettings, runtime: Prov
   return runtime.appliedRevision !== settings.revision;
 }
 
-export type ProviderBadgeTone = "ok" | "warn" | "neutral" | "info";
-
-/** Maps a provider's effective capacity state to the Settings fallback list's status pill. */
-export function providerBadge(state: ProviderEffectiveState): { tone: ProviderBadgeTone; label: string } {
-  switch (state) {
-    case "healthy":
-      return { tone: "ok", label: "Healthy" };
-    case "degraded":
-      return { tone: "warn", label: "Degraded" };
-    case "capped":
-      return { tone: "warn", label: "Capacity reached" };
-    case "checking_capacity":
-      return { tone: "info", label: "Checking capacity" };
-    case "disabled":
-      return { tone: "neutral", label: "Disabled" };
-    case "unknown":
-      return { tone: "neutral", label: "Unknown" };
-  }
-}
-
 export interface ProviderRow {
   id: string;
   label: string;

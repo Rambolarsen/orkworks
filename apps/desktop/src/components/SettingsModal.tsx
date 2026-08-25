@@ -374,7 +374,12 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
                           <div className="settings-config-item">
                             <HarnessIcon tool={h.name} size={16} />
                             <span>{h.name}</span>
-                            <HarnessDetectionStatus harnessId={h.id} />
+                            {/* HarnessIntegrationSection already renders its own Detected/Not
+                                detected line (and fetches the same status) once expanded below,
+                                so this row-level indicator only needs to cover the collapsed case. */}
+                            {!(INTEGRATION_HARNESS_IDS.includes(h.id) && activeDraft.includes(h.id)) && (
+                              <HarnessDetectionStatus harnessId={h.id} />
+                            )}
                           </div>
                           <Toggle checked={activeDraft.includes(h.id)} onChange={() => toggleHarness(h.id)} />
                         </div>
