@@ -1,54 +1,91 @@
 # Task 1 report
 
-## Changed files
+## Status
 
-- `docs/superpowers/specs/2026-08-22-application-module-contracts.md` — current Rust handler, renderer controller, and Electron settings draft/commit contract.
-- `.superpowers/sdd/task-1-report.md` — this report.
+Completed after the authorized scope expansion to the compile-site
+`ProviderSettingsEntry` literals.
 
-No production code was refactored and no tests were changed. The contract now
-distinguishes current behavior from Tasks 2–4 obligations; existing tests do
-not pin all future controller behavior.
+## Files changed
 
-## Contract decisions
+- `crates/orkworksd/src/providers.rs`
+- `crates/orkworksd/src/http/session_handlers.rs`
+- `crates/orkworksd/src/runtime/peon_runtime.rs`
+- `crates/orkworksd/src/runtime/terminal_runtime.rs`
+- `.superpowers/sdd/task-1-report.md`
 
-- The future `SessionApplication` must wrap/borrow `Arc<AppState>` and must not
-  own a second session map; `AppState.sessions` remains authoritative.
-- Current handler symbols, request/result shapes, status/body mappings,
-  workspace lookup, generation-aware admission, side-effect ordering, and
-  compensation rules are frozen in the spec.
-- Create returns the pre-spawn `creating` view and reports startup failure
-  asynchronously; resume currently awaits startup and returns `500` on startup
-  failure, as asserted by the existing test. Detached/pre-spawn resume success
-  is a future target, not current behavior.
-- Renderer polling has one owner and exact returned session IDs correlate
-  pending creates. Restoration waits for the session list and terminal pruning
-  precedes snapshot publication; stale/disposed result rejection remains a
-  future controller obligation.
-- Electron-main owns settings defaults and persistence. Verification is
-  diagnostic only, never mutates saved provider settings, and failed saves keep
-  the renderer draft. Current saves are independent by domain; a durable
-  Electron save may succeed while a sidecar push failure is logged for retry.
-- Wire details include omitted empty `activeHarnessIds`, explicit plan route
-  mappings, and compatibility-sensitive `SessionInfo` serialization.
+## Implementation summary
 
-## Test commands and results
+### `crates/orkworksd/src/providers.rs`
 
-- `cargo test --manifest-path crates/orkworksd/Cargo.toml` — PASS, 647 passed,
-  0 failed.
-- `cd apps/desktop && node --experimental-strip-types --test tests/api.test.ts tests/sessionPolling.test.ts tests/pendingCreate.test.ts tests/electronSettingsMemory.test.ts` — PASS, 49 passed, 0 failed.
-- `git diff --check` — PASS.
-- `bash .claude/hooks/doc-check.sh` — PASS; no drift warning.
+- Added `ProviderSettingsEntry::model: Option<String>` with `#[serde(default)]`
+  for backward-compatible deserialization.
+- Added shared model normalization helpers that trim non-empty values and
+  convert empty/whitespace-only strings to `None`.
+- Added `resolve_provider_model(entry, global_model)` with the required
+  precedence:
+  - entry override
+  - global `peon_model`
+  - no model
+- Normalized both top-level `peon_model` and per-entry `model` values inside
+  `ProviderManager::apply_settings`.
+- Extended the provider tests to cover:
+  - old payloads without `model`
+  - explicit `model: "  llama3  "` deserialization
+  - resolver precedence
+  - trimming/whitespace normalization in `apply_settings`
+- Updated the two existing `ProviderSettingsEntry` test literals in this file to
+  include `model: None`.
 
-## Commit
+### Mechanical compile-site updates
 
-Final reviewed state: `5155a298..656a46a8deb7f2981b2731ccd867dfa3ec2791a7`
+Added `model: None` only, with no behavior change, to the authorized
+`ProviderSettingsEntry` literals in:
+
+- `crates/orkworksd/src/http/session_handlers.rs`
+- `crates/orkworksd/src/runtime/peon_runtime.rs`
+- `crates/orkworksd/src/runtime/terminal_runtime.rs`
+
+## Focused test command
+
+```bash
+cargo test --manifest-path crates/orkworksd/Cargo.toml providers::tests -- --nocapture
+```
+
+## Focused test output
+
+```text
+warning: function `with_fake_home` is never used
+warning: unused return value of `into_response` that must be used
+warning: `orkworksd` (bin "orkworksd" test) generated 2 warnings
+Finished `test` profile [unoptimized + debuginfo] target(s) in 14.11s
+Running unittests src/main.rs (crates/orkworksd/target/debug/deps/orkworksd-7ec3f49f5134a4cf)
+
+running 27 tests
+...
+test providers::tests::apply_settings_trims_provider_and_global_models_and_clears_whitespace ... ok
+...
+test providers::tests::resolve_provider_model_prefers_entry_then_global_then_none ... ok
+test providers::tests::provider_settings_entry_deserializes_missing_model_as_none ... ok
+test providers::tests::provider_settings_entry_deserializes_explicit_model_string ... ok
+...
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 794 filtered out; finished in 0.01s
+```
+
+## Self-review
+
+- Verified the only non-`providers.rs` source edits are mechanical `model: None`
+  additions to the newly authorized compile sites.
+- Verified the new behavior remains confined to `providers.rs`.
+- Verified the focused Rust test target passes after the scope expansion.
+
+## Commits
+
+- Rust settings contract commit: `481c0f4e75bbea8092e1fea77e29f1ce52427d38` (`feat: add per-provider Peon model settings`)
+- Report commit: pending
 
 ## Concerns
 
-- `bash .claude/hooks/worktree-check.sh` reports this worktree as “merged into
-  main” because it currently shares the same base commit; it was intentionally
-  retained because the task explicitly requires this isolated worktree and
-  current branch.
-- Existing test warnings remain: one unused test helper and one ignored
-  `into_response` return value in Rust, plus Node module-type warnings. No
-  failures resulted.
+- The focused test command still emits two pre-existing warnings unrelated to
+  Task 1:
+  - unused helper `with_fake_home` in `src/main.rs`
+  - ignored `into_response()` result in `src/http/session_handlers.rs`
