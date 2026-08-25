@@ -497,6 +497,27 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
         })
         .collect();
 
+    let capacity_metadata = {
+        let workspace = state.workspace.lock().unwrap();
+        workspace
+            .as_ref()
+            .map(|workspace| metadata::MetadataStore::new(&workspace.metadata.root_path()))
+    };
+    let durable_harnesses: HashMap<String, String> = capacity_metadata
+        .as_ref()
+        .map(|metadata| {
+            live_sessions
+                .iter()
+                .filter_map(|(info, _, _, _, _, _, _, _, _)| {
+                    metadata
+                        .read_session(&info.id)
+                        .filter(|session| !session.harness.is_empty())
+                        .map(|session| (info.id.clone(), session.harness))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
     let mut pending_transitions: Vec<(String, bool, bool)> = Vec::new();
     let mut capped_recheck_resets: HashSet<String> = HashSet::new();
     let mut capped_clear_baselines: HashMap<String, (u64, u64)> = HashMap::new();
@@ -516,9 +537,9 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
             )| {
                 let id = info.id.clone();
                 let mut merged = projected_by_id.get(&id).cloned().unwrap_or(info);
-                let resolved_harness = merged
-                    .harness_id
-                    .as_deref()
+                let resolved_harness = durable_harnesses
+                    .get(&id)
+                    .map(String::as_str)
                     .and_then(|id| registry.get(id))
                     .or_else(|| registry.get("generic-shell"));
                 let fresh_output_since_origin = origin
