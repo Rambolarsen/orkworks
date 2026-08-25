@@ -3,9 +3,19 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { pushProviderSettings } from "../electron/providerSettingsSync.ts";
 import type { ProviderSettings } from "../src/providerTypes.ts";
+import { updateProviderModel } from "../src/providerPresentation.ts";
 
 function baseSettings(peonModel: ProviderSettings["peonModel"]): ProviderSettings {
-  return { version: 1, revision: 1, peonModel, ollamaBaseUrl: "http://127.0.0.1:11434", providers: [] };
+  return {
+    version: 1,
+    revision: 1,
+    peonModel,
+    ollamaBaseUrl: "http://127.0.0.1:11434",
+    providers: [
+      { id: "copilot", model: null, enabled: true, fallbackOrder: 0, defaultState: "healthy", overrideState: null },
+      { id: "ollama", model: null, enabled: true, fallbackOrder: 1, defaultState: "unknown", overrideState: null },
+    ],
+  };
 }
 
 const okResponse = () =>
@@ -57,4 +67,40 @@ test("SettingsModal renders verify affordance and status region for Ollama", () 
   assert.match(source, /Verify Ollama/);
   assert.match(source, /role="status"/);
   assert.match(source, /window\.orkworks\.verifyOllama/);
+});
+
+test("updateProviderModel trims and updates only the selected provider override", () => {
+  const settings = baseSettings("global-model");
+  const next = updateProviderModel(settings, "ollama", "  llama3  ");
+
+  assert.equal(next.peonModel, "global-model");
+  assert.equal(next.providers.find((entry) => entry.id === "ollama")?.model, "llama3");
+  assert.equal(next.providers.find((entry) => entry.id === "copilot")?.model, null);
+  assert.notEqual(next, settings);
+  assert.notEqual(next.providers, settings.providers);
+});
+
+test("updateProviderModel clears a provider override to null", () => {
+  const settings = updateProviderModel(baseSettings(null), "ollama", "llama3");
+  const cleared = updateProviderModel(settings, "ollama", "   ");
+
+  assert.equal(cleared.providers.find((entry) => entry.id === "ollama")?.model, null);
+});
+
+test("ProviderSettingsSection wires provider-scoped model inputs and suggestions", () => {
+  const source = readFileSync(new URL("../src/components/ProviderSettingsSection.tsx", import.meta.url), "utf8");
+  assert.match(source, /providerModels/);
+  assert.match(source, /onProviderModelChange/);
+  assert.match(source, /datalist/);
+  assert.match(source, /provider-model-suggestions/);
+  assert.match(source, /Use default Peon model/);
+});
+
+test("SettingsModal keeps the global field as fallback and Ollama candidates provider-scoped", () => {
+  const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
+  assert.match(source, /Default Peon model/);
+  assert.match(source, /onProviderModelChange/);
+  assert.match(source, /updateProviderModel/);
+  assert.match(source, /ollama.*model/si);
+  assert.match(source, /does not pin.*Copilot.*Claude/si);
 });

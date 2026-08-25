@@ -1,4 +1,4 @@
-import type { ProviderCapacityState, ProviderEffectiveState, ProviderSettings, ProviderSettingsEntry } from "./providerTypes.ts";
+import type { ProviderCapacityState, ProviderEffectiveState, ProviderId, ProviderSettings, ProviderSettingsEntry } from "./providerTypes.ts";
 import type { ProviderRuntimeResponse } from "./api.ts";
 
 export function deriveEffectiveState(
@@ -10,6 +10,20 @@ export function deriveEffectiveState(
 
 export function sortProviderEntries(entries: ProviderSettingsEntry[]): ProviderSettingsEntry[] {
   return [...entries].sort((a, b) => a.fallbackOrder - b.fallbackOrder || a.id.localeCompare(b.id));
+}
+
+export function updateProviderModel(
+  settings: ProviderSettings,
+  providerId: ProviderId,
+  value: string,
+): ProviderSettings {
+  const model = value.trim() || null;
+  return {
+    ...settings,
+    providers: settings.providers.map((entry) =>
+      entry.id === providerId ? { ...entry, model } : entry,
+    ),
+  };
 }
 
 export function isAppliedRevisionStale(settings: ProviderSettings, runtime: ProviderRuntimeResponse | null): boolean {

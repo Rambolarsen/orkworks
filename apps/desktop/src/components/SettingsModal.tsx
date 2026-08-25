@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { acceleratorFromKeyboardEvent } from "../hotkeyCapture";
 import type { AppSettings, DebugSettings, HotkeySettings, RetentionSettings } from "../appSettingsTypes";
-import type { ProviderSettings, ProviderModelsResponse, OllamaVerificationResponse } from "../providerTypes";
+import type { ProviderId, ProviderSettings, ProviderModelsResponse, OllamaVerificationResponse } from "../providerTypes";
 import type { ProviderRuntimeResponse } from "../api";
 import type { HarnessConfig } from "../harnessTypes";
 import { normalizeActiveHarnessIds, selectableHarnesses } from "../newSessionDialogState";
@@ -13,6 +13,7 @@ import Toggle from "./Toggle";
 import Button from "./Button";
 import Input from "./Input";
 import { createSettingsController } from "../settingsController";
+import { updateProviderModel } from "../providerPresentation";
 
 // The controller delegates to the existing window.orkworks.verifyOllama and
 // window.orkworks.saveProviderSettings IPC methods; the modal never bypasses it.
@@ -329,6 +330,10 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
     setProviderSaveStatus("Pending save");
   }
 
+  function saveProviderModel(providerId: ProviderId, model: string | null) {
+    persistProviderSettings(updateProviderModel(providerDraft, providerId, model ?? ""));
+  }
+
   return (
     <div className="settings-backdrop" role="presentation">
       <section className="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title" ref={modalRef}>
@@ -436,12 +441,15 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
               <div className="settings-section">
                 <h3>Model providers</h3>
                 <p className="settings-section-copy">
-                  Configure model provider fallback order, state overrides, and Peon model.
+                  Configure model provider fallback order, state overrides, and Peon model defaults.
                 </p>
 
                 <div className="provider-list">
                   <div className="provider-card">
-                    <div className="provider-label">Peon model</div>
+                    <div className="provider-label">Default Peon model</div>
+                    <p className="settings-section-copy">
+                      Used when a provider-specific override is blank.
+                    </p>
                     <input
                       className="provider-model-select"
                       type="text"
@@ -486,6 +494,9 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
 
                   <div className="provider-card">
                     <div className="provider-label">Ollama verification</div>
+                    <p className="settings-section-copy">
+                      Choosing an Ollama model does not pin that model for Copilot, Claude, or other providers.
+                    </p>
                     <Button
                       variant="secondary"
                       size="sm"
@@ -500,14 +511,13 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
                     <ul className="ollama-candidate-list">
                       {candidateModels.map((model) => (
                         <li key={model}>
-                          <span className={model === peonModelDraft ? "selected-model" : undefined}>{model}</span>
+                          <span className={model === providerDraft.providers.find((entry) => entry.id === "ollama")?.model ? "selected-model" : undefined}>{model}</span>
                           <Button
                             variant="ghost"
                             size="sm"
-                            ariaLabel={`Use ${model} for Peon`}
+                            ariaLabel={`Use ${model} for Ollama Peon`}
                             onClick={() => {
-                              setPeonModelDraft(model);
-                              void savePeonModel(model);
+                              saveProviderModel("ollama", model);
                             }}
                           >
                             Use this model
@@ -520,6 +530,8 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
                   <ProviderSettingsSection
                     providerSettings={providerDraft}
                     providerRuntime={providerRuntime}
+                    providerModels={providerModels}
+                    onProviderModelChange={saveProviderModel}
                   />
                 </div>
 
