@@ -458,7 +458,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn min_version_gating_marks_a_below_threshold_binary_as_needing_trust() {
+    async fn min_version_gating_marks_an_installed_below_threshold_binary_as_unknown() {
         use crate::harness::definition::{HarnessPatch, VersionRequirement};
         use crate::test_support::{make_test_executable, FakePath};
 
@@ -493,6 +493,12 @@ mod tests {
         make_test_executable(&bin);
         let _fake_path = FakePath::prepend(fake_bin_dir.path());
 
+        let install_response =
+            install_integration(State(state.clone()), AxumPath("copilot".into()))
+                .await
+                .into_response();
+        assert_eq!(install_response.status(), StatusCode::OK);
+
         let response = get_integration_status(State(state), AxumPath("copilot".into()))
             .await
             .into_response();
@@ -502,7 +508,7 @@ mod tests {
             .unwrap();
         let body: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(body["toolDetected"], true);
-        assert_eq!(body["activation"], "needs_trust");
+        assert_eq!(body["activation"], "unknown");
         assert!(body["diagnostics"]
             .as_array()
             .unwrap()

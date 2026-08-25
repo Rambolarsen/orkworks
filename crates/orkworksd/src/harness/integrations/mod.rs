@@ -261,7 +261,7 @@ impl JsonHookHandler {
                     .into(),
                 action: None,
             });
-            IntegrationActivation::NeedsTrust
+            IntegrationActivation::Unknown
         } else if registration == IntegrationRegistration::Installed {
             self.contract.activation.clone()
         } else {
@@ -1538,7 +1538,7 @@ mod tests {
                 .status(&unsupported_context)
                 .unwrap()
                 .activation,
-            IntegrationActivation::NeedsTrust
+            IntegrationActivation::Unknown
         );
     }
 
