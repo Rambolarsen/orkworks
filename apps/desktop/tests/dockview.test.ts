@@ -228,6 +228,21 @@ test("global :focus-visible ring is defined and .session-list does not suppress 
   assert.doesNotMatch(source, /\.session-list[^}]*outline:\s*none/);
 });
 
+test("settings modal layout keeps a stable top anchor and bounded scroll region", () => {
+  const source = readFileSync(new URL("../src/App.css", import.meta.url), "utf8");
+  const backdrop = source.match(/\.settings-backdrop\s*\{([^}]*)\}/)?.[1] ?? "";
+  const modal = source.match(/\.settings-modal\s*\{([^}]*)\}/)?.[1] ?? "";
+  const content = source.match(/\.settings-content\s*\{([^}]*)\}/)?.[1] ?? "";
+
+  assert.match(backdrop, /display:\s*flex/);
+  assert.match(backdrop, /align-items:\s*flex-start/);
+  assert.match(backdrop, /justify-content:\s*center/);
+  assert.match(backdrop, /padding-top:\s*48px/);
+  assert.match(modal, /max-height:\s*min\(calc\(100vh - 48px\),\s*82vh\)/);
+  assert.match(modal, /overflow:\s*hidden/);
+  assert.match(content, /overflow-y:\s*auto/);
+});
+
 test("SessionDetailPanel groups content into situation/actions/facts/provenance zones", () => {
   const source = readFileSync(new URL("../src/components/SessionDetailPanel.tsx", import.meta.url), "utf8");
 
