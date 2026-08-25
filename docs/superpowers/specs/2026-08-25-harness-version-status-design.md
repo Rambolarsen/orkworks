@@ -21,6 +21,13 @@ detected version without adding a new cross-boundary protocol state. The
 normal contract activation remains authoritative only when the tool version is
 compatible and the owned fragment is installed.
 
+The renderer will recognize the existing `unsupported_tool_version` diagnostic
+when an integration is installed and suppress the normal success or trust
+confirmation. It will show the version-incompatibility message without
+suggesting `/hooks` or claiming that the installed integration is active. This
+is a presentation-only use of the existing diagnostic; no new protocol value
+is required.
+
 ## Alternatives considered
 
 - Add an `IncompatibleVersion` activation: clearer in isolation, but expands
@@ -34,8 +41,12 @@ compatible and the owned fragment is installed.
 
 - Add a regression test for a non-Codex JSON-hook harness with an installed
   fragment and an incompatible detected version.
-- Add or update the OpenCode regression test for the same state.
-- Verify the desktop integration test continues to render the version
-  diagnostic without the Codex-specific trust instruction.
+- Add or update the OpenCode regression test for an installed fragment and an
+  incompatible detected version.
+- Update existing HTTP expectations that currently assert `needs_trust` for
+  incompatible versions.
+- Add a desktop presentation test that asserts the unsupported-version state
+  omits both the Codex-specific `/hooks` instruction and the normal
+  "hooks installed" success message.
 
-No renderer behavior or microphone/voice capability is changed.
+No voice capability or microphone behavior is changed.
