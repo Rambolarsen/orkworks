@@ -32,21 +32,6 @@ function columnForTextOffset(line: IBufferLine, offset: number): number {
   return line.length + 1;
 }
 
-function partAtOffset(
-  lines: Array<{ y: number; line: IBufferLine; text: string }>,
-  offset: number,
-  endBoundary = false,
-): { part: { y: number; line: IBufferLine; text: string }; offset: number } | undefined {
-  let consumed = 0;
-  for (const part of lines) {
-    if (offset < consumed + part.text.length || (endBoundary && offset === consumed + part.text.length)) {
-      return { part, offset: offset - consumed };
-    }
-    consumed += part.text.length;
-  }
-  return undefined;
-}
-
 // Bounds how many wrapped continuation rows a single logical line can span.
 // Legacy `.terminal` replay files predate the 1,000-line/1 MiB retention cap
 // (see AGENTS.md) and can still hold tens of megabytes of unbroken output;
@@ -102,28 +87,34 @@ export function createTerminalPlanLinkProvider(
     provideLinks(y, callback) {
       const lines = logicalLine(terminal, y);
       const text = lines.map((part) => part.text).join("");
-      const links = [...text.matchAll(PLAN_PATH)].map((match) => {
+      const links = [...text.matchAll(PLAN_PATH)].flatMap((match) => {
         const rawPath = match[0];
         const path = normalizePlanPath(rawPath);
         const startOffset = match.index ?? 0;
         const endOffset = startOffset + rawPath.length;
-        const start = partAtOffset(lines, startOffset);
-        const end = partAtOffset(lines, endOffset, true);
-        if (!start || !end) return undefined;
-        return {
-          text: path,
-          range: {
-            start: { x: columnForTextOffset(start.part.line, start.offset), y: start.part.y },
-            end: { x: columnForTextOffset(end.part.line, end.offset), y: end.part.y },
-          },
-          activate: () => {
-            void onPlanPath(path).catch((error) => {
-              console.error("[terminal] couldn't select plan", error);
-              pushToast("error", error instanceof Error ? error.message : "Couldn't open this plan.");
-            });
-          },
-        };
-      }).filter((link): link is NonNullable<typeof link> => link !== undefined);
+        let consumed = 0;
+        return lines.flatMap((part) => {
+          const partStart = consumed;
+          const partEnd = consumed + part.text.length;
+          consumed = partEnd;
+          const segmentStart = Math.max(startOffset, partStart);
+          const segmentEnd = Math.min(endOffset, partEnd);
+          if (segmentStart >= segmentEnd) return [];
+          return [{
+            text: path,
+            range: {
+              start: { x: columnForTextOffset(part.line, segmentStart - partStart), y: part.y },
+              end: { x: columnForTextOffset(part.line, segmentEnd - partStart), y: part.y },
+            },
+            activate: () => {
+              void onPlanPath(path).catch((error) => {
+                console.error("[terminal] couldn't select plan", error);
+                pushToast("error", error instanceof Error ? error.message : "Couldn't open this plan.");
+              });
+            },
+          }];
+        });
+      }).filter((link) => link.range.start.y === y);
       callback(links.length ? links : undefined);
     },
   };
