@@ -3368,6 +3368,7 @@ mod tests {
                         id: "opencode".to_string(),
                         enabled: true,
                         fallback_order: 0,
+                        model: None,
                         default_state: providers::ProviderCapacityState::Healthy,
                         override_state: None,
                     }],

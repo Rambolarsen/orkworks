@@ -80,6 +80,8 @@ pub struct ProviderSettingsEntry {
     pub enabled: bool,
     #[serde(rename = "fallbackOrder")]
     pub fallback_order: usize,
+    #[serde(default)]
+    pub model: Option<String>,
     #[serde(rename = "defaultState")]
     pub default_state: ProviderCapacityState,
     #[serde(rename = "overrideState")]
@@ -114,6 +116,28 @@ pub struct ProviderSettingsPayload {
 
 pub(crate) fn default_ollama_base_url() -> String {
     "http://127.0.0.1:11434".to_string()
+}
+
+fn normalize_provider_model(model: Option<String>) -> Option<String> {
+    model.and_then(|value| {
+        let trimmed = value.trim();
+        (!trimmed.is_empty()).then(|| trimmed.to_string())
+    })
+}
+
+fn normalize_provider_model_ref(model: Option<&str>) -> Option<String> {
+    model.and_then(|value| {
+        let trimmed = value.trim();
+        (!trimmed.is_empty()).then(|| trimmed.to_string())
+    })
+}
+
+fn resolve_provider_model(
+    entry: &ProviderSettingsEntry,
+    global_model: Option<&str>,
+) -> Option<String> {
+    normalize_provider_model_ref(entry.model.as_deref())
+        .or_else(|| normalize_provider_model_ref(global_model))
 }
 
 impl Default for ProviderSettingsPayload {
@@ -687,6 +711,7 @@ impl ProviderManager {
     }
 
     pub fn apply_settings(&self, mut settings: ProviderSettingsPayload) -> ProviderApplyStatus {
+        settings.peon_model = normalize_provider_model(settings.peon_model);
         let valid_ids: HashSet<String> = self
             .definitions()
             .into_iter()
@@ -705,6 +730,7 @@ impl ProviderManager {
                     entry.id = "copilot".into();
                     migrated_legacy_copilot = true;
                 }
+                entry.model = normalize_provider_model(entry.model);
                 valid_ids.contains(&entry.id).then_some(entry)
             })
             .collect();
@@ -1421,6 +1447,7 @@ mod tests {
         id: &'static str,
         enabled: bool,
         fallback_order: usize,
+        model: Option<&'static str>,
         default_state: ProviderCapacityState,
         override_state: Option<ProviderCapacityState>,
     }
@@ -1436,6 +1463,7 @@ mod tests {
                 id,
                 enabled: true,
                 fallback_order,
+                model: None,
                 default_state: ProviderCapacityState::Healthy,
                 override_state: None,
             }
@@ -1449,6 +1477,10 @@ mod tests {
             self.default_state = s;
             self
         }
+        fn model(mut self, value: Option<&'static str>) -> Self {
+            self.model = value;
+            self
+        }
         fn override_state(mut self, s: Option<ProviderCapacityState>) -> Self {
             self.override_state = s;
             self
@@ -1459,6 +1491,7 @@ mod tests {
                 id: self.id.to_string(),
                 enabled: self.enabled,
                 fallback_order: self.fallback_order,
+                model: self.model.map(str::to_string),
                 default_state: self.default_state,
                 override_state: self.override_state,
             }
@@ -1485,6 +1518,54 @@ mod tests {
 
     fn registry_with(fakes: Vec<FakeProvider>) -> Vec<FakeProvider> {
         fakes
+    }
+
+    #[test]
+    fn provider_settings_entry_deserializes_missing_model_as_none() {
+        let payload = serde_json::json!({
+            "id": "copilot",
+            "enabled": true,
+            "fallbackOrder": 0,
+            "defaultState": "healthy",
+            "overrideState": null
+        });
+
+        let entry: ProviderSettingsEntry = serde_json::from_value(payload).unwrap();
+
+        assert_eq!(entry.model, None);
+    }
+
+    #[test]
+    fn provider_settings_entry_deserializes_explicit_model_string() {
+        let payload = serde_json::json!({
+            "id": "copilot",
+            "enabled": true,
+            "fallbackOrder": 0,
+            "model": "  llama3  ",
+            "defaultState": "healthy",
+            "overrideState": null
+        });
+
+        let entry: ProviderSettingsEntry = serde_json::from_value(payload).unwrap();
+
+        assert_eq!(entry.model.as_deref(), Some("  llama3  "));
+    }
+
+    #[test]
+    fn resolve_provider_model_prefers_entry_then_global_then_none() {
+        let provider_override = entry("copilot").model(Some("  llama3  ")).build();
+        let global_only = entry("copilot").build();
+        let blank_override = entry("copilot").model(Some("   ")).build();
+
+        assert_eq!(
+            resolve_provider_model(&provider_override, Some(" global-model ")).as_deref(),
+            Some("llama3")
+        );
+        assert_eq!(
+            resolve_provider_model(&global_only, Some(" global-model ")).as_deref(),
+            Some("global-model")
+        );
+        assert_eq!(resolve_provider_model(&blank_override, Some("   ")), None);
     }
 
     #[test]
@@ -1554,6 +1635,29 @@ mod tests {
         assert_eq!(result.attempts.len(), 1);
         assert_eq!(result.attempts[0].provider_id, "copilot");
         assert_eq!(result.attempts[0].outcome, AttemptOutcome::Succeeded);
+    }
+
+    #[test]
+    fn apply_settings_trims_provider_and_global_models_and_clears_whitespace() {
+        let payload = ProviderSettingsPayload {
+            peon_model: Some("  global-model  ".into()),
+            providers: vec![
+                entry("copilot").model(Some("  llama3  ")).build(),
+                entry("claude-code").model(Some("   ")).build(),
+            ],
+            ..sample_settings(vec![])
+        };
+        let manager = ProviderManager::for_tests(
+            ProviderSettingsPayload::default(),
+            vec![fake_provider("copilot"), fake_provider("claude-code")],
+        );
+
+        manager.apply_settings(payload);
+
+        let settings = manager.settings.read().unwrap().clone();
+        assert_eq!(settings.peon_model.as_deref(), Some("global-model"));
+        assert_eq!(settings.providers[0].model.as_deref(), Some("llama3"));
+        assert_eq!(settings.providers[1].model, None);
     }
 
     #[test]
@@ -1852,6 +1956,7 @@ mod tests {
                     id: "ollama".to_string(),
                     enabled: true,
                     fallback_order: 0,
+                    model: None,
                     default_state: ProviderCapacityState::Healthy,
                     override_state: None,
                 }],
@@ -1876,6 +1981,7 @@ mod tests {
                     id: "ollama".to_string(),
                     enabled: false,
                     fallback_order: 0,
+                    model: None,
                     default_state: ProviderCapacityState::Healthy,
                     override_state: None,
                 }],
