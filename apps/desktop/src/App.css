@@ -137,9 +137,11 @@ html, body, #root {
 }
 
 .settings-modal {
-  width: min(720px, calc(100vw - 32px));
-  max-height: calc(100vh - 48px);
-  overflow: auto;
+  width: min(640px, calc(100vw - 32px));
+  max-height: min(calc(100vh - 48px), 82vh);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   border: 1px solid var(--border-default);
   border-radius: var(--radius-modal);
   background: var(--surface-1);
@@ -151,11 +153,13 @@ html, body, #root {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 16px;
+  padding: 16px 20px;
   border-color: var(--border-subtle);
+  flex-shrink: 0;
 }
 
 .settings-modal-header {
+  align-items: flex-start;
   justify-content: space-between;
   border-bottom: 1px solid var(--border-subtle);
 }
@@ -166,22 +170,85 @@ html, body, #root {
   color: var(--text-primary);
 }
 
-.settings-modal-header p,
-.settings-section-copy {
+.settings-modal-header p {
   margin: 4px 0 0;
   color: var(--text-muted);
 }
 
+.settings-section-copy {
+  margin: 0 0 16px;
+  color: var(--text-muted);
+}
+
 .settings-icon-button {
+  width: 28px;
+  height: 24px;
   border: 0;
-  color: var(--text-primary);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
   background: transparent;
   font: inherit;
+  font-size: var(--text-lg);
+  line-height: 1;
   cursor: pointer;
 }
 
+.settings-icon-button:hover {
+  color: var(--text-primary);
+  background: var(--surface-3);
+}
+
+.settings-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+.settings-nav {
+  width: 180px;
+  flex-shrink: 0;
+  background: var(--surface-2);
+  border-right: 1px solid var(--border-subtle);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+}
+
+.settings-nav-button {
+  text-align: left;
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  border: none;
+  font: inherit;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  background: transparent;
+  cursor: pointer;
+}
+
+.settings-nav-button:hover {
+  color: var(--text-primary);
+}
+
+.settings-nav-button--active {
+  background: var(--surface-active);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.settings-content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 20px 24px;
+}
+
 .settings-section {
-  padding: 16px;
+  padding: 0;
 }
 
 .hotkey-list {
@@ -192,10 +259,11 @@ html, body, #root {
 }
 
 .hotkey-row {
-  display: grid;
-  grid-template-columns: minmax(150px, 1fr) minmax(140px, auto) auto auto;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  justify-content: space-between;
+  gap: 8px 10px;
   padding: 10px 12px;
   border-bottom: 1px solid var(--border-subtle);
 }
@@ -206,6 +274,19 @@ html, body, #root {
 
 .hotkey-row--capturing {
   background: var(--state-ok-bg);
+}
+
+.hotkey-row-label {
+  flex: 1 1 120px;
+  min-width: 0;
+}
+
+.hotkey-row-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
 }
 
 .hotkey-label {
@@ -220,7 +301,7 @@ html, body, #root {
 }
 
 .settings-save-error {
-  margin-top: 12px;
+  padding: 8px 20px 0;
   color: var(--state-error);
   font-size: var(--text-sm);
 }
@@ -250,22 +331,6 @@ html, body, #root {
   font-weight: 600;
 }
 
-.retention-input {
-  width: 100%;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
-  padding: 4px 7px;
-  color: var(--text-primary);
-  background: var(--surface-0);
-  font: inherit;
-  font-size: var(--text-md);
-}
-
-.retention-input:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-
 .retention-hint {
   color: var(--text-faint);
   font-size: var(--text-xs);
@@ -284,11 +349,22 @@ html, body, #root {
 .settings-config-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
   margin-top: 12px;
 }
 
 .settings-config-item-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.settings-config-item-row:last-child {
+  border-bottom: 0;
+}
+
+.settings-config-item-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -298,21 +374,17 @@ html, body, #root {
 .settings-config-item {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   font: inherit;
   font-size: var(--text-md);
-  color: var(--text-primary);
-  cursor: pointer;
-}
-
-.settings-config-item input[type="checkbox"] {
-  accent-color: var(--accent-strong);
+  color: var(--text-secondary);
 }
 
 .settings-config-item-actions {
   display: flex;
   align-items: center;
   gap: 8px;
+  padding-left: 26px;
 }
 
 .settings-config-footer {
@@ -322,7 +394,6 @@ html, body, #root {
   margin-top: 12px;
 }
 
-.settings-config-footer button,
 .settings-config-item-actions button {
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
@@ -334,9 +405,31 @@ html, body, #root {
   cursor: pointer;
 }
 
-.settings-config-footer button:hover,
 .settings-config-item-actions button:hover {
   background: var(--surface-3);
+}
+
+.harness-detection-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 4px;
+}
+
+.harness-detection-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--text-faint);
+}
+
+.harness-detection-dot--ok {
+  background: var(--state-ok);
+}
+
+.harness-detection-text {
+  font-size: var(--text-xs);
+  color: var(--text-faint);
 }
 
 .settings-config-status {
@@ -415,19 +508,6 @@ html, body, #root {
   margin-bottom: 4px;
 }
 
-.provider-card button {
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
-  padding: 3px 7px;
-  margin-right: 6px;
-  margin-top: 6px;
-  color: var(--text-secondary);
-  background: var(--surface-2);
-  font: inherit;
-  font-size: var(--text-xs);
-  cursor: pointer;
-}
-
 .provider-verify-status {
   margin-top: 8px;
   color: var(--text-secondary);
@@ -470,17 +550,7 @@ html, body, #root {
   font-weight: 600;
 }
 
-.provider-card button:hover:not(:disabled) {
-  background: var(--surface-3);
-}
-
-.provider-card button:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
 .hotkey-value {
-  justify-self: end;
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
   padding: 4px 7px;
@@ -488,22 +558,6 @@ html, body, #root {
   background: var(--surface-0);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
-}
-
-.hotkey-row button,
-.settings-modal-footer button {
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
-  padding: 5px 9px;
-  color: var(--text-secondary);
-  background: var(--surface-2);
-  font: inherit;
-  cursor: pointer;
-}
-
-.hotkey-row button:hover,
-.settings-modal-footer button:hover:not(:disabled) {
-  background: var(--surface-3);
 }
 
 .settings-modal-footer {
@@ -514,15 +568,138 @@ html, body, #root {
   flex: 1;
 }
 
-.settings-primary-button {
-  border-color: var(--accent-strong) !important;
-  color: var(--text-on-accent) !important;
-  background: var(--accent-bg) !important;
+/* ---- Shared UI primitives (Toggle, Button, Input) ---- */
+
+.ui-toggle {
+  position: relative;
+  width: 34px;
+  height: 20px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--surface-3);
+  cursor: pointer;
+  padding: 0;
 }
 
-.settings-primary-button:disabled {
+.ui-toggle:disabled {
   cursor: not-allowed;
   opacity: 0.6;
+}
+
+.ui-toggle--on {
+  background: var(--accent-bg);
+}
+
+.ui-toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  /* Off-state track is a dark neutral (--surface-3), so the thumb needs a
+     light color here; on-state track is bright lime (--accent-bg), so the
+     thumb swaps to a dark color below — each state needs the opposite end
+     of the scale to stay visible. */
+  background: var(--text-secondary);
+  transition: transform 0.12s ease, background 0.12s ease;
+}
+
+.ui-toggle--on .ui-toggle-thumb {
+  transform: translateX(14px);
+  background: var(--text-on-accent);
+}
+
+.ui-toggle-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.ui-toggle-label {
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+}
+
+.ui-button {
+  border-radius: var(--radius-md);
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.ui-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.ui-button--sm {
+  padding: 5px 9px;
+  font-size: var(--text-sm);
+}
+
+.ui-button--md {
+  padding: 6px 12px;
+  font-size: var(--text-md);
+}
+
+.ui-button--secondary {
+  border: 1px solid var(--border-default);
+  color: var(--text-secondary);
+  background: var(--surface-2);
+}
+
+.ui-button--secondary:hover:not(:disabled) {
+  background: var(--surface-3);
+}
+
+.ui-button--ghost {
+  border: 1px solid transparent;
+  color: var(--text-secondary);
+  background: transparent;
+}
+
+.ui-button--ghost:hover:not(:disabled) {
+  background: var(--surface-3);
+}
+
+.ui-button--primary {
+  border: 1px solid var(--accent-strong);
+  color: var(--text-on-accent);
+  background: var(--accent-bg);
+}
+
+.ui-button--primary:hover:not(:disabled) {
+  background: var(--accent-bg-hover);
+}
+
+.ui-input-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ui-input-label {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.ui-input {
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: 4px 7px;
+  color: var(--text-primary);
+  background: var(--surface-0);
+  font: inherit;
+  font-size: var(--text-md);
+}
+
+.ui-input:focus {
+  outline: none;
+  border-color: var(--accent);
 }
 
 .terminal-shell {

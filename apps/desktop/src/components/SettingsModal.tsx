@@ -7,6 +7,11 @@ import type { HarnessConfig } from "../harnessTypes";
 import { normalizeActiveHarnessIds, selectableHarnesses } from "../newSessionDialogState";
 import ProviderSettingsSection from "./ProviderSettingsSection";
 import HarnessIntegrationSection from "./HarnessIntegrationSection";
+import HarnessDetectionStatus from "./HarnessDetectionStatus";
+import HarnessIcon from "./HarnessIcon";
+import Toggle from "./Toggle";
+import Button from "./Button";
+import Input from "./Input";
 import { createSettingsController } from "../settingsController";
 
 // The controller delegates to the existing window.orkworks.verifyOllama and
@@ -17,6 +22,16 @@ type OllamaVerificationViewState =
   | { phase: "idle" }
   | { phase: "checking"; requestedBaseUrl: string }
   | { phase: "done"; result: OllamaVerificationResponse };
+
+type SettingsSection = "tools" | "providers" | "hotkeys" | "retention" | "debug";
+
+const NAV_ITEMS: Array<{ key: SettingsSection; label: string }> = [
+  { key: "tools", label: "Coding tools" },
+  { key: "providers", label: "Model providers" },
+  { key: "hotkeys", label: "Hotkeys" },
+  { key: "retention", label: "Session retention" },
+  { key: "debug", label: "Debug" },
+];
 
 interface SettingsModalProps {
   initialSettings: AppSettings;
@@ -49,6 +64,7 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
   }
   const settingsController = settingsControllerRef.current;
   const defaultHotkeys = initialSettings.defaultHotkeys;
+  const [activeSection, setActiveSection] = useState<SettingsSection>("tools");
   const [draft, setDraft] = useState<HotkeySettings>(initialSettings.hotkeys);
   const [capturing, setCapturing] = useState<HotkeyAction | null>(null);
   const [errors, setErrors] = useState<Partial<Record<HotkeyAction, string[]>>>({});
@@ -322,271 +338,310 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
             <p>Configure OrkWorks desktop preferences.</p>
           </div>
           <button className="settings-icon-button" type="button" onClick={() => { settingsController.discard(); onClose(); }} aria-label="Close settings">
-            Close
+            ×
           </button>
         </header>
 
-        <div className="settings-section">
-          <h3>Active coding tools</h3>
-          <p className="settings-section-copy">
-            Select which coding tools are available in this workspace. Shell is always available.
-          </p>
+        <div className="settings-body">
+          <nav className="settings-nav">
+            {NAV_ITEMS.map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                className={`settings-nav-button${activeSection === item.key ? " settings-nav-button--active" : ""}`}
+                onClick={() => {
+                  // Leaving the Hotkeys tab mid-capture would otherwise leave the
+                  // window-level keydown listener armed with no visible target row,
+                  // silently assigning the next keystroke typed anywhere else.
+                  setCapturing(null);
+                  setActiveSection(item.key);
+                }}
+              >
+                {item.label}
+              </button>
+            ))}
+          </nav>
 
-          <div className="settings-config-list">
-            {selectableHarnesses(harnesses)
-              .filter((h) => h.id !== "generic-shell")
-              .sort((a, b) => a.name.localeCompare(b.name))
-              .map((h) => (
-                <div key={h.id} className="settings-config-item-row">
-                  <label className="settings-config-item">
-                    <input
-                      type="checkbox"
-                      checked={activeDraft.includes(h.id)}
-                      onChange={() => toggleHarness(h.id)}
-                    />
-                    <span>{h.name}</span>
-                  </label>
-                  {INTEGRATION_HARNESS_IDS.includes(h.id) && activeDraft.includes(h.id) && (
-                    <HarnessIntegrationSection harnessId={h.id} harnessName={h.name} harness={h} />
+          <div className="settings-content">
+            {activeSection === "tools" && (
+              <div className="settings-section">
+                <h3>Active coding tools</h3>
+                <p className="settings-section-copy">
+                  Select which coding tools are available in this workspace. Shell is always available.
+                </p>
+
+                <div className="settings-config-list">
+                  {selectableHarnesses(harnesses)
+                    .filter((h) => h.id !== "generic-shell")
+                    .sort((a, b) => a.name.localeCompare(b.name))
+                    .map((h) => (
+                      <div key={h.id} className="settings-config-item-row">
+                        <div className="settings-config-item-header">
+                          <div className="settings-config-item">
+                            <HarnessIcon tool={h.name} size={16} />
+                            <span>{h.name}</span>
+                            {/* HarnessIntegrationSection already renders its own Detected/Not
+                                detected line (and fetches the same status) once expanded below,
+                                so this row-level indicator only needs to cover the collapsed case. */}
+                            {!(INTEGRATION_HARNESS_IDS.includes(h.id) && activeDraft.includes(h.id)) && (
+                              <HarnessDetectionStatus harnessId={h.id} />
+                            )}
+                          </div>
+                          <Toggle checked={activeDraft.includes(h.id)} onChange={() => toggleHarness(h.id)} ariaLabel={h.name} />
+                        </div>
+                        {INTEGRATION_HARNESS_IDS.includes(h.id) && activeDraft.includes(h.id) && (
+                          <HarnessIntegrationSection harnessId={h.id} harnessName={h.name} harness={h} />
+                        )}
+                      </div>
+                    ))}
+                </div>
+
+                <div className="settings-config-footer">
+                  <Button variant="secondary" size="sm" onClick={saveActiveHarnessesHandler}>Save</Button>
+                  {activeSaveStatus && (
+                    <span className={`settings-config-status ${activeSaveStatus === "Saved" ? "settings-config-status--ok" : ""}`}>
+                      {activeSaveStatus}
+                    </span>
                   )}
                 </div>
-              ))}
-          </div>
+              </div>
+            )}
 
-          <div className="settings-config-footer">
-            <button type="button" onClick={saveActiveHarnessesHandler}>Save</button>
-            {activeSaveStatus && (
-              <span className={`settings-config-status ${activeSaveStatus === "Saved" ? "settings-config-status--ok" : ""}`}>
-                {activeSaveStatus}
-              </span>
+            {activeSection === "debug" && (
+              <div className="settings-section">
+                <h3>Debug</h3>
+                <p className="settings-section-copy">
+                  Reveal internal metadata in session details when you need to debug session state.
+                </p>
+
+                <Toggle
+                  checked={debugSettings.showSessionIds}
+                  onChange={() => {
+                    const next = { showSessionIds: !debugSettings.showSessionIds, rendererHealthLogMs: debugSettings.rendererHealthLogMs };
+                    setDebugSettings(next);
+                    saveDebugSettings(next);
+                  }}
+                  label="Show debug metadata"
+                />
+
+                {debugSaveStatus && (
+                  <div className={`retention-status ${debugSaveStatus === "Saved" ? "retention-status--ok" : ""}`}>
+                    {debugSaveStatus}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {activeSection === "providers" && (
+              <div className="settings-section">
+                <h3>Model providers</h3>
+                <p className="settings-section-copy">
+                  Configure model provider fallback order, state overrides, and Peon model.
+                </p>
+
+                <div className="provider-list">
+                  <div className="provider-card">
+                    <div className="provider-label">Peon model</div>
+                    <input
+                      className="provider-model-select"
+                      type="text"
+                      list="peon-model-suggestions"
+                      placeholder="(none - let model provider decide)"
+                      value={peonModelDraft ?? ""}
+                      onChange={(e) => setPeonModelDraft(e.target.value.trim() || null)}
+                      onBlur={() => {
+                        if (peonModelDraft !== providerDraft.peonModel) {
+                          savePeonModel(peonModelDraft);
+                        }
+                      }}
+                    />
+                    <datalist id="peon-model-suggestions">
+                      {[...new Set(Object.values(providerModels).flat())].sort().map((m) => (
+                        <option key={m} value={m} />
+                      ))}
+                    </datalist>
+                  </div>
+
+                  <div className="provider-card">
+                    <div className="provider-label">Ollama base URL</div>
+                    <input
+                      className="provider-model-select"
+                      type="text"
+                      placeholder="http://127.0.0.1:11434"
+                      value={ollamaBaseUrlDraft}
+                      onChange={(e) => {
+                        verifyRequestRef.current++;
+                        setOllamaVerification({ phase: "idle" });
+                        setOllamaBaseUrlDraft(e.target.value.trim());
+                      }}
+                      onBlur={() => {
+                        const normalized = normalizeBaseUrlDraft(ollamaBaseUrlDraft);
+                        if (normalized !== providerDraft.ollamaBaseUrl && (normalized.startsWith("http://") || normalized.startsWith("https://"))) {
+                          const next = { ...providerDraft, ollamaBaseUrl: normalized };
+                          persistProviderSettings(next);
+                        }
+                      }}
+                    />
+                  </div>
+
+                  <div className="provider-card">
+                    <div className="provider-label">Ollama verification</div>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      disabled={ollamaVerification.phase === "checking"}
+                      onClick={() => verifyOllamaDraft(ollamaBaseUrlDraft)}
+                    >
+                      {ollamaVerification.phase === "checking" ? "Verifying…" : "Verify Ollama"}
+                    </Button>
+                    <div role="status" aria-live="polite">
+                      {renderOllamaVerificationStatus()}
+                    </div>
+                    <ul className="ollama-candidate-list">
+                      {candidateModels.map((model) => (
+                        <li key={model}>
+                          <span className={model === peonModelDraft ? "selected-model" : undefined}>{model}</span>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            ariaLabel={`Use ${model} for Peon`}
+                            onClick={() => {
+                              setPeonModelDraft(model);
+                              void savePeonModel(model);
+                            }}
+                          >
+                            Use this model
+                          </Button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  <ProviderSettingsSection
+                    providerSettings={providerDraft}
+                    providerRuntime={providerRuntime}
+                  />
+                </div>
+
+                {providerSaveStatus && (
+                  <div className={`retention-status ${providerSaveStatus === "Saved" ? "retention-status--ok" : ""}`}>
+                    {providerSaveStatus}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {activeSection === "hotkeys" && (
+              <div className="settings-section">
+                <h3>Hotkeys</h3>
+                <p className="settings-section-copy">Changes apply after Save and update the native Electron menu.</p>
+
+                <div className="hotkey-list">
+                  {hotkeyRows.map((row) => (
+                    <div className={`hotkey-row ${capturing === row.action ? "hotkey-row--capturing" : ""}`} key={row.action}>
+                      <div className="hotkey-row-label">
+                        <div className="hotkey-label">{row.label}</div>
+                        {errors[row.action]?.map((error) => (
+                          <div className="hotkey-error" key={error}>{error}</div>
+                        ))}
+                      </div>
+                      <div className="hotkey-row-controls">
+                        <kbd className="hotkey-value">
+                          {capturing === row.action ? "Press shortcut..." : draft[row.action] ?? "Unset"}
+                        </kbd>
+                        <Button variant="ghost" size="sm" onClick={() => setCapturing(row.action)}>Edit</Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            settingsController.resetHotkey(row.action);
+                            setDraft((current) => ({ ...current, [row.action]: defaultHotkeys[row.action] }));
+                          }}
+                        >
+                          Reset
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {activeSection === "retention" && (
+              <div className="settings-section">
+                <h3>Session Retention</h3>
+                <p className="settings-section-copy">
+                  Live sessions are never auto-deleted. Changes take effect within 5 minutes.
+                </p>
+
+                <div className="retention-list">
+                  <div className="retention-row">
+                    <div className="retention-label">Max sessions to keep</div>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={999}
+                      style={{ width: 72 }}
+                      value={retention.maxSessions}
+                      onChange={(e) => {
+                        const v = parseInt(e.target.value, 10);
+                        if (!Number.isNaN(v)) {
+                          setRetention((r) => ({ ...r, maxSessions: Math.max(0, Math.min(999, v)) }));
+                        }
+                      }}
+                      onBlur={(e) => {
+                        const v = parseInt(e.target.value, 10);
+                        saveRetention({ ...retention, maxSessions: Number.isNaN(v) ? 0 : Math.max(0, Math.min(999, v)) });
+                      }}
+                    />
+                    <span className="retention-hint">0 = unlimited</span>
+                  </div>
+
+                  <div className="retention-row">
+                    <div className="retention-label">Auto-delete sessions older than (days)</div>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={999}
+                      style={{ width: 72 }}
+                      value={retention.maxAgeDays}
+                      onChange={(e) => {
+                        const v = parseInt(e.target.value, 10);
+                        if (!Number.isNaN(v)) {
+                          setRetention((r) => ({ ...r, maxAgeDays: Math.max(0, Math.min(999, v)) }));
+                        }
+                      }}
+                      onBlur={(e) => {
+                        const v = parseInt(e.target.value, 10);
+                        saveRetention({ ...retention, maxAgeDays: Number.isNaN(v) ? 0 : Math.max(0, Math.min(999, v)) });
+                      }}
+                    />
+                    <span className="retention-hint">0 = never</span>
+                  </div>
+                </div>
+
+                {retentionSaveStatus && (
+                  <div className={`retention-status ${retentionSaveStatus === "Saved" ? "retention-status--ok" : ""}`}>
+                    {retentionSaveStatus}
+                  </div>
+                )}
+              </div>
             )}
           </div>
         </div>
 
-        <div className="settings-section">
-          <h3>Debug</h3>
-          <p className="settings-section-copy">
-            Reveal internal metadata in session details when you need to debug session state.
-          </p>
-
-          <div className="settings-config-list">
-            <label className="settings-config-item">
-              <input
-                type="checkbox"
-                checked={debugSettings.showSessionIds}
-                onChange={(e) => {
-                  const next = { showSessionIds: e.target.checked, rendererHealthLogMs: debugSettings.rendererHealthLogMs };
-                  setDebugSettings(next);
-                  saveDebugSettings(next);
-                }}
-              />
-              <span>Show debug metadata</span>
-            </label>
-          </div>
-
-          {debugSaveStatus && (
-            <div className={`retention-status ${debugSaveStatus === "Saved" ? "retention-status--ok" : ""}`}>
-              {debugSaveStatus}
-            </div>
-          )}
-        </div>
-
-        <div className="settings-section">
-          <h3>Model providers</h3>
-          <p className="settings-section-copy">
-            Configure model provider fallback order, state overrides, and Peon model.
-          </p>
-
-          <div className="provider-list">
-            <div className="provider-card">
-              <div className="provider-label">Peon model</div>
-              <input
-                className="provider-model-select"
-                type="text"
-                list="peon-model-suggestions"
-                placeholder="(none - let model provider decide)"
-                value={peonModelDraft ?? ""}
-                onChange={(e) => setPeonModelDraft(e.target.value.trim() || null)}
-                onBlur={() => {
-                  if (peonModelDraft !== providerDraft.peonModel) {
-                    savePeonModel(peonModelDraft);
-                  }
-                }}
-              />
-              <datalist id="peon-model-suggestions">
-                {[...new Set(Object.values(providerModels).flat())].sort().map((m) => (
-                  <option key={m} value={m} />
-                ))}
-              </datalist>
-            </div>
-
-            <div className="provider-card">
-              <div className="provider-label">Ollama base URL</div>
-              <input
-                className="provider-model-select"
-                type="text"
-                placeholder="http://127.0.0.1:11434"
-                value={ollamaBaseUrlDraft}
-                onChange={(e) => {
-                  verifyRequestRef.current++;
-                  setOllamaVerification({ phase: "idle" });
-                  setOllamaBaseUrlDraft(e.target.value.trim());
-                }}
-                onBlur={() => {
-                  const normalized = normalizeBaseUrlDraft(ollamaBaseUrlDraft);
-                  if (normalized !== providerDraft.ollamaBaseUrl && (normalized.startsWith("http://") || normalized.startsWith("https://"))) {
-                    const next = { ...providerDraft, ollamaBaseUrl: normalized };
-                    persistProviderSettings(next);
-                  }
-                }}
-              />
-            </div>
-
-            <div className="provider-card">
-              <div className="provider-label">Ollama verification</div>
-              <button
-                type="button"
-                onClick={() => verifyOllamaDraft(ollamaBaseUrlDraft)}
-                disabled={ollamaVerification.phase === "checking"}
-              >
-                {ollamaVerification.phase === "checking" ? "Verifying…" : "Verify Ollama"}
-              </button>
-              <div role="status" aria-live="polite">
-                {renderOllamaVerificationStatus()}
-              </div>
-              <ul className="ollama-candidate-list">
-                {candidateModels.map((model) => (
-                  <li key={model}>
-                    <span className={model === peonModelDraft ? "selected-model" : undefined}>{model}</span>
-                    <button
-                      type="button"
-                      aria-label={`Use ${model} for Peon`}
-                      onClick={() => {
-                        setPeonModelDraft(model);
-                        void savePeonModel(model);
-                      }}
-                    >
-                      Use this model
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            <ProviderSettingsSection
-              providerSettings={providerDraft}
-              providerRuntime={providerRuntime}
-            />
-          </div>
-
-          {providerSaveStatus && (
-            <div className={`retention-status ${providerSaveStatus === "Saved" ? "retention-status--ok" : ""}`}>
-              {providerSaveStatus}
-            </div>
-          )}
-        </div>
-
-        <div className="settings-section">
-          <h3>Hotkeys</h3>
-          <p className="settings-section-copy">Changes apply after Save and update the native Electron menu.</p>
-
-          <div className="hotkey-list">
-            {hotkeyRows.map((row) => (
-              <div className={`hotkey-row ${capturing === row.action ? "hotkey-row--capturing" : ""}`} key={row.action}>
-                <div>
-                  <div className="hotkey-label">{row.label}</div>
-                  {errors[row.action]?.map((error) => (
-                    <div className="hotkey-error" key={error}>{error}</div>
-                  ))}
-                </div>
-                <kbd className="hotkey-value">
-                  {capturing === row.action ? "Press shortcut..." : draft[row.action] ?? "Unset"}
-                </kbd>
-                <button type="button" onClick={() => setCapturing(row.action)}>Edit</button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    settingsController.resetHotkey(row.action);
-                    setDraft((current) => ({ ...current, [row.action]: defaultHotkeys[row.action] }));
-                  }}
-                >
-                  Reset
-                </button>
-              </div>
-            ))}
-          </div>
-          {saveError && <div className="settings-save-error">{saveError}</div>}
-        </div>
-
-        <div className="settings-section">
-          <h3>Session Retention</h3>
-          <p className="settings-section-copy">
-            Live sessions are never auto-deleted. Changes take effect within 5 minutes.
-          </p>
-
-          <div className="retention-list">
-            <div className="retention-row">
-              <div className="retention-label">Max sessions to keep</div>
-              <input
-                className="retention-input"
-                type="number"
-                min={0}
-                max={999}
-                value={retention.maxSessions}
-                onChange={(e) => {
-                  const v = parseInt(e.target.value, 10);
-                  if (!Number.isNaN(v)) {
-                    setRetention((r) => ({ ...r, maxSessions: Math.max(0, Math.min(999, v)) }));
-                  }
-                }}
-                onBlur={(e) => {
-                  const v = parseInt(e.target.value, 10);
-                  saveRetention({ ...retention, maxSessions: Number.isNaN(v) ? 0 : Math.max(0, Math.min(999, v)) });
-                }}
-              />
-              <span className="retention-hint">0 = unlimited</span>
-            </div>
-
-            <div className="retention-row">
-              <div className="retention-label">Auto-delete sessions older than (days)</div>
-              <input
-                className="retention-input"
-                type="number"
-                min={0}
-                max={999}
-                value={retention.maxAgeDays}
-                onChange={(e) => {
-                  const v = parseInt(e.target.value, 10);
-                  if (!Number.isNaN(v)) {
-                    setRetention((r) => ({ ...r, maxAgeDays: Math.max(0, Math.min(999, v)) }));
-                  }
-                }}
-                onBlur={(e) => {
-                  const v = parseInt(e.target.value, 10);
-                  saveRetention({ ...retention, maxAgeDays: Number.isNaN(v) ? 0 : Math.max(0, Math.min(999, v)) });
-                }}
-              />
-              <span className="retention-hint">0 = never</span>
-            </div>
-          </div>
-
-          {retentionSaveStatus && (
-            <div className={`retention-status ${retentionSaveStatus === "Saved" ? "retention-status--ok" : ""}`}>
-              {retentionSaveStatus}
-            </div>
-          )}
-        </div>
+        {saveError && <div className="settings-save-error">{saveError}</div>}
 
         <footer className="settings-modal-footer">
-          <button type="button" onClick={() => {
+          <Button variant="secondary" size="sm" onClick={() => {
             settingsController.updateDraft("hotkeys", { ...defaultHotkeys });
             setDraft({ ...defaultHotkeys });
-          }}>Restore defaults</button>
+          }}>Restore defaults</Button>
           <span className="settings-footer-spacer" />
-          <button type="button" onClick={() => { settingsController.discard(); onClose(); }}>Cancel</button>
-          <button type="button" className="settings-primary-button" disabled={saving} onClick={save}>
+          <Button variant="ghost" size="sm" onClick={() => { settingsController.discard(); onClose(); }}>Cancel</Button>
+          <Button variant="primary" size="sm" disabled={saving} onClick={save}>
             {saving ? "Saving..." : "Save"}
-          </button>
+          </Button>
         </footer>
       </section>
     </div>
