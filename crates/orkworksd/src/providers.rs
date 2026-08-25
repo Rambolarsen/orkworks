@@ -416,6 +416,7 @@ trait ProviderRunner: Send + Sync {
         args: &[String],
         prompt: &str,
         timeout_secs: u64,
+        model: Option<&str>,
     ) -> InvocationResult;
 }
 
@@ -432,10 +433,15 @@ impl ProviderRunner for CompositeRunner {
         args: &[String],
         prompt: &str,
         timeout_secs: u64,
+        model: Option<&str>,
     ) -> InvocationResult {
         match id {
-            "ollama" => self.http.run(id, command, args, prompt, timeout_secs),
-            _ => self.process.run(id, command, args, prompt, timeout_secs),
+            "ollama" => self
+                .http
+                .run(id, command, args, prompt, timeout_secs, model),
+            _ => self
+                .process
+                .run(id, command, args, prompt, timeout_secs, model),
         }
     }
 }
@@ -450,6 +456,7 @@ impl ProviderRunner for ProcessRunner {
         args: &[String],
         prompt: &str,
         timeout_secs: u64,
+        _model: Option<&str>,
     ) -> InvocationResult {
         let mut cmd = Command::new(command);
         for arg in args {
@@ -537,6 +544,7 @@ impl ProviderRunner for HttpRunner {
         _args: &[String],
         prompt: &str,
         timeout_secs: u64,
+        model: Option<&str>,
     ) -> InvocationResult {
         let settings = self.settings.read().unwrap().clone();
         let base_url = match id {
@@ -550,8 +558,8 @@ impl ProviderRunner for HttpRunner {
             }
         };
 
-        let model = match &settings.peon_model {
-            Some(m) if !m.is_empty() => m.clone(),
+        let model = match model {
+            Some(model) if !model.is_empty() => model,
             _ => {
                 return InvocationResult {
                     success: false,
@@ -1054,8 +1062,9 @@ impl ProviderManager {
                 }
             };
 
+            let resolved_model = resolve_provider_model(entry, settings.peon_model.as_deref());
             let model_arg = if definition.supports_model {
-                settings.peon_model.as_deref().and_then(|model| {
+                resolved_model.as_deref().and_then(|model| {
                     definition
                         .model_arg_template
                         .as_deref()
@@ -1099,6 +1108,7 @@ impl ProviderManager {
                 &args,
                 &invocation_prompt,
                 timeout_secs,
+                resolved_model.as_deref(),
             );
 
             if result.success {
@@ -1125,7 +1135,7 @@ impl ProviderManager {
                     let observation = ProviderObservation {
                         provider_id: entry.id.clone(),
                         provider_label: definition.label.clone(),
-                        provider_model: settings.peon_model.clone(),
+                        provider_model: resolved_model,
                         provider_state: state_str.to_string(),
                     };
                     return ProviderRunResult {
@@ -1360,6 +1370,7 @@ impl ProviderRunner for FakeRunner {
         args: &[String],
         prompt: &str,
         timeout_secs: u64,
+        _model: Option<&str>,
     ) -> InvocationResult {
         match self.specs.get(id) {
             Some(spec) => {
@@ -1566,6 +1577,209 @@ mod tests {
             Some("global-model")
         );
         assert_eq!(resolve_provider_model(&blank_override, Some("   ")), None);
+    }
+
+    #[test]
+    fn inference_uses_entry_model_for_invocation_and_observation() {
+        let invocations = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let manager = ProviderManager::for_tests_with_registry(
+            vec![ProviderDefinition {
+                id: "custom-ai".into(),
+                label: "Custom AI".into(),
+                command: "custom-ai".into(),
+                default_args: vec![],
+                model_arg_template: Some("--model={model}".into()),
+                supports_model: true,
+                timeout_secs: 30,
+                prompt_transport: PromptTransport::Stdin,
+                list_models_command: None,
+                list_models_args: vec![],
+                static_models: vec![],
+                http_list_models: false,
+            }],
+            ProviderSettingsPayload {
+                peon_model: Some("global-model".into()),
+                ..sample_settings(vec![entry("custom-ai").model(Some(" entry-model "))])
+            },
+            vec![fake_provider("custom-ai")
+                .stdout(r#"{"observedStatus":"working","confidence":0.9}"#)
+                .with_invocations(invocations.clone())],
+        );
+
+        let result = manager.run_inference(PeonScope::Session, &["terminal line".to_owned()]);
+
+        assert_eq!(
+            result
+                .inference
+                .as_ref()
+                .unwrap()
+                .observed_status
+                .as_deref(),
+            Some("working")
+        );
+        assert_eq!(
+            result
+                .observation
+                .as_ref()
+                .unwrap()
+                .provider_model
+                .as_deref(),
+            Some("entry-model")
+        );
+        assert_eq!(
+            invocations.lock().unwrap()[0].0,
+            vec!["--model=entry-model"]
+        );
+    }
+
+    #[test]
+    fn inference_uses_global_model_when_entry_model_is_whitespace() {
+        let invocations = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let manager = ProviderManager::for_tests_with_registry(
+            vec![ProviderDefinition {
+                id: "custom-ai".into(),
+                label: "Custom AI".into(),
+                command: "custom-ai".into(),
+                default_args: vec![],
+                model_arg_template: Some("--model={model}".into()),
+                supports_model: true,
+                timeout_secs: 30,
+                prompt_transport: PromptTransport::Stdin,
+                list_models_command: None,
+                list_models_args: vec![],
+                static_models: vec![],
+                http_list_models: false,
+            }],
+            ProviderSettingsPayload {
+                peon_model: Some(" global-model ".into()),
+                ..sample_settings(vec![entry("custom-ai").model(Some("   "))])
+            },
+            vec![fake_provider("custom-ai")
+                .stdout(r#"{"observedStatus":"working","confidence":0.9}"#)
+                .with_invocations(invocations.clone())],
+        );
+
+        let result = manager.run_inference(PeonScope::Session, &["terminal line".to_owned()]);
+
+        assert_eq!(
+            result
+                .observation
+                .as_ref()
+                .unwrap()
+                .provider_model
+                .as_deref(),
+            Some("global-model")
+        );
+        assert_eq!(
+            invocations.lock().unwrap()[0].0,
+            vec!["--model=global-model"]
+        );
+    }
+
+    #[test]
+    fn ollama_request_uses_resolved_entry_model() {
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let request_body = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+        let captured_body = request_body.clone();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            let mut request = Vec::new();
+            let mut chunk = [0_u8; 4096];
+            loop {
+                match stream.read(&mut chunk) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => {
+                        request.extend_from_slice(&chunk[..n]);
+                        if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                            break;
+                        }
+                    }
+                }
+            }
+            let headers_end = request
+                .windows(4)
+                .position(|window| window == b"\r\n\r\n")
+                .unwrap()
+                + 4;
+            let headers = String::from_utf8_lossy(&request[..headers_end]);
+            let content_length = headers
+                .lines()
+                .find_map(|line| line.strip_prefix("content-length: "))
+                .or_else(|| {
+                    headers
+                        .lines()
+                        .find_map(|line| line.strip_prefix("Content-Length: "))
+                })
+                .unwrap()
+                .parse::<usize>()
+                .unwrap();
+            while request.len() < headers_end + content_length {
+                let n = stream.read(&mut chunk).unwrap();
+                request.extend_from_slice(&chunk[..n]);
+            }
+            *captured_body.lock().unwrap() =
+                String::from_utf8(request[headers_end..headers_end + content_length].to_vec())
+                    .unwrap();
+            let body =
+                r#"{"response":"{\"observedStatus\":\"working\",\"confidence\":0.9}","done":true}"#;
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            )
+            .unwrap();
+        });
+
+        let manager = ProviderManager::new();
+        manager.apply_settings(ProviderSettingsPayload {
+            peon_model: Some("global-model".into()),
+            ollama_base_url: format!("http://{address}"),
+            providers: vec![entry("ollama").model(Some("ollama-entry-model")).build()],
+            ..sample_settings(vec![])
+        });
+
+        let result = manager.run_inference(PeonScope::Session, &["terminal line".to_owned()]);
+        server.join().unwrap();
+
+        assert!(result.inference.is_some());
+        assert_eq!(
+            result.observation.unwrap().provider_model.as_deref(),
+            Some("ollama-entry-model")
+        );
+        let body: serde_json::Value = serde_json::from_str(&request_body.lock().unwrap()).unwrap();
+        assert_eq!(body["model"], "ollama-entry-model");
+    }
+
+    #[test]
+    fn http_runner_rejects_unsupported_provider() {
+        let runner = HttpRunner {
+            settings: Arc::new(RwLock::new(ProviderSettingsPayload::default())),
+        };
+
+        let result = runner.run("unsupported", "", &[], "prompt", 1, Some("model"));
+
+        assert!(!result.success);
+        assert_eq!(
+            result.stderr,
+            "HttpRunner does not support provider unsupported"
+        );
+    }
+
+    #[test]
+    fn http_runner_preserves_ollama_no_model_error() {
+        let runner = HttpRunner {
+            settings: Arc::new(RwLock::new(ProviderSettingsPayload::default())),
+        };
+
+        let result = runner.run("ollama", "", &[], "prompt", 1, None);
+
+        assert!(!result.success);
+        assert_eq!(result.stderr, "no Ollama model selected in Peon settings");
     }
 
     #[test]
