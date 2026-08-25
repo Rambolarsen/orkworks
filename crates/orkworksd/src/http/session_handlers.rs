@@ -6098,3 +6098,265 @@ mod tests {
         assert!(events.iter().any(|event| event.event_type == "plan_review_requested"));
     }
 }
+    #[cfg(test)]
+    tests::run_list_sessions_before_write_back_hook();
+    static LIST_SESSIONS_WRITE_BACK_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    static LIST_SESSIONS_BEFORE_WRITE_BACK_HOOK: std::sync::Mutex<
+        Option<Box<dyn FnOnce() + Send>>,
+    > = std::sync::Mutex::new(None);
+
+    pub(super) fn run_list_sessions_before_write_back_hook() {
+        if let Some(hook) = LIST_SESSIONS_BEFORE_WRITE_BACK_HOOK.lock().unwrap().take() {
+            hook();
+        }
+    }
+
+    async fn listed_sessions(state: Arc<AppState>) -> Vec<serde_json::Value> {
+        let response = list_sessions(State(state)).await.into_response();
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        serde_json::from_slice(&bytes).unwrap()
+    }
+    #[tokio::test]
+    async fn list_sessions_prefers_live_records_and_keeps_durable_metadata_in_live_then_remembered_order(
+    ) {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let duplicate_id = "duplicate-live";
+        let mut duplicate_metadata = test_session_metadata(
+            duplicate_id,
+            "Remembered durable label",
+            dir.path().display().to_string(),
+            "ended",
+            "before",
+            "durable-activity",
+        );
+        duplicate_metadata.harness = "codex".into();
+        duplicate_metadata.summary = Some("durable summary".into());
+        duplicate_metadata.metadata_source = "agent".into();
+        duplicate_metadata.metadata_confidence = 0.9;
+        let mut remembered_one = test_session_metadata(
+            "remembered-one",
+            "Remembered one",
+            dir.path().display().to_string(),
+            "ended",
+            "before",
+            "before",
+        );
+        remembered_one.harness = "codex".into();
+        let mut remembered_two = test_session_metadata(
+            "remembered-two",
+            "Remembered two",
+            dir.path().display().to_string(),
+            "ended",
+            "before",
+            "before",
+        );
+        remembered_two.harness = "codex".into();
+        {
+            let workspace = state.workspace.lock().unwrap();
+            let metadata = &workspace.as_ref().unwrap().metadata;
+            metadata.write_session(&duplicate_metadata);
+            metadata.write_session(&remembered_one);
+            metadata.write_session(&remembered_two);
+        }
+
+        let mut duplicate_live = attention_test_handle(duplicate_id, dir.path());
+        duplicate_live.info.label = "Live runtime label".into();
+        duplicate_live.info.status = "running".into();
+        duplicate_live.info.cwd = "/live/runtime/cwd".into();
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .insert(duplicate_id.into(), duplicate_live);
+        state.sessions.lock().unwrap().insert(
+            "live-only".into(),
+            attention_test_handle("live-only", dir.path()),
+        );
+
+        let sessions = listed_sessions(state.clone()).await;
+        let duplicate: Vec<_> = sessions
+            .iter()
+            .filter(|session| session["id"] == duplicate_id)
+            .collect();
+        assert_eq!(
+            duplicate.len(),
+            1,
+            "live id must suppress its remembered duplicate"
+        );
+        let duplicate = duplicate[0];
+        assert_eq!(duplicate["status"], "running");
+        assert_eq!(duplicate["cwd"], "/live/runtime/cwd");
+        assert_eq!(duplicate["label"], "Remembered durable label");
+        assert_eq!(duplicate["summary"], "durable summary");
+        assert_eq!(duplicate["metadataSource"], "agent");
+
+        let expected_remembered_ids: Vec<_> = {
+            let workspace = state.workspace.lock().unwrap();
+            workspace
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_all_sessions()
+                .into_iter()
+                .filter(|metadata| metadata.id != duplicate_id)
+                .map(|metadata| metadata.id)
+                .collect()
+        };
+        let first_remembered = sessions
+            .iter()
+            .position(|session| {
+                session["id"].as_str().is_some_and(|id| {
+                    expected_remembered_ids
+                        .iter()
+                        .any(|expected| expected == id)
+                })
+            })
+            .unwrap();
+        assert!(
+            sessions[..first_remembered]
+                .iter()
+                .all(|session| session["id"] == duplicate_id || session["id"] == "live-only"),
+            "live HashMap records precede remembered metadata records"
+        );
+        let remembered_ids: Vec<_> = sessions[first_remembered..]
+            .iter()
+            .map(|session| session["id"].as_str().unwrap())
+            .collect();
+        assert_eq!(remembered_ids, expected_remembered_ids);
+    }
+
+    #[tokio::test]
+    async fn list_sessions_omits_missing_or_corrupt_metadata_without_hiding_live_records() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        state.sessions.lock().unwrap().insert(
+            "live-without-metadata".into(),
+            attention_test_handle("live-without-metadata", dir.path()),
+        );
+        let sessions = listed_sessions(state.clone()).await;
+        assert_eq!(
+            sessions.len(),
+            1,
+            "a missing sessions directory is empty metadata"
+        );
+
+        let metadata_dir = dir.path().join(".orkworks-test/sessions");
+        std::fs::create_dir_all(&metadata_dir).unwrap();
+        std::fs::write(
+            metadata_dir.join("remembered-corrupt.json"),
+            b"not valid json",
+        )
+        .unwrap();
+        std::fs::write(
+            metadata_dir.join("live-without-metadata.json"),
+            b"not valid json",
+        )
+        .unwrap();
+
+        let sessions = listed_sessions(state).await;
+        assert_eq!(sessions.len(), 1, "corrupt remembered records are omitted");
+        assert_eq!(sessions[0]["id"], "live-without-metadata");
+    }
+
+    #[tokio::test]
+    async fn list_sessions_without_workspace_keeps_live_sessions_and_propagates_live_capacity() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        state
+            .providers
+            .apply_settings(crate::providers::ProviderSettingsPayload {
+                version: 1,
+                revision: 1,
+                peon_model: None,
+                ollama_base_url: crate::providers::default_ollama_base_url(),
+                providers: vec![crate::providers::ProviderSettingsEntry {
+                    id: "codex".into(),
+                    enabled: true,
+                    fallback_order: 0,
+                    default_state: crate::providers::ProviderCapacityState::Unknown,
+                    override_state: None,
+                }],
+            });
+        {
+            let workspace = state.workspace.lock().unwrap();
+            workspace
+                .as_ref()
+                .unwrap()
+                .metadata
+                .write_session(&test_session_metadata(
+                    "remembered-only",
+                    "Remembered only",
+                    dir.path().display().to_string(),
+                    "ended",
+                    "before",
+                    "before",
+                ));
+        }
+        let mut live = attention_test_handle("live-capped", dir.path());
+        live.info.harness_id = Some("codex".into());
+        live.info.harness = Some("codex".into());
+        live.at_usage_limit_latched = true;
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .insert("live-capped".into(), live);
+        *state.workspace.lock().unwrap() = None;
+
+        let sessions = listed_sessions(state.clone()).await;
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0]["id"], "live-capped");
+        assert_eq!(sessions[0]["atUsageLimit"], true);
+        let codex = state
+            .providers
+            .get_providers_response()
+            .providers
+            .into_iter()
+            .find(|provider| provider.id == "codex")
+            .unwrap();
+        assert_eq!(codex.effective_state, "capped");
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn list_sessions_rejects_stale_capacity_write_back() {
+        let _write_back_lock = LIST_SESSIONS_WRITE_BACK_TEST_LOCK.lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let session_id = "stale-capacity-write-back".to_string();
+        let mut handle = attention_test_handle(&session_id, dir.path());
+        handle.info.harness_id = Some("codex".into());
+        handle.info.harness = Some("codex".into());
+        handle.capacity_check_pending = true;
+        handle.info.capacity_check_pending = Some(true);
+        handle.output_lines_seen = 0;
+        handle.scan_bytes_seen = 0;
+        handle.resume_scan_origin = Some((0, 0));
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .insert(session_id.clone(), handle);
+
+        let stale_state = state.clone();
+        let stale_id = session_id.clone();
+        *LIST_SESSIONS_BEFORE_WRITE_BACK_HOOK.lock().unwrap() = Some(Box::new(move || {
+            let mut sessions = stale_state.sessions.lock().unwrap();
+            sessions.get_mut(&stale_id).unwrap().at_usage_limit_latched = true;
+        }));
+
+        let sessions = listed_sessions(state.clone()).await;
+        assert_eq!(sessions[0]["id"], session_id);
+        let handle = state.sessions.lock().unwrap();
+        let handle = &handle[&session_id];
+        assert!(handle.at_usage_limit_latched);
+        assert!(handle.capacity_check_pending);
+        assert!(!handle.pending_capacity_visible_once);
+        assert_eq!(handle.output_lines_seen, 0);
+        assert_eq!(handle.scan_bytes_seen, 0);
+        assert_eq!(handle.resume_scan_origin, Some((0, 0)));
+    }
+
