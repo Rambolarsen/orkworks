@@ -68,3 +68,35 @@ Observed result: both commands exited cleanly with no output.
 
 - The focused provider test command is green. No Task 1 functional concerns
   remain from this session.
+
+## Fix
+
+### Files
+
+- `crates/orkworksd/src/providers.rs` — resolve the entry model override once
+  per inference attempt, reuse it for CLI arguments and `ProviderObservation`,
+  and pass it explicitly through `ProviderRunner`, `CompositeRunner`,
+  `ProcessRunner`, `HttpRunner`, and `FakeRunner`.
+- `crates/orkworksd/src/providers.rs` — add behavioral coverage for actual
+  invocation/observation, whitespace-to-global fallback, Ollama request model,
+  unsupported HTTP providers, and the preserved Ollama no-model error.
+
+### Tests
+
+```text
+CARGO_TARGET_DIR=/tmp/orkworks-provider-model-selection-target cargo test --manifest-path crates/orkworksd/Cargo.toml --quiet
+PASS: 826 tests, 0 failed
+```
+
+The focused provider suite also passed: `32 passed, 0 failed`. Rust emitted
+only the two pre-existing warnings noted by the prior report.
+
+### Commit
+
+- `15919b7` — `fix: honor per-provider Peon model selection`
+
+### Concerns
+
+- No model-selection concerns remain. Full-suite verification used loopback
+  access for the Ollama behavioral test and a temporary Cargo target directory
+  because the worktree's existing target lock is not writable in the sandbox.
