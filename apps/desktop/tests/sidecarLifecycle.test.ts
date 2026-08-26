@@ -43,11 +43,12 @@ class FakeProcess {
 
 class FakeTimers {
   private nextId = 1;
-  private readonly timers = new Map<number, () => void>();
+  private currentTimeMs = 0;
+  private readonly timers = new Map<number, { callback: () => void; dueAtMs: number }>();
 
-  setTimeout = (callback: () => void): number => {
+  setTimeout = (callback: () => void, delayMs: number): number => {
     const id = this.nextId++;
-    this.timers.set(id, callback);
+    this.timers.set(id, { callback, dueAtMs: this.currentTimeMs + delayMs });
     return id;
   };
 
@@ -56,10 +57,32 @@ class FakeTimers {
   };
 
   runNext(): void {
-    const next = this.timers.entries().next().value as [number, () => void] | undefined;
+    const next = [...this.timers.entries()]
+      .sort(([, left], [, right]) => left.dueAtMs - right.dueAtMs)
+      .at(0);
     assert.ok(next, "expected a pending timer");
     this.timers.delete(next[0]);
-    next[1]();
+    this.currentTimeMs = next[1].dueAtMs;
+    next[1].callback();
+  }
+
+  advanceBy(delayMs: number): void {
+    const targetTimeMs = this.currentTimeMs + delayMs;
+    while (true) {
+      const next = [...this.timers.entries()]
+        .filter(([, timer]) => timer.dueAtMs <= targetTimeMs)
+        .sort(([, left], [, right]) => left.dueAtMs - right.dueAtMs)
+        .at(0);
+      if (!next) break;
+      this.timers.delete(next[0]);
+      this.currentTimeMs = next[1].dueAtMs;
+      next[1].callback();
+    }
+    this.currentTimeMs = targetTimeMs;
+  }
+
+  now = (): number => {
+    return this.currentTimeMs;
   }
 
   get size(): number {
@@ -82,7 +105,7 @@ function createHarness() {
     fetch: async () => new Response(),
     setTimeout: timers.setTimeout,
     clearTimeout: timers.clearTimeout,
-    now: () => 0,
+    now: timers.now,
     callbacks: {
       onReady: (port) => ready.push(port),
       onUnavailable: (message) => unavailable.push(message),
@@ -160,16 +183,53 @@ test("rejects readiness when spawn emits an error", async () => {
 
   await assert.rejects(readiness, /permission denied/);
   assert.equal(lifecycle.getPort(), null);
+  assert.equal(processes[0].killed, true);
 });
 
 test("rejects readiness when publishing a port times out", async () => {
-  const { lifecycle, timers } = createHarness();
+  const { lifecycle, processes, timers } = createHarness();
   const readiness = lifecycle.start("/workspace");
 
   timers.runNext();
 
   await assert.rejects(readiness, /timed out/i);
   assert.equal(lifecycle.getPort(), null);
+  assert.equal(processes[0].killed, true);
+});
+
+test("does not reset automatic retries when a ready process fails before the stability window", async () => {
+  const { lifecycle, processes, timers, states } = createHarness();
+  const initial = lifecycle.start("/workspace");
+  processes[0].stdout.emit("ORKWORKSD_PORT=4444\n");
+  await initial;
+
+  processes[0].exit(1);
+  timers.advanceBy(1);
+  processes[1].exit(1);
+  timers.advanceBy(2);
+  processes[2].exit(1);
+
+  assert.equal(processes.length, 3);
+  assert.equal(states.at(-1), "exhausted");
+});
+
+test("resets automatic retries only after the ready stability window expires", async () => {
+  const { lifecycle, processes, timers, states } = createHarness();
+  const initial = lifecycle.start("/workspace");
+  processes[0].stdout.emit("ORKWORKSD_PORT=4444\n");
+  await initial;
+
+  timers.advanceBy(5);
+  processes[0].exit(1);
+  timers.advanceBy(1);
+  processes[1].exit(1);
+  timers.advanceBy(1);
+  processes[2].exit(1);
+  timers.advanceBy(2);
+  processes[3].exit(1);
+
+  assert.equal(processes.length, 4);
+  assert.equal(states.at(-1), "exhausted");
 });
 
 test("creates only one automatic recovery sequence for repeated failure callbacks", async () => {

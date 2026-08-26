@@ -42,6 +42,9 @@ interface Generation {
   stabilityTimer: unknown;
   ready: boolean;
   failed: boolean;
+  exited: boolean;
+  killRequested: boolean;
+  readyAtMs: number | null;
   stdout: string;
 }
 
@@ -58,7 +61,6 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
   let generation = 0;
   let current: Generation | null = null;
   let port: number | null = null;
-  let state: SidecarState = "failed";
   let attempts = 0;
   let lastCwd: string | null = null;
   let recoveryTimer: unknown = null;
@@ -69,7 +71,6 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
   const readyStabilityMs = options.readyStabilityMs ?? DEFAULT_READY_STABILITY_MS;
 
   function setState(next: SidecarState): void {
-    state = next;
     options.callbacks.onState(next);
   }
 
@@ -86,6 +87,12 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
     recoveryTimer = null;
   }
 
+  function terminate(candidate: Generation): void {
+    if (candidate.exited || candidate.killRequested) return;
+    candidate.killRequested = true;
+    candidate.process.kill();
+  }
+
   function stopCurrent(message: string): void {
     const previous = current;
     if (!previous) return;
@@ -98,7 +105,7 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
       previous.failed = true;
       previous.reject(new Error(message));
     }
-    previous.process.kill();
+    terminate(previous);
   }
 
   function scheduleRecovery(candidate: Generation): void {
@@ -130,7 +137,20 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
     setState("failed");
     options.callbacks.onUnavailable(error.message);
     if (!candidate.ready) candidate.reject(error);
+    terminate(candidate);
     scheduleRecovery(candidate);
+  }
+
+  function resetAttemptsAfterStability(candidate: Generation): void {
+    if (!isCurrent(candidate) || !candidate.ready || candidate.failed || candidate.readyAtMs === null) return;
+    const remainingMs = readyStabilityMs - (options.now() - candidate.readyAtMs);
+    if (remainingMs > 0) {
+      candidate.stabilityTimer = options.setTimeout(() => {
+        resetAttemptsAfterStability(candidate);
+      }, remainingMs);
+      return;
+    }
+    attempts = 0;
   }
 
   function ready(candidate: Generation, nextPort: number): void {
@@ -139,12 +159,12 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
     candidate.ready = true;
     port = nextPort;
     clearTimer(candidate.readinessTimer);
-    options.now();
+    candidate.readyAtMs = options.now();
     setState("ready");
     candidate.resolve(nextPort);
     options.callbacks.onReady(nextPort);
     candidate.stabilityTimer = options.setTimeout(() => {
-      if (isCurrent(candidate) && candidate.ready && !candidate.failed) attempts = 0;
+      resetAttemptsAfterStability(candidate);
     }, readyStabilityMs);
   }
 
@@ -173,6 +193,9 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
       stabilityTimer: null,
       ready: false,
       failed: false,
+      exited: false,
+      killRequested: false,
+      readyAtMs: null,
       stdout: "",
     };
     current = candidate;
@@ -191,6 +214,7 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
       fail(candidate, error);
     });
     process.on("exit", (code: number | null) => {
+      candidate.exited = true;
       const message = candidate.ready
         ? `Sidecar exited with code ${code ?? "unknown"}`
         : `Sidecar exited before readiness with code ${code ?? "unknown"}`;

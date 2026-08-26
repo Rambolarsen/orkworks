@@ -1,49 +1,148 @@
-# Task 2 report: Rust session application seam
+# Task 2 — Sidecar lifecycle controller report
 
-## Changed files
+## Scope delivered
 
-- `crates/orkworksd/src/session_application.rs` — added `SessionApplication`, application command/value types, stable application errors, workspace reconciliation implementation, and application operation adapters.
-- `crates/orkworksd/src/main.rs` — registered the new module.
-- `crates/orkworksd/src/http/session_handlers.rs` — routed workspace, create, resume, attention, plan-selection, delete, and forget handlers through the application seam while preserving request extraction, authorization, response mapping, and existing compatibility implementations.
+Implemented only the standalone, testable Electron-main sidecar lifecycle
+controller and its focused tests. `main.ts` was not changed.
 
-## Exact interface
+- Added `apps/desktop/electron/sidecarLifecycle.ts`.
+- Added `apps/desktop/tests/sidecarLifecycle.test.ts`.
+- Committed the two Task 2 files as `6f7b809 feat: add generation-safe sidecar lifecycle`.
 
-```rust
-pub(crate) struct SessionApplication { state: Arc<AppState> }
+The controller provides `start`, `stop`, `retry`, `getPort`, and `dispose`.
+It accepts injected process spawning, fetch, clocks/timers, and state/readiness
+callbacks. It uses a monotonically increasing generation to ignore stale
+stdout, exit, and error callbacks; it rejects generation-specific readiness on
+pre-ready exit, error, and timeout; clears the port on a current failure; and
+performs a bounded three-attempt automatic recovery sequence before explicit
+retry is required. The attempt counter resets only after the configured ready
+stability timer, not when a port is first published.
 
-pub(crate) fn new(state: Arc<AppState>) -> Self;
-pub(crate) fn open_workspace(PathBuf) -> Result<WorkspaceSnapshot, SessionError>;
-pub(crate) async fn create_session(CreateSessionCommand) -> Result<SessionSnapshot, SessionError>;
-pub(crate) async fn resume_session(&str) -> Result<SessionSnapshot, SessionError>;
-pub(crate) async fn report_attention(&str, AttentionSignal) -> Result<(), SessionError>;
-pub(crate) async fn select_plan(&str, PlanSelection) -> Result<SessionSnapshot, SessionError>;
-pub(crate) async fn delete_session(&str, bool) -> Result<SessionSnapshot, SessionError>;
-```
+## TDD record and commands
 
-`SessionSnapshot` is the existing Axum `Response`, preserving the exact legacy response body/status for operations whose compatibility implementation is still in the handler module. `WorkspaceSnapshot` contains `path`, `repo_root`, `branch`, `dirty`, `last_active_session_id`, and `active_harness_ids`. `SessionError` contains `BadRequest`, `Conflict`, `NotFound`, and `Internal` variants.
+1. Wrote the lifecycle tests before creating the production module.
 
-## TDD evidence
+   ```bash
+   cd apps/desktop
+   node --experimental-strip-types --test tests/sidecarLifecycle.test.ts
+   ```
 
-- RED: `cargo test --manifest-path crates/orkworksd/Cargo.toml session_application::tests::opening_a_workspace_returns_its_application_snapshot` failed because `SessionApplication` did not exist (`cannot find type SessionApplication`).
-- GREEN: the same focused command passed after adding the module and moving workspace reconciliation behind `open_workspace`.
-- Subsequent full test run passed with 648 tests and 0 failures.
+   Result: failed as expected with `ERR_MODULE_NOT_FOUND` for
+   `electron/sidecarLifecycle.ts`.
 
-## Verification commands and results
+2. Implemented the smallest injected state machine to satisfy the tests.
+   The first green run revealed unhandled rejected promises from automatic
+   retries, because those retries have no external promise owner. The
+   controller now consumes those internal rejections after failure callbacks
+   schedule the next bounded retry.
 
-- `cargo test --manifest-path crates/orkworksd/Cargo.toml` — PASS, 648 passed, 0 failed.
-- `cargo fmt --all -- --check` — BLOCKED at repository root because no root `Cargo.toml` exists.
-- `cargo fmt --manifest-path crates/orkworksd/Cargo.toml --all -- --check` — FAIL due pre-existing formatting drift across many untouched files; the output included files under `harness/`, `metadata.rs`, runtime modules, and `session_view.rs`.
-- `cargo clippy --manifest-path crates/orkworksd/Cargo.toml -- -D warnings` — FAIL due the existing repository lint backlog, including pre-existing dead code, type-complexity, argument-count, identity-op, and runtime conversion warnings. New seam import/closure warnings were removed before the final run.
-- `git diff --check` — PASS.
-- `bash .claude/hooks/doc-check.sh` — PASS/silent.
-- `bash .claude/hooks/worktree-check.sh` — PASS/silent.
+3. Final focused verification:
 
-## Commit
+   ```bash
+   cd apps/desktop
+   node --experimental-strip-types --test tests/sidecarLifecycle.test.ts
+   npx tsc --noEmit
+   git diff --check
+   ```
 
-`9f7388a` — `refactor: deepen session application module`
+   Result: lifecycle suite passed 7/7; TypeScript exited 0; diff check exited
+   0. Node emitted the existing package-type warning for TypeScript ESM tests.
 
-## Concerns
+4. Self-review checked the committed controller and tests for generation
+   guards, readiness settlement, retry bounds, port clearing, stale callback
+   handling, and accidental Electron/main integration.
 
-- The new application methods for create/resume/attention/plan/delete/forget currently delegate to renamed compatibility implementations in `http::session_handlers`; this preserves behavior and wire compatibility, but is an intermediate seam rather than a complete relocation of lifecycle logic into the application module.
-- `SessionSnapshot` is an Axum response rather than a domain snapshot, because extracting and serializing the existing large create/resume implementations in this task would risk changing response bodies, status codes, startup ordering, or resume compensation behavior.
-- Strict fmt and clippy gates remain red for baseline repository issues; no unrelated baseline files were changed to clear them.
+5. Repository closeout checks:
+
+   ```bash
+   bash .claude/hooks/doc-check.sh
+   bash .claude/hooks/worktree-check.sh
+   ```
+
+   Result: both exited 0 with no findings.
+
+## Test coverage
+
+- pre-ready process exit rejects readiness and clears the port
+- obsolete-generation exit cannot invalidate the current ready process
+- three automatic attempts exhaust recovery; explicit retry can recover
+- ready-process exit sends unavailable notification and invalidates the port
+- process error rejects readiness
+- readiness timeout rejects readiness
+- repeated error/exit callbacks schedule only one automatic recovery sequence
+
+## Concerns and handoff
+
+- Task 3 must integrate this controller into `main.ts`, including concrete
+  binary/env spawning, workspace restoration, settings replay, and renderer
+  notification wiring. Those changes are intentionally out of scope here.
+- `.superpowers/sdd/task-1-report.md` was already modified before this task and
+  remains untouched/uncommitted by Task 2.
+- This report is deliberately not part of the Task 2 code commit; the exact
+  task brief specifies committing only the lifecycle module and its tests.
+
+## Review-finding fix — 2026-08-26
+
+### Scope
+
+- `fail()` now terminates its own failed process before scheduling recovery.
+  `exited` prevents a second kill after an exit event, and `killRequested`
+  prevents duplicate error/timeout callbacks from killing the same process.
+  Termination receives the captured generation, so it cannot kill a replacement.
+- The injected clock now records each generation's ready time and explicitly
+  gates retry-counter reset until the complete stability period has elapsed.
+  The unused stored lifecycle state was removed; state remains observable via
+  the existing callback contract.
+- The deterministic fake timers now model due times and clock advancement.
+  New coverage proves retries are retained after immediate post-ready failure,
+  reset after `readyStabilityMs`, and that timeout/error failures kill their
+  original process.
+
+### Commands and results
+
+1. Baseline:
+
+   ```bash
+   cd apps/desktop
+   node --experimental-strip-types --test tests/sidecarLifecycle.test.ts
+   ```
+
+   Result: passed 7/7 before the review-fix tests were added.
+
+2. TDD red run after adding the failure-termination assertion:
+
+   ```bash
+   cd apps/desktop
+   node --experimental-strip-types --test tests/sidecarLifecycle.test.ts
+   ```
+
+   Result: failed as expected: readiness timeout left `processes[0].killed`
+   false (8 passed, 1 failed).
+
+3. Covering verification after the lifecycle fix:
+
+   ```bash
+   cd apps/desktop
+   node --experimental-strip-types --test tests/sidecarLifecycle.test.ts
+   npx tsc --noEmit
+   ```
+
+   Result: lifecycle suite passed 9/9; TypeScript completed with no errors.
+
+4. Repository closeout:
+
+   ```bash
+   git diff --check
+   bash .claude/hooks/doc-check.sh
+   bash .claude/hooks/worktree-check.sh
+   ```
+
+   Result: all exited 0 with no findings.
+
+### Concerns
+
+- The focused Node test continues to emit the existing package-type warning for
+  TypeScript ESM files. No package metadata was changed because that is outside
+  this review-fix scope.
+- Pre-existing edits to `.superpowers/sdd/task-1-report.md` were preserved and
+  are not included in this fix commit.
