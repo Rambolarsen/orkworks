@@ -16,7 +16,7 @@ import { getSessionPlanContent, requestSessionPlanReview, selectTerminalPlan } f
 import { configureExternalLinks, openExternalLink } from "./externalLinks";
 import { createSidecarLifecycle, type SidecarLifecycle, type SidecarProcess, type SidecarState } from "./sidecarLifecycle";
 import { createBackendRestorationCoordinator, switchWorkspaceBackend, type BackendRestorationCoordinator } from "./backendRestoration";
-import type { BackendLifecycleEvent } from "./backendLifecycleEvent";
+import type { BackendLifecycleEvent, BackendLifecycleWorkspace } from "./backendLifecycleEvent";
 import { sanitizeBackendLifecycleFailure } from "./backendLifecycleFailure";
 import { rendererConsoleDiagnostic, rendererOrigin, sanitizeRendererDiagnosticMessage } from "./rendererDiagnostic";
 import { recoveryDocumentUrl } from "./rendererRecoveryDocument";
@@ -26,7 +26,7 @@ app.setName("OrkWorks");
 
 let mainWindow: BrowserWindow | null = null;
 let sidecarLifecycle: SidecarLifecycle | null = null;
-let backendRestoration: BackendRestorationCoordinator<unknown> | null = null;
+let backendRestoration: BackendRestorationCoordinator<BackendLifecycleWorkspace> | null = null;
 let workspacePath: string | null = null;
 let menuPanelItems: Record<string, Electron.MenuItem> = {};
 let currentSettings: AppSettings | null = null;
@@ -196,7 +196,7 @@ app.whenReady().then(() => {
     mainWindow?.webContents.send("orkworks:backend-lifecycle", event);
   }
 
-  async function restoreWorkspace(port: number, signal: AbortSignal): Promise<unknown> {
+  async function restoreWorkspace(port: number, signal: AbortSignal): Promise<BackendLifecycleWorkspace | null> {
     if (!workspacePath) return null;
 
     const response = await fetch(`http://127.0.0.1:${port}/workspace`, {
@@ -208,9 +208,16 @@ app.whenReady().then(() => {
     if (!response.ok) {
       throw new Error(`Workspace restoration failed: ${response.status}`);
     }
-    const workspace = await response.json();
+    const rawWorkspace = await response.json() as Partial<BackendLifecycleWorkspace>;
     signal.throwIfAborted();
-    return workspace;
+    return {
+      path: rawWorkspace.path ?? "",
+      repo_root: rawWorkspace.repo_root ?? null,
+      branch: rawWorkspace.branch ?? null,
+      dirty: rawWorkspace.dirty ?? null,
+      lastActiveSessionId: rawWorkspace.lastActiveSessionId ?? null,
+      activeHarnessIds: rawWorkspace.activeHarnessIds ?? [],
+    };
   }
 
   async function applyRetentionSettings(port: number, signal: AbortSignal): Promise<void> {
@@ -246,11 +253,11 @@ app.whenReady().then(() => {
     }
   }
 
-  const restoration = createBackendRestorationCoordinator<unknown>({
+  const restoration = createBackendRestorationCoordinator<BackendLifecycleWorkspace>({
     setTimeout: (callback, delayMs) => setTimeout(callback, delayMs),
     clearTimeout: (timer) => clearTimeout(timer as NodeJS.Timeout),
-    onReady: (port) => {
-      publishBackendLifecycle({ state: "ready", port });
+    onReady: (port, workspace) => {
+      publishBackendLifecycle({ state: "ready", port, workspace });
     },
     onFailure: (error) => {
       logBackendLifecycleFailure("restoration", error);

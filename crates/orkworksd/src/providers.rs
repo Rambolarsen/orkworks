@@ -1501,12 +1501,15 @@ mod tests {
                 std::thread::yield_now();
             }
         });
-
-        let result = ProcessRunner.run("test", "true", &[], "", 1);
+        let invocations = (0..4)
+            .map(|_| std::thread::spawn(|| ProcessRunner.run("test", "true", &[], "", 1)))
+            .collect::<Vec<_>>();
 
         worker_active.store(false, Ordering::Relaxed);
         worker.join().expect("worker thread should stop cleanly");
-        assert!(result.success);
+        for invocation in invocations {
+            assert!(invocation.join().expect("provider thread should stop cleanly").success);
+        }
     }
 
     fn registry_with(fakes: Vec<FakeProvider>) -> Vec<FakeProvider> {

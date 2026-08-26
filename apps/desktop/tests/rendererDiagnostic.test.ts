@@ -50,11 +50,12 @@ test("redacts nested JSON secrets when values contain escaped quotes", () => {
 
 test("redacts file paths and bounds diagnostic messages", () => {
   const message = sanitizeRendererDiagnosticMessage(
-    `/Users/froomiebot/workspace/orkworks/apps/desktop/src/App.tsx ${"x".repeat(300)}`,
+    `/Users/froomiebot/workspace/orkworks/apps/desktop/src/App.tsx /workspace/project /opt/secrets /Volumes/private ${"x".repeat(300)}`,
   );
 
   assert.equal(message.length, 200);
   assert.doesNotMatch(message, /Users|froomiebot|orkworks|App\.tsx/);
+  assert.doesNotMatch(message, /workspace\/project|opt\/secrets|Volumes\/private/);
 });
 
 test("extracts only an origin from a renderer URL", () => {

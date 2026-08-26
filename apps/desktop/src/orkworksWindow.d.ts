@@ -5,7 +5,7 @@ import type { HarnessConfig, IntegrationStatusResult } from "./harnessTypes";
 
 export type BackendLifecycleEvent =
   | { state: "starting" | "retrying" }
-  | { state: "ready"; port: number }
+  | { state: "ready"; port: number; workspace: WorkspaceInfo | null }
   | { state: "failed" | "exhausted"; message: string };
 
 declare global {

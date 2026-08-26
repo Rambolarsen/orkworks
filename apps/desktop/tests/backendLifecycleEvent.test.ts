@@ -6,10 +6,21 @@ import * as backendLifecycleEvents from "../electron/backendLifecycleEvent.ts";
 const { canonicalizeBackendLifecycleEvent } = backendLifecycleEvents;
 
 test("canonicalizes valid lifecycle payloads into new trusted objects", () => {
-  const input = { state: "ready", port: 65535 };
+  const input = {
+    state: "ready",
+    port: 65535,
+    workspace: {
+      path: "/workspace",
+      repo_root: "/workspace",
+      branch: "main",
+      dirty: false,
+      lastActiveSessionId: null,
+      activeHarnessIds: [],
+    },
+  };
   const event = canonicalizeBackendLifecycleEvent(input);
 
-  assert.deepEqual(event, { state: "ready", port: 65535 });
+  assert.deepEqual(event, { state: "ready", port: 65535, workspace: input.workspace });
   assert.notEqual(event, input);
   assert.deepEqual(canonicalizeBackendLifecycleEvent({ state: "starting" }), { state: "starting" });
   assert.deepEqual(canonicalizeBackendLifecycleEvent({ state: "failed", message: "offline" }), {
@@ -25,11 +36,31 @@ test("rejects extra properties and invalid ready ports", () => {
     token: "must-not-cross-preload",
     workspacePath: "/private/workspace",
   }), null);
+  assert.equal(canonicalizeBackendLifecycleEvent({ state: "ready", port: 4444 }), null);
   assert.equal(canonicalizeBackendLifecycleEvent({ state: "starting", processHandle: 123 }), null);
   assert.equal(canonicalizeBackendLifecycleEvent({ state: "failed", message: "offline", extra: true }), null);
 
+  for (const workspace of [
+    null,
+    { path: "/workspace", repo_root: null, branch: null, dirty: null, lastActiveSessionId: null, activeHarnessIds: "nope" },
+    { path: "/workspace", repo_root: null, branch: null, dirty: null, lastActiveSessionId: null, activeHarnessIds: [], extra: true },
+  ]) {
+    assert.equal(canonicalizeBackendLifecycleEvent({ state: "ready", port: 4444, workspace }), null);
+  }
+
   for (const port of [0, 65536, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
-    assert.equal(canonicalizeBackendLifecycleEvent({ state: "ready", port }), null);
+    assert.equal(canonicalizeBackendLifecycleEvent({
+      state: "ready",
+      port,
+      workspace: {
+        path: "/workspace",
+        repo_root: null,
+        branch: null,
+        dirty: null,
+        lastActiveSessionId: null,
+        activeHarnessIds: [],
+      },
+    }), null);
   }
 });
 
@@ -84,12 +115,24 @@ test("a late-subscriber snapshot reaches only that subscriber and loses to newer
   const unsubscribeSecond = subscribeBackendLifecycle!(registerLive, () => secondSnapshot, (event) => {
     secondEvents.push(event);
   });
-  for (const listener of listeners) listener({ state: "ready", port: 4321 });
+  const ready = {
+    state: "ready",
+    port: 4321,
+    workspace: {
+      path: "/workspace",
+      repo_root: null,
+      branch: null,
+      dirty: null,
+      lastActiveSessionId: null,
+      activeHarnessIds: [],
+    },
+  };
+  for (const listener of listeners) listener(ready);
   resolveSecondSnapshot({ state: "starting" });
   await new Promise<void>((resolve) => setImmediate(resolve));
 
-  assert.deepEqual(firstEvents, [{ state: "starting" }, { state: "ready", port: 4321 }]);
-  assert.deepEqual(secondEvents, [{ state: "ready", port: 4321 }]);
+  assert.deepEqual(firstEvents, [{ state: "starting" }, ready]);
+  assert.deepEqual(secondEvents, [ready]);
 
   unsubscribeFirst();
   unsubscribeSecond();

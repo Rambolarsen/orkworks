@@ -36,7 +36,7 @@ export interface WorkspaceSessionControllerOptions {
   deps?: Partial<WorkspaceSessionControllerDeps>;
   scheduler?: PollScheduler;
   pollDelayMs?: number;
-  onWorkspace?: (workspace: WorkspaceInfo) => void;
+  onWorkspace?: (workspace: WorkspaceInfo | null) => void;
   onSessions?: (sessions: readonly SessionInfo[]) => void;
   onActiveSession?: (id: string | null) => void;
   onError?: (error: ControllerError) => void;
@@ -45,6 +45,7 @@ export interface WorkspaceSessionControllerOptions {
 export interface WorkspaceSessionController {
   setPollingEnabled(enabled: boolean): void;
   openWorkspace(path: string): Promise<void>;
+  adoptRestoredWorkspace(workspace: WorkspaceInfo | null): Promise<void>;
   refreshSessions(): Promise<boolean>;
   createSession(options: CreateSessionOptions): Promise<void>;
   resumeSession(id: string): Promise<void>;
@@ -156,6 +157,26 @@ export function createWorkspaceSessionController(
     }
   }
 
+  async function adoptRestoredWorkspace(workspace: WorkspaceInfo | null): Promise<void> {
+    const token = ++foregroundGeneration;
+    pendingCreateIds = new Set();
+    reportedErrors.clear();
+    activeSessionId = null;
+    options.onActiveSession?.(null);
+    publishSessions([]);
+    options.onWorkspace?.(workspace);
+    if (!workspace || !isCurrent(token)) return;
+
+    const refreshed = await refreshSessions();
+    if (!refreshed || !isCurrent(token)) return;
+    const restored = workspace.lastActiveSessionId;
+    const match = restored && sessions.find((session) => session.id === restored);
+    if (match && match.lifecycle !== "dead") {
+      activeSessionId = match.id;
+      options.onActiveSession?.(match.id);
+    }
+  }
+
   async function createSession(optionsForCreate: CreateSessionOptions): Promise<void> {
     const token = ++foregroundGeneration;
     try {
@@ -221,5 +242,15 @@ export function createWorkspaceSessionController(
     stopPolling = null;
   }
 
-  return { setPollingEnabled, openWorkspace, refreshSessions, createSession, resumeSession, selectSession, deleteSession, dispose };
+  return {
+    setPollingEnabled,
+    openWorkspace,
+    adoptRestoredWorkspace,
+    refreshSessions,
+    createSession,
+    resumeSession,
+    selectSession,
+    deleteSession,
+    dispose,
+  };
 }

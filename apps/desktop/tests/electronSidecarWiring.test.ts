@@ -24,6 +24,8 @@ test("Electron main restores workspace and settings before publishing ready", ()
   assert.match(mainSource, /async function restoreWorkspace\(port: number, signal: AbortSignal\)/);
   assert.match(mainSource, /async function applyRetentionSettings\(port: number, signal: AbortSignal\)/);
   assert.match(mainSource, /async function syncSavedProviderSettings\(port: number, signal: AbortSignal\)/);
+  assert.match(mainSource, /onReady: \(port, workspace\) =>/);
+  assert.match(mainSource, /state: "ready", port, workspace/);
 });
 
 test("Electron main logs raw lifecycle failures but publishes only stable copy", () => {
@@ -77,9 +79,8 @@ test("preload validates and forwards the lifecycle contract", () => {
 test("renderer declarations expose the same lifecycle contract", () => {
   assert.match(rendererTypes, /export type BackendLifecycleEvent\s*=/);
   assert.match(rendererTypes, /state: "starting" \| "retrying"/);
-  assert.match(rendererTypes, /state: "ready"; port: number/);
+  assert.match(rendererTypes, /state: "ready"; port: number; workspace: WorkspaceInfo \| null/);
   assert.match(rendererTypes, /state: "failed" \| "exhausted"; message: string/);
   assert.match(rendererTypes, /onBackendLifecycle: \(callback: \(event: BackendLifecycleEvent\) => void\) => \(\) => void/);
   assert.match(rendererTypes, /retryBackend: \(\) => Promise<void>/);
 });
-

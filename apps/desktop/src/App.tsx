@@ -50,7 +50,7 @@ function App() {
     workspaceSessionControllerRef.current = createWorkspaceSessionController({
       onWorkspace: (info) => {
         setWorkspaceState(info);
-        setActiveHarnessIds(info.activeHarnessIds ?? []);
+        setActiveHarnessIds(info?.activeHarnessIds ?? []);
       },
       onSessions: (next) => setSessions([...next]),
       onActiveSession: setActiveSessionId,
@@ -66,6 +66,8 @@ function App() {
 
   const handleBackendLifecycle = useCallback((event: BackendLifecycleEvent) => {
     if (event.state === "ready") {
+      workspaceSessionController.setPollingEnabled(false);
+      void workspaceSessionController.adoptRestoredWorkspace(event.workspace);
       setBackendStatus("connected");
     } else if (event.state === "failed") {
       setBackendStatus("unreachable");
@@ -74,7 +76,7 @@ function App() {
     } else {
       setBackendStatus("connecting…");
     }
-  }, []);
+  }, [workspaceSessionController]);
 
   useEffect(() => window.orkworks.onBackendLifecycle(handleBackendLifecycle), [handleBackendLifecycle]);
 
@@ -198,8 +200,7 @@ function App() {
     try {
       const info = await window.orkworks.openWorkspace();
       if (info) {
-        setBackendStatus("connecting…");
-        await workspaceSessionController.openWorkspace(info.path);
+        await workspaceSessionController.adoptRestoredWorkspace(info);
       }
     } catch {
       pushToast("error", "Couldn't open workspace.");
@@ -348,7 +349,7 @@ function App() {
     async function loadInitialWorkspace() {
       const info = await window.orkworks.getInitialWorkspace();
       if (!cancelled && info) {
-        await workspaceSessionController.openWorkspace(info.path);
+        await workspaceSessionController.adoptRestoredWorkspace(info);
       }
     }
     loadInitialWorkspace();
