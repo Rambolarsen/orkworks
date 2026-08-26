@@ -57,6 +57,7 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
   let current: Generation | null = null;
   let port: number | null = null;
   let attempts = 0;
+  let nextRetryIndex = 0;
   let lastCwd: string | null = null;
   let recoveryTimer: unknown = null;
   let disposed = false;
@@ -114,7 +115,8 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
       return;
     }
 
-    const retryIndex = Math.max(0, attempts - 1);
+    const retryIndex = nextRetryIndex;
+    nextRetryIndex += 1;
     const delay = retryDelaysMs[Math.min(retryIndex, retryDelaysMs.length - 1)] ?? 0;
     setState("retrying");
     recoveryTimer = options.setTimeout(() => {
@@ -150,9 +152,8 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
       }, remainingMs);
       return;
     }
-    // Preserve the stable generation as the first failure attempt in the next
-    // recovery sequence, so its failure receives retryDelaysMs[0].
-    attempts = 1;
+    attempts = 0;
+    nextRetryIndex = 0;
   }
 
   function ready(candidate: Generation, nextPort: number): void {
@@ -235,6 +236,7 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
       cancelRecovery();
       stopCurrent("Sidecar stopped before readiness");
       attempts = 0;
+      nextRetryIndex = 0;
       lastCwd = cwd;
       return launch(cwd);
     },
@@ -250,6 +252,7 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
       cancelRecovery();
       stopCurrent("Sidecar stopped before readiness");
       attempts = 0;
+      nextRetryIndex = 0;
       return launch(lastCwd);
     },
 

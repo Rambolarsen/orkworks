@@ -293,8 +293,11 @@ test("resets automatic retries only after the ready stability window expires", a
   assert.equal(timers.scheduledDelays.at(-1), 2);
   timers.advanceBy(2);
   processes[2].exit(1);
+  assert.equal(timers.scheduledDelays.at(-1), 2);
+  timers.advanceBy(2);
+  processes[3].exit(1);
 
-  assert.equal(processes.length, 3);
+  assert.equal(processes.length, 4);
   assert.equal(states.at(-1), "exhausted");
 });
 

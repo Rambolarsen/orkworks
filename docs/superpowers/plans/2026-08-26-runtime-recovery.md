@@ -95,7 +95,7 @@ git commit -m "fix: avoid unsafe provider fork callback"
 
 **Interfaces:**
 - Produces `SidecarLifecycle` with `start(cwd: string): Promise<number>`, `stop(): void`, `retry(): Promise<number>`, `getPort(): number | null`, and `dispose(): void`.
-- `SidecarLifecycle` accepts injected `spawn`, `fetch`, `setTimeout`, `clearTimeout`, `now`, and callbacks `{ onReady, onUnavailable, onState }` so tests never launch Electron or a real sidecar.
+- `SidecarLifecycle` accepts injected `spawn`, `setTimeout`, `clearTimeout`, `now`, and callbacks `{ onReady, onUnavailable, onState }` so tests never launch Electron or a real sidecar.
 - Each process callback carries a generation number; stale stdout/exit/error events are ignored.
 
 - [ ] **Step 1: Write failing lifecycle tests**
