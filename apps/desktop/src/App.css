@@ -126,6 +126,54 @@ html, body, #root {
   color: var(--state-warn);
 }
 
+.backend-recovery-backdrop {
+  position: fixed;
+  inset: var(--titlebar-height) 0 0;
+  z-index: 900;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: var(--space-7) var(--space-5);
+  background: color-mix(in srgb, var(--surface-0) 88%, transparent);
+}
+
+.backend-recovery-card {
+  width: min(440px, calc(100vw - 40px));
+  padding: var(--space-6);
+  border: 1px solid var(--state-error-border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-1);
+  box-shadow: var(--shadow-modal);
+  text-align: center;
+}
+
+.backend-recovery-card h1 {
+  color: var(--text-primary);
+  font-size: var(--text-2xl);
+}
+
+.backend-recovery-card p {
+  margin-top: var(--space-3);
+  color: var(--text-muted);
+}
+
+.backend-recovery-button {
+  margin-top: var(--space-5);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-5);
+  color: var(--text-on-accent);
+  background: var(--accent-bg);
+  font: inherit;
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+  cursor: pointer;
+}
+
+.backend-recovery-button:hover {
+  background: var(--accent-bg-hover);
+}
+
 .settings-backdrop {
   position: fixed;
   inset: 0;

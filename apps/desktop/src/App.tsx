@@ -24,10 +24,11 @@ import { disposeTerminal, getTerminal, pruneTerminals, getLiveTerminalCount, get
 import { captureRendererHealth, type RendererHealthSample } from "./rendererHealthProbe";
 import type { AppSettings } from "./appSettingsTypes";
 import type { HarnessConfig, CreateSessionOptions } from "./harnessTypes";
+import type { BackendLifecycleEvent } from "./orkworksWindow";
 import { createWorkspaceSessionController } from "./workspaceSessionController";
 
 function App() {
-  const [backendStatus, setBackendStatus] = useState<string>("connecting…");
+  const [backendStatus, setBackendStatus] = useState<"connecting…" | "connected" | "unreachable" | "exhausted">("connecting…");
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [unreadState, setUnreadState] = useState<UnreadState>(EMPTY_UNREAD_STATE);
@@ -61,6 +62,27 @@ function App() {
     });
   }
   const workspaceSessionController = workspaceSessionControllerRef.current;
+
+  const handleBackendLifecycle = useCallback((event: BackendLifecycleEvent) => {
+    if (event.state === "ready") {
+      setBackendStatus("connected");
+    } else if (event.state === "failed") {
+      setBackendStatus("unreachable");
+    } else if (event.state === "exhausted") {
+      setBackendStatus("exhausted");
+    } else {
+      setBackendStatus("connecting…");
+    }
+  }, []);
+
+  useEffect(() => window.orkworks.onBackendLifecycle(handleBackendLifecycle), [handleBackendLifecycle]);
+
+  const handleRetryBackend = useCallback(() => {
+    setBackendStatus("connecting…");
+    void window.orkworks.retryBackend().catch(() => {
+      setBackendStatus("unreachable");
+    });
+  }, []);
 
   useEffect(() => {
     const intervalMs = settings?.debug?.rendererHealthLogMs ?? 0;
@@ -505,6 +527,21 @@ function App() {
         onReviewPlan={handleReviewPlan}
         dockviewApiRef={dockviewApiRef}
       />
+      {(backendStatus === "unreachable" || backendStatus === "exhausted") && (
+        <div className="backend-recovery-backdrop" role="alert">
+          <section className="backend-recovery-card">
+            <h1>Backend unavailable</h1>
+            <p>
+              {backendStatus === "exhausted"
+                ? "OrkWorks could not start its sidecar after several attempts."
+                : "OrkWorks lost its connection to the sidecar."}
+            </p>
+            <button type="button" className="backend-recovery-button" onClick={handleRetryBackend}>
+              Retry
+            </button>
+          </section>
+        </div>
+      )}
       {newSessionDialogOpen && (
         <NewSessionDialog
           harnesses={filteredHarnesses}

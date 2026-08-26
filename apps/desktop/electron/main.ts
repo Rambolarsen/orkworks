@@ -31,6 +31,42 @@ let providerLabels: Record<string, string> = {};
 let hotkeyCaptureActive = false;
 let openPlanToken = "";
 const menuPanelIds = ["sessions", "detail", "terminal", "capacity", "recommendations"];
+const RECOVERY_HTML = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>OrkWorks unavailable</title>
+    <style>
+      :root { color-scheme: dark; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      body { min-height: 100vh; margin: 0; display: grid; place-items: center; background: #0c0d10; color: #eceef1; }
+      main { width: min(420px, calc(100vw - 48px)); padding: 32px; border: 1px solid #5a2b29; border-radius: 12px; background: #111319; text-align: center; box-sizing: border-box; }
+      p { color: #8a909c; line-height: 1.5; }
+      button { margin-top: 16px; padding: 9px 18px; border: 1px solid #9dc520; border-radius: 8px; color: #0c0d10; background: #9dc520; font: inherit; font-weight: 600; cursor: pointer; }
+      button:hover { background: #b4dd33; }
+    </style>
+  </head>
+  <body><main><h1>OrkWorks is unavailable</h1><p>The application window could not load. Reload to try again.</p><button type="button" onclick="location.reload()">Reload</button></main></body>
+</html>`;
+
+function rendererOrigin(url: string): string {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return "unknown";
+  }
+}
+
+function sanitizeRendererDiagnosticMessage(message: string): string {
+  return message
+    .replace(/(?:https?|file):\/\/\S+/gi, "[url]")
+    .replace(/(?:token|password|secret|authorization|api[_-]?key)\s*[:=]\s*\S+/gi, "[redacted]")
+    .slice(0, 200);
+}
+
+function recoveryDocumentUrl(): string {
+  return `data:text/html;charset=utf-8,${encodeURIComponent(RECOVERY_HTML)}`;
+}
 
 function rendererSettings(settings: AppSettings): AppSettings & { defaultHotkeys: typeof DEFAULT_HOTKEYS } {
   return {
@@ -95,6 +131,42 @@ function createWindow(): void {
   });
 
   configureExternalLinks(mainWindow.webContents, shell.openExternal, process.env.VITE_DEV_SERVER_URL);
+
+  let recoveryDocumentLoaded = false;
+  const loadRecoveryDocument = (): void => {
+    if (recoveryDocumentLoaded || !mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return;
+    recoveryDocumentLoaded = true;
+    void mainWindow.loadURL(recoveryDocumentUrl()).catch(() => {
+      recoveryDocumentLoaded = false;
+    });
+  };
+
+  mainWindow.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+    if (!isMainFrame) return;
+    console.error("[main] renderer diagnostic", {
+      type: "did-fail-load",
+      errorCode,
+      reason: sanitizeRendererDiagnosticMessage(errorDescription),
+      origin: rendererOrigin(validatedURL),
+    });
+    loadRecoveryDocument();
+  });
+
+  mainWindow.webContents.on("render-process-gone", (_event, details) => {
+    console.error("[main] renderer diagnostic", {
+      type: "render-process-gone",
+      reason: details.reason,
+      exitCode: details.exitCode,
+    });
+    loadRecoveryDocument();
+  });
+
+  mainWindow.webContents.on("console-message", (_event, _level, message) => {
+    console.warn("[main] renderer diagnostic", {
+      type: "console-message",
+      message: sanitizeRendererDiagnosticMessage(message),
+    });
+  });
 
   if (process.env.VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);

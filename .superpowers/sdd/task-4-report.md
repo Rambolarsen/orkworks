@@ -1,47 +1,59 @@
-# Task 4 report: deepen settings workflow
+# Task 4 report: renderer-visible backend and white-window recovery
 
-## Result
+## Status
 
-Implemented the renderer settings controller and composed the existing settings modal around it without changing Electron IPC names, payloads, preload security, persisted settings format, provider sidecar protocol, or workspace-scoped active coding-tool selection.
+Implemented on `fix-runtime-recovery`. Task 4 changes are ready to commit.
+
+## Changes
+
+- `apps/desktop/src/App.tsx`
+  - Subscribes to Task 3's `window.orkworks.onBackendLifecycle` bridge.
+  - Maps `ready`, `starting`/`retrying`, `failed`, and `exhausted` to the existing renderer backend status vocabulary.
+  - Keeps session polling enabled only while the backend is connected, so failure states stop polling.
+  - Adds a visible backend-unavailable recovery panel with a Retry action that resets status and invokes `window.orkworks.retryBackend()`.
+  - Leaves workspace, session, and other existing React state intact across failure/retry.
+- `apps/desktop/src/App.css`
+  - Adds compact, token-based styling for the backend recovery panel and action.
+- `apps/desktop/electron/main.ts`
+  - Registers `did-fail-load`, `render-process-gone`, and `console-message` diagnostics.
+  - Restricts renderer diagnostics to event type, relevant error/reason/origin or exit data, and bounded sanitized messages.
+  - Loads an inline, resource-free recovery HTML document for main-frame load failure or renderer termination.
+  - Guards recovery loading against destroyed windows and repeated fallback loads.
+- `apps/desktop/tests/backendLifecycleWiring.test.ts`
+  - Pins lifecycle subscription, failure status, polling gate, and retry wiring.
+- `apps/desktop/tests/errorBoundaryWiring.test.ts`
+  - Pins Electron renderer diagnostics and the one-button local recovery document in addition to the existing React error-boundary checks.
+
+`apps/desktop/src/main.tsx` already wrapped `App` in the existing `ErrorBoundary`, so no change was necessary there.
 
 ## TDD evidence
 
-Added `apps/desktop/tests/settingsController.test.ts` before the controller implementation. The first focused run failed because the required production module did not yet exist (`ERR_MODULE_NOT_FOUND` for `src/settingsController.ts`). After the smallest implementation, the focused controller suite passed 6/6 tests.
-
-Coverage includes:
-
-- deep draft isolation and discard;
-- Electron-provided hotkey defaults, including nullable `resetLayout`;
-- diagnostic Ollama verification without settings mutation;
-- late verification rejection protection;
-- deterministic hotkey, retention, debug, provider commit ordering;
-- failed-domain reporting with the complete draft retained;
-- successful Electron provider persistence with a stale/pending sidecar result preserved.
-
-## Changed files
-
-- `apps/desktop/src/settingsController.ts` — typed committed/draft controller, generation-guarded verification, ordered domain commit, failure reporting, and provider application-status propagation.
-- `apps/desktop/tests/settingsController.test.ts` — behavior tests for the controller contract.
-- `apps/desktop/src/components/SettingsModal.tsx` — controller-backed durable edits and commit/discard composition; existing focus trap, hotkey capture, provider model loading, Ollama display, integrations, and active coding-tool callback remain in place.
-
-`App.tsx`, preload, window types, Electron main, settings memory, and provider sync did not require changes.
+- Red: the new focused tests failed 4 tests for the missing lifecycle subscription/retry wiring and main-process recovery handlers; the existing 5 checks passed.
+- Green: the focused suite passed all 9 tests after implementation.
 
 ## Verification
 
-- `node --experimental-strip-types --test tests/settingsController.test.ts` — PASS, 6/6.
-- `node --experimental-strip-types --test tests/settingsController.test.ts tests/electronSettingsMemory.test.ts tests/providerSettingsSync.test.ts tests/providersPanel.test.ts tests/dockview.test.ts` — PASS, 109/109.
-- `./node_modules/.bin/tsc --noEmit` — PASS.
-- `node --experimental-strip-types --test tests/*.test.ts tests/*.test.mjs` — PASS, 369/369.
-- `git diff --check` — PASS.
-- `.claude/hooks/doc-check.sh` — PASS/no output.
-- `.claude/hooks/worktree-check.sh` — PASS/no output.
+- `cd apps/desktop && node --experimental-strip-types --test tests/backendLifecycleWiring.test.ts tests/errorBoundaryWiring.test.ts` — PASS, 9 passed, 0 failed.
+- `cd apps/desktop && npx tsc --noEmit` — PASS, exit code 0.
+- `cd apps/desktop && node --experimental-strip-types --test tests/*.test.ts tests/*.test.mjs` — PASS, 433 passed, 0 failed.
+- `cd apps/desktop && git diff --check` — PASS.
+- `bash .claude/hooks/doc-check.sh` — exit code 0; emitted the expected reminder to consider `docs/agents/architecture.md`. That architecture document was intentionally not changed for Task 4.
+- `bash .claude/hooks/worktree-check.sh` — PASS, exit code 0.
 
-The Node test runner emits existing module-type and `NO_COLOR` warnings; they do not affect exit status.
+## Self-review
 
-## Commit
-
-The implementation is committed as `refactor: deepen settings workflow`.
+- No Task 1–3 production changes were reverted or modified.
+- The pre-existing `.superpowers/sdd/task-1-report.md` modification remains outside the Task 4 change set.
+- No architecture documentation was changed.
+- Renderer diagnostics do not log renderer URLs beyond their origin, process details beyond reason/exit code, or unbounded console/error payloads.
+- The fallback is main-frame-only and avoids repeated recovery navigation after the fallback document is loaded.
 
 ## Concerns
 
-The current Electron provider/retention handlers persist successfully even when sidecar application is stale or fails, but their existing renderer IPC return shapes expose no dedicated sidecar status field. The controller preserves an optional provider application status when supplied, without inventing a new IPC contract or rolling back durable settings.
+- The fallback action is intentionally `location.reload()` as required. Because the fallback is a data URL, that reloads the recovery document itself; retrying the original app URL from the fallback would be a follow-up design decision.
+- Native Electron failure paths were covered by source-level wiring tests, TypeScript, and the full desktop test suite; no GUI/package smoke test was run in this session.
+- Node test runs retain the repository's existing `MODULE_TYPELESS_PACKAGE_JSON` warnings.
+
+## Commit
+
+Planned commit message: `feat: show recovery state for renderer failures`
