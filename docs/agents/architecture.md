@@ -15,6 +15,61 @@ orkworks/
 
 `electron/main.ts` spawns `orkworksd` as a child process and discovers its port by reading stdout for the line `ORKWORKSD_PORT=<n>`. The app icon is platform-aware: macOS uses `icon.png`/`icon-dark.png` (squircle background baked in) via `app.dock.setIcon()`; Windows uses `icon.ico`/`icon-dark.ico` (transparent background, multi-resolution) via `BrowserWindow.setIcon()`. Both swap on `nativeTheme` change. The port is dynamic — there is no fixed localhost port. The frontend gets the URL via the preload bridge: `window.orkworks.getBackendUrl()`.
 
+### Sidecar lifecycle and runtime recovery
+
+`electron/sidecarLifecycle.ts` owns sidecar process startup, port discovery, and
+failure recovery. Each launch is a monotonically numbered generation with its
+own readiness promise. Only the current generation may publish a port, change
+the active lifecycle state, or notify the renderer; exits, errors, timers, and
+stdout from a replaced generation are ignored. Spawn errors, exits before the
+port line, and the 10-second readiness timeout reject that generation's
+readiness and clear the active port. Once a process has announced a port, a
+later process failure invalidates the port and reports the failure to the main
+process instead of leaving API callers waiting on a stale promise.
+
+Sidecar readiness is followed by a separate generation-owned restoration gate
+in `electron/backendRestoration.ts`. After the port is known, Electron main
+restores the remembered workspace, applies persisted retention settings, and
+pushes persisted provider settings. These operations share an abort signal and
+must complete before `get-backend-url` resolves or the renderer receives the
+`ready` lifecycle event; a restoration timeout or failure rejects readiness and
+publishes an unavailable state. Initial startup uses the last existing
+workspace path when available, otherwise the development repository or the
+packaged home directory. A workspace switch persists the selected path before
+starting its replacement generation, and stale restoration work is aborted so
+an older workspace cannot become ready afterward.
+
+Automatic recovery is bounded: one recovery sequence makes at most three
+sidecar launches in total (the initial launch plus two automatic retries), with
+default delays of 250 ms and 1 second. Only one delayed recovery is scheduled
+at a time. After the third failed launch the lifecycle becomes `exhausted` and
+waits for the user's explicit Retry action; a generation that remains ready for
+five seconds resets the automatic-attempt counter. Explicit retry starts a
+fresh generation using the last sidecar working directory and resets the
+counter.
+
+The preload bridge exposes `onBackendLifecycle` and `retryBackend`. Lifecycle
+events are the narrow union `starting`, `retrying`, `ready` (with a validated
+port), `failed` (with a stable failure message), and `exhausted` (with a stable
+failure message). Preload canonicalizes exact event shapes and replays the
+latest main-process snapshot for late subscribers, while preserving live-event
+ordering and returning an unsubscribe function. The renderer maps these events
+to its backend status, stops session polling unless the backend is connected
+and workspace restoration is complete, and shows a Retry panel for
+unreachable or exhausted states without discarding existing workspace/session
+state.
+
+Renderer document failures have an independent main-process fallback. Electron
+main records main-frame `did-fail-load` and `render-process-gone` events and
+bounded, sanitized console diagnostics. It loads a resource-free inline
+recovery document when React cannot mount or the renderer process is gone; the
+document has one user-triggered Retry action that returns to the captured
+development URL or exact packaged `file:` document. A recovery-load guard
+prevents repeated automatic fallback navigation and resets only when the
+original document begins or finishes loading. This path does not depend on
+React or the preload bridge, so it remains available when the normal renderer
+document is not.
+
 ## Packaging and release
 
 Desktop packaging lives under `apps/desktop/`. `electron-builder.yml` defines the product metadata and `extraResources` layout, while `scripts/package-release.mjs` maps the current host platform/arch to the matching Rust target triple, stages the built `orkworksd` binary into `crates/orkworksd/target/release/`, and invokes `electron-builder` with the matching CLI arch flag. CI runs the same path from `.github/workflows/release.yml`, with separate macOS x64 and arm64 jobs so the packaged sidecar always matches the bundled Electron arch.
