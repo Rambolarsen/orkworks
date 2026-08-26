@@ -3,6 +3,7 @@ import { spawn } from "child_process";
 import { randomBytes } from "crypto";
 import { existsSync } from "fs";
 import * as path from "path";
+import { pathToFileURL } from "url";
 import { getDevRepoRoot, getDevSidecarPath, getPackagedSidecarPath } from "./paths";
 import { readWorkspaceMemory, rememberWorkspacePath } from "./workspaceMemory";
 import { readLayoutMemory, writeLayoutMemory } from "./layoutMemory";
@@ -17,6 +18,7 @@ import { createSidecarLifecycle, type SidecarLifecycle, type SidecarProcess, typ
 import { createBackendRestorationCoordinator, switchWorkspaceBackend, type BackendRestorationCoordinator } from "./backendRestoration";
 import type { BackendLifecycleEvent } from "./backendLifecycleEvent";
 import { sanitizeBackendLifecycleFailure } from "./backendLifecycleFailure";
+import { rendererOrigin, sanitizeRendererDiagnosticMessage } from "./rendererDiagnostic";
 
 app.setName("OrkWorks");
 
@@ -31,7 +33,9 @@ let providerLabels: Record<string, string> = {};
 let hotkeyCaptureActive = false;
 let openPlanToken = "";
 const menuPanelIds = ["sessions", "detail", "terminal", "capacity", "recommendations"];
-const RECOVERY_HTML = `<!doctype html>
+function recoveryDocumentUrl(originalUrl: string): string {
+  const serializedOriginalUrl = JSON.stringify(originalUrl).replace(/</g, "\\u003c");
+  const recoveryHtml = `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8">
@@ -46,26 +50,9 @@ const RECOVERY_HTML = `<!doctype html>
       button:hover { background: #b4dd33; }
     </style>
   </head>
-  <body><main><h1>OrkWorks is unavailable</h1><p>The application window could not load. Reload to try again.</p><button type="button" onclick="location.reload()">Reload</button></main></body>
+  <body><main><h1>OrkWorks is unavailable</h1><p>The application window could not load. Retry to open the application again.</p><button type="button" onclick="location.replace(originalUrl)">Retry</button></main><script>const originalUrl = ${serializedOriginalUrl};</script></body>
 </html>`;
-
-function rendererOrigin(url: string): string {
-  try {
-    return new URL(url).origin;
-  } catch {
-    return "unknown";
-  }
-}
-
-function sanitizeRendererDiagnosticMessage(message: string): string {
-  return message
-    .replace(/(?:https?|file):\/\/\S+/gi, "[url]")
-    .replace(/(?:token|password|secret|authorization|api[_-]?key)\s*[:=]\s*\S+/gi, "[redacted]")
-    .slice(0, 200);
-}
-
-function recoveryDocumentUrl(): string {
-  return `data:text/html;charset=utf-8,${encodeURIComponent(RECOVERY_HTML)}`;
+  return `data:text/html;charset=utf-8,${encodeURIComponent(recoveryHtml)}`;
 }
 
 function rendererSettings(settings: AppSettings): AppSettings & { defaultHotkeys: typeof DEFAULT_HOTKEYS } {
@@ -130,13 +117,16 @@ function createWindow(): void {
     },
   });
 
+  const originalUrl = process.env.VITE_DEV_SERVER_URL
+    || pathToFileURL(path.join(__dirname, "..", "dist", "index.html")).toString();
   configureExternalLinks(mainWindow.webContents, shell.openExternal, process.env.VITE_DEV_SERVER_URL);
+  const recoveryUrl = recoveryDocumentUrl(originalUrl);
 
   let recoveryDocumentLoaded = false;
   const loadRecoveryDocument = (): void => {
     if (recoveryDocumentLoaded || !mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return;
     recoveryDocumentLoaded = true;
-    void mainWindow.loadURL(recoveryDocumentUrl()).catch(() => {
+    void mainWindow.loadURL(recoveryUrl).catch(() => {
       recoveryDocumentLoaded = false;
     });
   };
@@ -169,7 +159,7 @@ function createWindow(): void {
   });
 
   if (process.env.VITE_DEV_SERVER_URL) {
-    mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
+    mainWindow.loadURL(originalUrl);
     mainWindow.webContents.openDevTools();
   } else {
     mainWindow.loadFile(path.join(__dirname, "..", "dist", "index.html"));

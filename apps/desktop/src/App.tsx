@@ -25,10 +25,11 @@ import { captureRendererHealth, type RendererHealthSample } from "./rendererHeal
 import type { AppSettings } from "./appSettingsTypes";
 import type { HarnessConfig, CreateSessionOptions } from "./harnessTypes";
 import type { BackendLifecycleEvent } from "./orkworksWindow";
+import { shouldEnableSessionPolling, type BackendStatus } from "./backendPollingGate";
 import { createWorkspaceSessionController } from "./workspaceSessionController";
 
 function App() {
-  const [backendStatus, setBackendStatus] = useState<"connecting…" | "connected" | "unreachable" | "exhausted">("connecting…");
+  const [backendStatus, setBackendStatus] = useState<BackendStatus>("connecting…");
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [unreadState, setUnreadState] = useState<UnreadState>(EMPTY_UNREAD_STATE);
@@ -114,10 +115,10 @@ function App() {
   useEffect(() => () => workspaceSessionController.dispose(), [workspaceSessionController]);
 
   useEffect(() => {
-    const enabled = backendStatus === "connected" && workspace !== null;
+    const enabled = shouldEnableSessionPolling(backendStatus, workspace !== null, isSwitchingWorkspace);
     workspaceSessionController.setPollingEnabled(enabled);
     return () => workspaceSessionController.setPollingEnabled(false);
-  }, [backendStatus, workspace, workspaceSessionController]);
+  }, [backendStatus, workspace, isSwitchingWorkspace, workspaceSessionController]);
 
   useEffect(() => {
     if (backendStatus !== "connecting…") return;

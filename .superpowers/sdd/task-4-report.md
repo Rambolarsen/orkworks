@@ -57,3 +57,66 @@ Implemented on `fix-runtime-recovery` and committed as `4f6f047` (`feat: show re
 ## Commit
 
 `4f6f047` — `feat: show recovery state for renderer failures`
+
+## Review-fix follow-up — 2026-08-26
+
+### Status
+
+Implemented in the current `fix-runtime-recovery` branch. The pre-existing
+uncommitted edit to `task-1-report.md` remains untouched and is not part of
+this changeset.
+
+### Changes
+
+- `apps/desktop/electron/main.ts` now captures the original renderer URL:
+  `VITE_DEV_SERVER_URL` in development or the packaged `dist/index.html`
+  file URL in production. The local recovery document embeds that URL safely
+  and its single Retry action calls `location.replace(originalUrl)`.
+- `apps/desktop/electron/rendererDiagnostic.ts` owns renderer-origin
+  extraction and diagnostic sanitization. It redacts bearer credentials,
+  structured sensitive fields, URLs, and common absolute filesystem paths
+  before bounding messages to 200 characters.
+- `apps/desktop/src/backendPollingGate.ts` owns the session-polling predicate,
+  which requires a connected backend, a workspace, and no active workspace
+  switch. `App.tsx` now includes `isSwitchingWorkspace` in both the predicate
+  and effect dependencies.
+- Added direct redaction and polling-gate tests. The polling tests cover the
+  `starting → ready → openWorkspace complete` sequence so a ready replacement
+  backend cannot restart polling against the old workspace during a switch.
+
+### TDD evidence
+
+1. Added the recovery, redaction, and polling tests before the new production
+   modules and predicate wiring.
+2. The first focused run was expected RED: 4 failures (missing diagnostic and
+   polling modules, stale polling assertion, and missing original-URL
+   recovery contract).
+3. After the minimal implementation, one redaction assertion exposed a
+   duplicate marker for `Authorization: Bearer ...`; the helper was corrected
+   to consume the bearer value once. The focused suite then passed.
+
+### Verification
+
+| Command | Result |
+| --- | --- |
+| `rtk node --experimental-strip-types --test tests/backendLifecycleWiring.test.ts tests/errorBoundaryWiring.test.ts tests/rendererDiagnostic.test.ts tests/backendPollingGate.test.ts` | PASS — 14 passed |
+| `rtk npx tsc --noEmit` | PASS — no errors |
+| `rtk node --experimental-strip-types --test tests/*.test.ts tests/*.test.mjs` | PASS — 438 passed, 0 failed |
+| `rtk pnpm build` | PASS — Electron TypeScript and Vite build completed; Vite emitted the existing large-chunk warning |
+| `rtk git diff --check` | PASS |
+
+### Self-review and concerns
+
+- The scoped diff contains only the recovery/polling helpers, their tests,
+  the two existing wiring-test updates, `App.tsx`, `main.ts`, and this report;
+  Task 1–3 implementation files are unchanged.
+- The focused and full Node tests continue to emit the repository's existing
+  `MODULE_TYPELESS_PACKAGE_JSON` warnings.
+- No packaged GUI smoke test was run; the Electron-main path was type-checked
+  and included in the successful desktop build.
+
+### Commit
+
+The review fixes and this follow-up report are included in the final fix
+commit; its hash is reported at handoff because changing this line changes the
+hash itself.

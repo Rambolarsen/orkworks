@@ -30,15 +30,18 @@ test("Electron main registers renderer load, process, and console diagnostics", 
   assert.match(electronMainSource, /webContents\.on\("did-fail-load"/);
   assert.match(electronMainSource, /webContents\.on\("render-process-gone"/);
   assert.match(electronMainSource, /webContents\.on\("console-message"/);
-  assert.match(electronMainSource, /slice\(0, 200\)/);
-  assert.match(electronMainSource, /new URL\(.*\)\.origin/);
+  assert.match(electronMainSource, /rendererOrigin/);
+  assert.match(electronMainSource, /sanitizeRendererDiagnosticMessage/);
 });
 
-test("Electron main has a local recovery document with one reload action", () => {
-  const recoveryDocument = electronMainSource.match(/const RECOVERY_HTML = `([\s\S]*?)`;/)?.[1] ?? "";
-  assert.notEqual(recoveryDocument, "");
-  assert.equal((recoveryDocument.match(/<button/g) ?? []).length, 1);
-  assert.match(recoveryDocument, /location\.reload\(\)/);
-  assert.doesNotMatch(recoveryDocument, /<script[^>]+src=|<link[^>]+href=/);
+test("Electron main preserves the app URL for its local recovery retry", () => {
+  assert.match(electronMainSource, /const originalUrl = process\.env\.VITE_DEV_SERVER_URL/);
+  assert.match(electronMainSource, /pathToFileURL\(path\.join\(__dirname, "\.\.", "dist", "index\.html"\)\)/);
+  assert.match(electronMainSource, /const recoveryUrl = recoveryDocumentUrl\(originalUrl\)/);
+  assert.equal((electronMainSource.match(/<button/g) ?? []).length, 1);
+  assert.match(electronMainSource, /location\.replace\(originalUrl\)/);
+  assert.match(electronMainSource, /JSON\.stringify\(originalUrl\)/);
+  assert.doesNotMatch(electronMainSource, /location\.reload\(\)/);
+  assert.doesNotMatch(electronMainSource, /<script[^>]+src=|<link[^>]+href=/);
   assert.match(electronMainSource, /loadRecoveryDocument/);
 });

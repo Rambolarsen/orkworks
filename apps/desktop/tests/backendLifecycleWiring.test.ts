@@ -14,7 +14,7 @@ test("App subscribes to backend lifecycle events and maps failures to visible st
 });
 
 test("App stops session polling unless the backend is connected", () => {
-  assert.match(appSource, /const enabled = backendStatus === "connected" && workspace !== null/);
+  assert.match(appSource, /shouldEnableSessionPolling\(backendStatus, workspace !== null, isSwitchingWorkspace\)/);
   assert.match(appSource, /workspaceSessionController\.setPollingEnabled\(enabled\)/);
 });
 
