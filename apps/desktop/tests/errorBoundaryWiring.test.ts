@@ -37,6 +37,7 @@ test("Electron main registers renderer load, process, and console diagnostics", 
 test("Electron main preserves the app URL for its local recovery retry", () => {
   assert.match(electronMainSource, /const originalUrl = process\.env\.VITE_DEV_SERVER_URL/);
   assert.match(electronMainSource, /pathToFileURL\(path\.join\(__dirname, "\.\.", "dist", "index\.html"\)\)/);
+  assert.match(electronMainSource, /configureExternalLinks\(mainWindow\.webContents, shell\.openExternal, process\.env\.VITE_DEV_SERVER_URL, originalUrl\)/);
   assert.match(electronMainSource, /const recoveryUrl = recoveryDocumentUrl\(originalUrl\)/);
   assert.equal((electronMainSource.match(/<button/g) ?? []).length, 1);
   assert.match(electronMainSource, /location\.replace\(originalUrl\)/);
@@ -44,4 +45,12 @@ test("Electron main preserves the app URL for its local recovery retry", () => {
   assert.doesNotMatch(electronMainSource, /location\.reload\(\)/);
   assert.doesNotMatch(electronMainSource, /<script[^>]+src=|<link[^>]+href=/);
   assert.match(electronMainSource, /loadRecoveryDocument/);
+});
+
+test("Electron main resets recovery state around original-document navigation", () => {
+  assert.match(electronMainSource, /createRecoveryDocumentGuard\(originalUrl\)/);
+  assert.match(electronMainSource, /webContents\.on\("did-start-navigation"/);
+  assert.match(electronMainSource, /webContents\.on\("did-finish-load"/);
+  assert.match(electronMainSource, /beginOriginalDocumentNavigation/);
+  assert.match(electronMainSource, /finishOriginalDocumentLoad/);
 });

@@ -43,6 +43,23 @@ test("allows same-origin Vite reloads to remain in Electron", () => {
   assert.deepEqual(opened, []);
 });
 
+test("allows only the exact packaged app file during recovery", () => {
+  let navigate!: (event: { preventDefault(): void }, url: string) => void;
+  const opened: string[] = [];
+  configureExternalLinks({
+    setWindowOpenHandler() {},
+    on(event, next) { assert.equal(event, "will-navigate"); navigate = next as typeof navigate; },
+  } as never, (url) => { opened.push(url); }, undefined, "file:///Applications/OrkWorks.app/Contents/Resources/dist/index.html");
+
+  const prevented: string[] = [];
+  navigate({ preventDefault() { prevented.push("yes"); } }, "file:///Applications/OrkWorks.app/Contents/Resources/dist/index.html");
+  navigate({ preventDefault() { prevented.push("yes"); } }, "file:///Applications/OrkWorks.app/Contents/Resources/other.html");
+  navigate({ preventDefault() { prevented.push("yes"); } }, "file:///private/secret");
+
+  assert.deepEqual(prevented, ["yes", "yes"]);
+  assert.deepEqual(opened, []);
+});
+
 test("denies malformed popup URLs without delegating them", () => {
   let popup!: (details: { url: string }) => { action: "deny" };
   const opened: string[] = [];

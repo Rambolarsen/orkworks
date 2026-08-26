@@ -15,6 +15,21 @@ test("redacts URLs, bearer credentials, and structured secret values", () => {
   assert.doesNotMatch(message, /url-secret|bearer-secret|password-secret|api-secret/);
 });
 
+test("redacts nested JSON secrets when values contain escaped quotes", () => {
+  const message = JSON.stringify({
+    error: 'Authorization: Bearer leaked-token with a \\"quoted\\" suffix',
+    password: 'password-secret with a \\"quote\\"',
+    nested: { headers: { authorization: "Bearer nested-secret" } },
+    embedded: JSON.stringify({ password: 'embedded-secret \\"quoted-secret-suffix\\"' }),
+  });
+
+  const sanitized = sanitizeRendererDiagnosticMessage(message);
+
+  assert.doesNotMatch(sanitized, /leaked-token|password-secret|nested-secret|embedded-secret|quoted-secret-suffix/);
+  assert.match(sanitized, /\[redacted\]/);
+  assert.doesNotThrow(() => JSON.parse(sanitized));
+});
+
 test("redacts file paths and bounds diagnostic messages", () => {
   const message = sanitizeRendererDiagnosticMessage(
     `/Users/froomiebot/workspace/orkworks/apps/desktop/src/App.tsx ${"x".repeat(300)}`,

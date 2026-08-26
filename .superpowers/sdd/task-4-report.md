@@ -120,3 +120,59 @@ this changeset.
 The review fixes and this follow-up report are included in the final fix
 commit; its hash is reported at handoff because changing this line changes the
 hash itself.
+
+## Remaining review findings — 2026-08-26
+
+### Status
+
+Implemented on `fix-runtime-recovery`. The pre-existing uncommitted edit to
+`task-1-report.md` remains untouched and is excluded from the fix commit.
+
+### Changes
+
+- `apps/desktop/electron/externalLinks.ts` now permits the exact original app
+  URL in addition to the existing development origin. This lets the recovery
+  document retry the packaged `file:` URL while continuing to block every
+  other file navigation.
+- `apps/desktop/electron/rendererDiagnostic.ts` recursively redacts parsed
+  JSON objects and arrays, sanitizes string leaves, and only then bounds the
+  message. Escaped quotes no longer let password or bearer values escape the
+  redaction regex.
+- `apps/desktop/electron/rendererRecoveryState.ts` owns the recovery-load
+  guard. `main.ts` clears it when the exact original document starts
+  navigating or finishes loading, so a second failed retry can load recovery
+  again.
+- Added production-path, escaped-JSON, and repeated-recovery regression tests.
+
+### TDD evidence
+
+- RED: the new tests failed for the blocked packaged URL, escaped JSON leak,
+  absent recovery guard, and absent main-process reset wiring.
+- GREEN: the focused suite passed after the minimal changes; a follow-up
+  refactor preserved valid JSON output for structured diagnostics.
+
+### Verification
+
+| Command | Result |
+| --- | --- |
+| `rtk node --experimental-strip-types --test tests/externalLinks.test.ts tests/errorBoundaryWiring.test.ts tests/rendererDiagnostic.test.ts tests/rendererRecoveryState.test.ts` | PASS — 19 passed, 0 failed |
+| `npx tsc --noEmit` | PASS — no errors |
+| `rtk node --experimental-strip-types --test tests/*.test.ts tests/*.test.mjs` | PASS — 443 passed, 0 failed |
+| `rtk pnpm build` | PASS — Electron TypeScript and Vite build completed |
+| `git diff --check` | PASS |
+
+### Self-review and concerns
+
+- The existing polling gate and workspace-switch scope are unchanged.
+- Tasks 1–3 implementation files are unchanged.
+- `docs/agents/architecture.md` now documents the recovery navigation
+  boundary because the doc-currency check flagged the Electron policy change.
+- Tests retain the repository's existing `MODULE_TYPELESS_PACKAGE_JSON`
+  warnings, and Vite retains its existing large-chunk warning.
+- No packaged GUI smoke test was run; the packaged path is covered by the
+  exact-file navigation behavior test and the successful desktop build.
+
+### Commit
+
+The fix commit hash is reported at handoff because changing this report line
+would change the hash.

@@ -19,6 +19,7 @@ import { createBackendRestorationCoordinator, switchWorkspaceBackend, type Backe
 import type { BackendLifecycleEvent } from "./backendLifecycleEvent";
 import { sanitizeBackendLifecycleFailure } from "./backendLifecycleFailure";
 import { rendererOrigin, sanitizeRendererDiagnosticMessage } from "./rendererDiagnostic";
+import { createRecoveryDocumentGuard } from "./rendererRecoveryState";
 
 app.setName("OrkWorks");
 
@@ -119,17 +120,27 @@ function createWindow(): void {
 
   const originalUrl = process.env.VITE_DEV_SERVER_URL
     || pathToFileURL(path.join(__dirname, "..", "dist", "index.html")).toString();
-  configureExternalLinks(mainWindow.webContents, shell.openExternal, process.env.VITE_DEV_SERVER_URL);
+  configureExternalLinks(mainWindow.webContents, shell.openExternal, process.env.VITE_DEV_SERVER_URL, originalUrl);
   const recoveryUrl = recoveryDocumentUrl(originalUrl);
 
-  let recoveryDocumentLoaded = false;
+  const recoveryDocumentGuard = createRecoveryDocumentGuard(originalUrl);
   const loadRecoveryDocument = (): void => {
-    if (recoveryDocumentLoaded || !mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return;
-    recoveryDocumentLoaded = true;
+    if (!recoveryDocumentGuard.beginRecoveryDocumentLoad()
+      || !mainWindow
+      || mainWindow.isDestroyed()
+      || mainWindow.webContents.isDestroyed()) return;
     void mainWindow.loadURL(recoveryUrl).catch(() => {
-      recoveryDocumentLoaded = false;
+      recoveryDocumentGuard.recoveryDocumentLoadFailed();
     });
   };
+
+  mainWindow.webContents.on("did-start-navigation", (_event, url, _isInPlace, isMainFrame) => {
+    if (isMainFrame) recoveryDocumentGuard.beginOriginalDocumentNavigation(url);
+  });
+
+  mainWindow.webContents.on("did-finish-load", () => {
+    recoveryDocumentGuard.finishOriginalDocumentLoad(mainWindow?.webContents.getURL() ?? "");
+  });
 
   mainWindow.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
     if (!isMainFrame) return;
