@@ -16,9 +16,6 @@ Thumbs.db
 *.swo
 .idea/
 
-# Serena (code assistant)
-.serena/
-
 # TypeScript
 *.tsbuildinfo
 
@@ -47,16 +44,15 @@ apm.lock.yaml
 .agents/
 .claude/skills/
 .claude/agents/
+.claude/settings.local.json
 .claude/hooks/ponytail/
 .claude/hooks/superpowers/
 .claude/hooks/agent-skills/
 .claude/apm-hooks.json
+# Harness-local hook configuration and generated adapters
 .github/hooks/
 .github/agents/
+.github/copilot/settings.local.json
 .opencode/
-.codex/*
-!.codex/hooks.json
-!.codex/hooks/
-.codex/hooks/*
-!.codex/hooks/doc-check.sh
-!.codex/hooks/doc-check-stop.sh
+.codex/
+.gemini/settings.json

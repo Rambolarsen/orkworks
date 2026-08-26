@@ -24,7 +24,7 @@ GitHub Actions now has five distinct workflow classes:
 
 GitHub's native Copilot code review is also enabled as a repository ruleset (Settings → Rules → Rulesets), scoped to PRs targeting `main` only — it is not a workflow file, so it has no corresponding entry under `.github/workflows/`. Like `pr-review.yml`, it is a second automated reviewer, not a required check, and does not replace the manual `/code-review` review gate below.
 
-PR CI is path-routed: desktop changes run desktop validation, Rust changes run Rust tests, and non-code PRs receive a lightweight passing no-op check. `pr-ci.yml` also runs a `doc-drift` job on every PR — the same drift checks as `.claude/hooks/doc-check.sh` (see "Doc currency check" below), run against the PR's diff and surfaced in the Actions run summary. It is intentionally excluded from required status checks and can never block a merge; it exists so the doc-drift nudge also reaches non-Claude-Code harnesses that don't trigger the Stop hook.
+PR CI is path-routed: desktop changes run desktop validation, Rust changes run Rust tests, and non-code PRs receive a lightweight passing no-op check. `pr-ci.yml` also runs a `doc-drift` job on every PR — the same drift checks as `scripts/doc-check.sh` (see "Doc currency check" below), run against the PR's diff and surfaced in the Actions run summary. It is intentionally excluded from required status checks and can never block a merge; it exists so the doc-drift nudge also reaches non-Claude-Code harnesses that don't trigger the Stop hook.
 
 ## Containerized dev environment (optional)
 
@@ -192,10 +192,10 @@ An ADR earns a bullet below only while it is `accepted` (not superseded), constr
 
 - ADR 0022: PTY lifetime is session-runtime-owned in the sidecar; renderer terminal attachment is detachable and does not own process lifetime.
 - ADR 0028: Harness version-probe results are cached with bounded TTLs and generation-aware invalidation, preserving the integration action's post-probe identity revalidation.
-- ADR 0035: Codex's `SessionStart` hook (`.codex/hooks.json`) captures `harness_session_id` at `agent`-tier confidence via the existing `JsonHookHandler`/reporter-script framework; unlike every other integration's hooked event, `SessionStart` is not a "needs input" signal, so the shared reporter script skips its generic attention POST specifically for Codex's marker.
+- ADR 0035: Codex's generated/local `SessionStart` hook captures `harness_session_id` at `agent`-tier confidence via the existing `JsonHookHandler`/reporter-script framework; unlike every other integration's hooked event, `SessionStart` is not a "needs input" signal, so the shared reporter script skips its generic attention POST specifically for Codex's marker.
 - ADR 0037: Plan/spec paths can be reported through a dedicated path-only sidecar route (`POST /sessions/:id/plan-path`) that canonicalizes the file and stores its workspace-relative form without changing session attention, superseding terminal-text inference when a harness reports a canonical file path. Codex remains on the conservative terminal fallback because its hook payload provides patch text, not a canonical file path.
 - ADR 0025, 0026, 0031, 0032, 0033, 0042: prose lives in [`docs/agents/architecture.md`](docs/agents/architecture.md).
-- ADR 0036, 0038: prose lives in [`docs/agents/harness-integration-contracts.md`](docs/agents/harness-integration-contracts.md).
+- ADR 0038: prose lives in [`docs/agents/harness-integration-contracts.md`](docs/agents/harness-integration-contracts.md).
 
 ## Metadata protocol
 
@@ -209,7 +209,7 @@ An ADR earns a bullet below only while it is `accepted` (not superseded), constr
 - `~/.orkworks/workspaces/<hash>/workspace.json` — workspace memory, including the last active session
 - `~/.orkworks/workspaces/<hash>/integrations/aider.json` — versioned OrkWorks-owned Aider notification-command preference
 - `~/.orkworks/harnesses.json` — global harness definitions
-- `~/.orkworks/hook-scripts/` — stable copies of harness reporter scripts (e.g. the Claude Code Notification hook), installed hook commands always point here rather than at the packaged/dev source, so they keep working across app updates and packaging schemes whose own paths aren't stable at runtime (Linux AppImage's per-launch mount point, in particular)
+- `~/.orkworks/hook-scripts/` — stable copies of harness reporter scripts (e.g. the Claude Code Notification hook), installed hook commands always point here rather than at the packaged/dev source, so they keep working across app updates and packaging schemes whose own paths aren't stable at runtime (Linux AppImage's per-launch mount point, in particular). The workspace-local harness hook configuration that invokes these reporters is gitignored and must not be committed.
 - Priority: user > agent > peon > backend_inference > process > unknown > debug
 - Peon reads terminal output, writes inferred metadata, never types into terminals
 - Detached runtimes continue draining terminal output, persisting history, and feeding Peon while `orkworksd` stays alive; losing the renderer terminal attachment alone must not end the session
@@ -246,7 +246,7 @@ Project-scoped MCP servers are declared in `apm.yml` under `dependencies.mcp`.
 
 - Do not hand-maintain parallel MCP definitions for Copilot, Claude, Codex, or OpenCode when APM can generate them.
 - After changing `dependencies.mcp`, run `apm install` to refresh the project config files.
-- Keep secrets out of committed files. `serena` runs through `uvx`, so `uv` must be installed locally.
+- Keep secrets out of committed files. No MCP servers are currently declared in `apm.yml`.
 
 ## Repo-level skills
 
@@ -259,10 +259,10 @@ Five of these are **audit skills** that generate quality-improvement work: `surf
 Before ending any session, run:
 
 ```bash
-bash .claude/hooks/doc-check.sh
+bash scripts/doc-check.sh
 ```
 
-This checks git diff against known triggers and lists any doc files that likely need updating. Address all flagged files before closing. Claude Code runs this automatically via a Stop hook; all other agents must run it manually as part of `verification-before-completion`. The same script also runs non-blocking in CI as `pr-ci.yml`'s `doc-drift` job (see "CI routing" above) against the PR's diff, as a backstop for harnesses that don't trigger the Stop hook — that CI signal doesn't replace running it locally, since it only surfaces after a PR is opened.
+This checks git diff against known triggers and lists any doc files that likely need updating. The committed script is harness-neutral and is called directly by Claude Code and CI; other harness adapters may wrap it in their own local hook configuration. Address all flagged files before closing. Claude Code runs this automatically via a Stop hook; all other agents must run it manually as part of `verification-before-completion`. The same script also runs non-blocking in CI as `pr-ci.yml`'s `doc-drift` job (see "CI routing" above) against the PR's diff, as a backstop for harnesses that don't trigger the Stop hook — that CI signal doesn't replace running it locally, since it only surfaces after a PR is opened.
 
 ## Worktree currency check
 

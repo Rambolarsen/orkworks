@@ -1,0 +1,114 @@
+diff --git a/docs/superpowers/specs/2026-07-14-harness-work-state-design.md b/docs/superpowers/specs/2026-07-14-harness-work-state-design.md
+index e68f170..f3e1f45 100644
+--- a/docs/superpowers/specs/2026-07-14-harness-work-state-design.md
++++ b/docs/superpowers/specs/2026-07-14-harness-work-state-design.md
+@@ -43,17 +43,19 @@ character that remains after stripping ANSI control sequences and consuming
+ the submitted-line echo.
+ 
+ A **single printable keystroke** received while the session is in `needs_you`
+-set by an agent hook report also arms the fallback window, using the
+-in-progress input-line buffer as the echo prefix and re-arming on each
+-subsequent printable keystroke. This variant exists because Claude Code's
+-prompts are predominantly single-keystroke (yes/no and choice lists)
+-and never produce an Enter-terminated line; without it, the session sticks on
+-`needs_you` indefinitely after such an answer. The single-key path is gated
+-on `metadata_source == "agent"` so that Peon-detected `needs_you` on shell-mode
+-sessions (where the terminal echoes each keystroke) is unaffected — only
+-hook-sourced `needs_you` arms on a single key. See
++set by an agent hook report commits the session directly to `working` (as of
++2026-08-24 — see below), the same way an Enter-terminated line does. This
++variant exists because Claude Code's prompts are predominantly single-
++keystroke (yes/no and choice lists) and never produce an Enter-terminated
++line; without it, the session sticks on `needs_you` indefinitely after such an
++answer. The single-key path is gated on `metadata_source == "agent"` so that
++Peon-detected `needs_you` on shell-mode sessions (where the terminal echoes
++each keystroke) is unaffected — only hook-sourced `needs_you` commits on a
++single key. See
+ `docs/superpowers/specs/2026-07-17-single-key-work-signal-design.md` for the
+-full design, gates, and edge cases.
++full gate and edge cases (its arm-then-wait-for-output mechanism is
++superseded — see that doc's superseded note — but the gate conditions and
++edge-case reasoning still apply to the direct-commit path).
+ 
+ Note: the Claude Code attention hook falls under this fallback path. Its hook
+ is **not** active-work-capable — it only POSTs `waiting_for_input`, never
+diff --git a/docs/superpowers/specs/2026-07-17-single-key-work-signal-design.md b/docs/superpowers/specs/2026-07-17-single-key-work-signal-design.md
+index 9fb103a..54cf09b 100644
+--- a/docs/superpowers/specs/2026-07-17-single-key-work-signal-design.md
++++ b/docs/superpowers/specs/2026-07-17-single-key-work-signal-design.md
+@@ -1,5 +1,20 @@
+ # Single-Key Work Signal Design
+ 
++> **Superseded (2026-08-24):** the arm-then-wait-for-output mechanism this
++> doc describes (`pending_work_signal`/`consume_pending_work_signal` for the
++> single-key case) has been replaced by a direct commit through the same
++> `mark_committed_input_working` path a completed line already uses — no
++> output confirmation. The output-gating assumed a TUI's redraw is invisible
++> to this heuristic; Claude Code's own input-box redraw on every keystroke
++> proved that false and caused a live false positive (`working` appearing one
++> keystroke into composing a reply, before submission). The narrow gate
++> below (attention/source/hook/printable-keystroke conjunction) is otherwise
++> unchanged — only the promotion mechanism changed. See the implementation
++> note in `docs/superpowers/specs/2026-07-28-terminal-input-working-status-design.md`
++> ("Narrowed exception") and `docs/superpowers/specs/2026-07-21-committed-input-working-design.md`
++> for the design this now matches. The rest of this document is retained for
++> historical context (the gate rationale and edge cases below still apply).
++
+ ## Goal
+ 
+ Restore the `needs_you → working` attention transition for Claude Code sessions
+diff --git a/docs/superpowers/specs/2026-07-21-committed-input-working-design.md b/docs/superpowers/specs/2026-07-21-committed-input-working-design.md
+index 4c67ae7..914cb5c 100644
+--- a/docs/superpowers/specs/2026-07-21-committed-input-working-design.md
++++ b/docs/superpowers/specs/2026-07-21-committed-input-working-design.md
+@@ -71,3 +71,22 @@ continues to report the failure rather than claiming durable state.
+ 
+ This does not infer model work from terminal output and does not change how
+ non-input lifecycle transitions are derived.
++
++## Implementation note (2026-08-24)
++
++The single-key case described in "Tests" above ("without PTY output") was not
++actually implemented this way: issue #273 (2026-08-02) restored single-key
++promotion for hook-sourced `needs_you` through a separate arm-then-wait
++mechanism (`pending_work_signal`/`consume_pending_work_signal`) that *did*
++wait for a subsequent visible PTY chunk before committing, contradicting this
++spec. That mechanism also had a live false-positive: Claude Code's TUI redraws
++its input box on every keystroke, so the "confirming" output was routinely
++just the keystroke's own on-screen echo (box chrome, prompt glyph) rather than
++genuine model output — the transition fired one keystroke into composing a
++reply, before the reply was submitted. Fixed by routing the single-key case
++(same narrow gate: `attention == needs_you`, `metadata_source == "agent"`,
++`!active_work_hook`, a printable keystroke) through the same direct
++`ProcessTransition::CommittedWorking` commit `mark_committed_input_working`
++already used for `line_completed`, removing the output wait entirely and
++bringing the implementation in line with this spec's original intent. See the
++2026-07-28 doc's "Narrowed exception" section for the corresponding update.
+diff --git a/docs/superpowers/specs/2026-07-28-terminal-input-working-status-design.md b/docs/superpowers/specs/2026-07-28-terminal-input-working-status-design.md
+index 57aebdc..dada145 100644
+--- a/docs/superpowers/specs/2026-07-28-terminal-input-working-status-design.md
++++ b/docs/superpowers/specs/2026-07-28-terminal-input-working-status-design.md
+@@ -53,6 +53,23 @@ fallback section and points at the 2026-07-17 doc for the details. This
+ exact hook-sourced case; without later model output the session stays
+ `needs_you`, exactly as `31f9b4e` intended for the no-Enter case.
+ 
++> **Superseded (2026-08-24):** the arm-and-wait shape described in this
++> section is gone. The output-gated confirmation it relied on assumed a TUI's
++> redraw never produces visible output distinguishable from genuine model
++> output — false for Claude Code, whose input box redraws to show the typed
++> character on every keystroke, so the "confirming" chunk was routinely just
++> that redraw. In practice this meant `working` appeared one keystroke into
++> composing a reply, before the reply was submitted — a false positive of the
++> same shape (premature `working`) that this spec's "Goal" exists to prevent,
++> just arriving through the *hook-sourced* narrow gate instead of the broad
++> gate `31f9b4e` reverted. The narrow gate itself (`attention == needs_you`,
++> `metadata_source == "agent"`, `!active_work_hook`, a printable keystroke)
++> is unchanged and still excludes shell sessions and Peon-detected prompts by
++> construction; only its *effect* changed, from arming a signal to committing
++> `working` directly through the same path a completed line already uses (see
++> `docs/superpowers/specs/2026-07-21-committed-input-working-design.md`,
++> which required exactly this "without PTY output" behavior all along).
++
+ ## Data flow and boundaries
+ 
+ `record_terminal_input_impl` will continue to parse each delivered input frame and determine whether it completes a line. It will always record the accepted-input generation and idle baseline. It will request `ProcessTransition::CommittedWorking` only when `line_completed` is true. Harness active-work hooks and Peon output inference remain independent status sources and are unchanged.
