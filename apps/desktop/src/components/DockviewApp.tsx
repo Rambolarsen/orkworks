@@ -37,6 +37,7 @@ interface DockviewAppData {
   onOpenWorkspace: () => void;
   onReviewPlan: () => void;
   onBackendUnavailable: () => void;
+  onRetryBackend: () => void;
   dockviewApiRef: React.MutableRefObject<DockviewApi | null>;
 }
 
@@ -100,7 +101,7 @@ function DetailPanel() {
 function TermPanel() {
   const ctx = useContext(DockviewContext);
   const session = ctx.sessions.find((s) => s.id === ctx.activeSessionId) ?? null;
-  return <TerminalPanel key={`${session?.id ?? 'none'}-${ctx.resumeTick}`} backendStatus={ctx.backendStatus} session={session} onBackendUnavailable={ctx.onBackendUnavailable} />;
+  return <TerminalPanel key={`${session?.id ?? 'none'}-${ctx.resumeTick}`} backendStatus={ctx.backendStatus} session={session} onBackendUnavailable={ctx.onBackendUnavailable} onRetryBackend={ctx.onRetryBackend} />;
 }
 function ReviewTab() {
   const ctx = useContext(DockviewContext);

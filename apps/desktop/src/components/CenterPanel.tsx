@@ -10,9 +10,10 @@ interface CenterPanelProps {
   sessionId: string | null;
   starting: boolean;
   onBackendUnavailable: () => void;
+  onRetryBackend: () => void;
 }
 
-function CenterPanel({ backendStatus, sessionId, starting, onBackendUnavailable }: CenterPanelProps) {
+function CenterPanel({ backendStatus, sessionId, starting, onBackendUnavailable, onRetryBackend }: CenterPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const activeIdRef = useRef<string | null>(null);
   const startingRef = useRef(starting);
@@ -129,7 +130,11 @@ function CenterPanel({ backendStatus, sessionId, starting, onBackendUnavailable 
   }, []);
 
   if (backendStatus !== "connected") {
-    return <EmptyState message="Connecting to OrkWorks…" />;
+    const unavailable = backendStatus === "unreachable" || backendStatus === "exhausted";
+    return <EmptyState
+      message={unavailable ? "OrkWorks is unavailable." : "Connecting to OrkWorks…"}
+      action={unavailable ? { label: "Retry", onClick: onRetryBackend } : undefined}
+    />;
   }
 
   const terminalHandle = sessionId ? getTerminal(sessionId) : undefined;

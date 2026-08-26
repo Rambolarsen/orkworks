@@ -531,7 +531,8 @@ function App() {
         onFocusTerminal={handleFocusTerminal}
         onOpenWorkspace={handleOpenWorkspace}
         onReviewPlan={handleReviewPlan}
-        onBackendUnavailable={handleBackendUnavailable}
+            onBackendUnavailable={handleBackendUnavailable}
+            onRetryBackend={handleRetryBackend}
         dockviewApiRef={dockviewApiRef}
       />
       {(backendStatus === "unreachable" || backendStatus === "exhausted") && (
