@@ -111,6 +111,61 @@ test("a restoration timeout aborts hung work, rejects readiness, and publishes f
   assert.deepEqual(failed, ["Backend restoration timed out"]);
 });
 
+test("a restoration timeout aborts a hung retention step and cannot publish ready", async () => {
+  const { coordinator, timers, ready, failed } = createHarness();
+  let retentionSignal: AbortSignal | null = null;
+
+  coordinator.beginGeneration();
+  const readiness = coordinator.getReadiness();
+  coordinator.restore(5003, {
+    restoreWorkspace: async () => ({ path: "/workspace" }),
+    applyRetentionSettings: (signal) => {
+      retentionSignal = signal;
+      return new Promise((_resolve, reject) => {
+        signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+      });
+    },
+    syncProviderSettings: async () => {},
+  });
+
+  await Promise.resolve();
+  timers.runNext();
+
+  assert.equal(retentionSignal?.aborted, true);
+  await assert.rejects(readiness, /restoration timed out/i);
+  assert.deepEqual(ready, []);
+  assert.deepEqual(failed, ["Backend restoration timed out"]);
+  assert.equal(coordinator.getRestoredWorkspace(), null);
+});
+
+test("a restoration timeout aborts a hung provider sync and cannot publish ready", async () => {
+  const { coordinator, timers, ready, failed } = createHarness();
+  let providerSignal: AbortSignal | null = null;
+
+  coordinator.beginGeneration();
+  const readiness = coordinator.getReadiness();
+  coordinator.restore(5004, {
+    restoreWorkspace: async () => ({ path: "/workspace" }),
+    applyRetentionSettings: async () => {},
+    syncProviderSettings: (signal) => {
+      providerSignal = signal;
+      return new Promise((_resolve, reject) => {
+        signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+      });
+    },
+  });
+
+  await Promise.resolve();
+  await Promise.resolve();
+  timers.runNext();
+
+  assert.equal(providerSignal?.aborted, true);
+  await assert.rejects(readiness, /restoration timed out/i);
+  assert.deepEqual(ready, []);
+  assert.deepEqual(failed, ["Backend restoration timed out"]);
+  assert.equal(coordinator.getRestoredWorkspace(), null);
+});
+
 test("a timed-out restoration cannot publish after work that ignored abort completes", async () => {
   const { coordinator, timers, ready } = createHarness();
   const workspace = deferred<unknown>();

@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
+import { createBackendRestorationCoordinator } from "../electron/backendRestoration.ts";
 import { createSidecarLifecycle, type SidecarLifecycle, type SidecarState } from "../electron/sidecarLifecycle.ts";
 
 type Listener = (...args: any[]) => void;
@@ -90,18 +91,19 @@ class FakeTimers {
   }
 }
 
-function createHarness() {
+function createHarness(spawn?: (cwd: string) => FakeProcess) {
   const processes: FakeProcess[] = [];
+  const spawnProcess = spawn ?? (() => {
+    const process = new FakeProcess();
+    processes.push(process);
+    return process;
+  });
   const timers = new FakeTimers();
   const states: SidecarState[] = [];
   const unavailable: string[] = [];
   const ready: number[] = [];
   const lifecycle = createSidecarLifecycle({
-    spawn: () => {
-      const process = new FakeProcess();
-      processes.push(process);
-      return process;
-    },
+    spawn: spawnProcess,
     fetch: async () => new Response(),
     setTimeout: timers.setTimeout,
     clearTimeout: timers.clearTimeout,
@@ -184,6 +186,70 @@ test("rejects readiness when spawn emits an error", async () => {
   await assert.rejects(readiness, /permission denied/);
   assert.equal(lifecycle.getPort(), null);
   assert.equal(processes[0].killed, true);
+});
+
+test("turns a synchronous spawn failure into rejected readiness and allows explicit retry", async () => {
+  let failFirstSpawn = true;
+  const { lifecycle, processes, states, unavailable } = createHarness((cwd) => {
+    if (failFirstSpawn) {
+      failFirstSpawn = false;
+      throw new Error(`spawn failed for ${cwd}`);
+    }
+    const process = new FakeProcess();
+    processes.push(process);
+    return process;
+  });
+
+  const first = lifecycle.start("/missing-sidecar-cwd");
+
+  await assert.rejects(first, /spawn failed for \/missing-sidecar-cwd/);
+  assert.deepEqual(states.slice(0, 2), ["starting", "failed"]);
+  assert.deepEqual(unavailable, ["spawn failed for /missing-sidecar-cwd"]);
+
+  const retry = lifecycle.retry();
+  processes[0].stdout.emit("ORKWORKSD_PORT=7890\n");
+
+  assert.equal(await retry, 7890);
+  assert.equal(lifecycle.getPort(), 7890);
+});
+
+test("a synchronous explicit-retry failure rejects the wired restoration readiness", async () => {
+  const timers = new FakeTimers();
+  const failures: string[] = [];
+  const restoration = createBackendRestorationCoordinator({
+    setTimeout: timers.setTimeout,
+    clearTimeout: timers.clearTimeout,
+    onReady: () => {},
+    onFailure: (error) => failures.push(error.message),
+  });
+  const lifecycle = createSidecarLifecycle({
+    spawn: () => {
+      throw new Error("spawn failed at /absolute/sidecar");
+    },
+    fetch: async () => new Response(),
+    setTimeout: timers.setTimeout,
+    clearTimeout: timers.clearTimeout,
+    now: timers.now,
+    callbacks: {
+      onReady: () => {},
+      onUnavailable: (message) => restoration.fail(new Error(message)),
+      onState: (state) => {
+        if (state === "starting") restoration.beginGeneration();
+      },
+    },
+    retryDelaysMs: [1],
+  });
+
+  const initial = lifecycle.start("/workspace");
+  const initialRestoration = restoration.getReadiness();
+  await assert.rejects(initial, /spawn failed/);
+  await assert.rejects(initialRestoration, /spawn failed/);
+
+  const retry = lifecycle.retry();
+  const retryRestoration = restoration.getReadiness();
+  await assert.rejects(retry, /spawn failed/);
+  await assert.rejects(retryRestoration, /spawn failed/);
+  assert.deepEqual(failures, ["spawn failed at /absolute/sidecar", "spawn failed at /absolute/sidecar"]);
 });
 
 test("rejects readiness when publishing a port times out", async () => {

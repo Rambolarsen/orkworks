@@ -16,6 +16,7 @@ import { configureExternalLinks, openExternalLink } from "./externalLinks";
 import { createSidecarLifecycle, type SidecarLifecycle, type SidecarProcess, type SidecarState } from "./sidecarLifecycle";
 import { createBackendRestorationCoordinator, switchWorkspaceBackend, type BackendRestorationCoordinator } from "./backendRestoration";
 import type { BackendLifecycleEvent } from "./backendLifecycleEvent";
+import { sanitizeBackendLifecycleFailure } from "./backendLifecycleFailure";
 
 app.setName("OrkWorks");
 
@@ -118,6 +119,11 @@ function updateDockIcon(): void {
   }
 }
 
+function logBackendLifecycleFailure(scope: string, error: unknown): void {
+  const detail = error instanceof Error ? error.stack ?? error.message : String(error);
+  console.error("[main] backend lifecycle failure", scope, detail);
+}
+
 app.whenReady().then(() => {
   updateDockIcon();
   nativeTheme.on("updated", updateDockIcon);
@@ -195,8 +201,9 @@ app.whenReady().then(() => {
       publishBackendLifecycle({ state: "ready", port });
     },
     onFailure: (error) => {
-      lastBackendFailure = error.message;
-      publishBackendLifecycle({ state: "failed", message: error.message });
+      logBackendLifecycleFailure("restoration", error);
+      lastBackendFailure = sanitizeBackendLifecycleFailure(error);
+      publishBackendLifecycle({ state: "failed", message: lastBackendFailure });
     },
   });
   backendRestoration = restoration;
@@ -231,8 +238,9 @@ app.whenReady().then(() => {
         });
       },
       onUnavailable: (message) => {
-        lastBackendFailure = message;
-        restoration.fail(new Error(message));
+        logBackendLifecycleFailure("sidecar", message);
+        lastBackendFailure = sanitizeBackendLifecycleFailure(message);
+        restoration.fail(new Error(lastBackendFailure));
       },
       onState: (state: SidecarState) => {
         if (state === "starting") {

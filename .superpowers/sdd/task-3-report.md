@@ -323,3 +323,59 @@ adjusted focused suite passed 27/27.
 - `docs/agents/architecture.md` still needs Task 5's complete recovery-flow
   documentation; this review wave does not preempt that assigned task.
 - No Task 3 blocker remains.
+
+## Review-finding remediation — 2026-08-26
+
+### Status
+
+Complete in the pending changeset. The unrelated uncommitted
+`.superpowers/sdd/task-1-report.md` remains untouched and will not be staged.
+
+### Findings addressed
+
+- Added `backendLifecycleFailure.ts` as the main-process failure-message
+  boundary. Main logs raw sidecar/restoration details, while `failed` and
+  `exhausted` lifecycle events receive only the stable path-free message
+  `The OrkWorks sidecar is unavailable.`.
+- Changed `sidecarLifecycle.launch()` to install the current generation before
+  invoking `spawn()`. Synchronous spawn, token, path, timer, or listener setup
+  failures now use the normal failed-state path, reject lifecycle readiness,
+  publish failure through the main callback, and remain explicitly retryable.
+- Added behavioral coverage for synchronous initial launch failure, a wired
+  synchronous explicit-retry failure, path-free sanitization, hung retention,
+  and hung provider synchronization. Both restoration-step tests verify abort,
+  readiness rejection, failure publication, no `ready` publication, and no
+  retained workspace.
+
+### TDD evidence
+
+- RED: the new lifecycle test reproduced `spawn failed for /missing-sidecar-cwd`
+  escaping `start()` from `sidecarLifecycle.ts`; the sanitizer wiring test
+  failed because main still forwarded `error.message`; the sanitizer module
+  test initially failed with `ERR_MODULE_NOT_FOUND`.
+- GREEN: after the minimal changes, the focused lifecycle/restoration/wiring
+  suite passed 29/29.
+- The retention and provider synchronization tests passed against the existing
+  coordinator implementation, confirming that they add coverage for the
+  already-required abort contract rather than depending on an unnecessary
+  coordinator rewrite.
+
+### Verification
+
+- `cd apps/desktop && node --experimental-strip-types --test tests/sidecarLifecycle.test.ts tests/backendRestoration.test.ts tests/backendLifecycleFailure.test.ts tests/electronSidecarWiring.test.ts` — PASS, 29/29.
+- `cd apps/desktop && npx tsc --noEmit` — PASS, no TypeScript errors.
+- `cd apps/desktop && node --experimental-strip-types --test tests/*.test.ts tests/*.test.mjs` — PASS, 428/428.
+- `rtk codex review --uncommitted` — PASS; fresh-context review found no actionable correctness issues and reran TypeScript, focused tests, and the full desktop suite.
+- `git diff --check` — PASS.
+
+### Self-review and concerns
+
+- Production changes are limited to `main.ts`, `sidecarLifecycle.ts`, and the
+  new path-free failure helper; tests cover each new behavior. No Task 1 or
+  Task 2 production files were changed.
+- Node test runs retain the repository's existing
+  `MODULE_TYPELESS_PACKAGE_JSON` warnings, and the existing terminal-link
+  failure-path test logs its expected diagnostic. Neither causes a failure.
+- The tests do not launch a packaged Electron app or a real sidecar process.
+- `docs/agents/architecture.md` still carries the existing Task 5 advisory for
+  complete runtime-recovery documentation.

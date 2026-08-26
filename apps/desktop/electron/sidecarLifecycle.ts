@@ -34,7 +34,7 @@ export interface SidecarLifecycleOptions {
 
 interface Generation {
   readonly id: number;
-  readonly process: SidecarProcess;
+  process: SidecarProcess | null;
   readonly readiness: Promise<number>;
   resolve(port: number): void;
   reject(error: Error): void;
@@ -88,9 +88,13 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
   }
 
   function terminate(candidate: Generation): void {
-    if (candidate.exited || candidate.killRequested) return;
+    if (candidate.exited || candidate.killRequested || !candidate.process) return;
     candidate.killRequested = true;
     candidate.process.kill();
+  }
+
+  function errorFrom(value: unknown): Error {
+    return value instanceof Error ? value : new Error("Sidecar launch failed");
   }
 
   function stopCurrent(message: string): void {
@@ -182,10 +186,9 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
       resolve = resolvePromise;
       reject = rejectPromise;
     });
-    const process = options.spawn(cwd);
     const candidate: Generation = {
       id,
-      process,
+      process: null,
       readiness,
       resolve,
       reject,
@@ -201,25 +204,30 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
     current = candidate;
     port = null;
 
-    candidate.readinessTimer = options.setTimeout(() => {
-      fail(candidate, new Error("Sidecar readiness timed out"));
-    }, readinessTimeoutMs);
-    process.stdout?.on("data", (data: Buffer | string) => {
-      if (!isCurrent(candidate) || candidate.failed) return;
-      candidate.stdout += data.toString();
-      const match = candidate.stdout.match(/ORKWORKSD_PORT=(\d+)/);
-      if (match) ready(candidate, Number.parseInt(match[1], 10));
-    });
-    process.on("error", (error: Error) => {
-      fail(candidate, error);
-    });
-    process.on("exit", (code: number | null) => {
-      candidate.exited = true;
-      const message = candidate.ready
-        ? `Sidecar exited with code ${code ?? "unknown"}`
-        : `Sidecar exited before readiness with code ${code ?? "unknown"}`;
-      fail(candidate, new Error(message));
-    });
+    try {
+      candidate.process = options.spawn(cwd);
+      candidate.readinessTimer = options.setTimeout(() => {
+        fail(candidate, new Error("Sidecar readiness timed out"));
+      }, readinessTimeoutMs);
+      candidate.process.stdout?.on("data", (data: Buffer | string) => {
+        if (!isCurrent(candidate) || candidate.failed) return;
+        candidate.stdout += data.toString();
+        const match = candidate.stdout.match(/ORKWORKSD_PORT=(\d+)/);
+        if (match) ready(candidate, Number.parseInt(match[1], 10));
+      });
+      candidate.process.on("error", (error: Error) => {
+        fail(candidate, error);
+      });
+      candidate.process.on("exit", (code: number | null) => {
+        candidate.exited = true;
+        const message = candidate.ready
+          ? `Sidecar exited with code ${code ?? "unknown"}`
+          : `Sidecar exited before readiness with code ${code ?? "unknown"}`;
+        fail(candidate, new Error(message));
+      });
+    } catch (error) {
+      fail(candidate, errorFrom(error));
+    }
 
     return readiness;
   }

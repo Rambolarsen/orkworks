@@ -26,6 +26,13 @@ test("Electron main restores workspace and settings before publishing ready", ()
   assert.match(mainSource, /async function syncSavedProviderSettings\(port: number, signal: AbortSignal\)/);
 });
 
+test("Electron main logs raw lifecycle failures but publishes only stable copy", () => {
+  assert.match(mainSource, /sanitizeBackendLifecycleFailure/);
+  assert.match(mainSource, /console\.error\(/);
+  assert.match(mainSource, /lastBackendFailure = sanitizeBackendLifecycleFailure/);
+  assert.doesNotMatch(mainSource, /publishBackendLifecycle\(\{ state: "failed", message: error\.message \}\)/);
+});
+
 test("backend readiness and retry use the lifecycle controller", () => {
   assert.match(mainSource, /ipcMain\.handle\("get-backend-url", async \(\) => \{\s*const port = await restoration\.getReadiness\(\)/);
   assert.match(mainSource, /ipcMain\.handle\("retry-backend", async \(\) => \{[\s\S]*sidecarLifecycle\.retry\(\)/);
