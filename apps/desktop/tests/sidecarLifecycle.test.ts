@@ -293,12 +293,32 @@ test("resets automatic retries only after the ready stability window expires", a
   assert.equal(timers.scheduledDelays.at(-1), 2);
   timers.advanceBy(2);
   processes[2].exit(1);
-  assert.equal(timers.scheduledDelays.at(-1), 2);
-  timers.advanceBy(2);
-  processes[3].exit(1);
 
-  assert.equal(processes.length, 4);
+  assert.equal(processes.length, 3);
+  assert.equal(timers.size, 0);
   assert.equal(states.at(-1), "exhausted");
+});
+
+test("rejects announced ports outside the valid TCP range before readiness", async () => {
+  for (const announcedPort of ["0", "65536", "-1"]) {
+    const { lifecycle, processes } = createHarness();
+    const readiness = lifecycle.start("/workspace");
+    processes[0].stdout.emit(`ORKWORKSD_PORT=${announcedPort}\n`);
+
+    await assert.rejects(readiness, /invalid port/i);
+    assert.equal(lifecycle.getPort(), null);
+    assert.equal(processes[0].killed, true);
+  }
+});
+
+test("still discovers a valid port after noisy pre-readiness stdout", async () => {
+  const { lifecycle, processes } = createHarness();
+  const readiness = lifecycle.start("/workspace");
+
+  processes[0].stdout.emit("x".repeat(70 * 1024));
+  processes[0].stdout.emit("ORKWORKSD_PORT=4321\n");
+
+  assert.equal(await readiness, 4321);
 });
 
 test("uses the first retry delay after a stable ready reset", async () => {

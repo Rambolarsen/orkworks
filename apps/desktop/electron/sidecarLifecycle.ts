@@ -51,6 +51,7 @@ const DEFAULT_READINESS_TIMEOUT_MS = 10_000;
 const DEFAULT_RETRY_DELAYS_MS = [250, 1_000] as const;
 const DEFAULT_READY_STABILITY_MS = 5_000;
 const MAX_AUTOMATIC_ATTEMPTS = 3;
+const MAX_READINESS_OUTPUT_LENGTH = 64 * 1024;
 
 export function createSidecarLifecycle(options: SidecarLifecycleOptions): SidecarLifecycle {
   let generation = 0;
@@ -152,7 +153,7 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
       }, remainingMs);
       return;
     }
-    attempts = 0;
+    attempts = 1;
     nextRetryIndex = 0;
   }
 
@@ -210,9 +211,16 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
       }, readinessTimeoutMs);
       candidate.process.stdout?.on("data", (data: Buffer | string) => {
         if (!isCurrent(candidate) || candidate.failed) return;
-        candidate.stdout += data.toString();
-        const match = candidate.stdout.match(/ORKWORKSD_PORT=(\d+)/);
-        if (match) ready(candidate, Number.parseInt(match[1], 10));
+        candidate.stdout = (candidate.stdout + data.toString()).slice(-MAX_READINESS_OUTPUT_LENGTH);
+        const match = candidate.stdout.match(/ORKWORKSD_PORT=(-?\d+)/);
+        if (match) {
+          const announcedPort = Number.parseInt(match[1], 10);
+          if (announcedPort >= 1 && announcedPort <= 65_535) {
+            ready(candidate, announcedPort);
+          } else {
+            fail(candidate, new Error("invalid port announcement"));
+          }
+        }
       });
       candidate.process.on("error", (error: Error) => {
         fail(candidate, error);

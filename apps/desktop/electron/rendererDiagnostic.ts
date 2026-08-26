@@ -4,7 +4,7 @@ const BEARER_TOKEN_PATTERN = /(\bBearer\s+)[^\s,}]+/gi;
 const SENSITIVE_ASSIGNMENT_PATTERN =
   /((?:["']?(?:token|password|secret|authorization|api[_-]?key|cookie|prompt|workspace|cwd|path|content|body|headers)["']?\s*[:=]\s*))(?:Bearer\s+)?(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,}]+)/gi;
 const URL_PATTERN = /(?:https?|file|data):\/\/[^\s"'<>`]+/gi;
-const POSIX_PATH_PATTERN = /(^|[\s("'=])\/(?:Users|private|tmp|var|home)\/[^\s"'<>`]+/g;
+const POSIX_PATH_PATTERN = /(^|[\s("'=])\/(?:[^\s"'<>`/]+\/)+[^\s"'<>`]+/g;
 const WINDOWS_PATH_PATTERN = /(^|[\s("'=])(?:[A-Za-z]:\\|\\\\)[^\s"'<>`]+/g;
 const SENSITIVE_JSON_KEY_PATTERN = /(?:token|password|secret|authorization|api[_-]?key|cookie|prompt|workspace|cwd|path|content|body|headers)/i;
 
