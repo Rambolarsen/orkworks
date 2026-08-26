@@ -8,7 +8,7 @@ Dependencies are managed by [APM](https://github.com/anthropics/apm) at the repo
 | `apm.lock.yaml` | Resolved lock file (gitignored) |
 | `.agents/skills/` | Skills for all targets |
 | `.claude/` | Claude Code hooks + skills |
-| `.codex/` | Codex hooks, including the committed Stop-hook JSON wrapper |
+| `.codex/` | Generated/local Codex hook configuration and adapters (gitignored) |
 | `.github/hooks/` | Copilot hooks |
 | `.opencode/` | OpenCode target |
 | `.mcp.json` | Claude Code MCP server config |
