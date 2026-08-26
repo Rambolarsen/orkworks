@@ -111,4 +111,36 @@ Polling now uses an epoch invalidated on disable, re-enable, and dispose, so
 an old in-flight response cannot publish beside a newly enabled loop. Added a
 regression test for disable → in-flight response → re-enable ordering.
 
+## Provider-specific model persistence follow-up
+
+The current task preserved the historical report above and appended this
+separate verification record.
+
+### Files changed
+
+- apps/desktop/src/providerTypes.ts: added model: string | null.
+- apps/desktop/electron/providerTypes.ts: added the mirrored model field.
+- apps/desktop/electron/settingsMemory.ts: added null defaults and Rust-compatible trim/empty/non-string normalization.
+- apps/desktop/tests/electronSettingsMemory.test.ts: added complete-entry persistence, compatibility, and legacy migration coverage.
+
+### Commits
+
+- eae98d8 feat: persist provider-specific Peon models
+- 413692d docs: record task 3 verification report
+- 089c7f9 docs: include task 3 report commit
+
+### Verification
+
+- pnpm install --frozen-lockfile: passed.
+- pnpm exec node --experimental-strip-types --test tests/electronSettingsMemory.test.ts: 31 passed, 0 failed.
+- pnpm exec node --experimental-strip-types --test tests/*.test.ts tests/*.test.mjs: 397 passed, 0 failed.
+- pnpm exec tsc --noEmit: passed.
+- git diff --check: passed.
+- bash .claude/hooks/doc-check.sh: passed.
+- bash .claude/hooks/worktree-check.sh: passed.
+
+The exact pnpm exec tsx command is unavailable because tsx is not declared in
+this branch, and pnpm test is unavailable because apps/desktop/package.json
+has no test script. Equivalent direct Node tests pass.
+
 - `node --experimental-strip-types --test tests/workspaceSessionController.test.ts` — 11/11 passed.

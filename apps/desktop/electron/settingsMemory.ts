@@ -117,12 +117,12 @@ export const DEFAULT_PROVIDER_SETTINGS: ProviderSettings = {
   peonModel: null,
   ollamaBaseUrl: "http://127.0.0.1:11434",
   providers: [
-    { id: "opencode", enabled: true, fallbackOrder: 0, defaultState: "healthy", overrideState: null },
-    { id: "claude-code", enabled: true, fallbackOrder: 1, defaultState: "unknown", overrideState: null },
-    { id: "codex", enabled: true, fallbackOrder: 2, defaultState: "unknown", overrideState: null },
-    { id: "aider", enabled: true, fallbackOrder: 3, defaultState: "unknown", overrideState: null },
-    { id: "copilot", enabled: true, fallbackOrder: 4, defaultState: "unknown", overrideState: null },
-    { id: "ollama", enabled: true, fallbackOrder: 5, defaultState: "unknown", overrideState: null },
+    { id: "opencode", model: null, enabled: true, fallbackOrder: 0, defaultState: "healthy", overrideState: null },
+    { id: "claude-code", model: null, enabled: true, fallbackOrder: 1, defaultState: "unknown", overrideState: null },
+    { id: "codex", model: null, enabled: true, fallbackOrder: 2, defaultState: "unknown", overrideState: null },
+    { id: "aider", model: null, enabled: true, fallbackOrder: 3, defaultState: "unknown", overrideState: null },
+    { id: "copilot", model: null, enabled: true, fallbackOrder: 4, defaultState: "unknown", overrideState: null },
+    { id: "ollama", model: null, enabled: true, fallbackOrder: 5, defaultState: "unknown", overrideState: null },
   ],
 };
 
@@ -301,8 +301,10 @@ function normalizeProviderEntry(raw: Record<string, unknown>): ProviderSettingsE
   const id = raw.id;
   if (!VALID_PROVIDER_IDS.has(id as ProviderId)) return null;
   const defaultEntry = DEFAULT_PROVIDER_SETTINGS.providers.find((p) => p.id === id)!;
+  const model = typeof raw.model === "string" ? raw.model.trim() || null : null;
   return {
     id: id as ProviderId,
+    model,
     enabled: typeof raw.enabled === "boolean" ? raw.enabled : defaultEntry.enabled,
     fallbackOrder: clampInt(raw.fallbackOrder, 0, Number.MAX_SAFE_INTEGER, defaultEntry.fallbackOrder),
     defaultState: VALID_CAPACITY_STATES.has(raw.defaultState as ProviderCapacityState)

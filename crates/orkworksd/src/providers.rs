@@ -80,6 +80,8 @@ pub struct ProviderSettingsEntry {
     pub enabled: bool,
     #[serde(rename = "fallbackOrder")]
     pub fallback_order: usize,
+    #[serde(default)]
+    pub model: Option<String>,
     #[serde(rename = "defaultState")]
     pub default_state: ProviderCapacityState,
     #[serde(rename = "overrideState")]
@@ -114,6 +116,28 @@ pub struct ProviderSettingsPayload {
 
 pub(crate) fn default_ollama_base_url() -> String {
     "http://127.0.0.1:11434".to_string()
+}
+
+fn normalize_provider_model(model: Option<String>) -> Option<String> {
+    model.and_then(|value| {
+        let trimmed = value.trim();
+        (!trimmed.is_empty()).then(|| trimmed.to_string())
+    })
+}
+
+fn normalize_provider_model_ref(model: Option<&str>) -> Option<String> {
+    model.and_then(|value| {
+        let trimmed = value.trim();
+        (!trimmed.is_empty()).then(|| trimmed.to_string())
+    })
+}
+
+fn resolve_provider_model(
+    entry: &ProviderSettingsEntry,
+    global_model: Option<&str>,
+) -> Option<String> {
+    normalize_provider_model_ref(entry.model.as_deref())
+        .or_else(|| normalize_provider_model_ref(global_model))
 }
 
 impl Default for ProviderSettingsPayload {
@@ -392,6 +416,7 @@ trait ProviderRunner: Send + Sync {
         args: &[String],
         prompt: &str,
         timeout_secs: u64,
+        model: Option<&str>,
     ) -> InvocationResult;
 }
 
@@ -408,10 +433,15 @@ impl ProviderRunner for CompositeRunner {
         args: &[String],
         prompt: &str,
         timeout_secs: u64,
+        model: Option<&str>,
     ) -> InvocationResult {
         match id {
-            "ollama" => self.http.run(id, command, args, prompt, timeout_secs),
-            _ => self.process.run(id, command, args, prompt, timeout_secs),
+            "ollama" => self
+                .http
+                .run(id, command, args, prompt, timeout_secs, model),
+            _ => self
+                .process
+                .run(id, command, args, prompt, timeout_secs, model),
         }
     }
 }
@@ -426,6 +456,7 @@ impl ProviderRunner for ProcessRunner {
         args: &[String],
         prompt: &str,
         timeout_secs: u64,
+        _model: Option<&str>,
     ) -> InvocationResult {
         let mut cmd = Command::new(command);
         for arg in args {
@@ -513,6 +544,7 @@ impl ProviderRunner for HttpRunner {
         _args: &[String],
         prompt: &str,
         timeout_secs: u64,
+        model: Option<&str>,
     ) -> InvocationResult {
         let settings = self.settings.read().unwrap().clone();
         let base_url = match id {
@@ -526,8 +558,8 @@ impl ProviderRunner for HttpRunner {
             }
         };
 
-        let model = match &settings.peon_model {
-            Some(m) if !m.is_empty() => m.clone(),
+        let model = match model {
+            Some(model) if !model.is_empty() => model,
             _ => {
                 return InvocationResult {
                     success: false,
@@ -687,6 +719,7 @@ impl ProviderManager {
     }
 
     pub fn apply_settings(&self, mut settings: ProviderSettingsPayload) -> ProviderApplyStatus {
+        settings.peon_model = normalize_provider_model(settings.peon_model);
         let valid_ids: HashSet<String> = self
             .definitions()
             .into_iter()
@@ -705,6 +738,7 @@ impl ProviderManager {
                     entry.id = "copilot".into();
                     migrated_legacy_copilot = true;
                 }
+                entry.model = normalize_provider_model(entry.model);
                 valid_ids.contains(&entry.id).then_some(entry)
             })
             .collect();
@@ -1028,8 +1062,9 @@ impl ProviderManager {
                 }
             };
 
+            let resolved_model = resolve_provider_model(entry, settings.peon_model.as_deref());
             let model_arg = if definition.supports_model {
-                settings.peon_model.as_deref().and_then(|model| {
+                resolved_model.as_deref().and_then(|model| {
                     definition
                         .model_arg_template
                         .as_deref()
@@ -1073,6 +1108,11 @@ impl ProviderManager {
                 &args,
                 &invocation_prompt,
                 timeout_secs,
+                if definition.supports_model {
+                    resolved_model.as_deref()
+                } else {
+                    None
+                },
             );
 
             if result.success {
@@ -1099,7 +1139,11 @@ impl ProviderManager {
                     let observation = ProviderObservation {
                         provider_id: entry.id.clone(),
                         provider_label: definition.label.clone(),
-                        provider_model: settings.peon_model.clone(),
+                        provider_model: if definition.supports_model {
+                            resolved_model
+                        } else {
+                            None
+                        },
                         provider_state: state_str.to_string(),
                     };
                     return ProviderRunResult {
@@ -1270,6 +1314,7 @@ pub struct FakeProvider {
     sleep_ms: u64,
     call_count: Option<std::sync::Arc<std::sync::atomic::AtomicUsize>>,
     invocations: Option<std::sync::Arc<std::sync::Mutex<Vec<(Vec<String>, String)>>>>,
+    models: Option<std::sync::Arc<std::sync::Mutex<Vec<Option<String>>>>>,
 }
 
 #[cfg(test)]
@@ -1283,6 +1328,7 @@ impl FakeProvider {
             sleep_ms: 0,
             call_count: None,
             invocations: None,
+            models: None,
         }
     }
 
@@ -1318,6 +1364,14 @@ impl FakeProvider {
         self.invocations = Some(invocations);
         self
     }
+
+    pub fn with_models(
+        mut self,
+        models: std::sync::Arc<std::sync::Mutex<Vec<Option<String>>>>,
+    ) -> Self {
+        self.models = Some(models);
+        self
+    }
 }
 
 #[cfg(test)]
@@ -1334,6 +1388,7 @@ impl ProviderRunner for FakeRunner {
         args: &[String],
         prompt: &str,
         timeout_secs: u64,
+        model: Option<&str>,
     ) -> InvocationResult {
         match self.specs.get(id) {
             Some(spec) => {
@@ -1345,6 +1400,9 @@ impl ProviderRunner for FakeRunner {
                         .lock()
                         .unwrap()
                         .push((args.to_vec(), prompt.to_owned()));
+                }
+                if let Some(ref models) = spec.models {
+                    models.lock().unwrap().push(model.map(str::to_owned));
                 }
                 if spec.sleep_ms > 0 {
                     if spec.sleep_ms > timeout_secs.saturating_mul(1000) {
@@ -1415,12 +1473,15 @@ impl ProviderManager {
 
 #[cfg(test)]
 mod tests {
+    const MAX_OLLAMA_TEST_REQUEST_BYTES: usize = 1024 * 1024;
+
     use super::*;
 
     struct TestEntryBuilder {
         id: &'static str,
         enabled: bool,
         fallback_order: usize,
+        model: Option<&'static str>,
         default_state: ProviderCapacityState,
         override_state: Option<ProviderCapacityState>,
     }
@@ -1436,6 +1497,7 @@ mod tests {
                 id,
                 enabled: true,
                 fallback_order,
+                model: None,
                 default_state: ProviderCapacityState::Healthy,
                 override_state: None,
             }
@@ -1449,6 +1511,10 @@ mod tests {
             self.default_state = s;
             self
         }
+        fn model(mut self, value: Option<&'static str>) -> Self {
+            self.model = value;
+            self
+        }
         fn override_state(mut self, s: Option<ProviderCapacityState>) -> Self {
             self.override_state = s;
             self
@@ -1459,6 +1525,7 @@ mod tests {
                 id: self.id.to_string(),
                 enabled: self.enabled,
                 fallback_order: self.fallback_order,
+                model: self.model.map(str::to_string),
                 default_state: self.default_state,
                 override_state: self.override_state,
             }
@@ -1485,6 +1552,414 @@ mod tests {
 
     fn registry_with(fakes: Vec<FakeProvider>) -> Vec<FakeProvider> {
         fakes
+    }
+
+    #[test]
+    fn provider_settings_entry_deserializes_missing_model_as_none() {
+        let payload = serde_json::json!({
+            "id": "copilot",
+            "enabled": true,
+            "fallbackOrder": 0,
+            "defaultState": "healthy",
+            "overrideState": null
+        });
+
+        let entry: ProviderSettingsEntry = serde_json::from_value(payload).unwrap();
+
+        assert_eq!(entry.model, None);
+    }
+
+    #[test]
+    fn provider_settings_entry_deserializes_explicit_model_string() {
+        let payload = serde_json::json!({
+            "id": "copilot",
+            "enabled": true,
+            "fallbackOrder": 0,
+            "model": "  llama3  ",
+            "defaultState": "healthy",
+            "overrideState": null
+        });
+
+        let entry: ProviderSettingsEntry = serde_json::from_value(payload).unwrap();
+
+        assert_eq!(entry.model.as_deref(), Some("  llama3  "));
+    }
+
+    #[test]
+    fn resolve_provider_model_prefers_entry_then_global_then_none() {
+        let provider_override = entry("copilot").model(Some("  llama3  ")).build();
+        let global_only = entry("copilot").build();
+        let blank_override = entry("copilot").model(Some("   ")).build();
+
+        assert_eq!(
+            resolve_provider_model(&provider_override, Some(" global-model ")).as_deref(),
+            Some("llama3")
+        );
+        assert_eq!(
+            resolve_provider_model(&global_only, Some(" global-model ")).as_deref(),
+            Some("global-model")
+        );
+        assert_eq!(resolve_provider_model(&blank_override, Some("   ")), None);
+    }
+
+    #[test]
+    fn inference_uses_entry_model_for_invocation_and_observation() {
+        let invocations = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let manager = ProviderManager::for_tests_with_registry(
+            vec![ProviderDefinition {
+                id: "custom-ai".into(),
+                label: "Custom AI".into(),
+                command: "custom-ai".into(),
+                default_args: vec![],
+                model_arg_template: Some("--model={model}".into()),
+                supports_model: true,
+                timeout_secs: 30,
+                prompt_transport: PromptTransport::Stdin,
+                list_models_command: None,
+                list_models_args: vec![],
+                static_models: vec![],
+                http_list_models: false,
+            }],
+            ProviderSettingsPayload {
+                peon_model: Some("global-model".into()),
+                ..sample_settings(vec![entry("custom-ai").model(Some(" entry-model "))])
+            },
+            vec![fake_provider("custom-ai")
+                .stdout(r#"{"observedStatus":"working","confidence":0.9}"#)
+                .with_invocations(invocations.clone())],
+        );
+
+        let result = manager.run_inference(PeonScope::Session, &["terminal line".to_owned()]);
+
+        assert_eq!(
+            result
+                .inference
+                .as_ref()
+                .unwrap()
+                .observed_status
+                .as_deref(),
+            Some("working")
+        );
+        assert_eq!(
+            result
+                .observation
+                .as_ref()
+                .unwrap()
+                .provider_model
+                .as_deref(),
+            Some("entry-model")
+        );
+        assert_eq!(
+            invocations.lock().unwrap()[0].0,
+            vec!["--model=entry-model"]
+        );
+    }
+
+    #[test]
+    fn inference_uses_global_model_when_entry_model_is_whitespace() {
+        let invocations = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let manager = ProviderManager::for_tests_with_registry(
+            vec![ProviderDefinition {
+                id: "custom-ai".into(),
+                label: "Custom AI".into(),
+                command: "custom-ai".into(),
+                default_args: vec![],
+                model_arg_template: Some("--model={model}".into()),
+                supports_model: true,
+                timeout_secs: 30,
+                prompt_transport: PromptTransport::Stdin,
+                list_models_command: None,
+                list_models_args: vec![],
+                static_models: vec![],
+                http_list_models: false,
+            }],
+            ProviderSettingsPayload {
+                peon_model: Some(" global-model ".into()),
+                ..sample_settings(vec![entry("custom-ai").model(Some("   "))])
+            },
+            vec![fake_provider("custom-ai")
+                .stdout(r#"{"observedStatus":"working","confidence":0.9}"#)
+                .with_invocations(invocations.clone())],
+        );
+
+        let result = manager.run_inference(PeonScope::Session, &["terminal line".to_owned()]);
+
+        assert_eq!(
+            result
+                .observation
+                .as_ref()
+                .unwrap()
+                .provider_model
+                .as_deref(),
+            Some("global-model")
+        );
+        assert_eq!(
+            invocations.lock().unwrap()[0].0,
+            vec!["--model=global-model"]
+        );
+    }
+
+    #[test]
+    fn inference_omits_model_argument_for_provider_without_model_support() {
+        let invocations = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let models = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let manager = ProviderManager::for_tests_with_registry(
+            vec![ProviderDefinition {
+                id: "aider".into(),
+                label: "Aider".into(),
+                command: "aider".into(),
+                default_args: vec!["--stdin".into()],
+                model_arg_template: Some("--model={model}".into()),
+                supports_model: false,
+                timeout_secs: 30,
+                prompt_transport: PromptTransport::Stdin,
+                list_models_command: None,
+                list_models_args: vec![],
+                static_models: vec![],
+                http_list_models: false,
+            }],
+            ProviderSettingsPayload {
+                peon_model: Some("global-model".into()),
+                ..sample_settings(vec![entry("aider").model(Some("provider-model"))])
+            },
+            vec![fake_provider("aider")
+                .stdout(r#"{"observedStatus":"working","confidence":0.9}"#)
+                .with_invocations(invocations.clone())
+                .with_models(models.clone())],
+        );
+
+        let result = manager.run_inference(PeonScope::Session, &["terminal line".to_owned()]);
+
+        assert!(result.inference.is_some());
+        assert_eq!(result.observation.unwrap().provider_model.as_deref(), None);
+        assert_eq!(invocations.lock().unwrap()[0].0, vec!["--stdin"]);
+        assert_eq!(models.lock().unwrap().as_slice(), &[None]);
+    }
+
+    #[test]
+    fn ollama_request_uses_resolved_entry_model() {
+        enum OllamaTestServerError {
+            LoopbackUnavailable(String),
+            Failure(String),
+        }
+
+        let listener = match std::net::TcpListener::bind(("127.0.0.1", 0)) {
+            Ok(listener) => listener,
+            Err(error) => {
+                eprintln!("skipping Ollama request test: loopback bind failed: {error}");
+                return;
+            }
+        };
+        let address = listener.local_addr().unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let request_body = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+        let captured_body = request_body.clone();
+        let server = std::thread::spawn(move || {
+            let accept_deadline = std::time::Instant::now() + Duration::from_secs(2);
+            let (mut stream, _) = loop {
+                match listener.accept() {
+                    Ok(connection) => break connection,
+                    Err(error)
+                        if error.kind() == std::io::ErrorKind::WouldBlock
+                            && std::time::Instant::now() < accept_deadline =>
+                    {
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(error)
+                        if error.kind() == std::io::ErrorKind::WouldBlock
+                            && std::time::Instant::now() >= accept_deadline =>
+                    {
+                        return Err(OllamaTestServerError::LoopbackUnavailable(format!(
+                            "Ollama test server accept timed out after 2s: {error}"
+                        )));
+                    }
+                    Err(error) => {
+                        return Err(OllamaTestServerError::Failure(format!(
+                            "Ollama test server did not accept a connection: {error}"
+                        )));
+                    }
+                }
+            };
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .map_err(|error| {
+                    OllamaTestServerError::Failure(format!(
+                        "Ollama test server failed to set read timeout: {error}"
+                    ))
+                })?;
+            let mut request = Vec::new();
+            let mut chunk = [0_u8; 4096];
+            loop {
+                match stream.read(&mut chunk) {
+                    Ok(0) => {
+                        return Err(OllamaTestServerError::Failure(
+                            "Ollama test server received EOF before request headers".into(),
+                        ))
+                    }
+                    Err(error) => {
+                        return Err(OllamaTestServerError::Failure(format!(
+                            "Ollama test server header read failed: {error}"
+                        )))
+                    }
+                    Ok(n) => {
+                        request.extend_from_slice(&chunk[..n]);
+                        if request.len() > MAX_OLLAMA_TEST_REQUEST_BYTES {
+                            return Err(OllamaTestServerError::Failure(
+                                "Ollama test server request exceeded size cap".into(),
+                            ));
+                        }
+                        if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                            break;
+                        }
+                    }
+                }
+            }
+            let headers_end = request
+                .windows(4)
+                .position(|window| window == b"\r\n\r\n")
+                .ok_or_else(|| {
+                    OllamaTestServerError::Failure(
+                        "Ollama test server received incomplete request headers".into(),
+                    )
+                })?
+                .checked_add(4)
+                .ok_or_else(|| {
+                    OllamaTestServerError::Failure(
+                        "Ollama test server header length overflowed".into(),
+                    )
+                })?;
+            let headers = String::from_utf8_lossy(&request[..headers_end]);
+            let content_length_value = headers
+                .lines()
+                .find_map(|line| {
+                    let (name, value) = line.split_once(':')?;
+                    name.trim()
+                        .eq_ignore_ascii_case("Content-Length")
+                        .then_some(value.trim())
+                })
+                .ok_or_else(|| {
+                    OllamaTestServerError::Failure(
+                        "Ollama test server request is missing Content-Length header".into(),
+                    )
+                })?;
+            let content_length = content_length_value.parse::<usize>().map_err(|error| {
+                OllamaTestServerError::Failure(format!(
+                    "Ollama test server received invalid Content-Length '{content_length_value}': {error}"
+                ))
+            })?;
+            let body_end = headers_end
+                .checked_add(content_length)
+                .filter(|&end| end <= MAX_OLLAMA_TEST_REQUEST_BYTES)
+                .ok_or_else(|| {
+                    OllamaTestServerError::Failure(
+                        "Ollama test server request body exceeded size cap".into(),
+                    )
+                })?;
+            while request.len() < body_end {
+                match stream.read(&mut chunk) {
+                    Ok(0) => {
+                        return Err(OllamaTestServerError::Failure(
+                            "Ollama test server received a truncated request".into(),
+                        ))
+                    }
+                    Ok(n) => {
+                        request.extend_from_slice(&chunk[..n]);
+                        if request.len() > MAX_OLLAMA_TEST_REQUEST_BYTES {
+                            return Err(OllamaTestServerError::Failure(
+                                "Ollama test server request exceeded size cap".into(),
+                            ));
+                        }
+                    }
+                    Err(error) => {
+                        return Err(OllamaTestServerError::Failure(format!(
+                            "Ollama test server read failed: {error}"
+                        )))
+                    }
+                }
+            }
+            *captured_body.lock().unwrap() =
+                String::from_utf8(request[headers_end..body_end].to_vec()).map_err(|error| {
+                    OllamaTestServerError::Failure(format!(
+                        "Ollama test server received invalid UTF-8 body: {error}"
+                    ))
+                })?;
+            stream
+                .set_write_timeout(Some(Duration::from_secs(2)))
+                .map_err(|error| {
+                    OllamaTestServerError::Failure(format!(
+                        "Ollama test server failed to set write timeout: {error}"
+                    ))
+                })?;
+            let body =
+                r#"{"response":"{\"observedStatus\":\"working\",\"confidence\":0.9}","done":true}"#;
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            )
+            .map_err(|error| {
+                OllamaTestServerError::Failure(format!(
+                    "Ollama test server failed to write response: {error}"
+                ))
+            })?;
+            Ok::<(), OllamaTestServerError>(())
+        });
+
+        let manager = ProviderManager::new();
+        manager.apply_settings(ProviderSettingsPayload {
+            peon_model: Some("global-model".into()),
+            ollama_base_url: format!("http://{address}"),
+            providers: vec![entry("ollama").model(Some("ollama-entry-model")).build()],
+            ..sample_settings(vec![])
+        });
+
+        let result = manager.run_inference(PeonScope::Session, &["terminal line".to_owned()]);
+        match server.join().expect("Ollama test server thread panicked") {
+            Ok(()) => {}
+            Err(OllamaTestServerError::LoopbackUnavailable(diagnostic)) => {
+                eprintln!("skipping Ollama request test: loopback unavailable: {diagnostic}");
+                return;
+            }
+            Err(OllamaTestServerError::Failure(error)) => {
+                panic!("Ollama test server failed: {error}");
+            }
+        }
+
+        assert!(result.inference.is_some());
+        assert_eq!(
+            result.observation.unwrap().provider_model.as_deref(),
+            Some("ollama-entry-model")
+        );
+        let body: serde_json::Value = serde_json::from_str(&request_body.lock().unwrap()).unwrap();
+        assert_eq!(body["model"], "ollama-entry-model");
+    }
+
+    #[test]
+    fn http_runner_rejects_unsupported_provider() {
+        let runner = HttpRunner {
+            settings: Arc::new(RwLock::new(ProviderSettingsPayload::default())),
+        };
+
+        let result = runner.run("unsupported", "", &[], "prompt", 1, Some("model"));
+
+        assert!(!result.success);
+        assert_eq!(
+            result.stderr,
+            "HttpRunner does not support provider unsupported"
+        );
+    }
+
+    #[test]
+    fn http_runner_preserves_ollama_no_model_error() {
+        let runner = HttpRunner {
+            settings: Arc::new(RwLock::new(ProviderSettingsPayload::default())),
+        };
+
+        let result = runner.run("ollama", "", &[], "prompt", 1, None);
+
+        assert!(!result.success);
+        assert_eq!(result.stderr, "no Ollama model selected in Peon settings");
     }
 
     #[test]
@@ -1554,6 +2029,29 @@ mod tests {
         assert_eq!(result.attempts.len(), 1);
         assert_eq!(result.attempts[0].provider_id, "copilot");
         assert_eq!(result.attempts[0].outcome, AttemptOutcome::Succeeded);
+    }
+
+    #[test]
+    fn apply_settings_trims_provider_and_global_models_and_clears_whitespace() {
+        let payload = ProviderSettingsPayload {
+            peon_model: Some("  global-model  ".into()),
+            providers: vec![
+                entry("copilot").model(Some("  llama3  ")).build(),
+                entry("claude-code").model(Some("   ")).build(),
+            ],
+            ..sample_settings(vec![])
+        };
+        let manager = ProviderManager::for_tests(
+            ProviderSettingsPayload::default(),
+            vec![fake_provider("copilot"), fake_provider("claude-code")],
+        );
+
+        manager.apply_settings(payload);
+
+        let settings = manager.settings.read().unwrap().clone();
+        assert_eq!(settings.peon_model.as_deref(), Some("global-model"));
+        assert_eq!(settings.providers[0].model.as_deref(), Some("llama3"));
+        assert_eq!(settings.providers[1].model, None);
     }
 
     #[test]
@@ -1852,6 +2350,7 @@ mod tests {
                     id: "ollama".to_string(),
                     enabled: true,
                     fallback_order: 0,
+                    model: None,
                     default_state: ProviderCapacityState::Healthy,
                     override_state: None,
                 }],
@@ -1876,6 +2375,7 @@ mod tests {
                     id: "ollama".to_string(),
                     enabled: false,
                     fallback_order: 0,
+                    model: None,
                     default_state: ProviderCapacityState::Healthy,
                     override_state: None,
                 }],

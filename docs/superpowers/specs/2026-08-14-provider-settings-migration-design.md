@@ -51,6 +51,26 @@ This protects stale files, older Electron processes, and direct API callers
 from reaching the missing-registry warning. The provider response and model APIs
 consequently expose only executable Peon providers.
 
+## Provider model compatibility
+
+The v1-compatible persisted shape retains the global `peonModel` and adds an
+optional `model` field to each provider entry. For every enabled provider, the
+resolved model uses this precedence:
+
+1. `provider.model` when it is non-blank.
+2. The global `peonModel` fallback.
+3. The provider's own default when neither setting supplies a model.
+
+Model values are trimmed at both Electron normalization and sidecar settings
+application boundaries. A blank or whitespace-only value clears the provider
+override and is persisted as `null`, so it falls through to the global
+`peonModel`; a blank global value resolves to the provider default. Suggestions
+are provider-scoped and come only from the matching provider's model list.
+Ollama receives the same resolved model value through its HTTP runner, rather
+than reading the global snapshot independently. The full rationale and
+implementation contract are in the [dated provider-scoped model selection
+design](2026-08-25-provider-model-selection-design.md).
+
 ## Error Handling
 
 Gemini provider settings are removed rather than invoked. The migration is

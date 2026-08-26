@@ -2,7 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { deriveEffectiveState, buildProviderViewModel } from "../src/providerPresentation.ts";
+import {
+  deriveEffectiveState,
+  buildProviderViewModel,
+  synchronizeProviderModelDrafts,
+} from "../src/providerPresentation.ts";
 import type { ProviderSettings } from "../src/providerTypes.ts";
 import type { ProviderRuntimeResponse } from "../src/api.ts";
 
@@ -42,6 +46,33 @@ function sampleRuntime(overrides: Partial<ProviderRuntimeResponse> = {}): Provid
     ...overrides,
   };
 }
+
+test("synchronizeProviderModelDrafts preserves one provider draft across another provider commit", () => {
+  const previousProviders = sampleSettings().providers;
+  const previousDrafts = { opencode: "typed-but-unblurred", "claude-code": "" };
+  const nextProviders = previousProviders.map((entry) =>
+    entry.id === "claude-code" ? { ...entry, model: "claude-model" } : entry,
+  );
+
+  assert.deepEqual(
+    synchronizeProviderModelDrafts(previousDrafts, previousProviders, nextProviders),
+    { opencode: "typed-but-unblurred", "claude-code": "claude-model" },
+  );
+});
+
+test("synchronizeProviderModelDrafts syncs committed changes and provider-list changes", () => {
+  const previousProviders = sampleSettings().providers;
+  const previousDrafts = { opencode: "", "claude-code": "edited" };
+  const nextProviders = [
+    { ...previousProviders[0]!, model: "new-default" },
+    { id: "copilot", model: "copilot-model", enabled: true, fallbackOrder: 2, defaultState: "healthy" as const, overrideState: null },
+  ];
+
+  assert.deepEqual(
+    synchronizeProviderModelDrafts(previousDrafts, previousProviders, nextProviders),
+    { opencode: "new-default", copilot: "copilot-model" },
+  );
+});
 
 test("deriveEffectiveState prefers disabled, then override, then default", () => {
   assert.equal(deriveEffectiveState({ enabled: false, defaultState: "healthy", overrideState: null }), "disabled");

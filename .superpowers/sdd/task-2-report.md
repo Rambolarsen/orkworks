@@ -1,49 +1,30 @@
-# Task 2 report: Rust session application seam
+# Task 2 report
 
-## Changed files
+Status: complete with validation concerns
 
-- `crates/orkworksd/src/session_application.rs` — added `SessionApplication`, application command/value types, stable application errors, workspace reconciliation implementation, and application operation adapters.
-- `crates/orkworksd/src/main.rs` — registered the new module.
-- `crates/orkworksd/src/http/session_handlers.rs` — routed workspace, create, resume, attention, plan-selection, delete, and forget handlers through the application seam while preserving request extraction, authorization, response mapping, and existing compatibility implementations.
+## Files
 
-## Exact interface
+- `crates/orkworksd/src/providers.rs` — added execution-path coverage proving providers without model support receive no model argument while the resolved model remains recorded in the observation. Existing Task 1/Task 2 implementation was preserved.
+- `.superpowers/sdd/task-2-report.md` — this report.
 
-```rust
-pub(crate) struct SessionApplication { state: Arc<AppState> }
+## Commits
 
-pub(crate) fn new(state: Arc<AppState>) -> Self;
-pub(crate) fn open_workspace(PathBuf) -> Result<WorkspaceSnapshot, SessionError>;
-pub(crate) async fn create_session(CreateSessionCommand) -> Result<SessionSnapshot, SessionError>;
-pub(crate) async fn resume_session(&str) -> Result<SessionSnapshot, SessionError>;
-pub(crate) async fn report_attention(&str, AttentionSignal) -> Result<(), SessionError>;
-pub(crate) async fn select_plan(&str, PlanSelection) -> Result<SessionSnapshot, SessionError>;
-pub(crate) async fn delete_session(&str, bool) -> Result<SessionSnapshot, SessionError>;
-```
+- `15919b7` — existing Task 1 model-resolution implementation inspected and preserved.
+- `e90c921` — existing Task 1 report inspected and preserved.
+- `55f5ad5` — `test: cover unsupported provider model arguments`.
 
-`SessionSnapshot` is the existing Axum `Response`, preserving the exact legacy response body/status for operations whose compatibility implementation is still in the handler module. `WorkspaceSnapshot` contains `path`, `repo_root`, `branch`, `dirty`, `last_active_session_id`, and `active_harness_ids`. `SessionError` contains `BadRequest`, `Conflict`, `NotFound`, and `Internal` variants.
+## Verification
 
-## TDD evidence
-
-- RED: `cargo test --manifest-path crates/orkworksd/Cargo.toml session_application::tests::opening_a_workspace_returns_its_application_snapshot` failed because `SessionApplication` did not exist (`cannot find type SessionApplication`).
-- GREEN: the same focused command passed after adding the module and moving workspace reconciliation behind `open_workspace`.
-- Subsequent full test run passed with 648 tests and 0 failures.
-
-## Verification commands and results
-
-- `cargo test --manifest-path crates/orkworksd/Cargo.toml` — PASS, 648 passed, 0 failed.
-- `cargo fmt --all -- --check` — BLOCKED at repository root because no root `Cargo.toml` exists.
-- `cargo fmt --manifest-path crates/orkworksd/Cargo.toml --all -- --check` — FAIL due pre-existing formatting drift across many untouched files; the output included files under `harness/`, `metadata.rs`, runtime modules, and `session_view.rs`.
-- `cargo clippy --manifest-path crates/orkworksd/Cargo.toml -- -D warnings` — FAIL due the existing repository lint backlog, including pre-existing dead code, type-complexity, argument-count, identity-op, and runtime conversion warnings. New seam import/closure warnings were removed before the final run.
+- `cargo test --manifest-path crates/orkworksd/Cargo.toml providers::tests -- --nocapture` — PASS, 33 passed, 0 failed.
 - `git diff --check` — PASS.
-- `bash .claude/hooks/doc-check.sh` — PASS/silent.
-- `bash .claude/hooks/worktree-check.sh` — PASS/silent.
-
-## Commit
-
-`9f7388a` — `refactor: deepen session application module`
+- `rustfmt --edition 2021 --check crates/orkworksd/src/providers.rs` — PASS.
+- `cargo fmt --manifest-path crates/orkworksd/Cargo.toml -- --check` — BLOCKED by pre-existing formatting differences in unrelated Rust files outside the permitted ownership.
+- `CARGO_TARGET_DIR=/private/tmp/orkworks-provider-model-selection-target cargo test --manifest-path crates/orkworksd/Cargo.toml` — 822 passed, 5 failed; failures were `Operation not permitted` from localhost binding or unrelated filesystem-backed tests in the sandbox.
+- `bash .claude/hooks/doc-check.sh` — run after implementation.
+- `bash .claude/hooks/worktree-check.sh` — run after implementation.
 
 ## Concerns
 
-- The new application methods for create/resume/attention/plan/delete/forget currently delegate to renamed compatibility implementations in `http::session_handlers`; this preserves behavior and wire compatibility, but is an intermediate seam rather than a complete relocation of lifecycle logic into the application module.
-- `SessionSnapshot` is an Axum response rather than a domain snapshot, because extracting and serializing the existing large create/resume implementations in this task would risk changing response bodies, status codes, startup ordering, or resume compensation behavior.
-- Strict fmt and clippy gates remain red for baseline repository issues; no unrelated baseline files were changed to clear them.
+- Luna was requested but no Luna capability is installed or exposed in this environment; self-review was performed locally.
+- Full crate formatting remains blocked by unrelated pre-existing formatting drift.
+- Full crate tests have five sandbox permission failures; the provider-focused suite is fully green.

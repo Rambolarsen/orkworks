@@ -1,4 +1,4 @@
-import type { ProviderCapacityState, ProviderEffectiveState, ProviderSettings, ProviderSettingsEntry } from "./providerTypes.ts";
+import type { ProviderCapacityState, ProviderEffectiveState, ProviderId, ProviderSettings, ProviderSettingsEntry } from "./providerTypes.ts";
 import type { ProviderRuntimeResponse } from "./api.ts";
 
 export function deriveEffectiveState(
@@ -10,6 +10,34 @@ export function deriveEffectiveState(
 
 export function sortProviderEntries(entries: ProviderSettingsEntry[]): ProviderSettingsEntry[] {
   return [...entries].sort((a, b) => a.fallbackOrder - b.fallbackOrder || a.id.localeCompare(b.id));
+}
+
+export function updateProviderModel(
+  settings: ProviderSettings,
+  providerId: ProviderId,
+  value: string,
+): ProviderSettings {
+  const model = value.trim() || null;
+  return {
+    ...settings,
+    providers: settings.providers.map((entry) =>
+      entry.id === providerId ? { ...entry, model } : entry,
+    ),
+  };
+}
+
+export function synchronizeProviderModelDrafts(
+  drafts: Record<string, string>,
+  previousProviders: readonly ProviderSettingsEntry[],
+  nextProviders: readonly ProviderSettingsEntry[],
+): Record<string, string> {
+  const previousModels = new Map(previousProviders.map((entry) => [entry.id, entry.model ?? ""]));
+  return Object.fromEntries(nextProviders.map((entry) => {
+    const committedModel = entry.model ?? "";
+    const draft = drafts[entry.id];
+    const wasUnchanged = draft === undefined || draft === previousModels.get(entry.id);
+    return [entry.id, wasUnchanged ? committedModel : draft];
+  }));
 }
 
 export function isAppliedRevisionStale(settings: ProviderSettings, runtime: ProviderRuntimeResponse | null): boolean {
