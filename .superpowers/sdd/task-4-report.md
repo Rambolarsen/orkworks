@@ -2,7 +2,7 @@
 
 ## Status
 
-Implemented on `fix-runtime-recovery`. Task 4 changes are ready to commit.
+Implemented on `fix-runtime-recovery` and committed as `4f6f047` (`feat: show recovery state for renderer failures`). This report was finalized in the follow-up report-only commit after the implementation commit.
 
 ## Changes
 
@@ -56,4 +56,4 @@ Implemented on `fix-runtime-recovery`. Task 4 changes are ready to commit.
 
 ## Commit
 
-Planned commit message: `feat: show recovery state for renderer failures`
+`4f6f047` — `feat: show recovery state for renderer failures`
