@@ -4,8 +4,6 @@ use std::io::Write as IoWrite;
 use std::process::{Command, Stdio};
 use std::sync::{Arc, RwLock};
 
-#[cfg(unix)]
-use std::os::unix::process::CommandExt;
 use std::time::Duration;
 
 use reqwest::Client as HttpClient;
@@ -434,22 +432,6 @@ impl ProviderRunner for ProcessRunner {
         cmd.stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-
-        #[cfg(unix)]
-        unsafe {
-            cmd.pre_exec(|| {
-                // Detach from the controlling terminal so the harness
-                // subprocess cannot write to the user's PTY via /dev/tty.
-                let _ = libc::setsid();
-                // Close inherited file descriptors >= 3 to prevent leaks
-                // into parent PTY master fds. Capped at 1024 to stay fast.
-                let max_fd = libc::sysconf(libc::_SC_OPEN_MAX).max(3).min(1024);
-                for fd in (3..=max_fd).rev() {
-                    libc::close(fd as i32);
-                }
-                Ok(())
-            });
-        }
 
         let mut child = match cmd.spawn() {
             Ok(c) => c,
@@ -1481,6 +1463,29 @@ mod tests {
 
     fn fake_provider(id: &'static str) -> FakeProvider {
         FakeProvider::new(id)
+    }
+
+    #[test]
+    fn process_runner_returns_spawn_errors_without_panicking() {
+        let runner = ProcessRunner;
+
+        #[cfg(unix)]
+        let (command, args) = ("true", Vec::new());
+        #[cfg(windows)]
+        let (command, args) = ("cmd", vec!["/C".to_string(), "exit 0".to_string()]);
+
+        let success = runner.run("test", command, &args, "", 1);
+        assert!(success.success);
+
+        let missing = runner.run(
+            "test",
+            "__orkworks_missing_provider_command__",
+            &[],
+            "",
+            1,
+        );
+        assert!(!missing.success);
+        assert!(!missing.stderr.is_empty());
     }
 
     fn registry_with(fakes: Vec<FakeProvider>) -> Vec<FakeProvider> {
