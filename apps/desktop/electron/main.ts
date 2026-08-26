@@ -1,5 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, shell } from "electron";
-import { spawn, type ChildProcess } from "child_process";
+import { spawn } from "child_process";
 import { randomBytes } from "crypto";
 import { existsSync } from "fs";
 import * as path from "path";
@@ -13,17 +13,17 @@ import type { ProviderApplyStatus, ProviderSettings } from "./providerTypes";
 import { buildMenuTemplate } from "./menuTemplate";
 import { getSessionPlanContent, requestSessionPlanReview, selectTerminalPlan } from "./planOpener";
 import { configureExternalLinks, openExternalLink } from "./externalLinks";
+import { createSidecarLifecycle, type SidecarLifecycle, type SidecarProcess, type SidecarState } from "./sidecarLifecycle";
 
 app.setName("OrkWorks");
 
-let mainWindow: BrowserWindow | null = null;
-let sidecarProcess: ChildProcess | null = null;
-let backendPort: number | null = null;
-let portResolve: ((port: number) => void) | null = null;
-let portPromise = new Promise<number>((resolve) => {
-  portResolve = resolve;
-});
+type BackendLifecycleEvent =
+  | { state: "starting" | "retrying" }
+  | { state: "ready"; port: number }
+  | { state: "failed" | "exhausted"; message: string };
 
+let mainWindow: BrowserWindow | null = null;
+let sidecarLifecycle: SidecarLifecycle | null = null;
 let workspacePath: string | null = null;
 let menuPanelItems: Record<string, Electron.MenuItem> = {};
 let currentSettings: AppSettings | null = null;
@@ -79,43 +79,6 @@ function getSidecarPath(): string {
   return getDevSidecarPath(__dirname);
 }
 
-function startSidecar(cwdOverride?: string): void {
-  const binaryPath = getSidecarPath();
-  const sidecarCwd = cwdOverride ?? (app.isPackaged ? app.getPath("home") : getDevRepoRoot(__dirname));
-  openPlanToken = randomBytes(32).toString("hex");
-  console.log(`[main] starting sidecar: ${binaryPath}`);
-  console.log(`[main] sidecar cwd: ${sidecarCwd}`);
-
-  sidecarProcess = spawn(binaryPath, [], {
-    cwd: sidecarCwd,
-    stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, ORKWORKS_OPEN_PLAN_TOKEN: openPlanToken },
-  });
-
-  sidecarProcess.stdout?.on("data", (data: Buffer) => {
-    const line = data.toString().trim();
-    console.log(`[orkworksd] ${line}`);
-    const match = line.match(/ORKWORKSD_PORT=(\d+)/);
-    if (match) {
-      backendPort = parseInt(match[1], 10);
-      console.log(`[main] sidecar ready on port ${backendPort}`);
-      if (portResolve) {
-        portResolve(backendPort);
-        portResolve = null;
-      }
-    }
-  });
-
-  sidecarProcess.stderr?.on("data", (data: Buffer) => {
-    console.error(`[orkworksd:err] ${data.toString().trim()}`);
-  });
-
-  sidecarProcess.on("exit", (code) => {
-    console.log(`[main] sidecar exited with code ${code}`);
-    sidecarProcess = null;
-  });
-}
-
 function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1400,
@@ -169,9 +132,159 @@ app.whenReady().then(() => {
   workspacePath = initialWorkspacePath;
   currentSettings = loadSettingsForStartup(app.getPath("userData"));
 
+  let backendGeneration = 0;
+  let backendReadinessResolve: ((port: number) => void) | null = null;
+  let backendReadinessReject: ((error: Error) => void) | null = null;
+  let currentBackendReadiness = new Promise<number>(() => {});
+  let restoredWorkspace: unknown = null;
+  let lastBackendFailure = "The OrkWorks sidecar is unavailable.";
+
+  function publishBackendLifecycle(event: BackendLifecycleEvent): void {
+    mainWindow?.webContents.send("orkworks:backend-lifecycle", event);
+  }
+
+  function replaceBackendReadiness(): void {
+    backendReadinessReject?.(new Error("Backend generation was replaced"));
+    backendGeneration += 1;
+    currentBackendReadiness = new Promise<number>((resolve, reject) => {
+      backendReadinessResolve = resolve;
+      backendReadinessReject = reject;
+    });
+    void currentBackendReadiness.catch(() => {});
+  }
+
+  function rejectBackendReadiness(error: Error): void {
+    backendReadinessReject?.(error);
+    backendReadinessResolve = null;
+    backendReadinessReject = null;
+    currentBackendReadiness = Promise.reject(error);
+    void currentBackendReadiness.catch(() => {});
+  }
+
+  function isCurrentBackendGeneration(generation: number, port: number): boolean {
+    return generation === backendGeneration && sidecarLifecycle?.getPort() === port;
+  }
+
+  async function restoreWorkspace(port: number, generation: number): Promise<void> {
+    restoredWorkspace = null;
+    if (!workspacePath) return;
+
+    const response = await fetch(`http://127.0.0.1:${port}/workspace`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: workspacePath }),
+    });
+    if (!isCurrentBackendGeneration(generation, port)) return;
+    if (!response.ok) {
+      throw new Error(`Workspace restoration failed: ${response.status}`);
+    }
+    const workspace = await response.json();
+    if (!isCurrentBackendGeneration(generation, port)) return;
+    restoredWorkspace = workspace;
+  }
+
+  async function applyRetentionSettings(port: number, generation: number): Promise<void> {
+    const retention = currentSettings?.retention ?? DEFAULT_RETENTION;
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/settings/retention`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(retention),
+      });
+      if (!isCurrentBackendGeneration(generation, port)) return;
+      if (!response.ok) {
+        console.warn(`[main] failed to restore retention settings: ${response.status}`);
+      }
+    } catch (error) {
+      if (!isCurrentBackendGeneration(generation, port)) return;
+      console.warn(`[main] failed to restore retention settings: ${error instanceof Error ? error.message : "unknown error"}`);
+    }
+  }
+
+  async function syncSavedProviderSettings(port: number, generation: number): Promise<void> {
+    const settings = currentSettings ?? readSettings(app.getPath("userData"));
+    const result = await pushProviderSettings(`http://127.0.0.1:${port}`, settings.providers);
+    if (!isCurrentBackendGeneration(generation, port)) return;
+    if (result.lastApplyError) {
+      console.warn(`[main] failed to push provider settings: ${result.lastApplyError}`);
+    }
+  }
+
+  async function restoreBackend(port: number, generation: number): Promise<void> {
+    try {
+      await restoreWorkspace(port, generation);
+      if (!isCurrentBackendGeneration(generation, port)) return;
+      await applyRetentionSettings(port, generation);
+      if (!isCurrentBackendGeneration(generation, port)) return;
+      await syncSavedProviderSettings(port, generation);
+      if (!isCurrentBackendGeneration(generation, port)) return;
+      backendReadinessResolve?.(port);
+      backendReadinessResolve = null;
+      backendReadinessReject = null;
+      publishBackendLifecycle({ state: "ready", port });
+    } catch (error) {
+      if (!isCurrentBackendGeneration(generation, port)) return;
+      const failure = error instanceof Error ? error : new Error("Backend restoration failed");
+      lastBackendFailure = failure.message;
+      rejectBackendReadiness(failure);
+      publishBackendLifecycle({ state: "failed", message: failure.message });
+    }
+  }
+
+  sidecarLifecycle = createSidecarLifecycle({
+    spawn: (cwd): SidecarProcess => {
+      const binaryPath = getSidecarPath();
+      openPlanToken = randomBytes(32).toString("hex");
+      console.log(`[main] starting sidecar: ${binaryPath}`);
+      console.log(`[main] sidecar cwd: ${cwd}`);
+      const child = spawn(binaryPath, [], {
+        cwd,
+        stdio: ["ignore", "pipe", "pipe"],
+        env: { ...process.env, ORKWORKS_OPEN_PLAN_TOKEN: openPlanToken },
+      });
+      child.stderr?.on("data", (data: Buffer) => {
+        console.error(`[orkworksd:err] ${data.toString().trim()}`);
+      });
+      return child as SidecarProcess;
+    },
+    fetch,
+    setTimeout: (callback, delayMs) => setTimeout(callback, delayMs),
+    clearTimeout: (timer) => clearTimeout(timer as NodeJS.Timeout),
+    now: () => Date.now(),
+    callbacks: {
+      onReady: (port) => {
+        console.log(`[main] sidecar ready on port ${port}`);
+        const generation = backendGeneration;
+        void restoreBackend(port, generation);
+      },
+      onUnavailable: (message) => {
+        lastBackendFailure = message;
+        rejectBackendReadiness(new Error(message));
+        publishBackendLifecycle({ state: "failed", message });
+      },
+      onState: (state: SidecarState) => {
+        if (state === "starting") {
+          replaceBackendReadiness();
+          publishBackendLifecycle({ state: "starting" });
+        } else if (state === "retrying") {
+          publishBackendLifecycle({ state: "retrying" });
+        } else if (state === "exhausted") {
+          publishBackendLifecycle({ state: "exhausted", message: lastBackendFailure });
+        }
+      },
+    },
+  });
+
   ipcMain.handle("get-backend-url", async () => {
-    const port = await portPromise;
+    const port = await currentBackendReadiness;
     return `http://127.0.0.1:${port}`;
+  });
+
+  ipcMain.handle("retry-backend", async () => {
+    if (!sidecarLifecycle) throw new Error("Backend lifecycle is unavailable");
+    const lifecycleReadiness = sidecarLifecycle.retry();
+    void lifecycleReadiness.catch(() => {});
+    await currentBackendReadiness;
   });
 
   ipcMain.handle("open-external-link", (_event, url: unknown) => {
@@ -188,14 +301,12 @@ app.whenReady().then(() => {
 
   ipcMain.handle("get-initial-workspace", async () => {
     if (!initialWorkspacePath) return null;
-    const port = await portPromise;
-    const resp = await fetch(`http://127.0.0.1:${port}/workspace`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path: initialWorkspacePath }),
-    });
-    if (!resp.ok) return null;
-    return resp.json();
+    try {
+      await currentBackendReadiness;
+      return restoredWorkspace;
+    } catch {
+      return null;
+    }
   });
 
   ipcMain.handle("get-settings", async () => {
@@ -236,7 +347,7 @@ app.whenReady().then(() => {
       lastApplyError: null,
     };
     try {
-      const port = await portPromise;
+      const port = await currentBackendReadiness;
       const response = await fetch(`http://127.0.0.1:${port}/settings/retention`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -281,7 +392,7 @@ app.whenReady().then(() => {
     writeSettings(app.getPath("userData"), nextSettings);
     currentSettings = nextSettings;
 
-    const port = await portPromise;
+    const port = await currentBackendReadiness;
     const providerApplyStatus = await pushProviderSettings(`http://127.0.0.1:${port}`, nextSettings.providers);
 
     providerModels.delete("ollama");
@@ -290,7 +401,7 @@ app.whenReady().then(() => {
   });
 
   ipcMain.handle("verify-ollama", async (_event, baseUrl: string) => {
-    const port = await portPromise;
+    const port = await currentBackendReadiness;
     const response = await fetch(`http://127.0.0.1:${port}/settings/providers/ollama/verify`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -310,7 +421,7 @@ app.whenReady().then(() => {
       return { models: providerModels.get(providerId)! };
     }
     try {
-      const port = await portPromise;
+      const port = await currentBackendReadiness;
       const resp = await fetch(`http://127.0.0.1:${port}/providers/${providerId}/models`);
       if (resp.ok) {
         const data = await resp.json() as { models: string[] };
@@ -328,7 +439,7 @@ app.whenReady().then(() => {
       return { labels: { ...providerLabels } };
     }
     try {
-      const port = await portPromise;
+      const port = await currentBackendReadiness;
       const resp = await fetch(`http://127.0.0.1:${port}/providers`);
       if (resp.ok) {
         const data = await resp.json() as { providers: Array<{ id: string; label: string }> };
@@ -347,17 +458,17 @@ app.whenReady().then(() => {
 
   ipcMain.handle("get-plan-content", async (_event, sessionId: unknown) => {
     if (typeof sessionId !== "string" || !sessionId) throw new Error("Invalid session ID.");
-    const port = await portPromise;
+    const port = await currentBackendReadiness;
     return getSessionPlanContent(`http://127.0.0.1:${port}`, sessionId, openPlanToken, fetch);
   });
   ipcMain.handle("request-plan-review", async (_event, sessionId: unknown) => {
     if (typeof sessionId !== "string" || !sessionId) throw new Error("Invalid session ID.");
-    const port = await portPromise;
+    const port = await currentBackendReadiness;
     await requestSessionPlanReview(`http://127.0.0.1:${port}`, sessionId, openPlanToken, fetch);
   });
   ipcMain.handle("select-terminal-plan", async (_event, sessionId: unknown, printedPath: unknown) => {
     if (typeof sessionId !== "string" || !sessionId || typeof printedPath !== "string" || !printedPath) throw new Error("Invalid plan selection.");
-    const port = await portPromise;
+    const port = await currentBackendReadiness;
     await selectTerminalPlan(`http://127.0.0.1:${port}`, sessionId, printedPath, openPlanToken, fetch);
   });
 
@@ -370,7 +481,7 @@ app.whenReady().then(() => {
   async function callIntegrationRoute(harnessId: unknown, action: "status" | "install" | "uninstall") {
     if (typeof harnessId !== "string" || !harnessId) throw new Error("Invalid harness ID.");
     try {
-      const port = await portPromise;
+      const port = await currentBackendReadiness;
       const method = action === "status" ? "GET" : "POST";
       const resp = await fetch(
         `http://127.0.0.1:${port}/workspace/integrations/${encodeURIComponent(harnessId)}/${action}`,
@@ -411,7 +522,7 @@ app.whenReady().then(() => {
     if (typeof harnessId !== "string" || !harnessId) throw new Error("Invalid harness ID.");
     if (typeof commandPath !== "string" || !commandPath.trim()) throw new Error("Invalid command path.");
     try {
-      const port = await portPromise;
+      const port = await currentBackendReadiness;
       const resp = await fetch(`http://127.0.0.1:${port}/harnesses/${encodeURIComponent(harnessId)}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -432,7 +543,7 @@ app.whenReady().then(() => {
   async function clearHarnessCommandOverride(harnessId: unknown) {
     if (typeof harnessId !== "string" || !harnessId) throw new Error("Invalid harness ID.");
     try {
-      const port = await portPromise;
+      const port = await currentBackendReadiness;
       const resp = await fetch(`http://127.0.0.1:${port}/harnesses/${encodeURIComponent(harnessId)}`, {
         method: "DELETE",
       });
@@ -459,73 +570,14 @@ app.whenReady().then(() => {
     if (result.canceled || result.filePaths.length === 0) return null;
 
     const dirPath = result.filePaths[0];
+    if (!sidecarLifecycle) throw new Error("Backend lifecycle is unavailable");
+    sidecarLifecycle.stop();
     workspacePath = dirPath;
-
     rememberWorkspacePath(app.getPath("userData"), dirPath);
-
-    if (sidecarProcess) {
-      sidecarProcess.kill();
-      sidecarProcess = null;
-    }
-    backendPort = null;
-    openPlanToken = randomBytes(32).toString("hex");
-    portPromise = new Promise<number>((resolve) => {
-      portResolve = resolve;
-    });
-
-    sidecarProcess = spawn(getSidecarPath(), [], {
-      cwd: dirPath,
-      stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, ORKWORKS_OPEN_PLAN_TOKEN: openPlanToken },
-    });
-
-    sidecarProcess.stdout?.on("data", (data: Buffer) => {
-      const line = data.toString().trim();
-      console.log(`[orkworksd] ${line}`);
-      const match = line.match(/ORKWORKSD_PORT=(\d+)/);
-      if (match) {
-        backendPort = parseInt(match[1], 10);
-        console.log(`[main] sidecar ready on port ${backendPort}`);
-        if (portResolve) {
-          portResolve(backendPort);
-          portResolve = null;
-        }
-      }
-    });
-
-    sidecarProcess.stderr?.on("data", (data: Buffer) => {
-      console.error(`[orkworksd:err] ${data.toString().trim()}`);
-    });
-
-    sidecarProcess.on("exit", (code) => {
-      console.log(`[main] sidecar exited with code ${code}`);
-      sidecarProcess = null;
-    });
-
-    const port = await portPromise;
-
-    const resp = await fetch(`http://127.0.0.1:${port}/workspace`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path: dirPath }),
-    });
-
-    if (!resp.ok) return null;
-
-    try {
-      const retention = currentSettings?.retention ?? DEFAULT_RETENTION;
-      await fetch(`http://127.0.0.1:${port}/settings/retention`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(retention),
-      });
-    } catch {
-      // Non-fatal: sidecar will use defaults until next save-retention
-    }
-
-    await syncSavedProviderSettings();
-
-    return resp.json();
+    const lifecycleReadiness = sidecarLifecycle.start(dirPath);
+    void lifecycleReadiness.catch(() => {});
+    await currentBackendReadiness;
+    return restoredWorkspace;
   });
 
   ipcMain.on("orkworks:panel-visibility", (_event, data: { panelId: string; visible: boolean }) => {
@@ -542,32 +594,12 @@ app.whenReady().then(() => {
     applyMenu(createMenu(currentSettings));
   });
 
-  startSidecar(initialWorkspacePath ?? undefined);
+  const initialSidecarCwd = initialWorkspacePath
+    ?? (app.isPackaged ? app.getPath("home") : getDevRepoRoot(__dirname));
+  const initialLifecycleReadiness = sidecarLifecycle.start(initialSidecarCwd);
+  void initialLifecycleReadiness.catch(() => {});
   createWindow();
   applyMenu(createMenu(currentSettings));
-
-  portPromise.then(async (port) => {
-    try {
-      const retention = currentSettings?.retention ?? DEFAULT_RETENTION;
-      await fetch(`http://127.0.0.1:${port}/settings/retention`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(retention),
-      });
-    } catch {
-      // Sidecar may not be ready yet; will be pushed on next save-retention
-    }
-    await syncSavedProviderSettings();
-  });
-
-  async function syncSavedProviderSettings(): Promise<void> {
-    const settings = currentSettings ?? readSettings(app.getPath("userData"));
-    const port = await portPromise;
-    const result = await pushProviderSettings(`http://127.0.0.1:${port}`, settings.providers);
-    if (result.lastApplyError) {
-      console.warn(`[main] failed to push provider settings: ${result.lastApplyError}`);
-    }
-  }
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -583,10 +615,8 @@ app.on("window-all-closed", () => {
 });
 
 function killSidecar(): void {
-  if (sidecarProcess) {
-    sidecarProcess.kill();
-    sidecarProcess = null;
-  }
+  sidecarLifecycle?.dispose();
+  sidecarLifecycle = null;
 }
 
 app.on("before-quit", killSidecar);

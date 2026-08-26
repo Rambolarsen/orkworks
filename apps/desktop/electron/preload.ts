@@ -1,8 +1,32 @@
 import { contextBridge, ipcRenderer } from "electron";
 
+type BackendLifecycleEvent =
+  | { state: "starting" | "retrying" }
+  | { state: "ready"; port: number }
+  | { state: "failed" | "exhausted"; message: string };
+
+function isBackendLifecycleEvent(data: unknown): data is BackendLifecycleEvent {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return false;
+  const event = data as Record<string, unknown>;
+  if (event.state === "starting" || event.state === "retrying") return true;
+  if (event.state === "ready") return typeof event.port === "number" && Number.isInteger(event.port);
+  if (event.state === "failed" || event.state === "exhausted") return typeof event.message === "string";
+  return false;
+}
+
 contextBridge.exposeInMainWorld("orkworks", {
   platform: process.platform,
   getBackendUrl: (): Promise<string> => ipcRenderer.invoke("get-backend-url"),
+  retryBackend: (): Promise<void> => ipcRenderer.invoke("retry-backend"),
+  onBackendLifecycle: (callback: (event: BackendLifecycleEvent) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: unknown) => {
+      if (isBackendLifecycleEvent(data)) callback(data);
+    };
+    ipcRenderer.on("orkworks:backend-lifecycle", handler);
+    return () => {
+      ipcRenderer.removeListener("orkworks:backend-lifecycle", handler);
+    };
+  },
   getInitialWorkspace: (): Promise<unknown> => ipcRenderer.invoke("get-initial-workspace"),
   openWorkspace: (): Promise<unknown> => ipcRenderer.invoke("open-workspace"),
   getLayout: (): Promise<string | null> => ipcRenderer.invoke("get-layout"),
