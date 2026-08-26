@@ -30,14 +30,17 @@ process instead of leaving API callers waiting on a stale promise.
 Sidecar readiness is followed by a separate generation-owned restoration gate
 in `electron/backendRestoration.ts`. After the port is known, Electron main
 restores the remembered workspace, applies persisted retention settings, and
-pushes persisted provider settings. These operations share an abort signal and
-must complete before `get-backend-url` resolves or the renderer receives the
-`ready` lifecycle event; a restoration timeout or failure rejects readiness and
-publishes an unavailable state. Initial startup uses the last existing
-workspace path when available, otherwise the development repository or the
-packaged home directory. A workspace switch persists the selected path before
-starting its replacement generation, and stale restoration work is aborted so
-an older workspace cannot become ready afterward.
+pushes persisted provider settings. These operations share an abort signal. A
+restoration timeout or workspace-restoration failure rejects readiness and
+publishes an unavailable state; retention-setting and provider-setting failures
+are logged as best-effort application failures, and readiness proceeds. The
+workspace restoration and settings attempts complete before `get-backend-url`
+resolves or the renderer receives the `ready` lifecycle event. Initial startup
+uses the last existing workspace path when available, otherwise the
+development repository or the packaged home directory. A workspace switch
+persists the selected path before starting its replacement generation, and
+stale restoration work is aborted so an older workspace cannot become ready
+afterward.
 
 Automatic recovery is bounded: one recovery sequence makes at most three
 sidecar launches in total (the initial launch plus two automatic retries), with
@@ -59,16 +62,16 @@ and workspace restoration is complete, and shows a Retry panel for
 unreachable or exhausted states without discarding existing workspace/session
 state.
 
-Renderer document failures have an independent main-process fallback. Electron
-main records main-frame `did-fail-load` and `render-process-gone` events and
-bounded, sanitized console diagnostics. It loads a resource-free inline
-recovery document when React cannot mount or the renderer process is gone; the
+React render exceptions are handled in the renderer by `ErrorBoundary`.
+Electron main has an independent fallback for main-frame `did-fail-load` and
+`render-process-gone` events, with bounded, sanitized console diagnostics. It
+loads a resource-free inline recovery document for those failures; the
 document has one user-triggered Retry action that returns to the captured
 development URL or exact packaged `file:` document. A recovery-load guard
-prevents repeated automatic fallback navigation and resets only when the
-original document begins or finishes loading. This path does not depend on
-React or the preload bridge, so it remains available when the normal renderer
-document is not.
+prevents repeated automatic fallback navigation and resets when the original
+document begins or finishes loading, or when recovery navigation fails. This
+path does not depend on React or the preload bridge, so it remains available
+when the normal renderer document is not.
 
 ## Packaging and release
 
