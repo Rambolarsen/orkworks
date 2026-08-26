@@ -12,17 +12,22 @@ test("Electron main centralizes initial and workspace sidecar startup", () => {
   assert.equal(mainSource.match(/\bspawn\(/g)?.length, 1);
   assert.equal(mainSource.match(/ORKWORKS_OPEN_PLAN_TOKEN/g)?.length, 1);
   assert.match(mainSource, /sidecarLifecycle\.start\(initialSidecarCwd\)/);
-  assert.match(mainSource, /sidecarLifecycle\.start\(dirPath\)/);
+  assert.match(mainSource, /sidecarLifecycle!\.start\(nextPath\)/);
 });
 
 test("Electron main restores workspace and settings before publishing ready", () => {
-  assert.match(mainSource, /async function restoreBackend\(port: number, generation: number\)/);
-  assert.match(mainSource, /await restoreWorkspace\(port, generation\)[\s\S]*await applyRetentionSettings\(port, generation\)[\s\S]*await syncSavedProviderSettings\(port, generation\)[\s\S]*publishBackendLifecycle\(\{ state: "ready", port \}\)/);
-  assert.match(mainSource, /if \(!isCurrentBackendGeneration\(generation, port\)\) return/);
+  assert.match(mainSource, /import \{ createBackendRestorationCoordinator, switchWorkspaceBackend/);
+  assert.equal(mainSource.match(/createBackendRestorationCoordinator(?:<[^>]+>)?\(/g)?.length, 1);
+  assert.match(mainSource, /restoreWorkspace: \(signal\) => restoreWorkspace\(port, signal\)/);
+  assert.match(mainSource, /applyRetentionSettings: \(signal\) => applyRetentionSettings\(port, signal\)/);
+  assert.match(mainSource, /syncProviderSettings: \(signal\) => syncSavedProviderSettings\(port, signal\)/);
+  assert.match(mainSource, /async function restoreWorkspace\(port: number, signal: AbortSignal\)/);
+  assert.match(mainSource, /async function applyRetentionSettings\(port: number, signal: AbortSignal\)/);
+  assert.match(mainSource, /async function syncSavedProviderSettings\(port: number, signal: AbortSignal\)/);
 });
 
 test("backend readiness and retry use the lifecycle controller", () => {
-  assert.match(mainSource, /ipcMain\.handle\("get-backend-url", async \(\) => \{\s*const port = await currentBackendReadiness/);
+  assert.match(mainSource, /ipcMain\.handle\("get-backend-url", async \(\) => \{\s*const port = await restoration\.getReadiness\(\)/);
   assert.match(mainSource, /ipcMain\.handle\("retry-backend", async \(\) => \{[\s\S]*sidecarLifecycle\.retry\(\)/);
   assert.doesNotMatch(mainSource, /new Promise<number>\(\(resolve\) => \{\s*portResolve/);
 });
@@ -33,15 +38,31 @@ test("initial workspace restoration handles rejected readiness", () => {
   assert.notEqual(start, -1);
   assert.notEqual(end, -1);
   const handler = mainSource.slice(start, end);
-  assert.match(handler, /try \{[\s\S]*await currentBackendReadiness;[\s\S]*\} catch \{[\s\S]*return null;/);
+  assert.match(handler, /try \{[\s\S]*await restoration\.getReadiness\(\);[\s\S]*\} catch \{[\s\S]*return null;/);
+});
+
+test("workspace persistence happens before the replacement backend starts", () => {
+  const start = mainSource.indexOf('ipcMain.handle("open-workspace"');
+  const end = mainSource.indexOf('\n  });', start);
+  assert.notEqual(start, -1);
+  assert.notEqual(end, -1);
+  const handler = mainSource.slice(start, end);
+  assert.match(handler, /switchWorkspaceBackend\(\s*dirPath,/);
+  assert.doesNotMatch(handler, /sidecarLifecycle\.stop\(\)/);
+});
+
+test("Electron main replays the latest lifecycle state to late subscribers", () => {
+  assert.match(mainSource, /let latestBackendLifecycle: BackendLifecycleEvent \| null = null/);
+  assert.match(mainSource, /ipcMain\.handle\("get-backend-lifecycle"/);
+  assert.match(mainSource, /return latestBackendLifecycle/);
+  assert.match(preloadSource, /subscribeBackendLifecycle\(/);
+  assert.match(preloadSource, /ipcRenderer\.invoke\("get-backend-lifecycle"\)/);
+  assert.doesNotMatch(mainSource, /event\.sender\.send\("orkworks:backend-lifecycle"/);
 });
 
 test("preload validates and forwards the lifecycle contract", () => {
-  assert.match(preloadSource, /type BackendLifecycleEvent\s*=/);
-  assert.match(preloadSource, /state: "starting" \| "retrying"/);
-  assert.match(preloadSource, /state: "ready"; port: number/);
-  assert.match(preloadSource, /state: "failed" \| "exhausted"; message: string/);
-  assert.match(preloadSource, /isBackendLifecycleEvent\(data\)/);
+  assert.match(preloadSource, /import \{ subscribeBackendLifecycle, type BackendLifecycleEvent \}/);
+  assert.match(preloadSource, /subscribeBackendLifecycle\(/);
   assert.match(preloadSource, /onBackendLifecycle:/);
   assert.match(preloadSource, /retryBackend:/);
 });

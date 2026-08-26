@@ -14,16 +14,14 @@ import { buildMenuTemplate } from "./menuTemplate";
 import { getSessionPlanContent, requestSessionPlanReview, selectTerminalPlan } from "./planOpener";
 import { configureExternalLinks, openExternalLink } from "./externalLinks";
 import { createSidecarLifecycle, type SidecarLifecycle, type SidecarProcess, type SidecarState } from "./sidecarLifecycle";
+import { createBackendRestorationCoordinator, switchWorkspaceBackend, type BackendRestorationCoordinator } from "./backendRestoration";
+import type { BackendLifecycleEvent } from "./backendLifecycleEvent";
 
 app.setName("OrkWorks");
 
-type BackendLifecycleEvent =
-  | { state: "starting" | "retrying" }
-  | { state: "ready"; port: number }
-  | { state: "failed" | "exhausted"; message: string };
-
 let mainWindow: BrowserWindow | null = null;
 let sidecarLifecycle: SidecarLifecycle | null = null;
+let backendRestoration: BackendRestorationCoordinator<unknown> | null = null;
 let workspacePath: string | null = null;
 let menuPanelItems: Record<string, Electron.MenuItem> = {};
 let currentSettings: AppSettings | null = null;
@@ -132,104 +130,76 @@ app.whenReady().then(() => {
   workspacePath = initialWorkspacePath;
   currentSettings = loadSettingsForStartup(app.getPath("userData"));
 
-  let backendGeneration = 0;
-  let backendReadinessResolve: ((port: number) => void) | null = null;
-  let backendReadinessReject: ((error: Error) => void) | null = null;
-  let currentBackendReadiness = new Promise<number>(() => {});
-  let restoredWorkspace: unknown = null;
+  let latestBackendLifecycle: BackendLifecycleEvent | null = null;
   let lastBackendFailure = "The OrkWorks sidecar is unavailable.";
 
   function publishBackendLifecycle(event: BackendLifecycleEvent): void {
+    latestBackendLifecycle = event;
     mainWindow?.webContents.send("orkworks:backend-lifecycle", event);
   }
 
-  function replaceBackendReadiness(): void {
-    backendReadinessReject?.(new Error("Backend generation was replaced"));
-    backendGeneration += 1;
-    currentBackendReadiness = new Promise<number>((resolve, reject) => {
-      backendReadinessResolve = resolve;
-      backendReadinessReject = reject;
-    });
-    void currentBackendReadiness.catch(() => {});
-  }
-
-  function rejectBackendReadiness(error: Error): void {
-    backendReadinessReject?.(error);
-    backendReadinessResolve = null;
-    backendReadinessReject = null;
-    currentBackendReadiness = Promise.reject(error);
-    void currentBackendReadiness.catch(() => {});
-  }
-
-  function isCurrentBackendGeneration(generation: number, port: number): boolean {
-    return generation === backendGeneration && sidecarLifecycle?.getPort() === port;
-  }
-
-  async function restoreWorkspace(port: number, generation: number): Promise<void> {
-    restoredWorkspace = null;
-    if (!workspacePath) return;
+  async function restoreWorkspace(port: number, signal: AbortSignal): Promise<unknown> {
+    if (!workspacePath) return null;
 
     const response = await fetch(`http://127.0.0.1:${port}/workspace`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ path: workspacePath }),
+      signal,
     });
-    if (!isCurrentBackendGeneration(generation, port)) return;
     if (!response.ok) {
       throw new Error(`Workspace restoration failed: ${response.status}`);
     }
     const workspace = await response.json();
-    if (!isCurrentBackendGeneration(generation, port)) return;
-    restoredWorkspace = workspace;
+    signal.throwIfAborted();
+    return workspace;
   }
 
-  async function applyRetentionSettings(port: number, generation: number): Promise<void> {
+  async function applyRetentionSettings(port: number, signal: AbortSignal): Promise<void> {
     const retention = currentSettings?.retention ?? DEFAULT_RETENTION;
     try {
       const response = await fetch(`http://127.0.0.1:${port}/settings/retention`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(retention),
+        signal,
       });
-      if (!isCurrentBackendGeneration(generation, port)) return;
+      signal.throwIfAborted();
       if (!response.ok) {
         console.warn(`[main] failed to restore retention settings: ${response.status}`);
       }
     } catch (error) {
-      if (!isCurrentBackendGeneration(generation, port)) return;
+      signal.throwIfAborted();
       console.warn(`[main] failed to restore retention settings: ${error instanceof Error ? error.message : "unknown error"}`);
     }
   }
 
-  async function syncSavedProviderSettings(port: number, generation: number): Promise<void> {
+  async function syncSavedProviderSettings(port: number, signal: AbortSignal): Promise<void> {
     const settings = currentSettings ?? readSettings(app.getPath("userData"));
-    const result = await pushProviderSettings(`http://127.0.0.1:${port}`, settings.providers);
-    if (!isCurrentBackendGeneration(generation, port)) return;
+    const abortableFetch: typeof fetch = (input, init) => fetch(input, { ...init, signal });
+    const result = await pushProviderSettings(
+      `http://127.0.0.1:${port}`,
+      settings.providers,
+      abortableFetch,
+    );
+    signal.throwIfAborted();
     if (result.lastApplyError) {
       console.warn(`[main] failed to push provider settings: ${result.lastApplyError}`);
     }
   }
 
-  async function restoreBackend(port: number, generation: number): Promise<void> {
-    try {
-      await restoreWorkspace(port, generation);
-      if (!isCurrentBackendGeneration(generation, port)) return;
-      await applyRetentionSettings(port, generation);
-      if (!isCurrentBackendGeneration(generation, port)) return;
-      await syncSavedProviderSettings(port, generation);
-      if (!isCurrentBackendGeneration(generation, port)) return;
-      backendReadinessResolve?.(port);
-      backendReadinessResolve = null;
-      backendReadinessReject = null;
+  const restoration = createBackendRestorationCoordinator<unknown>({
+    setTimeout: (callback, delayMs) => setTimeout(callback, delayMs),
+    clearTimeout: (timer) => clearTimeout(timer as NodeJS.Timeout),
+    onReady: (port) => {
       publishBackendLifecycle({ state: "ready", port });
-    } catch (error) {
-      if (!isCurrentBackendGeneration(generation, port)) return;
-      const failure = error instanceof Error ? error : new Error("Backend restoration failed");
-      lastBackendFailure = failure.message;
-      rejectBackendReadiness(failure);
-      publishBackendLifecycle({ state: "failed", message: failure.message });
-    }
-  }
+    },
+    onFailure: (error) => {
+      lastBackendFailure = error.message;
+      publishBackendLifecycle({ state: "failed", message: error.message });
+    },
+  });
+  backendRestoration = restoration;
 
   sidecarLifecycle = createSidecarLifecycle({
     spawn: (cwd): SidecarProcess => {
@@ -254,17 +224,19 @@ app.whenReady().then(() => {
     callbacks: {
       onReady: (port) => {
         console.log(`[main] sidecar ready on port ${port}`);
-        const generation = backendGeneration;
-        void restoreBackend(port, generation);
+        restoration.restore(port, {
+          restoreWorkspace: (signal) => restoreWorkspace(port, signal),
+          applyRetentionSettings: (signal) => applyRetentionSettings(port, signal),
+          syncProviderSettings: (signal) => syncSavedProviderSettings(port, signal),
+        });
       },
       onUnavailable: (message) => {
         lastBackendFailure = message;
-        rejectBackendReadiness(new Error(message));
-        publishBackendLifecycle({ state: "failed", message });
+        restoration.fail(new Error(message));
       },
       onState: (state: SidecarState) => {
         if (state === "starting") {
-          replaceBackendReadiness();
+          restoration.beginGeneration();
           publishBackendLifecycle({ state: "starting" });
         } else if (state === "retrying") {
           publishBackendLifecycle({ state: "retrying" });
@@ -275,8 +247,12 @@ app.whenReady().then(() => {
     },
   });
 
+  ipcMain.handle("get-backend-lifecycle", () => {
+    return latestBackendLifecycle;
+  });
+
   ipcMain.handle("get-backend-url", async () => {
-    const port = await currentBackendReadiness;
+    const port = await restoration.getReadiness();
     return `http://127.0.0.1:${port}`;
   });
 
@@ -284,7 +260,7 @@ app.whenReady().then(() => {
     if (!sidecarLifecycle) throw new Error("Backend lifecycle is unavailable");
     const lifecycleReadiness = sidecarLifecycle.retry();
     void lifecycleReadiness.catch(() => {});
-    await currentBackendReadiness;
+    await restoration.getReadiness();
   });
 
   ipcMain.handle("open-external-link", (_event, url: unknown) => {
@@ -302,8 +278,8 @@ app.whenReady().then(() => {
   ipcMain.handle("get-initial-workspace", async () => {
     if (!initialWorkspacePath) return null;
     try {
-      await currentBackendReadiness;
-      return restoredWorkspace;
+      await restoration.getReadiness();
+      return restoration.getRestoredWorkspace();
     } catch {
       return null;
     }
@@ -347,7 +323,7 @@ app.whenReady().then(() => {
       lastApplyError: null,
     };
     try {
-      const port = await currentBackendReadiness;
+      const port = await restoration.getReadiness();
       const response = await fetch(`http://127.0.0.1:${port}/settings/retention`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -392,7 +368,7 @@ app.whenReady().then(() => {
     writeSettings(app.getPath("userData"), nextSettings);
     currentSettings = nextSettings;
 
-    const port = await currentBackendReadiness;
+    const port = await restoration.getReadiness();
     const providerApplyStatus = await pushProviderSettings(`http://127.0.0.1:${port}`, nextSettings.providers);
 
     providerModels.delete("ollama");
@@ -401,7 +377,7 @@ app.whenReady().then(() => {
   });
 
   ipcMain.handle("verify-ollama", async (_event, baseUrl: string) => {
-    const port = await currentBackendReadiness;
+    const port = await restoration.getReadiness();
     const response = await fetch(`http://127.0.0.1:${port}/settings/providers/ollama/verify`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -421,7 +397,7 @@ app.whenReady().then(() => {
       return { models: providerModels.get(providerId)! };
     }
     try {
-      const port = await currentBackendReadiness;
+      const port = await restoration.getReadiness();
       const resp = await fetch(`http://127.0.0.1:${port}/providers/${providerId}/models`);
       if (resp.ok) {
         const data = await resp.json() as { models: string[] };
@@ -439,7 +415,7 @@ app.whenReady().then(() => {
       return { labels: { ...providerLabels } };
     }
     try {
-      const port = await currentBackendReadiness;
+      const port = await restoration.getReadiness();
       const resp = await fetch(`http://127.0.0.1:${port}/providers`);
       if (resp.ok) {
         const data = await resp.json() as { providers: Array<{ id: string; label: string }> };
@@ -458,17 +434,17 @@ app.whenReady().then(() => {
 
   ipcMain.handle("get-plan-content", async (_event, sessionId: unknown) => {
     if (typeof sessionId !== "string" || !sessionId) throw new Error("Invalid session ID.");
-    const port = await currentBackendReadiness;
+    const port = await restoration.getReadiness();
     return getSessionPlanContent(`http://127.0.0.1:${port}`, sessionId, openPlanToken, fetch);
   });
   ipcMain.handle("request-plan-review", async (_event, sessionId: unknown) => {
     if (typeof sessionId !== "string" || !sessionId) throw new Error("Invalid session ID.");
-    const port = await currentBackendReadiness;
+    const port = await restoration.getReadiness();
     await requestSessionPlanReview(`http://127.0.0.1:${port}`, sessionId, openPlanToken, fetch);
   });
   ipcMain.handle("select-terminal-plan", async (_event, sessionId: unknown, printedPath: unknown) => {
     if (typeof sessionId !== "string" || !sessionId || typeof printedPath !== "string" || !printedPath) throw new Error("Invalid plan selection.");
-    const port = await currentBackendReadiness;
+    const port = await restoration.getReadiness();
     await selectTerminalPlan(`http://127.0.0.1:${port}`, sessionId, printedPath, openPlanToken, fetch);
   });
 
@@ -481,7 +457,7 @@ app.whenReady().then(() => {
   async function callIntegrationRoute(harnessId: unknown, action: "status" | "install" | "uninstall") {
     if (typeof harnessId !== "string" || !harnessId) throw new Error("Invalid harness ID.");
     try {
-      const port = await currentBackendReadiness;
+      const port = await restoration.getReadiness();
       const method = action === "status" ? "GET" : "POST";
       const resp = await fetch(
         `http://127.0.0.1:${port}/workspace/integrations/${encodeURIComponent(harnessId)}/${action}`,
@@ -522,7 +498,7 @@ app.whenReady().then(() => {
     if (typeof harnessId !== "string" || !harnessId) throw new Error("Invalid harness ID.");
     if (typeof commandPath !== "string" || !commandPath.trim()) throw new Error("Invalid command path.");
     try {
-      const port = await currentBackendReadiness;
+      const port = await restoration.getReadiness();
       const resp = await fetch(`http://127.0.0.1:${port}/harnesses/${encodeURIComponent(harnessId)}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -543,7 +519,7 @@ app.whenReady().then(() => {
   async function clearHarnessCommandOverride(harnessId: unknown) {
     if (typeof harnessId !== "string" || !harnessId) throw new Error("Invalid harness ID.");
     try {
-      const port = await currentBackendReadiness;
+      const port = await restoration.getReadiness();
       const resp = await fetch(`http://127.0.0.1:${port}/harnesses/${encodeURIComponent(harnessId)}`, {
         method: "DELETE",
       });
@@ -571,13 +547,23 @@ app.whenReady().then(() => {
 
     const dirPath = result.filePaths[0];
     if (!sidecarLifecycle) throw new Error("Backend lifecycle is unavailable");
-    sidecarLifecycle.stop();
-    workspacePath = dirPath;
-    rememberWorkspacePath(app.getPath("userData"), dirPath);
-    const lifecycleReadiness = sidecarLifecycle.start(dirPath);
+    const lifecycleReadiness = switchWorkspaceBackend(
+      dirPath,
+      (nextPath) => rememberWorkspacePath(app.getPath("userData"), nextPath),
+      (nextPath) => {
+        workspacePath = nextPath;
+        try {
+          return sidecarLifecycle!.start(nextPath);
+        } catch (error) {
+          const failure = error instanceof Error ? error : new Error("Backend replacement failed");
+          restoration.fail(failure);
+          throw failure;
+        }
+      },
+    );
     void lifecycleReadiness.catch(() => {});
-    await currentBackendReadiness;
-    return restoredWorkspace;
+    await restoration.getReadiness();
+    return restoration.getRestoredWorkspace();
   });
 
   ipcMain.on("orkworks:panel-visibility", (_event, data: { panelId: string; visible: boolean }) => {
@@ -615,6 +601,8 @@ app.on("window-all-closed", () => {
 });
 
 function killSidecar(): void {
+  backendRestoration?.dispose();
+  backendRestoration = null;
   sidecarLifecycle?.dispose();
   sidecarLifecycle = null;
 }
