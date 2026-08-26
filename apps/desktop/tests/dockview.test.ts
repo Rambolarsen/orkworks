@@ -667,6 +667,17 @@ test("TerminalPanel marks CenterPanel as starting while the session is still bei
   assert.match(source, /import \{ isSessionStarting, renderTerminalPresentation \} from "\.\.\/terminalPresentation"/);
 });
 
+test("CenterPanel routes backend attach failures to the shared recovery callback", () => {
+  const center = readFileSync(new URL("../src/components/CenterPanel.tsx", import.meta.url), "utf8");
+  const terminal = readFileSync(new URL("../src/components/TerminalPanel.tsx", import.meta.url), "utf8");
+  const dockview = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
+
+  assert.match(center, /attachTerminalAfterBackendReady/);
+  assert.match(center, /onBackendUnavailable/);
+  assert.match(terminal, /onBackendUnavailable=\{onBackendUnavailable\}/);
+  assert.match(dockview, /onBackendUnavailable=\{ctx\.onBackendUnavailable\}/);
+});
+
 test("CenterPanel disables stdin and shows a loading overlay while starting, instead of an interactable blank terminal", () => {
   const source = readFileSync(new URL("../src/components/CenterPanel.tsx", import.meta.url), "utf8");
   assert.match(source, /computeTerminalInteractivity/);

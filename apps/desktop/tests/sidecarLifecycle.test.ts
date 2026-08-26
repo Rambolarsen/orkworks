@@ -46,9 +46,11 @@ class FakeTimers {
   private nextId = 1;
   private currentTimeMs = 0;
   private readonly timers = new Map<number, { callback: () => void; dueAtMs: number }>();
+  readonly scheduledDelays: number[] = [];
 
   setTimeout = (callback: () => void, delayMs: number): number => {
     const id = this.nextId++;
+    this.scheduledDelays.push(delayMs);
     this.timers.set(id, { callback, dueAtMs: this.currentTimeMs + delayMs });
     return id;
   };
@@ -104,7 +106,6 @@ function createHarness(spawn?: (cwd: string) => FakeProcess) {
   const ready: number[] = [];
   const lifecycle = createSidecarLifecycle({
     spawn: spawnProcess,
-    fetch: async () => new Response(),
     setTimeout: timers.setTimeout,
     clearTimeout: timers.clearTimeout,
     now: timers.now,
@@ -226,7 +227,6 @@ test("a synchronous explicit-retry failure rejects the wired restoration readine
     spawn: () => {
       throw new Error("spawn failed at /absolute/sidecar");
     },
-    fetch: async () => new Response(),
     setTimeout: timers.setTimeout,
     clearTimeout: timers.clearTimeout,
     now: timers.now,
@@ -287,15 +287,32 @@ test("resets automatic retries only after the ready stability window expires", a
 
   timers.advanceBy(5);
   processes[0].exit(1);
+  assert.equal(timers.scheduledDelays.at(-1), 1);
   timers.advanceBy(1);
   processes[1].exit(1);
-  timers.advanceBy(1);
-  processes[2].exit(1);
+  assert.equal(timers.scheduledDelays.at(-1), 2);
   timers.advanceBy(2);
-  processes[3].exit(1);
+  processes[2].exit(1);
 
-  assert.equal(processes.length, 4);
+  assert.equal(processes.length, 3);
   assert.equal(states.at(-1), "exhausted");
+});
+
+test("uses the first retry delay after a stable ready reset", async () => {
+  const { lifecycle, processes, timers } = createHarness();
+  const initial = lifecycle.start("/workspace");
+  processes[0].stdout.emit("ORKWORKSD_PORT=4444\n");
+  await initial;
+
+  timers.advanceBy(5);
+  processes[0].exit(1);
+
+  assert.equal(timers.scheduledDelays.at(-1), 1);
+
+  timers.runNext();
+  processes[1].exit(1);
+
+  assert.equal(timers.scheduledDelays.at(-1), 2);
 });
 
 test("creates only one automatic recovery sequence for repeated failure callbacks", async () => {

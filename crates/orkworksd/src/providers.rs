@@ -1488,6 +1488,27 @@ mod tests {
         assert!(!missing.stderr.is_empty());
     }
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn process_runner_survives_provider_spawn_from_a_multithreaded_parent() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+
+        let worker_active = Arc::new(AtomicBool::new(true));
+        let worker_flag = Arc::clone(&worker_active);
+        let worker = std::thread::spawn(move || {
+            while worker_flag.load(Ordering::Relaxed) {
+                std::thread::yield_now();
+            }
+        });
+
+        let result = ProcessRunner.run("test", "true", &[], "", 1);
+
+        worker_active.store(false, Ordering::Relaxed);
+        worker.join().expect("worker thread should stop cleanly");
+        assert!(result.success);
+    }
+
     fn registry_with(fakes: Vec<FakeProvider>) -> Vec<FakeProvider> {
         fakes
     }

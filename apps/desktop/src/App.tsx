@@ -85,6 +85,10 @@ function App() {
     });
   }, []);
 
+  const handleBackendUnavailable = useCallback(() => {
+    setBackendStatus("unreachable");
+  }, []);
+
   useEffect(() => {
     const intervalMs = settings?.debug?.rendererHealthLogMs ?? 0;
     if (!intervalMs || intervalMs < 1) {
@@ -526,6 +530,7 @@ function App() {
         onFocusTerminal={handleFocusTerminal}
         onOpenWorkspace={handleOpenWorkspace}
         onReviewPlan={handleReviewPlan}
+        onBackendUnavailable={handleBackendUnavailable}
         dockviewApiRef={dockviewApiRef}
       />
       {(backendStatus === "unreachable" || backendStatus === "exhausted") && (

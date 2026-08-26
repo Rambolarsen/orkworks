@@ -225,7 +225,7 @@ Initialize the existing `backendStatus` from lifecycle events, preserve current 
 
 - [ ] **Step 3: Implement main-process renderer diagnostics and fallback**
 
-Register `did-fail-load`, `render-process-gone`, and `console-message` handlers. Log only event type, error code/reason, URL origin, process reason/exit code, and a bounded message with sensitive payloads excluded. For load failure or renderer termination, load a local recovery HTML string with no external resources and a button that calls `location.reload()`.
+Register `did-fail-load`, `render-process-gone`, and `console-message` handlers. Log only event type, error code/reason, URL origin, process reason/exit code, and allowlisted console metadata (level, origin, line), with renderer message payloads excluded. For load failure or renderer termination, load a local recovery HTML string with no external resources and a button that calls `location.replace(originalUrl)`.
 
 - [ ] **Step 4: Run renderer tests and type-check**
 

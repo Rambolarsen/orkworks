@@ -18,7 +18,6 @@ export interface SidecarLifecycle {
 
 export interface SidecarLifecycleOptions {
   spawn(cwd: string): SidecarProcess;
-  fetch: typeof globalThis.fetch;
   setTimeout(callback: () => void, delayMs: number): unknown;
   clearTimeout(timer: unknown): void;
   now(): number;
@@ -54,10 +53,6 @@ const DEFAULT_READY_STABILITY_MS = 5_000;
 const MAX_AUTOMATIC_ATTEMPTS = 3;
 
 export function createSidecarLifecycle(options: SidecarLifecycleOptions): SidecarLifecycle {
-  // Task 3 uses this dependency while wiring workspace restoration. Keeping it
-  // in the injected contract lets this controller remain Electron-free.
-  void options.fetch;
-
   let generation = 0;
   let current: Generation | null = null;
   let port: number | null = null;
@@ -119,7 +114,8 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
       return;
     }
 
-    const delay = retryDelaysMs[Math.min(attempts - 1, retryDelaysMs.length - 1)] ?? 0;
+    const retryIndex = Math.max(0, attempts - 1);
+    const delay = retryDelaysMs[Math.min(retryIndex, retryDelaysMs.length - 1)] ?? 0;
     setState("retrying");
     recoveryTimer = options.setTimeout(() => {
       recoveryTimer = null;
@@ -154,7 +150,9 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
       }, remainingMs);
       return;
     }
-    attempts = 0;
+    // Preserve the stable generation as the first failure attempt in the next
+    // recovery sequence, so its failure receives retryDelaysMs[0].
+    attempts = 1;
   }
 
   function ready(candidate: Generation, nextPort: number): void {

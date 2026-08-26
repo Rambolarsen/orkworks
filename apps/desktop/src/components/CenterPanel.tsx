@@ -2,15 +2,17 @@ import { useEffect, useRef, useCallback } from "react";
 import "@xterm/xterm/css/xterm.css";
 import { disposeTerminal, ensureTerminal, getTerminal } from "../terminalStore";
 import { computeTerminalInteractivity } from "../terminalPresentation";
+import { attachTerminalAfterBackendReady } from "../terminalAttach";
 import EmptyState from "./EmptyState";
 
 interface CenterPanelProps {
   backendStatus: string;
   sessionId: string | null;
   starting: boolean;
+  onBackendUnavailable: () => void;
 }
 
-function CenterPanel({ backendStatus, sessionId, starting }: CenterPanelProps) {
+function CenterPanel({ backendStatus, sessionId, starting, onBackendUnavailable }: CenterPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const activeIdRef = useRef<string | null>(null);
   const startingRef = useRef(starting);
@@ -81,16 +83,20 @@ function CenterPanel({ backendStatus, sessionId, starting }: CenterPanelProps) {
       return;
     }
 
-    window.orkworks.getBackendUrl().then((baseUrl) => {
-      if (cancelled) return;
-      ensureTerminal(sessionId, baseUrl);
-      attachTerminal(sessionId);
-    });
+    void attachTerminalAfterBackendReady(
+      () => window.orkworks.getBackendUrl(),
+      () => cancelled,
+      (baseUrl) => {
+        ensureTerminal(sessionId, baseUrl);
+        attachTerminal(sessionId);
+      },
+      onBackendUnavailable,
+    );
 
     return () => {
       cancelled = true;
     };
-  }, [backendStatus, sessionId, attachTerminal]);
+  }, [backendStatus, sessionId, attachTerminal, onBackendUnavailable]);
 
   useEffect(() => {
     let fitRaf: number | null = null;

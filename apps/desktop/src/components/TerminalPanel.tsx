@@ -7,9 +7,10 @@ import { isSessionStarting, renderTerminalPresentation } from "../terminalPresen
 interface TerminalPanelProps {
   backendStatus: string;
   session: SessionInfo | null;
+  onBackendUnavailable: () => void;
 }
 
-function TerminalPanel({ backendStatus, session }: TerminalPanelProps) {
+function TerminalPanel({ backendStatus, session, onBackendUnavailable }: TerminalPanelProps) {
   if (!session) {
     return <EmptyState message="Select a session to open its terminal." />;
   }
@@ -20,6 +21,7 @@ function TerminalPanel({ backendStatus, session }: TerminalPanelProps) {
         backendStatus={backendStatus}
         sessionId={session.id}
         starting={isSessionStarting(session)}
+        onBackendUnavailable={onBackendUnavailable}
       />
     ),
     () => <HistoricalTerminal sessionId={session.id} />,

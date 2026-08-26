@@ -8,6 +8,13 @@ const POSIX_PATH_PATTERN = /(^|[\s("'=])\/(?:Users|private|tmp|var|home)\/[^\s"'
 const WINDOWS_PATH_PATTERN = /(^|[\s("'=])(?:[A-Za-z]:\\|\\\\)[^\s"'<>`]+/g;
 const SENSITIVE_JSON_KEY_PATTERN = /(?:token|password|secret|authorization|api[_-]?key|cookie|prompt|workspace|cwd|path|content|body|headers)/i;
 
+export interface RendererConsoleDiagnostic {
+  type: "console-message";
+  level: number;
+  origin: string;
+  line: number;
+}
+
 function redactJsonSecrets(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(redactJsonSecrets);
   if (typeof value === "string") return sanitizePlainText(value);
@@ -48,6 +55,19 @@ export function rendererOrigin(url: string): string {
   } catch {
     return "unknown";
   }
+}
+
+export function rendererConsoleDiagnostic(
+  level: number,
+  sourceId: string,
+  line: number,
+): RendererConsoleDiagnostic {
+  return {
+    type: "console-message",
+    level,
+    origin: rendererOrigin(sourceId),
+    line,
+  };
 }
 
 export function sanitizeRendererDiagnosticMessage(message: string): string {

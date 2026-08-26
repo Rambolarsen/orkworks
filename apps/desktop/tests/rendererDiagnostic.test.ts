@@ -2,9 +2,27 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  rendererConsoleDiagnostic,
   rendererOrigin,
   sanitizeRendererDiagnosticMessage,
 } from "../electron/rendererDiagnostic.ts";
+
+test("console diagnostics contain only allowlisted metadata", () => {
+  const diagnostic = rendererConsoleDiagnostic(
+    2,
+    "https://example.test/?prompt=secret",
+    41,
+  );
+
+  assert.deepEqual(diagnostic, {
+    type: "console-message",
+    level: 2,
+    origin: "https://example.test",
+    line: 41,
+  });
+  assert.equal("message" in diagnostic, false);
+  assert.doesNotMatch(JSON.stringify(diagnostic), /prompt|secret/);
+});
 
 test("redacts URLs, bearer credentials, and structured secret values", () => {
   const message = sanitizeRendererDiagnosticMessage(
