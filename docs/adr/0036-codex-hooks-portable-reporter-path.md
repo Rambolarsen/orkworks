@@ -1,6 +1,6 @@
 # Codex hook installation uses a portable, home-relative reporter path
 
-- Status: accepted
+- Status: superseded by [ADR 0043](./0043-local-harness-hook-configuration.md)
 - Deciders: Lars-Erik, Claude Sonnet 5
 - Date: 2026-08-04
 

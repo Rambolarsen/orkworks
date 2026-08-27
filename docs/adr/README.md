@@ -43,10 +43,11 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 | [0033](./0033-recorded-terminal-replay-size-sidecar.md) | Recorded terminal-replay grid via per-session `.terminal-size` sidecar | accepted |
 | [0034](./0034-user-approved-session-review-prompt.md) | User-approved session review prompt | accepted |
 | [0035](./0035-codex-session-start-hook-not-attention-signal.md) | Codex `SessionStart` hook captures session ID, not attention | accepted |
-| [0036](./0036-codex-hooks-portable-reporter-path.md) | Codex hook installation uses a portable, home-relative reporter path | accepted |
+| [0036](./0036-codex-hooks-portable-reporter-path.md) | Codex hook installation uses a portable, home-relative reporter path | superseded by [0043](./0043-local-harness-hook-configuration.md) |
 | [0037](./0037-hook-reported-plan-paths.md) | Hook-reported plan paths | accepted |
 | [0038](./0038-claude-plan-path-post-tool-use-hook.md) | Claude `PostToolUse` plan-path transport | accepted |
 | [0039](./0039-terminal-plan-link-selection.md) | Terminal plan link selection | accepted |
 | [0040](./0040-harness-declared-session-label-resets.md) | Harness-declared session-label reset commands | accepted |
 | [0041](./0041-session-runtime-generation-ownership.md) | Session runtime generation ownership | accepted |
 | [0042](./0042-workflow-observations-replace-summary-checkpoints.md) | Workflow observations replace summary checkpoints | accepted |
+| [0043](./0043-local-harness-hook-configuration.md) | Harness hook configuration is local; doc checks use a committed shared source | accepted |

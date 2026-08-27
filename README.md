@@ -39,8 +39,8 @@ orkworks/
 - Session plans/specs appear in a reusable Review tab; the renderer receives availability and document content, never a filesystem path. The sole terminal-input exception is a user-clicked, fixed review prompt (see [ADR 0025](docs/adr/0025-authenticated-session-plan-handoff.md), [ADR 0034](docs/adr/0034-user-approved-session-review-prompt.md))
 - Harness capabilities and workspace integration status resolve from one immutable registry; mutations require Electron-main confirmation and never expose mutation authority to the renderer or child processes (see [ADR 0026](docs/adr/0026-resolved-harness-capability-registry.md))
 - Harness version-probe results use bounded TTL caching with generation-aware invalidation; integration actions still revalidate identity after a probe (see [ADR 0028](docs/adr/0028-generation-aware-harness-version-probe-cache.md))
-- Codex sessions capture their native session ID via a `SessionStart` hook (`.codex/hooks.json`), enabling exact resume; because that event isn't a "needs input" signal like every other integrated harness's hooked event, it does not post the generic attention update (see [ADR 0035](docs/adr/0035-codex-session-start-hook-not-attention-signal.md))
-- Codex's hook installer writes a `$HOME`-relative, machine-independent reporter command (POSIX only) rather than an absolute path, so it can safely install into a git-tracked `.codex/hooks.json` — the shape every APM-managed repo actually has, unlike Claude/Gemini/Copilot's local-only config files (see [ADR 0036](docs/adr/0036-codex-hooks-portable-reporter-path.md))
+- Codex sessions capture their native session ID via a generated/local `SessionStart` hook, enabling exact resume; because that event isn't a "needs input" signal like every other integrated harness's hooked event, it does not post the generic attention update (see [ADR 0035](docs/adr/0035-codex-session-start-hook-not-attention-signal.md))
+- Harness hook configuration is machine-local and gitignored. OrkWorks installs its reporter entries into each coding tool's workspace-local configuration, while the shared `scripts/doc-check.sh` source remains committed and harness-neutral.
 - Plan/spec path reporting uses a dedicated path-only sidecar route (`POST /sessions/:id/plan-path`) that canonicalizes the file and stores its workspace-relative form without changing session attention, superseding terminal-text inference when a harness reports a canonical file path; Codex remains on the conservative terminal fallback because its hook payload provides patch text (see [ADR 0037](docs/adr/0037-hook-reported-plan-paths.md))
 - Claude Code's owned integration installs a synchronous `PostToolUse` `Write|Edit` hook whose shared reporter passes `--report-plan-path`, forwarding the hook payload's `tool_input.file_path` to `/sessions/:id/plan-path` and skipping the generic attention + harness-session POSTs. `ToolHookContract::reports_plan_path` declares the opt-in so the framework stays open to non-Claude harnesses (see [ADR 0038](docs/adr/0038-claude-plan-path-post-tool-use-hook.md))
 - Session `label` (title) is a one-shot Peon-authored topic, decoupled from the turn-by-turn summary/checkpoint log (see [ADR 0029](docs/adr/0029-session-label-topic-vs-activity-summary.md))
@@ -174,20 +174,7 @@ opencode /Users/froomiebot/workspace/orkworks
 
 ## MCP servers
 
-This repo manages project-scoped MCP server configuration through `apm.yml`, not by hand-editing per-client config files.
-
-Current MCP server:
-
-- `oraios/serena`
-
-To materialize the client-specific config, run:
-
-```bash
-# from the repo root
-apm install
-```
-
-`serena` runs through `uvx`, so `uv` must be installed locally.
+This repo manages project-scoped MCP server configuration through `apm.yml`, not by hand-editing per-client config files. None are currently declared; add entries under `apm.yml`'s `dependencies.mcp` and run `apm install` from the repo root to materialize client-specific config.
 
 ## Repo skills
 

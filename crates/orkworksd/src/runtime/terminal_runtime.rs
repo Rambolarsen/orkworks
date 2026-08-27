@@ -530,92 +530,32 @@ fn record_terminal_input_impl(
             .arm_usage_limit_recheck(id);
     }
 
-    let (collected_line, line_completed, in_progress_buf, buf_grew) = {
+    let (collected_line, line_completed, buf_grew) = {
         let mut bufs = state.peon.input_buf.write().unwrap();
         let buf = bufs.entry(id.to_string()).or_default();
         let len_before = buf.len();
         let (line, completed) = collect_input_line(buf, data);
-        // Snapshot only the *newly typed delta* this frame added to `buf`,
-        // under the same write lock, so the single-key arming site below can
-        // echo-gate against it without re-acquiring the input_buf lock. This
-        // must be the delta, not the whole accumulated buffer: a PTY only
-        // ever echoes back the character(s) just typed, not the composed
-        // line again on every keystroke, so arming against the full buffer
-        // would mismatch the second and later keystrokes' actual echo and
-        // misread it as genuine model output. Empty after Enter
-        // (`collect_input_line` clears `buf` on a line terminator) — that's
-        // how the single-key path avoids double-arming the Enter that the
-        // existing committed-line path will handle. `buf_grew` distinguishes
-        // a frame that actually pushed a new printable char (arm candidate)
-        // from one that was parsed as pure control sequences (ESC[A arrow,
-        // OSC color, bracketed-paste markers) — those consume printable
-        // bytes from the raw frame but never modify `buf`, so checking
-        // the raw frame's printability would falsely arm on every arrow key.
-        // Only snapshot when `buf_grew` is true: control-only and Enter
-        // frames never reach the arming block (its guard short-circuits on
-        // `buf_grew`), so cloning the buffer for them would waste an
-        // allocation on the input hot path.
+        // `buf_grew` distinguishes a frame that actually pushed a new
+        // printable char into the in-progress line (a real keystroke) from
+        // one parsed as pure control sequences (ESC[A arrow, OSC color,
+        // bracketed-paste markers) — those consume printable bytes from the
+        // raw frame but never touch `buf`, so checking the raw frame's
+        // printability would falsely qualify on every arrow key. Empty after
+        // Enter (`collect_input_line` clears `buf` on a line terminator), so
+        // a completed line is never also flagged as a fresh keystroke.
         let grew = buf.len() > len_before;
-        let snapshot = if grew {
-            Some(buf[len_before..].to_string())
-        } else {
-            None
-        };
-        (line, completed, snapshot, grew)
+        (line, completed, grew)
     };
 
     if !data.is_empty() {
-        // Whether this frame contains a line terminator outside any
-        // bracketed paste, not whether the accumulated line was non-empty —
-        // collect_input_line reports no completed line for a bare Enter with
-        // nothing typed yet (a very common case: accepting a prompt's
-        // default answer), which must still count as a submitted line here.
-        crate::session_application::SessionApplication::new(state.clone())
-            .commit_accepted_input(id, output_boundary, line_completed);
-    }
-
-    // Narrow single-key work-signal arming (#273, restoring the #179 fix that
-    // 31f9b4e reverted). Claude Code's Notification hook POSTs
-    // `needs_you` with `metadata_source = "agent"`, and its prompts take
-    // single keystrokes (y/n/1/2/3) with no Enter. A bare printable key in
-    // that exact state is sufficient evidence of resumed work to arm
-    // `pending_work_signal`; the next qualifying visible PTY output then
-    // promotes attention to `working`. The gate is deliberately narrow so
-    // the shell-session false-positive that motivated `31f9b4e` cannot
-    // recur: shell sessions never have hook-sourced `needs_you` with
-    // `metadata_source = "agent"` (they're `process` or `None`), and
-    // capable-hook harnesses are excluded because their own event is the
-    // source of truth for work start. Extend on each subsequent printable
-    // keystroke so the expected-echo tail keeps growing and the 10-second
-    // window stays fresh while the user is still composing — extending
-    // (appending the new delta, refreshing expiry) rather than re-arming
-    // from the full accumulated buffer, since a PTY only ever echoes back
-    // the character(s) just typed, not the composed line again each time.
-    // `buf_grew` is the printable-char predicate: it is true iff this frame
-    // pushed at least one new char into `input_buf`, which only happens for
-    // non-control, non-Enter bytes outside bracketed paste (see
-    // `collect_input_line`). ANSI arrow keys, OSC color codes, and
-    // bracketed-paste markers all parse as control sequences and do not
-    // grow `buf`, so they cannot arm the signal even though their raw
-    // frames contain ASCII-letter final bytes.
-    if buf_grew {
-        if let Some(new_delta) = in_progress_buf.as_deref() {
-            if !new_delta.is_empty() {
-                let mut sessions = state.sessions.lock().unwrap();
-                if let Some(handle) = sessions.get_mut(id) {
-                    if !handle.active_work_hook
-                        && handle.info.attention.as_deref() == Some("needs_you")
-                        && handle.info.metadata_source.as_deref() == Some("agent")
-                    {
-                        crate::runtime::session_runtime::extend_pending_work_signal(
-                            &mut handle.pending_work_signal,
-                            new_delta,
-                            tokio::time::Instant::now(),
-                        );
-                    }
-                }
-            }
-        }
+        // `line_completed`: whether this frame contains a line terminator
+        // outside any bracketed paste, not whether the accumulated line was
+        // non-empty — collect_input_line reports no completed line for a bare
+        // Enter with nothing typed yet (a very common case: accepting a
+        // prompt's default answer), which must still count as a submitted
+        // line here. `buf_grew`: see `mark_committed_input_working`'s doc
+        // comment for the narrow single-key commit it gates.
+        mark_committed_input_working(state, id, output_boundary, line_completed, buf_grew);
     }
 
     let line = collected_line?;
@@ -704,6 +644,139 @@ pub(crate) fn queue_label_hint(state: &Arc<AppState>, id: &str, line: String) {
     with_label_epoch_read(state, id, |epoch| {
         queue_label_hint_at_epoch(state, id, line, epoch)
     });
+}
+
+/// Caller contract, not enforced here: only call this for a non-empty frame
+/// whose delivery to the PTY was actually accepted. `line_completed` is
+/// whether this frame finished a submitted line (`\r`/`\n` seen outside
+/// bracketed paste). `printable_keystroke` is whether this frame pushed a new
+/// printable character into the in-progress line buffer (the caller's
+/// `buf_grew`), regardless of whether a line completed.
+///
+/// Per `docs/superpowers/specs/2026-07-21-committed-input-working-design.md`,
+/// committed input must commit the working transition "uniformly ... including
+/// a single key" — instantly, without waiting for confirming PTY output. The
+/// narrow single-key case (hook-sourced `needs_you` at a hookless harness,
+/// i.e. Claude Code's hookless Notification-driven prompts) previously routed
+/// through a separate arm-then-wait-for-visible-output mechanism
+/// (`pending_work_signal`/`consume_pending_work_signal`, issue #273). That
+/// mechanism assumed a TUI's own redraw never produces visible output
+/// distinguishable from the model's genuine output, which is false: an
+/// interactive input box necessarily redraws to show the character just
+/// typed, so the very first keystroke's own screen repaint (box chrome,
+/// prompt glyph, etc.) was routinely misread as "the model resumed," and the
+/// transition fired one keystroke into composing a reply — before the reply
+/// was even submitted. Folding single-key commits into this same
+/// direct-commit path (used by Enter) removes the output dependency
+/// entirely, matching the spec and eliminating that false-positive class.
+/// Every accepted frame still advances the invalidation boundary and idle
+/// baseline below, whether or not it commits.
+fn mark_committed_input_working(
+    state: &Arc<AppState>,
+    id: &str,
+    output_boundary: Option<u64>,
+    line_completed: bool,
+    printable_keystroke: bool,
+) {
+    let ws_guard = state.workspace.lock().unwrap();
+    let mut sessions = state.sessions.lock().unwrap();
+    let Some(handle) = sessions.get_mut(id) else {
+        return;
+    };
+    if handle.info.lifecycle != "alive" {
+        return;
+    }
+    let already_working = handle.info.observed_status.as_deref() == Some("working")
+        && handle.info.attention.as_deref() == Some("working")
+        && handle.info.metadata_source.as_deref() == Some("process")
+        && handle.info.metadata_confidence == Some(1.0)
+        && handle.info.needs_user_input.is_none()
+        && handle.info.detected_question.is_none()
+        && handle.info.suggested_options.is_none()
+        && handle.pending_work_signal.is_none();
+    // The narrow gate #273 used to arm a work signal: only a hookless
+    // harness's hook-reported `needs_you` (Claude Code's Notification path)
+    // treats a bare printable keystroke as evidence of resumed work. Shell
+    // sessions and Peon-detected TUI prompts never set `metadata_source ==
+    // "agent"`, so they never qualify here — unchanged in scope from #273,
+    // just no longer output-gated.
+    let single_key_qualifies = printable_keystroke
+        && !handle.active_work_hook
+        && handle.info.attention.as_deref() == Some("needs_you")
+        && handle.info.metadata_source.as_deref() == Some("agent");
+    let commit_working = !already_working && (line_completed || single_key_qualifies);
+    let Some(next_generation) = handle.runtime.input_generation.checked_add(1) else {
+        tracing::warn!(session_id = %id, "input generation overflow");
+        return;
+    };
+    let accepted_at = chrono::Utc::now();
+    if !commit_working || already_working {
+        handle.runtime.input_generation = next_generation;
+        handle.runtime.accepted_input_at = Some(accepted_at);
+        handle.runtime.min_peon_output_revision =
+            output_boundary.unwrap_or(handle.runtime.peon_output_revision);
+        drop(sessions);
+        drop(ws_guard);
+        state
+            .peon
+            .last_output
+            .write()
+            .unwrap()
+            .insert(id.to_string(), tokio::time::Instant::now());
+        return;
+    }
+    let fields = crate::runtime::observed_status::process_transition_fields(
+        crate::runtime::observed_status::ProcessTransition::CommittedWorking,
+    );
+    if ws_guard.is_none() {
+        // A detached test/runtime has no metadata store, so there is no
+        // durable state to diverge from. Keep its live terminal contract
+        // explicit here; workspace-backed sessions take the atomic path below.
+        crate::runtime::observed_status::apply_process_transition_to_handle(
+            &mut handle.info,
+            &fields,
+        );
+        handle.pending_work_signal = None;
+        handle.runtime.input_generation = next_generation;
+        handle.runtime.accepted_input_at = Some(accepted_at);
+        handle.runtime.min_peon_output_revision =
+            output_boundary.unwrap_or(handle.runtime.peon_output_revision);
+        drop(sessions);
+        drop(ws_guard);
+        state
+            .peon
+            .last_output
+            .write()
+            .unwrap()
+            .insert(id.to_string(), tokio::time::Instant::now());
+        return;
+    }
+    let ws = ws_guard.as_ref().expect("workspace checked above");
+    let Some(mut meta) = ws.metadata.read_session(id) else {
+        return;
+    };
+    if meta.lifecycle != "alive" {
+        return;
+    }
+    crate::runtime::observed_status::apply_process_transition_to_meta(&mut meta, &fields);
+    if ws.metadata.try_write_session(&meta).is_err() {
+        tracing::warn!(session_id = %id, "failed to persist input attention transition");
+        return;
+    }
+    crate::runtime::observed_status::apply_process_transition_to_handle(&mut handle.info, &fields);
+    handle.pending_work_signal = None;
+    handle.runtime.input_generation = next_generation;
+    handle.runtime.accepted_input_at = Some(accepted_at);
+    handle.runtime.min_peon_output_revision =
+        output_boundary.unwrap_or(handle.runtime.peon_output_revision);
+    drop(sessions);
+    drop(ws_guard);
+    state
+        .peon
+        .last_output
+        .write()
+        .unwrap()
+        .insert(id.to_string(), tokio::time::Instant::now());
 }
 
 pub(crate) fn should_forward_terminal_env(key: &str) -> bool {
@@ -1398,15 +1471,21 @@ mod tests {
     }
 
     #[test]
-    fn bare_keystroke_leaves_prompt_for_the_next_poll() {
+    fn bare_keystroke_commits_working_without_waiting_for_output() {
         let session_id = "bare-keystroke-prompt";
         let (state, _dir) = prompted_session_state(session_id);
 
         assert_eq!(record_terminal_input(&state, session_id, "y"), None);
 
         let info = state.sessions.lock().unwrap()[session_id].info.clone();
-        assert_eq!(info.attention.as_deref(), Some("needs_you"));
-        assert_eq!(info.observed_status.as_deref(), Some("waiting_for_input"));
+        assert_eq!(
+            info.attention.as_deref(),
+            Some("working"),
+            "a bare keystroke at a hook-sourced needs_you commits working immediately, \
+             matching the Enter-terminated path — no PTY output confirmation needed"
+        );
+        assert_eq!(info.observed_status.as_deref(), Some("working"));
+        assert_eq!(info.metadata_source.as_deref(), Some("process"));
     }
 
     #[test]

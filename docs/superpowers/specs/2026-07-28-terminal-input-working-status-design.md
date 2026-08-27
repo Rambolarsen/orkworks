@@ -53,6 +53,23 @@ fallback section and points at the 2026-07-17 doc for the details. This
 exact hook-sourced case; without later model output the session stays
 `needs_you`, exactly as `31f9b4e` intended for the no-Enter case.
 
+> **Superseded (2026-08-24):** the arm-and-wait shape described in this
+> section is gone. The output-gated confirmation it relied on assumed a TUI's
+> redraw never produces visible output distinguishable from genuine model
+> output — false for Claude Code, whose input box redraws to show the typed
+> character on every keystroke, so the "confirming" chunk was routinely just
+> that redraw. In practice this meant `working` appeared one keystroke into
+> composing a reply, before the reply was submitted — a false positive of the
+> same shape (premature `working`) that this spec's "Goal" exists to prevent,
+> just arriving through the *hook-sourced* narrow gate instead of the broad
+> gate `31f9b4e` reverted. The narrow gate itself (`attention == needs_you`,
+> `metadata_source == "agent"`, `!active_work_hook`, a printable keystroke)
+> is unchanged and still excludes shell sessions and Peon-detected prompts by
+> construction; only its *effect* changed, from arming a signal to committing
+> `working` directly through the same path a completed line already uses (see
+> `docs/superpowers/specs/2026-07-21-committed-input-working-design.md`,
+> which required exactly this "without PTY output" behavior all along).
+
 ## Data flow and boundaries
 
 `record_terminal_input_impl` will continue to parse each delivered input frame and determine whether it completes a line. It will always record the accepted-input generation and idle baseline. It will request `ProcessTransition::CommittedWorking` only when `line_completed` is true. Harness active-work hooks and Peon output inference remain independent status sources and are unchanged.

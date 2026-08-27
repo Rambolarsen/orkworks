@@ -71,3 +71,22 @@ continues to report the failure rather than claiming durable state.
 
 This does not infer model work from terminal output and does not change how
 non-input lifecycle transitions are derived.
+
+## Implementation note (2026-08-24)
+
+The single-key case described in "Tests" above ("without PTY output") was not
+actually implemented this way: issue #273 (2026-08-02) restored single-key
+promotion for hook-sourced `needs_you` through a separate arm-then-wait
+mechanism (`pending_work_signal`/`consume_pending_work_signal`) that *did*
+wait for a subsequent visible PTY chunk before committing, contradicting this
+spec. That mechanism also had a live false-positive: Claude Code's TUI redraws
+its input box on every keystroke, so the "confirming" output was routinely
+just the keystroke's own on-screen echo (box chrome, prompt glyph) rather than
+genuine model output — the transition fired one keystroke into composing a
+reply, before the reply was submitted. Fixed by routing the single-key case
+(same narrow gate: `attention == needs_you`, `metadata_source == "agent"`,
+`!active_work_hook`, a printable keystroke) through the same direct
+`ProcessTransition::CommittedWorking` commit `mark_committed_input_working`
+already used for `line_completed`, removing the output wait entirely and
+bringing the implementation in line with this spec's original intent. See the
+2026-07-28 doc's "Narrowed exception" section for the corresponding update.

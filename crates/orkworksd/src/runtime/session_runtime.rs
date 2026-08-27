@@ -104,29 +104,6 @@ pub(crate) fn arm_pending_work_signal(
     }
 }
 
-/// Extends an already-armed signal with newly typed (not yet echoed) text
-/// and refreshes its expiry, rather than discarding whatever remains of a
-/// prior keystroke's expected echo. A naive re-arm-per-keystroke that
-/// replaces `remaining_echo` with the full composed-so-far buffer mismatches
-/// how PTYs actually echo: each frame only echoes back the character(s)
-/// just typed, not the accumulated line again every time. Appending keeps
-/// `remaining_echo` an accurate expectation of the *next* echo chunk in
-/// order, however much of a previous keystroke's echo has already been
-/// absorbed.
-pub(crate) fn extend_pending_work_signal(
-    slot: &mut Option<PendingWorkSignal>,
-    new_text: &str,
-    now: tokio::time::Instant,
-) {
-    match slot {
-        Some(signal) => {
-            signal.remaining_echo.push_str(new_text);
-            signal.expires_at = now + WORK_SIGNAL_WINDOW;
-        }
-        None => *slot = Some(arm_pending_work_signal(new_text, now)),
-    }
-}
-
 /// A chunk only "counts" as visible output if it has at least one character
 /// that isn't whitespace and isn't a control code (e.g. a bare BEL or other
 /// C0 byte left over after ANSI stripping must not qualify as model output).
@@ -1611,25 +1588,6 @@ mod tests {
     }
 
     #[test]
-    fn extending_on_next_keystroke_does_not_falsely_qualify_its_own_echo() {
-        let now = tokio::time::Instant::now();
-        // First keystroke 'h': armed fresh; its echo arrives and is
-        // correctly absorbed as non-qualifying.
-        let mut signal = Some(arm_pending_work_signal("h", now));
-        assert!(!consume_pending_work_signal(&mut signal, "h", now));
-        // Second keystroke 'e': the single-key arming site in
-        // terminal_runtime.rs extends the signal with only the newly typed
-        // delta ("e"), not the whole accumulated buffer — matching how a
-        // PTY actually echoes back just the character just typed. This must
-        // still not qualify as genuine model output while composing.
-        extend_pending_work_signal(&mut signal, "e", now);
-        assert!(
-            !consume_pending_work_signal(&mut signal, "e", now),
-            "echo of a later keystroke must not be mistaken for genuine model output"
-        );
-    }
-
-    #[test]
     fn split_echo_does_not_qualify_until_new_visible_output_arrives() {
         let now = tokio::time::Instant::now();
         let mut signal = Some(arm_pending_work_signal("fix status", now));
@@ -1706,7 +1664,7 @@ mod tests {
     }
 
     #[test]
-    fn ansi_arrow_key_does_not_arm_work_signal_after_single_key_input() {
+    fn ansi_arrow_key_does_not_commit_working() {
         let session_id = "single-key-arrow-key";
         let state = test_state_with_runtime_session(session_id);
 
@@ -1717,26 +1675,18 @@ mod tests {
             handle.info.metadata_source = Some("agent".into());
         }
 
-        // A prior accepted response leaves an in-progress echo prefix. Model a
-        // later arrow-key edit after its original work signal expired.
-        crate::runtime::terminal_runtime::record_terminal_input(&state, session_id, "y");
-        state
-            .sessions
-            .lock()
-            .unwrap()
-            .get_mut(session_id)
-            .unwrap()
-            .pending_work_signal = None;
-
-        // collect_input_line parses ESC [ A as a control sequence. It must not
-        // re-arm the fallback merely because the raw frame contains '[' and 'A'.
+        // collect_input_line parses ESC [ A as a control sequence: it consumes
+        // the printable bytes '[' and 'A' from the raw frame without pushing
+        // either into the in-progress line buffer, so `buf_grew` is false and
+        // the single-key commit gate in `mark_committed_input_working` must
+        // not fire merely because the raw frame contains printable bytes.
         crate::runtime::terminal_runtime::record_terminal_input(&state, session_id, "\x1b[A");
 
-        assert!(
-            state.sessions.lock().unwrap()[session_id]
-                .pending_work_signal
-                .is_none(),
-            "ANSI arrow-key input must not arm the work signal"
+        let sessions = state.sessions.lock().unwrap();
+        assert_eq!(
+            sessions[session_id].info.attention.as_deref(),
+            Some("needs_you"),
+            "ANSI arrow-key input must not commit the working transition"
         );
     }
 
@@ -1765,7 +1715,7 @@ mod tests {
     }
 
     #[test]
-    fn single_key_does_not_re_arm_when_attention_is_working() {
+    fn single_key_is_a_no_op_when_attention_is_already_working() {
         let session_id = "single-key-no-noise-on-working";
         let state = test_state_with_runtime_session(session_id);
 
@@ -1777,18 +1727,20 @@ mod tests {
             handle.info.metadata_source = Some("process".into());
         }
 
-        // A printable keystroke arrives mid-working. It must NOT arm a work
-        // signal — the session is already working and re-arming would
-        // introduce noise.
+        // A printable keystroke arrives mid-working. The single-key commit
+        // gate requires attention == needs_you, so this must be a no-op —
+        // no noise re-triggered on an already-working session.
         assert!(
             crate::runtime::terminal_runtime::record_terminal_input(&state, session_id, "y")
                 .is_none()
         );
 
         let sessions = state.sessions.lock().unwrap();
-        assert!(
-            sessions[session_id].pending_work_signal.is_none(),
-            "keystroke during working must not re-arm the work signal"
+        assert_eq!(sessions[session_id].info.attention.as_deref(), Some("working"));
+        assert_eq!(
+            sessions[session_id].info.metadata_source.as_deref(),
+            Some("process"),
+            "keystroke during working must not touch metadata_source"
         );
     }
 
@@ -1815,15 +1767,12 @@ mod tests {
         let sessions = state.sessions.lock().unwrap();
         assert_eq!(
             sessions[session_id].info.attention.as_deref(),
-            Some("needs_you")
+            Some("needs_you"),
+            "Peon-sourced needs_you is out of the narrow single-key commit's scope"
         );
         assert_eq!(
             sessions[session_id].info.observed_status.as_deref(),
             Some("waiting_for_input")
-        );
-        assert!(
-            sessions[session_id].pending_work_signal.is_none(),
-            "bare input must not create an output-gated working transition"
         );
     }
 
@@ -1861,16 +1810,19 @@ mod tests {
         );
     }
 
-    /// Pins the narrow single-key work-signal arming (#273, restoring the #179
-    /// fix that `31f9b4e` reverted). Claude Code's Notification hook sets
-    /// `needs_you` with `metadata_source = "agent"`; its prompts take single
-    /// keystrokes (y/n/1/2/3) with no Enter. The bare keystroke must arm
-    /// `pending_work_signal` so the next visible PTY output can promote to
-    /// `working`. This was the test that demonstrated the regression on
-    /// pre-fix `main` (post-`31f9b4e`); it now stays green on `main`.
+    /// Pins the fix for the false-positive "working while still composing"
+    /// bug: a bare printable keystroke on a hookless, agent-hook-sourced
+    /// `needs_you` (Claude Code's Notification path) now commits the working
+    /// transition immediately, the same way an Enter-terminated line does —
+    /// it no longer arms a signal that waits for the *next visible PTY
+    /// output* to confirm. That output-confirmation step was the actual bug:
+    /// Claude Code's own TUI redraws its input box on every keystroke, so the
+    /// "confirming" output was routinely just the keystroke's own on-screen
+    /// echo, not genuine model output, and the transition fired one keystroke
+    /// into composing a reply — before the reply was even submitted.
     #[test]
-    fn bare_keystroke_arms_work_signal_for_hookless_agent_sourced_needs_you() {
-        let session_id = "single-key-arms-for-hookless-agent-needs-you";
+    fn bare_keystroke_commits_working_immediately_for_hookless_agent_sourced_needs_you() {
+        let session_id = "single-key-commits-for-hookless-agent-needs-you";
         let state = test_state_with_runtime_session(session_id);
 
         {
@@ -1880,6 +1832,10 @@ mod tests {
             handle.info.attention = Some("needs_you".into());
             handle.info.observed_status = Some("waiting_for_input".into());
             handle.info.metadata_source = Some("agent".into());
+            handle.info.metadata_confidence = Some(0.8);
+            handle.info.needs_user_input = Some(true);
+            handle.info.detected_question = Some("Proceed?".into());
+            handle.info.suggested_options = Some(vec!["yes".into(), "no".into()]);
         }
 
         assert!(
@@ -1889,262 +1845,21 @@ mod tests {
         );
 
         let sessions = state.sessions.lock().unwrap();
-        assert_eq!(
-            sessions[session_id].info.attention.as_deref(),
-            Some("needs_you"),
-            "attention must stay needs_you until visible output promotes it"
-        );
-        assert!(
-            sessions[session_id].pending_work_signal.is_some(),
-            "bare printable key on a hookless agent-sourced needs_you must arm the work signal"
-        );
-    }
-
-    /// Pins the end-to-end promotion path for the narrow single-key arming
-    /// (#273): hook-sourced `needs_you` answered with a single key, followed
-    /// by visible PTY output, must promote attention and observed status to
-    /// `working` on both the live handle and persisted metadata, with
-    /// `metadata_source = "process"` taking over from the prior `"agent"`.
-    /// Mirrors the existing
-    /// `submitted_input_at_hook_sourced_needs_you_is_working_before_visible_output`
-    /// but replaces the Enter-terminated `"y\r"` with a bare `"y"` — the
-    /// Claude Code interaction shape that `31f9b4e` inadvertently broke. This
-    /// was the test that demonstrated the regression on pre-fix `main`
-    /// (post-`31f9b4e`); it now stays green on `main`.
-    #[tokio::test]
-    async fn single_key_at_hook_sourced_needs_you_promotes_to_working_on_visible_output() {
-        let dir = tempfile::tempdir().unwrap();
-        let session_id = "single-key-e2e-arming-promote";
-        let state = test_state_with_runtime_session(session_id);
-        let metadata_root = dir.path().join(".orkworks-test");
-        *state.workspace.lock().unwrap() = Some(crate::WorkspaceState {
-            path: dir.path().to_path_buf(),
-            metadata: crate::metadata::MetadataStore::new(&metadata_root),
-            workflow_observations: crate::workflow_observations::WorkflowObservationStore::open(
-                metadata_root.clone(),
-            )
-            .expect("open workflow observation store"),
-            recommendation_store: crate::taskmaster::store::RecommendationStore::open(
-                metadata_root.clone(),
-            )
-            .expect("open recommendation store"),
-            watcher: crate::watcher::MetadataWatcher::start(&metadata_root.join("sessions")),
-        });
-
-        // Simulate a Claude Code Notification hook POST: needs_you with
-        // metadata_source=agent and the prompt's question fields populated
-        // (`needs_user_input` / `detected_question` / `suggested_options`),
-        // matching what `merge_agent_attention_signal_with_plan` persists on
-        // a real `waiting_for_input` hook report. Persist the same state to
-        // disk so the runtime's output handler — which only writes back via
-        // the metadata store when workspace is wired — finds a base session
-        // record to merge into. Seeding the question fields here is what
-        // lets the post-promotion assertions prove the output-gated path
-        // clears them (the Codex #1 concern): without that, they would simply
-        // stay `None` and the assertions would prove nothing.
-        {
-            let mut sessions = state.sessions.lock().unwrap();
-            let handle = sessions.get_mut(session_id).unwrap();
-            handle.info.attention = Some("needs_you".into());
-            handle.info.metadata_source = Some("agent".into());
-            handle.info.metadata_confidence = Some(1.0);
-            handle.info.lifecycle = "alive".into();
-            handle.info.needs_user_input = Some(true);
-            handle.info.detected_question = Some("Proceed?".into());
-            handle.info.suggested_options = Some(vec!["yes".into(), "no".into()]);
-        }
-        {
-            let ws = state.workspace.lock().unwrap();
-            let mut meta = crate::test_support::test_session_metadata(
-                session_id,
-                "Runtime Test",
-                dir.path().display().to_string(),
-                "running",
-                "now",
-                "now",
-            );
-            meta.lifecycle_phase = "active".into();
-            meta.lifecycle = "alive".into();
-            meta.connectivity = "online".into();
-            meta.terminal_outcome = None;
-            meta.attention = Some("needs_you".into());
-            meta.metadata_source = "agent".into();
-            meta.metadata_confidence = 1.0;
-            meta.needs_user_input = Some(true);
-            meta.detected_question = Some("Proceed?".into());
-            meta.suggested_options = Some(vec!["yes".into(), "no".into()]);
-            ws.as_ref().unwrap().metadata.write_session(&meta);
-        }
-
-        // Single-key acceptance (e.g. `y`). No Enter: it must not commit the
-        // working transition directly, but must arm `pending_work_signal` so
-        // the next visible PTY chunk can promote.
-        assert!(
-            crate::runtime::terminal_runtime::record_terminal_input(&state, session_id, "y")
-                .is_none(),
-            "bare input without Enter returns None — no completed line to label-record"
-        );
-        {
-            let sessions = state.sessions.lock().unwrap();
-            assert_eq!(
-                sessions[session_id].info.attention.as_deref(),
-                Some("needs_you"),
-                "the bare keystroke must not promote attention on its own"
-            );
-            assert!(
-                sessions[session_id].pending_work_signal.is_some(),
-                "the bare keystroke must have armed the work signal"
-            );
-        }
-
-        // Spin up a real PTY that sleeps briefly (past the 2s startup grace)
-        // then emits visible output. The output flows through
-        // start_session_runtime's DriverEvent::Output handler, which calls
-        // consume_pending_work_signal against the armed signal and promotes
-        // attention to working + metadata_source to process.
-        let (runtime, control_rx) =
-            SessionRuntime::live(DEFAULT_TERMINAL_ROWS, DEFAULT_TERMINAL_COLS);
-        let output_tx = runtime.output_tx.clone();
-        let mut events = output_tx.subscribe();
-
-        // Deliberately `-c`, not `-lc`: this assertion depends on the marker
-        // being the *first* visible PTY chunk (consume_pending_work_signal
-        // qualifies on the first non-echo visible output it sees). A login
-        // shell sources profile scripts that can print their own banner
-        // before this printf runs — e.g. an nvm init script — which then
-        // gets consumed as the "genuine" signal instead of the real marker,
-        // so the promotion this test exists to verify never fires. The test
-        // only needs a shell that can sleep and printf; it has no PATH/login
-        // dependency, so `-c` is both sufficient and immune to this class of
-        // environment-specific test failure.
-        let command = harness::CommandSpec {
-            program: "/bin/sh".into(),
-            args: vec![
-                "-c".into(),
-                "sleep 2.2; printf 'model-output-after-bare-key\\n'; sleep 1".into(),
-            ],
-            cwd: dir.path().display().to_string(),
-        };
-
-        {
-            let mut sessions = state.sessions.lock().unwrap();
-            let handle = sessions.get_mut(session_id).unwrap();
-            handle.runtime = runtime;
-        }
-
-        let (kill_tx, kill_rx) = tokio::sync::watch::channel(false);
-        start_session_runtime(
-            state.clone(),
-            session_id.to_string(),
-            command,
-            None,
-            control_rx,
-            output_tx,
-            kill_rx,
-            PtySize {
-                rows: DEFAULT_TERMINAL_ROWS,
-                cols: DEFAULT_TERMINAL_COLS,
-                pixel_width: 0,
-                pixel_height: 0,
-            },
-        )
-        .await
-        .unwrap();
-
-        // Wait for the model-output marker to arrive. 3s window covers the 2.2s
-        // sleep + printf + runtime latency.
-        tokio::time::timeout(Duration::from_secs(3), async {
-            loop {
-                match events.recv().await {
-                    Ok(RuntimeEvent::Output { chunk, .. })
-                        if String::from_utf8_lossy(&chunk)
-                            .contains("model-output-after-bare-key") =>
-                    {
-                        break;
-                    }
-                    Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
-                    Err(error) => panic!("unexpected runtime event error: {error}"),
-                }
-            }
-        })
-        .await
-        .expect("model output should arrive within the 3s window");
-
-        // Yield once so the runtime's output handler finishes its multi-lock
-        // sequence (sessions lock for the in-memory promoted_working write, then
-        // the workspace lock for the persisted metadata write-back).
-        tokio::task::yield_now().await;
-
-        let sessions = state.sessions.lock().unwrap();
-        let handle = sessions.get(session_id).unwrap();
+        let handle = &sessions[session_id];
         assert_eq!(
             handle.info.attention.as_deref(),
             Some("working"),
-            "visible model output after a single-key answer must promote attention to working"
+            "a single committed keystroke must commit working immediately, with no PTY output wait"
         );
-        assert!(
-            handle.pending_work_signal.is_none(),
-            "qualifying output must consume the armed work signal"
-        );
-        assert_eq!(
-            handle.info.observed_status.as_deref(),
-            Some("working"),
-            "the output-gated promotion must set observed_status to working on the live handle"
-        );
-        assert_eq!(
-            handle.info.metadata_source.as_deref(),
-            Some("process"),
-            "the output-gated promotion must take over metadata_source from agent to process on \
-             the live handle (Codex #1: previously the inline field-set left the stale agent \
-             source intact while attention flipped to working)"
-        );
+        assert_eq!(handle.info.observed_status.as_deref(), Some("working"));
+        assert_eq!(handle.info.metadata_source.as_deref(), Some("process"));
         assert_eq!(handle.info.metadata_confidence, Some(1.0));
         assert_eq!(
             handle.info.needs_user_input, None,
-            "promotion must clear needs_user_input on the live handle (Codex #1)"
+            "the answered prompt's question fields must clear on commit"
         );
-        assert_eq!(
-            handle.info.detected_question, None,
-            "promotion must clear detected_question on the live handle (Codex #1)"
-        );
-        assert!(
-            handle.info.suggested_options.is_none(),
-            "promotion must clear suggested_options on the live handle (Codex #1)"
-        );
-        drop(sessions);
-
-        let ws = state.workspace.lock().unwrap();
-        let meta = ws
-            .as_ref()
-            .unwrap()
-            .metadata
-            .read_session(session_id)
-            .expect("session metadata should be persisted after promotion");
-        assert_eq!(
-            meta.attention.as_deref(),
-            Some("working"),
-            "persisted attention must reflect the post-output promotion"
-        );
-        assert_eq!(
-            meta.metadata_source, "process",
-            "the process-sourced output path owns the persisted promotion, not the agent hook"
-        );
-        assert_eq!(meta.metadata_confidence, 1.0);
-        assert_eq!(
-            meta.needs_user_input, None,
-            "promotion must clear persisted needs_user_input (Codex #1)"
-        );
-        assert_eq!(
-            meta.detected_question, None,
-            "promotion must clear persisted detected_question (Codex #1)"
-        );
-        assert!(
-            meta.suggested_options.is_none(),
-            "promotion must clear persisted suggested_options (Codex #1)"
-        );
-        drop(ws);
-
-        kill_tx.send(true).unwrap();
+        assert_eq!(handle.info.detected_question, None);
+        assert!(handle.info.suggested_options.is_none());
     }
 
     #[tokio::test]

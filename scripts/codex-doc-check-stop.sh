@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-
 escape_for_json() {
   local s="$1"
   s="${s//\\/\\\\}"
@@ -30,12 +28,11 @@ if [ "${ORKWORKS_DOC_CHECK_OUTPUT+x}" = "x" ]; then
         doc_output="[doc-check] Hook failed with invalid exit code ${raw_doc_status}."
       fi
       ;;
-    *)
-      doc_status="${raw_doc_status}"
-      ;;
+    *) doc_status="${raw_doc_status}" ;;
   esac
 else
   set +e
+  SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
   doc_output="$(bash "${SCRIPT_DIR}/doc-check.sh" 2>&1)"
   doc_status=$?
   set -e
