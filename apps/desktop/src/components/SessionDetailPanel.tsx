@@ -324,7 +324,7 @@ function SessionDetailPanel({ sessions, activeSessionId, onResumeSession, onAppl
                   </div>
                   <div>
                     <dt>Error summary</dt>
-                    <dd>{active.peonDiagnostics?.errorSummary ?? "Unavailable"}</dd>
+                    <dd>{active.peonDiagnostics?.errorSummary ?? "—"}</dd>
                   </div>
                   <div>
                     <dt>Accepted observations</dt>

@@ -134,7 +134,7 @@ test("SessionDetailPanel gates Peon diagnostics behind debug metadata", () => {
   assert.match(debugBlock, /attemptCount/);
   assert.match(debugBlock, /errorSummary/);
   assert.match(debugBlock, /observationCount/);
-  assert.match(debugBlock, /Unavailable/);
+  assert.match(debugBlock, /errorSummary[^\n]*\?\? "—"/);
   assert.doesNotMatch(source.slice(0, debugGateIndex), /Peon diagnostics/);
 });
 
