@@ -71,18 +71,6 @@ fn diagnostic_attempt_is_active(
         && state.peon.diagnostic_attempt_is_current(session_id, attempt)
 }
 
-fn diagnostic_attempt_is_active_with_sessions(
-    state: &AppState,
-    sessions: &HashMap<String, crate::SessionHandle>,
-    session_id: &str,
-    attempt: &PeonDiagnosticAttempt,
-) -> bool {
-    sessions.get(session_id).is_some_and(|handle| {
-        handle.runtime.matches_identity(&attempt.runtime_identity)
-            && handle.info.lifecycle_phase == "active"
-    }) && state.peon.diagnostic_attempt_is_current(session_id, attempt)
-}
-
 fn fail_attempt_if_active(
     state: &AppState,
     session_id: &str,
@@ -90,9 +78,10 @@ fn fail_attempt_if_active(
     reason: &str,
     error: &str,
 ) -> bool {
-    let sessions = state.sessions.lock().unwrap();
-    diagnostic_attempt_is_active_with_sessions(state, &sessions, session_id, attempt)
-        && state.peon.fail_attempt(session_id, attempt, reason, error)
+    if !diagnostic_attempt_is_active(state, session_id, attempt) {
+        return false;
+    }
+    state.peon.fail_attempt(session_id, attempt, reason, error)
 }
 
 fn complete_attempt_if_active(
@@ -101,9 +90,10 @@ fn complete_attempt_if_active(
     attempt: &PeonDiagnosticAttempt,
     result: &providers::ProviderRunResult,
 ) -> bool {
-    let sessions = state.sessions.lock().unwrap();
-    diagnostic_attempt_is_active_with_sessions(state, &sessions, session_id, attempt)
-        && state.peon.complete_attempt(session_id, attempt, result)
+    if !diagnostic_attempt_is_active(state, session_id, attempt) {
+        return false;
+    }
+    state.peon.complete_attempt(session_id, attempt, result)
 }
 
 fn timeout_attempt_if_active(
@@ -111,8 +101,7 @@ fn timeout_attempt_if_active(
     session_id: &str,
     attempt: &PeonDiagnosticAttempt,
 ) {
-    let sessions = state.sessions.lock().unwrap();
-    if diagnostic_attempt_is_active_with_sessions(state, &sessions, session_id, attempt) {
+    if diagnostic_attempt_is_active(state, session_id, attempt) {
         state.peon.timeout_attempt(session_id, attempt);
     }
 }
@@ -122,8 +111,7 @@ fn finish_attempt_if_active(
     session_id: &str,
     attempt: &PeonDiagnosticAttempt,
 ) {
-    let sessions = state.sessions.lock().unwrap();
-    if diagnostic_attempt_is_active_with_sessions(state, &sessions, session_id, attempt) {
+    if diagnostic_attempt_is_active(state, session_id, attempt) {
         state.peon.finish_attempt(session_id, attempt);
     }
 }
@@ -134,8 +122,7 @@ fn refresh_observation_count_if_active(
     attempt: &PeonDiagnosticAttempt,
     count: Option<usize>,
 ) {
-    let sessions = state.sessions.lock().unwrap();
-    if diagnostic_attempt_is_active_with_sessions(state, &sessions, session_id, attempt) {
+    if diagnostic_attempt_is_active(state, session_id, attempt) {
         state
             .peon
             .refresh_observation_count(session_id, attempt, count);
@@ -146,17 +133,15 @@ impl crate::PeonState {
     fn diagnostic_entry<'a>(
         &self,
         diagnostics: &'a mut std::collections::HashMap<String, crate::PeonDiagnosticEntry>,
+        leases: &HashMap<String, DiagnosticLease>,
         session_id: &str,
     ) -> Option<&'a mut crate::PeonDiagnosticEntry> {
         if !diagnostics.contains_key(session_id) {
             if diagnostics.len() >= crate::MAX_PEON_DIAGNOSTIC_SESSIONS {
-                let evictable_id = {
-                    let in_flight = self.in_flight.read().unwrap();
-                    diagnostics
-                        .keys()
-                        .find(|id| !in_flight.contains(*id))
-                        .cloned()
-                };
+                let evictable_id = diagnostics
+                    .keys()
+                    .find(|id| !leases.contains_key(*id))
+                    .cloned();
                 let Some(evictable_id) = evictable_id else {
                     return None;
                 };
@@ -171,9 +156,9 @@ impl crate::PeonState {
     }
 
     fn mark_candidate(&self, session_id: &str) {
-        let _lease_guard = diagnostic_leases().lock().unwrap();
+        let leases = diagnostic_leases().lock().unwrap();
         let mut diagnostics = self.diagnostics.write().unwrap();
-        let Some(entry) = self.diagnostic_entry(&mut diagnostics, session_id) else {
+        let Some(entry) = self.diagnostic_entry(&mut diagnostics, &leases, session_id) else {
             return;
         };
         entry.snapshot.scheduler_state = crate::session_types::PeonSchedulerState::Candidate;
@@ -187,7 +172,7 @@ impl crate::PeonState {
     ) -> Option<PeonDiagnosticAttempt> {
         let mut leases = diagnostic_leases().lock().unwrap();
         let mut diagnostics = self.diagnostics.write().unwrap();
-        let entry = self.diagnostic_entry(&mut diagnostics, session_id)?;
+        let entry = self.diagnostic_entry(&mut diagnostics, &leases, session_id)?;
         if entry.snapshot.scheduler_state == crate::session_types::PeonSchedulerState::InFlight {
             return None;
         }
@@ -237,8 +222,20 @@ impl crate::PeonState {
         })
     }
 
-    pub(crate) fn invalidate_diagnostic_attempt(&self, session_id: &str) {
+    pub(crate) fn invalidate_diagnostic_attempt(
+        &self,
+        session_id: &str,
+        expected_runtime_identity: Option<&RuntimeIdentity>,
+    ) {
         let mut leases = diagnostic_leases().lock().unwrap();
+        if let Some(expected_runtime_identity) = expected_runtime_identity {
+            if !leases
+                .get(session_id)
+                .is_some_and(|(_, identity)| identity == expected_runtime_identity)
+            {
+                return;
+            }
+        }
         leases.remove(session_id);
         self.diagnostics.write().unwrap().remove(session_id);
         self.in_flight.write().unwrap().remove(session_id);
@@ -368,8 +365,9 @@ impl crate::PeonState {
     }
 
     fn mark_idle(&self, session_id: &str, reason: &str) {
+        let leases = diagnostic_leases().lock().unwrap();
         let mut diagnostics = self.diagnostics.write().unwrap();
-        let Some(entry) = self.diagnostic_entry(&mut diagnostics, session_id) else {
+        let Some(entry) = self.diagnostic_entry(&mut diagnostics, &leases, session_id) else {
             return;
         };
         if entry.snapshot.scheduler_state != crate::session_types::PeonSchedulerState::InFlight {
@@ -924,8 +922,35 @@ mod tests {
         }
     }
 
+    static DIAGNOSTIC_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    struct DiagnosticTestGuard {
+        _lock: std::sync::MutexGuard<'static, ()>,
+    }
+
+    impl Drop for DiagnosticTestGuard {
+        fn drop(&mut self) {
+            match diagnostic_leases().lock() {
+                Ok(mut leases) => leases.clear(),
+                Err(poisoned) => poisoned.into_inner().clear(),
+            }
+        }
+    }
+
+    fn diagnostic_test_guard() -> DiagnosticTestGuard {
+        let lock = DIAGNOSTIC_TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        match diagnostic_leases().lock() {
+            Ok(mut leases) => leases.clear(),
+            Err(poisoned) => poisoned.into_inner().clear(),
+        }
+        DiagnosticTestGuard { _lock: lock }
+    }
+
     #[test]
     fn stale_attempt_cleanup_cannot_release_a_newer_session_lease() {
+        let _lease_guard = diagnostic_test_guard();
         let dir = tempfile::tempdir().unwrap();
         let state = crate::test_support::test_app_state_with_workspace(dir.path());
         let session_id = "generation-guard";
@@ -960,6 +985,10 @@ mod tests {
         assert!(second_attempt.generation > first_attempt.generation);
 
         state.peon.finish_attempt(session_id, &first_attempt);
+        assert_eq!(
+            diagnostic_leases().lock().unwrap().get(session_id),
+            Some(&(second_attempt.generation, second_attempt.runtime_identity.clone()))
+        );
         assert!(state
             .peon
             .in_flight
@@ -990,6 +1019,7 @@ mod tests {
 
     #[test]
     fn timed_out_runtime_completion_is_rejected_after_runtime_replacement() {
+        let _lease_guard = diagnostic_test_guard();
         let dir = tempfile::tempdir().unwrap();
         let state = crate::test_support::test_app_state_with_workspace(dir.path());
         let session_id = "runtime-replacement-diagnostic";
@@ -1061,6 +1091,12 @@ mod tests {
             .peon
             .begin_attempt(session_id, new_identity)
             .expect("replacement runtime attempt should start");
+        crate::session_application::SessionApplication::new(state.clone())
+            .clear_ended_session_tracking_for_runtime(session_id, &old_identity);
+        assert_eq!(
+            diagnostic_leases().lock().unwrap().get(session_id),
+            Some(&(new_attempt.generation, new_attempt.runtime_identity.clone()))
+        );
 
         let result = providers::ProviderRunResult {
             inference: peon::parse_inference(r#"{"status":"blocked","confidence":0.9}"#),
@@ -1071,6 +1107,10 @@ mod tests {
         assert!(!diagnostic_attempt_is_active(&state, session_id, &old_attempt));
         assert!(!state.peon.complete_attempt(session_id, &old_attempt, &result));
         state.peon.finish_attempt(session_id, &old_attempt);
+        assert_eq!(
+            diagnostic_leases().lock().unwrap().get(session_id),
+            Some(&(new_attempt.generation, new_attempt.runtime_identity.clone()))
+        );
         assert!(state
             .peon
             .in_flight
@@ -1143,6 +1183,7 @@ mod tests {
 
     #[test]
     fn diagnostic_eviction_preserves_all_in_flight_entries_and_leases() {
+        let _lease_guard = diagnostic_test_guard();
         let dir = tempfile::tempdir().unwrap();
         let state = crate::test_support::test_app_state_with_workspace(dir.path());
 
@@ -1155,27 +1196,40 @@ mod tests {
                 .unwrap()
                 .insert(session_id.clone());
             state.peon.mark_candidate(&session_id);
-            state
+            let attempt = state
                 .peon
                 .begin_attempt(&session_id, test_runtime_identity(&session_id, index as u64 + 1))
                 .expect("in-flight diagnostic should start");
+            if index == 0 {
+                state.peon.timeout_attempt(&session_id, &attempt);
+            }
         }
 
         state.peon.mark_candidate("new-diagnostic");
 
         let diagnostics = state.peon.diagnostics.read().unwrap();
         let in_flight = state.peon.in_flight.read().unwrap();
+        let leases = diagnostic_leases().lock().unwrap();
         assert_eq!(diagnostics.len(), crate::MAX_PEON_DIAGNOSTIC_SESSIONS);
         assert!(!diagnostics.contains_key("new-diagnostic"));
         for index in 0..crate::MAX_PEON_DIAGNOSTIC_SESSIONS {
             let session_id = format!("in-flight-{index}");
             assert!(diagnostics.contains_key(&session_id));
-            assert!(in_flight.contains(&session_id));
+            assert_eq!(
+                leases.get(&session_id).map(|lease| lease.0),
+                Some(1)
+            );
+            if index == 0 {
+                assert!(!in_flight.contains(&session_id));
+            } else {
+                assert!(in_flight.contains(&session_id));
+            }
         }
     }
 
     #[test]
     fn provider_exhaustion_keeps_lease_until_post_processing_finishes() {
+        let _lease_guard = diagnostic_test_guard();
         let dir = tempfile::tempdir().unwrap();
         let state = crate::test_support::test_app_state_with_workspace(dir.path());
         let session_id = "provider-exhaustion-lease";
@@ -1203,6 +1257,10 @@ mod tests {
             .unwrap()
             .contains(session_id));
         assert_eq!(
+            diagnostic_leases().lock().unwrap().get(session_id),
+            Some(&(attempt.generation, attempt.runtime_identity.clone()))
+        );
+        assert_eq!(
             state.peon.diagnostics.read().unwrap()[session_id]
                 .snapshot
                 .scheduler_state,
@@ -1220,6 +1278,7 @@ mod tests {
 
     #[test]
     fn diagnostic_provider_and_error_strings_are_bounded() {
+        let _lease_guard = diagnostic_test_guard();
         let dir = tempfile::tempdir().unwrap();
         let state = crate::test_support::test_app_state_with_workspace(dir.path());
         let session_id = "bounded-diagnostics";

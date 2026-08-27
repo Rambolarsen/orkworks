@@ -685,7 +685,7 @@ pub(crate) async fn handle_runtime_exit(
     // `ending`. The driver still owns cleanup and finalization in that case;
     // only a generation mismatch makes the callback stale.
     let _ = set_session_status_for_generation(state, id, generation, status).await;
-    {
+    let runtime_identity = {
         let mut sessions = state.sessions.lock().unwrap();
         let Some(handle) = sessions
             .get_mut(id)
@@ -698,9 +698,10 @@ pub(crate) async fn handle_runtime_exit(
         };
         handle.runtime.attached_generation = None;
         handle.terminal_attached = false;
-    }
+        handle.runtime.identity()
+    };
     crate::session_application::SessionApplication::new(state.clone())
-        .clear_ended_session_tracking(id);
+        .clear_ended_session_tracking_for_runtime(id, &runtime_identity);
     flush_output_recency(state, id).await;
     schedule_session_ending_finalization(
         state.clone(),
@@ -725,19 +726,18 @@ fn abort_post_spawn_startup(
     let _ = child.kill();
     let _ = child.wait();
 
-    let lifecycle_phase = state
+    let Some((lifecycle_phase, runtime_identity)) = state
         .sessions
         .lock()
         .unwrap()
         .get(id)
         .filter(|handle| handle.runtime.run_generation() == generation)
-        .map(|handle| handle.info.lifecycle_phase.clone());
-    let Some(lifecycle_phase) = lifecycle_phase else {
+        .map(|handle| (handle.info.lifecycle_phase.clone(), handle.runtime.identity()))
+    else {
         return false;
     };
-
     crate::session_application::SessionApplication::new(state.clone())
-        .clear_ended_session_tracking(id);
+        .clear_ended_session_tracking_for_runtime(id, &runtime_identity);
     if lifecycle_phase != "ending" {
         return false;
     }
