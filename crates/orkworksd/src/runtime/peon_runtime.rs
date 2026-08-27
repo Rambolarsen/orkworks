@@ -375,6 +375,33 @@ impl crate::PeonState {
         leases.remove(session_id);
     }
 
+    fn cleanup_attempt(&self, session_id: &str, attempt: &PeonDiagnosticAttempt) {
+        let mut leases = diagnostic_leases().lock().unwrap();
+        if leases.get(session_id)
+            != Some(&(attempt.generation, attempt.runtime_identity.clone()))
+        {
+            return;
+        }
+        let mut diagnostics = self.diagnostics.write().unwrap();
+        let was_in_flight = match diagnostics.get(session_id) {
+            None => {
+                self.in_flight.write().unwrap().remove(session_id);
+                leases.remove(session_id);
+                return;
+            }
+            Some(entry) if entry.attempt_generation == attempt.generation => {
+                entry.snapshot.scheduler_state
+                    == crate::session_types::PeonSchedulerState::InFlight
+            }
+            Some(_) => return,
+        };
+        self.in_flight.write().unwrap().remove(session_id);
+        leases.remove(session_id);
+        if was_in_flight {
+            diagnostics.remove(session_id);
+        }
+    }
+
     fn mark_idle(&self, session_id: &str, reason: &str) {
         let leases = diagnostic_leases().lock().unwrap();
         let mut diagnostics = self.diagnostics.write().unwrap();
@@ -648,7 +675,13 @@ where
                 state.peon.in_flight.write().unwrap().remove(&id);
                 continue;
             };
+            let attempt_cleanup = DiagnosticAttemptCleanup {
+                state: state_clone.clone(),
+                session_id: id.clone(),
+                attempt: attempt.clone(),
+            };
             inference_tasks.spawn(async move {
+            let _attempt_cleanup = attempt_cleanup;
             let provider_state = state_clone.clone();
             let cleanup_state = state_clone.clone();
             let provider_output = output_snapshot.clone();
@@ -960,6 +993,20 @@ where
     }
 }
 
+struct DiagnosticAttemptCleanup {
+    state: Arc<AppState>,
+    session_id: String,
+    attempt: PeonDiagnosticAttempt,
+}
+
+impl Drop for DiagnosticAttemptCleanup {
+    fn drop(&mut self) {
+        self.state
+            .peon
+            .cleanup_attempt(&self.session_id, &self.attempt);
+    }
+}
+
 #[cfg(test)]
 static DIAGNOSTIC_TEST_LOCK: Mutex<()> = Mutex::new(());
 
@@ -1136,6 +1183,96 @@ mod tests {
             "graceful shutdown must not wait indefinitely for inference tasks"
         );
         assert!(inference_tasks.join_next().await.is_some());
+    }
+
+    #[tokio::test]
+    async fn shutdown_of_started_blocking_inference_releases_diagnostic_attempt_state() {
+        let _lease_guard = diagnostic_test_guard();
+        let dir = tempfile::tempdir().unwrap();
+        let mut state = crate::test_support::test_app_state_with_workspace(dir.path());
+        let provider_entered = Arc::new(Barrier::new(2));
+        let provider_release = Arc::new(Barrier::new(2));
+        let settings = providers::ProviderSettingsPayload {
+            providers: vec![providers::ProviderSettingsEntry {
+                id: "ollama".into(),
+                enabled: true,
+                fallback_order: 0,
+                model: None,
+                default_state: providers::ProviderCapacityState::Healthy,
+                override_state: None,
+            }],
+            ..Default::default()
+        };
+        let fake_provider = providers::FakeProvider::new("ollama")
+            .stdout(r#"{"status":"working","confidence":0.9}"#)
+            .with_barriers(provider_entered.clone(), provider_release.clone());
+        let state_mut = Arc::get_mut(&mut state).unwrap();
+        state_mut.providers = providers::ProviderManager::for_tests(settings, vec![fake_provider]);
+        state_mut.peon.config.interval_secs = 0;
+
+        let session_id = "shutdown-blocking-inference";
+        let runtime = crate::runtime::session_runtime::SessionRuntime::detached(24, 80);
+        state.sessions.lock().unwrap().insert(
+            session_id.into(),
+            crate::SessionHandle {
+                info: test_session_info(
+                    session_id,
+                    "Blocking inference",
+                    dir.path().display().to_string(),
+                    "running",
+                    "now",
+                ),
+                kill_tx: tokio::sync::watch::channel(false).0,
+                output_buffer: {
+                    let mut output = peon::RingBuffer::new(200);
+                    output.push("provider input".into());
+                    output
+                },
+                scan_buf: String::new(),
+                pending_work_signal: None,
+                runtime,
+                terminal_attached: false,
+                resume_in_progress: false,
+                at_usage_limit_latched: false,
+                capacity_check_pending: false,
+                output_lines_seen: 0,
+                scan_bytes_seen: 0,
+                resume_scan_origin: None,
+                pending_capacity_visible_once: false,
+                active_work_hook: false,
+            },
+        );
+        state.peon.last_output.write().unwrap().insert(
+            session_id.into(),
+            tokio::time::Instant::now() - std::time::Duration::from_secs(1),
+        );
+
+        let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
+        let loop_task = tokio::spawn(peon_loop_for_test(state.clone(), shutdown_rx));
+        tokio::task::spawn_blocking(move || provider_entered.wait())
+            .await
+            .unwrap();
+
+        shutdown_tx.send(()).unwrap();
+        loop_task.await.unwrap();
+        provider_release.wait();
+
+        assert!(!state
+            .peon
+            .in_flight
+            .read()
+            .unwrap()
+            .contains(session_id));
+        assert!(!diagnostic_leases()
+            .lock()
+            .unwrap()
+            .contains_key(session_id));
+        assert!(!state
+            .peon
+            .diagnostics
+            .read()
+            .unwrap()
+            .contains_key(session_id));
     }
 
     #[test]
