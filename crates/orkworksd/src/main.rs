@@ -132,6 +132,7 @@ const MAX_PEON_DIAGNOSTIC_SESSIONS: usize = 1_024;
 struct PeonDiagnosticEntry {
     snapshot: PeonDiagnostics,
     attempt_generation: u64,
+    runtime_identity: Option<crate::runtime::session_runtime::RuntimeIdentity>,
 }
 
 impl PeonDiagnosticEntry {
@@ -150,6 +151,7 @@ impl PeonDiagnosticEntry {
                 observation_count: None,
             },
             attempt_generation: 0,
+            runtime_identity: None,
         }
     }
 }

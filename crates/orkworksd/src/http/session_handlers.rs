@@ -1662,6 +1662,7 @@ mod tests {
             crate::PeonDiagnosticEntry {
                 snapshot: test_peon_diagnostics(),
                 attempt_generation: 1,
+                runtime_identity: None,
             },
         );
 
@@ -4705,6 +4706,7 @@ mod tests {
                 // with the accepted count read from the observation store.
                 snapshot: test_peon_diagnostics(),
                 attempt_generation: 1,
+                runtime_identity: None,
             },
         );
         state.peon.diagnostics.write().unwrap().insert(
@@ -4712,6 +4714,7 @@ mod tests {
             crate::PeonDiagnosticEntry {
                 snapshot: test_peon_diagnostics(),
                 attempt_generation: 1,
+                runtime_identity: None,
             },
         );
 
@@ -4768,6 +4771,7 @@ mod tests {
             crate::PeonDiagnosticEntry {
                 snapshot: test_peon_diagnostics(),
                 attempt_generation: 1,
+                runtime_identity: None,
             },
         );
         let mut info = test_session_info("live", "Live", "/tmp", "running", "now");
@@ -4819,6 +4823,7 @@ mod tests {
             crate::PeonDiagnosticEntry {
                 snapshot: test_peon_diagnostics(),
                 attempt_generation: 1,
+                runtime_identity: None,
             },
         );
         state

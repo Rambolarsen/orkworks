@@ -177,6 +177,7 @@ impl crate::PeonState {
             return None;
         }
         entry.attempt_generation = entry.attempt_generation.saturating_add(1);
+        entry.runtime_identity = Some(runtime_identity.clone());
         entry.snapshot.scheduler_state = crate::session_types::PeonSchedulerState::InFlight;
         entry.snapshot.reason = None;
         entry.snapshot.last_attempt_at = Some(iso_now());
@@ -226,19 +227,28 @@ impl crate::PeonState {
         &self,
         session_id: &str,
         expected_runtime_identity: Option<&RuntimeIdentity>,
-    ) {
+    ) -> bool {
         let mut leases = diagnostic_leases().lock().unwrap();
-        if let Some(expected_runtime_identity) = expected_runtime_identity {
-            if !leases
-                .get(session_id)
-                .is_some_and(|(_, identity)| identity == expected_runtime_identity)
-            {
-                return;
-            }
+        let owns_diagnostics = match expected_runtime_identity {
+            None => true,
+            Some(expected_runtime_identity) => match leases.get(session_id) {
+                Some((_, identity)) => identity == expected_runtime_identity,
+                None => self
+                    .diagnostics
+                    .read()
+                    .unwrap()
+                    .get(session_id)
+                    .and_then(|entry| entry.runtime_identity.as_ref())
+                    .is_none_or(|identity| identity == expected_runtime_identity),
+            },
+        };
+        if !owns_diagnostics {
+            return false;
         }
         leases.remove(session_id);
         self.diagnostics.write().unwrap().remove(session_id);
         self.in_flight.write().unwrap().remove(session_id);
+        true
     }
 
     fn complete_attempt(
@@ -413,12 +423,61 @@ fn output_inference_is_current(
     captured_generation == current_generation && captured_min_revision == current_min_revision
 }
 
+fn apply_output_label_update(
+    state: &Arc<AppState>,
+    session_id: &str,
+    attempt: &PeonDiagnosticAttempt,
+    label_update: (String, u64),
+) {
+    let (label, captured_epoch) = label_update;
+    let label_epochs = state.peon.label_epochs.read().unwrap();
+    if label_epochs.get(session_id).copied().unwrap_or(0) != captured_epoch {
+        return;
+    }
+    let mut sessions = state.sessions.lock().unwrap();
+    if state.peon.diagnostic_attempt_is_current(session_id, attempt) {
+        if let Some(handle) = sessions.get_mut(session_id).filter(|handle| {
+            handle.runtime.matches_identity(&attempt.runtime_identity)
+                && handle.info.lifecycle_phase == "active"
+        }) {
+            handle.info.label = label;
+        }
+    }
+}
+
 pub(crate) async fn peon_loop(state: Arc<AppState>) {
+    peon_loop_until(state, std::future::pending::<()>()).await;
+}
+
+#[cfg(test)]
+async fn peon_loop_for_test(
+    state: Arc<AppState>,
+    shutdown: tokio::sync::oneshot::Receiver<()>,
+) {
+    peon_loop_until(state, async {
+        let _ = shutdown.await;
+    })
+    .await;
+}
+
+async fn peon_loop_until<F>(state: Arc<AppState>, shutdown: F)
+where
+    F: std::future::Future<Output = ()> + Send,
+{
     let interval = state.peon.config.interval_secs;
     tracing::info!(interval_secs = interval, harness = %state.peon.config.harness, "peon started");
+    tokio::pin!(shutdown);
+    let mut inference_tasks = tokio::task::JoinSet::new();
 
     loop {
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        tokio::select! {
+            _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => {}
+            _ = &mut shutdown => {
+                while inference_tasks.join_next().await.is_some() {}
+                return;
+            }
+        }
+        while inference_tasks.try_join_next().is_some() {}
 
         let now = tokio::time::Instant::now();
         let deadline = now - std::time::Duration::from_secs(interval);
@@ -577,7 +636,7 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                 state.peon.in_flight.write().unwrap().remove(&id);
                 continue;
             };
-            tokio::spawn(async move {
+            inference_tasks.spawn(async move {
             let provider_state = state_clone.clone();
             let cleanup_state = state_clone.clone();
             let provider_output = output_snapshot.clone();
@@ -609,12 +668,8 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                 Err(_) => {
                     tracing::warn!(session_id = %id, "peon inference timed out");
                     timeout_attempt_if_active(&cleanup_state, &id, &attempt);
-                    let wait_state = cleanup_state.clone();
-                    let wait_id = id.clone();
-                    tokio::spawn(async move {
-                        let _ = provider_task.await;
-                        finish_attempt_if_active(&wait_state, &wait_id, &attempt);
-                    });
+                    let _ = provider_task.await;
+                    finish_attempt_if_active(&cleanup_state, &id, &attempt);
                     return;
                 }
             };
@@ -789,15 +844,7 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                     );
                 }
                 if let Some(label) = label_update {
-                    let mut sessions = state_clone.sessions.lock().unwrap();
-                    if state_clone.peon.diagnostic_attempt_is_current(&id, &attempt) {
-                        if let Some(handle) = sessions.get_mut(&id).filter(|handle| {
-                            handle.runtime.matches_identity(&attempt.runtime_identity)
-                                && handle.info.lifecycle_phase == "active"
-                        }) {
-                            handle.info.label = label;
-                        }
-                    }
+                    apply_output_label_update(&state_clone, &id, &attempt, label);
                 }
 
                 let sessions = state_clone.sessions.lock().unwrap();
@@ -902,6 +949,36 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
 }
 
 #[cfg(test)]
+static DIAGNOSTIC_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+#[cfg(test)]
+pub(crate) struct DiagnosticTestGuard {
+    _lock: std::sync::MutexGuard<'static, ()>,
+}
+
+#[cfg(test)]
+impl Drop for DiagnosticTestGuard {
+    fn drop(&mut self) {
+        match diagnostic_leases().lock() {
+            Ok(mut leases) => leases.clear(),
+            Err(poisoned) => poisoned.into_inner().clear(),
+        }
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn diagnostic_test_guard() -> DiagnosticTestGuard {
+    let lock = DIAGNOSTIC_TEST_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    match diagnostic_leases().lock() {
+        Ok(mut leases) => leases.clear(),
+        Err(poisoned) => poisoned.into_inner().clear(),
+    }
+    DiagnosticTestGuard { _lock: lock }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::metadata;
@@ -915,6 +992,97 @@ mod tests {
         assert!(!output_inference_is_current(4, 12, 5, 12));
     }
 
+    #[test]
+    fn output_label_update_cannot_restore_a_topic_after_reset() {
+        let _lease_guard = diagnostic_test_guard();
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(dir.path());
+        let session_id = "output-label-reset";
+        let runtime = crate::runtime::session_runtime::SessionRuntime::detached(24, 80);
+        let runtime_identity = runtime.identity();
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        state.sessions.lock().unwrap().insert(
+            session_id.to_string(),
+            crate::SessionHandle {
+                info: test_session_info(
+                    session_id,
+                    "Old topic",
+                    dir.path().display().to_string(),
+                    "running",
+                    "now",
+                ),
+                kill_tx,
+                output_buffer: peon::RingBuffer::new(200),
+                scan_buf: String::new(),
+                pending_work_signal: None,
+                runtime,
+                terminal_attached: false,
+                resume_in_progress: false,
+                at_usage_limit_latched: false,
+                capacity_check_pending: false,
+                output_lines_seen: 0,
+                scan_bytes_seen: 0,
+                resume_scan_origin: None,
+                pending_capacity_visible_once: false,
+                active_work_hook: false,
+            },
+        );
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&crate::test_support::test_session_metadata(
+                session_id,
+                "Old topic",
+                dir.path().display().to_string(),
+                "running",
+                "now",
+                "now",
+            ));
+        state.peon.in_flight.write().unwrap().insert(session_id.into());
+        state.peon.mark_candidate(session_id);
+        let attempt = state
+            .peon
+            .begin_attempt(session_id, runtime_identity)
+            .expect("output attempt should start");
+        let inference = peon::parse_inference(r#"{"status":"working","confidence":0.85}"#);
+        let persistence = crate::session_application::SessionApplication::new(state.clone())
+            .persist_peon_observation_for_attempt(
+                session_id,
+                &attempt,
+                inference.as_ref(),
+                None,
+                Some("Old inferred topic"),
+                "later",
+            );
+        let label_update = persistence
+            .label_update
+            .expect("output inference should return a label update");
+
+        crate::session_application::SessionApplication::new(state.clone())
+            .reset_session_topic(session_id);
+        apply_output_label_update(&state, session_id, &attempt, label_update);
+
+        let placeholder = crate::session_types::placeholder_label(session_id);
+        assert_eq!(state.sessions.lock().unwrap()[session_id].info.label, placeholder);
+        assert_eq!(
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(session_id)
+                .unwrap()
+                .label,
+            placeholder
+        );
+    }
+
     fn test_runtime_identity(name: &str, generation: u64) -> RuntimeIdentity {
         RuntimeIdentity {
             runtime_instance_id: name.to_string(),
@@ -922,30 +1090,25 @@ mod tests {
         }
     }
 
-    static DIAGNOSTIC_TEST_LOCK: Mutex<()> = Mutex::new(());
-
-    struct DiagnosticTestGuard {
-        _lock: std::sync::MutexGuard<'static, ()>,
+    fn spawn_test_peon_loop(
+        state: Arc<AppState>,
+    ) -> (
+        tokio::task::JoinHandle<()>,
+        tokio::sync::oneshot::Sender<()>,
+    ) {
+        let (shutdown, receiver) = tokio::sync::oneshot::channel();
+        (
+            tokio::spawn(peon_loop_for_test(state, receiver)),
+            shutdown,
+        )
     }
 
-    impl Drop for DiagnosticTestGuard {
-        fn drop(&mut self) {
-            match diagnostic_leases().lock() {
-                Ok(mut leases) => leases.clear(),
-                Err(poisoned) => poisoned.into_inner().clear(),
-            }
-        }
-    }
-
-    fn diagnostic_test_guard() -> DiagnosticTestGuard {
-        let lock = DIAGNOSTIC_TEST_LOCK
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        match diagnostic_leases().lock() {
-            Ok(mut leases) => leases.clear(),
-            Err(poisoned) => poisoned.into_inner().clear(),
-        }
-        DiagnosticTestGuard { _lock: lock }
+    async fn stop_test_peon_loop(
+        task: tokio::task::JoinHandle<()>,
+        shutdown: tokio::sync::oneshot::Sender<()>,
+    ) {
+        let _ = shutdown.send(());
+        task.await.expect("test Peon loop should shut down cleanly");
     }
 
     #[test]
@@ -1182,6 +1345,143 @@ mod tests {
     }
 
     #[test]
+    fn completed_diagnostic_cleanup_uses_retained_runtime_identity_after_lease_release() {
+        let _lease_guard = diagnostic_test_guard();
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(dir.path());
+        let session_id = "completed-diagnostic-cleanup";
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        let runtime = crate::runtime::session_runtime::SessionRuntime::detached(24, 80);
+        let identity = runtime.identity();
+        state.sessions.lock().unwrap().insert(
+            session_id.to_string(),
+            crate::SessionHandle {
+                info: test_session_info(
+                    session_id,
+                    "Completed diagnostic",
+                    dir.path().display().to_string(),
+                    "running",
+                    "now",
+                ),
+                kill_tx,
+                output_buffer: peon::RingBuffer::new(200),
+                scan_buf: String::new(),
+                pending_work_signal: None,
+                runtime,
+                terminal_attached: false,
+                resume_in_progress: false,
+                at_usage_limit_latched: false,
+                capacity_check_pending: false,
+                output_lines_seen: 0,
+                scan_bytes_seen: 0,
+                resume_scan_origin: None,
+                pending_capacity_visible_once: false,
+                active_work_hook: false,
+            },
+        );
+        state.peon.in_flight.write().unwrap().insert(session_id.into());
+        state.peon.mark_candidate(session_id);
+        let attempt = state
+            .peon
+            .begin_attempt(session_id, identity.clone())
+            .expect("diagnostic attempt should start");
+        let result = providers::ProviderRunResult {
+            inference: peon::parse_inference(r#"{"status":"working","confidence":0.85}"#),
+            observation: None,
+            attempts: Vec::new(),
+            runtime: HashMap::new(),
+        };
+        assert!(state.peon.complete_attempt(session_id, &attempt, &result));
+        state.peon.finish_attempt(session_id, &attempt);
+        assert!(!diagnostic_leases().lock().unwrap().contains_key(session_id));
+        assert!(state.peon.diagnostics.read().unwrap().contains_key(session_id));
+
+        crate::session_application::SessionApplication::new(state.clone())
+            .clear_ended_session_tracking_for_runtime(session_id, &identity);
+
+        assert!(!state.peon.diagnostics.read().unwrap().contains_key(session_id));
+    }
+
+    #[test]
+    fn stale_runtime_cleanup_does_not_clear_a_replacement_completed_diagnostic() {
+        let _lease_guard = diagnostic_test_guard();
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(dir.path());
+        let session_id = "replacement-completed-diagnostic";
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        let old_runtime = crate::runtime::session_runtime::SessionRuntime::detached(24, 80);
+        let old_identity = old_runtime.identity();
+        state.sessions.lock().unwrap().insert(
+            session_id.to_string(),
+            crate::SessionHandle {
+                info: test_session_info(
+                    session_id,
+                    "Replacement diagnostic",
+                    dir.path().display().to_string(),
+                    "running",
+                    "now",
+                ),
+                kill_tx,
+                output_buffer: peon::RingBuffer::new(200),
+                scan_buf: String::new(),
+                pending_work_signal: None,
+                runtime: old_runtime,
+                terminal_attached: false,
+                resume_in_progress: false,
+                at_usage_limit_latched: false,
+                capacity_check_pending: false,
+                output_lines_seen: 0,
+                scan_bytes_seen: 0,
+                resume_scan_origin: None,
+                pending_capacity_visible_once: false,
+                active_work_hook: false,
+            },
+        );
+        state.peon.in_flight.write().unwrap().insert(session_id.into());
+        state.peon.mark_candidate(session_id);
+        let old_attempt = state
+            .peon
+            .begin_attempt(session_id, old_identity.clone())
+            .expect("old attempt should start");
+        let result = providers::ProviderRunResult {
+            inference: peon::parse_inference(r#"{"status":"working","confidence":0.85}"#),
+            observation: None,
+            attempts: Vec::new(),
+            runtime: HashMap::new(),
+        };
+        assert!(state.peon.complete_attempt(session_id, &old_attempt, &result));
+        state.peon.finish_attempt(session_id, &old_attempt);
+
+        let new_runtime = crate::runtime::session_runtime::SessionRuntime::detached(24, 80);
+        let new_identity = new_runtime.identity();
+        assert_ne!(old_identity, new_identity);
+        state.sessions.lock().unwrap().get_mut(session_id).unwrap().runtime = new_runtime;
+        state.peon.in_flight.write().unwrap().insert(session_id.into());
+        state.peon.mark_candidate(session_id);
+        let new_attempt = state
+            .peon
+            .begin_attempt(session_id, new_identity)
+            .expect("replacement attempt should start");
+        assert!(state.peon.complete_attempt(session_id, &new_attempt, &result));
+        state.peon.finish_attempt(session_id, &new_attempt);
+        state.peon.last_output.write().unwrap().insert(
+            session_id.into(),
+            tokio::time::Instant::now(),
+        );
+
+        crate::session_application::SessionApplication::new(state.clone())
+            .clear_ended_session_tracking_for_runtime(session_id, &old_identity);
+
+        assert!(state.peon.diagnostics.read().unwrap().contains_key(session_id));
+        assert!(state
+            .peon
+            .last_output
+            .read()
+            .unwrap()
+            .contains_key(session_id));
+    }
+
+    #[test]
     fn diagnostic_eviction_preserves_all_in_flight_entries_and_leases() {
         let _lease_guard = diagnostic_test_guard();
         let dir = tempfile::tempdir().unwrap();
@@ -1207,22 +1507,24 @@ mod tests {
 
         state.peon.mark_candidate("new-diagnostic");
 
-        let diagnostics = state.peon.diagnostics.read().unwrap();
-        let in_flight = state.peon.in_flight.read().unwrap();
-        let leases = diagnostic_leases().lock().unwrap();
-        assert_eq!(diagnostics.len(), crate::MAX_PEON_DIAGNOSTIC_SESSIONS);
-        assert!(!diagnostics.contains_key("new-diagnostic"));
-        for index in 0..crate::MAX_PEON_DIAGNOSTIC_SESSIONS {
-            let session_id = format!("in-flight-{index}");
-            assert!(diagnostics.contains_key(&session_id));
-            assert_eq!(
-                leases.get(&session_id).map(|lease| lease.0),
-                Some(1)
-            );
-            if index == 0 {
-                assert!(!in_flight.contains(&session_id));
-            } else {
-                assert!(in_flight.contains(&session_id));
+        {
+            let leases = diagnostic_leases().lock().unwrap();
+            let diagnostics = state.peon.diagnostics.read().unwrap();
+            let in_flight = state.peon.in_flight.read().unwrap();
+            assert_eq!(diagnostics.len(), crate::MAX_PEON_DIAGNOSTIC_SESSIONS);
+            assert!(!diagnostics.contains_key("new-diagnostic"));
+            for index in 0..crate::MAX_PEON_DIAGNOSTIC_SESSIONS {
+                let session_id = format!("in-flight-{index}");
+                assert!(diagnostics.contains_key(&session_id));
+                assert_eq!(
+                    leases.get(&session_id).map(|lease| lease.0),
+                    Some(1)
+                );
+                if index == 0 {
+                    assert!(!in_flight.contains(&session_id));
+                } else {
+                    assert!(in_flight.contains(&session_id));
+                }
             }
         }
     }
@@ -1355,6 +1657,7 @@ mod tests {
 
     #[tokio::test]
     async fn input_label_inference_only_updates_the_live_label() {
+        let _lease_guard = diagnostic_test_guard();
         let dir = tempfile::tempdir().unwrap();
         let id = "label-only".to_string();
         let state = Arc::new(crate::AppState {
@@ -1451,9 +1754,9 @@ mod tests {
             );
         state.peon.label_pending.write().unwrap().insert(id.clone());
 
-        let task = tokio::spawn(peon_loop(state.clone()));
+        let (task, shutdown) = spawn_test_peon_loop(state.clone());
         tokio::time::sleep(std::time::Duration::from_millis(2300)).await;
-        task.abort();
+        stop_test_peon_loop(task, shutdown).await;
 
         assert_eq!(state.sessions.lock().unwrap()[&id].info.label, "New label");
         assert!(!state.peon.in_flight.read().unwrap().contains(&id));
@@ -1462,6 +1765,7 @@ mod tests {
 
     #[tokio::test]
     async fn input_label_request_survives_a_tick_where_the_session_is_already_in_flight() {
+        let _lease_guard = diagnostic_test_guard();
         // Regression: peon_loop used to unconditionally drain label_pending
         // every tick; if the session already had an Output-mode inference
         // in_flight at that moment, the drained request was simply dropped
@@ -1566,7 +1870,7 @@ mod tests {
         // session at the moment the InputLabel request arrives.
         state.peon.in_flight.write().unwrap().insert(id.clone());
 
-        let task = tokio::spawn(peon_loop(state.clone()));
+        let (task, shutdown) = spawn_test_peon_loop(state.clone());
         tokio::time::sleep(std::time::Duration::from_millis(1200)).await;
 
         assert_eq!(
@@ -1583,13 +1887,14 @@ mod tests {
         // through on a subsequent tick.
         state.peon.in_flight.write().unwrap().remove(&id);
         tokio::time::sleep(std::time::Duration::from_millis(1200)).await;
-        task.abort();
+        stop_test_peon_loop(task, shutdown).await;
 
         assert_eq!(state.sessions.lock().unwrap()[&id].info.label, "New label");
     }
 
     #[tokio::test]
     async fn input_label_inference_preserves_committed_working_attention() {
+        let _lease_guard = diagnostic_test_guard();
         // A restart/reload must not lose the Peon-authored topic (ADR 0029) —
         // the live SessionInfo update alone isn't durable.
         let dir = tempfile::tempdir().unwrap();
@@ -1726,9 +2031,9 @@ mod tests {
             );
         state.peon.label_pending.write().unwrap().insert(id.clone());
 
-        let task = tokio::spawn(peon_loop(state.clone()));
+        let (task, shutdown) = spawn_test_peon_loop(state.clone());
         tokio::time::sleep(std::time::Duration::from_millis(2300)).await;
-        task.abort();
+        stop_test_peon_loop(task, shutdown).await;
 
         let info = state.sessions.lock().unwrap()[&id].info.clone();
         assert_eq!(info.label, "Persisted topic");
@@ -1747,6 +2052,7 @@ mod tests {
 
     #[tokio::test]
     async fn input_label_inference_rejects_a_blank_inferred_label() {
+        let _lease_guard = diagnostic_test_guard();
         // Regression: an otherwise-valid inference with an empty/whitespace
         // summary must not durably blank out the synchronous fallback label
         // (the one-shot request would then be gone for good, per ADR 0029).
@@ -1873,9 +2179,9 @@ mod tests {
             );
         state.peon.label_pending.write().unwrap().insert(id.clone());
 
-        let task = tokio::spawn(peon_loop(state.clone()));
+        let (task, shutdown) = spawn_test_peon_loop(state.clone());
         tokio::time::sleep(std::time::Duration::from_millis(2300)).await;
-        task.abort();
+        stop_test_peon_loop(task, shutdown).await;
 
         assert_eq!(
             state.sessions.lock().unwrap()[&id].info.label,
@@ -1893,6 +2199,7 @@ mod tests {
 
     #[tokio::test]
     async fn input_label_inference_rejects_a_pr_number_dropping_label() {
+        let _lease_guard = diagnostic_test_guard();
         // A provider summary that drops a PR number from the typed input is
         // not descriptive enough to replace the synchronous fallback label.
         let dir = tempfile::tempdir().unwrap();
@@ -2029,7 +2336,7 @@ mod tests {
             );
         state.peon.label_pending.write().unwrap().insert(id.clone());
 
-        let task = tokio::spawn(peon_loop(state.clone()));
+        let (task, shutdown) = spawn_test_peon_loop(state.clone());
         tokio::time::timeout(std::time::Duration::from_secs(5), async {
             loop {
                 if call_counter.load(Ordering::SeqCst) == 1
@@ -2042,7 +2349,7 @@ mod tests {
         })
         .await
         .expect("input label inference should complete");
-        task.abort();
+        stop_test_peon_loop(task, shutdown).await;
 
         assert_eq!(
             state.sessions.lock().unwrap()[&id].info.label,
@@ -2060,6 +2367,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_peon_inference_writes_metadata() {
+        let _lease_guard = diagnostic_test_guard();
         let dir = tempfile::tempdir().unwrap();
         let orkworks = dir.path().join(".orkworks");
         std::fs::create_dir_all(orkworks.join("sessions")).unwrap();
@@ -2236,7 +2544,7 @@ mod tests {
         );
 
         // Run peon_loop in background
-        tokio::spawn(peon_loop(state.clone()));
+        let (task, shutdown) = spawn_test_peon_loop(state.clone());
 
         // Wait for metadata to be updated (poll up to 10 seconds)
         for _ in 0..100 {
@@ -2263,6 +2571,8 @@ mod tests {
                         assert!(diagnostic.snapshot.last_successful_inference_at.is_some());
                         assert_eq!(diagnostic.snapshot.provider_id.as_deref(), Some("opencode"));
                         assert_eq!(diagnostic.snapshot.attempt_count, Some(1));
+                        drop(ws);
+                        stop_test_peon_loop(task, shutdown).await;
                         return; // test passes
                     }
                 }
@@ -2274,6 +2584,7 @@ mod tests {
 
     #[tokio::test]
     async fn peon_loop_does_not_start_duplicate_inference_while_in_flight() {
+        let _lease_guard = diagnostic_test_guard();
         let dir = tempfile::tempdir().unwrap();
         let orkworks = dir.path().join(".orkworks");
         std::fs::create_dir_all(orkworks.join("sessions")).unwrap();
@@ -2382,9 +2693,9 @@ mod tests {
             tokio::time::Instant::now() - std::time::Duration::from_secs(5),
         );
 
-        let task = tokio::spawn(peon_loop(state.clone()));
+        let (task, shutdown) = spawn_test_peon_loop(state.clone());
         tokio::time::sleep(std::time::Duration::from_millis(2300)).await;
-        task.abort();
+        stop_test_peon_loop(task, shutdown).await;
 
         let count = call_counter.load(std::sync::atomic::Ordering::SeqCst);
         assert_eq!(count, 1);
@@ -2392,6 +2703,7 @@ mod tests {
 
     #[tokio::test]
     async fn peon_loop_does_not_repeat_inference_without_new_output() {
+        let _lease_guard = diagnostic_test_guard();
         let dir = tempfile::tempdir().unwrap();
         let orkworks = dir.path().join(".orkworks");
         std::fs::create_dir_all(orkworks.join("sessions")).unwrap();
@@ -2509,9 +2821,9 @@ mod tests {
             tokio::time::Instant::now() - std::time::Duration::from_secs(5),
         );
 
-        let task = tokio::spawn(peon_loop(state.clone()));
+        let (task, shutdown) = spawn_test_peon_loop(state.clone());
         tokio::time::sleep(std::time::Duration::from_millis(2600)).await;
-        task.abort();
+        stop_test_peon_loop(task, shutdown).await;
 
         let count = call_counter.load(std::sync::atomic::Ordering::SeqCst);
         assert_eq!(count, 1, "Peon should not re-infer without new output");
@@ -2519,6 +2831,7 @@ mod tests {
 
     #[tokio::test]
     async fn peon_loop_records_failed_inference_attempt() {
+        let _lease_guard = diagnostic_test_guard();
         let dir = tempfile::tempdir().unwrap();
 
         let state = Arc::new(crate::AppState {
@@ -2601,9 +2914,9 @@ mod tests {
             tokio::time::Instant::now() - std::time::Duration::from_secs(5),
         );
 
-        let task = tokio::spawn(peon_loop(state.clone()));
+        let (task, shutdown) = spawn_test_peon_loop(state.clone());
         tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
-        task.abort();
+        stop_test_peon_loop(task, shutdown).await;
 
         assert!(
             state
@@ -2629,6 +2942,7 @@ mod tests {
 
     #[tokio::test]
     async fn peon_loop_marks_idle_when_silent() {
+        let _lease_guard = diagnostic_test_guard();
         let dir = tempfile::tempdir().unwrap();
         let orkworks = dir.path().join(".orkworks");
         std::fs::create_dir_all(orkworks.join("sessions")).unwrap();
@@ -2786,9 +3100,9 @@ mod tests {
             }
         }
 
-        let task = tokio::spawn(peon_loop(state.clone()));
+        let (task, shutdown) = spawn_test_peon_loop(state.clone());
         tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
-        task.abort();
+        stop_test_peon_loop(task, shutdown).await;
 
         // Check metadata: observed_status should be "idle"
         let ws_guard = state.workspace.lock().unwrap();
@@ -2806,6 +3120,7 @@ mod tests {
 
     #[tokio::test]
     async fn peon_loop_marks_silent_working_session_idle() {
+        let _lease_guard = diagnostic_test_guard();
         let dir = tempfile::tempdir().unwrap();
         let orkworks = dir.path().join(".orkworks");
         std::fs::create_dir_all(orkworks.join("sessions")).unwrap();
@@ -2965,9 +3280,9 @@ mod tests {
             .unwrap()
             .insert(session_id.clone(), "before".into());
 
-        let task = tokio::spawn(peon_loop(state.clone()));
+        let (task, shutdown) = spawn_test_peon_loop(state.clone());
         tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
-        task.abort();
+        stop_test_peon_loop(task, shutdown).await;
 
         let ws_guard = state.workspace.lock().unwrap();
         if let Some(ref ws) = *ws_guard {
@@ -2995,6 +3310,7 @@ mod tests {
 
     #[tokio::test]
     async fn peon_loop_does_not_mark_recently_started_silent_session_idle() {
+        let _lease_guard = diagnostic_test_guard();
         let dir = tempfile::tempdir().unwrap();
         let orkworks = dir.path().join(".orkworks");
         std::fs::create_dir_all(orkworks.join("sessions")).unwrap();
@@ -3142,9 +3458,9 @@ mod tests {
 
         crate::runtime::terminal_runtime::set_session_status(&state, &session_id, "running").await;
 
-        let task = tokio::spawn(peon_loop(state.clone()));
+        let (task, shutdown) = spawn_test_peon_loop(state.clone());
         tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
-        task.abort();
+        stop_test_peon_loop(task, shutdown).await;
 
         let ws_guard = state.workspace.lock().unwrap();
         if let Some(ref ws) = *ws_guard {
@@ -3166,6 +3482,7 @@ mod tests {
 
     #[tokio::test]
     async fn peon_loop_does_not_mark_running_session_without_last_output_idle() {
+        let _lease_guard = diagnostic_test_guard();
         let dir = tempfile::tempdir().unwrap();
         let orkworks = dir.path().join(".orkworks");
         std::fs::create_dir_all(orkworks.join("sessions")).unwrap();
@@ -3311,9 +3628,9 @@ mod tests {
             }
         }
 
-        let task = tokio::spawn(peon_loop(state.clone()));
+        let (task, shutdown) = spawn_test_peon_loop(state.clone());
         tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
-        task.abort();
+        stop_test_peon_loop(task, shutdown).await;
 
         let ws_guard = state.workspace.lock().unwrap();
         if let Some(ref ws) = *ws_guard {
@@ -3335,6 +3652,7 @@ mod tests {
 
     #[tokio::test]
     async fn peon_loop_eventually_marks_running_session_without_last_output_idle() {
+        let _lease_guard = diagnostic_test_guard();
         let dir = tempfile::tempdir().unwrap();
         let orkworks = dir.path().join(".orkworks");
         std::fs::create_dir_all(orkworks.join("sessions")).unwrap();
@@ -3480,9 +3798,9 @@ mod tests {
             }
         }
 
-        let task = tokio::spawn(peon_loop(state.clone()));
+        let (task, shutdown) = spawn_test_peon_loop(state.clone());
         tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
-        task.abort();
+        stop_test_peon_loop(task, shutdown).await;
 
         let ws_guard = state.workspace.lock().unwrap();
         if let Some(ref ws) = *ws_guard {
@@ -3509,6 +3827,7 @@ mod tests {
 
     #[tokio::test]
     async fn peon_loop_does_not_overwrite_existing_observed_status_with_idle() {
+        let _lease_guard = diagnostic_test_guard();
         let dir = tempfile::tempdir().unwrap();
         let orkworks = dir.path().join(".orkworks");
         std::fs::create_dir_all(orkworks.join("sessions")).unwrap();
@@ -3664,9 +3983,9 @@ mod tests {
             tokio::time::Instant::now() - std::time::Duration::from_secs(5),
         );
 
-        let task = tokio::spawn(peon_loop(state.clone()));
+        let (task, shutdown) = spawn_test_peon_loop(state.clone());
         tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
-        task.abort();
+        stop_test_peon_loop(task, shutdown).await;
 
         let ws_guard = state.workspace.lock().unwrap();
         if let Some(ref ws) = *ws_guard {
@@ -3682,6 +4001,7 @@ mod tests {
 
     #[tokio::test]
     async fn peon_loop_skips_sessions_in_ending_lifecycle() {
+        let _lease_guard = diagnostic_test_guard();
         let dir = tempfile::tempdir().unwrap();
         let orkworks = dir.path().join(".orkworks");
         std::fs::create_dir_all(orkworks.join("sessions")).unwrap();
@@ -3846,9 +4166,9 @@ mod tests {
             tokio::time::Instant::now() - std::time::Duration::from_secs(5),
         );
 
-        let task = tokio::spawn(peon_loop(state.clone()));
+        let (task, shutdown) = spawn_test_peon_loop(state.clone());
         tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
-        task.abort();
+        stop_test_peon_loop(task, shutdown).await;
 
         let ws_guard = state.workspace.lock().unwrap();
         if let Some(ref ws) = *ws_guard {
@@ -3865,6 +4185,7 @@ mod tests {
     // Regression: persist skipped must not drop session from candidate pool (issue #87).
     #[tokio::test]
     async fn peon_loop_retries_when_persist_skipped_despite_terminal_inference() {
+        let _lease_guard = diagnostic_test_guard();
         let dir = tempfile::tempdir().unwrap();
 
         let state = Arc::new(crate::AppState {
@@ -3968,9 +4289,9 @@ mod tests {
             before_test - std::time::Duration::from_secs(5),
         );
 
-        let task = tokio::spawn(peon_loop(state.clone()));
+        let (task, shutdown) = spawn_test_peon_loop(state.clone());
         tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
-        task.abort();
+        stop_test_peon_loop(task, shutdown).await;
 
         let lo = state.peon.last_output.read().unwrap();
         let updated_at = lo
@@ -3986,6 +4307,7 @@ mod tests {
 
     #[tokio::test]
     async fn peon_loop_runs_two_sessions_concurrently() {
+        let _lease_guard = diagnostic_test_guard();
         let dir = tempfile::tempdir().unwrap();
         let entry_barrier = Arc::new(Barrier::new(3));
         let release_barrier = Arc::new(Barrier::new(3));
@@ -4087,7 +4409,7 @@ mod tests {
             );
         }
 
-        let task = tokio::spawn(peon_loop(state.clone()));
+        let (task, shutdown) = spawn_test_peon_loop(state.clone());
         tokio::time::timeout(std::time::Duration::from_secs(5), async {
             let entry_barrier = entry_barrier.clone();
             tokio::task::spawn_blocking(move || entry_barrier.wait())
@@ -4097,22 +4419,24 @@ mod tests {
         .await
         .expect("both provider calls should enter before the test deadline");
 
-        let diagnostics = state.peon.diagnostics.read().unwrap();
-        for session_id in session_ids {
-            let diagnostic = diagnostics
-                .get(session_id)
-                .expect("eligible session should have diagnostic state");
-            assert_eq!(
-                diagnostic.snapshot.scheduler_state,
-                crate::session_types::PeonSchedulerState::InFlight
-            );
-            assert_eq!(diagnostic.snapshot.attempt_count, Some(1));
+        {
+            let diagnostics = state.peon.diagnostics.read().unwrap();
+            for session_id in session_ids {
+                let diagnostic = diagnostics
+                    .get(session_id)
+                    .expect("eligible session should have diagnostic state");
+                assert_eq!(
+                    diagnostic.snapshot.scheduler_state,
+                    crate::session_types::PeonSchedulerState::InFlight
+                );
+                assert_eq!(diagnostic.snapshot.attempt_count, Some(1));
+            }
         }
 
         let release_barrier_waiter = release_barrier.clone();
         tokio::task::spawn_blocking(move || release_barrier_waiter.wait())
             .await
             .expect("release barrier waiter should complete");
-        task.abort();
+        stop_test_peon_loop(task, shutdown).await;
     }
 }

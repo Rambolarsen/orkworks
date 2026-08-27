@@ -119,7 +119,7 @@ pub(crate) struct PeonObservationRecordResult {
 pub(crate) struct PeonInferencePersistenceResult {
     pub(crate) inference_persisted: bool,
     pub(crate) permanent_hold: bool,
-    pub(crate) label_update: Option<String>,
+    pub(crate) label_update: Option<(String, u64)>,
     pub(crate) workspace_path: Option<PathBuf>,
 }
 
@@ -297,6 +297,8 @@ impl SessionApplication {
         timestamp: &str,
         attempt: Option<&crate::runtime::peon_runtime::PeonDiagnosticAttempt>,
     ) -> PeonInferencePersistenceResult {
+        let label_epochs = self.state.peon.label_epochs.read().unwrap();
+        let captured_label_epoch = label_epochs.get(session_id).copied().unwrap_or(0);
         let workspace_guard = self.state.workspace.lock().unwrap();
         let Some(workspace) = workspace_guard.as_ref() else {
             return PeonInferencePersistenceResult {
@@ -377,7 +379,7 @@ impl SessionApplication {
                 inference_persisted: true,
                 permanent_hold: false,
                 label_update: history_summary
-                    .map(|summary| summary.chars().take(100).collect()),
+                    .map(|summary| (summary.chars().take(100).collect(), captured_label_epoch)),
                 workspace_path,
             },
             Err(error) => {
@@ -1261,9 +1263,13 @@ impl SessionApplication {
     ) {
         // Do not hold sessions while invalidation waits for in_flight. Peon
         // scans take in_flight before sessions when selecting work.
-        self.state
+        let owns_runtime_diagnostics = self
+            .state
             .peon
             .invalidate_diagnostic_attempt(id, runtime_identity);
+        if runtime_identity.is_some() && !owns_runtime_diagnostics {
+            return;
+        }
         self.state.peon.last_output.write().unwrap().remove(id);
         self.state.peon.last_inference.write().unwrap().remove(id);
         self.state.peon.input_buf.write().unwrap().remove(id);
@@ -5508,6 +5514,7 @@ mod tests {
 
     #[test]
     fn clear_ended_session_tracking_removes_runtime_state_but_preserves_label_work() {
+        let _lease_guard = crate::runtime::peon_runtime::diagnostic_test_guard();
         let root = tempfile::tempdir().unwrap();
         let state = crate::test_support::test_app_state_with_workspace(root.path());
         let id = "clear-ended-application";
@@ -6025,7 +6032,10 @@ mod tests {
 
         assert!(result.inference_persisted);
         assert!(!result.permanent_hold);
-        assert_eq!(result.label_update.as_deref(), Some("Need a decision"));
+        assert_eq!(
+            result.label_update.as_ref().map(|(label, _)| label.as_str()),
+            Some("Need a decision")
+        );
         let stored = state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(id).unwrap();
         assert_eq!(stored.observed_status.as_deref(), Some("blocked"));
         assert_eq!(stored.summary.as_deref(), Some("Need a decision"));

@@ -1321,6 +1321,7 @@ mod tests {
 
     #[test]
     fn forgotten_session_cleanup_removes_label_epoch_but_ended_cleanup_preserves_it() {
+        let _lease_guard = crate::runtime::peon_runtime::diagnostic_test_guard();
         let state = test_state_with_runtime_session("epoch-cleanup");
         state
             .peon
