@@ -18,7 +18,7 @@ import { createSidecarLifecycle, type SidecarLifecycle, type SidecarProcess, typ
 import { createBackendRestorationCoordinator, switchWorkspaceBackend, type BackendRestorationCoordinator } from "./backendRestoration";
 import type { BackendLifecycleEvent, BackendLifecycleWorkspace } from "./backendLifecycleEvent";
 import { sanitizeBackendLifecycleFailure } from "./backendLifecycleFailure";
-import { rendererConsoleDiagnostic, rendererOrigin, sanitizeRendererDiagnosticMessage } from "./rendererDiagnostic";
+import { rendererConsoleDiagnostic, rendererConsoleLevel, rendererOrigin, sanitizeRendererDiagnosticMessage } from "./rendererDiagnostic";
 import { recoveryDocumentUrl } from "./rendererRecoveryDocument";
 import { createRecoveryDocumentGuard } from "./rendererRecoveryState";
 
@@ -142,9 +142,9 @@ function createWindow(): void {
     loadRecoveryDocument();
   });
 
-  mainWindow.webContents.on("console-message", (_event, level, _message, line, sourceId) => {
+  mainWindow.webContents.on("console-message", ({ level: severity, sourceId, lineNumber }) => {
     console.warn("[main] renderer diagnostic", {
-      ...rendererConsoleDiagnostic(level, sourceId, line),
+      ...rendererConsoleDiagnostic(rendererConsoleLevel(severity), sourceId, lineNumber),
     });
   });
 

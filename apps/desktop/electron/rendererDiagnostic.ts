@@ -57,6 +57,10 @@ export function rendererOrigin(url: string): string {
   }
 }
 
+export function rendererConsoleLevel(level: "info" | "warning" | "error" | "debug"): number {
+  return { debug: 0, info: 1, warning: 2, error: 3 }[level];
+}
+
 export function rendererConsoleDiagnostic(
   level: number,
   sourceId: string,

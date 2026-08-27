@@ -42,9 +42,20 @@ test("Electron console diagnostics never log the renderer message payload", () =
 
   assert.notEqual(start, -1);
   assert.notEqual(end, -1);
-  assert.match(handler, /rendererConsoleDiagnostic\(level, sourceId, line\)/);
+  assert.match(handler, /rendererConsoleDiagnostic\(rendererConsoleLevel\(severity\), sourceId, lineNumber\)/);
   assert.doesNotMatch(handler, /\bmessage\s*:/);
   assert.doesNotMatch(handler, /sanitizeRendererDiagnosticMessage\([^)]*message/);
+});
+
+test("Electron console diagnostics use the event-object API", () => {
+  const start = electronMainSource.indexOf('webContents.on("console-message"');
+  const end = electronMainSource.indexOf("\n  });", start);
+  const handler = electronMainSource.slice(start, end);
+
+  assert.match(handler, /\(\{ level: severity, sourceId, lineNumber \}\)/);
+  assert.match(handler, /rendererConsoleLevel\(severity\)/);
+  assert.doesNotMatch(handler, /details\.level|details\.sourceId|details\.lineNumber/);
+  assert.doesNotMatch(handler, /_event, level, _message, line, sourceId/);
 });
 
 test("Electron main preserves the app URL for its local recovery retry", () => {
