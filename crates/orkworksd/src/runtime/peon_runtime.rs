@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
 const MAX_DIAGNOSTIC_TEXT_CHARS: usize = 240;
+const PEON_SHUTDOWN_DRAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
 
 fn bounded_diagnostic_text(value: &str) -> String {
     value
@@ -449,6 +450,17 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
     peon_loop_until(state, std::future::pending::<()>()).await;
 }
 
+async fn shutdown_inference_tasks(inference_tasks: &mut tokio::task::JoinSet<()>) {
+    let drain = async { while inference_tasks.join_next().await.is_some() {} };
+    if tokio::time::timeout(PEON_SHUTDOWN_DRAIN_TIMEOUT, drain)
+        .await
+        .is_err()
+    {
+        tracing::warn!("peon shutdown timed out while waiting for inference tasks; aborting them");
+        inference_tasks.abort_all();
+    }
+}
+
 #[cfg(test)]
 async fn peon_loop_for_test(
     state: Arc<AppState>,
@@ -473,7 +485,7 @@ where
         tokio::select! {
             _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => {}
             _ = &mut shutdown => {
-                while inference_tasks.join_next().await.is_some() {}
+                shutdown_inference_tasks(&mut inference_tasks).await;
                 return;
             }
         }
@@ -1109,6 +1121,21 @@ mod tests {
     ) {
         let _ = shutdown.send(());
         task.await.expect("test Peon loop should shut down cleanly");
+    }
+
+    #[tokio::test]
+    async fn graceful_shutdown_bounds_inference_task_drain() {
+        let mut inference_tasks = tokio::task::JoinSet::new();
+        inference_tasks.spawn(std::future::pending::<()>());
+
+        let started = tokio::time::Instant::now();
+        shutdown_inference_tasks(&mut inference_tasks).await;
+
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(2),
+            "graceful shutdown must not wait indefinitely for inference tasks"
+        );
+        assert!(inference_tasks.join_next().await.is_some());
     }
 
     #[test]

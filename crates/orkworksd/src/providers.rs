@@ -6,6 +6,9 @@ use std::sync::{Arc, RwLock};
 
 use std::time::Duration;
 
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
+
 use reqwest::Client as HttpClient;
 use serde::{Deserialize, Serialize};
 
@@ -464,6 +467,9 @@ impl ProviderRunner for ProcessRunner {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
+        #[cfg(unix)]
+        cmd.process_group(0);
+
         let mut child = match cmd.spawn() {
             Ok(c) => c,
             Err(e) => {
@@ -496,6 +502,9 @@ impl ProviderRunner for ProcessRunner {
         let output = match rx.recv_timeout(Duration::from_secs(timeout_secs)) {
             Ok(Ok(out)) => out,
             _ => {
+                #[cfg(unix)]
+                let _ = unsafe { libc::kill(-(pid as libc::pid_t), libc::SIGKILL) };
+                #[cfg(not(unix))]
                 let _ = Command::new("kill").arg(pid.to_string()).output();
                 tracing::warn!(provider = %id, "peon: provider timed out");
                 return InvocationResult {
@@ -1572,6 +1581,42 @@ mod tests {
         );
         assert!(!missing.success);
         assert!(!missing.stderr.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn process_runner_timeout_terminates_descendants_holding_pipes() {
+        use crate::test_support::make_test_executable;
+
+        let dir = tempfile::tempdir().unwrap();
+        let pidfile = dir.path().join("descendant.pid");
+        let script = dir.path().join("provider-with-descendant");
+        std::fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\nsleep 30 &\necho $! > {}\nwait\n",
+                pidfile.display()
+            ),
+        )
+        .unwrap();
+        make_test_executable(&script);
+
+        let result = ProcessRunner.run("test", script.to_str().unwrap(), &[], "", 1, None);
+        assert!(!result.success);
+
+        let descendant_pid: i32 = std::fs::read_to_string(&pidfile)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        for _ in 0..20 {
+            if unsafe { libc::kill(descendant_pid, 0) } != 0 {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        let _ = unsafe { libc::kill(descendant_pid, libc::SIGKILL) };
+        panic!("provider descendant {descendant_pid} survived timeout cleanup");
     }
 
     #[cfg(target_os = "macos")]
