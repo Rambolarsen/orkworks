@@ -2,6 +2,181 @@ use crate::workspace_runtime::iso_now;
 use crate::{peon, providers, AppState};
 use std::sync::Arc;
 
+fn bounded_error_summary(error: &str) -> String {
+    const MAX_ERROR_SUMMARY_CHARS: usize = 240;
+    let summary: String = error
+        .chars()
+        .filter(|character| !character.is_control())
+        .take(MAX_ERROR_SUMMARY_CHARS)
+        .collect();
+    if summary.trim().is_empty() {
+        "provider inference failed".to_string()
+    } else {
+        summary
+    }
+}
+
+fn provider_error_summary(result: &providers::ProviderRunResult) -> String {
+    result
+        .attempts
+        .iter()
+        .rev()
+        .find_map(|attempt| {
+            result
+                .runtime
+                .get(&attempt.provider_id)
+                .and_then(|runtime| runtime.last_error_summary.as_deref())
+        })
+        .map(bounded_error_summary)
+        .unwrap_or_else(|| "all configured providers failed".to_string())
+}
+
+impl crate::PeonState {
+    fn diagnostic_entry<'a>(
+        diagnostics: &'a mut std::collections::HashMap<String, crate::PeonDiagnosticEntry>,
+        session_id: &str,
+    ) -> &'a mut crate::PeonDiagnosticEntry {
+        if !diagnostics.contains_key(session_id) {
+            if diagnostics.len() >= crate::MAX_PEON_DIAGNOSTIC_SESSIONS {
+                if let Some(oldest_id) = diagnostics.keys().next().cloned() {
+                    diagnostics.remove(&oldest_id);
+                }
+            }
+            diagnostics.insert(
+                session_id.to_string(),
+                crate::PeonDiagnosticEntry::new(),
+            );
+        }
+        diagnostics
+            .get_mut(session_id)
+            .expect("diagnostic entry was inserted")
+    }
+
+    fn mark_candidate(&self, session_id: &str) {
+        let mut diagnostics = self.diagnostics.write().unwrap();
+        let entry = Self::diagnostic_entry(&mut diagnostics, session_id);
+        entry.snapshot.scheduler_state = crate::session_types::PeonSchedulerState::Candidate;
+        entry.snapshot.reason = Some("selected_for_inference".to_string());
+    }
+
+    fn begin_attempt(&self, session_id: &str) -> Option<u64> {
+        let mut diagnostics = self.diagnostics.write().unwrap();
+        let entry = Self::diagnostic_entry(&mut diagnostics, session_id);
+        if entry.snapshot.scheduler_state == crate::session_types::PeonSchedulerState::InFlight {
+            return None;
+        }
+        entry.attempt_generation = entry.attempt_generation.saturating_add(1);
+        entry.snapshot.scheduler_state = crate::session_types::PeonSchedulerState::InFlight;
+        entry.snapshot.reason = None;
+        entry.snapshot.last_attempt_at = Some(iso_now());
+        entry.snapshot.attempt_count = Some(
+            entry
+                .snapshot
+                .attempt_count
+                .unwrap_or_default()
+                .saturating_add(1),
+        );
+        entry.snapshot.error_summary = None;
+        Some(entry.attempt_generation)
+    }
+
+    fn complete_attempt(
+        &self,
+        session_id: &str,
+        generation: u64,
+        result: &providers::ProviderRunResult,
+    ) -> bool {
+        if result.inference.is_none() {
+            return false;
+        }
+        let mut diagnostics = self.diagnostics.write().unwrap();
+        let Some(entry) = diagnostics.get_mut(session_id) else {
+            return false;
+        };
+        if entry.attempt_generation != generation
+            || entry.snapshot.scheduler_state != crate::session_types::PeonSchedulerState::InFlight
+        {
+            return false;
+        }
+
+        let successful_attempt = result
+            .attempts
+            .iter()
+            .rev()
+            .find(|attempt| attempt.outcome == providers::AttemptOutcome::Succeeded);
+        entry.snapshot.scheduler_state = crate::session_types::PeonSchedulerState::Completed;
+        entry.snapshot.reason = None;
+        entry.snapshot.last_successful_inference_at = Some(iso_now());
+        entry.snapshot.provider_id = result
+            .observation
+            .as_ref()
+            .map(|observation| observation.provider_id.clone())
+            .or_else(|| successful_attempt.map(|attempt| attempt.provider_id.clone()));
+        entry.snapshot.provider_model = result
+            .observation
+            .as_ref()
+            .and_then(|observation| observation.provider_model.clone());
+        entry.snapshot.fallback_step = successful_attempt.map(|attempt| attempt.step);
+        entry.snapshot.error_summary = None;
+        true
+    }
+
+    fn fail_attempt(&self, session_id: &str, generation: u64, reason: &str, error: &str) {
+        let mut diagnostics = self.diagnostics.write().unwrap();
+        let Some(entry) = diagnostics.get_mut(session_id) else {
+            return;
+        };
+        if entry.attempt_generation != generation
+            || entry.snapshot.scheduler_state != crate::session_types::PeonSchedulerState::InFlight
+        {
+            return;
+        }
+        entry.snapshot.scheduler_state = crate::session_types::PeonSchedulerState::Failed;
+        entry.snapshot.reason = Some(reason.to_string());
+        entry.snapshot.error_summary = Some(bounded_error_summary(error));
+        self.in_flight.write().unwrap().remove(session_id);
+    }
+
+    fn timeout_attempt(&self, session_id: &str, generation: u64) {
+        self.fail_attempt(session_id, generation, "timeout", "provider inference timed out");
+    }
+
+    fn finish_attempt(&self, session_id: &str, generation: u64) {
+        let mut diagnostics = self.diagnostics.write().unwrap();
+        let Some(entry) = diagnostics.get_mut(session_id) else {
+            return;
+        };
+        if entry.attempt_generation != generation {
+            return;
+        }
+        self.in_flight.write().unwrap().remove(session_id);
+    }
+
+    fn mark_idle(&self, session_id: &str, reason: &str) {
+        let mut diagnostics = self.diagnostics.write().unwrap();
+        let entry = Self::diagnostic_entry(&mut diagnostics, session_id);
+        if entry.snapshot.scheduler_state != crate::session_types::PeonSchedulerState::InFlight {
+            entry.snapshot.scheduler_state = crate::session_types::PeonSchedulerState::Idle;
+            entry.snapshot.reason = Some(reason.to_string());
+        }
+    }
+
+    fn refresh_observation_count(
+        &self,
+        session_id: &str,
+        generation: u64,
+        count: Option<usize>,
+    ) {
+        let mut diagnostics = self.diagnostics.write().unwrap();
+        let Some(entry) = diagnostics.get_mut(session_id) else {
+            return;
+        };
+        if entry.attempt_generation == generation {
+            entry.snapshot.observation_count = count;
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 enum InferenceMode {
     Output,
@@ -54,6 +229,10 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                 .map(|(id, _)| (id.clone(), InferenceMode::Output))
                 .collect()
         };
+
+        for (session_id, _) in &candidates {
+            state.peon.mark_candidate(session_id);
+        }
 
         for id in pending {
             if !state.peon.in_flight.read().unwrap().contains(&id)
@@ -131,6 +310,7 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                     },
                     None => {
                         state.peon.in_flight.write().unwrap().remove(&session_id);
+                        state.peon.mark_idle(&session_id, "not_active");
                         continue;
                     }
                 }
@@ -141,6 +321,7 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                 .flatten();
             if output_snapshot.is_empty() && hint.is_none() {
                 state.peon.in_flight.write().unwrap().remove(&session_id);
+                state.peon.mark_idle(&session_id, "no_new_silent_output");
                 continue;
             }
 
@@ -151,6 +332,10 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
 
             let state_clone = state.clone();
             let id = session_id.clone();
+            let Some(attempt_generation) = state.peon.begin_attempt(&id) else {
+                state.peon.in_flight.write().unwrap().remove(&id);
+                continue;
+            };
             tokio::spawn(async move {
             let provider_state = state_clone.clone();
             let cleanup_state = state_clone.clone();
@@ -169,30 +354,44 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                 Ok(Ok(result)) => result,
                 Ok(Err(error)) => {
                     tracing::warn!(session_id = %id, %error, "peon inference task failed");
-                    cleanup_state
-                        .peon
-                        .in_flight
-                        .write()
-                        .unwrap()
-                        .remove(&id);
+                    cleanup_state.peon.fail_attempt(
+                        &id,
+                        attempt_generation,
+                        "provider_task_failed",
+                        &error.to_string(),
+                    );
                     return;
                 }
                 Err(_) => {
                     tracing::warn!(session_id = %id, "peon inference timed out");
+                    cleanup_state
+                        .peon
+                        .timeout_attempt(&id, attempt_generation);
                     let wait_state = cleanup_state.clone();
                     let wait_id = id.clone();
                     tokio::spawn(async move {
                         let _ = provider_task.await;
-                        wait_state
-                            .peon
-                            .in_flight
-                            .write()
-                            .unwrap()
-                            .remove(&wait_id);
+                        wait_state.peon.finish_attempt(&wait_id, attempt_generation);
                     });
                     return;
                 }
             };
+
+            if provider_result.inference.is_some() {
+                if !state_clone
+                    .peon
+                    .complete_attempt(&id, attempt_generation, &provider_result)
+                {
+                    return;
+                }
+            } else {
+                state_clone.peon.fail_attempt(
+                    &id,
+                    attempt_generation,
+                    "provider_exhausted",
+                    &provider_error_summary(&provider_result),
+                );
+            }
 
             let _ = tokio::task::spawn_blocking(move || {
                 if matches!(mode, InferenceMode::InputLabel) {
@@ -212,7 +411,7 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                         }
                     }
                     }
-                    state_clone.peon.in_flight.write().unwrap().remove(&id);
+                    state_clone.peon.finish_attempt(&id, attempt_generation);
                     return;
                 }
                 let active_work_hook = {
@@ -229,7 +428,7 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                     })
                 };
                 let Some(active_work_hook) = active_work_hook else {
-                    state_clone.peon.in_flight.write().unwrap().remove(&id);
+                    state_clone.peon.finish_attempt(&id, attempt_generation);
                     return;
                 };
                 let inference = provider_result.inference;
@@ -316,6 +515,24 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                         }
                     }
                 }
+                if output_range_completed {
+                    let observation_count = state_clone
+                        .workspace
+                        .lock()
+                        .unwrap()
+                        .as_ref()
+                        .and_then(|workspace| {
+                            workspace
+                                .workflow_observations
+                                .session_observation_count(&id)
+                                .ok()
+                        });
+                    state_clone.peon.refresh_observation_count(
+                        &id,
+                        attempt_generation,
+                        observation_count,
+                    );
+                }
                 if let Some(label) = label_update {
                     if let Some(handle) = state_clone.sessions.lock().unwrap().get_mut(&id) {
                         handle.info.label = label;
@@ -346,7 +563,7 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                         .unwrap()
                         .insert(id.clone(), tokio::time::Instant::now());
                 }
-                state_clone.peon.in_flight.write().unwrap().remove(&id);
+                state_clone.peon.finish_attempt(&id, attempt_generation);
             })
             .await;
             });
@@ -424,6 +641,69 @@ mod tests {
         assert!(!output_inference_is_current(4, 12, 5, 12));
     }
 
+    #[test]
+    fn stale_attempt_cleanup_cannot_release_a_newer_session_lease() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(dir.path());
+        let session_id = "generation-guard";
+
+        state.peon.mark_candidate(session_id);
+        state
+            .peon
+            .in_flight
+            .write()
+            .unwrap()
+            .insert(session_id.to_string());
+        let first_generation = state
+            .peon
+            .begin_attempt(session_id)
+            .expect("first attempt should start");
+        state
+            .peon
+            .timeout_attempt(session_id, first_generation);
+
+        state
+            .peon
+            .in_flight
+            .write()
+            .unwrap()
+            .insert(session_id.to_string());
+        state.peon.mark_candidate(session_id);
+        let second_generation = state
+            .peon
+            .begin_attempt(session_id)
+            .expect("second attempt should start");
+        assert!(second_generation > first_generation);
+
+        state.peon.finish_attempt(session_id, first_generation);
+        assert!(state
+            .peon
+            .in_flight
+            .read()
+            .unwrap()
+            .contains(session_id));
+        assert_eq!(
+            state
+                .peon
+                .diagnostics
+                .read()
+                .unwrap()
+                .get(session_id)
+                .unwrap()
+                .snapshot
+                .attempt_count,
+            Some(2)
+        );
+
+        state.peon.finish_attempt(session_id, second_generation);
+        assert!(!state
+            .peon
+            .in_flight
+            .read()
+            .unwrap()
+            .contains(session_id));
+    }
+
     #[tokio::test]
     async fn input_label_inference_only_updates_the_live_label() {
         let dir = tempfile::tempdir().unwrap();
@@ -441,6 +721,7 @@ mod tests {
                 label_epochs: RwLock::new(HashMap::new()),
                 input_buf: RwLock::new(HashMap::new()),
                 reported_cwd: RwLock::new(HashMap::new()),
+                diagnostics: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig {
                     harness: "unused".into(),
                     harness_args: vec![],
@@ -552,6 +833,7 @@ mod tests {
                 label_epochs: RwLock::new(HashMap::new()),
                 input_buf: RwLock::new(HashMap::new()),
                 reported_cwd: RwLock::new(HashMap::new()),
+                diagnostics: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig {
                     harness: "unused".into(),
                     harness_args: vec![],
@@ -691,6 +973,7 @@ mod tests {
                 label_epochs: RwLock::new(HashMap::new()),
                 input_buf: RwLock::new(HashMap::new()),
                 reported_cwd: RwLock::new(HashMap::new()),
+                diagnostics: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig {
                     harness: "unused".into(),
                     harness_args: vec![],
@@ -848,6 +1131,7 @@ mod tests {
                 label_epochs: RwLock::new(HashMap::new()),
                 input_buf: RwLock::new(HashMap::new()),
                 reported_cwd: RwLock::new(HashMap::new()),
+                diagnostics: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig {
                     harness: "unused".into(),
                     harness_args: vec![],
@@ -1000,6 +1284,7 @@ mod tests {
                 label_epochs: RwLock::new(HashMap::new()),
                 input_buf: RwLock::new(HashMap::new()),
                 reported_cwd: RwLock::new(HashMap::new()),
+                diagnostics: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig {
                     harness: "unused".into(),
                     harness_args: vec![],
@@ -1166,6 +1451,7 @@ mod tests {
                 label_epochs: RwLock::new(HashMap::new()),
                 input_buf: RwLock::new(HashMap::new()),
                 reported_cwd: RwLock::new(HashMap::new()),
+                diagnostics: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig::from_env(),
             },
             harness_catalog: crate::test_support::test_harness_components().0,
@@ -1317,6 +1603,17 @@ mod tests {
                         assert_eq!(meta.peon_last_inference.is_some(), true);
                         assert_eq!(meta.metadata_source, "peon");
                         assert!((meta.metadata_confidence - 0.85).abs() < 0.001);
+                        let diagnostics = state.peon.diagnostics.read().unwrap();
+                        let diagnostic = diagnostics
+                            .get("peon-test-1")
+                            .expect("successful inference should have diagnostics");
+                        assert_eq!(
+                            diagnostic.snapshot.scheduler_state,
+                            crate::session_types::PeonSchedulerState::Completed
+                        );
+                        assert!(diagnostic.snapshot.last_successful_inference_at.is_some());
+                        assert_eq!(diagnostic.snapshot.provider_id.as_deref(), Some("opencode"));
+                        assert_eq!(diagnostic.snapshot.attempt_count, Some(1));
                         return; // test passes
                     }
                 }
@@ -1360,6 +1657,7 @@ mod tests {
                 label_epochs: RwLock::new(HashMap::new()),
                 input_buf: RwLock::new(HashMap::new()),
                 reported_cwd: RwLock::new(HashMap::new()),
+                diagnostics: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig::from_env(),
             },
             harness_catalog: crate::test_support::test_harness_components().0,
@@ -1477,6 +1775,7 @@ mod tests {
                 label_epochs: RwLock::new(HashMap::new()),
                 input_buf: RwLock::new(HashMap::new()),
                 reported_cwd: RwLock::new(HashMap::new()),
+                diagnostics: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig {
                     harness: dir.path().join("missing-harness").display().to_string(),
                     harness_args: vec!["--print".into()],
@@ -1586,6 +1885,7 @@ mod tests {
                 label_epochs: RwLock::new(HashMap::new()),
                 input_buf: RwLock::new(HashMap::new()),
                 reported_cwd: RwLock::new(HashMap::new()),
+                diagnostics: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig {
                     harness: dir.path().join("missing-harness").display().to_string(),
                     harness_args: vec!["--print".into()],
@@ -1665,6 +1965,17 @@ mod tests {
                 .contains_key(&session_id),
             "failed Peon attempts should still be recorded in last_inference"
         );
+        let diagnostics = state.peon.diagnostics.read().unwrap();
+        let diagnostic = diagnostics
+            .get(&session_id)
+            .expect("failed inference should have diagnostics");
+        assert_eq!(
+            diagnostic.snapshot.scheduler_state,
+            crate::session_types::PeonSchedulerState::Failed
+        );
+        assert_eq!(diagnostic.snapshot.reason.as_deref(), Some("provider_exhausted"));
+        assert!(diagnostic.snapshot.error_summary.is_some());
+        assert_eq!(diagnostic.snapshot.attempt_count, Some(1));
     }
 
     #[tokio::test]
@@ -1699,6 +2010,7 @@ mod tests {
                 label_epochs: RwLock::new(HashMap::new()),
                 input_buf: RwLock::new(HashMap::new()),
                 reported_cwd: RwLock::new(HashMap::new()),
+                diagnostics: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig {
                     harness: dir.path().join("missing-harness").display().to_string(),
                     harness_args: vec!["--print".into()],
@@ -1875,6 +2187,7 @@ mod tests {
                 label_epochs: RwLock::new(HashMap::new()),
                 input_buf: RwLock::new(HashMap::new()),
                 reported_cwd: RwLock::new(HashMap::new()),
+                diagnostics: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig {
                     harness: dir.path().join("missing-harness").display().to_string(),
                     harness_args: vec!["--print".into()],
@@ -2063,6 +2376,7 @@ mod tests {
                 label_epochs: RwLock::new(HashMap::new()),
                 input_buf: RwLock::new(HashMap::new()),
                 reported_cwd: RwLock::new(HashMap::new()),
+                diagnostics: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig {
                     harness: dir.path().join("missing-harness").display().to_string(),
                     harness_args: vec!["--print".into()],
@@ -2233,6 +2547,7 @@ mod tests {
                 label_epochs: RwLock::new(HashMap::new()),
                 input_buf: RwLock::new(HashMap::new()),
                 reported_cwd: RwLock::new(HashMap::new()),
+                diagnostics: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig {
                     harness: dir.path().join("missing-harness").display().to_string(),
                     harness_args: vec!["--print".into()],
@@ -2401,6 +2716,7 @@ mod tests {
                 label_epochs: RwLock::new(HashMap::new()),
                 input_buf: RwLock::new(HashMap::new()),
                 reported_cwd: RwLock::new(HashMap::new()),
+                diagnostics: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig {
                     harness: dir.path().join("missing-harness").display().to_string(),
                     harness_args: vec!["--print".into()],
@@ -2574,6 +2890,7 @@ mod tests {
                 label_epochs: RwLock::new(HashMap::new()),
                 input_buf: RwLock::new(HashMap::new()),
                 reported_cwd: RwLock::new(HashMap::new()),
+                diagnostics: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig {
                     harness: dir.path().join("missing-harness").display().to_string(),
                     harness_args: vec!["--print".into()],
@@ -2746,6 +3063,7 @@ mod tests {
                 label_epochs: RwLock::new(HashMap::new()),
                 input_buf: RwLock::new(HashMap::new()),
                 reported_cwd: RwLock::new(HashMap::new()),
+                diagnostics: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig::from_env(),
             },
             harness_catalog: crate::test_support::test_harness_components().0,
@@ -2913,6 +3231,7 @@ mod tests {
                 label_epochs: RwLock::new(HashMap::new()),
                 input_buf: RwLock::new(HashMap::new()),
                 reported_cwd: RwLock::new(HashMap::new()),
+                diagnostics: RwLock::new(HashMap::new()),
                 config: peon::PeonConfig {
                     harness: dir.path().join("missing-harness").display().to_string(),
                     harness_args: vec![],
@@ -3014,5 +3333,132 @@ mod tests {
             "last_output should be refreshed even when persist is skipped and inference was terminal; \
              session must remain eligible for retry, not silently exit the candidate pool"
         );
+    }
+
+    #[tokio::test]
+    async fn peon_loop_runs_two_sessions_concurrently() {
+        let dir = tempfile::tempdir().unwrap();
+        let call_counter = Arc::new(AtomicUsize::new(0));
+
+        let state = Arc::new(crate::AppState {
+            sessions: Mutex::new(HashMap::new()),
+            session_pids: Mutex::new(HashMap::new()),
+            workspace: Mutex::new(None),
+            peon: crate::PeonState {
+                last_output: RwLock::new(HashMap::new()),
+                last_inference: RwLock::new(HashMap::new()),
+                in_flight: RwLock::new(HashSet::new()),
+                label_hint: RwLock::new(HashMap::new()),
+                label_pending: RwLock::new(HashSet::new()),
+                label_epochs: RwLock::new(HashMap::new()),
+                input_buf: RwLock::new(HashMap::new()),
+                reported_cwd: RwLock::new(HashMap::new()),
+                diagnostics: RwLock::new(HashMap::new()),
+                config: peon::PeonConfig {
+                    harness: "unused".into(),
+                    harness_args: vec![],
+                    model: None,
+                    interval_secs: 1,
+                    max_lines: 200,
+                    timeout_secs: 10,
+                    idle_timeout_secs: 30,
+                    final_scan_timeout_secs: 2,
+                    enabled: true,
+                },
+            },
+            harness_catalog: crate::test_support::test_harness_components().0,
+            harness_store: crate::test_support::test_harness_components().1,
+            integration_probe_cache: crate::harness::probe_cache::VersionProbeCache::new(),
+            retention_config: tokio::sync::RwLock::new(crate::RetentionConfig::default()),
+            bound_port: AtomicU16::new(0),
+            providers: providers::ProviderManager::for_tests(
+                providers::ProviderSettingsPayload {
+                    version: 1,
+                    revision: 1,
+                    peon_model: None,
+                    ollama_base_url: providers::default_ollama_base_url(),
+                    providers: vec![providers::ProviderSettingsEntry {
+                        id: "opencode".into(),
+                        enabled: true,
+                        fallback_order: 0,
+                        model: None,
+                        default_state: providers::ProviderCapacityState::Healthy,
+                        override_state: None,
+                    }],
+                },
+                vec![providers::FakeProvider::new("opencode")
+                    .stdout(r#"{"observedStatus":"working","confidence":0.85}"#)
+                    .sleep_ms(3000)
+                    .with_counter(call_counter.clone())],
+            ),
+        });
+
+        let session_ids = ["peon-concurrent-a", "peon-concurrent-b"];
+        for session_id in session_ids {
+            let (kill_tx, _) = tokio::sync::watch::channel(false);
+            let mut handle = crate::SessionHandle {
+                info: crate::session_types::SessionInfo {
+                    metadata_source: Some("process".into()),
+                    metadata_confidence: Some(1.0),
+                    ..test_session_info(
+                        session_id,
+                        "Test",
+                        dir.path().display().to_string(),
+                        "running",
+                        "now",
+                    )
+                },
+                kill_tx,
+                output_buffer: peon::RingBuffer::new(200),
+                scan_buf: String::new(),
+                pending_work_signal: None,
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                ),
+                terminal_attached: false,
+                resume_in_progress: false,
+                at_usage_limit_latched: false,
+                capacity_check_pending: false,
+                output_lines_seen: 0,
+                scan_bytes_seen: 0,
+                resume_scan_origin: None,
+                pending_capacity_visible_once: false,
+                active_work_hook: false,
+            };
+            handle.output_buffer.push("quiet output".into());
+            state
+                .sessions
+                .lock()
+                .unwrap()
+                .insert(session_id.to_string(), handle);
+            state.peon.last_output.write().unwrap().insert(
+                session_id.to_string(),
+                tokio::time::Instant::now() - std::time::Duration::from_secs(5),
+            );
+        }
+
+        let task = tokio::spawn(peon_loop(state.clone()));
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while call_counter.load(Ordering::SeqCst) < session_ids.len() {
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("both provider calls should enter before the test deadline");
+
+        let diagnostics = state.peon.diagnostics.read().unwrap();
+        for session_id in session_ids {
+            let diagnostic = diagnostics
+                .get(session_id)
+                .expect("eligible session should have diagnostic state");
+            assert_eq!(
+                diagnostic.snapshot.scheduler_state,
+                crate::session_types::PeonSchedulerState::InFlight
+            );
+            assert_eq!(diagnostic.snapshot.attempt_count, Some(1));
+        }
+
+        task.abort();
     }
 }

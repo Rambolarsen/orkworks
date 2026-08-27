@@ -1265,6 +1265,7 @@ mod tests {
                 label_epochs: RwLock::new(HashMap::new()),
                 input_buf: RwLock::new(HashMap::new()),
                 reported_cwd: RwLock::new(HashMap::new()),
+                diagnostics: RwLock::new(HashMap::new()),
                 config: crate::peon::PeonConfig::from_env(),
             },
             harness_catalog: crate::test_support::test_harness_components().0,
