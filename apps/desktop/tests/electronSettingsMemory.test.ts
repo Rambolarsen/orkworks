@@ -706,6 +706,55 @@ test("provider settings migration is idempotent and does not increment revision"
   }
 });
 
+test("startup migration writes normalized v2 selections only once and preserves provider fields", () => {
+  const dir = mkdtempSync(join(tmpdir(), "orkworks-settings-"));
+  try {
+    writeFileSync(settingsPath(dir), JSON.stringify({
+      version: 1,
+      providers: {
+        version: 2,
+        revision: 11,
+        peonSelection: { provider: "copilot", model: "  gpt-5  " },
+        ollamaBaseUrl: " http://127.0.0.1:11434/ ",
+        providers: [{
+          id: "copilot", model: "  gpt-5  ", enabled: false, fallbackOrder: 4,
+          defaultState: "capped", overrideState: "degraded",
+        }],
+      },
+    }));
+    let writes = 0;
+    const persist = (path: string, settings: typeof DEFAULT_SETTINGS) => {
+      writes += 1;
+      writeSettings(path, settings);
+    };
+    const first = settingsMemory.loadSettingsForStartup!(dir, persist);
+    assert.equal(writes, 1);
+    assert.deepEqual(first.providers.peonSelection, { provider: "copilot", model: "gpt-5" });
+    assert.deepEqual(first.providers.providers.find(({ id }) => id === "copilot"), {
+      id: "copilot", model: "gpt-5", enabled: false, fallbackOrder: 4,
+      defaultState: "capped", overrideState: "degraded",
+    });
+    settingsMemory.loadSettingsForStartup!(dir, persist);
+    assert.equal(writes, 1);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("Electron Ollama URL validation rejects paths, queries, and fragments like Rust", () => {
+  const invalid = [
+    "http://127.0.0.1:11434/api",
+    "http://127.0.0.1:11434?x=1",
+    "http://127.0.0.1:11434#fragment",
+  ];
+  for (const value of invalid) {
+    const settings = normalizeProviderSettings({ version: 2, peonSelection: { provider: "ollama", model: "llama", ollamaBaseUrl: value } });
+    assert.equal(settings.peonSelection, null, value);
+  }
+  const valid = normalizeProviderSettings({ version: 2, peonSelection: { provider: "ollama", model: "llama", ollamaBaseUrl: " HTTPS://LOCALHOST:11434/ " } });
+  assert.deepEqual(valid.peonSelection, { provider: "ollama", model: "llama", ollamaBaseUrl: "https://localhost:11434" });
+});
+
 test("provider settings do not migrate multiple provider models or a global-only model", () => {
   const multiple = normalizeProviderSettings({
     version: 1,

@@ -296,7 +296,10 @@ function normalizedSelection(provider: unknown, model: unknown, ollamaBaseUrl: u
   const normalizedModel = model.trim();
   if (!normalizedModel) return null;
   if (provider !== "ollama") return { provider: provider as ProviderId, model: normalizedModel };
-  const normalizedUrl = normalizeOllamaBaseUrlValue(ollamaBaseUrl);
+  const normalizedUrl = ollamaBaseUrl == null
+    ? DEFAULT_PROVIDER_SETTINGS.ollamaBaseUrl
+    : parseOllamaBaseUrl(ollamaBaseUrl);
+  if (!normalizedUrl) return null;
   return { provider: "ollama", model: normalizedModel, ollamaBaseUrl: normalizedUrl };
 }
 
@@ -305,14 +308,23 @@ function normalizeOllamaBaseUrl(raw: Record<string, unknown>): string {
 }
 
 function normalizeOllamaBaseUrlValue(value: unknown): string {
-  const val = value;
-  if (typeof val === "string" && val.length > 0) {
-    const trimmed = val.trim();
-    if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
-      return trimmed.replace(/\/+$/, "");
-    }
+  return parseOllamaBaseUrl(value) ?? DEFAULT_PROVIDER_SETTINGS.ollamaBaseUrl;
+}
+
+function parseOllamaBaseUrl(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  try {
+    const parsed = new URL(value.trim());
+    if (!(parsed.protocol === "http:" || parsed.protocol === "https:")
+      || parsed.username
+      || parsed.password
+      || parsed.pathname !== "/"
+      || parsed.search
+      || parsed.hash) return null;
+    return parsed.origin;
+  } catch {
+    return null;
   }
-  return DEFAULT_PROVIDER_SETTINGS.ollamaBaseUrl;
 }
 
 function normalizePeonModel(raw: Record<string, unknown>): string | null {
@@ -401,8 +413,13 @@ export function readSettingsWithMigration(userDataPath: string): { settings: App
     return { settings: defaultSettings(), migrated: false };
   }
   try {
-    const migrated = migrateRawProviderSettings(JSON.parse(readFileSync(path, "utf8")));
-    return { settings: normalizeSettings(migrated.value), migrated: migrated.migrated };
+    const raw = JSON.parse(readFileSync(path, "utf8"));
+    const migrated = migrateRawProviderSettings(raw);
+    const settings = normalizeSettings(migrated.value);
+    const rawProviders = migrated.value && typeof migrated.value === "object" && !Array.isArray(migrated.value)
+      ? (migrated.value as Record<string, unknown>).providers
+      : undefined;
+    return { settings, migrated: migrated.migrated || !jsonValuesEqual(settings.providers, rawProviders) };
   } catch {
     return { settings: defaultSettings(), migrated: false };
   }
@@ -460,7 +477,7 @@ function migrateRawProviderSettings(value: unknown): { value: unknown; migrated:
   });
 
   const nextProviderSettings = { ...providerSettings, version: 2 };
-  if (!nextProviderSettings.peonSelection) {
+  if (providerSettings.version !== 2 && !nextProviderSettings.peonSelection) {
     const modeled = providers
       .map((entry) => (entry && typeof entry === "object" && !Array.isArray(entry) ? entry as Record<string, unknown> : null))
       .filter((entry): entry is Record<string, unknown> => Boolean(entry) && VALID_PROVIDER_IDS.has(entry.id as ProviderId) && typeof entry.model === "string" && entry.model.trim().length > 0);
@@ -481,6 +498,22 @@ function migrateRawProviderSettings(value: unknown): { value: unknown; migrated:
     value: { ...root, providers: { ...nextProviderSettings, providers } },
     migrated: true,
   };
+}
+
+function jsonValuesEqual(left: unknown, right: unknown): boolean {
+  if (left === right) return true;
+  if (Array.isArray(left) && Array.isArray(right)) {
+    return left.length === right.length && left.every((value, index) => jsonValuesEqual(value, right[index]));
+  }
+  if (left && typeof left === "object" && right && typeof right === "object") {
+    const leftRecord = left as Record<string, unknown>;
+    const rightRecord = right as Record<string, unknown>;
+    const leftKeys = Object.keys(leftRecord).sort();
+    const rightKeys = Object.keys(rightRecord).sort();
+    return leftKeys.length === rightKeys.length
+      && leftKeys.every((key, index) => key === rightKeys[index] && jsonValuesEqual(leftRecord[key], rightRecord[key]));
+  }
+  return false;
 }
 
 export function validateHotkeys(hotkeys: HotkeySettings): HotkeyValidationResult {

@@ -143,6 +143,8 @@ pub struct ProviderSettingsPayload {
     pub revision: u64,
     #[serde(rename = "peonModel", default)]
     pub peon_model: Option<String>,
+    #[serde(rename = "peonSelection", default)]
+    pub peon_selection: Option<PeonSelection>,
     #[serde(rename = "ollamaBaseUrl", default = "default_ollama_base_url")]
     pub ollama_base_url: String,
     pub providers: Vec<ProviderSettingsEntry>,
@@ -180,6 +182,7 @@ impl Default for ProviderSettingsPayload {
             version: 2,
             revision: 0,
             peon_model: None,
+            peon_selection: None,
             ollama_base_url: default_ollama_base_url(),
             providers: vec![],
         }
@@ -239,7 +242,12 @@ pub(crate) fn normalize_ollama_base_url(raw: &str) -> Result<String, String> {
     if !matches!(parsed.scheme(), "http" | "https") {
         return Err("Ollama URL must start with http:// or https://".to_string());
     }
-    if parsed.path() != "/" || parsed.query().is_some() || parsed.fragment().is_some() {
+    if !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || parsed.path() != "/"
+        || parsed.query().is_some()
+        || parsed.fragment().is_some()
+    {
         return Err("Ollama URL must be origin-only with no path, query, or fragment".to_string());
     }
     Ok(parsed.origin().unicode_serialization())
@@ -878,6 +886,7 @@ impl ProviderManager {
             .into_iter()
             .map(|definition| definition.id)
             .collect();
+        settings.peon_selection = normalize_peon_selection(settings.peon_selection, &valid_ids);
         let has_canonical_copilot = settings.providers.iter().any(|entry| entry.id == "copilot");
         let mut migrated_legacy_copilot = false;
         settings.providers = settings
@@ -1712,6 +1721,7 @@ mod tests {
             version: 1,
             revision: 1,
             peon_model: None,
+            peon_selection: None,
             ollama_base_url: default_ollama_base_url(),
             providers: builders.into_iter().map(|b| b.build()).collect(),
         }
@@ -2317,6 +2327,7 @@ mod tests {
         let manager = ProviderManager::new();
         manager.apply_settings(ProviderSettingsPayload {
             peon_model: Some("global-model".into()),
+            peon_selection: None,
             ollama_base_url: format!("http://{address}"),
             providers: vec![entry("ollama").model(Some("ollama-entry-model")).build()],
             ..sample_settings(vec![])
@@ -2443,6 +2454,7 @@ mod tests {
     fn apply_settings_trims_provider_and_global_models_and_clears_whitespace() {
         let payload = ProviderSettingsPayload {
             peon_model: Some("  global-model  ".into()),
+            peon_selection: None,
             providers: vec![
                 entry("copilot").model(Some("  llama3  ")).build(),
                 entry("claude-code").model(Some("   ")).build(),
@@ -2753,6 +2765,7 @@ mod tests {
                 version: 1,
                 revision: 1,
                 peon_model: None,
+                peon_selection: None,
                 ollama_base_url: "http://127.0.0.1:11434".to_string(),
                 providers: vec![ProviderSettingsEntry {
                     id: "ollama".to_string(),
@@ -2778,6 +2791,7 @@ mod tests {
                 version: 1,
                 revision: 1,
                 peon_model: None,
+                peon_selection: None,
                 ollama_base_url: "http://127.0.0.1:11434".to_string(),
                 providers: vec![ProviderSettingsEntry {
                     id: "ollama".to_string(),
@@ -2802,6 +2816,7 @@ mod tests {
                 version: 1,
                 revision: 1,
                 peon_model: None,
+                peon_selection: None,
                 ollama_base_url: "http://127.0.0.1:49999".to_string(),
                 providers: vec![],
             },
@@ -2831,6 +2846,57 @@ mod tests {
     fn normalize_ollama_base_url_rejects_non_origin_urls() {
         let err = normalize_ollama_base_url("http://127.0.0.1:11434/api/tags").unwrap_err();
         assert!(err.contains("origin-only"));
+    }
+
+    #[test]
+    fn provider_settings_payload_round_trips_and_applies_normalized_selection() {
+        let payload = serde_json::json!({
+            "version": 2,
+            "revision": 4,
+            "peonSelection": {
+                "provider": " ollama ",
+                "model": " llama3.2:3b ",
+                "ollamaBaseUrl": " http://127.0.0.1:11434/ "
+            },
+            "ollamaBaseUrl": "http://127.0.0.1:11434",
+            "providers": []
+        });
+        let decoded: ProviderSettingsPayload = serde_json::from_value(payload).unwrap();
+        assert_eq!(decoded.peon_selection.as_ref().unwrap().model, " llama3.2:3b ");
+        let encoded = serde_json::to_value(&decoded).unwrap();
+        assert_eq!(encoded["peonSelection"]["provider"], " ollama ");
+
+        let normalized = normalize_peon_selection(
+            decoded.peon_selection,
+            &["ollama".to_string()].into_iter().collect(),
+        );
+        assert_eq!(normalized.unwrap().ollama_base_url.as_deref(), Some("http://127.0.0.1:11434"));
+    }
+
+    #[test]
+    fn applying_provider_settings_normalizes_selection() {
+        let manager = ProviderManager::for_tests(
+            ProviderSettingsPayload {
+                peon_selection: Some(PeonSelection {
+                    provider: " ollama ".into(),
+                    model: " llama3.2:3b ".into(),
+                    ollama_base_url: Some(" http://127.0.0.1:11434/ ".into()),
+                }),
+                ..ProviderSettingsPayload::default()
+            },
+            vec![],
+        );
+        let status = manager.apply_settings(ProviderSettingsPayload {
+            peon_selection: Some(PeonSelection {
+                provider: "ollama".into(),
+                model: " llama3.2:3b ".into(),
+                ollama_base_url: Some(" http://127.0.0.1:11434/ ".into()),
+            }),
+            ..ProviderSettingsPayload::default()
+        });
+        assert_eq!(status.applied_revision, Some(0));
+        assert_eq!(manager.settings.read().unwrap().peon_selection.as_ref().unwrap().model, "llama3.2:3b");
+        assert_eq!(manager.settings.read().unwrap().peon_selection.as_ref().unwrap().ollama_base_url.as_deref(), Some("http://127.0.0.1:11434"));
     }
 
     #[test]

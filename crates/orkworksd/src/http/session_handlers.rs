@@ -913,6 +913,7 @@ mod tests {
                 version: 1,
                 revision: 1,
                 peon_model: None,
+                peon_selection: None,
                 ollama_base_url: crate::providers::default_ollama_base_url(),
                 providers: vec![crate::providers::ProviderSettingsEntry {
                     id: "codex".into(),
@@ -973,6 +974,7 @@ mod tests {
                 version: 1,
                 revision: 1,
                 peon_model: None,
+                peon_selection: None,
                 ollama_base_url: crate::providers::default_ollama_base_url(),
                 providers: vec![crate::providers::ProviderSettingsEntry {
                     id: "codex".into(),
@@ -5297,6 +5299,7 @@ mod tests {
             version: 1,
             revision: 1,
             peon_model: None,
+            peon_selection: None,
             ollama_base_url: crate::providers::default_ollama_base_url(),
             providers: vec![crate::providers::ProviderSettingsEntry {
                 id: "opencode".into(),
@@ -5491,6 +5494,7 @@ mod tests {
                 version: 1,
                 revision: 1,
                 peon_model: None,
+                peon_selection: None,
                 ollama_base_url: crate::providers::default_ollama_base_url(),
                 providers: vec![crate::providers::ProviderSettingsEntry {
                     id: "codex".into(),
