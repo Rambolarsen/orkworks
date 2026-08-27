@@ -1,8 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import type { AppSettings } from "../src/appSettingsTypes.ts";
 import type { ProviderSettings } from "../src/providerTypes.ts";
 import { createSettingsController, type SettingsControllerApi } from "../src/settingsController.ts";
+
+const mainSource = readFileSync(new URL("../electron/main.ts", import.meta.url), "utf8");
+const preloadSource = readFileSync(new URL("../electron/preload.ts", import.meta.url), "utf8");
+const rendererTypes = readFileSync(new URL("../src/orkworksWindow.d.ts", import.meta.url), "utf8");
 
 const settings: AppSettings = {
   version: 1,
@@ -34,6 +39,30 @@ const settings: AppSettings = {
     providers: [],
   },
 };
+
+test("Peon bridge keeps Apply separate from durable Save and exposes applied identity", () => {
+  assert.match(mainSource, /ipcMain\.handle\("verify-peon-provider"/);
+  assert.match(mainSource, /ipcMain\.handle\("test-and-apply-peon-provider"/);
+  assert.match(mainSource, /ipcMain\.handle\("get-applied-peon-provider"/);
+  assert.match(mainSource, /ipcMain\.handle\("save-peon-selection"/);
+  assert.match(mainSource, /peonSelectionMatchesAppliedState/);
+
+  const applyStart = mainSource.indexOf('ipcMain.handle("test-and-apply-peon-provider"');
+  const saveStart = mainSource.indexOf('ipcMain.handle("save-peon-selection"');
+  assert.notEqual(applyStart, -1);
+  assert.notEqual(saveStart, -1);
+  assert.doesNotMatch(mainSource.slice(applyStart, saveStart), /writeSettings\(/);
+  assert.match(mainSource.slice(saveStart), /writeSettings\(/);
+
+  assert.match(preloadSource, /verifyPeonProvider:/);
+  assert.match(preloadSource, /testAndApplyPeonProvider:/);
+  assert.match(preloadSource, /getAppliedPeonProvider:/);
+  assert.match(preloadSource, /savePeonSelection:/);
+  assert.match(rendererTypes, /verifyPeonProvider:/);
+  assert.match(rendererTypes, /testAndApplyPeonProvider:/);
+  assert.match(rendererTypes, /getAppliedPeonProvider:/);
+  assert.match(rendererTypes, /savePeonSelection:/);
+});
 
 function clone<T>(value: T): T {
   return structuredClone(value);

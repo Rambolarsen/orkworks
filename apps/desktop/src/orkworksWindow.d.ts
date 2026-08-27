@@ -1,6 +1,6 @@
 import type { WorkspaceInfo } from "./api";
 import type { AppSettings, DebugSettings, HotkeySettings, RetentionSettings, SaveHotkeysResult } from "./appSettingsTypes";
-import type { ProviderSettings, ProviderModelsResponse, ProviderLabelsResponse, OllamaVerificationResponse, ProviderApplyStatus, RetentionApplyStatus } from "./providerTypes";
+import type { ProviderSettings, ProviderModelsResponse, ProviderLabelsResponse, OllamaVerificationResponse, ProviderApplyStatus, RetentionApplyStatus, PeonAppliedState, PeonProviderVerificationResponse, PeonSelectionSaveResult, PeonSelection } from "./providerTypes";
 import type { HarnessConfig, IntegrationStatusResult } from "./harnessTypes";
 
 export type BackendLifecycleEvent =
@@ -20,6 +20,10 @@ declare global {
       getLayout: () => Promise<string | null>;
       saveLayout: (json: string) => Promise<void>;
       getSettings: () => Promise<AppSettings>;
+      verifyPeonProvider: (provider: string, ollamaBaseUrl?: string) => Promise<PeonProviderVerificationResponse>;
+      testAndApplyPeonProvider: (selection: PeonSelection) => Promise<PeonAppliedState>;
+      getAppliedPeonProvider: () => Promise<PeonAppliedState>;
+      savePeonSelection: (selection: PeonSelection) => Promise<PeonSelectionSaveResult | { ok: false; error: string }>;
       saveHotkeys: (hotkeys: HotkeySettings) => Promise<SaveHotkeysResult>;
       saveRetention: (retention: RetentionSettings) => Promise<{ ok: boolean; retentionApplyStatus?: RetentionApplyStatus }>;
       saveDebugSettings: (debug: DebugSettings) => Promise<{ ok: true; settings: AppSettings }>;

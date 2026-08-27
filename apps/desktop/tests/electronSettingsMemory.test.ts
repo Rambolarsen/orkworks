@@ -9,13 +9,16 @@ import {
   DEFAULT_HOTKEYS,
   DEFAULT_SETTINGS,
   normalizeProviderSettings,
+  peonSelectionMatchesAppliedState,
   readSettings,
+  savePeonSelection,
+  settingsWithPeonSelection,
   settingsPath,
   settingsWithHotkeys,
   validateHotkeys,
   writeSettings,
 } from "../electron/settingsMemory.ts";
-import type { ProviderSettings } from "../src/providerTypes.ts";
+import type { PeonAppliedState, PeonSelection, ProviderSettings } from "../electron/providerTypes.ts";
 
 test("settings memory returns defaults when settings.json is missing", () => {
   const dir = mkdtempSync(join(tmpdir(), "orkworks-settings-"));
@@ -27,6 +30,67 @@ test("settings memory returns defaults when settings.json is missing", () => {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("Peon Apply preparation changes no durable settings and v2 save changes only selection", () => {
+  const dir = mkdtempSync(join(tmpdir(), "orkworks-settings-"));
+  try {
+    const base = readSettings(dir);
+    const selection: PeonSelection = { provider: "copilot", model: " gpt-5 " };
+
+    const next = settingsWithPeonSelection(base, selection);
+
+    assert.deepEqual(base.providers.peonSelection, null);
+    assert.deepEqual(next.providers.peonSelection, { provider: "copilot", model: "gpt-5" });
+    assert.equal(next.providers.peonModel, null);
+    assert.deepEqual(next.providers.providers, base.providers.providers);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("Peon selection save retains the previous file when persistence fails", () => {
+  const dir = mkdtempSync(join(tmpdir(), "orkworks-settings-"));
+  try {
+    const before = { ...DEFAULT_SETTINGS, providers: { ...DEFAULT_SETTINGS.providers } };
+    writeSettings(dir, before);
+    const previousFile = readFileSync(settingsPath(dir), "utf8");
+
+    assert.throws(
+      () => savePeonSelection(dir, { provider: "copilot", model: "gpt-5" }, () => {
+        throw new Error("disk full");
+      }),
+      /disk full/,
+    );
+    assert.equal(readFileSync(settingsPath(dir), "utf8"), previousFile);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("Peon applied identity matching includes the Ollama URL", () => {
+  const selection: PeonSelection = {
+    provider: "ollama",
+    model: "llama3.2:3b",
+    ollamaBaseUrl: "https://localhost:11434",
+  };
+  const applied: PeonAppliedState = {
+    provider: "ollama",
+    model: "llama3.2:3b",
+    ollamaBaseUrl: "https://localhost:11434",
+    appliedAt: "2026-08-27T10:00:00Z",
+    connectionRevision: 1,
+  };
+
+  assert.equal(peonSelectionMatchesAppliedState(selection, applied), true);
+  assert.equal(
+    peonSelectionMatchesAppliedState(selection, { ...applied, ollamaBaseUrl: "http://localhost:11434" }),
+    false,
+  );
+  assert.equal(
+    peonSelectionMatchesAppliedState({ ...selection, model: "other-model" }, applied),
+    false,
+  );
 });
 
 test("settings memory falls back to defaults when settings.json is corrupt", () => {

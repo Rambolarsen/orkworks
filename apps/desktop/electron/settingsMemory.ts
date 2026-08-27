@@ -1,7 +1,7 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import type { PeonSelection, ProviderId, ProviderCapacityState, ProviderSettings, ProviderSettingsEntry } from "./providerTypes.ts";
+import { peonSelectionMatchesAppliedState, type PeonAppliedState, type PeonSelection, type ProviderId, type ProviderCapacityState, type ProviderSettings, type ProviderSettingsEntry } from "./providerTypes.ts";
 
 export interface RetentionSettings {
   maxSessions: number;
@@ -442,8 +442,35 @@ export function loadSettingsForStartup(
 
 export function writeSettings(userDataPath: string, settings: AppSettings): void {
   mkdirSync(userDataPath, { recursive: true });
-  writeFileSync(settingsPath(userDataPath), `${JSON.stringify(normalizeSettings(settings), null, 2)}\n`);
+  const target = settingsPath(userDataPath);
+  const temporary = `${target}.${process.pid}.tmp`;
+  writeFileSync(temporary, `${JSON.stringify(normalizeSettings(settings), null, 2)}\n`);
+  renameSync(temporary, target);
 }
+
+export function settingsWithPeonSelection(baseSettings: AppSettings, selection: PeonSelection): AppSettings {
+  const providers = normalizeProviderSettings({
+    ...baseSettings.providers,
+    version: 2,
+    revision: baseSettings.providers.revision + 1,
+    peonSelection: selection,
+  });
+  if (!providers.peonSelection) throw new Error("Invalid Peon provider selection.");
+  return { ...baseSettings, version: 1, providers };
+}
+
+export function savePeonSelection(
+  userDataPath: string,
+  selection: PeonSelection,
+  persist: (path: string, settings: AppSettings) => void = writeSettings,
+): AppSettings {
+  const nextSettings = settingsWithPeonSelection(readSettings(userDataPath), selection);
+  persist(userDataPath, nextSettings);
+  return nextSettings;
+}
+
+export { peonSelectionMatchesAppliedState };
+export type { PeonAppliedState, PeonSelection };
 
 function migrateRawProviderSettings(value: unknown): { value: unknown; migrated: boolean } {
   if (!value || typeof value !== "object" || Array.isArray(value)) return { value, migrated: false };
@@ -476,11 +503,11 @@ function migrateRawProviderSettings(value: unknown): { value: unknown; migrated:
     return [entry];
   });
 
-  const nextProviderSettings = { ...providerSettings, version: 2 };
+  const nextProviderSettings: Record<string, unknown> = { ...providerSettings, version: 2 };
   if (providerSettings.version !== 2 && !nextProviderSettings.peonSelection) {
     const modeled = providers
       .map((entry) => (entry && typeof entry === "object" && !Array.isArray(entry) ? entry as Record<string, unknown> : null))
-      .filter((entry): entry is Record<string, unknown> => Boolean(entry) && VALID_PROVIDER_IDS.has(entry.id as ProviderId) && typeof entry.model === "string" && entry.model.trim().length > 0);
+      .filter((entry): entry is Record<string, unknown> => entry !== null && VALID_PROVIDER_IDS.has(entry.id as ProviderId) && typeof entry.model === "string" && entry.model.trim().length > 0);
     if (modeled.length === 1) {
       const entry = modeled[0];
       nextProviderSettings.peonSelection = {

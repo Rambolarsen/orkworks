@@ -8,6 +8,33 @@ export interface PeonSelection {
   ollamaBaseUrl?: string;
 }
 
+export interface PeonProviderVerificationResponse {
+  ok: boolean;
+  provider: ProviderId;
+  capabilities: {
+    connectivity: boolean;
+    modelDiscovery: boolean;
+    providerDefault: boolean;
+    testInference: boolean;
+  };
+  models: string[];
+  ollamaBaseUrl: string | null;
+  generation: number;
+}
+
+export interface PeonAppliedState {
+  provider: string | null;
+  model: string | null;
+  ollamaBaseUrl: string | null;
+  appliedAt: string | null;
+  connectionRevision: number;
+}
+
+export interface PeonSelectionSaveResult {
+  ok: true;
+  settings: import("./appSettingsTypes").AppSettings;
+}
+
 export interface ProviderSettingsEntry {
   id: ProviderId;
   model: string | null;
