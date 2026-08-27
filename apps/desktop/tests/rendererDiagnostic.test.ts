@@ -3,9 +3,18 @@ import test from "node:test";
 
 import {
   rendererConsoleDiagnostic,
+  rendererConsoleLevel,
   rendererOrigin,
   sanitizeRendererDiagnosticMessage,
 } from "../electron/rendererDiagnostic.ts";
+
+test("maps Electron console severities to diagnostic levels", () => {
+  assert.equal(rendererConsoleLevel("debug"), 0);
+  assert.equal(rendererConsoleLevel("info"), 1);
+  assert.equal(rendererConsoleLevel("warning"), 2);
+  assert.equal(rendererConsoleLevel("error"), 3);
+  assert.equal(rendererConsoleLevel("unexpected"), 1);
+});
 
 test("console diagnostics contain only allowlisted metadata", () => {
   const diagnostic = rendererConsoleDiagnostic(
