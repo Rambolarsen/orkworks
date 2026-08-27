@@ -42,8 +42,8 @@ use crate::http::integration_handlers::{
     get_integration_status, install_integration, uninstall_integration,
 };
 use crate::http::provider_handlers::{
-    get_applied_peon_provider, get_provider_models, get_providers, set_provider_settings,
-    test_and_apply_peon_provider, verify_ollama_settings, verify_peon_provider,
+    get_applied_peon_provider, get_providers, set_provider_settings, test_and_apply_peon_provider,
+    verify_ollama_settings, verify_peon_provider,
 };
 use crate::http::retention_handlers::set_retention;
 use crate::http::session_handlers::{
@@ -286,7 +286,6 @@ pub(crate) fn build_router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/health", get(health_check))
         .route("/providers", get(get_providers))
-        .route("/providers/:id/models", get(get_provider_models))
         .route("/settings/providers", post(set_provider_settings))
         .route("/settings/providers/ollama/verify", post(verify_ollama_settings))
         .route("/settings/peon/provider/verify", post(verify_peon_provider))
@@ -726,6 +725,61 @@ mod tests {
             let response = client.request(method, url).send().await.unwrap();
             assert_eq!(response.status(), reqwest::StatusCode::METHOD_NOT_ALLOWED);
         }
+
+        server.abort();
+        let _ = server.await;
+    }
+
+    #[tokio::test]
+    async fn peon_provider_routes_expose_staged_api_and_remove_legacy_model_listing() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let (base_url, server) = test_server_base_url(state).await;
+        let client = reqwest::Client::new();
+
+        let applied = client
+            .get(format!("{base_url}/settings/peon/applied"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(applied.status(), reqwest::StatusCode::OK);
+        let applied_body: serde_json::Value = applied.json().await.unwrap();
+        assert_eq!(applied_body["provider"], serde_json::Value::Null);
+        assert_eq!(applied_body["connectionRevision"], 0);
+
+        let legacy_models = client
+            .get(format!("{base_url}/providers/ollama/models"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(legacy_models.status(), reqwest::StatusCode::NOT_FOUND);
+
+        let apply = client
+            .post(format!("{base_url}/settings/peon/test-and-apply"))
+            .json(&serde_json::json!({
+                "selection": {
+                    "provider": "ollama",
+                    "model": "manual-model"
+                },
+                "generation": 1
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(apply.status(), reqwest::StatusCode::CONFLICT);
+        let apply_body: serde_json::Value = apply.json().await.unwrap();
+        assert_eq!(apply_body["error"]["code"], "verification_required");
+
+        let malformed_verify = client
+            .post(format!("{base_url}/settings/peon/provider/verify"))
+            .header("content-type", "application/json")
+            .body("not-json")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(malformed_verify.status(), reqwest::StatusCode::BAD_REQUEST);
+        let verify_body: serde_json::Value = malformed_verify.json().await.unwrap();
+        assert_eq!(verify_body["error"]["code"], "malformed");
 
         server.abort();
         let _ = server.await;

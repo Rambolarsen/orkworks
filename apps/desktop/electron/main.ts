@@ -31,6 +31,7 @@ let workspacePath: string | null = null;
 let menuPanelItems: Record<string, Electron.MenuItem> = {};
 let currentSettings: AppSettings | null = null;
 let providerModels: Map<string, string[]> = new Map();
+let providerModelDiscoveryGeneration = 0;
 let providerLabels: Record<string, string> = {};
 let hotkeyCaptureActive = false;
 let openPlanToken = "";
@@ -458,15 +459,30 @@ app.whenReady().then(() => {
     return await response.json();
   });
 
+  // Compatibility IPC for existing renderer consumers. Model discovery is
+  // gated by the staged Peon provider verification endpoint; the sidecar's
+  // legacy model-list route is intentionally removed.
   ipcMain.handle("get-provider-models", async (_event, providerId: string) => {
     if (providerModels.has(providerId)) {
       return { models: providerModels.get(providerId)! };
     }
     try {
       const port = await restoration.getReadiness();
-      const resp = await fetch(`http://127.0.0.1:${port}/providers/${providerId}/models`);
+      const body: { provider: string; generation: number; ollamaBaseUrl?: string } = {
+        provider: providerId,
+        generation: ++providerModelDiscoveryGeneration,
+      };
+      if (providerId === "ollama") {
+        body.ollamaBaseUrl = currentSettings?.providers.ollamaBaseUrl;
+      }
+      const resp = await fetch(`http://127.0.0.1:${port}/settings/peon/provider/verify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
       if (resp.ok) {
-        const data = await resp.json() as { models: string[] };
+        const data = await resp.json() as { models?: string[] };
+        if (!Array.isArray(data.models)) return { models: [] };
         providerModels.set(providerId, data.models);
         return { models: data.models };
       }

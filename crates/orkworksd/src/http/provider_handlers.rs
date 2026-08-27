@@ -1,15 +1,9 @@
 use crate::http::ErrorResponse;
 use crate::providers;
 use crate::AppState;
-use axum::extract::{rejection::JsonRejection, Path, State};
+use axum::extract::{rejection::JsonRejection, State};
 use axum::response::IntoResponse;
-use serde::Serialize;
 use std::sync::Arc;
-
-#[derive(Serialize)]
-pub(crate) struct ProviderModelsResponse {
-    pub(crate) models: Vec<String>,
-}
 
 pub(crate) async fn get_providers(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     axum::Json(state.providers.get_providers_response())
@@ -59,7 +53,10 @@ fn provider_error_response(error: providers::ProviderOperationError) -> axum::re
         }
         providers::ProviderOperationErrorCode::Unauthorized => axum::http::StatusCode::UNAUTHORIZED,
         providers::ProviderOperationErrorCode::Timeout => axum::http::StatusCode::GATEWAY_TIMEOUT,
-        providers::ProviderOperationErrorCode::StaleGeneration => axum::http::StatusCode::CONFLICT,
+        providers::ProviderOperationErrorCode::StaleGeneration
+        | providers::ProviderOperationErrorCode::VerificationRequired => {
+            axum::http::StatusCode::CONFLICT
+        }
         providers::ProviderOperationErrorCode::UnsupportedCapability => {
             axum::http::StatusCode::UNPROCESSABLE_ENTITY
         }
@@ -68,7 +65,11 @@ fn provider_error_response(error: providers::ProviderOperationError) -> axum::re
             axum::http::StatusCode::BAD_GATEWAY
         }
     };
-    (status, axum::Json(providers::ProviderOperationErrorResponse { error })).into_response()
+    (
+        status,
+        axum::Json(providers::ProviderOperationErrorResponse { error }),
+    )
+        .into_response()
 }
 
 pub(crate) async fn verify_peon_provider(
@@ -125,47 +126,11 @@ pub(crate) async fn get_applied_peon_provider(
     axum::Json(state.providers.get_applied())
 }
 
-pub(crate) async fn get_provider_models(
-    State(state): State<Arc<AppState>>,
-    Path(provider_id): Path<String>,
-) -> impl IntoResponse {
-    let providers = state.providers.clone();
-    match tokio::task::spawn_blocking(move || providers.list_models(&provider_id)).await {
-        Ok(Ok(models)) => axum::Json(ProviderModelsResponse { models }).into_response(),
-        Ok(Err(msg)) => {
-            let status = if msg.starts_with("unknown provider") {
-                axum::http::StatusCode::NOT_FOUND
-            } else {
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR
-            };
-            (status, axum::Json(ErrorResponse { error: msg })).into_response()
-        }
-        Err(_) => (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            axum::Json(ErrorResponse {
-                error: "internal error".into(),
-            }),
-        )
-            .into_response(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::test_support::*;
     use axum::response::IntoResponse;
-
-    #[tokio::test]
-    async fn get_provider_models_returns_not_found_for_unknown_provider() {
-        let dir = tempfile::tempdir().unwrap();
-        let state = test_app_state_with_workspace(dir.path());
-        let response = get_provider_models(State(state), Path("unknown-provider".into()))
-            .await
-            .into_response();
-
-        assert_eq!(response.status(), axum::http::StatusCode::NOT_FOUND);
-    }
 
     #[tokio::test]
     async fn verify_ollama_returns_bad_request_for_invalid_url() {

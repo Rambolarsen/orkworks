@@ -17,6 +17,14 @@ test("preload and window typing expose verifyOllama", () => {
   assert.match(types, /verifyOllama:\s*\(baseUrl: string\)\s*=>\s*Promise<OllamaVerificationResponse>/);
 });
 
+test("Electron model suggestions use staged Peon verification instead of the removed legacy route", () => {
+  const main = readFileSync(new URL("../electron/main.ts", import.meta.url), "utf8");
+  assert.match(main, /settings\/peon\/provider\/verify/);
+  assert.doesNotMatch(main, /\/providers\/\$\{providerId\}\/models/);
+  assert.match(main, /providerModelDiscoveryGeneration/);
+  assert.doesNotMatch(main, /generation:\s*0/);
+});
+
 test("SettingsModal guards against stale verification results", () => {
   const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
   assert.match(source, /const verifyRequestRef = useRef\(0\)/);

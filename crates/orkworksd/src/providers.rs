@@ -2,7 +2,6 @@ use std::collections::{HashMap, HashSet};
 use std::io::Read;
 use std::io::Write as IoWrite;
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 use std::time::Duration;
@@ -211,6 +210,7 @@ pub enum ProviderOperationErrorCode {
     Timeout,
     UnsupportedCapability,
     StaleGeneration,
+    VerificationRequired,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -259,7 +259,7 @@ pub struct PeonTestAndApplyRequest {
     pub generation: u64,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Default, Serialize)]
 pub struct PeonAppliedState {
     pub provider: Option<String>,
     pub model: Option<String>,
@@ -269,6 +269,25 @@ pub struct PeonAppliedState {
     pub applied_at: Option<String>,
     #[serde(rename = "connectionRevision")]
     pub connection_revision: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct SelectionFingerprint {
+    provider: String,
+    connection: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+struct SuccessfulVerification {
+    generation: u64,
+    fingerprint: SelectionFingerprint,
+}
+
+#[derive(Default)]
+struct ProviderOperationState {
+    latest_generation: u64,
+    verification: Option<SuccessfulVerification>,
+    applied: PeonAppliedState,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -1037,10 +1056,7 @@ pub struct ProviderManager {
     session_capped: Arc<RwLock<HashMap<String, bool>>>,
     session_reset_hint: Arc<RwLock<HashMap<String, String>>>,
     session_checking: Arc<RwLock<HashSet<String>>>,
-    active_selection: Arc<RwLock<Option<PeonSelection>>>,
-    active_applied_at: Arc<RwLock<Option<String>>>,
-    active_connection_revision: Arc<RwLock<u64>>,
-    latest_generation: Arc<AtomicU64>,
+    operation_state: Arc<Mutex<ProviderOperationState>>,
     apply_lock: Arc<Mutex<()>>,
 }
 
@@ -1069,10 +1085,7 @@ impl ProviderManager {
             session_capped: Arc::new(RwLock::new(HashMap::new())),
             session_reset_hint: Arc::new(RwLock::new(HashMap::new())),
             session_checking: Arc::new(RwLock::new(HashSet::new())),
-            active_selection: Arc::new(RwLock::new(None)),
-            active_applied_at: Arc::new(RwLock::new(None)),
-            active_connection_revision: Arc::new(RwLock::new(0)),
-            latest_generation: Arc::new(AtomicU64::new(0)),
+            operation_state: Arc::new(Mutex::new(ProviderOperationState::default())),
             apply_lock: Arc::new(Mutex::new(())),
         }
     }
@@ -1154,26 +1167,127 @@ impl ProviderManager {
                 message: "selection generation must be greater than zero".into(),
             });
         }
-        let current = self.latest_generation.load(Ordering::SeqCst);
-        if generation < current {
+        let mut state = self.operation_state.lock().unwrap();
+        if generation < state.latest_generation {
             return Err(ProviderOperationError {
                 code: ProviderOperationErrorCode::StaleGeneration,
                 message: format!(
-                    "selection generation {generation} is stale; current generation is {current}"
+                    "selection generation {generation} is stale; current generation is {}",
+                    state.latest_generation
                 ),
             });
         }
-        self.latest_generation.fetch_max(generation, Ordering::SeqCst);
+        if generation > state.latest_generation {
+            state.latest_generation = generation;
+            state.verification = None;
+        }
         Ok(())
     }
 
     fn ensure_current_generation(&self, generation: u64) -> Result<(), ProviderOperationError> {
-        let current = self.latest_generation.load(Ordering::SeqCst);
-        if current != generation {
+        let state = self.operation_state.lock().unwrap();
+        if state.latest_generation != generation {
             return Err(ProviderOperationError {
                 code: ProviderOperationErrorCode::StaleGeneration,
                 message: format!(
-                    "selection generation {generation} was superseded by generation {current}"
+                    "selection generation {generation} was superseded by generation {}",
+                    state.latest_generation
+                ),
+            });
+        }
+        Ok(())
+    }
+
+    fn selection_fingerprint(selection: &PeonSelection) -> SelectionFingerprint {
+        SelectionFingerprint {
+            provider: selection.provider.clone(),
+            connection: selection.ollama_base_url.clone(),
+        }
+    }
+
+    fn record_successful_verification(
+        &self,
+        generation: u64,
+        fingerprint: SelectionFingerprint,
+    ) -> Result<(), ProviderOperationError> {
+        let mut state = self.operation_state.lock().unwrap();
+        if state.latest_generation != generation {
+            return Err(ProviderOperationError {
+                code: ProviderOperationErrorCode::StaleGeneration,
+                message: format!(
+                    "selection generation {generation} was superseded by generation {}",
+                    state.latest_generation
+                ),
+            });
+        }
+        state.verification = Some(SuccessfulVerification {
+            generation,
+            fingerprint,
+        });
+        Ok(())
+    }
+
+    fn require_matching_verification(
+        &self,
+        generation: u64,
+        fingerprint: &SelectionFingerprint,
+    ) -> Result<(), ProviderOperationError> {
+        let state = self.operation_state.lock().unwrap();
+        if state.latest_generation != generation {
+            return Err(ProviderOperationError {
+                code: ProviderOperationErrorCode::StaleGeneration,
+                message: format!(
+                    "selection generation {generation} was superseded by generation {}",
+                    state.latest_generation
+                ),
+            });
+        }
+        match state.verification.as_ref() {
+            Some(verification)
+                if verification.generation == generation
+                    && verification.fingerprint == *fingerprint =>
+            {
+                Ok(())
+            }
+            _ => Err(ProviderOperationError {
+                code: ProviderOperationErrorCode::VerificationRequired,
+                message: "a matching successful provider verification is required before Apply"
+                    .into(),
+            }),
+        }
+    }
+
+    fn validate_apply_capability(
+        &self,
+        definition: &ProviderDefinition,
+    ) -> Result<(), ProviderOperationError> {
+        if definition.id == "ollama" {
+            return Ok(());
+        }
+        if !definition.supports_model {
+            return Err(ProviderOperationError {
+                code: ProviderOperationErrorCode::UnsupportedCapability,
+                message: format!(
+                    "provider {} does not support explicit model selection",
+                    definition.id
+                ),
+            });
+        }
+        let Some(template) = definition.model_arg_template.as_deref() else {
+            return Err(ProviderOperationError {
+                code: ProviderOperationErrorCode::UnsupportedCapability,
+                message: format!(
+                    "provider {} declares model selection without a model argument template",
+                    definition.id
+                ),
+            });
+        };
+        if !template.contains("{model}") {
+            return Err(ProviderOperationError {
+                code: ProviderOperationErrorCode::UnsupportedCapability,
+                message: format!(
+                    "provider {} model argument template does not deliver the selected model",
+                    definition.id
                 ),
             });
         }
@@ -1263,7 +1377,10 @@ impl ProviderManager {
         )
     }
 
-    pub fn capabilities(&self, provider_id: &str) -> Result<ProviderCapabilities, ProviderOperationError> {
+    pub fn capabilities(
+        &self,
+        provider_id: &str,
+    ) -> Result<ProviderCapabilities, ProviderOperationError> {
         let definition = self.definition(provider_id)?;
         Ok(ProviderCapabilities {
             connectivity: true,
@@ -1271,7 +1388,7 @@ impl ProviderManager {
                 || definition.list_models_command.is_some()
                 || !definition.static_models.is_empty(),
             provider_default: definition.id != "ollama",
-            test_inference: true,
+            test_inference: self.validate_apply_capability(&definition).is_ok(),
         })
     }
 
@@ -1288,6 +1405,7 @@ impl ProviderManager {
             });
         }
         let definition = self.definition(provider_id)?;
+        self.validate_apply_capability(&definition)?;
         let capabilities = self.capabilities(&definition.id)?;
         let mut normalized_url = None;
         let models = if definition.id == "ollama" {
@@ -1299,21 +1417,35 @@ impl ProviderManager {
             let response = self.verify_ollama(&base_url);
             normalized_url = Some(response.normalized_base_url.clone());
             if !response.ok {
-                return Err(ollama_operation_error(&response));
+                let error = ollama_operation_error(&response);
+                self.ensure_current_generation(request.generation)?;
+                return Err(error);
             }
             response.models
         } else {
             let result = self.invoke_provider(&definition, None, None);
             if !result.success {
-                return Err(invocation_operation_error(&result.stderr));
+                let error = invocation_operation_error(&result.stderr);
+                self.ensure_current_generation(request.generation)?;
+                return Err(error);
             }
-            self.list_models(&definition.id)
-                .map_err(|error| ProviderOperationError {
-                    code: classify_invocation_error(&error),
-                    message: error,
-                })?
+            match self.discover_models(&definition.id) {
+                Ok(models) => models,
+                Err(error) => {
+                    self.ensure_current_generation(request.generation)?;
+                    return Err(ProviderOperationError {
+                        code: classify_invocation_error(&error),
+                        message: error,
+                    });
+                }
+            }
         };
         self.ensure_current_generation(request.generation)?;
+        let fingerprint = SelectionFingerprint {
+            provider: definition.id.clone(),
+            connection: normalized_url.clone(),
+        };
+        self.record_successful_verification(request.generation, fingerprint)?;
         Ok(PeonProviderVerificationResponse {
             ok: true,
             provider: definition.id,
@@ -1333,20 +1465,19 @@ impl ProviderManager {
         self.ensure_current_generation(request.generation)?;
         let selection = self.staged_selection(request.selection)?;
         let definition = self.definition(&selection.provider)?;
-        if !definition.supports_model && definition.id != "ollama" {
-            return Err(ProviderOperationError {
-                code: ProviderOperationErrorCode::UnsupportedCapability,
-                message: format!("provider {} does not support model selection", definition.id),
-            });
-        }
+        self.validate_apply_capability(&definition)?;
+        let fingerprint = Self::selection_fingerprint(&selection);
+        self.require_matching_verification(request.generation, &fingerprint)?;
         let result = self.invoke_provider(
             &definition,
             Some(&selection.model),
             selection.ollama_base_url.as_deref(),
         );
         if !result.success {
+            self.ensure_current_generation(request.generation)?;
             return Err(invocation_operation_error(&result.stderr));
         }
+        self.ensure_current_generation(request.generation)?;
         peon::parse_inference(&result.stdout).ok_or(ProviderOperationError {
             code: ProviderOperationErrorCode::ModelFailure,
             message: "provider returned invalid Peon inference JSON".into(),
@@ -1354,31 +1485,38 @@ impl ProviderManager {
         self.ensure_current_generation(request.generation)?;
 
         let applied_at = chrono_now();
-        let connection_revision = {
-            let mut revision = self.active_connection_revision.write().unwrap();
-            *revision = revision.saturating_add(1);
-            *revision
-        };
-        *self.active_selection.write().unwrap() = Some(selection.clone());
-        *self.active_applied_at.write().unwrap() = Some(applied_at.clone());
-        Ok(PeonAppliedState {
-            provider: Some(selection.provider),
-            model: Some(selection.model),
-            ollama_base_url: selection.ollama_base_url,
-            applied_at: Some(applied_at),
-            connection_revision,
-        })
+        let mut state = self.operation_state.lock().unwrap();
+        if state.latest_generation != request.generation {
+            return Err(ProviderOperationError {
+                code: ProviderOperationErrorCode::StaleGeneration,
+                message: format!(
+                    "selection generation {} was superseded by generation {}",
+                    request.generation, state.latest_generation
+                ),
+            });
+        }
+        match state.verification.as_ref() {
+            Some(verification)
+                if verification.generation == request.generation
+                    && verification.fingerprint == fingerprint => {}
+            _ => {
+                return Err(ProviderOperationError {
+                    code: ProviderOperationErrorCode::VerificationRequired,
+                    message: "a matching successful provider verification is required before Apply"
+                        .into(),
+                });
+            }
+        }
+        state.applied.connection_revision = state.applied.connection_revision.saturating_add(1);
+        state.applied.provider = Some(selection.provider);
+        state.applied.model = Some(selection.model);
+        state.applied.ollama_base_url = selection.ollama_base_url;
+        state.applied.applied_at = Some(applied_at);
+        Ok(state.applied.clone())
     }
 
     pub fn get_applied(&self) -> PeonAppliedState {
-        let selection = self.active_selection.read().unwrap().clone();
-        PeonAppliedState {
-            provider: selection.as_ref().map(|selection| selection.provider.clone()),
-            model: selection.as_ref().map(|selection| selection.model.clone()),
-            ollama_base_url: selection.and_then(|selection| selection.ollama_base_url),
-            applied_at: self.active_applied_at.read().unwrap().clone(),
-            connection_revision: *self.active_connection_revision.read().unwrap(),
-        }
+        self.operation_state.lock().unwrap().applied.clone()
     }
 
     pub fn get_providers_response(&self) -> ProvidersResponse {
@@ -1438,7 +1576,7 @@ impl ProviderManager {
         }
     }
 
-    pub fn list_models(&self, provider_id: &str) -> Result<Vec<String>, String> {
+    fn discover_models(&self, provider_id: &str) -> Result<Vec<String>, String> {
         let definitions = self.definitions();
         let definition = definitions
             .iter()
@@ -1446,10 +1584,10 @@ impl ProviderManager {
             .ok_or_else(|| format!("unknown provider: {provider_id}"))?;
 
         if definition.http_list_models {
-            return self.list_models_http(provider_id);
+            return self.discover_models_http(provider_id);
         }
 
-        if definition.list_models_command.is_none() || definition.list_models_args.is_empty() {
+        if definition.list_models_command.is_none() {
             return Ok(definition.static_models.clone());
         }
 
@@ -1836,7 +1974,7 @@ impl ProviderManager {
         }
     }
 
-    fn list_models_http(&self, provider_id: &str) -> Result<Vec<String>, String> {
+    fn discover_models_http(&self, provider_id: &str) -> Result<Vec<String>, String> {
         let settings = self.settings.read().unwrap().clone();
         let base_url = match provider_id {
             "ollama" => &settings.ollama_base_url,
@@ -2162,10 +2300,7 @@ impl ProviderManager {
             session_capped: Arc::new(RwLock::new(HashMap::new())),
             session_reset_hint: Arc::new(RwLock::new(HashMap::new())),
             session_checking: Arc::new(RwLock::new(HashSet::new())),
-            active_selection: Arc::new(RwLock::new(None)),
-            active_applied_at: Arc::new(RwLock::new(None)),
-            active_connection_revision: Arc::new(RwLock::new(0)),
-            latest_generation: Arc::new(AtomicU64::new(0)),
+            operation_state: Arc::new(Mutex::new(ProviderOperationState::default())),
             apply_lock: Arc::new(Mutex::new(())),
         }
     }
@@ -2187,10 +2322,7 @@ impl ProviderManager {
             session_capped: Arc::new(RwLock::new(HashMap::new())),
             session_reset_hint: Arc::new(RwLock::new(HashMap::new())),
             session_checking: Arc::new(RwLock::new(HashSet::new())),
-            active_selection: Arc::new(RwLock::new(None)),
-            active_applied_at: Arc::new(RwLock::new(None)),
-            active_connection_revision: Arc::new(RwLock::new(0)),
-            latest_generation: Arc::new(AtomicU64::new(0)),
+            operation_state: Arc::new(Mutex::new(ProviderOperationState::default())),
             apply_lock: Arc::new(Mutex::new(())),
         }
     }
@@ -3231,7 +3363,7 @@ mod tests {
             vec![],
         );
 
-        let result = manager.list_models("test-provider").unwrap();
+        let result = manager.discover_models("test-provider").unwrap();
         assert!(result.is_empty());
     }
 
@@ -3256,7 +3388,7 @@ mod tests {
             vec![],
         );
 
-        let result = manager.list_models("claude-code").unwrap();
+        let result = manager.discover_models("claude-code").unwrap();
         assert_eq!(result, vec!["sonnet", "opus", "haiku"]);
     }
 
@@ -3281,15 +3413,48 @@ mod tests {
             vec![],
         );
 
-        let result = manager.list_models("custom-ai").unwrap();
+        let result = manager.discover_models("custom-ai").unwrap();
         assert_eq!(result, vec!["custom-small", "custom-large"]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn model_discovery_runs_a_declared_command_without_arguments() {
+        use crate::test_support::make_test_executable;
+
+        let dir = tempfile::tempdir().unwrap();
+        let command = dir.path().join("list-models");
+        std::fs::write(&command, "#!/bin/sh\nprintf 'command-model\\n'").unwrap();
+        make_test_executable(&command);
+
+        let manager = ProviderManager::for_tests_with_registry(
+            vec![ProviderDefinition {
+                id: "command-provider".into(),
+                label: "Command provider".into(),
+                command: "provider".into(),
+                default_args: vec![],
+                model_arg_template: Some("--model={model}".into()),
+                supports_model: true,
+                timeout_secs: 1,
+                prompt_transport: PromptTransport::Stdin,
+                list_models_command: Some(command.to_string_lossy().into_owned()),
+                list_models_args: vec![],
+                static_models: vec![],
+                http_list_models: false,
+            }],
+            ProviderSettingsPayload::default(),
+            vec![],
+        );
+
+        assert!(manager.capabilities("command-provider").unwrap().model_discovery);
+        assert_eq!(manager.discover_models("command-provider").unwrap(), vec!["command-model"]);
     }
 
     #[test]
     fn list_models_returns_error_for_unknown_provider() {
         let manager = ProviderManager::for_tests(sample_settings(vec![]), vec![]);
 
-        let err = manager.list_models("nonexistent").unwrap_err();
+        let err = manager.discover_models("nonexistent").unwrap_err();
         assert!(err.contains("unknown provider"));
     }
 
@@ -3367,9 +3532,9 @@ mod tests {
             },
             vec![],
         );
-        // This bypasses FakeRunner — list_models() dispatches on http_list_models
+        // This bypasses FakeRunner — discover_models() dispatches on http_list_models
         // Uses a non-default port to avoid conflicting with a running Ollama
-        let result = manager.list_models("ollama");
+        let result = manager.discover_models("ollama");
         assert!(
             result.is_err(),
             "expected error connecting to unused port 49999"
@@ -3556,6 +3721,23 @@ mod tests {
         }
     }
 
+    fn second_custom_provider_definition() -> ProviderDefinition {
+        ProviderDefinition {
+            id: "other-ai".into(),
+            label: "Other AI".into(),
+            command: "other-ai".into(),
+            default_args: vec![],
+            model_arg_template: Some("--model={model}".into()),
+            supports_model: true,
+            timeout_secs: 1,
+            prompt_transport: PromptTransport::Stdin,
+            list_models_command: None,
+            list_models_args: vec![],
+            static_models: vec!["other-model".into()],
+            http_list_models: false,
+        }
+    }
+
     fn staged_selection(provider: &str, model: &str) -> PeonSelection {
         PeonSelection {
             provider: provider.into(),
@@ -3649,6 +3831,14 @@ mod tests {
                 .with_models(models.clone())],
         );
 
+        manager
+            .verify_provider(PeonProviderVerifyRequest {
+                provider: "custom-ai".into(),
+                ollama_base_url: None,
+                generation: 2,
+            })
+            .expect("provider verification should succeed before Apply");
+
         let applied = manager
             .test_and_apply(PeonTestAndApplyRequest {
                 selection: staged_selection("custom-ai", "manual-model"),
@@ -3660,7 +3850,183 @@ mod tests {
         assert_eq!(applied.model.as_deref(), Some("manual-model"));
         assert!(applied.applied_at.is_some());
         assert_eq!(manager.get_applied().provider.as_deref(), Some("custom-ai"));
-        assert_eq!(models.lock().unwrap().as_slice(), &[Some("manual-model".into())]);
+        assert_eq!(
+            models.lock().unwrap().as_slice(),
+            &[None, Some("manual-model".into())]
+        );
+    }
+
+    #[test]
+    fn apply_requires_matching_successful_verification() {
+        let manager = ProviderManager::for_tests_with_registry(
+            vec![custom_provider_definition()],
+            ProviderSettingsPayload::default(),
+            vec![fake_provider("custom-ai")
+                .stdout(r#"{"observedStatus":"working","confidence":0.9}"#)],
+        );
+
+        let error = manager
+            .test_and_apply(PeonTestAndApplyRequest {
+                selection: staged_selection("custom-ai", "manual-model"),
+                generation: 1,
+            })
+            .expect_err("Apply without successful verification must be rejected");
+
+        assert_eq!(error.code, ProviderOperationErrorCode::VerificationRequired);
+        assert_eq!(manager.get_applied().connection_revision, 0);
+    }
+
+    #[test]
+    fn apply_rejects_a_different_provider_with_the_same_generation() {
+        let manager = ProviderManager::for_tests_with_registry(
+            vec![custom_provider_definition(), second_custom_provider_definition()],
+            ProviderSettingsPayload::default(),
+            vec![
+                fake_provider("custom-ai")
+                    .stdout(r#"{"observedStatus":"working","confidence":0.9}"#),
+                fake_provider("other-ai")
+                    .stdout(r#"{"observedStatus":"working","confidence":0.9}"#),
+            ],
+        );
+
+        manager
+            .verify_provider(PeonProviderVerifyRequest {
+                provider: "custom-ai".into(),
+                ollama_base_url: None,
+                generation: 1,
+            })
+            .unwrap();
+
+        let error = manager
+            .test_and_apply(PeonTestAndApplyRequest {
+                selection: staged_selection("other-ai", "other-model"),
+                generation: 1,
+            })
+            .expect_err("verification for another provider must not authorize Apply");
+
+        assert_eq!(error.code, ProviderOperationErrorCode::VerificationRequired);
+        assert_eq!(manager.get_applied().connection_revision, 0);
+    }
+
+    #[test]
+    fn incomplete_model_capability_is_rejected_before_verification_or_apply() {
+        let mut definition = custom_provider_definition();
+        definition.model_arg_template = None;
+        let manager = ProviderManager::for_tests_with_registry(
+            vec![definition],
+            ProviderSettingsPayload::default(),
+            vec![fake_provider("custom-ai")
+                .stdout(r#"{"observedStatus":"working","confidence":0.9}"#)],
+        );
+
+        let error = manager
+            .verify_provider(PeonProviderVerifyRequest {
+                provider: "custom-ai".into(),
+                ollama_base_url: None,
+                generation: 1,
+            })
+            .expect_err("a provider that cannot deliver its selected model is incomplete");
+
+        assert_eq!(error.code, ProviderOperationErrorCode::UnsupportedCapability);
+    }
+
+    #[test]
+    fn capabilities_report_apply_support_only_when_model_delivery_is_executable() {
+        let mut definition = custom_provider_definition();
+        definition.supports_model = false;
+        let manager = ProviderManager::for_tests_with_registry(
+            vec![definition],
+            ProviderSettingsPayload::default(),
+            vec![],
+        );
+
+        let capabilities = manager.capabilities("custom-ai").unwrap();
+
+        assert!(!capabilities.test_inference);
+    }
+
+    #[test]
+    fn stale_verification_success_cannot_authorize_a_newer_generation() {
+        let manager = ProviderManager::for_tests_with_registry(
+            vec![custom_provider_definition(), second_custom_provider_definition()],
+            ProviderSettingsPayload::default(),
+            vec![
+                fake_provider("custom-ai")
+                    .sleep_ms(100)
+                    .stdout(r#"{"observedStatus":"working","confidence":0.9}"#),
+                fake_provider("other-ai")
+                    .stdout(r#"{"observedStatus":"working","confidence":0.9}"#),
+            ],
+        );
+        let older = manager.clone();
+        let first = std::thread::spawn(move || {
+            older.verify_provider(PeonProviderVerifyRequest {
+                provider: "custom-ai".into(),
+                ollama_base_url: None,
+                generation: 1,
+            })
+        });
+        std::thread::sleep(Duration::from_millis(10));
+        manager
+            .verify_provider(PeonProviderVerifyRequest {
+                provider: "other-ai".into(),
+                ollama_base_url: None,
+                generation: 2,
+            })
+            .unwrap();
+
+        let error = first
+            .join()
+            .unwrap()
+            .expect_err("the older verification success must be stale");
+        assert_eq!(error.code, ProviderOperationErrorCode::StaleGeneration);
+
+        let applied = manager
+            .test_and_apply(PeonTestAndApplyRequest {
+                selection: staged_selection("other-ai", "other-model"),
+                generation: 2,
+            })
+            .unwrap();
+        assert_eq!(applied.provider.as_deref(), Some("other-ai"));
+    }
+
+    #[test]
+    fn stale_verification_failure_cannot_clear_a_newer_success() {
+        let manager = ProviderManager::for_tests_with_registry(
+            vec![custom_provider_definition(), second_custom_provider_definition()],
+            ProviderSettingsPayload::default(),
+            vec![
+                fake_provider("custom-ai").sleep_ms(100).exit_code(1),
+                fake_provider("other-ai")
+                    .stdout(r#"{"observedStatus":"working","confidence":0.9}"#),
+            ],
+        );
+        let older = manager.clone();
+        let first = std::thread::spawn(move || {
+            older.verify_provider(PeonProviderVerifyRequest {
+                provider: "custom-ai".into(),
+                ollama_base_url: None,
+                generation: 1,
+            })
+        });
+        std::thread::sleep(Duration::from_millis(10));
+        manager
+            .verify_provider(PeonProviderVerifyRequest {
+                provider: "other-ai".into(),
+                ollama_base_url: None,
+                generation: 2,
+            })
+            .unwrap();
+
+        let error = first.join().unwrap().expect_err("the older verification must fail");
+        assert_eq!(error.code, ProviderOperationErrorCode::StaleGeneration);
+        let applied = manager
+            .test_and_apply(PeonTestAndApplyRequest {
+                selection: staged_selection("other-ai", "other-model"),
+                generation: 2,
+            })
+            .unwrap();
+        assert_eq!(applied.provider.as_deref(), Some("other-ai"));
     }
 
     #[test]
@@ -3670,6 +4036,14 @@ mod tests {
             ProviderSettingsPayload::default(),
             vec![fake_provider("custom-ai").stdout("not JSON")],
         );
+
+        manager
+            .verify_provider(PeonProviderVerifyRequest {
+                provider: "custom-ai".into(),
+                ollama_base_url: None,
+                generation: 1,
+            })
+            .unwrap();
 
         let error = manager
             .test_and_apply(PeonTestAndApplyRequest {
@@ -3691,6 +4065,13 @@ mod tests {
                 .sleep_ms(100)
                 .stdout(r#"{"observedStatus":"working","confidence":0.9}"#)],
         );
+        manager
+            .verify_provider(PeonProviderVerifyRequest {
+                provider: "custom-ai".into(),
+                ollama_base_url: None,
+                generation: 1,
+            })
+            .unwrap();
         let older = manager.clone();
         let first = std::thread::spawn(move || {
             older.test_and_apply(PeonTestAndApplyRequest {
@@ -3699,6 +4080,13 @@ mod tests {
             })
         });
         std::thread::sleep(Duration::from_millis(10));
+        manager
+            .verify_provider(PeonProviderVerifyRequest {
+                provider: "custom-ai".into(),
+                ollama_base_url: None,
+                generation: 2,
+            })
+            .unwrap();
         let newer = manager
             .test_and_apply(PeonTestAndApplyRequest {
                 selection: staged_selection("custom-ai", "new-model"),
@@ -3719,20 +4107,34 @@ mod tests {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         let server = std::thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
-            let mut request = [0u8; 4096];
-            let _ = stream.read(&mut request);
-            let body = r#"{"response":"{\"observedStatus\":\"working\",\"confidence\":0.9}","done":true}"#;
-            write!(
-                stream,
-                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{}",
-                body.len(),
-                body
-            )
-            .unwrap();
+            for _ in 0..2 {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = [0u8; 4096];
+                let count = stream.read(&mut request).unwrap();
+                let request = String::from_utf8_lossy(&request[..count]);
+                let body = if request.starts_with("GET /api/tags") {
+                    r#"{"models":[{"name":"draft-model"}]}"#
+                } else {
+                    r#"{"response":"{\"observedStatus\":\"working\",\"confidence\":0.9}","done":true}"#
+                };
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                )
+                .unwrap();
+            }
         });
 
         let manager = ProviderManager::new();
+        manager
+            .verify_provider(PeonProviderVerifyRequest {
+                provider: "ollama".into(),
+                ollama_base_url: Some(format!("http://{address}/")),
+                generation: 1,
+            })
+            .expect("staged Ollama URL should verify before Apply");
         let applied = manager
             .test_and_apply(PeonTestAndApplyRequest {
                 selection: PeonSelection {
@@ -3749,6 +4151,51 @@ mod tests {
             applied.ollama_base_url.as_deref(),
             Some(format!("http://{address}").as_str())
         );
+    }
+
+    #[test]
+    fn ollama_apply_rejects_a_connection_that_was_not_verified() {
+        use std::io::{Read as _, Write as _};
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let verified_address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0u8; 2048];
+            let _ = stream.read(&mut request);
+            let body = r#"{"models":[{"name":"verified-model"}]}"#;
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            )
+            .unwrap();
+        });
+
+        let manager = ProviderManager::new();
+        manager
+            .verify_provider(PeonProviderVerifyRequest {
+                provider: "ollama".into(),
+                ollama_base_url: Some(format!("http://{verified_address}")),
+                generation: 1,
+            })
+            .unwrap();
+        server.join().unwrap();
+
+        let error = manager
+            .test_and_apply(PeonTestAndApplyRequest {
+                selection: PeonSelection {
+                    provider: "ollama".into(),
+                    model: "manual-model".into(),
+                    ollama_base_url: Some("http://127.0.0.1:49999".into()),
+                },
+                generation: 1,
+            })
+            .expect_err("an unverified Ollama connection must not be applyable");
+
+        assert_eq!(error.code, ProviderOperationErrorCode::VerificationRequired);
+        assert_eq!(manager.get_applied().connection_revision, 0);
     }
 
     #[test]
