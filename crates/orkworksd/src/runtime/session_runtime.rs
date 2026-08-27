@@ -35,6 +35,12 @@ pub(crate) type RuntimeGeneration = u64;
 
 static NEXT_RUNTIME_GENERATION: AtomicU64 = AtomicU64::new(1);
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct RuntimeIdentity {
+    pub(crate) runtime_instance_id: String,
+    pub(crate) run_generation: RuntimeGeneration,
+}
+
 #[cfg(test)]
 struct StartupEndingCheckGate {
     id: String,
@@ -328,6 +334,18 @@ impl SessionRuntime {
 
     pub(crate) fn run_generation(&self) -> RuntimeGeneration {
         self.run_generation
+    }
+
+    pub(crate) fn identity(&self) -> RuntimeIdentity {
+        RuntimeIdentity {
+            runtime_instance_id: self.runtime_instance_id.clone(),
+            run_generation: self.run_generation,
+        }
+    }
+
+    pub(crate) fn matches_identity(&self, identity: &RuntimeIdentity) -> bool {
+        self.runtime_instance_id == identity.runtime_instance_id
+            && self.run_generation == identity.run_generation
     }
 
     pub(crate) fn mark_startup_spawned(&mut self) {

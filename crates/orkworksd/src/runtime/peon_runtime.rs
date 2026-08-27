@@ -1,6 +1,8 @@
+use crate::runtime::session_runtime::RuntimeIdentity;
 use crate::workspace_runtime::iso_now;
 use crate::{peon, providers, AppState};
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, OnceLock};
 
 const MAX_DIAGNOSTIC_TEXT_CHARS: usize = 240;
 
@@ -36,6 +38,110 @@ fn provider_error_summary(result: &providers::ProviderRunResult) -> String {
         .unwrap_or_else(|| "all configured providers failed".to_string())
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct PeonDiagnosticAttempt {
+    pub(crate) generation: u64,
+    pub(crate) runtime_identity: RuntimeIdentity,
+}
+
+type DiagnosticLease = (u64, RuntimeIdentity);
+
+static DIAGNOSTIC_LEASES: OnceLock<Mutex<HashMap<String, DiagnosticLease>>> = OnceLock::new();
+
+fn diagnostic_leases() -> &'static Mutex<HashMap<String, DiagnosticLease>> {
+    DIAGNOSTIC_LEASES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn runtime_identity_is_active(
+    state: &AppState,
+    session_id: &str,
+    identity: &RuntimeIdentity,
+) -> bool {
+    state.sessions.lock().unwrap().get(session_id).is_some_and(|handle| {
+        handle.runtime.matches_identity(identity) && handle.info.lifecycle_phase == "active"
+    })
+}
+
+fn diagnostic_attempt_is_active(
+    state: &AppState,
+    session_id: &str,
+    attempt: &PeonDiagnosticAttempt,
+) -> bool {
+    runtime_identity_is_active(state, session_id, &attempt.runtime_identity)
+        && state.peon.diagnostic_attempt_is_current(session_id, attempt)
+}
+
+fn diagnostic_attempt_is_active_with_sessions(
+    state: &AppState,
+    sessions: &HashMap<String, crate::SessionHandle>,
+    session_id: &str,
+    attempt: &PeonDiagnosticAttempt,
+) -> bool {
+    sessions.get(session_id).is_some_and(|handle| {
+        handle.runtime.matches_identity(&attempt.runtime_identity)
+            && handle.info.lifecycle_phase == "active"
+    }) && state.peon.diagnostic_attempt_is_current(session_id, attempt)
+}
+
+fn fail_attempt_if_active(
+    state: &AppState,
+    session_id: &str,
+    attempt: &PeonDiagnosticAttempt,
+    reason: &str,
+    error: &str,
+) -> bool {
+    let sessions = state.sessions.lock().unwrap();
+    diagnostic_attempt_is_active_with_sessions(state, &sessions, session_id, attempt)
+        && state.peon.fail_attempt(session_id, attempt, reason, error)
+}
+
+fn complete_attempt_if_active(
+    state: &AppState,
+    session_id: &str,
+    attempt: &PeonDiagnosticAttempt,
+    result: &providers::ProviderRunResult,
+) -> bool {
+    let sessions = state.sessions.lock().unwrap();
+    diagnostic_attempt_is_active_with_sessions(state, &sessions, session_id, attempt)
+        && state.peon.complete_attempt(session_id, attempt, result)
+}
+
+fn timeout_attempt_if_active(
+    state: &AppState,
+    session_id: &str,
+    attempt: &PeonDiagnosticAttempt,
+) {
+    let sessions = state.sessions.lock().unwrap();
+    if diagnostic_attempt_is_active_with_sessions(state, &sessions, session_id, attempt) {
+        state.peon.timeout_attempt(session_id, attempt);
+    }
+}
+
+fn finish_attempt_if_active(
+    state: &AppState,
+    session_id: &str,
+    attempt: &PeonDiagnosticAttempt,
+) {
+    let sessions = state.sessions.lock().unwrap();
+    if diagnostic_attempt_is_active_with_sessions(state, &sessions, session_id, attempt) {
+        state.peon.finish_attempt(session_id, attempt);
+    }
+}
+
+fn refresh_observation_count_if_active(
+    state: &AppState,
+    session_id: &str,
+    attempt: &PeonDiagnosticAttempt,
+    count: Option<usize>,
+) {
+    let sessions = state.sessions.lock().unwrap();
+    if diagnostic_attempt_is_active_with_sessions(state, &sessions, session_id, attempt) {
+        state
+            .peon
+            .refresh_observation_count(session_id, attempt, count);
+    }
+}
+
 impl crate::PeonState {
     fn diagnostic_entry<'a>(
         &self,
@@ -65,6 +171,7 @@ impl crate::PeonState {
     }
 
     fn mark_candidate(&self, session_id: &str) {
+        let _lease_guard = diagnostic_leases().lock().unwrap();
         let mut diagnostics = self.diagnostics.write().unwrap();
         let Some(entry) = self.diagnostic_entry(&mut diagnostics, session_id) else {
             return;
@@ -73,7 +180,12 @@ impl crate::PeonState {
         entry.snapshot.reason = Some("selected_for_inference".to_string());
     }
 
-    fn begin_attempt(&self, session_id: &str) -> Option<u64> {
+    fn begin_attempt(
+        &self,
+        session_id: &str,
+        runtime_identity: RuntimeIdentity,
+    ) -> Option<PeonDiagnosticAttempt> {
+        let mut leases = diagnostic_leases().lock().unwrap();
         let mut diagnostics = self.diagnostics.write().unwrap();
         let entry = self.diagnostic_entry(&mut diagnostics, session_id)?;
         if entry.snapshot.scheduler_state == crate::session_types::PeonSchedulerState::InFlight {
@@ -91,23 +203,67 @@ impl crate::PeonState {
                 .saturating_add(1),
         );
         entry.snapshot.error_summary = None;
-        Some(entry.attempt_generation)
+        let attempt = PeonDiagnosticAttempt {
+            generation: entry.attempt_generation,
+            runtime_identity,
+        };
+        leases.insert(
+            session_id.to_string(),
+            (attempt.generation, attempt.runtime_identity.clone()),
+        );
+        Some(attempt)
+    }
+
+    pub(crate) fn diagnostic_attempt_is_current(
+        &self,
+        session_id: &str,
+        attempt: &PeonDiagnosticAttempt,
+    ) -> bool {
+        let leases = diagnostic_leases().lock().unwrap();
+        if leases.get(session_id)
+            != Some(&(attempt.generation, attempt.runtime_identity.clone()))
+        {
+            return false;
+        }
+        let diagnostics = self.diagnostics.read().unwrap();
+        diagnostics.get(session_id).is_some_and(|entry| {
+            entry.attempt_generation == attempt.generation
+                && matches!(
+                    entry.snapshot.scheduler_state,
+                    crate::session_types::PeonSchedulerState::InFlight
+                        | crate::session_types::PeonSchedulerState::Completed
+                        | crate::session_types::PeonSchedulerState::Failed
+                )
+        })
+    }
+
+    pub(crate) fn invalidate_diagnostic_attempt(&self, session_id: &str) {
+        let mut leases = diagnostic_leases().lock().unwrap();
+        leases.remove(session_id);
+        self.diagnostics.write().unwrap().remove(session_id);
+        self.in_flight.write().unwrap().remove(session_id);
     }
 
     fn complete_attempt(
         &self,
         session_id: &str,
-        generation: u64,
+        attempt: &PeonDiagnosticAttempt,
         result: &providers::ProviderRunResult,
     ) -> bool {
         if result.inference.is_none() {
+            return false;
+        }
+        let leases = diagnostic_leases().lock().unwrap();
+        if leases.get(session_id)
+            != Some(&(attempt.generation, attempt.runtime_identity.clone()))
+        {
             return false;
         }
         let mut diagnostics = self.diagnostics.write().unwrap();
         let Some(entry) = diagnostics.get_mut(session_id) else {
             return false;
         };
-        if entry.attempt_generation != generation
+        if entry.attempt_generation != attempt.generation
             || entry.snapshot.scheduler_state != crate::session_types::PeonSchedulerState::InFlight
         {
             return false;
@@ -145,15 +301,21 @@ impl crate::PeonState {
     fn fail_attempt(
         &self,
         session_id: &str,
-        generation: u64,
+        attempt: &PeonDiagnosticAttempt,
         reason: &str,
         error: &str,
     ) -> bool {
+        let leases = diagnostic_leases().lock().unwrap();
+        if leases.get(session_id)
+            != Some(&(attempt.generation, attempt.runtime_identity.clone()))
+        {
+            return false;
+        }
         let mut diagnostics = self.diagnostics.write().unwrap();
         let Some(entry) = diagnostics.get_mut(session_id) else {
             return false;
         };
-        if entry.attempt_generation != generation
+        if entry.attempt_generation != attempt.generation
             || entry.snapshot.scheduler_state != crate::session_types::PeonSchedulerState::InFlight
         {
             return false;
@@ -164,21 +326,45 @@ impl crate::PeonState {
         true
     }
 
-    fn timeout_attempt(&self, session_id: &str, generation: u64) {
-        if self.fail_attempt(session_id, generation, "timeout", "provider inference timed out") {
-            self.in_flight.write().unwrap().remove(session_id);
+    fn timeout_attempt(&self, session_id: &str, attempt: &PeonDiagnosticAttempt) {
+        let leases = diagnostic_leases().lock().unwrap();
+        if leases.get(session_id)
+            != Some(&(attempt.generation, attempt.runtime_identity.clone()))
+        {
+            return;
         }
-    }
-
-    fn finish_attempt(&self, session_id: &str, generation: u64) {
         let mut diagnostics = self.diagnostics.write().unwrap();
         let Some(entry) = diagnostics.get_mut(session_id) else {
             return;
         };
-        if entry.attempt_generation != generation {
+        if entry.attempt_generation != attempt.generation
+            || entry.snapshot.scheduler_state
+                != crate::session_types::PeonSchedulerState::InFlight
+        {
+            return;
+        }
+        entry.snapshot.scheduler_state = crate::session_types::PeonSchedulerState::Failed;
+        entry.snapshot.reason = Some("timeout".to_string());
+        entry.snapshot.error_summary = Some("provider inference timed out".to_string());
+        self.in_flight.write().unwrap().remove(session_id);
+    }
+
+    fn finish_attempt(&self, session_id: &str, attempt: &PeonDiagnosticAttempt) {
+        let mut leases = diagnostic_leases().lock().unwrap();
+        if leases.get(session_id)
+            != Some(&(attempt.generation, attempt.runtime_identity.clone()))
+        {
+            return;
+        }
+        let mut diagnostics = self.diagnostics.write().unwrap();
+        let Some(entry) = diagnostics.get_mut(session_id) else {
+            return;
+        };
+        if entry.attempt_generation != attempt.generation {
             return;
         }
         self.in_flight.write().unwrap().remove(session_id);
+        leases.remove(session_id);
     }
 
     fn mark_idle(&self, session_id: &str, reason: &str) {
@@ -195,14 +381,20 @@ impl crate::PeonState {
     fn refresh_observation_count(
         &self,
         session_id: &str,
-        generation: u64,
+        attempt: &PeonDiagnosticAttempt,
         count: Option<usize>,
     ) {
+        let leases = diagnostic_leases().lock().unwrap();
+        if leases.get(session_id)
+            != Some(&(attempt.generation, attempt.runtime_identity.clone()))
+        {
+            return;
+        }
         let mut diagnostics = self.diagnostics.write().unwrap();
         let Some(entry) = diagnostics.get_mut(session_id) else {
             return;
         };
-        if entry.attempt_generation == generation {
+        if entry.attempt_generation == attempt.generation {
             entry.snapshot.observation_count = count;
         }
     }
@@ -331,8 +523,9 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                                             capture.min_revision,
                                             capture.first_revision,
                                             capture.last_revision,
-                                            capture.runtime_instance_id,
-                                        )),
+                                        capture.runtime_instance_id,
+                                        handle.runtime.run_generation(),
+                                    )),
                                     )
                                 })
                                 .unwrap_or((Vec::new(), None))
@@ -363,7 +556,26 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
 
             let state_clone = state.clone();
             let id = session_id.clone();
-            let Some(attempt_generation) = state.peon.begin_attempt(&id) else {
+            let Some(runtime_identity) = output_boundary
+                .as_ref()
+                .map(|(_, _, _, _, runtime_instance_id, run_generation)| RuntimeIdentity {
+                    runtime_instance_id: runtime_instance_id.clone(),
+                    run_generation: *run_generation,
+                })
+                .or_else(|| {
+                    state
+                        .sessions
+                        .lock()
+                        .unwrap()
+                        .get(&id)
+                        .map(|handle| handle.runtime.identity())
+                })
+            else {
+                state.peon.in_flight.write().unwrap().remove(&id);
+                state.peon.mark_idle(&id, "not_active");
+                continue;
+            };
+            let Some(attempt) = state.peon.begin_attempt(&id, runtime_identity) else {
                 state.peon.in_flight.write().unwrap().remove(&id);
                 continue;
             };
@@ -385,42 +597,42 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                 Ok(Ok(result)) => result,
                 Ok(Err(error)) => {
                     tracing::warn!(session_id = %id, %error, "peon inference task failed");
-                    if cleanup_state.peon.fail_attempt(
+                    if fail_attempt_if_active(
+                        &cleanup_state,
                         &id,
-                        attempt_generation,
+                        &attempt,
                         "provider_task_failed",
                         &error.to_string(),
                     ) {
-                        cleanup_state.peon.finish_attempt(&id, attempt_generation);
+                        finish_attempt_if_active(&cleanup_state, &id, &attempt);
                     }
                     return;
                 }
                 Err(_) => {
                     tracing::warn!(session_id = %id, "peon inference timed out");
-                    cleanup_state
-                        .peon
-                        .timeout_attempt(&id, attempt_generation);
+                    timeout_attempt_if_active(&cleanup_state, &id, &attempt);
                     let wait_state = cleanup_state.clone();
                     let wait_id = id.clone();
                     tokio::spawn(async move {
                         let _ = provider_task.await;
-                        wait_state.peon.finish_attempt(&wait_id, attempt_generation);
+                        finish_attempt_if_active(&wait_state, &wait_id, &attempt);
                     });
                     return;
                 }
             };
 
             if provider_result.inference.is_some() {
-                if !state_clone
-                    .peon
-                    .complete_attempt(&id, attempt_generation, &provider_result)
-                {
+                if !complete_attempt_if_active(&state_clone, &id, &attempt, &provider_result) {
                     return;
                 }
             } else {
-                state_clone.peon.fail_attempt(
+                if !diagnostic_attempt_is_active(&state_clone, &id, &attempt) {
+                    return;
+                }
+                fail_attempt_if_active(
+                    &state_clone,
                     &id,
-                    attempt_generation,
+                    &attempt,
                     "provider_exhausted",
                     &provider_error_summary(&provider_result),
                 );
@@ -440,30 +652,36 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                     {
                         if let Some(hint) = hint.as_ref() {
                             crate::session_application::SessionApplication::new(state_clone.clone())
-                                .persist_input_label(&id, label, hint.epoch);
+                                .persist_input_label_for_attempt(&id, &attempt, label, hint.epoch);
                         }
                     }
                     }
-                    state_clone.peon.finish_attempt(&id, attempt_generation);
+                    finish_attempt_if_active(&state_clone, &id, &attempt);
                     return;
                 }
                 let active_work_hook = {
                     let sessions = state_clone.sessions.lock().unwrap();
                     sessions.get(&id).and_then(|handle| {
-                        let (generation, min_revision, _, _, _) = *output_boundary.as_ref()?;
-                        output_inference_is_current(
-                            generation,
-                            min_revision,
+                        let (generation, min_revision, _, _, runtime_instance_id, run_generation) =
+                            output_boundary.as_ref()?;
+                        (output_inference_is_current(
+                            *generation,
+                            *min_revision,
                             handle.runtime.input_generation,
                             handle.runtime.min_peon_output_revision,
-                        )
-                        .then_some(handle.active_work_hook)
+                        ) && handle.runtime.runtime_instance_id == *runtime_instance_id
+                            && handle.runtime.run_generation() == *run_generation)
+                            .then_some(handle.active_work_hook)
                     })
                 };
                 let Some(active_work_hook) = active_work_hook else {
-                    state_clone.peon.finish_attempt(&id, attempt_generation);
+                    finish_attempt_if_active(&state_clone, &id, &attempt);
                     return;
                 };
+                if !diagnostic_attempt_is_active(&state_clone, &id, &attempt) {
+                    finish_attempt_if_active(&state_clone, &id, &attempt);
+                    return;
+                }
                 let inference = provider_result.inference;
                 let now_iso = iso_now();
 
@@ -496,8 +714,9 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                 let persistence = crate::session_application::SessionApplication::new(
                     state_clone.clone(),
                 )
-                .persist_peon_observation(
+                .persist_peon_observation_for_attempt(
                     &id,
+                    &attempt,
                     inference.as_ref(),
                     provider_result.observation.as_ref(),
                     history_summary.as_deref(),
@@ -508,18 +727,19 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                 let label_update = persistence.label_update;
                 let captured_workspace_path = persistence.workspace_path;
                 if let Some(inf) = inference.as_ref() {
-                    if let Some((generation, _min_revision, first_revision, last_revision, runtime_instance_id)) =
+                    if let Some((_input_generation, _min_revision, first_revision, last_revision, runtime_instance_id, run_generation)) =
                         output_boundary.as_ref()
                     {
                         let result = crate::session_application::SessionApplication::new(
                             state_clone.clone(),
                         )
-                        .record_peon_workflow_observations(
+                        .record_peon_workflow_observations_for_attempt(
                             &id,
                             captured_workspace_path.as_deref(),
+                            &attempt,
                             &crate::session_application::PeonObservationOutputRange {
                                 runtime_instance_id: runtime_instance_id.clone(),
-                                run_generation: *generation,
+                                run_generation: *run_generation,
                                 first_revision: *first_revision,
                                 last_revision: *last_revision,
                             },
@@ -534,14 +754,17 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                     crate::taskmaster::evaluator::schedule_evaluation(state_clone.clone());
                 }
                 if output_range_completed {
-                    if let Some((generation, min_revision, _, last_revision, _)) = output_boundary {
+                    if let Some((generation, min_revision, _, last_revision, runtime_instance_id, run_generation)) = output_boundary {
                         if let Some(handle) = state_clone.sessions.lock().unwrap().get_mut(&id) {
                             if output_inference_is_current(
                                 generation,
                                 min_revision,
                                 handle.runtime.input_generation,
                                 handle.runtime.min_peon_output_revision,
-                            ) {
+                            ) && handle.runtime.runtime_instance_id == runtime_instance_id
+                                && handle.runtime.run_generation() == run_generation
+                                && handle.info.lifecycle_phase == "active"
+                            {
                                 handle.runtime.min_peon_output_revision = last_revision;
                                 handle.runtime.peon_output_capture = None;
                             }
@@ -560,21 +783,40 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                                 .session_observation_count(&id)
                                 .ok()
                         });
-                    state_clone.peon.refresh_observation_count(
+                    refresh_observation_count_if_active(
+                        &state_clone,
                         &id,
-                        attempt_generation,
+                        &attempt,
                         observation_count,
                     );
                 }
                 if let Some(label) = label_update {
-                    if let Some(handle) = state_clone.sessions.lock().unwrap().get_mut(&id) {
-                        handle.info.label = label;
+                    let mut sessions = state_clone.sessions.lock().unwrap();
+                    if state_clone.peon.diagnostic_attempt_is_current(&id, &attempt) {
+                        if let Some(handle) = sessions.get_mut(&id).filter(|handle| {
+                            handle.runtime.matches_identity(&attempt.runtime_identity)
+                                && handle.info.lifecycle_phase == "active"
+                        }) {
+                            handle.info.label = label;
+                        }
                     }
                 }
 
-                let mut last_inf = state_clone.peon.last_inference.write().unwrap();
-                last_inf.insert(id.clone(), now_iso);
-                drop(last_inf);
+                let sessions = state_clone.sessions.lock().unwrap();
+                if !sessions.get(&id).is_some_and(|handle| {
+                    handle.runtime.matches_identity(&attempt.runtime_identity)
+                        && handle.info.lifecycle_phase == "active"
+                }) || !state_clone.peon.diagnostic_attempt_is_current(&id, &attempt) {
+                    drop(sessions);
+                    finish_attempt_if_active(&state_clone, &id, &attempt);
+                    return;
+                }
+                state_clone
+                    .peon
+                    .last_inference
+                    .write()
+                    .unwrap()
+                    .insert(id.clone(), now_iso);
 
                 // Three scheduling outcomes:
                 // 1. Persisted + terminal: don't update last_output; lifecycle change removes session.
@@ -596,7 +838,8 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                         .unwrap()
                         .insert(id.clone(), tokio::time::Instant::now());
                 }
-                state_clone.peon.finish_attempt(&id, attempt_generation);
+                drop(sessions);
+                finish_attempt_if_active(&state_clone, &id, &attempt);
             })
             .await;
             });
@@ -674,6 +917,13 @@ mod tests {
         assert!(!output_inference_is_current(4, 12, 5, 12));
     }
 
+    fn test_runtime_identity(name: &str, generation: u64) -> RuntimeIdentity {
+        RuntimeIdentity {
+            runtime_instance_id: name.to_string(),
+            run_generation: generation,
+        }
+    }
+
     #[test]
     fn stale_attempt_cleanup_cannot_release_a_newer_session_lease() {
         let dir = tempfile::tempdir().unwrap();
@@ -687,13 +937,14 @@ mod tests {
             .write()
             .unwrap()
             .insert(session_id.to_string());
-        let first_generation = state
+        let runtime_identity = test_runtime_identity(session_id, 1);
+        let first_attempt = state
             .peon
-            .begin_attempt(session_id)
+            .begin_attempt(session_id, runtime_identity.clone())
             .expect("first attempt should start");
         state
             .peon
-            .timeout_attempt(session_id, first_generation);
+            .timeout_attempt(session_id, &first_attempt);
 
         state
             .peon
@@ -702,13 +953,13 @@ mod tests {
             .unwrap()
             .insert(session_id.to_string());
         state.peon.mark_candidate(session_id);
-        let second_generation = state
+        let second_attempt = state
             .peon
-            .begin_attempt(session_id)
+            .begin_attempt(session_id, runtime_identity)
             .expect("second attempt should start");
-        assert!(second_generation > first_generation);
+        assert!(second_attempt.generation > first_attempt.generation);
 
-        state.peon.finish_attempt(session_id, first_generation);
+        state.peon.finish_attempt(session_id, &first_attempt);
         assert!(state
             .peon
             .in_flight
@@ -728,13 +979,166 @@ mod tests {
             Some(2)
         );
 
-        state.peon.finish_attempt(session_id, second_generation);
+        state.peon.finish_attempt(session_id, &second_attempt);
         assert!(!state
             .peon
             .in_flight
             .read()
             .unwrap()
             .contains(session_id));
+    }
+
+    #[test]
+    fn timed_out_runtime_completion_is_rejected_after_runtime_replacement() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(dir.path());
+        let session_id = "runtime-replacement-diagnostic";
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        let old_runtime = crate::runtime::session_runtime::SessionRuntime::detached(24, 80);
+        let old_identity = old_runtime.identity();
+        state.sessions.lock().unwrap().insert(
+            session_id.to_string(),
+            crate::SessionHandle {
+                info: test_session_info(
+                    session_id.to_string(),
+                    "Runtime replacement",
+                    &dir.path().display().to_string(),
+                    "running",
+                    "now",
+                ),
+                kill_tx,
+                output_buffer: peon::RingBuffer::new(200),
+                scan_buf: String::new(),
+                pending_work_signal: None,
+                runtime: old_runtime,
+                terminal_attached: false,
+                resume_in_progress: false,
+                at_usage_limit_latched: false,
+                capacity_check_pending: false,
+                output_lines_seen: 0,
+                scan_bytes_seen: 0,
+                resume_scan_origin: None,
+                pending_capacity_visible_once: false,
+                active_work_hook: false,
+            },
+        );
+
+        state.peon.mark_candidate(session_id);
+        state
+            .peon
+            .in_flight
+            .write()
+            .unwrap()
+            .insert(session_id.to_string());
+        let old_attempt = state
+            .peon
+            .begin_attempt(session_id, old_identity.clone())
+            .expect("old runtime attempt should start");
+        state.peon.timeout_attempt(session_id, &old_attempt);
+
+        crate::session_application::SessionApplication::new(state.clone())
+            .clear_ended_session_tracking(session_id);
+        assert!(!state.peon.diagnostics.read().unwrap().contains_key(session_id));
+
+        let new_runtime = crate::runtime::session_runtime::SessionRuntime::detached(24, 80);
+        let new_identity = new_runtime.identity();
+        assert_ne!(old_identity, new_identity);
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .get_mut(session_id)
+            .unwrap()
+            .runtime = new_runtime;
+        state.peon.mark_candidate(session_id);
+        state
+            .peon
+            .in_flight
+            .write()
+            .unwrap()
+            .insert(session_id.to_string());
+        let new_attempt = state
+            .peon
+            .begin_attempt(session_id, new_identity)
+            .expect("replacement runtime attempt should start");
+
+        let result = providers::ProviderRunResult {
+            inference: peon::parse_inference(r#"{"status":"blocked","confidence":0.9}"#),
+            observation: None,
+            attempts: Vec::new(),
+            runtime: HashMap::new(),
+        };
+        assert!(!diagnostic_attempt_is_active(&state, session_id, &old_attempt));
+        assert!(!state.peon.complete_attempt(session_id, &old_attempt, &result));
+        state.peon.finish_attempt(session_id, &old_attempt);
+        assert!(state
+            .peon
+            .in_flight
+            .read()
+            .unwrap()
+            .contains(session_id));
+        assert_eq!(
+            state.peon.diagnostics.read().unwrap()[session_id]
+                .snapshot
+                .scheduler_state,
+            crate::session_types::PeonSchedulerState::InFlight
+        );
+        let application = crate::session_application::SessionApplication::new(state.clone());
+        assert!(!application
+            .persist_peon_observation_for_attempt(
+                session_id,
+                &old_attempt,
+                result.inference.as_ref(),
+                None,
+                None,
+                "later",
+            )
+            .inference_persisted);
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&test_session_metadata(
+                session_id,
+                "Runtime replacement",
+                &dir.path().display().to_string(),
+                "running",
+                "now",
+                "now",
+            ));
+        let observation_result = application.record_peon_workflow_observations_for_attempt(
+            session_id,
+            Some(dir.path()),
+            &old_attempt,
+            &crate::session_application::PeonObservationOutputRange {
+                runtime_instance_id: old_attempt.runtime_identity.runtime_instance_id.clone(),
+                run_generation: old_attempt.runtime_identity.run_generation,
+                first_revision: 1,
+                last_revision: 1,
+            },
+            &[peon::PeonWorkflowObservation {
+                kind: crate::workflow_observations::ObservationKind::Obstacle,
+                description: "old runtime observation".into(),
+                evidence: "old runtime evidence".into(),
+                reported_impact: crate::workflow_observations::Impact::Low,
+                confidence: 0.8,
+            }],
+        );
+        assert!(!observation_result.accepted_observation);
+        assert!(state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .workflow_observations
+            .workspace_observations()
+            .unwrap()
+            .is_empty());
+        assert_eq!(new_attempt.generation, 1);
     }
 
     #[test]
@@ -753,7 +1157,7 @@ mod tests {
             state.peon.mark_candidate(&session_id);
             state
                 .peon
-                .begin_attempt(&session_id)
+                .begin_attempt(&session_id, test_runtime_identity(&session_id, index as u64 + 1))
                 .expect("in-flight diagnostic should start");
         }
 
@@ -783,14 +1187,14 @@ mod tests {
             .unwrap()
             .insert(session_id.to_string());
         state.peon.mark_candidate(session_id);
-        let generation = state
+        let attempt = state
             .peon
-            .begin_attempt(session_id)
+            .begin_attempt(session_id, test_runtime_identity(session_id, 1))
             .expect("provider exhaustion attempt should start");
 
         state
             .peon
-            .fail_attempt(session_id, generation, "provider_exhausted", "all providers failed");
+            .fail_attempt(session_id, &attempt, "provider_exhausted", "all providers failed");
 
         assert!(state
             .peon
@@ -805,7 +1209,7 @@ mod tests {
             crate::session_types::PeonSchedulerState::Failed
         );
 
-        state.peon.finish_attempt(session_id, generation);
+        state.peon.finish_attempt(session_id, &attempt);
         assert!(!state
             .peon
             .in_flight
@@ -828,9 +1232,9 @@ mod tests {
             .unwrap()
             .insert(session_id.to_string());
         state.peon.mark_candidate(session_id);
-        let generation = state
+        let attempt = state
             .peon
-            .begin_attempt(session_id)
+            .begin_attempt(session_id, test_runtime_identity(session_id, 1))
             .expect("diagnostic attempt should start");
         let result = providers::ProviderRunResult {
             inference: peon::parse_inference(r#"{"status":"working","confidence":0.85}"#),
@@ -848,7 +1252,7 @@ mod tests {
             runtime: HashMap::new(),
         };
 
-        assert!(state.peon.complete_attempt(session_id, generation, &result));
+        assert!(state.peon.complete_attempt(session_id, &attempt, &result));
         {
             let diagnostics = state.peon.diagnostics.read().unwrap();
             let diagnostic = &diagnostics[session_id].snapshot;
@@ -868,7 +1272,7 @@ mod tests {
                 <= MAX_DIAGNOSTIC_TEXT_CHARS);
         }
 
-        state.peon.finish_attempt(session_id, generation);
+        state.peon.finish_attempt(session_id, &attempt);
         state
             .peon
             .in_flight
@@ -876,18 +1280,18 @@ mod tests {
             .unwrap()
             .insert(session_id.to_string());
         state.peon.mark_candidate(session_id);
-        let next_generation = state
+        let next_attempt = state
             .peon
-            .begin_attempt(session_id)
+            .begin_attempt(session_id, test_runtime_identity(session_id, 1))
             .expect("second diagnostic attempt should start");
-        state.peon.fail_attempt(session_id, next_generation, "provider_exhausted", &oversized);
+        state.peon.fail_attempt(session_id, &next_attempt, "provider_exhausted", &oversized);
         let error_summary = state.peon.diagnostics.read().unwrap()[session_id]
             .snapshot
             .error_summary
             .clone()
             .unwrap();
         assert!(error_summary.chars().count() <= MAX_DIAGNOSTIC_TEXT_CHARS);
-        state.peon.finish_attempt(session_id, next_generation);
+        state.peon.finish_attempt(session_id, &next_attempt);
     }
 
     #[tokio::test]
