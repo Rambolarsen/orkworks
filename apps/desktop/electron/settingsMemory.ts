@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import type { ProviderId, ProviderCapacityState, ProviderSettings, ProviderSettingsEntry } from "./providerTypes.ts";
+import type { PeonSelection, ProviderId, ProviderCapacityState, ProviderSettings, ProviderSettingsEntry } from "./providerTypes.ts";
 
 export interface RetentionSettings {
   maxSessions: number;
@@ -112,8 +112,9 @@ const VALID_PROVIDER_IDS = new Set<ProviderId>(["opencode", "claude-code", "code
 const VALID_CAPACITY_STATES = new Set<ProviderCapacityState>(["healthy", "degraded", "capped", "unknown"]);
 
 export const DEFAULT_PROVIDER_SETTINGS: ProviderSettings = {
-  version: 1,
+  version: 2,
   revision: 0,
+  peonSelection: null,
   peonModel: null,
   ollamaBaseUrl: "http://127.0.0.1:11434",
   providers: [
@@ -260,19 +261,51 @@ export function normalizeProviderSettings(value: unknown): ProviderSettings {
     .map((entry, index) => ({ ...entry, fallbackOrder: index }));
 
   return {
-    version: 1,
+    version: 2,
     revision:
       typeof raw.revision === "number" && Number.isFinite(raw.revision)
         ? Math.max(0, Math.trunc(raw.revision))
         : DEFAULT_PROVIDER_SETTINGS.revision,
+    peonSelection: normalizePeonSelection(raw, normalizedById),
     peonModel: normalizePeonModel(raw),
     ollamaBaseUrl: normalizeOllamaBaseUrl(raw),
     providers,
   };
 }
 
+function normalizePeonSelection(
+  raw: Record<string, unknown>,
+  entries: Map<ProviderId, ProviderSettingsEntry>,
+): PeonSelection | null {
+  const candidate = raw.peonSelection;
+  if (candidate && typeof candidate === "object" && !Array.isArray(candidate)) {
+    const selection = candidate as Record<string, unknown>;
+    return normalizedSelection(selection.provider, selection.model, selection.ollamaBaseUrl);
+  }
+
+  if (raw.version === 2) return null;
+
+  const modeled = Array.from(entries.values()).filter((entry) => entry.model !== null);
+  if (modeled.length !== 1) return null;
+  const entry = modeled[0];
+  return normalizedSelection(entry.id, entry.model, raw.ollamaBaseUrl);
+}
+
+function normalizedSelection(provider: unknown, model: unknown, ollamaBaseUrl: unknown): PeonSelection | null {
+  if (!VALID_PROVIDER_IDS.has(provider as ProviderId) || typeof model !== "string") return null;
+  const normalizedModel = model.trim();
+  if (!normalizedModel) return null;
+  if (provider !== "ollama") return { provider: provider as ProviderId, model: normalizedModel };
+  const normalizedUrl = normalizeOllamaBaseUrlValue(ollamaBaseUrl);
+  return { provider: "ollama", model: normalizedModel, ollamaBaseUrl: normalizedUrl };
+}
+
 function normalizeOllamaBaseUrl(raw: Record<string, unknown>): string {
-  const val = raw.ollamaBaseUrl;
+  return normalizeOllamaBaseUrlValue(raw.ollamaBaseUrl);
+}
+
+function normalizeOllamaBaseUrlValue(value: unknown): string {
+  const val = value;
   if (typeof val === "string" && val.length > 0) {
     const trimmed = val.trim();
     if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
@@ -408,7 +441,7 @@ function migrateRawProviderSettings(value: unknown): { value: unknown; migrated:
   const hasCanonicalCopilot = providerSettings.providers.some(
     (entry) => entry && typeof entry === "object" && !Array.isArray(entry) && (entry as Record<string, unknown>).id === "copilot",
   );
-  let migrated = false;
+  let migrated = providerSettings.version !== 2;
   let migratedLegacyCopilot = false;
   const providers = providerSettings.providers.flatMap((entry) => {
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) return [entry];
@@ -426,9 +459,26 @@ function migrateRawProviderSettings(value: unknown): { value: unknown; migrated:
     return [entry];
   });
 
-  if (!migrated) return { value, migrated: false };
+  const nextProviderSettings = { ...providerSettings, version: 2 };
+  if (!nextProviderSettings.peonSelection) {
+    const modeled = providers
+      .map((entry) => (entry && typeof entry === "object" && !Array.isArray(entry) ? entry as Record<string, unknown> : null))
+      .filter((entry): entry is Record<string, unknown> => Boolean(entry) && VALID_PROVIDER_IDS.has(entry.id as ProviderId) && typeof entry.model === "string" && entry.model.trim().length > 0);
+    if (modeled.length === 1) {
+      const entry = modeled[0];
+      nextProviderSettings.peonSelection = {
+        provider: entry.id,
+        model: (entry.model as string).trim(),
+        ...(entry.id === "ollama" ? { ollamaBaseUrl: providerSettings.ollamaBaseUrl } : {}),
+      };
+    } else {
+      nextProviderSettings.peonSelection = null;
+    }
+  }
+
+  if (!migrated && JSON.stringify(nextProviderSettings) === JSON.stringify(providerSettings)) return { value, migrated: false };
   return {
-    value: { ...root, providers: { ...providerSettings, providers } },
+    value: { ...root, providers: { ...nextProviderSettings, providers } },
     migrated: true,
   };
 }

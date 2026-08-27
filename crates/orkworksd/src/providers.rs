@@ -75,6 +75,39 @@ pub enum AttemptOutcome {
 
 // --- Settings types ---
 
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PeonSelection {
+    pub provider: String,
+    pub model: String,
+    #[serde(rename = "ollamaBaseUrl", default)]
+    pub ollama_base_url: Option<String>,
+}
+
+pub(crate) fn normalize_peon_selection(
+    selection: Option<PeonSelection>,
+    valid_provider_ids: &HashSet<String>,
+) -> Option<PeonSelection> {
+    let mut selection = selection?;
+    selection.provider = selection.provider.trim().to_string();
+    selection.model = selection.model.trim().to_string();
+    if selection.provider.is_empty()
+        || selection.model.is_empty()
+        || !valid_provider_ids.contains(&selection.provider)
+    {
+        return None;
+    }
+    if selection.provider == "ollama" {
+        let base_url = selection.ollama_base_url.as_deref().unwrap_or_else(|| "http://127.0.0.1:11434");
+        selection.ollama_base_url = normalize_ollama_base_url(base_url).ok();
+        if selection.ollama_base_url.is_none() {
+            return None;
+        }
+    } else {
+        selection.ollama_base_url = None;
+    }
+    Some(selection)
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ProviderSettingsEntry {
     pub id: String,
@@ -144,7 +177,7 @@ fn resolve_provider_model(
 impl Default for ProviderSettingsPayload {
     fn default() -> Self {
         Self {
-            version: 1,
+            version: 2,
             revision: 0,
             peon_model: None,
             ollama_base_url: default_ollama_base_url(),
@@ -2798,6 +2831,44 @@ mod tests {
     fn normalize_ollama_base_url_rejects_non_origin_urls() {
         let err = normalize_ollama_base_url("http://127.0.0.1:11434/api/tags").unwrap_err();
         assert!(err.contains("origin-only"));
+    }
+
+    #[test]
+    fn peon_selection_normalizes_provider_model_and_ollama_url() {
+        let valid = ["ollama".to_string()].into_iter().collect();
+        let selection = PeonSelection {
+            provider: " ollama ".into(),
+            model: " llama3.2:3b ".into(),
+            ollama_base_url: Some(" http://127.0.0.1:11434/ ".into()),
+        };
+
+        assert_eq!(
+            normalize_peon_selection(Some(selection), &valid),
+            Some(PeonSelection {
+                provider: "ollama".into(),
+                model: "llama3.2:3b".into(),
+                ollama_base_url: Some("http://127.0.0.1:11434".into()),
+            })
+        );
+    }
+
+    #[test]
+    fn peon_selection_rejects_invalid_or_empty_provider_and_model() {
+        let valid = ["copilot".to_string()].into_iter().collect();
+        assert_eq!(
+            normalize_peon_selection(
+                Some(PeonSelection { provider: "gemini".into(), model: "model".into(), ollama_base_url: None }),
+                &valid,
+            ),
+            None
+        );
+        assert_eq!(
+            normalize_peon_selection(
+                Some(PeonSelection { provider: "copilot".into(), model: "  ".into(), ollama_base_url: None }),
+                &valid,
+            ),
+            None
+        );
     }
 
     #[test]

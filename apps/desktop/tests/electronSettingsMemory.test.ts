@@ -8,6 +8,7 @@ import * as settingsMemory from "../electron/settingsMemory.ts";
 import {
   DEFAULT_HOTKEYS,
   DEFAULT_SETTINGS,
+  normalizeProviderSettings,
   readSettings,
   settingsPath,
   settingsWithHotkeys,
@@ -352,8 +353,9 @@ test("settings memory seeds default provider settings", () => {
   try {
     const settings = readSettings(dir);
     assert.deepEqual(settings.providers, {
-      version: 1,
+      version: 2,
       revision: 0,
+      peonSelection: null,
       peonModel: null,
       ollamaBaseUrl: "http://127.0.0.1:11434",
       providers: [
@@ -532,7 +534,7 @@ test("settings memory normalizes malformed provider payloads", () => {
     );
 
     const settings = readSettings(dir);
-    assert.equal(settings.providers.version, 1);
+    assert.equal(settings.providers.version, 2);
     assert.equal(settings.providers.revision, 4);
     assert.deepEqual(settings.providers.providers.map((entry) => entry.id), ["claude-code", "opencode", "codex", "aider", "copilot", "ollama"]);
     assert.equal(settings.providers.providers[0].enabled, true);
@@ -642,6 +644,102 @@ test("settings memory keeps legacy top-level peonModel migration separate from p
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("provider settings migrate one unambiguous provider model to peonSelection", () => {
+  const dir = mkdtempSync(join(tmpdir(), "orkworks-settings-"));
+  try {
+    writeFileSync(
+      settingsPath(dir),
+      JSON.stringify({
+        version: 1,
+        providers: {
+          version: 1,
+          revision: 9,
+          peonModel: null,
+          ollamaBaseUrl: " http://127.0.0.1:11434/ ",
+          providers: [
+            { id: "copilot", model: "  gpt-5  ", enabled: true, fallbackOrder: 0, defaultState: "healthy", overrideState: null },
+            { id: "ollama", model: null, enabled: true, fallbackOrder: 1, defaultState: "unknown", overrideState: null },
+          ],
+        },
+      }),
+    );
+
+    const settings = settingsMemory.loadSettingsForStartup!(dir);
+
+    assert.deepEqual(settings.providers.peonSelection, {
+      provider: "copilot",
+      model: "gpt-5",
+    });
+    assert.equal(settings.providers.version, 2);
+    assert.equal(settings.providers.revision, 9);
+    assert.equal(settings.providers.ollamaBaseUrl, "http://127.0.0.1:11434");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("provider settings migration is idempotent and does not increment revision", () => {
+  const dir = mkdtempSync(join(tmpdir(), "orkworks-settings-"));
+  try {
+    writeFileSync(
+      settingsPath(dir),
+      JSON.stringify({
+        version: 1,
+        providers: {
+          version: 1,
+          revision: 4,
+          providers: [{ id: "ollama", model: " llama3.2:3b ", enabled: true, fallbackOrder: 0, defaultState: "unknown", overrideState: null }],
+        },
+      }),
+    );
+
+    settingsMemory.loadSettingsForStartup!(dir);
+    const first = readFileSync(settingsPath(dir), "utf8");
+    settingsMemory.loadSettingsForStartup!(dir);
+
+    assert.equal(readFileSync(settingsPath(dir), "utf8"), first);
+    assert.equal(JSON.parse(first).providers.revision, 4);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("provider settings do not migrate multiple provider models or a global-only model", () => {
+  const multiple = normalizeProviderSettings({
+    version: 1,
+    revision: 2,
+    peonModel: null,
+    providers: [
+      { id: "copilot", model: "one", enabled: true, fallbackOrder: 0, defaultState: "healthy", overrideState: null },
+      { id: "ollama", model: "two", enabled: true, fallbackOrder: 1, defaultState: "healthy", overrideState: null },
+    ],
+  });
+  const globalOnly = normalizeProviderSettings({
+    version: 1,
+    revision: 3,
+    peonModel: "global",
+    providers: [{ id: "copilot", model: null, enabled: true, fallbackOrder: 0, defaultState: "healthy", overrideState: null }],
+  });
+
+  assert.equal(multiple.peonSelection, null);
+  assert.equal(globalOnly.peonSelection, null);
+});
+
+test("provider settings ignore invalid and retired provider models during migration", () => {
+  const settings = normalizeProviderSettings({
+    version: 1,
+    revision: 1,
+    providers: [
+      { id: "gemini", model: "retired", enabled: true, fallbackOrder: 0, defaultState: "healthy", overrideState: null },
+      { id: "not-a-provider", model: "invalid", enabled: true, fallbackOrder: 1, defaultState: "healthy", overrideState: null },
+    ],
+  });
+
+  assert.equal(settings.peonSelection, null);
+  assert.equal(settings.providers.some(({ id }) => id === "gemini"), false);
+  assert.equal(settings.providers.some(({ id }) => id === "not-a-provider"), false);
 });
 
 test("settings memory preserves provider revisions and canonical fallback order on write", () => {

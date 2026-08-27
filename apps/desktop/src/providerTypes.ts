@@ -2,6 +2,12 @@ export type ProviderId = "opencode" | "claude-code" | "codex" | "aider" | "copil
 export type ProviderCapacityState = "healthy" | "degraded" | "capped" | "unknown";
 export type ProviderEffectiveState = ProviderCapacityState | "disabled" | "checking_capacity";
 
+export interface PeonSelection {
+  provider: ProviderId;
+  model: string;
+  ollamaBaseUrl?: string;
+}
+
 export interface ProviderSettingsEntry {
   id: ProviderId;
   model: string | null;
@@ -12,8 +18,9 @@ export interface ProviderSettingsEntry {
 }
 
 export interface ProviderSettings {
-  version: 1;
+  version: 1 | 2;
   revision: number;
+  peonSelection?: PeonSelection | null;
   peonModel: string | null;
   ollamaBaseUrl: string;
   providers: ProviderSettingsEntry[];
