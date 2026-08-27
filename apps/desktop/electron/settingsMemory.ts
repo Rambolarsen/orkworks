@@ -314,7 +314,7 @@ function normalizeOllamaBaseUrlValue(value: unknown): string {
 function parseOllamaBaseUrl(value: unknown): string | null {
   if (typeof value !== "string") return null;
   try {
-    const parsed = new URL(value.trim());
+    const parsed = new URL(value.trim().replace(/\/+$/, ""));
     if (!(parsed.protocol === "http:" || parsed.protocol === "https:")
       || parsed.username
       || parsed.password

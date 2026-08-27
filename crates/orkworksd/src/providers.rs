@@ -2840,6 +2840,9 @@ mod tests {
     fn normalize_ollama_base_url_trims_and_strips_trailing_slash() {
         let normalized = normalize_ollama_base_url(" http://127.0.0.1:11434/ ").unwrap();
         assert_eq!(normalized, "http://127.0.0.1:11434");
+
+        let normalized = normalize_ollama_base_url("http://localhost:11434//").unwrap();
+        assert_eq!(normalized, "http://localhost:11434");
     }
 
     #[test]

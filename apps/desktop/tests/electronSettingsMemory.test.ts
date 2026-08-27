@@ -719,6 +719,9 @@ test("startup migration writes normalized v2 selections only once and preserves 
         providers: [{
           id: "copilot", model: "  gpt-5  ", enabled: false, fallbackOrder: 4,
           defaultState: "capped", overrideState: "degraded",
+        }, {
+          id: "ollama", model: null, enabled: true, fallbackOrder: 5,
+          defaultState: "healthy", overrideState: "capped",
         }],
       },
     }));
@@ -733,6 +736,15 @@ test("startup migration writes normalized v2 selections only once and preserves 
     assert.deepEqual(first.providers.providers.find(({ id }) => id === "copilot"), {
       id: "copilot", model: "gpt-5", enabled: false, fallbackOrder: 4,
       defaultState: "capped", overrideState: "degraded",
+    });
+    assert.deepEqual(first.providers.providers.find(({ id }) => id === "ollama"), {
+      id: "ollama", model: null, enabled: true, fallbackOrder: 5,
+      defaultState: "healthy", overrideState: "capped",
+    });
+    const persisted = JSON.parse(readFileSync(settingsPath(dir), "utf8"));
+    assert.deepEqual(persisted.providers.providers.find(({ id }: { id: string }) => id === "ollama"), {
+      id: "ollama", model: null, enabled: true, fallbackOrder: 5,
+      defaultState: "healthy", overrideState: "capped",
     });
     settingsMemory.loadSettingsForStartup!(dir, persist);
     assert.equal(writes, 1);
@@ -753,6 +765,8 @@ test("Electron Ollama URL validation rejects paths, queries, and fragments like 
   }
   const valid = normalizeProviderSettings({ version: 2, peonSelection: { provider: "ollama", model: "llama", ollamaBaseUrl: " HTTPS://LOCALHOST:11434/ " } });
   assert.deepEqual(valid.peonSelection, { provider: "ollama", model: "llama", ollamaBaseUrl: "https://localhost:11434" });
+  const multipleTrailingSlashes = normalizeProviderSettings({ version: 2, peonSelection: { provider: "ollama", model: "llama", ollamaBaseUrl: "http://localhost:11434//" } });
+  assert.deepEqual(multipleTrailingSlashes.peonSelection, { provider: "ollama", model: "llama", ollamaBaseUrl: "http://localhost:11434" });
 });
 
 test("provider settings do not migrate multiple provider models or a global-only model", () => {
