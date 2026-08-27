@@ -29,12 +29,17 @@ struct WorkspaceSnapshot {
     identity: PathBuf,
 }
 
+struct ProjectionSnapshot {
+    infos: Vec<SessionInfo>,
+    workspace_identity: Option<PathBuf>,
+}
+
 impl SessionProjection {
     pub(crate) fn new(state: Arc<AppState>) -> Self {
         Self { state }
     }
 
-    fn snapshot(&self) -> Vec<SessionInfo> {
+    fn snapshot(&self) -> ProjectionSnapshot {
         let registry = self
             .state
             .harness_catalog
@@ -119,21 +124,21 @@ impl SessionProjection {
             ));
         }
 
-        // Task 5 validates this snapshot identity while holding the projection
-        // lock before committing write-backs. Capturing it here keeps this read
-        // stage independent from the workspace lock.
-        let _workspace_identity = workspace.map(|snapshot| snapshot.identity);
-        infos
+        ProjectionSnapshot {
+            infos,
+            workspace_identity: workspace.as_ref().map(|snapshot| snapshot.identity.clone()),
+        }
     }
 
     pub(crate) fn list(&self) -> Vec<SessionInfo> {
-        let lock_state = self.state.clone();
-        let _projection_lock = lock_state.projection_lock.lock().unwrap();
         self.list_with_hook(|| {})
     }
 
     pub(crate) fn list_with_hook(&self, before_write_back: impl FnOnce()) -> Vec<SessionInfo> {
-        self.project_capacity(self.snapshot(), before_write_back)
+        let lock_state = self.state.clone();
+        let _projection_lock = lock_state.projection_lock.lock().unwrap();
+        let infos = self.project_capacity(self.snapshot(), before_write_back);
+        self.enrich_workspace(infos)
     }
 
     pub(crate) fn enrich_workspace(&self, mut infos: Vec<SessionInfo>) -> Vec<SessionInfo> {
@@ -157,9 +162,9 @@ impl SessionProjection {
         infos
     }
 
-    pub(crate) fn project_capacity(
+    fn project_capacity(
         &self,
-        projected_infos: Vec<SessionInfo>,
+        snapshot: ProjectionSnapshot,
         before_write_back: impl FnOnce(),
     ) -> Vec<SessionInfo> {
         let registry = self
@@ -168,13 +173,8 @@ impl SessionProjection {
             .read()
             .expect("harness catalog lock poisoned")
             .clone();
-        let workspace_identity = self
-            .state
-            .workspace
-            .lock()
-            .unwrap()
-            .as_ref()
-            .map(|workspace| workspace.metadata.root_path());
+        let workspace_identity = snapshot.workspace_identity;
+        let projected_infos = snapshot.infos;
         let live_sessions: Vec<_> = {
             let sessions = self.state.sessions.lock().unwrap();
             sessions
@@ -441,6 +441,25 @@ impl SessionProjection {
             .as_ref()
             .map(|workspace| workspace.metadata.root_path());
         if current_workspace_identity != workspace_identity {
+            return Vec::new();
+        }
+        let runtime_identity_current = {
+            let sessions = self.state.sessions.lock().unwrap();
+            capacity_snapshots.iter().all(|(id, snapshot)| {
+                let Some(handle) = sessions.get(id) else {
+                    return false;
+                };
+                let (generation, latched, pending, lines, bytes, origin, visible) = snapshot;
+                handle.runtime.run_generation() == *generation
+                    && handle.at_usage_limit_latched == *latched
+                    && handle.capacity_check_pending == *pending
+                    && handle.output_lines_seen == *lines
+                    && handle.scan_bytes_seen == *bytes
+                    && handle.resume_scan_origin == *origin
+                    && handle.pending_capacity_visible_once == *visible
+            })
+        };
+        if !runtime_identity_current {
             return Vec::new();
         }
         self.state

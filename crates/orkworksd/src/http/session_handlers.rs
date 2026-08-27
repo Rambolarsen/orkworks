@@ -1,18 +1,16 @@
 use crate::session_projection::SessionProjection;
 use crate::session_projection::enrich_sessions_with_git_context as project_git_context;
-use crate::session_types::SessionInfo;
-use crate::{git, harness, metadata, peon, AppState, SessionHandle};
 #[cfg(test)]
-use crate::workspace_runtime::orkworks_global_dir;
-#[cfg(test)]
-use crate::{watcher, WorkspaceState};
-#[cfg(test)]
-use crate::session_application::{
-    resolve_session_launch, CreateSessionCommand,
-};
+use crate::session_application::{resolve_session_launch, CreateSessionCommand};
 use crate::session_application::{
     try_install_claimed_resume_handle, DebugAttentionSignal, SessionApplication, SessionError,
 };
+use crate::session_types::SessionInfo;
+#[cfg(test)]
+use crate::workspace_runtime::orkworks_global_dir;
+use crate::{git, harness, metadata, peon, AppState, SessionHandle};
+#[cfg(test)]
+use crate::{watcher, WorkspaceState};
 use axum::{
     extract::{Path, State},
     http::HeaderMap,
@@ -20,7 +18,7 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -113,8 +111,8 @@ fn authorize_plan_request(headers: &HeaderMap) -> Result<(), axum::http::StatusC
         == headers
             .get("x-orkworks-open-plan-token")
             .and_then(|value| value.to_str().ok()))
-        .then_some(())
-        .ok_or(axum::http::StatusCode::UNAUTHORIZED)
+    .then_some(())
+    .ok_or(axum::http::StatusCode::UNAUTHORIZED)
 }
 
 pub(crate) async fn get_session_plan_content(
@@ -153,11 +151,15 @@ pub(crate) async fn report_session_plan_path(
 ) -> impl IntoResponse {
     let result = tokio::task::spawn_blocking(move || {
         SessionApplication::new(state).report_plan_path(&id, &req.plan_path)
-    }).await;
+    })
+    .await;
     match result {
         Ok(Ok(())) => axum::http::StatusCode::NO_CONTENT.into_response(),
         Ok(Err(error)) => application_error_response(error),
-        Err(error) => { tracing::error!(error = %error, "plan path metadata task failed"); axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response() }
+        Err(error) => {
+            tracing::error!(error = %error, "plan path metadata task failed");
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
     }
 }
 
@@ -299,20 +301,28 @@ pub(crate) async fn forget_session(
         .unwrap_or_else(application_error_response)
 }
 
-fn application_error_response(error: crate::session_application::SessionError) -> axum::response::Response {
+fn application_error_response(
+    error: crate::session_application::SessionError,
+) -> axum::response::Response {
     match error {
-        crate::session_application::SessionError::BadRequest(message) =>
-            (axum::http::StatusCode::BAD_REQUEST, message).into_response(),
-        crate::session_application::SessionError::EmptyBadRequest =>
-            axum::http::StatusCode::BAD_REQUEST.into_response(),
-        crate::session_application::SessionError::Conflict =>
-            axum::http::StatusCode::CONFLICT.into_response(),
-        crate::session_application::SessionError::ConflictWithMessage(message) =>
-            (axum::http::StatusCode::CONFLICT, message).into_response(),
-        crate::session_application::SessionError::NotFound =>
-            axum::http::StatusCode::NOT_FOUND.into_response(),
-        crate::session_application::SessionError::Internal(_) =>
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+        crate::session_application::SessionError::BadRequest(message) => {
+            (axum::http::StatusCode::BAD_REQUEST, message).into_response()
+        }
+        crate::session_application::SessionError::EmptyBadRequest => {
+            axum::http::StatusCode::BAD_REQUEST.into_response()
+        }
+        crate::session_application::SessionError::Conflict => {
+            axum::http::StatusCode::CONFLICT.into_response()
+        }
+        crate::session_application::SessionError::ConflictWithMessage(message) => {
+            (axum::http::StatusCode::CONFLICT, message).into_response()
+        }
+        crate::session_application::SessionError::NotFound => {
+            axum::http::StatusCode::NOT_FOUND.into_response()
+        }
+        crate::session_application::SessionError::Internal(_) => {
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
     }
 }
 
@@ -361,13 +371,16 @@ pub(crate) async fn apply_debug_attention(
     Path(id): Path<String>,
     Json(req): Json<DebugAttentionRequest>,
 ) -> impl IntoResponse {
-    let result = match SessionApplication::new(state).apply_debug_attention(
-        &id,
-        DebugAttentionSignal {
-            attention: req.attention,
-            message: req.message,
-        },
-    ).await {
+    let result = match SessionApplication::new(state)
+        .apply_debug_attention(
+            &id,
+            DebugAttentionSignal {
+                attention: req.attention,
+                message: req.message,
+            },
+        )
+        .await
+    {
         Ok(result) => result,
         Err(SessionError::EmptyBadRequest) => {
             return axum::http::StatusCode::BAD_REQUEST.into_response();
@@ -414,17 +427,22 @@ fn enrich_sessions_with_git_context<F>(
 }
 
 pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let projection_lock_state = state.clone();
-    let _projection_lock = projection_lock_state.projection_lock.lock().unwrap();
-    #[cfg(test)]
-    let before_write_back = || tests::run_list_sessions_before_write_back_hook(&state);
-    #[cfg(not(test))]
-    let before_write_back = || {};
-    let projection = SessionProjection::new(state.clone());
-    let mut infos = projection.list_with_hook(before_write_back);
+    let result = tokio::task::spawn_blocking(move || {
+        #[cfg(test)]
+        let before_write_back = || tests::run_list_sessions_before_write_back_hook(&state);
+        #[cfg(not(test))]
+        let before_write_back = || {};
+        SessionProjection::new(state.clone()).list_with_hook(before_write_back)
+    })
+    .await;
 
-    let infos = projection.enrich_workspace(infos);
-    Json(infos)
+    match result {
+        Ok(infos) => Json(infos).into_response(),
+        Err(error) => {
+            tracing::error!(error = %error, "session projection task failed");
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
 }
 
 #[cfg(test)]
@@ -808,6 +826,50 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn session_projection_owns_live_capacity_and_provider_publication() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        state
+            .providers
+            .apply_settings(crate::providers::ProviderSettingsPayload {
+                version: 1,
+                revision: 1,
+                peon_model: None,
+                ollama_base_url: crate::providers::default_ollama_base_url(),
+                providers: vec![crate::providers::ProviderSettingsEntry {
+                    id: "codex".into(),
+                    enabled: true,
+                    fallback_order: 0,
+                    default_state: crate::providers::ProviderCapacityState::Unknown,
+                    override_state: None,
+                }],
+            });
+        let mut live = attention_test_handle("projected-capacity", dir.path());
+        live.info.harness_id = Some("codex".into());
+        live.info.harness = Some("codex".into());
+        live.at_usage_limit_latched = true;
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .insert("projected-capacity".into(), live);
+        *state.workspace.lock().unwrap() = None;
+
+        let infos = SessionProjection::new(state.clone()).list();
+
+        assert_eq!(infos.len(), 1);
+        assert_eq!(infos[0].at_usage_limit, Some(true));
+        let codex = state
+            .providers
+            .get_providers_response()
+            .providers
+            .into_iter()
+            .find(|provider| provider.id == "codex")
+            .unwrap();
+        assert_eq!(codex.effective_state, "capped");
+    }
+
+    #[tokio::test]
     async fn list_sessions_write_back_hook_is_scoped_to_its_registered_state() {
         let hook_state_dir = tempfile::tempdir().unwrap();
         let hook_state = test_app_state_with_workspace(hook_state_dir.path());
@@ -871,7 +933,7 @@ mod tests {
         }));
 
         let sessions = listed_sessions(state.clone()).await;
-        assert_eq!(sessions[0]["id"], session_id);
+        assert!(sessions.is_empty());
         let handle = state.sessions.lock().unwrap();
         let handle = &handle[&session_id];
         assert!(!handle.at_usage_limit_latched);
@@ -1102,7 +1164,7 @@ mod tests {
                     provider_state: None,
                     created_at: "now".into(),
                     last_activity: "now".into(),
-        last_output_at: None,
+                    last_output_at: None,
                     metadata_source: "process".into(),
                     metadata_confidence: 1.0,
                     repo_root: None,
@@ -1237,7 +1299,7 @@ mod tests {
                     provider_state: None,
                     created_at: "before".into(),
                     last_activity: "before".into(),
-        last_output_at: None,
+                    last_output_at: None,
                     metadata_source: "process".into(),
                     metadata_confidence: 1.0,
                     repo_root: None,
@@ -1287,9 +1349,9 @@ mod tests {
 
     #[tokio::test]
     async fn resume_session_replaces_unattached_ended_stale_handle() {
-        use crate::test_support::FakePath;
         #[cfg(unix)]
         use crate::test_support::make_test_executable;
+        use crate::test_support::FakePath;
 
         let dir = tempfile::tempdir().unwrap();
         let fake_bin_dir = tempfile::tempdir().unwrap();
@@ -1410,7 +1472,10 @@ mod tests {
                 vec!["/C".to_string(), "timeout /T 5 /NOBREAK".to_string()],
             )
         } else {
-            ("sh".to_string(), vec!["-c".to_string(), "exec sleep 5".to_string()])
+            (
+                "sh".to_string(),
+                vec!["-c".to_string(), "exec sleep 5".to_string()],
+            )
         };
         state
             .harness_store
@@ -1456,7 +1521,10 @@ mod tests {
 
         let (startup_checked, resume_startup) =
             crate::runtime::session_runtime::pause_startup_after_ending_check(session_id.clone());
-        let task = tokio::spawn(resume_session(State(state.clone()), Path(session_id.clone())));
+        let task = tokio::spawn(resume_session(
+            State(state.clone()),
+            Path(session_id.clone()),
+        ));
         tokio::time::timeout(std::time::Duration::from_secs(5), async {
             loop {
                 if state.session_pids.lock().unwrap().contains_key(&session_id) {
@@ -1475,15 +1543,16 @@ mod tests {
 
         tokio::time::timeout(std::time::Duration::from_secs(5), async {
             loop {
-                let active = state
-                    .sessions
-                    .lock()
-                    .unwrap()
-                    .get(&session_id)
-                    .is_some_and(|handle| {
-                        handle.info.status == "running"
-                            && handle.info.lifecycle_phase == "active"
-                    });
+                let active =
+                    state
+                        .sessions
+                        .lock()
+                        .unwrap()
+                        .get(&session_id)
+                        .is_some_and(|handle| {
+                            handle.info.status == "running"
+                                && handle.info.lifecycle_phase == "active"
+                        });
                 if active {
                     break;
                 }
@@ -1499,7 +1568,10 @@ mod tests {
         assert!(state.sessions.lock().unwrap()[&session_id].resume_in_progress);
         let ws_guard = state.workspace.lock().unwrap();
         let ws = ws_guard.as_ref().unwrap();
-        assert_ne!(ws.metadata.read_session(&session_id).unwrap().status, "ended");
+        assert_ne!(
+            ws.metadata.read_session(&session_id).unwrap().status,
+            "ended"
+        );
         assert_eq!(ws.metadata.read_terminal_size(&session_id), None);
         drop(ws_guard);
 
@@ -1544,7 +1616,10 @@ mod tests {
                 vec!["/C".to_string(), "timeout /T 30 /NOBREAK".to_string()],
             )
         } else {
-            ("sh".to_string(), vec!["-c".to_string(), "exec sleep 30".to_string()])
+            (
+                "sh".to_string(),
+                vec!["-c".to_string(), "exec sleep 30".to_string()],
+            )
         };
         state
             .harness_store
@@ -1569,22 +1644,41 @@ mod tests {
             latest_fallback: true,
             last_seen_at: Some("before".into()),
         };
-        let mut metadata = test_session_metadata(session_id.clone(), "Delete During Startup", dir.path().display().to_string(), "ended", "before", "before");
+        let mut metadata = test_session_metadata(
+            session_id.clone(),
+            "Delete During Startup",
+            dir.path().display().to_string(),
+            "ended",
+            "before",
+            "before",
+        );
         metadata.harness = "opencode".into();
         metadata.lifecycle_phase = "ended".into();
         metadata.lifecycle = "dead".into();
         metadata.resume = Some(resume);
-        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&metadata);
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
 
         let (checked_rx, resume_tx) =
             crate::runtime::session_runtime::pause_startup_after_ending_check(session_id.clone());
-        let resume_task = tokio::spawn(resume_session(State(state.clone()), Path(session_id.clone())));
+        let resume_task = tokio::spawn(resume_session(
+            State(state.clone()),
+            Path(session_id.clone()),
+        ));
         tokio::time::timeout(std::time::Duration::from_secs(5), checked_rx)
             .await
             .expect("startup reaches the post-check transition gap")
             .expect("startup test hook remains installed");
 
-        let response = delete_session(State(state.clone()), Path(session_id.clone())).await.into_response();
+        let response = delete_session(State(state.clone()), Path(session_id.clone()))
+            .await
+            .into_response();
         assert_eq!(response.status(), axum::http::StatusCode::OK);
         resume_tx
             .send(())
@@ -1594,15 +1688,24 @@ mod tests {
             .await
             .expect("startup request returns after its generation is finalized")
             .expect("startup task does not panic");
-        assert_eq!(response.into_response().status(), axum::http::StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(
+            response.into_response().status(),
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR
+        );
 
         tokio::time::timeout(std::time::Duration::from_secs(5), async {
             loop {
-                let finalized = state.sessions.lock().unwrap().get(&session_id).is_some_and(|handle| {
-                    handle.info.status == "killed"
-                        && handle.info.lifecycle_phase == "ended"
-                        && !handle.resume_in_progress
-                });
+                let finalized =
+                    state
+                        .sessions
+                        .lock()
+                        .unwrap()
+                        .get(&session_id)
+                        .is_some_and(|handle| {
+                            handle.info.status == "killed"
+                                && handle.info.lifecycle_phase == "ended"
+                                && !handle.resume_in_progress
+                        });
                 if finalized {
                     break;
                 }
@@ -1612,11 +1715,24 @@ mod tests {
         .await
         .expect("deleted startup generation is finalized");
 
-        let metadata = state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(&session_id).unwrap();
+        let metadata = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(&session_id)
+            .unwrap();
         assert_eq!(metadata.status, "killed");
         assert_eq!(metadata.lifecycle_phase, "ended");
         assert!(!state.session_pids.lock().unwrap().contains_key(&session_id));
-        assert!(!state.peon.last_output.read().unwrap().contains_key(&session_id));
+        assert!(!state
+            .peon
+            .last_output
+            .read()
+            .unwrap()
+            .contains_key(&session_id));
     }
 
     #[tokio::test]
@@ -1908,13 +2024,15 @@ mod tests {
             .unwrap()
             .insert(session_id.to_string(), "replacement input".into());
 
-        assert!(!crate::runtime::session_runtime::handle_runtime_exit(
-            &state,
-            session_id,
-            old_generation,
-            "ended",
-        )
-        .await);
+        assert!(
+            !crate::runtime::session_runtime::handle_runtime_exit(
+                &state,
+                session_id,
+                old_generation,
+                "ended",
+            )
+            .await
+        );
         tokio::task::yield_now().await;
 
         let sessions = state.sessions.lock().unwrap();
@@ -1925,7 +2043,12 @@ mod tests {
         assert!(replacement.resume_in_progress);
         drop(sessions);
         assert_eq!(state.session_pids.lock().unwrap()[session_id], 4242);
-        assert!(state.peon.last_output.read().unwrap().contains_key(session_id));
+        assert!(state
+            .peon
+            .last_output
+            .read()
+            .unwrap()
+            .contains_key(session_id));
         assert_eq!(
             state.peon.last_inference.read().unwrap()[session_id],
             "replacement inference"
@@ -2030,11 +2153,7 @@ mod tests {
             Some(old_generation),
         )
         .unwrap();
-        admission.arm_rollback(
-            dir.path().to_path_buf(),
-            metadata.clone(),
-            Some((120, 40)),
-        );
+        admission.arm_rollback(dir.path().to_path_buf(), metadata.clone(), Some((120, 40)));
         {
             let ws_guard = state.workspace.lock().unwrap();
             let ws = ws_guard.as_ref().unwrap();
@@ -2186,7 +2305,8 @@ mod tests {
         let session_id = "resume-no-handle-active-metadata";
         let replacement = attention_test_handle(session_id, dir.path());
 
-        let result = try_install_claimed_resume_handle(&state, session_id, replacement, false, None);
+        let result =
+            try_install_claimed_resume_handle(&state, session_id, replacement, false, None);
 
         assert!(result.is_err());
         assert!(!state.sessions.lock().unwrap().contains_key(session_id));
@@ -2332,8 +2452,8 @@ mod tests {
                     crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
                     crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
                 ),
-            terminal_attached: true,
-            resume_in_progress: false,
+                terminal_attached: true,
+                resume_in_progress: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
                 output_lines_seen: 0,
@@ -2385,7 +2505,7 @@ mod tests {
                     provider_state: None,
                     created_at: "before".into(),
                     last_activity: "before".into(),
-        last_output_at: None,
+                    last_output_at: None,
                     metadata_source: "process".into(),
                     metadata_confidence: 1.0,
                     repo_root: None,
@@ -2501,7 +2621,7 @@ mod tests {
                     provider_state: None,
                     created_at: "before".into(),
                     last_activity: "before".into(),
-        last_output_at: None,
+                    last_output_at: None,
                     metadata_source: "process".into(),
                     metadata_confidence: 1.0,
                     repo_root: None,
@@ -2638,7 +2758,7 @@ mod tests {
                     provider_state: None,
                     created_at: "now".into(),
                     last_activity: "now".into(),
-        last_output_at: None,
+                    last_output_at: None,
                     metadata_source: "process".into(),
                     metadata_confidence: 1.0,
                     repo_root: None,
@@ -2863,15 +2983,43 @@ mod tests {
         handle.active_work_hook = true;
         state.sessions.lock().unwrap().insert(id.into(), handle);
         let ws = state.workspace.lock().unwrap();
-        let mut meta = test_session_metadata(id, "Known", dir.path().display().to_string(), "running", "now", "now");
+        let mut meta = test_session_metadata(
+            id,
+            "Known",
+            dir.path().display().to_string(),
+            "running",
+            "now",
+            "now",
+        );
         meta.lifecycle = "alive".into();
         ws.as_ref().unwrap().metadata.write_session(&meta);
         drop(ws);
-        for (status, observed_at) in [("waiting_for_input", "2026-08-01T08:00:02.000000Z"), ("working", "2026-08-01T08:00:01.000000Z")] {
-            let response = report_attention(State(state.clone()), Path(id.into()), Json(AttentionReportRequest { status: status.into(), message: None, plan_path: Default::default(), observed_at: Some(observed_at.into()), cwd: None })).await.into_response();
+        for (status, observed_at) in [
+            ("waiting_for_input", "2026-08-01T08:00:02.000000Z"),
+            ("working", "2026-08-01T08:00:01.000000Z"),
+        ] {
+            let response = report_attention(
+                State(state.clone()),
+                Path(id.into()),
+                Json(AttentionReportRequest {
+                    status: status.into(),
+                    message: None,
+                    plan_path: Default::default(),
+                    observed_at: Some(observed_at.into()),
+                    cwd: None,
+                }),
+            )
+            .await
+            .into_response();
             assert_eq!(response.status(), axum::http::StatusCode::OK);
         }
-        assert_eq!(state.sessions.lock().unwrap()[id].info.observed_status.as_deref(), Some("waiting_for_input"));
+        assert_eq!(
+            state.sessions.lock().unwrap()[id]
+                .info
+                .observed_status
+                .as_deref(),
+            Some("waiting_for_input")
+        );
     }
 
     #[tokio::test]
@@ -3793,7 +3941,12 @@ mod tests {
                 epoch: 0,
             })
         );
-        assert!(state.peon.label_pending.read().unwrap().contains(&created_id));
+        assert!(state
+            .peon
+            .label_pending
+            .read()
+            .unwrap()
+            .contains(&created_id));
 
         let meta = state
             .workspace
@@ -3866,8 +4019,19 @@ mod tests {
             .to_owned();
         wait_for_session_status(&state, &created_id, "running").await;
 
-        assert!(state.peon.label_hint.read().unwrap().get(&created_id).is_none());
-        assert!(!state.peon.label_pending.read().unwrap().contains(&created_id));
+        assert!(state
+            .peon
+            .label_hint
+            .read()
+            .unwrap()
+            .get(&created_id)
+            .is_none());
+        assert!(!state
+            .peon
+            .label_pending
+            .read()
+            .unwrap()
+            .contains(&created_id));
     }
 
     #[tokio::test]
@@ -4240,10 +4404,9 @@ mod tests {
             workspace: std::sync::Mutex::new(Some(WorkspaceState {
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
-                workflow_observations: crate::workflow_observations::WorkflowObservationStore::open(
-                    orkworks.clone(),
-                )
-                .expect("open workflow observation store"),
+                workflow_observations:
+                    crate::workflow_observations::WorkflowObservationStore::open(orkworks.clone())
+                        .expect("open workflow observation store"),
                 recommendation_store: crate::taskmaster::store::RecommendationStore::open(
                     orkworks.clone(),
                 )
@@ -4349,7 +4512,7 @@ mod tests {
                 provider_state: None,
                 created_at: "2026-06-25T10:00:00Z".into(),
                 last_activity: "2026-06-25T10:00:00Z".into(),
-        last_output_at: None,
+                last_output_at: None,
                 metadata_source: "process".into(),
                 metadata_confidence: 1.0,
                 repo_root: None,
@@ -4460,7 +4623,7 @@ mod tests {
                     provider_state: None,
                     created_at: "now".into(),
                     last_activity: "now".into(),
-        last_output_at: None,
+                    last_output_at: None,
                     metadata_source: "peon".into(),
                     metadata_confidence: 0.8,
                     repo_root: None,
@@ -5346,10 +5509,9 @@ mod tests {
             workspace: std::sync::Mutex::new(Some(WorkspaceState {
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
-                workflow_observations: crate::workflow_observations::WorkflowObservationStore::open(
-                    orkworks.clone(),
-                )
-                .expect("open workflow observation store"),
+                workflow_observations:
+                    crate::workflow_observations::WorkflowObservationStore::open(orkworks.clone())
+                        .expect("open workflow observation store"),
                 recommendation_store: crate::taskmaster::store::RecommendationStore::open(
                     orkworks.clone(),
                 )
@@ -5419,7 +5581,7 @@ mod tests {
                 provider_state: None,
                 created_at: "2026-06-28T09:00:00Z".into(),
                 last_activity: "2026-06-28T09:05:00Z".into(),
-        last_output_at: None,
+                last_output_at: None,
                 metadata_source: "process".into(),
                 metadata_confidence: 1.0,
                 repo_root: Some(dir.path().display().to_string()),
@@ -5800,27 +5962,55 @@ mod tests {
         std::fs::write(&plan, "# plan").unwrap();
         let state = test_app_state_with_workspace(workspace.path());
         let mut metadata = test_session_metadata(
-            "plan-session", "Plan session", workspace.path().display().to_string(), "running", "now", "now",
+            "plan-session",
+            "Plan session",
+            workspace.path().display().to_string(),
+            "running",
+            "now",
+            "now",
         );
         metadata.lifecycle_phase = "active".into();
         metadata.lifecycle = "alive".into();
         metadata.attention = Some("working".into());
-        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&metadata);
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
 
         let response = report_session_plan_path(
             State(state.clone()),
             Path("plan-session".into()),
-            Json(PlanPathReportRequest { plan_path: plan.display().to_string() }),
-        ).await.into_response();
+            Json(PlanPathReportRequest {
+                plan_path: plan.display().to_string(),
+            }),
+        )
+        .await
+        .into_response();
 
         assert_eq!(response.status(), axum::http::StatusCode::NO_CONTENT);
-        let metadata = state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session("plan-session").unwrap();
-        assert_eq!(metadata.plan_path.as_deref(), Some("docs/superpowers/plans/plan.md"));
+        let metadata = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session("plan-session")
+            .unwrap();
+        assert_eq!(
+            metadata.plan_path.as_deref(),
+            Some("docs/superpowers/plans/plan.md")
+        );
         assert_eq!(metadata.attention.as_deref(), Some("working"));
     }
 
     #[tokio::test]
-    async fn report_session_plan_path_returns_internal_error_and_skips_event_when_session_write_fails() {
+    async fn report_session_plan_path_returns_internal_error_and_skips_event_when_session_write_fails(
+    ) {
         let workspace = tempfile::tempdir().unwrap();
         let plan_dir = workspace.path().join("docs/superpowers/plans");
         std::fs::create_dir_all(&plan_dir).unwrap();
@@ -5828,29 +6018,52 @@ mod tests {
         std::fs::write(&plan, "# plan").unwrap();
         let state = test_app_state_with_workspace(workspace.path());
         let mut metadata = test_session_metadata(
-            "plan-session", "Plan session", workspace.path().display().to_string(), "running", "now", "now",
+            "plan-session",
+            "Plan session",
+            workspace.path().display().to_string(),
+            "running",
+            "now",
+            "now",
         );
         metadata.lifecycle_phase = "active".into();
         metadata.lifecycle = "alive".into();
         metadata.attention = Some("working".into());
-        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&metadata);
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
 
         // Squat a directory on the per-session temp path so the atomic write
         // fails (write_session returns Err) while the session JSON remains
         // readable — mirrors the established failure-mode test pattern.
-        let sessions_path =
-            state.workspace.lock().unwrap().as_ref().unwrap().metadata.sessions_dir();
+        let sessions_path = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .sessions_dir();
         std::fs::create_dir_all(sessions_path.join("plan-session.json.tmp")).unwrap();
 
         let response = report_session_plan_path(
             State(state.clone()),
             Path("plan-session".into()),
-            Json(PlanPathReportRequest { plan_path: plan.display().to_string() }),
+            Json(PlanPathReportRequest {
+                plan_path: plan.display().to_string(),
+            }),
         )
         .await
         .into_response();
 
-        assert_eq!(response.status(), axum::http::StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(
+            response.status(),
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR
+        );
         // The session JSON is the source of truth; the handler must not
         // append a `session.plan_path_hooked` event when the write never
         // landed.
@@ -5884,13 +6097,10 @@ mod tests {
         )
         .await
         .into_response();
-        let review = request_session_plan_review(
-            State(state),
-            Path("missing".into()),
-            HeaderMap::new(),
-        )
-        .await
-        .into_response();
+        let review =
+            request_session_plan_review(State(state), Path("missing".into()), HeaderMap::new())
+                .await
+                .into_response();
         std::env::remove_var("ORKWORKS_OPEN_PLAN_TOKEN");
 
         assert_eq!(content.status(), axum::http::StatusCode::UNAUTHORIZED);
@@ -5905,17 +6115,34 @@ mod tests {
         std::fs::write(workspace.path().join("specs/plan.md"), "# plan").unwrap();
         let state = test_app_state_with_workspace(workspace.path());
         let mut metadata = test_session_metadata(
-            "plan-session", "Plan session", workspace.path().display().to_string(), "running", "now", "now",
+            "plan-session",
+            "Plan session",
+            workspace.path().display().to_string(),
+            "running",
+            "now",
+            "now",
         );
         metadata.lifecycle_phase = "active".into();
         metadata.lifecycle = "alive".into();
         metadata.plan_path = Some("specs/plan.md".into());
-        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&metadata);
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
 
         let mut handle = attention_test_handle("plan-session", workspace.path());
-        let (runtime, mut control_rx) = crate::runtime::session_runtime::SessionRuntime::live(24, 80);
+        let (runtime, mut control_rx) =
+            crate::runtime::session_runtime::SessionRuntime::live(24, 80);
         handle.runtime = runtime;
-        state.sessions.lock().unwrap().insert("plan-session".into(), handle);
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .insert("plan-session".into(), handle);
 
         std::env::set_var("ORKWORKS_OPEN_PLAN_TOKEN", "test-token");
         let mut headers = HeaderMap::new();
@@ -5925,12 +6152,10 @@ mod tests {
             Path("plan-session".into()),
             headers,
         ));
-        let crate::runtime::session_runtime::RuntimeCommand::Input { data, accepted } =
-            (tokio::select! {
-                command = control_rx.recv() => command.unwrap(),
-                response = &mut request => panic!("review request returned {} before reaching the PTY", response.unwrap().into_response().status()),
-            })
-        else {
+        let crate::runtime::session_runtime::RuntimeCommand::Input { data, accepted } = (tokio::select! {
+            command = control_rx.recv() => command.unwrap(),
+            response = &mut request => panic!("review request returned {} before reaching the PTY", response.unwrap().into_response().status()),
+        }) else {
             panic!("expected terminal input")
         };
         assert_eq!(data, "Please review the plan or specification at specs/plan.md. If your tooling can spawn a separate review subagent, delegate the review to it instead of reviewing your own work; otherwise review it yourself. Check for missing requirements, risky assumptions, and unclear steps, then report the findings.\r");
@@ -5939,7 +6164,16 @@ mod tests {
         std::env::remove_var("ORKWORKS_OPEN_PLAN_TOKEN");
 
         assert_eq!(response.status(), axum::http::StatusCode::NO_CONTENT);
-        let events = state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_events("plan-session");
-        assert!(events.iter().any(|event| event.event_type == "plan_review_requested"));
+        let events = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_events("plan-session");
+        assert!(events
+            .iter()
+            .any(|event| event.event_type == "plan_review_requested"));
     }
 }
