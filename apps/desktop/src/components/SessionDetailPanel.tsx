@@ -287,6 +287,51 @@ function SessionDetailPanel({ sessions, activeSessionId, onResumeSession, onAppl
                   </div>
                 </DetailField>
               )}
+              <div className="peon-diagnostics">
+                <div className="peon-diagnostics-title">Peon diagnostics</div>
+                <dl className="peon-diagnostics-grid">
+                  <div>
+                    <dt>Scheduler state</dt>
+                    <dd>{active.peonDiagnostics?.schedulerState ?? "Unavailable"}</dd>
+                  </div>
+                  <div>
+                    <dt>Reason</dt>
+                    <dd>{active.peonDiagnostics?.reason ?? "Unavailable"}</dd>
+                  </div>
+                  <div>
+                    <dt>Last attempt</dt>
+                    <dd>{active.peonDiagnostics?.lastAttemptAt ?? "Unavailable"}</dd>
+                  </div>
+                  <div>
+                    <dt>Last successful inference</dt>
+                    <dd>{active.peonDiagnostics?.lastSuccessfulInferenceAt ?? "Unavailable"}</dd>
+                  </div>
+                  <div>
+                    <dt>Provider ID</dt>
+                    <dd>{active.peonDiagnostics?.providerId ?? "Unavailable"}</dd>
+                  </div>
+                  <div>
+                    <dt>Provider model</dt>
+                    <dd>{active.peonDiagnostics?.providerModel ?? "Unavailable"}</dd>
+                  </div>
+                  <div>
+                    <dt>Fallback step</dt>
+                    <dd>{active.peonDiagnostics?.fallbackStep ?? "Unavailable"}</dd>
+                  </div>
+                  <div>
+                    <dt>Attempt count</dt>
+                    <dd>{active.peonDiagnostics?.attemptCount ?? "Unavailable"}</dd>
+                  </div>
+                  <div>
+                    <dt>Error summary</dt>
+                    <dd>{active.peonDiagnostics?.errorSummary ?? "Unavailable"}</dd>
+                  </div>
+                  <div>
+                    <dt>Accepted observations</dt>
+                    <dd>{active.peonDiagnostics?.observationCount ?? "Unavailable"}</dd>
+                  </div>
+                </dl>
+              </div>
             </>
           )}
         </div>
