@@ -1,8 +1,8 @@
 use crate::git;
 use crate::harness::registry::ResolvedHarness;
 use crate::metadata;
-use crate::plan_handoff::resolve_openable_plan_reference;
 use crate::peon;
+use crate::plan_handoff::resolve_openable_plan_reference;
 use crate::session_types::SessionInfo;
 use crate::session_view::{
     connectivity_for_status, derive_memory_state, detect_conflicts, merge_live_session_info,
@@ -75,7 +75,9 @@ impl SessionProjection {
                 live_sessions
                     .iter()
                     .filter_map(|info| {
-                        store.read_session(&info.id).map(|meta| (info.id.clone(), meta))
+                        store
+                            .read_session(&info.id)
+                            .map(|meta| (info.id.clone(), meta))
                     })
                     .collect::<HashMap<_, _>>()
             })
@@ -94,6 +96,7 @@ impl SessionProjection {
                 let meta = metadata_map.get(&id);
                 let resolved_harness = meta
                     .and_then(|meta| (!meta.harness.is_empty()).then_some(meta.harness.as_str()))
+                    .or(info.harness_id.as_deref())
                     .and_then(|id| registry.get(id))
                     .or_else(|| registry.get("generic-shell"));
                 let mut info = merge_live_session_info(
@@ -102,14 +105,14 @@ impl SessionProjection {
                     peon_last_inference.get(&id),
                     resolved_harness,
                 );
-                info.has_openable_plan = meta
-                    .and_then(|meta| meta.plan_path.as_ref())
-                    .and_then(|reference| {
-                        workspace.as_ref().map(|snapshot| {
-                            resolve_openable_plan_reference(&snapshot.workspace_path, reference)
-                                .is_ok()
-                        })
-                    });
+                info.has_openable_plan =
+                    meta.and_then(|meta| meta.plan_path.as_ref())
+                        .and_then(|reference| {
+                            workspace.as_ref().map(|snapshot| {
+                                resolve_openable_plan_reference(&snapshot.workspace_path, reference)
+                                    .is_ok()
+                            })
+                        });
                 info
             })
             .collect::<Vec<_>>();
@@ -128,7 +131,9 @@ impl SessionProjection {
         ProjectionSnapshot {
             infos,
             workspace_identity: workspace.as_ref().map(|snapshot| snapshot.identity.clone()),
-            metadata_root: workspace.as_ref().map(|snapshot| snapshot.metadata_root.clone()),
+            metadata_root: workspace
+                .as_ref()
+                .map(|snapshot| snapshot.metadata_root.clone()),
         }
     }
 
@@ -201,16 +206,25 @@ impl SessionProjection {
         let capacity_snapshots: HashMap<
             String,
             (u64, bool, bool, u64, u64, Option<(u64, u64)>, bool),
-        > =
-            live_sessions
-                .iter()
-                .map(|(info, generation, _, _, latched, pending, lines, bytes, origin, visible)| {
+        > = live_sessions
+            .iter()
+            .map(
+                |(info, generation, _, _, latched, pending, lines, bytes, origin, visible)| {
                     (
                         info.id.clone(),
-                        (*generation, *latched, *pending, *lines, *bytes, *origin, *visible),
+                        (
+                            *generation,
+                            *latched,
+                            *pending,
+                            *lines,
+                            *bytes,
+                            *origin,
+                            *visible,
+                        ),
                     )
-                })
-                .collect();
+                },
+            )
+            .collect();
         let capacity_metadata = metadata_root
             .as_ref()
             .map(|root| metadata::MetadataStore::new(root));
@@ -234,157 +248,169 @@ impl SessionProjection {
         let mut capped_clear_baselines: HashMap<String, (u64, u64)> = HashMap::new();
         let capacity_infos: Vec<SessionInfo> = live_sessions
             .into_iter()
-            .map(|(
-                info,
-                _,
-                snapshot,
-                scan_buf,
-                prev_latch,
-                pending,
-                output_lines_seen,
-                scan_bytes_seen,
-                origin,
-                pending_visible_once,
-            )| {
-                let id = info.id.clone();
-                let mut merged = projected_infos
-                    .iter()
-                    .find(|candidate| candidate.id == id)
-                    .cloned()
-                    .unwrap_or(info);
-                let resolved_harness = durable_harnesses
-                    .get(&id)
-                    .map(String::as_str)
-                    .and_then(|id| registry.get(id))
-                    .or_else(|| registry.get("generic-shell"));
-                let fresh_output_since_origin = origin
-                    .map(|(line_count, scan_len)| {
-                        output_lines_seen > line_count || scan_bytes_seen > scan_len
-                    })
-                    .unwrap_or(false);
-                let has_fresh_resume_output =
-                    pending && !pending_visible_once && fresh_output_since_origin;
-                let limit_patterns = resolved_harness
-                    .map(|harness| harness.capacity_patterns())
-                    .unwrap_or(&[]);
-                let stale_cap_recheck = prev_latch && !pending && origin.is_some();
-                let baseline_scoped_detection = !prev_latch && !pending && origin.is_some();
-                merged.at_usage_limit = resolved_harness.map(|_| {
-                    let detected_full = peon::detect_usage_limit(limit_patterns, &snapshot)
-                        || peon::detect_usage_limit_raw(limit_patterns, &scan_buf);
-                    if stale_cap_recheck && fresh_output_since_origin {
-                        let (line_count, scan_len) = origin.unwrap();
-                        let line_window_start =
-                            output_lines_seen.saturating_sub(snapshot.len() as u64);
-                        let scan_window_start =
-                            scan_bytes_seen.saturating_sub(scan_buf.len() as u64);
-                        let fresh_line_start =
-                            line_count.saturating_sub(line_window_start) as usize;
-                        let fresh_scan_start = scan_len.saturating_sub(scan_window_start) as usize;
-                        let fresh_lines = snapshot
-                            .get(fresh_line_start.min(snapshot.len())..)
-                            .unwrap_or(&[]);
-                        let fresh_scan = scan_buf
-                            .get(fresh_scan_start.min(scan_buf.len())..)
-                            .unwrap_or("");
-                        let detected_scoped = peon::detect_usage_limit(limit_patterns, fresh_lines)
-                            || peon::detect_usage_limit_raw(limit_patterns, fresh_scan);
-                        capped_recheck_resets.insert(id.clone());
-                        if !detected_scoped {
-                            capped_clear_baselines
-                                .insert(id.clone(), (output_lines_seen, scan_bytes_seen));
-                        }
-                        detected_scoped
-                    } else if baseline_scoped_detection {
-                        let (line_count, scan_len) = origin.unwrap();
-                        let line_window_start =
-                            output_lines_seen.saturating_sub(snapshot.len() as u64);
-                        let scan_window_start =
-                            scan_bytes_seen.saturating_sub(scan_buf.len() as u64);
-                        let fresh_line_start =
-                            line_count.saturating_sub(line_window_start) as usize;
-                        let fresh_scan_start = scan_len.saturating_sub(scan_window_start) as usize;
-                        let fresh_lines = snapshot
-                            .get(fresh_line_start.min(snapshot.len())..)
-                            .unwrap_or(&[]);
-                        let fresh_scan = scan_buf
-                            .get(fresh_scan_start.min(scan_buf.len())..)
-                            .unwrap_or("");
-                        let detected_scoped = peon::detect_usage_limit(limit_patterns, fresh_lines)
-                            || peon::detect_usage_limit_raw(limit_patterns, fresh_scan);
-                        if detected_scoped {
+            .map(
+                |(
+                    info,
+                    _,
+                    snapshot,
+                    scan_buf,
+                    prev_latch,
+                    pending,
+                    output_lines_seen,
+                    scan_bytes_seen,
+                    origin,
+                    pending_visible_once,
+                )| {
+                    let id = info.id.clone();
+                    let live_harness_id = info.harness_id.clone();
+                    let mut merged = projected_infos
+                        .iter()
+                        .find(|candidate| candidate.id == id)
+                        .cloned()
+                        .unwrap_or(info);
+                    let resolved_harness = durable_harnesses
+                        .get(&id)
+                        .map(String::as_str)
+                        .or(live_harness_id.as_deref())
+                        .and_then(|id| registry.get(id))
+                        .or_else(|| registry.get("generic-shell"));
+                    let fresh_output_since_origin = origin
+                        .map(|(line_count, scan_len)| {
+                            output_lines_seen > line_count || scan_bytes_seen > scan_len
+                        })
+                        .unwrap_or(false);
+                    let has_fresh_resume_output =
+                        pending && !pending_visible_once && fresh_output_since_origin;
+                    let limit_patterns = resolved_harness
+                        .map(|harness| harness.capacity_patterns())
+                        .unwrap_or(&[]);
+                    let stale_cap_recheck = prev_latch && !pending && origin.is_some();
+                    let baseline_scoped_detection = !prev_latch && !pending && origin.is_some();
+                    merged.at_usage_limit = resolved_harness.map(|_| {
+                        let detected_full = peon::detect_usage_limit(limit_patterns, &snapshot)
+                            || peon::detect_usage_limit_raw(limit_patterns, &scan_buf);
+                        if stale_cap_recheck && fresh_output_since_origin {
+                            let (line_count, scan_len) = origin.unwrap();
+                            let line_window_start =
+                                output_lines_seen.saturating_sub(snapshot.len() as u64);
+                            let scan_window_start =
+                                scan_bytes_seen.saturating_sub(scan_buf.len() as u64);
+                            let fresh_line_start =
+                                line_count.saturating_sub(line_window_start) as usize;
+                            let fresh_scan_start =
+                                scan_len.saturating_sub(scan_window_start) as usize;
+                            let fresh_lines = snapshot
+                                .get(fresh_line_start.min(snapshot.len())..)
+                                .unwrap_or(&[]);
+                            let fresh_scan = scan_buf
+                                .get(fresh_scan_start.min(scan_buf.len())..)
+                                .unwrap_or("");
+                            let detected_scoped =
+                                peon::detect_usage_limit(limit_patterns, fresh_lines)
+                                    || peon::detect_usage_limit_raw(limit_patterns, fresh_scan);
                             capped_recheck_resets.insert(id.clone());
+                            if !detected_scoped {
+                                capped_clear_baselines
+                                    .insert(id.clone(), (output_lines_seen, scan_bytes_seen));
+                            }
+                            detected_scoped
+                        } else if baseline_scoped_detection {
+                            let (line_count, scan_len) = origin.unwrap();
+                            let line_window_start =
+                                output_lines_seen.saturating_sub(snapshot.len() as u64);
+                            let scan_window_start =
+                                scan_bytes_seen.saturating_sub(scan_buf.len() as u64);
+                            let fresh_line_start =
+                                line_count.saturating_sub(line_window_start) as usize;
+                            let fresh_scan_start =
+                                scan_len.saturating_sub(scan_window_start) as usize;
+                            let fresh_lines = snapshot
+                                .get(fresh_line_start.min(snapshot.len())..)
+                                .unwrap_or(&[]);
+                            let fresh_scan = scan_buf
+                                .get(fresh_scan_start.min(scan_buf.len())..)
+                                .unwrap_or("");
+                            let detected_scoped =
+                                peon::detect_usage_limit(limit_patterns, fresh_lines)
+                                    || peon::detect_usage_limit_raw(limit_patterns, fresh_scan);
+                            if detected_scoped {
+                                capped_recheck_resets.insert(id.clone());
+                            }
+                            detected_scoped
+                        } else {
+                            prev_latch || detected_full
                         }
-                        detected_scoped
-                    } else {
-                        prev_latch || detected_full
+                    });
+                    if merged.lifecycle == "alive" && merged.at_usage_limit == Some(true) {
+                        merged.attention = Some("capped".into());
                     }
-                });
-                if merged.lifecycle == "alive" && merged.at_usage_limit == Some(true) {
-                    merged.attention = Some("capped".into());
-                }
-                let detected_reset_hint = resolved_harness.and_then(|_| {
-                    if stale_cap_recheck && fresh_output_since_origin {
-                        let (line_count, scan_len) = origin.unwrap();
-                        let line_window_start =
-                            output_lines_seen.saturating_sub(snapshot.len() as u64);
-                        let scan_window_start =
-                            scan_bytes_seen.saturating_sub(scan_buf.len() as u64);
-                        let fresh_line_start =
-                            line_count.saturating_sub(line_window_start) as usize;
-                        let fresh_scan_start = scan_len.saturating_sub(scan_window_start) as usize;
-                        let fresh_lines = snapshot
-                            .get(fresh_line_start.min(snapshot.len())..)
-                            .unwrap_or(&[]);
-                        let fresh_scan = scan_buf
-                            .get(fresh_scan_start.min(scan_buf.len())..)
-                            .unwrap_or("");
-                        peon::detect_usage_limit_hint(limit_patterns, fresh_lines).or_else(|| {
-                            peon::detect_usage_limit_hint_raw(limit_patterns, fresh_scan)
-                        })
-                    } else if baseline_scoped_detection {
-                        let (line_count, scan_len) = origin.unwrap();
-                        let line_window_start =
-                            output_lines_seen.saturating_sub(snapshot.len() as u64);
-                        let scan_window_start =
-                            scan_bytes_seen.saturating_sub(scan_buf.len() as u64);
-                        let fresh_line_start =
-                            line_count.saturating_sub(line_window_start) as usize;
-                        let fresh_scan_start = scan_len.saturating_sub(scan_window_start) as usize;
-                        let fresh_lines = snapshot
-                            .get(fresh_line_start.min(snapshot.len())..)
-                            .unwrap_or(&[]);
-                        let fresh_scan = scan_buf
-                            .get(fresh_scan_start.min(scan_buf.len())..)
-                            .unwrap_or("");
-                        peon::detect_usage_limit_hint(limit_patterns, fresh_lines).or_else(|| {
-                            peon::detect_usage_limit_hint_raw(limit_patterns, fresh_scan)
-                        })
-                    } else {
-                        peon::detect_usage_limit_hint(limit_patterns, &snapshot).or_else(|| {
-                            peon::detect_usage_limit_hint_raw(limit_patterns, &scan_buf)
-                        })
+                    let detected_reset_hint = resolved_harness.and_then(|_| {
+                        if stale_cap_recheck && fresh_output_since_origin {
+                            let (line_count, scan_len) = origin.unwrap();
+                            let line_window_start =
+                                output_lines_seen.saturating_sub(snapshot.len() as u64);
+                            let scan_window_start =
+                                scan_bytes_seen.saturating_sub(scan_buf.len() as u64);
+                            let fresh_line_start =
+                                line_count.saturating_sub(line_window_start) as usize;
+                            let fresh_scan_start =
+                                scan_len.saturating_sub(scan_window_start) as usize;
+                            let fresh_lines = snapshot
+                                .get(fresh_line_start.min(snapshot.len())..)
+                                .unwrap_or(&[]);
+                            let fresh_scan = scan_buf
+                                .get(fresh_scan_start.min(scan_buf.len())..)
+                                .unwrap_or("");
+                            peon::detect_usage_limit_hint(limit_patterns, fresh_lines).or_else(
+                                || peon::detect_usage_limit_hint_raw(limit_patterns, fresh_scan),
+                            )
+                        } else if baseline_scoped_detection {
+                            let (line_count, scan_len) = origin.unwrap();
+                            let line_window_start =
+                                output_lines_seen.saturating_sub(snapshot.len() as u64);
+                            let scan_window_start =
+                                scan_bytes_seen.saturating_sub(scan_buf.len() as u64);
+                            let fresh_line_start =
+                                line_count.saturating_sub(line_window_start) as usize;
+                            let fresh_scan_start =
+                                scan_len.saturating_sub(scan_window_start) as usize;
+                            let fresh_lines = snapshot
+                                .get(fresh_line_start.min(snapshot.len())..)
+                                .unwrap_or(&[]);
+                            let fresh_scan = scan_buf
+                                .get(fresh_scan_start.min(scan_buf.len())..)
+                                .unwrap_or("");
+                            peon::detect_usage_limit_hint(limit_patterns, fresh_lines).or_else(
+                                || peon::detect_usage_limit_hint_raw(limit_patterns, fresh_scan),
+                            )
+                        } else {
+                            peon::detect_usage_limit_hint(limit_patterns, &snapshot).or_else(|| {
+                                peon::detect_usage_limit_hint_raw(limit_patterns, &scan_buf)
+                            })
+                        }
+                    });
+                    let preserve_debug_hint = merged.metadata_source.as_deref() == Some("debug")
+                        && merged.lifecycle == "alive"
+                        && merged.attention.as_deref() == Some("capped");
+                    if !preserve_debug_hint || detected_reset_hint.is_some() {
+                        merged.usage_limit_reset_hint = detected_reset_hint;
                     }
-                });
-                let preserve_debug_hint = merged.metadata_source.as_deref() == Some("debug")
-                    && merged.lifecycle == "alive"
-                    && merged.attention.as_deref() == Some("capped");
-                if !preserve_debug_hint || detected_reset_hint.is_some() {
-                    merged.usage_limit_reset_hint = detected_reset_hint;
-                }
-                merged.capacity_check_pending = if pending && !pending_visible_once {
-                    Some(true)
-                } else {
-                    None
-                };
-                pending_transitions.push((id, has_fresh_resume_output, pending_visible_once));
-                merged
-            })
+                    merged.capacity_check_pending = if pending && !pending_visible_once {
+                        Some(true)
+                    } else {
+                        None
+                    };
+                    pending_transitions.push((id, has_fresh_resume_output, pending_visible_once));
+                    merged
+                },
+            )
             .collect();
 
         let mut infos = projected_infos;
         for info in &mut infos {
-            let Some(capacity_info) = capacity_infos.iter().find(|candidate| candidate.id == info.id)
+            let Some(capacity_info) = capacity_infos
+                .iter()
+                .find(|candidate| candidate.id == info.id)
             else {
                 continue;
             };
@@ -444,26 +470,6 @@ impl SessionProjection {
             return Vec::new();
         }
         let mut sessions = self.state.sessions.lock().unwrap();
-        let runtime_identity_current = capacity_snapshots.iter().all(|(id, snapshot)| {
-                let Some(handle) = sessions.get(id) else {
-                    return false;
-                };
-                let (generation, latched, pending, lines, bytes, origin, visible) = snapshot;
-                handle.runtime.run_generation() == *generation
-                    && handle.at_usage_limit_latched == *latched
-                    && handle.capacity_check_pending == *pending
-                    && handle.output_lines_seen == *lines
-                    && handle.scan_bytes_seen == *bytes
-                    && handle.resume_scan_origin == *origin
-                    && handle.pending_capacity_visible_once == *visible
-        });
-        if !runtime_identity_current {
-            return infos;
-        }
-        self.state
-            .providers
-            .update_session_capping(harness_capped, harness_reset_hint, provider_checking);
-
         let mut write_back_snapshot_ids = HashSet::new();
         for info in &infos {
             if let Some(handle) = sessions.get_mut(&info.id) {
@@ -502,6 +508,32 @@ impl SessionProjection {
                 }
             }
         }
+        harness_capped.clear();
+        harness_reset_hint.clear();
+        provider_checking.clear();
+        for info in &infos {
+            if !write_back_snapshot_ids.contains(&info.id) {
+                continue;
+            }
+            if let (Some(hid), Some(capped)) = (&info.harness_id, info.at_usage_limit) {
+                *harness_capped.entry(hid.clone()).or_insert(false) |= capped;
+            }
+            if let (Some(hid), Some(hint)) = (&info.harness_id, &info.usage_limit_reset_hint) {
+                harness_reset_hint
+                    .entry(hid.clone())
+                    .or_insert_with(|| hint.clone());
+            }
+            if info.capacity_check_pending == Some(true) {
+                if let Some(hid) = &info.harness_id {
+                    provider_checking.insert(hid.clone());
+                }
+            }
+        }
+        self.state.providers.update_session_capping(
+            harness_capped,
+            harness_reset_hint,
+            provider_checking,
+        );
         for (id, has_fresh_resume_output, pending_visible_once) in &pending_transitions {
             if !write_back_snapshot_ids.contains(id) {
                 continue;

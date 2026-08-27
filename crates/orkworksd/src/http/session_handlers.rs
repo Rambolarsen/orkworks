@@ -1,11 +1,11 @@
-use crate::session_projection::SessionProjection;
-#[cfg(test)]
-use crate::session_projection::enrich_sessions_with_git_context as project_git_context;
 #[cfg(test)]
 use crate::session_application::{resolve_session_launch, CreateSessionCommand};
 use crate::session_application::{
     try_install_claimed_resume_handle, DebugAttentionSignal, SessionApplication, SessionError,
 };
+#[cfg(test)]
+use crate::session_projection::enrich_sessions_with_git_context as project_git_context;
+use crate::session_projection::SessionProjection;
 use crate::session_types::SessionInfo;
 #[cfg(test)]
 use crate::workspace_runtime::orkworks_global_dir;
@@ -169,7 +169,13 @@ pub(crate) async fn set_workspace(
     Json(req): Json<WorkspaceRequest>,
 ) -> impl IntoResponse {
     let projection_state = state.clone();
-    let _projection = projection_state.projection_lock.lock().unwrap();
+    let _projection = match projection_state.projection_lock.lock() {
+        Ok(guard) => guard,
+        Err(error) => {
+            tracing::error!(error = %error, "workspace update blocked by poisoned projection lock");
+            return axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
     match SessionApplication::new(state).open_workspace(PathBuf::from(&req.path)) {
         Ok(snapshot) => Json(WorkspaceResponse {
             path: snapshot.path,
@@ -464,14 +470,29 @@ mod tests {
         std::sync::Mutex<HashMap<usize, Box<dyn FnOnce() + Send>>>,
     > = std::sync::LazyLock::new(|| std::sync::Mutex::new(HashMap::new()));
 
+    struct ListSessionsBeforeWriteBackHookGuard {
+        state_key: usize,
+    }
+
+    impl Drop for ListSessionsBeforeWriteBackHookGuard {
+        fn drop(&mut self) {
+            LIST_SESSIONS_BEFORE_WRITE_BACK_HOOK
+                .lock()
+                .unwrap()
+                .remove(&self.state_key);
+        }
+    }
+
     fn install_list_sessions_before_write_back_hook(
         state: &Arc<AppState>,
         hook: Box<dyn FnOnce() + Send>,
-    ) {
+    ) -> ListSessionsBeforeWriteBackHookGuard {
+        let state_key = Arc::as_ptr(state) as usize;
         LIST_SESSIONS_BEFORE_WRITE_BACK_HOOK
             .lock()
             .unwrap()
-            .insert(Arc::as_ptr(state) as usize, hook);
+            .insert(state_key, hook);
+        ListSessionsBeforeWriteBackHookGuard { state_key }
     }
 
     pub(super) fn run_list_sessions_before_write_back_hook(state: &Arc<AppState>) {
@@ -888,9 +909,12 @@ mod tests {
         let hook_ran = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let hook_ran_for_callback = hook_ran.clone();
 
-        install_list_sessions_before_write_back_hook(&hook_state, Box::new(move || {
-            hook_ran_for_callback.store(true, std::sync::atomic::Ordering::SeqCst);
-        }));
+        let _hook_guard = install_list_sessions_before_write_back_hook(
+            &hook_state,
+            Box::new(move || {
+                hook_ran_for_callback.store(true, std::sync::atomic::Ordering::SeqCst);
+            }),
+        );
 
         listed_sessions(other_state).await;
         assert!(
@@ -912,7 +936,9 @@ mod tests {
         handle.info.harness = Some("codex".into());
         handle.capacity_check_pending = true;
         handle.info.capacity_check_pending = Some(true);
-        handle.output_buffer.push("You've hit your usage limit".into());
+        handle
+            .output_buffer
+            .push("You've hit your usage limit".into());
         handle.output_lines_seen = 1;
         handle.scan_bytes_seen = 0;
         handle.resume_scan_origin = Some((0, 0));
@@ -927,7 +953,11 @@ mod tests {
                 "before",
             );
             metadata.harness = "codex".into();
-            workspace.as_ref().unwrap().metadata.write_session(&metadata);
+            workspace
+                .as_ref()
+                .unwrap()
+                .metadata
+                .write_session(&metadata);
         }
         state
             .sessions
@@ -937,10 +967,13 @@ mod tests {
 
         let stale_state = state.clone();
         let stale_id = session_id.clone();
-        install_list_sessions_before_write_back_hook(&state, Box::new(move || {
-            let mut sessions = stale_state.sessions.lock().unwrap();
-            sessions.get_mut(&stale_id).unwrap().output_lines_seen += 1;
-        }));
+        let _hook_guard = install_list_sessions_before_write_back_hook(
+            &state,
+            Box::new(move || {
+                let mut sessions = stale_state.sessions.lock().unwrap();
+                sessions.get_mut(&stale_id).unwrap().output_lines_seen += 1;
+            }),
+        );
 
         let sessions = listed_sessions(state.clone()).await;
         assert_eq!(sessions.len(), 1);
