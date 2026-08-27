@@ -1,148 +1,133 @@
-# Task 2 — Sidecar lifecycle controller report
+# Task 2 — Peon provider verification and staged Apply review fixes
 
 ## Scope delivered
 
-Implemented only the standalone, testable Electron-main sidecar lifecycle
-controller and its focused tests. `main.ts` was not changed.
+This Task 2 follow-up fixes the provider verification review findings without
+expanding the provider-first selection flow:
 
-- Added `apps/desktop/electron/sidecarLifecycle.ts`.
-- Added `apps/desktop/tests/sidecarLifecycle.test.ts`.
-- Committed the two Task 2 files as `6f7b809 feat: add generation-safe sidecar lifecycle`.
+- `crates/orkworksd/src/providers.rs`
+  - `verify_provider` now verifies connectivity/default-model execution and
+    returns capability metadata even when a provider cannot deliver an
+    explicitly selected model.
+  - `test_and_apply` remains the only operation that rejects unsupported
+    explicit model delivery, before invoking or mutating applied state.
+  - Invalid inference JSON is classified as `ModelFailure` only after a fresh
+    generation check, so a superseding request returns `StaleGeneration`.
+  - Added deterministic coverage for that stale invalid-JSON race.
+  - Added a Unix integration test that runs the real `ProcessRunner` and
+    asserts the child argv contains `--model=manual-model`.
+- `crates/orkworksd/src/main.rs`
+  - Added a successful HTTP route test covering provider verification, staged
+    Apply, applied-state retrieval, JSON serialization, and the normalized
+    Ollama URL.
+  - Existing route coverage continues to assert structured error serialization
+    and HTTP status mapping for verification-required and malformed requests.
 
-The controller provides `start`, `stop`, `retry`, `getPort`, and `dispose`.
-It accepts injected process spawning, fetch, clocks/timers, and state/readiness
-callbacks. It uses a monotonically increasing generation to ignore stale
-stdout, exit, and error callbacks; it rejects generation-specific readiness on
-pre-ready exit, error, and timeout; clears the port on a current failure; and
-performs a bounded three-attempt automatic recovery sequence before explicit
-retry is required. The attempt counter resets only after the configured ready
-stability timer, not when a port is first published.
+No desktop, protocol, or unrelated provider behavior was changed.
 
-## TDD record and commands
+## Review-finding coverage
 
-1. Wrote the lifecycle tests before creating the production module.
+1. Default-only providers now return `ok`, `provider`, `models`, generation,
+   and capability metadata from verification. Their `testInference` capability
+   is false when explicit model delivery is unavailable; explicit Apply returns
+   `unsupported_capability`.
+2. The invalid-JSON ModelFailure branch re-checks the operation generation. The
+   test hook advances the generation at the exact pre-parse boundary, making
+   the expected stale result deterministic rather than sleep-based.
+3. The manual-model test uses `ProcessRunner` with `sh` and captures the
+   actual child positional argument, proving the rendered model flag reaches
+   the process argv.
+4. The route test sends real HTTP requests in order: verify, test-and-apply,
+   then applied-state GET. It asserts camelCase capability/applied fields and
+   the serialized response equality.
 
-   ```bash
-   cd apps/desktop
-   node --experimental-strip-types --test tests/sidecarLifecycle.test.ts
-   ```
+## Commands and results
 
-   Result: failed as expected with `ERR_MODULE_NOT_FOUND` for
-   `electron/sidecarLifecycle.ts`.
+The linked checkout's default Cargo target directory was not writable. The
+focused test commands therefore used an isolated target under `/private/tmp`.
+The route tests also require loopback binding; the first sandboxed attempt was
+denied at `TcpListener::bind`, and the same focused command passed with local
+network permission.
 
-2. Implemented the smallest injected state machine to satisfy the tests.
-   The first green run revealed unhandled rejected promises from automatic
-   retries, because those retries have no external promise owner. The
-   controller now consumes those internal rejections after failure callbacks
-   schedule the next bounded retry.
+### Focused provider regressions
 
-3. Final focused verification:
+```bash
+CARGO_TARGET_DIR=/private/tmp/orkworks-peon-provider-first-selection-target-1 rtk cargo test --manifest-path crates/orkworksd/Cargo.toml providers::tests::default_only_provider_verification_returns_capabilities_without_apply_support -- --nocapture
+```
 
-   ```bash
-   cd apps/desktop
-   node --experimental-strip-types --test tests/sidecarLifecycle.test.ts
-   npx tsc --noEmit
-   git diff --check
-   ```
+Result: **PASS** — `1 passed, 891 filtered out`.
 
-   Result: lifecycle suite passed 7/7; TypeScript exited 0; diff check exited
-   0. Node emitted the existing package-type warning for TypeScript ESM tests.
+```bash
+CARGO_TARGET_DIR=/private/tmp/orkworks-peon-provider-first-selection-target-1 rtk cargo test --manifest-path crates/orkworksd/Cargo.toml providers::tests::stale_generation_wins_over_invalid_inference_failure -- --nocapture
+```
 
-4. Self-review checked the committed controller and tests for generation
-   guards, readiness settlement, retry bounds, port clearing, stale callback
-   handling, and accidental Electron/main integration.
+Result: **PASS** — `1 passed, 891 filtered out`.
 
-5. Repository closeout checks:
+```bash
+CARGO_TARGET_DIR=/private/tmp/orkworks-peon-provider-first-selection-target-1 rtk cargo test --manifest-path crates/orkworksd/Cargo.toml providers::tests::test_and_apply_passes_manual_model_in_real_process_argv -- --nocapture
+```
 
-   ```bash
-   bash .claude/hooks/doc-check.sh
-   bash .claude/hooks/worktree-check.sh
-   ```
+Result: **PASS** — `1 passed, 891 filtered out`.
 
-   Result: both exited 0 with no findings.
+```bash
+CARGO_TARGET_DIR=/private/tmp/orkworks-peon-provider-first-selection-target-1 rtk cargo test --manifest-path crates/orkworksd/Cargo.toml providers::tests:: -- --nocapture
+```
 
-## Test coverage
+Result: **PASS** — `67 passed, 825 filtered out`.
 
-- pre-ready process exit rejects readiness and clears the port
-- obsolete-generation exit cannot invalidate the current ready process
-- three automatic attempts exhaust recovery; explicit retry can recover
-- ready-process exit sends unavailable notification and invalidates the port
-- process error rejects readiness
-- readiness timeout rejects readiness
-- repeated error/exit callbacks schedule only one automatic recovery sequence
+### Endpoint coverage
 
-## Concerns and handoff
+```bash
+CARGO_TARGET_DIR=/private/tmp/orkworks-peon-provider-first-selection-target-1 rtk cargo test --manifest-path crates/orkworksd/Cargo.toml http::provider_handlers::tests:: -- --nocapture
+```
 
-- Task 3 must integrate this controller into `main.ts`, including concrete
-  binary/env spawning, workspace restoration, settings replay, and renderer
-  notification wiring. Those changes are intentionally out of scope here.
-- `.superpowers/sdd/task-1-report.md` was already modified before this task and
-  remains untouched/uncommitted by Task 2.
-- This report is deliberately not part of the Task 2 code commit; the exact
-  task brief specifies committing only the lifecycle module and its tests.
+Result: **PASS** — `2 passed, 890 filtered out`.
 
-## Review-finding fix — 2026-08-26
+```bash
+CARGO_TARGET_DIR=/private/tmp/orkworks-peon-provider-first-selection-target-1 rtk cargo test --manifest-path crates/orkworksd/Cargo.toml peon_provider_routes_ -- --nocapture
+```
 
-### Scope
+Result: **PASS** — `2 passed, 890 filtered out`.
 
-- `fail()` now terminates its own failed process before scheduling recovery.
-  `exited` prevents a second kill after an exit event, and `killRequested`
-  prevents duplicate error/timeout callbacks from killing the same process.
-  Termination receives the captured generation, so it cannot kill a replacement.
-- The injected clock now records each generation's ready time and explicitly
-  gates retry-counter reset until the complete stability period has elapsed.
-  The unused stored lifecycle state was removed; state remains observable via
-  the existing callback contract.
-- The deterministic fake timers now model due times and clock advancement.
-  New coverage proves retries are retained after immediate post-ready failure,
-  reset after `readyStabilityMs`, and that timeout/error failures kill their
-  original process.
+```bash
+CARGO_TARGET_DIR=/private/tmp/orkworks-peon-provider-first-selection-target-1 rtk cargo test --manifest-path crates/orkworksd/Cargo.toml peon_provider_routes_verify_apply_and_serialize_applied_state -- --nocapture
+```
 
-### Commands and results
+Result: **PASS** with local-network permission — `1 passed, 891 filtered out`.
 
-1. Baseline:
+The first attempt at that exact route test without local-network permission
+failed before running the test with:
+`Operation not permitted` at `std::net::TcpListener::bind("127.0.0.1:0")`.
 
-   ```bash
-   cd apps/desktop
-   node --experimental-strip-types --test tests/sidecarLifecycle.test.ts
-   ```
+### Repository checks
 
-   Result: passed 7/7 before the review-fix tests were added.
+```bash
+rtk git diff --check
+```
 
-2. TDD red run after adding the failure-termination assertion:
+Result: **PASS** — no whitespace errors.
 
-   ```bash
-   cd apps/desktop
-   node --experimental-strip-types --test tests/sidecarLifecycle.test.ts
-   ```
+```bash
+bash scripts/doc-check.sh
+bash .claude/hooks/worktree-check.sh
+```
 
-   Result: failed as expected: readiness timeout left `processes[0].killed`
-   false (8 passed, 1 failed).
+Result: both exited **0** with no findings.
 
-3. Covering verification after the lifecycle fix:
+```bash
+rtk cargo fmt --manifest-path crates/orkworksd/Cargo.toml -- --check
+```
 
-   ```bash
-   cd apps/desktop
-   node --experimental-strip-types --test tests/sidecarLifecycle.test.ts
-   npx tsc --noEmit
-   ```
+Result: **FAIL** on pre-existing formatting differences across unrelated Rust
+modules, including harness, runtime, Taskmaster, and workflow-observation
+code. No unrelated formatting was applied.
 
-   Result: lifecycle suite passed 9/9; TypeScript completed with no errors.
+## Limitations and concerns
 
-4. Repository closeout:
-
-   ```bash
-   git diff --check
-   bash .claude/hooks/doc-check.sh
-   bash .claude/hooks/worktree-check.sh
-   ```
-
-   Result: all exited 0 with no findings.
-
-### Concerns
-
-- The focused Node test continues to emit the existing package-type warning for
-  TypeScript ESM files. No package metadata was changed because that is outside
-  this review-fix scope.
-- Pre-existing edits to `.superpowers/sdd/task-1-report.md` were preserved and
-  are not included in this fix commit.
+- The real-argv test is Unix-only because it uses `sh`; the production
+  invocation path remains platform-neutral and the existing Windows runner
+  behavior is unchanged.
+- This follow-up ran the focused provider and endpoint suites requested here,
+  not the full Rust or desktop suites.
+- Repository-wide formatting remains red for unrelated pre-existing diffs;
+  `git diff --check` is clean for this patch.

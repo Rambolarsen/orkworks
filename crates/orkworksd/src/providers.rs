@@ -1058,6 +1058,8 @@ pub struct ProviderManager {
     session_checking: Arc<RwLock<HashSet<String>>>,
     operation_state: Arc<Mutex<ProviderOperationState>>,
     apply_lock: Arc<Mutex<()>>,
+    #[cfg(test)]
+    apply_parse_hook: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
 impl ProviderManager {
@@ -1087,6 +1089,8 @@ impl ProviderManager {
             session_checking: Arc::new(RwLock::new(HashSet::new())),
             operation_state: Arc::new(Mutex::new(ProviderOperationState::default())),
             apply_lock: Arc::new(Mutex::new(())),
+            #[cfg(test)]
+            apply_parse_hook: None,
         }
     }
 
@@ -1405,7 +1409,6 @@ impl ProviderManager {
             });
         }
         let definition = self.definition(provider_id)?;
-        self.validate_apply_capability(&definition)?;
         let capabilities = self.capabilities(&definition.id)?;
         let mut normalized_url = None;
         let models = if definition.id == "ollama" {
@@ -1478,10 +1481,17 @@ impl ProviderManager {
             return Err(invocation_operation_error(&result.stderr));
         }
         self.ensure_current_generation(request.generation)?;
-        peon::parse_inference(&result.stdout).ok_or(ProviderOperationError {
-            code: ProviderOperationErrorCode::ModelFailure,
-            message: "provider returned invalid Peon inference JSON".into(),
-        })?;
+        #[cfg(test)]
+        if let Some(hook) = &self.apply_parse_hook {
+            hook();
+        }
+        if peon::parse_inference(&result.stdout).is_none() {
+            self.ensure_current_generation(request.generation)?;
+            return Err(ProviderOperationError {
+                code: ProviderOperationErrorCode::ModelFailure,
+                message: "provider returned invalid Peon inference JSON".into(),
+            });
+        }
         self.ensure_current_generation(request.generation)?;
 
         let applied_at = chrono_now();
@@ -2302,6 +2312,8 @@ impl ProviderManager {
             session_checking: Arc::new(RwLock::new(HashSet::new())),
             operation_state: Arc::new(Mutex::new(ProviderOperationState::default())),
             apply_lock: Arc::new(Mutex::new(())),
+            #[cfg(test)]
+            apply_parse_hook: None,
         }
     }
 
@@ -2324,6 +2336,8 @@ impl ProviderManager {
             session_checking: Arc::new(RwLock::new(HashSet::new())),
             operation_state: Arc::new(Mutex::new(ProviderOperationState::default())),
             apply_lock: Arc::new(Mutex::new(())),
+            #[cfg(test)]
+            apply_parse_hook: None,
         }
     }
 }
@@ -3772,6 +3786,34 @@ mod tests {
     }
 
     #[test]
+    fn default_only_provider_verification_returns_capabilities_without_apply_support() {
+        let mut definition = custom_provider_definition();
+        definition.model_arg_template = None;
+        definition.supports_model = false;
+        definition.static_models.clear();
+        let manager = ProviderManager::for_tests_with_registry(
+            vec![definition],
+            ProviderSettingsPayload::default(),
+            vec![fake_provider("custom-ai")
+                .stdout(r#"{"observedStatus":"working","confidence":0.9}"#)],
+        );
+
+        let response = manager
+            .verify_provider(PeonProviderVerifyRequest {
+                provider: "custom-ai".into(),
+                ollama_base_url: None,
+                generation: 1,
+            })
+            .expect("default-only providers should still verify connectivity");
+
+        assert!(response.capabilities.connectivity);
+        assert!(!response.capabilities.model_discovery);
+        assert!(response.capabilities.provider_default);
+        assert!(!response.capabilities.test_inference);
+        assert!(response.models.is_empty());
+    }
+
+    #[test]
     fn verification_rejects_unknown_provider_as_structured_error() {
         let manager = ProviderManager::for_tests(ProviderSettingsPayload::default(), vec![]);
         let error = manager
@@ -3856,6 +3898,45 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn test_and_apply_passes_manual_model_in_real_process_argv() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let capture_path = tempdir.path().join("argv-model");
+        let mut definition = custom_provider_definition();
+        definition.command = "sh".into();
+        definition.default_args = vec![
+            "-c".into(),
+            format!(
+                "printf '%s' \"$1\" > '{}' && printf '%s' '{{\"observedStatus\":\"working\",\"confidence\":0.9}}'",
+                capture_path.display()
+            ),
+            "provider".into(),
+        ];
+        let mut manager = ProviderManager::for_tests_with_registry(
+            vec![definition],
+            ProviderSettingsPayload::default(),
+            vec![],
+        );
+        manager.runner = Arc::new(ProcessRunner);
+
+        manager
+            .verify_provider(PeonProviderVerifyRequest {
+                provider: "custom-ai".into(),
+                ollama_base_url: None,
+                generation: 1,
+            })
+            .expect("the real provider process should verify");
+        manager
+            .test_and_apply(PeonTestAndApplyRequest {
+                selection: staged_selection("custom-ai", "manual-model"),
+                generation: 1,
+            })
+            .expect("the real provider process should apply");
+
+        assert_eq!(std::fs::read_to_string(capture_path).unwrap(), "--model=manual-model");
+    }
+
     #[test]
     fn apply_requires_matching_successful_verification() {
         let manager = ProviderManager::for_tests_with_registry(
@@ -3909,7 +3990,7 @@ mod tests {
     }
 
     #[test]
-    fn incomplete_model_capability_is_rejected_before_verification_or_apply() {
+    fn incomplete_model_capability_is_rejected_only_for_explicit_apply() {
         let mut definition = custom_provider_definition();
         definition.model_arg_template = None;
         let manager = ProviderManager::for_tests_with_registry(
@@ -3919,13 +4000,24 @@ mod tests {
                 .stdout(r#"{"observedStatus":"working","confidence":0.9}"#)],
         );
 
-        let error = manager
+        let response = manager
             .verify_provider(PeonProviderVerifyRequest {
                 provider: "custom-ai".into(),
                 ollama_base_url: None,
                 generation: 1,
             })
-            .expect_err("a provider that cannot deliver its selected model is incomplete");
+            .expect("default-model verification should not require explicit model delivery");
+
+        assert!(response.ok);
+        assert!(response.capabilities.provider_default);
+        assert!(!response.capabilities.test_inference);
+
+        let error = manager
+            .test_and_apply(PeonTestAndApplyRequest {
+                selection: staged_selection("custom-ai", "manual-model"),
+                generation: 1,
+            })
+            .expect_err("explicit Apply must reject missing model delivery");
 
         assert_eq!(error.code, ProviderOperationErrorCode::UnsupportedCapability);
     }
@@ -4054,6 +4146,37 @@ mod tests {
 
         assert_eq!(error.code, ProviderOperationErrorCode::ModelFailure);
         assert!(manager.get_applied().provider.is_none());
+    }
+
+    #[test]
+    fn stale_generation_wins_over_invalid_inference_failure() {
+        let mut manager = ProviderManager::for_tests_with_registry(
+            vec![custom_provider_definition()],
+            ProviderSettingsPayload::default(),
+            vec![fake_provider("custom-ai").stdout("not JSON")],
+        );
+
+        manager
+            .verify_provider(PeonProviderVerifyRequest {
+                provider: "custom-ai".into(),
+                ollama_base_url: None,
+                generation: 1,
+            })
+            .unwrap();
+        let newer = manager.clone();
+        manager.apply_parse_hook = Some(Arc::new(move || {
+            newer.accept_generation(2).unwrap();
+        }));
+
+        let error = manager
+            .test_and_apply(PeonTestAndApplyRequest {
+                selection: staged_selection("custom-ai", "manual-model"),
+                generation: 1,
+            })
+            .expect_err("a superseded invalid response must be reported as stale");
+
+        assert_eq!(error.code, ProviderOperationErrorCode::StaleGeneration);
+        assert_eq!(manager.get_applied().connection_revision, 0);
     }
 
     #[test]
