@@ -1,11 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { acceleratorFromKeyboardEvent } from "../hotkeyCapture";
 import type { AppSettings, DebugSettings, HotkeySettings, RetentionSettings } from "../appSettingsTypes";
-import type { ProviderId, ProviderSettings, ProviderModelsResponse, OllamaVerificationResponse } from "../providerTypes";
+import type { ProviderId, ProviderSettings, PeonSelection, PeonAppliedState, PeonProviderVerificationResponse } from "../providerTypes";
 import type { ProviderRuntimeResponse } from "../api";
 import type { HarnessConfig } from "../harnessTypes";
 import { normalizeActiveHarnessIds, selectableHarnesses } from "../newSessionDialogState";
-import ProviderSettingsSection from "./ProviderSettingsSection";
 import HarnessIntegrationSection from "./HarnessIntegrationSection";
 import HarnessDetectionStatus from "./HarnessDetectionStatus";
 import HarnessIcon from "./HarnessIcon";
@@ -13,16 +12,11 @@ import Toggle from "./Toggle";
 import Button from "./Button";
 import Input from "./Input";
 import { createSettingsController } from "../settingsController";
-import { updateProviderModel } from "../providerPresentation";
 
 // The controller delegates to the existing window.orkworks.verifyOllama and
 // window.orkworks.saveProviderSettings IPC methods; the modal never bypasses it.
 
 type HotkeyAction = keyof HotkeySettings;
-type OllamaVerificationViewState =
-  | { phase: "idle" }
-  | { phase: "checking"; requestedBaseUrl: string }
-  | { phase: "done"; result: OllamaVerificationResponse };
 
 type SettingsSection = "tools" | "providers" | "hotkeys" | "retention" | "debug";
 
@@ -76,12 +70,17 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
   const [debugSettings, setDebugSettings] = useState<DebugSettings>(initialSettings.debug);
   const [debugSaveStatus, setDebugSaveStatus] = useState<string | null>(null);
   const [providerDraft, setProviderDraft] = useState<ProviderSettings>(initialSettings.providers);
-  const [providerModels, setProviderModels] = useState<Record<string, string[]>>({});
   const [providerSaveStatus, setProviderSaveStatus] = useState<string | null>(null);
-  const [peonModelDraft, setPeonModelDraft] = useState<string | null>(initialSettings.providers.peonModel);
-  const [ollamaBaseUrlDraft, setOllamaBaseUrlDraft] = useState<string>(initialSettings.providers.ollamaBaseUrl);
-  const [ollamaVerification, setOllamaVerification] = useState<OllamaVerificationViewState>({ phase: "idle" });
-  const verifyRequestRef = useRef(0);
+  const initialPeonSelection: PeonSelection = initialSettings.providers.peonSelection ?? {
+    provider: "ollama",
+    model: initialSettings.providers.peonModel ?? "",
+    ollamaBaseUrl: initialSettings.providers.ollamaBaseUrl,
+  };
+  const [peonSelection, setPeonSelection] = useState<PeonSelection>(initialPeonSelection);
+  const [peonVerification, setPeonVerification] = useState<PeonProviderVerificationResponse | null>(null);
+  const [peonApplied, setPeonApplied] = useState<PeonAppliedState | null>(null);
+  const [peonBusy, setPeonBusy] = useState(false);
+  const [peonError, setPeonError] = useState<string | null>(null);
   const [activeDraft, setActiveDraft] = useState<string[]>(() =>
     normalizeActiveHarnessIds(harnesses, activeHarnessIds),
   );
@@ -160,111 +159,6 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
     };
   }, [capturing]);
 
-  useEffect(() => {
-    const ids = providerDraft.providers.map((p) => p.id);
-    async function load() {
-      const map: Record<string, string[]> = {};
-      for (const id of ids) {
-        try {
-          const resp: ProviderModelsResponse = await window.orkworks.getProviderModels(id);
-          map[id] = resp.models;
-        } catch {
-          map[id] = [];
-        }
-      }
-      setProviderModels(map);
-    }
-    load();
-  }, []);
-
-  useEffect(() => {
-    setPeonModelDraft(providerDraft.peonModel);
-  }, [providerDraft.peonModel]);
-
-  useEffect(() => {
-    setOllamaBaseUrlDraft(providerDraft.ollamaBaseUrl);
-  }, [providerDraft.ollamaBaseUrl]);
-
-  function normalizeBaseUrlDraft(baseUrl: string): string {
-    const trimmed = baseUrl.trim().replace(/\/+$/, "");
-    try {
-      const parsed = new URL(trimmed);
-      if (parsed.pathname !== "/" || parsed.search || parsed.hash) {
-        return trimmed;
-      }
-      return parsed.origin;
-    } catch {
-      return trimmed;
-    }
-  }
-
-  function failedVerificationResult(baseUrl: string, diagnostic: string): OllamaVerificationResponse {
-    return {
-      ok: false,
-      normalizedBaseUrl: normalizeBaseUrlDraft(baseUrl),
-      status: "failed",
-      reasonCode: "invalid_url",
-      httpStatus: null,
-      models: [],
-      excludedModels: [],
-      diagnostic,
-    };
-  }
-
-  async function verifyOllamaDraft(baseUrl: string) {
-    const requestId = ++verifyRequestRef.current;
-    const normalizedDraft = normalizeBaseUrlDraft(baseUrl);
-    setOllamaVerification({ phase: "checking", requestedBaseUrl: normalizedDraft });
-    try {
-      const result = await settingsController.verifyOllama(baseUrl);
-      if (requestId !== verifyRequestRef.current) return;
-      setOllamaVerification({ phase: "done", result });
-    } catch (error) {
-      if (requestId !== verifyRequestRef.current) return;
-      setOllamaVerification({
-        phase: "done",
-        result: failedVerificationResult(
-          baseUrl,
-          error instanceof Error ? error.message : "Couldn't verify Ollama.",
-        ),
-      });
-    }
-  }
-
-  function renderOllamaVerificationStatus() {
-    if (ollamaVerification.phase === "idle") {
-      return <span className="provider-verify-status">No verification result yet.</span>;
-    }
-    if (ollamaVerification.phase === "checking") {
-      return <span className="provider-verify-status">Checking {ollamaVerification.requestedBaseUrl || "Ollama"}…</span>;
-    }
-    const { result } = ollamaVerification;
-    if (result.status === "connected") {
-      return (
-        <span className="provider-verify-status provider-verify-status--ok">
-          Connected to {result.normalizedBaseUrl}.
-        </span>
-      );
-    }
-    if (result.status === "connected_empty") {
-      return (
-        <span className="provider-verify-status">
-          Connected to {result.normalizedBaseUrl}, but no Peon candidate models were found.
-        </span>
-      );
-    }
-    return (
-      <span className="provider-verify-status provider-verify-status--error">
-        {result.diagnostic ?? `Couldn't verify ${result.normalizedBaseUrl}.`}
-      </span>
-    );
-  }
-
-  const candidateModels =
-    ollamaVerification.phase === "done" && ollamaVerification.result.ok
-      ? ollamaVerification.result.models
-      : [];
-
   async function saveRetention(rt: RetentionSettings) {
     setRetentionSaveStatus(null);
     setRetention(rt);
@@ -304,16 +198,6 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
     }
   }
 
-  async function savePeonModel(model: string | null) {
-    setProviderSaveStatus(null);
-    const nextBaseUrl =
-      ollamaVerification.phase === "done" && ollamaVerification.result.ok
-        ? ollamaVerification.result.normalizedBaseUrl
-        : normalizeBaseUrlDraft(ollamaBaseUrlDraft);
-    const next = { ...providerDraft, peonModel: model, ollamaBaseUrl: nextBaseUrl };
-    setProviderDraft(next);
-    settingsController.updateDraft("providers", next);
-  }
 
   function toggleHarness(id: string) {
     setActiveDraft((prev) =>
@@ -333,14 +217,56 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
     }
   }
 
-  function persistProviderSettings(settings: ProviderSettings) {
-    setProviderDraft(settings);
-    settingsController.updateDraft("providers", settings);
-    setProviderSaveStatus("Pending save");
+
+  const peonProviders = providerDraft.providers.filter((entry) => entry.enabled).map((entry) => entry.id).concat("ollama").filter((id, index, all) => all.indexOf(id) === index);
+  const peonApplyMatches = peonApplied?.provider === peonSelection.provider
+    && peonApplied.model === peonSelection.model
+    && (peonSelection.provider !== "ollama" || peonApplied.ollamaBaseUrl === peonSelection.ollamaBaseUrl);
+
+  async function verifyPeonSelection(selection: PeonSelection) {
+    setPeonBusy(true);
+    setPeonError(null);
+    setPeonVerification(null);
+    try {
+      const result = await window.orkworks.verifyPeonProvider(selection.provider, selection.provider === "ollama" ? selection.ollamaBaseUrl : undefined);
+      setPeonVerification(result);
+      if (!result.ok) setPeonError("Provider verification failed.");
+    } catch (error) {
+      setPeonError(error instanceof Error ? error.message : "Provider verification failed.");
+    } finally {
+      setPeonBusy(false);
+    }
   }
 
-  function saveProviderModel(providerId: ProviderId, model: string | null) {
-    persistProviderSettings(updateProviderModel(providerDraft, providerId, model ?? ""));
+  async function applyPeonSelection() {
+    if (!peonVerification?.ok || !peonSelection.model.trim()) return;
+    setPeonBusy(true);
+    setPeonError(null);
+    try {
+      const applied = await window.orkworks.testAndApplyPeonProvider(peonSelection);
+      setPeonApplied(applied);
+      setProviderSaveStatus("Applied; save to persist");
+    } catch (error) {
+      setPeonError(error instanceof Error ? error.message : "Peon Apply failed.");
+    } finally {
+      setPeonBusy(false);
+    }
+  }
+
+  async function savePeonSelection() {
+    if (!peonApplyMatches) return;
+    setPeonBusy(true);
+    try {
+      const result = await window.orkworks.savePeonSelection(peonSelection);
+      if (!result.ok) throw new Error(result.error);
+      settingsController.updateDraft("providers", { ...providerDraft, peonSelection, peonModel: peonSelection.model, ollamaBaseUrl: peonSelection.ollamaBaseUrl ?? providerDraft.ollamaBaseUrl });
+      onSaved(result.settings);
+      onClose();
+    } catch (error) {
+      setPeonError(error instanceof Error ? error.message : "Peon Save failed.");
+    } finally {
+      setPeonBusy(false);
+    }
   }
 
   return (
@@ -452,98 +378,30 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
               <div className="settings-section">
                 <h3>Model providers</h3>
                 <p className="settings-section-copy">
-                  Configure model provider fallback order, state overrides, and Peon model defaults.
+                  Choose the one provider and model Peon should use. Selecting a provider verifies it before models are shown.
                 </p>
 
                 <div className="provider-list">
                   <div className="provider-card">
-                    <div className="provider-label">Default Peon model</div>
-                    <p className="settings-section-copy">
-                      Used when a provider-specific override is blank.
-                    </p>
-                    <input
-                      className="provider-model-select"
-                      type="text"
-                      list="peon-model-suggestions"
-                      placeholder="(none - let model provider decide)"
-                      value={peonModelDraft ?? ""}
-                      onChange={(e) => setPeonModelDraft(e.target.value.trim() || null)}
-                      onBlur={() => {
-                        if (peonModelDraft !== providerDraft.peonModel) {
-                          savePeonModel(peonModelDraft);
-                        }
-                      }}
-                    />
-                    <datalist id="peon-model-suggestions">
-                      {[...new Set(Object.values(providerModels).flat())].sort().map((m) => (
-                        <option key={m} value={m} />
-                      ))}
-                    </datalist>
+                    <div className="provider-label">Peon provider</div>
+                    <select className="provider-model-select" value={peonSelection.provider} onChange={(event) => {
+                      const provider = event.target.value as ProviderId;
+                      const next = { provider, model: "", ...(provider === "ollama" ? { ollamaBaseUrl: providerDraft.ollamaBaseUrl } : {}) };
+                      setPeonSelection(next);
+                      void verifyPeonSelection(next);
+                    }}>
+                      {peonProviders.map((provider) => <option key={provider} value={provider}>{provider}</option>)}
+                    </select>
+                    {peonSelection.provider === "ollama" && <Input value={peonSelection.ollamaBaseUrl ?? ""} onChange={(event) => setPeonSelection({ ...peonSelection, ollamaBaseUrl: event.target.value })} placeholder="http://127.0.0.1:11434" />}
+                    <div role="status" aria-live="polite" className="provider-verify-status">{peonBusy ? "Verifying provider…" : peonVerification?.ok ? "Provider verified." : peonError ?? "Choose a provider to verify it."}</div>
+                    <div className="provider-label">Peon model</div>
+                    <input className="provider-model-select" type="text" list="peon-selected-models" value={peonSelection.model} onChange={(event) => { setPeonSelection({ ...peonSelection, model: event.target.value }); setPeonApplied(null); }} placeholder="Select or enter a model" />
+                    <datalist id="peon-selected-models">{(peonVerification?.models ?? []).map((model) => <option key={model} value={model} />)}</datalist>
+                    <div className="provider-label">Applied Peon configuration</div>
+                    <div role="status">{peonApplied ? `${peonApplied.provider} · ${peonApplied.model}${peonApplied.ollamaBaseUrl ? ` · ${peonApplied.ollamaBaseUrl}` : ""}` : "No staged configuration applied."}</div>
+                    <Button variant="secondary" size="sm" disabled={peonBusy || !peonVerification?.ok || !peonSelection.model.trim()} onClick={() => void applyPeonSelection()}>Apply</Button>
+                    <Button variant="primary" size="sm" disabled={peonBusy || !peonApplyMatches} onClick={() => void savePeonSelection()}>Save</Button>
                   </div>
-
-                  <div className="provider-card">
-                    <div className="provider-label">Ollama base URL</div>
-                    <input
-                      className="provider-model-select"
-                      type="text"
-                      placeholder="http://127.0.0.1:11434"
-                      value={ollamaBaseUrlDraft}
-                      onChange={(e) => {
-                        verifyRequestRef.current++;
-                        setOllamaVerification({ phase: "idle" });
-                        setOllamaBaseUrlDraft(e.target.value.trim());
-                      }}
-                      onBlur={() => {
-                        const normalized = normalizeBaseUrlDraft(ollamaBaseUrlDraft);
-                        if (normalized !== providerDraft.ollamaBaseUrl && (normalized.startsWith("http://") || normalized.startsWith("https://"))) {
-                          const next = { ...providerDraft, ollamaBaseUrl: normalized };
-                          persistProviderSettings(next);
-                        }
-                      }}
-                    />
-                  </div>
-
-                  <div className="provider-card">
-                    <div className="provider-label">Ollama verification</div>
-                    <p className="settings-section-copy">
-                      Choosing an Ollama model does not pin that model for Copilot, Claude, or other providers.
-                    </p>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      disabled={ollamaVerification.phase === "checking"}
-                      onClick={() => verifyOllamaDraft(ollamaBaseUrlDraft)}
-                    >
-                      {ollamaVerification.phase === "checking" ? "Verifying…" : "Verify Ollama"}
-                    </Button>
-                    <div role="status" aria-live="polite">
-                      {renderOllamaVerificationStatus()}
-                    </div>
-                    <ul className="ollama-candidate-list">
-                      {candidateModels.map((model) => (
-                        <li key={model}>
-                          <span className={model === providerDraft.providers.find((entry) => entry.id === "ollama")?.model ? "selected-model" : undefined}>{model}</span>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            ariaLabel={`Use ${model} for Ollama Peon`}
-                            onClick={() => {
-                              saveProviderModel("ollama", model);
-                            }}
-                          >
-                            Use this model
-                          </Button>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-
-                  <ProviderSettingsSection
-                    providerSettings={providerDraft}
-                    providerRuntime={providerRuntime}
-                    providerModels={providerModels}
-                    onProviderModelChange={saveProviderModel}
-                  />
                 </div>
 
                 {providerSaveStatus && (
