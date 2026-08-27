@@ -41,6 +41,7 @@ docs/.vitepress/cache/
 # APM dependencies and generated targets
 apm_modules/
 apm.lock.yaml
+.serena/
 .agents/
 .claude/skills/
 .claude/agents/
