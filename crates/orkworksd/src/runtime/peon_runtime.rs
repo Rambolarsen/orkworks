@@ -2,6 +2,7 @@ use crate::runtime::session_runtime::RuntimeIdentity;
 use crate::workspace_runtime::iso_now;
 use crate::{peon, providers, AppState};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 const MAX_DIAGNOSTIC_TEXT_CHARS: usize = 240;
@@ -477,7 +478,11 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
     peon_loop_until(state, std::future::pending::<()>()).await;
 }
 
-async fn shutdown_inference_tasks(inference_tasks: &mut tokio::task::JoinSet<()>) {
+async fn shutdown_inference_tasks(
+    inference_tasks: &mut tokio::task::JoinSet<()>,
+    cancellation: &AtomicBool,
+) {
+    cancellation.store(true, Ordering::SeqCst);
     let drain = async { while inference_tasks.join_next().await.is_some() {} };
     if tokio::time::timeout(PEON_SHUTDOWN_DRAIN_TIMEOUT, drain)
         .await
@@ -507,12 +512,13 @@ where
     tracing::info!(interval_secs = interval, harness = %state.peon.config.harness, "peon started");
     tokio::pin!(shutdown);
     let mut inference_tasks = tokio::task::JoinSet::new();
+    let cancellation = Arc::new(AtomicBool::new(false));
 
     loop {
         tokio::select! {
             _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => {}
             _ = &mut shutdown => {
-                shutdown_inference_tasks(&mut inference_tasks).await;
+                shutdown_inference_tasks(&mut inference_tasks, &cancellation).await;
                 return;
             }
         }
@@ -680,6 +686,7 @@ where
                 session_id: id.clone(),
                 attempt: attempt.clone(),
             };
+            let cancellation = cancellation.clone();
             inference_tasks.spawn(async move {
             let _attempt_cleanup = attempt_cleanup;
             let provider_state = state_clone.clone();
@@ -719,6 +726,11 @@ where
                 }
             };
 
+            if cancellation.load(Ordering::SeqCst) {
+                finish_attempt_if_active(&cleanup_state, &id, &attempt);
+                return;
+            }
+
             if provider_result.inference.is_some() {
                 if !complete_attempt_if_active(&state_clone, &id, &attempt, &provider_result) {
                     return;
@@ -736,7 +748,17 @@ where
                 );
             }
 
+            // The blocking post-processing task may outlive this JoinSet task
+            // when shutdown has to abort its bounded drain. Keep the existing
+            // runtime/attempt identity guards in the persistence methods and
+            // also make the detached path cooperatively cancel before every
+            // side effect it can still reach.
+            let post_processing_cancellation = cancellation.clone();
             let _ = tokio::task::spawn_blocking(move || {
+                if post_processing_cancellation.load(Ordering::SeqCst) {
+                    finish_attempt_if_active(&state_clone, &id, &attempt);
+                    return;
+                }
                 if matches!(mode, InferenceMode::InputLabel) {
                     if let Some(inference) = provider_result.inference {
                         if let Some(label) = inference
@@ -748,12 +770,20 @@ where
                                 .is_some_and(|hint| peon::is_usable_input_label(label, &hint.text))
                         })
                     {
-                        if let Some(hint) = hint.as_ref() {
-                            crate::session_application::SessionApplication::new(state_clone.clone())
+                        if !post_processing_cancellation.load(Ordering::SeqCst) {
+                            if let Some(hint) = hint.as_ref() {
+                                crate::session_application::SessionApplication::new(
+                                    state_clone.clone(),
+                                )
                                 .persist_input_label_for_attempt(&id, &attempt, label, hint.epoch);
+                            }
                         }
                     }
                     }
+                    finish_attempt_if_active(&state_clone, &id, &attempt);
+                    return;
+                }
+                if post_processing_cancellation.load(Ordering::SeqCst) {
                     finish_attempt_if_active(&state_clone, &id, &attempt);
                     return;
                 }
@@ -777,6 +807,10 @@ where
                     return;
                 };
                 if !diagnostic_attempt_is_active(&state_clone, &id, &attempt) {
+                    finish_attempt_if_active(&state_clone, &id, &attempt);
+                    return;
+                }
+                if post_processing_cancellation.load(Ordering::SeqCst) {
                     finish_attempt_if_active(&state_clone, &id, &attempt);
                     return;
                 }
@@ -820,6 +854,10 @@ where
                     history_summary.as_deref(),
                     &now_iso,
                 );
+                if post_processing_cancellation.load(Ordering::SeqCst) {
+                    finish_attempt_if_active(&state_clone, &id, &attempt);
+                    return;
+                }
                 let inference_persisted = persistence.inference_persisted;
                 let permanent_hold = persistence.permanent_hold;
                 let label_update = persistence.label_update;
@@ -828,6 +866,10 @@ where
                     if let Some((_input_generation, _min_revision, first_revision, last_revision, runtime_instance_id, run_generation)) =
                         output_boundary.as_ref()
                     {
+                        if post_processing_cancellation.load(Ordering::SeqCst) {
+                            finish_attempt_if_active(&state_clone, &id, &attempt);
+                            return;
+                        }
                         let result = crate::session_application::SessionApplication::new(
                             state_clone.clone(),
                         )
@@ -848,8 +890,14 @@ where
                     }
                 }
 
-                if accepted_observation {
+                if accepted_observation
+                    && !post_processing_cancellation.load(Ordering::SeqCst)
+                {
                     crate::taskmaster::evaluator::schedule_evaluation(state_clone.clone());
+                }
+                if post_processing_cancellation.load(Ordering::SeqCst) {
+                    finish_attempt_if_active(&state_clone, &id, &attempt);
+                    return;
                 }
                 if output_range_completed {
                     if let Some((generation, min_revision, _, last_revision, runtime_instance_id, run_generation)) = output_boundary {
@@ -889,9 +937,17 @@ where
                     );
                 }
                 if let Some(label) = label_update {
+                    if post_processing_cancellation.load(Ordering::SeqCst) {
+                        finish_attempt_if_active(&state_clone, &id, &attempt);
+                        return;
+                    }
                     apply_output_label_update(&state_clone, &id, &attempt, label);
                 }
 
+                if post_processing_cancellation.load(Ordering::SeqCst) {
+                    finish_attempt_if_active(&state_clone, &id, &attempt);
+                    return;
+                }
                 let sessions = state_clone.sessions.lock().unwrap();
                 if !sessions.get(&id).is_some_and(|handle| {
                     handle.runtime.matches_identity(&attempt.runtime_identity)
@@ -1174,15 +1230,27 @@ mod tests {
     async fn graceful_shutdown_bounds_inference_task_drain() {
         let mut inference_tasks = tokio::task::JoinSet::new();
         inference_tasks.spawn(std::future::pending::<()>());
+        let cancellation = Arc::new(std::sync::atomic::AtomicBool::new(false));
 
         let started = tokio::time::Instant::now();
-        shutdown_inference_tasks(&mut inference_tasks).await;
+        shutdown_inference_tasks(&mut inference_tasks, &cancellation).await;
 
         assert!(
             started.elapsed() < std::time::Duration::from_secs(2),
             "graceful shutdown must not wait indefinitely for inference tasks"
         );
         assert!(inference_tasks.join_next().await.is_some());
+        assert!(cancellation.load(std::sync::atomic::Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn shutdown_cancels_post_processing_before_detached_work_can_start() {
+        let mut inference_tasks = tokio::task::JoinSet::new();
+        let cancellation = Arc::new(std::sync::atomic::AtomicBool::new(false));
+
+        shutdown_inference_tasks(&mut inference_tasks, &cancellation).await;
+
+        assert!(cancellation.load(std::sync::atomic::Ordering::SeqCst));
     }
 
     #[tokio::test]
