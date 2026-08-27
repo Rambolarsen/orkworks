@@ -2,13 +2,18 @@ use crate::workspace_runtime::iso_now;
 use crate::{peon, providers, AppState};
 use std::sync::Arc;
 
-fn bounded_error_summary(error: &str) -> String {
-    const MAX_ERROR_SUMMARY_CHARS: usize = 240;
-    let summary: String = error
+const MAX_DIAGNOSTIC_TEXT_CHARS: usize = 240;
+
+fn bounded_diagnostic_text(value: &str) -> String {
+    value
         .chars()
         .filter(|character| !character.is_control())
-        .take(MAX_ERROR_SUMMARY_CHARS)
-        .collect();
+        .take(MAX_DIAGNOSTIC_TEXT_CHARS)
+        .collect()
+}
+
+fn bounded_error_summary(error: &str) -> String {
+    let summary = bounded_diagnostic_text(error);
     if summary.trim().is_empty() {
         "provider inference failed".to_string()
     } else {
@@ -33,12 +38,20 @@ fn provider_error_summary(result: &providers::ProviderRunResult) -> String {
 
 impl crate::PeonState {
     fn diagnostic_entry<'a>(
+        &self,
         diagnostics: &'a mut std::collections::HashMap<String, crate::PeonDiagnosticEntry>,
         session_id: &str,
     ) -> &'a mut crate::PeonDiagnosticEntry {
         if !diagnostics.contains_key(session_id) {
             if diagnostics.len() >= crate::MAX_PEON_DIAGNOSTIC_SESSIONS {
-                if let Some(oldest_id) = diagnostics.keys().next().cloned() {
+                let evictable_id = {
+                    let in_flight = self.in_flight.read().unwrap();
+                    diagnostics
+                        .keys()
+                        .find(|id| !in_flight.contains(*id))
+                        .cloned()
+                };
+                if let Some(oldest_id) = evictable_id {
                     diagnostics.remove(&oldest_id);
                 }
             }
@@ -54,14 +67,14 @@ impl crate::PeonState {
 
     fn mark_candidate(&self, session_id: &str) {
         let mut diagnostics = self.diagnostics.write().unwrap();
-        let entry = Self::diagnostic_entry(&mut diagnostics, session_id);
+        let entry = self.diagnostic_entry(&mut diagnostics, session_id);
         entry.snapshot.scheduler_state = crate::session_types::PeonSchedulerState::Candidate;
         entry.snapshot.reason = Some("selected_for_inference".to_string());
     }
 
     fn begin_attempt(&self, session_id: &str) -> Option<u64> {
         let mut diagnostics = self.diagnostics.write().unwrap();
-        let entry = Self::diagnostic_entry(&mut diagnostics, session_id);
+        let entry = self.diagnostic_entry(&mut diagnostics, session_id);
         if entry.snapshot.scheduler_state == crate::session_types::PeonSchedulerState::InFlight {
             return None;
         }
@@ -110,35 +123,50 @@ impl crate::PeonState {
         entry.snapshot.provider_id = result
             .observation
             .as_ref()
-            .map(|observation| observation.provider_id.clone())
-            .or_else(|| successful_attempt.map(|attempt| attempt.provider_id.clone()));
+            .map(|observation| bounded_diagnostic_text(&observation.provider_id))
+            .or_else(|| {
+                successful_attempt.map(|attempt| bounded_diagnostic_text(&attempt.provider_id))
+            });
         entry.snapshot.provider_model = result
             .observation
             .as_ref()
-            .and_then(|observation| observation.provider_model.clone());
+            .and_then(|observation| {
+                observation
+                    .provider_model
+                    .as_deref()
+                    .map(bounded_diagnostic_text)
+            });
         entry.snapshot.fallback_step = successful_attempt.map(|attempt| attempt.step);
         entry.snapshot.error_summary = None;
         true
     }
 
-    fn fail_attempt(&self, session_id: &str, generation: u64, reason: &str, error: &str) {
+    fn fail_attempt(
+        &self,
+        session_id: &str,
+        generation: u64,
+        reason: &str,
+        error: &str,
+    ) -> bool {
         let mut diagnostics = self.diagnostics.write().unwrap();
         let Some(entry) = diagnostics.get_mut(session_id) else {
-            return;
+            return false;
         };
         if entry.attempt_generation != generation
             || entry.snapshot.scheduler_state != crate::session_types::PeonSchedulerState::InFlight
         {
-            return;
+            return false;
         }
         entry.snapshot.scheduler_state = crate::session_types::PeonSchedulerState::Failed;
-        entry.snapshot.reason = Some(reason.to_string());
+        entry.snapshot.reason = Some(bounded_diagnostic_text(reason));
         entry.snapshot.error_summary = Some(bounded_error_summary(error));
-        self.in_flight.write().unwrap().remove(session_id);
+        true
     }
 
     fn timeout_attempt(&self, session_id: &str, generation: u64) {
-        self.fail_attempt(session_id, generation, "timeout", "provider inference timed out");
+        if self.fail_attempt(session_id, generation, "timeout", "provider inference timed out") {
+            self.in_flight.write().unwrap().remove(session_id);
+        }
     }
 
     fn finish_attempt(&self, session_id: &str, generation: u64) {
@@ -154,7 +182,7 @@ impl crate::PeonState {
 
     fn mark_idle(&self, session_id: &str, reason: &str) {
         let mut diagnostics = self.diagnostics.write().unwrap();
-        let entry = Self::diagnostic_entry(&mut diagnostics, session_id);
+        let entry = self.diagnostic_entry(&mut diagnostics, session_id);
         if entry.snapshot.scheduler_state != crate::session_types::PeonSchedulerState::InFlight {
             entry.snapshot.scheduler_state = crate::session_types::PeonSchedulerState::Idle;
             entry.snapshot.reason = Some(reason.to_string());
@@ -354,12 +382,14 @@ pub(crate) async fn peon_loop(state: Arc<AppState>) {
                 Ok(Ok(result)) => result,
                 Ok(Err(error)) => {
                     tracing::warn!(session_id = %id, %error, "peon inference task failed");
-                    cleanup_state.peon.fail_attempt(
+                    if cleanup_state.peon.fail_attempt(
                         &id,
                         attempt_generation,
                         "provider_task_failed",
                         &error.to_string(),
-                    );
+                    ) {
+                        cleanup_state.peon.finish_attempt(&id, attempt_generation);
+                    }
                     return;
                 }
                 Err(_) => {
@@ -634,7 +664,7 @@ mod tests {
     use crate::test_support::*;
     use std::collections::{HashMap, HashSet};
     use std::sync::atomic::{AtomicU16, AtomicUsize, Ordering};
-    use std::sync::{Arc, Mutex, RwLock};
+    use std::sync::{Arc, Barrier, Mutex, RwLock};
 
     #[test]
     fn output_inference_generation_is_stale_after_accepted_input() {
@@ -702,6 +732,157 @@ mod tests {
             .read()
             .unwrap()
             .contains(session_id));
+    }
+
+    #[test]
+    fn diagnostic_eviction_preserves_all_in_flight_entries_and_leases() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(dir.path());
+
+        for index in 0..crate::MAX_PEON_DIAGNOSTIC_SESSIONS {
+            let session_id = format!("in-flight-{index}");
+            state
+                .peon
+                .in_flight
+                .write()
+                .unwrap()
+                .insert(session_id.clone());
+            state.peon.mark_candidate(&session_id);
+            state
+                .peon
+                .begin_attempt(&session_id)
+                .expect("in-flight diagnostic should start");
+        }
+
+        state.peon.mark_candidate("new-diagnostic");
+
+        let diagnostics = state.peon.diagnostics.read().unwrap();
+        let in_flight = state.peon.in_flight.read().unwrap();
+        for index in 0..crate::MAX_PEON_DIAGNOSTIC_SESSIONS {
+            let session_id = format!("in-flight-{index}");
+            assert!(diagnostics.contains_key(&session_id));
+            assert!(in_flight.contains(&session_id));
+        }
+    }
+
+    #[test]
+    fn provider_exhaustion_keeps_lease_until_post_processing_finishes() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(dir.path());
+        let session_id = "provider-exhaustion-lease";
+
+        state
+            .peon
+            .in_flight
+            .write()
+            .unwrap()
+            .insert(session_id.to_string());
+        state.peon.mark_candidate(session_id);
+        let generation = state
+            .peon
+            .begin_attempt(session_id)
+            .expect("provider exhaustion attempt should start");
+
+        state
+            .peon
+            .fail_attempt(session_id, generation, "provider_exhausted", "all providers failed");
+
+        assert!(state
+            .peon
+            .in_flight
+            .read()
+            .unwrap()
+            .contains(session_id));
+        assert_eq!(
+            state.peon.diagnostics.read().unwrap()[session_id]
+                .snapshot
+                .scheduler_state,
+            crate::session_types::PeonSchedulerState::Failed
+        );
+
+        state.peon.finish_attempt(session_id, generation);
+        assert!(!state
+            .peon
+            .in_flight
+            .read()
+            .unwrap()
+            .contains(session_id));
+    }
+
+    #[test]
+    fn diagnostic_provider_and_error_strings_are_bounded() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(dir.path());
+        let session_id = "bounded-diagnostics";
+        let oversized = "x".repeat(MAX_DIAGNOSTIC_TEXT_CHARS + 20);
+
+        state
+            .peon
+            .in_flight
+            .write()
+            .unwrap()
+            .insert(session_id.to_string());
+        state.peon.mark_candidate(session_id);
+        let generation = state
+            .peon
+            .begin_attempt(session_id)
+            .expect("diagnostic attempt should start");
+        let result = providers::ProviderRunResult {
+            inference: peon::parse_inference(r#"{"status":"working","confidence":0.85}"#),
+            observation: Some(providers::ProviderObservation {
+                provider_id: oversized.clone(),
+                provider_label: "provider".into(),
+                provider_model: Some(oversized.clone()),
+                provider_state: "healthy".into(),
+            }),
+            attempts: vec![providers::AttemptRecord {
+                provider_id: oversized.clone(),
+                step: 1,
+                outcome: providers::AttemptOutcome::Succeeded,
+            }],
+            runtime: HashMap::new(),
+        };
+
+        assert!(state.peon.complete_attempt(session_id, generation, &result));
+        {
+            let diagnostics = state.peon.diagnostics.read().unwrap();
+            let diagnostic = &diagnostics[session_id].snapshot;
+            assert!(diagnostic
+                .provider_id
+                .as_ref()
+                .unwrap()
+                .chars()
+                .count()
+                <= MAX_DIAGNOSTIC_TEXT_CHARS);
+            assert!(diagnostic
+                .provider_model
+                .as_ref()
+                .unwrap()
+                .chars()
+                .count()
+                <= MAX_DIAGNOSTIC_TEXT_CHARS);
+        }
+
+        state.peon.finish_attempt(session_id, generation);
+        state
+            .peon
+            .in_flight
+            .write()
+            .unwrap()
+            .insert(session_id.to_string());
+        state.peon.mark_candidate(session_id);
+        let next_generation = state
+            .peon
+            .begin_attempt(session_id)
+            .expect("second diagnostic attempt should start");
+        state.peon.fail_attempt(session_id, next_generation, "provider_exhausted", &oversized);
+        let error_summary = state.peon.diagnostics.read().unwrap()[session_id]
+            .snapshot
+            .error_summary
+            .clone()
+            .unwrap();
+        assert!(error_summary.chars().count() <= MAX_DIAGNOSTIC_TEXT_CHARS);
+        state.peon.finish_attempt(session_id, next_generation);
     }
 
     #[tokio::test]
@@ -3338,7 +3519,8 @@ mod tests {
     #[tokio::test]
     async fn peon_loop_runs_two_sessions_concurrently() {
         let dir = tempfile::tempdir().unwrap();
-        let call_counter = Arc::new(AtomicUsize::new(0));
+        let entry_barrier = Arc::new(Barrier::new(3));
+        let release_barrier = Arc::new(Barrier::new(3));
 
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
@@ -3388,8 +3570,7 @@ mod tests {
                 },
                 vec![providers::FakeProvider::new("opencode")
                     .stdout(r#"{"observedStatus":"working","confidence":0.85}"#)
-                    .sleep_ms(3000)
-                    .with_counter(call_counter.clone())],
+                    .with_barriers(entry_barrier.clone(), release_barrier.clone())],
             ),
         });
 
@@ -3440,9 +3621,10 @@ mod tests {
 
         let task = tokio::spawn(peon_loop(state.clone()));
         tokio::time::timeout(std::time::Duration::from_secs(5), async {
-            while call_counter.load(Ordering::SeqCst) < session_ids.len() {
-                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-            }
+            let entry_barrier = entry_barrier.clone();
+            tokio::task::spawn_blocking(move || entry_barrier.wait())
+                .await
+                .expect("entry barrier waiter should complete");
         })
         .await
         .expect("both provider calls should enter before the test deadline");
@@ -3459,6 +3641,10 @@ mod tests {
             assert_eq!(diagnostic.snapshot.attempt_count, Some(1));
         }
 
+        let release_barrier_waiter = release_barrier.clone();
+        tokio::task::spawn_blocking(move || release_barrier_waiter.wait())
+            .await
+            .expect("release barrier waiter should complete");
         task.abort();
     }
 }

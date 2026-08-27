@@ -1297,6 +1297,10 @@ pub struct FakeProvider {
     call_count: Option<std::sync::Arc<std::sync::atomic::AtomicUsize>>,
     invocations: Option<std::sync::Arc<std::sync::Mutex<Vec<(Vec<String>, String)>>>>,
     models: Option<std::sync::Arc<std::sync::Mutex<Vec<Option<String>>>>>,
+    barriers: Option<(
+        std::sync::Arc<std::sync::Barrier>,
+        std::sync::Arc<std::sync::Barrier>,
+    )>,
 }
 
 #[cfg(test)]
@@ -1311,6 +1315,7 @@ impl FakeProvider {
             call_count: None,
             invocations: None,
             models: None,
+            barriers: None,
         }
     }
 
@@ -1354,6 +1359,15 @@ impl FakeProvider {
         self.models = Some(models);
         self
     }
+
+    pub fn with_barriers(
+        mut self,
+        entry: std::sync::Arc<std::sync::Barrier>,
+        release: std::sync::Arc<std::sync::Barrier>,
+    ) -> Self {
+        self.barriers = Some((entry, release));
+        self
+    }
 }
 
 #[cfg(test)]
@@ -1385,6 +1399,10 @@ impl ProviderRunner for FakeRunner {
                 }
                 if let Some(ref models) = spec.models {
                     models.lock().unwrap().push(model.map(str::to_owned));
+                }
+                if let Some((entry, release)) = &spec.barriers {
+                    entry.wait();
+                    release.wait();
                 }
                 if spec.sleep_ms > 0 {
                     if spec.sleep_ms > timeout_secs.saturating_mul(1000) {
