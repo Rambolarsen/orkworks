@@ -31,13 +31,13 @@ if echo "$CHANGED" | grep -qE 'apps/desktop/src/api\.ts|apps/desktop/electron/(m
 fi
 
 # docs/agents/apm.md
-if echo "$CHANGED" | grep -qE 'orkworks/apm\.yml|opencode\.json'; then
+if echo "$CHANGED" | grep -qE '(^|/)apm\.yml$|(^|/)opencode\.json$'; then
   echo "$CHANGED" | grep -q 'docs/agents/apm\.md' || \
     needs+=("docs/agents/apm.md  (APM config or OpenCode plugins changed)")
 fi
 
 # AGENTS.md
-if echo "$CHANGED" | grep -qE '^skills/|orkworks/apm\.yml|apps/desktop/package\.json|Cargo\.toml'; then
+if echo "$CHANGED" | grep -qE '^skills/|(^|/)apm\.yml$|apps/desktop/package\.json|Cargo\.toml'; then
   echo "$CHANGED" | grep -q '^AGENTS\.md' || \
     needs+=("AGENTS.md  (skills, deps, or APM targets changed)")
 fi

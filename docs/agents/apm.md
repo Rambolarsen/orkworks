@@ -15,7 +15,7 @@ Dependencies are managed by [APM](https://github.com/anthropics/apm) at the repo
 | `.vscode/mcp.json` | VS Code MCP server config |
 | `.codex/config.toml` | Codex MCP server config (gitignored, local-only) |
 
-The committed `scripts/doc-check.sh` is the harness-neutral doc-diff detector. Codex's local generated Stop-hook adapter may wrap that output into valid Stop-hook JSON so Codex can surface the message without rejecting the hook output; Codex hook configuration and generated adapters are intentionally gitignored because OrkWorks installs machine-specific hook entries.
+The committed `scripts/doc-check.sh` is the harness-neutral doc-diff detector. The committed `scripts/codex-doc-check-stop.sh` adapter wraps that output into valid Stop-hook JSON so Codex can surface the message without rejecting the hook output; the Codex hook configuration and its local adapter entry remain gitignored because OrkWorks installs machine-specific hook entries.
 
 ## Superpowers
 
