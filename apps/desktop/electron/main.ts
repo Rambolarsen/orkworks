@@ -1,8 +1,9 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, shell } from "electron";
-import { spawn, type ChildProcess } from "child_process";
+import { spawn } from "child_process";
 import { randomBytes } from "crypto";
 import { existsSync } from "fs";
 import * as path from "path";
+import { pathToFileURL } from "url";
 import { getDevRepoRoot, getDevSidecarPath, getPackagedSidecarPath } from "./paths";
 import { readWorkspaceMemory, rememberWorkspacePath } from "./workspaceMemory";
 import { readLayoutMemory, writeLayoutMemory } from "./layoutMemory";
@@ -13,17 +14,19 @@ import type { ProviderApplyStatus, ProviderSettings } from "./providerTypes";
 import { buildMenuTemplate } from "./menuTemplate";
 import { getSessionPlanContent, requestSessionPlanReview, selectTerminalPlan } from "./planOpener";
 import { configureExternalLinks, openExternalLink } from "./externalLinks";
+import { createSidecarLifecycle, type SidecarLifecycle, type SidecarProcess, type SidecarState } from "./sidecarLifecycle";
+import { createBackendRestorationCoordinator, switchWorkspaceBackend, type BackendRestorationCoordinator } from "./backendRestoration";
+import type { BackendLifecycleEvent, BackendLifecycleWorkspace } from "./backendLifecycleEvent";
+import { sanitizeBackendLifecycleFailure } from "./backendLifecycleFailure";
+import { rendererConsoleDiagnostic, rendererOrigin, sanitizeRendererDiagnosticMessage } from "./rendererDiagnostic";
+import { recoveryDocumentUrl } from "./rendererRecoveryDocument";
+import { createRecoveryDocumentGuard } from "./rendererRecoveryState";
 
 app.setName("OrkWorks");
 
 let mainWindow: BrowserWindow | null = null;
-let sidecarProcess: ChildProcess | null = null;
-let backendPort: number | null = null;
-let portResolve: ((port: number) => void) | null = null;
-let portPromise = new Promise<number>((resolve) => {
-  portResolve = resolve;
-});
-
+let sidecarLifecycle: SidecarLifecycle | null = null;
+let backendRestoration: BackendRestorationCoordinator<BackendLifecycleWorkspace> | null = null;
 let workspacePath: string | null = null;
 let menuPanelItems: Record<string, Electron.MenuItem> = {};
 let currentSettings: AppSettings | null = null;
@@ -79,43 +82,6 @@ function getSidecarPath(): string {
   return getDevSidecarPath(__dirname);
 }
 
-function startSidecar(cwdOverride?: string): void {
-  const binaryPath = getSidecarPath();
-  const sidecarCwd = cwdOverride ?? (app.isPackaged ? app.getPath("home") : getDevRepoRoot(__dirname));
-  openPlanToken = randomBytes(32).toString("hex");
-  console.log(`[main] starting sidecar: ${binaryPath}`);
-  console.log(`[main] sidecar cwd: ${sidecarCwd}`);
-
-  sidecarProcess = spawn(binaryPath, [], {
-    cwd: sidecarCwd,
-    stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, ORKWORKS_OPEN_PLAN_TOKEN: openPlanToken },
-  });
-
-  sidecarProcess.stdout?.on("data", (data: Buffer) => {
-    const line = data.toString().trim();
-    console.log(`[orkworksd] ${line}`);
-    const match = line.match(/ORKWORKSD_PORT=(\d+)/);
-    if (match) {
-      backendPort = parseInt(match[1], 10);
-      console.log(`[main] sidecar ready on port ${backendPort}`);
-      if (portResolve) {
-        portResolve(backendPort);
-        portResolve = null;
-      }
-    }
-  });
-
-  sidecarProcess.stderr?.on("data", (data: Buffer) => {
-    console.error(`[orkworksd:err] ${data.toString().trim()}`);
-  });
-
-  sidecarProcess.on("exit", (code) => {
-    console.log(`[main] sidecar exited with code ${code}`);
-    sidecarProcess = null;
-  });
-}
-
 function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1400,
@@ -132,10 +98,58 @@ function createWindow(): void {
     },
   });
 
-  configureExternalLinks(mainWindow.webContents, shell.openExternal, process.env.VITE_DEV_SERVER_URL);
+  const originalUrl = process.env.VITE_DEV_SERVER_URL
+    || pathToFileURL(path.join(__dirname, "..", "dist", "index.html")).toString();
+  configureExternalLinks(mainWindow.webContents, shell.openExternal, process.env.VITE_DEV_SERVER_URL, originalUrl);
+  const recoveryUrl = recoveryDocumentUrl(originalUrl);
+
+  const recoveryDocumentGuard = createRecoveryDocumentGuard(originalUrl);
+  const loadRecoveryDocument = (): void => {
+    if (!recoveryDocumentGuard.beginRecoveryDocumentLoad()
+      || !mainWindow
+      || mainWindow.isDestroyed()
+      || mainWindow.webContents.isDestroyed()) return;
+    void mainWindow.loadURL(recoveryUrl).catch(() => {
+      recoveryDocumentGuard.recoveryDocumentLoadFailed();
+    });
+  };
+
+  mainWindow.webContents.on("did-start-navigation", (_event, url, _isInPlace, isMainFrame) => {
+    if (isMainFrame) recoveryDocumentGuard.beginOriginalDocumentNavigation(url);
+  });
+
+  mainWindow.webContents.on("did-finish-load", () => {
+    recoveryDocumentGuard.finishOriginalDocumentLoad(mainWindow?.webContents.getURL() ?? "");
+  });
+
+  mainWindow.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+    if (!isMainFrame) return;
+    console.error("[main] renderer diagnostic", {
+      type: "did-fail-load",
+      errorCode,
+      reason: sanitizeRendererDiagnosticMessage(errorDescription),
+      origin: rendererOrigin(validatedURL),
+    });
+    loadRecoveryDocument();
+  });
+
+  mainWindow.webContents.on("render-process-gone", (_event, details) => {
+    console.error("[main] renderer diagnostic", {
+      type: "render-process-gone",
+      reason: details.reason,
+      exitCode: details.exitCode,
+    });
+    loadRecoveryDocument();
+  });
+
+  mainWindow.webContents.on("console-message", (_event, level, _message, line, sourceId) => {
+    console.warn("[main] renderer diagnostic", {
+      ...rendererConsoleDiagnostic(level, sourceId, line),
+    });
+  });
 
   if (process.env.VITE_DEV_SERVER_URL) {
-    mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
+    mainWindow.loadURL(originalUrl);
     mainWindow.webContents.openDevTools();
   } else {
     mainWindow.loadFile(path.join(__dirname, "..", "dist", "index.html"));
@@ -157,6 +171,11 @@ function updateDockIcon(): void {
   }
 }
 
+function logBackendLifecycleFailure(scope: string, error: unknown): void {
+  const detail = error instanceof Error ? error.stack ?? error.message : String(error);
+  console.error("[main] backend lifecycle failure", scope, detail);
+}
+
 app.whenReady().then(() => {
   updateDockIcon();
   nativeTheme.on("updated", updateDockIcon);
@@ -169,9 +188,145 @@ app.whenReady().then(() => {
   workspacePath = initialWorkspacePath;
   currentSettings = loadSettingsForStartup(app.getPath("userData"));
 
+  let latestBackendLifecycle: BackendLifecycleEvent | null = null;
+  let lastBackendFailure = "The OrkWorks sidecar is unavailable.";
+
+  function publishBackendLifecycle(event: BackendLifecycleEvent): void {
+    latestBackendLifecycle = event;
+    mainWindow?.webContents.send("orkworks:backend-lifecycle", event);
+  }
+
+  async function restoreWorkspace(port: number, signal: AbortSignal): Promise<BackendLifecycleWorkspace | null> {
+    if (!workspacePath) return null;
+
+    const response = await fetch(`http://127.0.0.1:${port}/workspace`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: workspacePath }),
+      signal,
+    });
+    if (!response.ok) {
+      throw new Error(`Workspace restoration failed: ${response.status}`);
+    }
+    const rawWorkspace = await response.json() as Partial<BackendLifecycleWorkspace>;
+    signal.throwIfAborted();
+    return {
+      path: rawWorkspace.path ?? "",
+      repo_root: rawWorkspace.repo_root ?? null,
+      branch: rawWorkspace.branch ?? null,
+      dirty: rawWorkspace.dirty ?? null,
+      lastActiveSessionId: rawWorkspace.lastActiveSessionId ?? null,
+      activeHarnessIds: rawWorkspace.activeHarnessIds ?? [],
+    };
+  }
+
+  async function applyRetentionSettings(port: number, signal: AbortSignal): Promise<void> {
+    const retention = currentSettings?.retention ?? DEFAULT_RETENTION;
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/settings/retention`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(retention),
+        signal,
+      });
+      signal.throwIfAborted();
+      if (!response.ok) {
+        console.warn(`[main] failed to restore retention settings: ${response.status}`);
+      }
+    } catch (error) {
+      signal.throwIfAborted();
+      console.warn(`[main] failed to restore retention settings: ${error instanceof Error ? error.message : "unknown error"}`);
+    }
+  }
+
+  async function syncSavedProviderSettings(port: number, signal: AbortSignal): Promise<void> {
+    const settings = currentSettings ?? readSettings(app.getPath("userData"));
+    const abortableFetch: typeof fetch = (input, init) => fetch(input, { ...init, signal });
+    const result = await pushProviderSettings(
+      `http://127.0.0.1:${port}`,
+      settings.providers,
+      abortableFetch,
+    );
+    signal.throwIfAborted();
+    if (result.lastApplyError) {
+      console.warn(`[main] failed to push provider settings: ${result.lastApplyError}`);
+    }
+  }
+
+  const restoration = createBackendRestorationCoordinator<BackendLifecycleWorkspace>({
+    setTimeout: (callback, delayMs) => setTimeout(callback, delayMs),
+    clearTimeout: (timer) => clearTimeout(timer as NodeJS.Timeout),
+    onReady: (port, workspace) => {
+      publishBackendLifecycle({ state: "ready", port, workspace });
+    },
+    onFailure: (error) => {
+      logBackendLifecycleFailure("restoration", error);
+      lastBackendFailure = sanitizeBackendLifecycleFailure(error);
+      publishBackendLifecycle({ state: "failed", message: lastBackendFailure });
+    },
+  });
+  backendRestoration = restoration;
+
+  sidecarLifecycle = createSidecarLifecycle({
+    spawn: (cwd): SidecarProcess => {
+      const binaryPath = getSidecarPath();
+      openPlanToken = randomBytes(32).toString("hex");
+      console.log(`[main] starting sidecar: ${binaryPath}`);
+      console.log(`[main] sidecar cwd: ${cwd}`);
+      const child = spawn(binaryPath, [], {
+        cwd,
+        stdio: ["ignore", "pipe", "pipe"],
+        env: { ...process.env, ORKWORKS_OPEN_PLAN_TOKEN: openPlanToken },
+      });
+      child.stderr?.on("data", (data: Buffer) => {
+        console.error(`[orkworksd:err] ${data.toString().trim()}`);
+      });
+      return child as SidecarProcess;
+    },
+    setTimeout: (callback, delayMs) => setTimeout(callback, delayMs),
+    clearTimeout: (timer) => clearTimeout(timer as NodeJS.Timeout),
+    now: () => Date.now(),
+    callbacks: {
+      onReady: (port) => {
+        console.log(`[main] sidecar ready on port ${port}`);
+        restoration.restore(port, {
+          restoreWorkspace: (signal) => restoreWorkspace(port, signal),
+          applyRetentionSettings: (signal) => applyRetentionSettings(port, signal),
+          syncProviderSettings: (signal) => syncSavedProviderSettings(port, signal),
+        });
+      },
+      onUnavailable: (message) => {
+        logBackendLifecycleFailure("sidecar", message);
+        lastBackendFailure = sanitizeBackendLifecycleFailure(message);
+        restoration.fail(new Error(lastBackendFailure));
+      },
+      onState: (state: SidecarState) => {
+        if (state === "starting") {
+          restoration.beginGeneration();
+          publishBackendLifecycle({ state: "starting" });
+        } else if (state === "retrying") {
+          publishBackendLifecycle({ state: "retrying" });
+        } else if (state === "exhausted") {
+          publishBackendLifecycle({ state: "exhausted", message: lastBackendFailure });
+        }
+      },
+    },
+  });
+
+  ipcMain.handle("get-backend-lifecycle", () => {
+    return latestBackendLifecycle;
+  });
+
   ipcMain.handle("get-backend-url", async () => {
-    const port = await portPromise;
+    const port = await restoration.getReadiness();
     return `http://127.0.0.1:${port}`;
+  });
+
+  ipcMain.handle("retry-backend", async () => {
+    if (!sidecarLifecycle) throw new Error("Backend lifecycle is unavailable");
+    const lifecycleReadiness = sidecarLifecycle.retry();
+    void lifecycleReadiness.catch(() => {});
+    await restoration.getReadiness();
   });
 
   ipcMain.handle("open-external-link", (_event, url: unknown) => {
@@ -188,14 +343,12 @@ app.whenReady().then(() => {
 
   ipcMain.handle("get-initial-workspace", async () => {
     if (!initialWorkspacePath) return null;
-    const port = await portPromise;
-    const resp = await fetch(`http://127.0.0.1:${port}/workspace`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path: initialWorkspacePath }),
-    });
-    if (!resp.ok) return null;
-    return resp.json();
+    try {
+      await restoration.getReadiness();
+      return restoration.getRestoredWorkspace();
+    } catch {
+      return null;
+    }
   });
 
   ipcMain.handle("get-settings", async () => {
@@ -236,7 +389,7 @@ app.whenReady().then(() => {
       lastApplyError: null,
     };
     try {
-      const port = await portPromise;
+      const port = await restoration.getReadiness();
       const response = await fetch(`http://127.0.0.1:${port}/settings/retention`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -281,7 +434,7 @@ app.whenReady().then(() => {
     writeSettings(app.getPath("userData"), nextSettings);
     currentSettings = nextSettings;
 
-    const port = await portPromise;
+    const port = await restoration.getReadiness();
     const providerApplyStatus = await pushProviderSettings(`http://127.0.0.1:${port}`, nextSettings.providers);
 
     providerModels.delete("ollama");
@@ -290,7 +443,7 @@ app.whenReady().then(() => {
   });
 
   ipcMain.handle("verify-ollama", async (_event, baseUrl: string) => {
-    const port = await portPromise;
+    const port = await restoration.getReadiness();
     const response = await fetch(`http://127.0.0.1:${port}/settings/providers/ollama/verify`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -310,7 +463,7 @@ app.whenReady().then(() => {
       return { models: providerModels.get(providerId)! };
     }
     try {
-      const port = await portPromise;
+      const port = await restoration.getReadiness();
       const resp = await fetch(`http://127.0.0.1:${port}/providers/${providerId}/models`);
       if (resp.ok) {
         const data = await resp.json() as { models: string[] };
@@ -328,7 +481,7 @@ app.whenReady().then(() => {
       return { labels: { ...providerLabels } };
     }
     try {
-      const port = await portPromise;
+      const port = await restoration.getReadiness();
       const resp = await fetch(`http://127.0.0.1:${port}/providers`);
       if (resp.ok) {
         const data = await resp.json() as { providers: Array<{ id: string; label: string }> };
@@ -347,17 +500,17 @@ app.whenReady().then(() => {
 
   ipcMain.handle("get-plan-content", async (_event, sessionId: unknown) => {
     if (typeof sessionId !== "string" || !sessionId) throw new Error("Invalid session ID.");
-    const port = await portPromise;
+    const port = await restoration.getReadiness();
     return getSessionPlanContent(`http://127.0.0.1:${port}`, sessionId, openPlanToken, fetch);
   });
   ipcMain.handle("request-plan-review", async (_event, sessionId: unknown) => {
     if (typeof sessionId !== "string" || !sessionId) throw new Error("Invalid session ID.");
-    const port = await portPromise;
+    const port = await restoration.getReadiness();
     await requestSessionPlanReview(`http://127.0.0.1:${port}`, sessionId, openPlanToken, fetch);
   });
   ipcMain.handle("select-terminal-plan", async (_event, sessionId: unknown, printedPath: unknown) => {
     if (typeof sessionId !== "string" || !sessionId || typeof printedPath !== "string" || !printedPath) throw new Error("Invalid plan selection.");
-    const port = await portPromise;
+    const port = await restoration.getReadiness();
     await selectTerminalPlan(`http://127.0.0.1:${port}`, sessionId, printedPath, openPlanToken, fetch);
   });
 
@@ -370,7 +523,7 @@ app.whenReady().then(() => {
   async function callIntegrationRoute(harnessId: unknown, action: "status" | "install" | "uninstall") {
     if (typeof harnessId !== "string" || !harnessId) throw new Error("Invalid harness ID.");
     try {
-      const port = await portPromise;
+      const port = await restoration.getReadiness();
       const method = action === "status" ? "GET" : "POST";
       const resp = await fetch(
         `http://127.0.0.1:${port}/workspace/integrations/${encodeURIComponent(harnessId)}/${action}`,
@@ -411,7 +564,7 @@ app.whenReady().then(() => {
     if (typeof harnessId !== "string" || !harnessId) throw new Error("Invalid harness ID.");
     if (typeof commandPath !== "string" || !commandPath.trim()) throw new Error("Invalid command path.");
     try {
-      const port = await portPromise;
+      const port = await restoration.getReadiness();
       const resp = await fetch(`http://127.0.0.1:${port}/harnesses/${encodeURIComponent(harnessId)}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -432,7 +585,7 @@ app.whenReady().then(() => {
   async function clearHarnessCommandOverride(harnessId: unknown) {
     if (typeof harnessId !== "string" || !harnessId) throw new Error("Invalid harness ID.");
     try {
-      const port = await portPromise;
+      const port = await restoration.getReadiness();
       const resp = await fetch(`http://127.0.0.1:${port}/harnesses/${encodeURIComponent(harnessId)}`, {
         method: "DELETE",
       });
@@ -459,73 +612,24 @@ app.whenReady().then(() => {
     if (result.canceled || result.filePaths.length === 0) return null;
 
     const dirPath = result.filePaths[0];
-    workspacePath = dirPath;
-
-    rememberWorkspacePath(app.getPath("userData"), dirPath);
-
-    if (sidecarProcess) {
-      sidecarProcess.kill();
-      sidecarProcess = null;
-    }
-    backendPort = null;
-    openPlanToken = randomBytes(32).toString("hex");
-    portPromise = new Promise<number>((resolve) => {
-      portResolve = resolve;
-    });
-
-    sidecarProcess = spawn(getSidecarPath(), [], {
-      cwd: dirPath,
-      stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, ORKWORKS_OPEN_PLAN_TOKEN: openPlanToken },
-    });
-
-    sidecarProcess.stdout?.on("data", (data: Buffer) => {
-      const line = data.toString().trim();
-      console.log(`[orkworksd] ${line}`);
-      const match = line.match(/ORKWORKSD_PORT=(\d+)/);
-      if (match) {
-        backendPort = parseInt(match[1], 10);
-        console.log(`[main] sidecar ready on port ${backendPort}`);
-        if (portResolve) {
-          portResolve(backendPort);
-          portResolve = null;
+    if (!sidecarLifecycle) throw new Error("Backend lifecycle is unavailable");
+    const lifecycleReadiness = switchWorkspaceBackend(
+      dirPath,
+      (nextPath) => rememberWorkspacePath(app.getPath("userData"), nextPath),
+      (nextPath) => {
+        workspacePath = nextPath;
+        try {
+          return sidecarLifecycle!.start(nextPath);
+        } catch (error) {
+          const failure = error instanceof Error ? error : new Error("Backend replacement failed");
+          restoration.fail(failure);
+          throw failure;
         }
-      }
-    });
-
-    sidecarProcess.stderr?.on("data", (data: Buffer) => {
-      console.error(`[orkworksd:err] ${data.toString().trim()}`);
-    });
-
-    sidecarProcess.on("exit", (code) => {
-      console.log(`[main] sidecar exited with code ${code}`);
-      sidecarProcess = null;
-    });
-
-    const port = await portPromise;
-
-    const resp = await fetch(`http://127.0.0.1:${port}/workspace`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path: dirPath }),
-    });
-
-    if (!resp.ok) return null;
-
-    try {
-      const retention = currentSettings?.retention ?? DEFAULT_RETENTION;
-      await fetch(`http://127.0.0.1:${port}/settings/retention`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(retention),
-      });
-    } catch {
-      // Non-fatal: sidecar will use defaults until next save-retention
-    }
-
-    await syncSavedProviderSettings();
-
-    return resp.json();
+      },
+    );
+    void lifecycleReadiness.catch(() => {});
+    await restoration.getReadiness();
+    return restoration.getRestoredWorkspace();
   });
 
   ipcMain.on("orkworks:panel-visibility", (_event, data: { panelId: string; visible: boolean }) => {
@@ -542,32 +646,12 @@ app.whenReady().then(() => {
     applyMenu(createMenu(currentSettings));
   });
 
-  startSidecar(initialWorkspacePath ?? undefined);
+  const initialSidecarCwd = initialWorkspacePath
+    ?? (app.isPackaged ? app.getPath("home") : getDevRepoRoot(__dirname));
+  const initialLifecycleReadiness = sidecarLifecycle.start(initialSidecarCwd);
+  void initialLifecycleReadiness.catch(() => {});
   createWindow();
   applyMenu(createMenu(currentSettings));
-
-  portPromise.then(async (port) => {
-    try {
-      const retention = currentSettings?.retention ?? DEFAULT_RETENTION;
-      await fetch(`http://127.0.0.1:${port}/settings/retention`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(retention),
-      });
-    } catch {
-      // Sidecar may not be ready yet; will be pushed on next save-retention
-    }
-    await syncSavedProviderSettings();
-  });
-
-  async function syncSavedProviderSettings(): Promise<void> {
-    const settings = currentSettings ?? readSettings(app.getPath("userData"));
-    const port = await portPromise;
-    const result = await pushProviderSettings(`http://127.0.0.1:${port}`, settings.providers);
-    if (result.lastApplyError) {
-      console.warn(`[main] failed to push provider settings: ${result.lastApplyError}`);
-    }
-  }
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -583,10 +667,10 @@ app.on("window-all-closed", () => {
 });
 
 function killSidecar(): void {
-  if (sidecarProcess) {
-    sidecarProcess.kill();
-    sidecarProcess = null;
-  }
+  backendRestoration?.dispose();
+  backendRestoration = null;
+  sidecarLifecycle?.dispose();
+  sidecarLifecycle = null;
 }
 
 app.on("before-quit", killSidecar);

@@ -15,7 +15,8 @@ export function openExternalLink(url: unknown, openExternal: Shell["openExternal
   if (typeof url === "string") openWebLink(url, openExternal);
 }
 
-function isAllowedNavigation(url: string, allowedOrigin?: string): boolean {
+function isAllowedNavigation(url: string, allowedOrigin?: string, allowedUrl?: string): boolean {
+  if (allowedUrl !== undefined && url === allowedUrl) return true;
   try {
     return allowedOrigin !== undefined && new URL(url).origin === new URL(allowedOrigin).origin;
   } catch {
@@ -23,13 +24,18 @@ function isAllowedNavigation(url: string, allowedOrigin?: string): boolean {
   }
 }
 
-export function configureExternalLinks(webContents: WebContents, openExternal: Shell["openExternal"], allowedOrigin?: string): void {
+export function configureExternalLinks(
+  webContents: WebContents,
+  openExternal: Shell["openExternal"],
+  allowedOrigin?: string,
+  allowedUrl?: string,
+): void {
   webContents.setWindowOpenHandler(({ url }) => {
     openWebLink(url, openExternal);
     return { action: "deny" };
   });
   webContents.on("will-navigate", (event, url) => {
-    if (isAllowedNavigation(url, allowedOrigin)) return;
+    if (isAllowedNavigation(url, allowedOrigin, allowedUrl)) return;
     event.preventDefault();
     openWebLink(url, openExternal);
   });

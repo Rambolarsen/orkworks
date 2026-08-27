@@ -243,6 +243,35 @@ test("does not restore a matching dead last active session", async () => {
   controller.dispose();
 });
 
+test("adopts the restored workspace before polling after a failed switch and retry", async () => {
+  let currentWorkspace: WorkspaceInfo | null = workspace("old");
+  const observedByList: Array<string | null> = [];
+  const published: string[] = [];
+  const controller = createWorkspaceSessionController({
+    deps: deps({
+      setWorkspace: async () => { throw new Error("replacement sidecar failed"); },
+      listSessions: async () => {
+        observedByList.push(currentWorkspace?.path ?? null);
+        return [];
+      },
+    }),
+    onWorkspace: (info) => {
+      currentWorkspace = info;
+      published.push(info.path);
+    },
+  });
+
+  await controller.openWorkspace("new");
+  assert.equal(currentWorkspace?.path, "old");
+
+  await controller.adoptRestoredWorkspace(workspace("new"));
+
+  assert.deepEqual(published, ["new"]);
+  assert.deepEqual(observedByList, ["new"]);
+  assert.equal(currentWorkspace?.path, "new");
+  controller.dispose();
+});
+
 test("deleting the active session clears it before publishing the refreshed snapshot", async () => {
   const events: string[] = [];
   const controller = createWorkspaceSessionController({

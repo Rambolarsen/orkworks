@@ -1,8 +1,20 @@
 import { contextBridge, ipcRenderer } from "electron";
+import { subscribeBackendLifecycle, type BackendLifecycleEvent } from "./backendLifecycleEvent";
 
 contextBridge.exposeInMainWorld("orkworks", {
   platform: process.platform,
   getBackendUrl: (): Promise<string> => ipcRenderer.invoke("get-backend-url"),
+  retryBackend: (): Promise<void> => ipcRenderer.invoke("retry-backend"),
+  onBackendLifecycle: (callback: (event: BackendLifecycleEvent) => void) =>
+    subscribeBackendLifecycle(
+      (listener) => {
+        const handler = (_event: Electron.IpcRendererEvent, data: unknown) => listener(data);
+        ipcRenderer.on("orkworks:backend-lifecycle", handler);
+        return () => ipcRenderer.removeListener("orkworks:backend-lifecycle", handler);
+      },
+      () => ipcRenderer.invoke("get-backend-lifecycle"),
+      callback,
+    ),
   getInitialWorkspace: (): Promise<unknown> => ipcRenderer.invoke("get-initial-workspace"),
   openWorkspace: (): Promise<unknown> => ipcRenderer.invoke("open-workspace"),
   getLayout: (): Promise<string | null> => ipcRenderer.invoke("get-layout"),

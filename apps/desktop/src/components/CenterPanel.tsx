@@ -2,15 +2,18 @@ import { useEffect, useRef, useCallback } from "react";
 import "@xterm/xterm/css/xterm.css";
 import { disposeTerminal, ensureTerminal, getTerminal } from "../terminalStore";
 import { computeTerminalInteractivity } from "../terminalPresentation";
+import { attachTerminalAfterBackendReady } from "../terminalAttach";
 import EmptyState from "./EmptyState";
 
 interface CenterPanelProps {
   backendStatus: string;
   sessionId: string | null;
   starting: boolean;
+  onBackendUnavailable: () => void;
+  onRetryBackend: () => void;
 }
 
-function CenterPanel({ backendStatus, sessionId, starting }: CenterPanelProps) {
+function CenterPanel({ backendStatus, sessionId, starting, onBackendUnavailable, onRetryBackend }: CenterPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const activeIdRef = useRef<string | null>(null);
   const startingRef = useRef(starting);
@@ -81,16 +84,20 @@ function CenterPanel({ backendStatus, sessionId, starting }: CenterPanelProps) {
       return;
     }
 
-    window.orkworks.getBackendUrl().then((baseUrl) => {
-      if (cancelled) return;
-      ensureTerminal(sessionId, baseUrl);
-      attachTerminal(sessionId);
-    });
+    void attachTerminalAfterBackendReady(
+      () => window.orkworks.getBackendUrl(),
+      () => cancelled,
+      (baseUrl) => {
+        ensureTerminal(sessionId, baseUrl);
+        attachTerminal(sessionId);
+      },
+      onBackendUnavailable,
+    );
 
     return () => {
       cancelled = true;
     };
-  }, [backendStatus, sessionId, attachTerminal]);
+  }, [backendStatus, sessionId, attachTerminal, onBackendUnavailable]);
 
   useEffect(() => {
     let fitRaf: number | null = null;
@@ -123,7 +130,11 @@ function CenterPanel({ backendStatus, sessionId, starting }: CenterPanelProps) {
   }, []);
 
   if (backendStatus !== "connected") {
-    return <EmptyState message="Connecting to OrkWorks…" />;
+    const unavailable = backendStatus === "unreachable" || backendStatus === "exhausted";
+    return <EmptyState
+      message={unavailable ? "OrkWorks is unavailable." : "Connecting to OrkWorks…"}
+      action={unavailable ? { label: "Retry", onClick: onRetryBackend } : undefined}
+    />;
   }
 
   const terminalHandle = sessionId ? getTerminal(sessionId) : undefined;

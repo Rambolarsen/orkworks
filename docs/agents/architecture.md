@@ -15,6 +15,64 @@ orkworks/
 
 `electron/main.ts` spawns `orkworksd` as a child process and discovers its port by reading stdout for the line `ORKWORKSD_PORT=<n>`. The app icon is platform-aware: macOS uses `icon.png`/`icon-dark.png` (squircle background baked in) via `app.dock.setIcon()`; Windows uses `icon.ico`/`icon-dark.ico` (transparent background, multi-resolution) via `BrowserWindow.setIcon()`. Both swap on `nativeTheme` change. The port is dynamic — there is no fixed localhost port. The frontend gets the URL via the preload bridge: `window.orkworks.getBackendUrl()`.
 
+### Sidecar lifecycle and runtime recovery
+
+`electron/sidecarLifecycle.ts` owns sidecar process startup, port discovery, and
+failure recovery. Each launch is a monotonically numbered generation with its
+own readiness promise. Only the current generation may publish a port, change
+the active lifecycle state, or notify the renderer; exits, errors, timers, and
+stdout from a replaced generation are ignored. Spawn errors, exits before the
+port line, and the 10-second readiness timeout reject that generation's
+readiness and clear the active port. Once a process has announced a port, a
+later process failure invalidates the port and reports the failure to the main
+process instead of leaving API callers waiting on a stale promise.
+
+Sidecar readiness is followed by a separate generation-owned restoration gate
+in `electron/backendRestoration.ts`. After the port is known, Electron main
+restores the remembered workspace, applies persisted retention settings, and
+pushes persisted provider settings. These operations share an abort signal. A
+restoration timeout or workspace-restoration failure rejects readiness and
+publishes an unavailable state; retention-setting and provider-setting failures
+are logged as best-effort application failures, and readiness proceeds. The
+workspace restoration and settings attempts complete before `get-backend-url`
+resolves or the renderer receives the `ready` lifecycle event. Initial startup
+uses the last existing workspace path when available, otherwise the
+development repository or the packaged home directory. A workspace switch
+persists the selected path before starting its replacement generation, and
+stale restoration work is aborted so an older workspace cannot become ready
+afterward.
+
+Automatic recovery is bounded: one recovery sequence makes at most three
+sidecar launches in total (the initial launch plus two automatic retries), with
+default delays of 250 ms and 1 second. Only one delayed recovery is scheduled
+at a time. After the third failed launch the lifecycle becomes `exhausted` and
+waits for the user's explicit Retry action; a generation that remains ready for
+five seconds resets the automatic-attempt counter. Explicit retry starts a
+fresh generation using the last sidecar working directory and resets the
+counter.
+
+The preload bridge exposes `onBackendLifecycle` and `retryBackend`. Lifecycle
+events are the narrow union `starting`, `retrying`, `ready` (with a validated
+port), `failed` (with a stable failure message), and `exhausted` (with a stable
+failure message). Preload canonicalizes exact event shapes and replays the
+latest main-process snapshot for late subscribers, while preserving live-event
+ordering and returning an unsubscribe function. The renderer maps these events
+to its backend status, stops session polling unless the backend is connected
+and workspace restoration is complete, and shows a Retry panel for
+unreachable or exhausted states without discarding existing workspace/session
+state.
+
+React render exceptions are handled in the renderer by `ErrorBoundary`.
+Electron main has an independent fallback for main-frame `did-fail-load` and
+`render-process-gone` events, with bounded, sanitized console diagnostics. It
+loads a resource-free inline recovery document for those failures; the
+document has one user-triggered Retry action that returns to the captured
+development URL or exact packaged `file:` document. A recovery-load guard
+prevents repeated automatic fallback navigation and resets when the original
+document begins or finishes loading, or when recovery navigation fails. This
+path does not depend on React or the preload bridge, so it remains available
+when the normal renderer document is not.
+
 ## Packaging and release
 
 Desktop packaging lives under `apps/desktop/`. `electron-builder.yml` defines the product metadata and `extraResources` layout, while `scripts/package-release.mjs` maps the current host platform/arch to the matching Rust target triple, stages the built `orkworksd` binary into `crates/orkworksd/target/release/`, and invokes `electron-builder` with the matching CLI arch flag. CI runs the same path from `.github/workflows/release.yml`, with separate macOS x64 and arm64 jobs so the packaged sidecar always matches the bundled Electron arch.
@@ -23,11 +81,13 @@ Desktop packaging lives under `apps/desktop/`. `electron-builder.yml` defines th
 
 Electron runs with `nodeIntegration: false` and `contextIsolation: true` (ADR 0009). The renderer cannot call Node APIs directly. All privileged operations go through `electron/preload.ts`, which exposes `window.orkworks` with backend discovery, workspace memory, layout memory, menu-command, panel-visibility, and app-settings methods. Adding new capabilities requires extending the preload, not relaxing context isolation. `titleBarStyle: 'hiddenInset'` is set on macOS so the web content extends into the title bar area; the renderer reads `window.orkworks.platform` (exposed synchronously by the preload) to apply a `data-platform` attribute on `<html>`, which CSS uses to add traffic-light clearance (`padding-left: 80px`) on darwin only.
 
+Leaving `sandbox` unset on `webPreferences` means Electron runs `preload.ts` under its sandboxed preload loader, which only resolves Node/Electron built-ins — a plain per-file `tsc` require of any other local `electron/*.ts` module fails at runtime (`module not found`) even though it type-checks and compiles cleanly. `scripts/build-preload.mjs` (config in `scripts/preloadBuildConfig.mjs`) runs esbuild after `tsc` in the `dev`, `build`, and `dist` npm scripts to bundle `electron/preload.ts` and its local imports into a single self-contained `dist-electron/preload.js`, keeping `electron` external so Electron's own binding still resolves it. The rest of `electron/*.ts` (main-process code, not sandboxed) keeps its plain per-file `tsc` output and may freely `require()` sibling modules.
+
 `electron/layoutMemory.ts` persists the Dockview panel layout to `layout.json` in the Electron user data directory, using the same pattern as `workspaceMemory.ts`. Layout is serialized via Dockview's `toJSON()`/`fromJSON()` on every layout change (debounced 500ms) and restored on startup.
 
 `electron/settingsMemory.ts` owns app-level settings in Electron `userData`, including hotkey validation, default hotkeys, a persisted `debug.showSessionIds` flag for gating internal session identifiers in the Details panel, persisted menu accelerators, and durable provider settings (`ProviderSettings`). In user-facing copy these provider settings are model provider settings; internal code keeps the existing `ProviderSettings` name. `getSettings()` and successful `saveHotkeys()` responses include a renderer-facing `defaultHotkeys` copy sourced from the main process, so the settings UI can restore defaults without duplicating canonical accelerators. Electron settings now push both retention and provider settings into the sidecar after port discovery. Explicit saves return sidecar application status so the renderer can distinguish durable local persistence from a pending sidecar application. `electron/providerSettingsSync.ts` handles the `POST /settings/providers` push on startup, workspace switch, and explicit save. Provider model lists are fetched from `GET /providers/:id/models` and cached in memory at startup; the renderer reads them via the `getProviderModels` preload method. Draft Ollama verification in Settings bypasses that cache through the `verifyOllama` preload bridge and `POST /settings/providers/ollama/verify`, so unsaved URLs can be checked before persistence.
 
-Electron-main denies renderer popup and navigation requests, delegates valid HTTP(S) links to the OS default browser, and keeps same-origin Vite reloads inside Electron during development. xterm's OSC-8 terminal links use the narrow `openExternalLink` preload bridge, so they bypass renderer `window.open()` while still receiving Electron-main URL validation.
+Electron-main denies renderer popup and navigation requests, delegates valid HTTP(S) links to the OS default browser, and keeps same-origin Vite reloads inside Electron during development. xterm's OSC-8 terminal links use the narrow `openExternalLink` preload bridge, so they bypass renderer `window.open()` while still receiving Electron-main URL validation. Renderer load/process failures log bounded diagnostics and show a resource-free local recovery document; its retry returns to the captured original app URL, with only that exact packaged `file:` target allowlisted.
 
 ## Frontend → backend API
 
@@ -128,7 +188,7 @@ Single binary. Top-level modules:
 - `migration.rs` — one-time migration of legacy `<workspace>/.orkworks/` data into the global store
 - `peon.rs` — observer config, ring buffer, in-memory observation state, prompt building, inference parsing/validation, source-priority overwrite rules, timer-based idle detection (`PEON_IDLE_TIMEOUT`, default 15s), summary normalization (strips "User is/wants/typed" prefixes), and usage-limit detection from terminal output
 - `procfs.rs` — `live_cwds(pids)`: cross-platform (Linux/macOS/Windows) batched probe for running processes' current working directories in one `sysinfo` scan. Backs the pid-probe tier of live session git-context tracking (issue #241, [ADR 0031](../adr/0031-live-session-cwd-via-sysinfo-probe.md)); pids that are gone, denied, or unsupported are simply absent from the result and callers fall back further down the chain. Only actually tracks bare shell sessions — see `resolve_effective_cwds` below for why command-template harness sessions need [ADR 0032](../adr/0032-harness-reported-cwd-via-hook-payload.md)'s harness-reported cwd instead.
-- `providers.rs` — provider definitions, applied-settings store, persisted runtime state, fallback runner (`run_inference` skips disabled/capped providers in fallback order), and model listing. `builtin_provider_registry()` contains only ollama (HTTP-based, no harness). Harness-backed provider definitions are projected from the captured resolved registry, so Peon configuration remains with its harness definition rather than being duplicated. On Unix, `ProcessRunner` calls `setsid()` + closes inherited fds ≥ 3 before spawning the harness subprocess (via `libc`), preventing PTY leakage into provider processes. This module still carries the historical `Provider*` names, but today it is modeling the Peon inference tool registry rather than the user-facing coding-tool selector. It exposes `GET /providers` for live runtime state, `GET /providers/:id/models` for available models, and `POST /settings/providers` for durable settings application. The session Peon loop routes through `ProviderManager::run_inference`. Per-provider peon model is configured in Settings.
+- `providers.rs` — provider definitions, applied-settings store, persisted runtime state, fallback runner (`run_inference` skips disabled/capped providers in fallback order), and model listing. `builtin_provider_registry()` contains only ollama (HTTP-based, no harness). Harness-backed provider definitions are projected from the captured resolved registry, so Peon configuration remains with its harness definition rather than being duplicated. `ProcessRunner` starts harness providers through plain `Command::spawn()` with piped stdin/stdout/stderr; it has no Unix fork-time callback, setsid operation, or inherited-file-descriptor sweep. This module still carries the historical `Provider*` names, but today it is modeling the Peon inference tool registry rather than the user-facing coding-tool selector. It exposes `GET /providers` for live runtime state, `GET /providers/:id/models` for available models, and `POST /settings/providers` for durable settings application. The session Peon loop routes through `ProviderManager::run_inference`. Per-provider peon model is configured in Settings.
 - `session_types.rs` — `SessionInfo` struct, lifecycle and attention enums, and the renderer-facing session contract
 - `session_view.rs` — lifecycle-aware session projection, connectivity and terminal-outcome derivation, conflict detection, and resume-option derivation. `resolve_effective_cwds` centralizes the harness-reported → pid-probed → launch-cwd fallback chain (ADR 0032 → ADR 0031 → launch `cwd`) so git-context enrichment and cwd-collision conflict warnings agree on where a session actually is.
 - `watcher.rs` — `notify`-based file watcher for session metadata changes under the global store

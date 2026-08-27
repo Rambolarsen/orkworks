@@ -3,11 +3,18 @@ import type { AppSettings, DebugSettings, HotkeySettings, RetentionSettings, Sav
 import type { ProviderSettings, ProviderModelsResponse, ProviderLabelsResponse, OllamaVerificationResponse, ProviderApplyStatus, RetentionApplyStatus } from "./providerTypes";
 import type { HarnessConfig, IntegrationStatusResult } from "./harnessTypes";
 
+export type BackendLifecycleEvent =
+  | { state: "starting" | "retrying" }
+  | { state: "ready"; port: number; workspace: WorkspaceInfo | null }
+  | { state: "failed" | "exhausted"; message: string };
+
 declare global {
   interface Window {
     orkworks: {
       platform: string;
       getBackendUrl: () => Promise<string>;
+      retryBackend: () => Promise<void>;
+      onBackendLifecycle: (callback: (event: BackendLifecycleEvent) => void) => () => void;
       getInitialWorkspace: () => Promise<WorkspaceInfo | null>;
       openWorkspace: () => Promise<WorkspaceInfo | null>;
       getLayout: () => Promise<string | null>;
