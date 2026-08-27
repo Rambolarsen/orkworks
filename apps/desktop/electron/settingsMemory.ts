@@ -453,7 +453,10 @@ export function writeSettings(userDataPath: string, settings: AppSettings): void
       // Windows refuses to rename over an existing file. Removing the target
       // only on that platform preserves the atomic same-directory rename on
       // Unix while allowing subsequent settings saves on Windows.
-      if (process.platform !== "win32") throw error;
+      const code = error && typeof error === "object" && "code" in error
+        ? (error as { code?: string }).code
+        : undefined;
+      if (process.platform !== "win32" || !["EEXIST", "EPERM", "EBUSY"].includes(code ?? "")) throw error;
       rmSync(target, { force: true });
       renameSync(temporary, target);
     }
