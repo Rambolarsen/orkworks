@@ -458,7 +458,7 @@ impl SessionProjection {
                     && handle.pending_capacity_visible_once == *visible
         });
         if !runtime_identity_current {
-            return Vec::new();
+            return infos;
         }
         self.state
             .providers

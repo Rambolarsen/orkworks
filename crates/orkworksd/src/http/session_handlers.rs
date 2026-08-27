@@ -941,7 +941,7 @@ mod tests {
         }));
 
         let sessions = listed_sessions(state.clone()).await;
-        assert!(sessions.is_empty());
+        assert_eq!(sessions.len(), 1);
         let handle = state.sessions.lock().unwrap();
         let handle = &handle[&session_id];
         assert!(!handle.at_usage_limit_latched);
@@ -951,6 +951,28 @@ mod tests {
         assert_eq!(handle.output_lines_seen, 2);
         assert_eq!(handle.scan_bytes_seen, 0);
         assert_eq!(handle.resume_scan_origin, Some((0, 0)));
+    }
+
+    #[tokio::test]
+    async fn list_sessions_maps_a_poisoned_projection_lock_to_an_empty_500_response() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let poisoned_state = state.clone();
+        let _ = std::thread::spawn(move || {
+            let _guard = poisoned_state.projection_lock.lock().unwrap();
+            panic!("poison projection lock for join-error coverage");
+        })
+        .join();
+
+        let response = list_sessions(State(state)).await.into_response();
+        assert_eq!(
+            response.status(),
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR
+        );
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert!(body.is_empty());
     }
     fn orphan_test_metadata(id: &str, workspace: &std::path::Path) -> metadata::SessionMetadata {
         let workspace = workspace.display().to_string();
