@@ -1,4 +1,5 @@
 use crate::session_projection::SessionProjection;
+#[cfg(test)]
 use crate::session_projection::enrich_sessions_with_git_context as project_git_context;
 #[cfg(test)]
 use crate::session_application::{resolve_session_launch, CreateSessionCommand};
@@ -416,6 +417,7 @@ pub(crate) struct CreateSessionRequest {
     pub(crate) initial_prompt: Option<String>,
 }
 
+#[cfg(test)]
 fn enrich_sessions_with_git_context<F>(
     infos: &mut [SessionInfo],
     effective_cwds: &HashMap<String, String>,
@@ -430,9 +432,15 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
     let result = tokio::task::spawn_blocking(move || {
         #[cfg(test)]
         let before_write_back = || tests::run_list_sessions_before_write_back_hook(&state);
+        let projection = SessionProjection::new(state.clone());
+        #[cfg(test)]
+        {
+            projection.list_with_hook(before_write_back)
+        }
         #[cfg(not(test))]
-        let before_write_back = || {};
-        SessionProjection::new(state.clone()).list_with_hook(before_write_back)
+        {
+            projection.list()
+        }
     })
     .await;
 

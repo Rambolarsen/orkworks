@@ -32,6 +32,7 @@ struct WorkspaceSnapshot {
 struct ProjectionSnapshot {
     infos: Vec<SessionInfo>,
     workspace_identity: Option<PathBuf>,
+    metadata_root: Option<PathBuf>,
 }
 
 impl SessionProjection {
@@ -127,6 +128,7 @@ impl SessionProjection {
         ProjectionSnapshot {
             infos,
             workspace_identity: workspace.as_ref().map(|snapshot| snapshot.identity.clone()),
+            metadata_root: workspace.as_ref().map(|snapshot| snapshot.metadata_root.clone()),
         }
     }
 
@@ -174,6 +176,7 @@ impl SessionProjection {
             .expect("harness catalog lock poisoned")
             .clone();
         let workspace_identity = snapshot.workspace_identity;
+        let metadata_root = snapshot.metadata_root;
         let projected_infos = snapshot.infos;
         let live_sessions: Vec<_> = {
             let sessions = self.state.sessions.lock().unwrap();
@@ -208,12 +211,9 @@ impl SessionProjection {
                     )
                 })
                 .collect();
-        let capacity_metadata = {
-            let workspace = self.state.workspace.lock().unwrap();
-            workspace
-                .as_ref()
-                .map(|workspace| metadata::MetadataStore::new(&workspace.metadata.root_path()))
-        };
+        let capacity_metadata = metadata_root
+            .as_ref()
+            .map(|root| metadata::MetadataStore::new(root));
         let durable_harnesses: HashMap<String, String> = capacity_metadata
             .as_ref()
             .map(|metadata| {
@@ -443,9 +443,8 @@ impl SessionProjection {
         if current_workspace_identity != workspace_identity {
             return Vec::new();
         }
-        let runtime_identity_current = {
-            let sessions = self.state.sessions.lock().unwrap();
-            capacity_snapshots.iter().all(|(id, snapshot)| {
+        let mut sessions = self.state.sessions.lock().unwrap();
+        let runtime_identity_current = capacity_snapshots.iter().all(|(id, snapshot)| {
                 let Some(handle) = sessions.get(id) else {
                     return false;
                 };
@@ -457,8 +456,7 @@ impl SessionProjection {
                     && handle.scan_bytes_seen == *bytes
                     && handle.resume_scan_origin == *origin
                     && handle.pending_capacity_visible_once == *visible
-            })
-        };
+        });
         if !runtime_identity_current {
             return Vec::new();
         }
@@ -466,7 +464,6 @@ impl SessionProjection {
             .providers
             .update_session_capping(harness_capped, harness_reset_hint, provider_checking);
 
-        let mut sessions = self.state.sessions.lock().unwrap();
         let mut write_back_snapshot_ids = HashSet::new();
         for info in &infos {
             if let Some(handle) = sessions.get_mut(&info.id) {
