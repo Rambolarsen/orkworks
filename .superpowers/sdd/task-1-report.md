@@ -131,4 +131,4 @@ reported before stopping it.
 
 ### Commit
 
-- Pending commit for this review-fix pass.
+- Review-fix implementation commit: 28028a2 (fix: align Ollama URL migration handling).
