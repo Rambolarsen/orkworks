@@ -351,6 +351,11 @@ impl IntegrationHandler for JsonHookHandler {
         let replacement = serde_json::to_vec_pretty(&document)
             .map_err(|error| IntegrationError::InvalidConfig(error.to_string()))?;
         transaction.commit(&replacement)?;
+        if self.contract.harness_id == "codex" {
+            if let Some(metadata) = ctx.workspace_metadata {
+                metadata.clear_codex_hook_observation();
+            }
+        }
         self.status(ctx)
     }
 
@@ -360,7 +365,14 @@ impl IntegrationHandler for JsonHookHandler {
     ) -> Result<IntegrationStatus, IntegrationError> {
         let (transaction, mut document, reporter) = self.load(ctx)?;
         match (self.remove)(&mut document)? {
-            FragmentState::Absent => return self.status_from_document(ctx, &document, &reporter),
+            FragmentState::Absent => {
+                if self.contract.harness_id == "codex" {
+                    if let Some(metadata) = ctx.workspace_metadata {
+                        metadata.clear_codex_hook_observation();
+                    }
+                }
+                return self.status_from_document(ctx, &document, &reporter);
+            }
             FragmentState::Ambiguous => return Err(IntegrationError::OwnershipAmbiguous),
             FragmentState::Installed | FragmentState::Drifted => {}
         }
@@ -683,13 +695,18 @@ mod tests {
 
     #[test]
     fn report_harness_event_runs_and_forwards_session_id_from_a_real_codex_session_start_payload() {
-        let trace = run_report_harness_event_sh_trace(
+        let trace = run_report_harness_event_sh_trace_with_args(
             "orkworks:harness-integration:v2:codex",
             r#"{"session_id":"thr_123","cwd":"/tmp/some/worktree","hook_event_name":"SessionStart","source":"startup"}"#,
+            &["--hook-fingerprint", "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"],
         );
         assert!(
             trace.contains(r#"{"harnessSessionId":"thr_123","source":"codex_hook","confidence":0.98}"#),
             "expected codex session_id to be forwarded; trace:\n{trace}"
+        );
+        assert!(
+            trace.contains(r#""hookFingerprint":"a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"#),
+            "expected codex hook fingerprint to be forwarded; trace:\n{trace}"
         );
     }
 
@@ -999,6 +1016,10 @@ mod tests {
             observed_at: "2026-08-27T12:00:00Z".into(),
         });
         assert_eq!(handler(&IntegrationBinding::Codex).status(&context).unwrap().activation, IntegrationActivation::Active);
+        fs::remove_file(workspace.path().join(".codex/hooks.json")).unwrap();
+        handler(&IntegrationBinding::Codex).install(&context).unwrap();
+        assert_eq!(handler(&IntegrationBinding::Codex).status(&context).unwrap().activation, IntegrationActivation::NeedsTrust);
+        assert_eq!(store.read_codex_hook_observation(), None);
         handler(&IntegrationBinding::Codex).uninstall(&context).unwrap();
         assert_eq!(store.read_codex_hook_observation(), None);
     }
