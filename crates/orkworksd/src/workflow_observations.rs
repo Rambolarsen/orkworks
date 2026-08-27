@@ -590,11 +590,11 @@ impl WorkflowObservationStore {
     /// Returns the number of retained accepted observations for one session.
     /// Tombstones and duplicate reports are intentionally excluded.
     pub(crate) fn session_observation_count(&self, session_id: &str) -> Result<usize, StoreError> {
-        Ok(self
-            .workspace_observations()?
-            .into_iter()
-            .filter(|observation| observation.session_id == session_id)
-            .count())
+        let inner = self.inner.lock().unwrap();
+        Ok(inner
+            .session_cache
+            .get(session_id)
+            .map_or(0, |cache| cache.observations.len()))
     }
 
     pub(crate) fn delete_session_observations(&self, session_id: &str) -> Result<(), StoreError> {
@@ -1281,6 +1281,76 @@ mod tests {
 
         assert_eq!(store.session_observation_count("session-1").unwrap(), 1);
         assert_eq!(store.session_observation_count("session-2").unwrap(), 0);
+    }
+
+    #[test]
+    fn session_observation_count_ignores_unrelated_workspace_retention_bound() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+        let ndjson_dir = root.join("workflow-observations");
+        fs::create_dir_all(&ndjson_dir).unwrap();
+
+        let mut sequence = 1u64;
+        let target = WorkflowObservation {
+            id: uuid::Uuid::new_v4().to_string(),
+            sequence,
+            session_id: "target-session".to_string(),
+            observed_at: Utc::now().to_rfc3339(),
+            kind: ObservationKind::Obstacle,
+            description: "target description".to_string(),
+            evidence: "target evidence".to_string(),
+            reported_impact: Impact::Medium,
+            source: ObservationSource::Agent,
+            confidence: AGENT_CONFIDENCE,
+            fingerprint: "v1:obstacle:target description".to_string(),
+        };
+        let target_stored = StoredObservation {
+            observation: target,
+            idempotency_key_hash: "target-key-hash".to_string(),
+            payload_hash: "target-payload-hash".to_string(),
+        };
+        fs::write(
+            ndjson_dir.join("target-session.ndjson"),
+            format!("{}\n", serialize_observation_line(&target_stored).unwrap()),
+        )
+        .unwrap();
+
+        for session_index in 0..MAX_WORKSPACE_OBSERVATIONS {
+            sequence += 1;
+            let session_id = format!("unrelated-session-{session_index}");
+            let observation = WorkflowObservation {
+                id: uuid::Uuid::new_v4().to_string(),
+                sequence,
+                session_id: session_id.clone(),
+                observed_at: Utc::now().to_rfc3339(),
+                kind: ObservationKind::Obstacle,
+                description: "unrelated description".to_string(),
+                evidence: "unrelated evidence".to_string(),
+                reported_impact: Impact::Medium,
+                source: ObservationSource::Agent,
+                confidence: AGENT_CONFIDENCE,
+                fingerprint: "v1:obstacle:unrelated description".to_string(),
+            };
+            let stored = StoredObservation {
+                observation,
+                idempotency_key_hash: format!("key-hash-{sequence}"),
+                payload_hash: format!("payload-hash-{sequence}"),
+            };
+            fs::write(
+                ndjson_dir.join(format!("{session_id}.ndjson")),
+                format!("{}\n", serialize_observation_line(&stored).unwrap()),
+            )
+            .unwrap();
+        }
+        fs::write(ndjson_dir.join("sequence"), sequence.to_string()).unwrap();
+
+        let store = open_store(&root);
+
+        assert_eq!(
+            store.workspace_observations().unwrap().len(),
+            MAX_WORKSPACE_OBSERVATIONS
+        );
+        assert_eq!(store.session_observation_count("target-session").unwrap(), 1);
     }
 
     #[test]

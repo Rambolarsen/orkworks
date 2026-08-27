@@ -253,7 +253,7 @@ mod tests {
     fn session_info_serializes_peon_diagnostics_contract() {
         let info = SessionInfo {
             peon_diagnostics: Some(PeonDiagnostics {
-                scheduler_state: PeonSchedulerState::Completed,
+                scheduler_state: PeonSchedulerState::InFlight,
                 reason: Some("inference_completed".into()),
                 last_attempt_at: Some("2026-08-27T10:00:00Z".into()),
                 last_successful_inference_at: Some("2026-08-27T10:00:01Z".into()),
@@ -268,21 +268,29 @@ mod tests {
         };
 
         let json = serde_json::to_value(&info).unwrap();
-        let diagnostics = &json["peonDiagnostics"];
-        for field in [
-            "schedulerState",
-            "lastAttemptAt",
-            "lastSuccessfulInferenceAt",
-            "providerId",
-            "providerModel",
-            "fallbackStep",
-            "attemptCount",
-            "errorSummary",
-            "observationCount",
-        ] {
-            assert!(diagnostics.get(field).is_some(), "missing {field}: {json}");
-        }
-        assert_eq!(diagnostics["schedulerState"], "completed");
+        assert_eq!(
+            json["peonDiagnostics"],
+            serde_json::json!({
+                "schedulerState": "in_flight",
+                "reason": "inference_completed",
+                "lastAttemptAt": "2026-08-27T10:00:00Z",
+                "lastSuccessfulInferenceAt": "2026-08-27T10:00:01Z",
+                "providerId": "ollama",
+                "providerModel": "llama3.2",
+                "fallbackStep": 1,
+                "attemptCount": 2,
+                "errorSummary": "previous provider timed out",
+                "observationCount": 3,
+            })
+        );
+    }
+
+    #[test]
+    fn session_info_omits_absent_peon_diagnostics() {
+        let info = test_session_info("test", "Test", "/tmp", "running", "now");
+        let json = serde_json::to_value(&info).unwrap();
+
+        assert!(json.get("peonDiagnostics").is_none(), "unexpected {json}");
     }
 
     #[test]
