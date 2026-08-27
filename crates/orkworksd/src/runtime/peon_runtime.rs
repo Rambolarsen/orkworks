@@ -41,7 +41,7 @@ impl crate::PeonState {
         &self,
         diagnostics: &'a mut std::collections::HashMap<String, crate::PeonDiagnosticEntry>,
         session_id: &str,
-    ) -> &'a mut crate::PeonDiagnosticEntry {
+    ) -> Option<&'a mut crate::PeonDiagnosticEntry> {
         if !diagnostics.contains_key(session_id) {
             if diagnostics.len() >= crate::MAX_PEON_DIAGNOSTIC_SESSIONS {
                 let evictable_id = {
@@ -51,30 +51,31 @@ impl crate::PeonState {
                         .find(|id| !in_flight.contains(*id))
                         .cloned()
                 };
-                if let Some(oldest_id) = evictable_id {
-                    diagnostics.remove(&oldest_id);
-                }
+                let Some(evictable_id) = evictable_id else {
+                    return None;
+                };
+                diagnostics.remove(&evictable_id);
             }
             diagnostics.insert(
                 session_id.to_string(),
                 crate::PeonDiagnosticEntry::new(),
             );
         }
-        diagnostics
-            .get_mut(session_id)
-            .expect("diagnostic entry was inserted")
+        diagnostics.get_mut(session_id)
     }
 
     fn mark_candidate(&self, session_id: &str) {
         let mut diagnostics = self.diagnostics.write().unwrap();
-        let entry = self.diagnostic_entry(&mut diagnostics, session_id);
+        let Some(entry) = self.diagnostic_entry(&mut diagnostics, session_id) else {
+            return;
+        };
         entry.snapshot.scheduler_state = crate::session_types::PeonSchedulerState::Candidate;
         entry.snapshot.reason = Some("selected_for_inference".to_string());
     }
 
     fn begin_attempt(&self, session_id: &str) -> Option<u64> {
         let mut diagnostics = self.diagnostics.write().unwrap();
-        let entry = self.diagnostic_entry(&mut diagnostics, session_id);
+        let entry = self.diagnostic_entry(&mut diagnostics, session_id)?;
         if entry.snapshot.scheduler_state == crate::session_types::PeonSchedulerState::InFlight {
             return None;
         }
@@ -182,7 +183,9 @@ impl crate::PeonState {
 
     fn mark_idle(&self, session_id: &str, reason: &str) {
         let mut diagnostics = self.diagnostics.write().unwrap();
-        let entry = self.diagnostic_entry(&mut diagnostics, session_id);
+        let Some(entry) = self.diagnostic_entry(&mut diagnostics, session_id) else {
+            return;
+        };
         if entry.snapshot.scheduler_state != crate::session_types::PeonSchedulerState::InFlight {
             entry.snapshot.scheduler_state = crate::session_types::PeonSchedulerState::Idle;
             entry.snapshot.reason = Some(reason.to_string());
@@ -758,6 +761,8 @@ mod tests {
 
         let diagnostics = state.peon.diagnostics.read().unwrap();
         let in_flight = state.peon.in_flight.read().unwrap();
+        assert_eq!(diagnostics.len(), crate::MAX_PEON_DIAGNOSTIC_SESSIONS);
+        assert!(!diagnostics.contains_key("new-diagnostic"));
         for index in 0..crate::MAX_PEON_DIAGNOSTIC_SESSIONS {
             let session_id = format!("in-flight-{index}");
             assert!(diagnostics.contains_key(&session_id));
