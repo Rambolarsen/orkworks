@@ -30,10 +30,9 @@ export interface PeonAppliedState {
   connectionRevision: number;
 }
 
-export interface PeonSelectionSaveResult {
-  ok: true;
-  settings: import("./appSettingsTypes").AppSettings;
-}
+export type PeonSelectionSaveResult =
+  | { ok: true; settings: import("./appSettingsTypes").AppSettings }
+  | { ok: false; error: string };
 
 export interface ProviderSettingsEntry {
   id: ProviderId;

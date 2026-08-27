@@ -30,10 +30,9 @@ export interface PeonAppliedState {
   connectionRevision: number;
 }
 
-export interface PeonSelectionSaveResult {
-  ok: true;
-  settings: unknown;
-}
+export type PeonSelectionSaveResult =
+  | { ok: true; settings: unknown }
+  | { ok: false; error: string };
 
 export function peonSelectionMatchesAppliedState(
   selection: PeonSelection,

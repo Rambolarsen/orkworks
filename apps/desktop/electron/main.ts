@@ -9,8 +9,9 @@ import { readWorkspaceMemory, rememberWorkspacePath } from "./workspaceMemory";
 import { readLayoutMemory, writeLayoutMemory } from "./layoutMemory";
 import type { AppSettings } from "./settingsMemory";
 import { DEFAULT_HOTKEYS, DEFAULT_RETENTION, loadSettingsForStartup, normalizeDebugSettings, normalizeProviderSettings, normalizeRetention, readSettings, settingsWithHotkeys, settingsWithPeonSelection, validateHotkeys, writeSettings } from "./settingsMemory";
-import { pushProviderSettings } from "./providerSettingsSync";
-import { peonSelectionMatchesAppliedState, type PeonAppliedState, type PeonProviderVerificationResponse, type PeonSelection, type ProviderApplyStatus, type ProviderId, type ProviderSettings } from "./providerTypes";
+import { providerSettingsSyncError, pushProviderSettings } from "./providerSettingsSync";
+import type { PeonAppliedState, PeonProviderVerificationResponse, PeonSelection, ProviderApplyStatus, ProviderId, ProviderSettings } from "./providerTypes";
+import { createPeonSelectionTransaction, normalizePeonSelectionInput, type PeonSelectionTransaction } from "./peonSelectionTransaction";
 import { buildMenuTemplate } from "./menuTemplate";
 import { getSessionPlanContent, requestSessionPlanReview, selectTerminalPlan } from "./planOpener";
 import { configureExternalLinks, openExternalLink } from "./externalLinks";
@@ -31,10 +32,10 @@ let workspacePath: string | null = null;
 let menuPanelItems: Record<string, Electron.MenuItem> = {};
 let currentSettings: AppSettings | null = null;
 let providerModels: Map<string, string[]> = new Map();
-let providerModelDiscoveryGeneration = 0;
 let providerLabels: Record<string, string> = {};
 let hotkeyCaptureActive = false;
 let openPlanToken = "";
+let settingsWriteQueue: Promise<void> = Promise.resolve();
 const menuPanelIds = ["sessions", "detail", "terminal", "capacity", "recommendations"];
 
 function rendererSettings(settings: AppSettings): AppSettings & { defaultHotkeys: typeof DEFAULT_HOTKEYS } {
@@ -42,6 +43,12 @@ function rendererSettings(settings: AppSettings): AppSettings & { defaultHotkeys
     ...settings,
     defaultHotkeys: { ...DEFAULT_HOTKEYS },
   };
+}
+
+function enqueueSettingsWrite<T>(operation: () => T | Promise<T>): Promise<T> {
+  const result = settingsWriteQueue.then(operation, operation);
+  settingsWriteQueue = result.then(() => undefined, () => undefined);
+  return result;
 }
 
 function createMenu(settings: AppSettings): Electron.Menu {
@@ -191,8 +198,6 @@ app.whenReady().then(() => {
 
   let latestBackendLifecycle: BackendLifecycleEvent | null = null;
   let lastBackendFailure = "The OrkWorks sidecar is unavailable.";
-  let peonSelectionGeneration = 0;
-  let verifiedPeonSelection: { generation: number; provider: ProviderId; ollamaBaseUrl: string | null } | null = null;
   let appliedPeonState: PeonAppliedState | null = null;
 
   function publishBackendLifecycle(event: BackendLifecycleEvent): void {
@@ -243,6 +248,19 @@ app.whenReady().then(() => {
     }
   }
 
+  async function parsePeonError(response: Response, fallback: string): Promise<Error> {
+    const body = await response.json().catch(() => ({ error: undefined })) as {
+      error?: string | { message?: string };
+    };
+    const message = typeof body.error === "string" ? body.error : body.error?.message;
+    return new Error(message ?? fallback);
+  }
+
+  function persistedOllamaBaseUrl(): string | undefined {
+    return currentSettings?.providers.peonSelection?.ollamaBaseUrl
+      ?? currentSettings?.providers.ollamaBaseUrl;
+  }
+
   async function syncSavedProviderSettings(port: number, signal: AbortSignal): Promise<void> {
     const settings = currentSettings ?? readSettings(app.getPath("userData"));
     const abortableFetch: typeof fetch = (input, init) => fetch(input, { ...init, signal });
@@ -252,10 +270,48 @@ app.whenReady().then(() => {
       abortableFetch,
     );
     signal.throwIfAborted();
-    if (result.lastApplyError) {
-      console.warn(`[main] failed to push provider settings: ${result.lastApplyError}`);
+    const selection = settings.providers.peonSelection;
+    const syncError = providerSettingsSyncError(result);
+    if (syncError) throw syncError;
+    providerModels.clear();
+    if (selection) {
+      await peonTransaction.syncPersistedSelection(selection, signal);
+      signal.throwIfAborted();
     }
   }
+
+  const peonTransaction: PeonSelectionTransaction = createPeonSelectionTransaction({
+    verify: async ({ provider, ollamaBaseUrl, generation, signal }) => {
+      const port = await restoration.getReadiness();
+      const body: { provider: string; generation: number; ollamaBaseUrl?: string } = { provider, generation };
+      if (provider === "ollama") body.ollamaBaseUrl = ollamaBaseUrl ?? persistedOllamaBaseUrl();
+      const response = await fetch(`http://127.0.0.1:${port}/settings/peon/provider/verify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal,
+      });
+      if (!response.ok) throw await parsePeonError(response, "Couldn't verify the Peon provider.");
+      return await response.json() as PeonProviderVerificationResponse;
+    },
+    apply: async ({ selection, generation, signal }) => {
+      const port = await restoration.getReadiness();
+      const response = await fetch(`http://127.0.0.1:${port}/settings/peon/test-and-apply`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ selection, generation }),
+        signal,
+      });
+      if (!response.ok) throw await parsePeonError(response, "Couldn't apply the Peon provider.");
+      return await response.json();
+    },
+    getApplied: async (signal) => {
+      const port = await restoration.getReadiness();
+      const response = await fetch(`http://127.0.0.1:${port}/settings/peon/applied`, { signal });
+      if (!response.ok) throw await parsePeonError(response, "Couldn't read the applied Peon provider.");
+      return await response.json();
+    },
+  });
 
   const restoration = createBackendRestorationCoordinator<BackendLifecycleWorkspace>({
     setTimeout: (callback, delayMs) => setTimeout(callback, delayMs),
@@ -361,31 +417,39 @@ app.whenReady().then(() => {
   });
 
   ipcMain.handle("save-hotkeys", async (_event, hotkeys: unknown) => {
-    const baseSettings = currentSettings ?? readSettings(app.getPath("userData"));
-    const nextSettings = settingsWithHotkeys(baseSettings, hotkeys);
-
-    const validation = validateHotkeys(nextSettings.hotkeys);
-    if (!validation.ok) {
+    const { nextSettings, nextMenu } = await enqueueSettingsWrite(() => {
+      const baseSettings = readSettings(app.getPath("userData"));
+      const nextSettings = settingsWithHotkeys(baseSettings, hotkeys);
+      const validation = validateHotkeys(nextSettings.hotkeys);
+      if (!validation.ok) return { nextSettings: null, nextMenu: null, errors: validation.errors };
+      writeSettings(app.getPath("userData"), nextSettings);
+      currentSettings = nextSettings;
+      return { nextSettings, nextMenu: createMenu(nextSettings), errors: null };
+    });
+    if (!nextSettings || !nextMenu) {
+      const validation = await enqueueSettingsWrite(() => {
+        const candidate = settingsWithHotkeys(readSettings(app.getPath("userData")), hotkeys);
+        return validateHotkeys(candidate.hotkeys);
+      });
       return { ok: false, errors: validation.errors };
     }
-
-    const nextMenu = createMenu(nextSettings);
-    writeSettings(app.getPath("userData"), nextSettings);
-    currentSettings = nextSettings;
     applyMenu(nextMenu);
 
     return { ok: true, settings: rendererSettings(currentSettings) };
   });
 
   ipcMain.handle("save-retention", async (_event, retention: unknown) => {
-    const baseSettings = currentSettings ?? readSettings(app.getPath("userData"));
-    const nextSettings: AppSettings = {
-      ...baseSettings,
-      version: 1,
-      retention: normalizeRetention(retention),
-    };
-    writeSettings(app.getPath("userData"), nextSettings);
-    currentSettings = nextSettings;
+    const nextSettings = await enqueueSettingsWrite(() => {
+      const baseSettings = readSettings(app.getPath("userData"));
+      const nextSettings: AppSettings = {
+        ...baseSettings,
+        version: 1,
+        retention: normalizeRetention(retention),
+      };
+      writeSettings(app.getPath("userData"), nextSettings);
+      currentSettings = nextSettings;
+      return nextSettings;
+    });
 
     let retentionApplyStatus: ProviderApplyStatus = {
       appliedRevision: null,
@@ -413,35 +477,40 @@ app.whenReady().then(() => {
   });
 
   ipcMain.handle("save-debug-settings", async (_event, debug: unknown) => {
-    const baseSettings = currentSettings ?? readSettings(app.getPath("userData"));
-    const nextSettings: AppSettings = {
-      ...baseSettings,
-      version: 1,
-      debug: normalizeDebugSettings(debug),
-    };
-    writeSettings(app.getPath("userData"), nextSettings);
-    currentSettings = nextSettings;
+    const nextSettings = await enqueueSettingsWrite(() => {
+      const baseSettings = readSettings(app.getPath("userData"));
+      const nextSettings: AppSettings = {
+        ...baseSettings,
+        version: 1,
+        debug: normalizeDebugSettings(debug),
+      };
+      writeSettings(app.getPath("userData"), nextSettings);
+      currentSettings = nextSettings;
+      return nextSettings;
+    });
     return { ok: true, settings: rendererSettings(currentSettings) };
   });
 
   ipcMain.handle("save-provider-settings", async (_event, providers: ProviderSettings) => {
-    const baseSettings = currentSettings ?? readSettings(app.getPath("userData"));
-    const nextSettings: AppSettings = {
-      ...baseSettings,
-      version: 1,
-      providers: normalizeProviderSettings({
-        ...providers,
-        revision: Math.max(baseSettings.providers.revision + 1, providers.revision),
-      }),
-    };
-
-    writeSettings(app.getPath("userData"), nextSettings);
-    currentSettings = nextSettings;
+    const nextSettings = await enqueueSettingsWrite(() => {
+      const baseSettings = readSettings(app.getPath("userData"));
+      const nextSettings: AppSettings = {
+        ...baseSettings,
+        version: 1,
+        providers: normalizeProviderSettings({
+          ...providers,
+          revision: Math.max(baseSettings.providers.revision + 1, providers.revision),
+        }),
+      };
+      writeSettings(app.getPath("userData"), nextSettings);
+      currentSettings = nextSettings;
+      return nextSettings;
+    });
 
     const port = await restoration.getReadiness();
     const providerApplyStatus = await pushProviderSettings(`http://127.0.0.1:${port}`, nextSettings.providers);
 
-    providerModels.delete("ollama");
+    providerModels.clear();
 
     return { ok: true, settings: rendererSettings(currentSettings), providerApplyStatus };
   });
@@ -470,118 +539,41 @@ app.whenReady().then(() => {
     return new Error(message ?? fallback);
   }
 
-  function normalizePeonSelectionInput(value: unknown): PeonSelection {
-    const normalized = normalizeProviderSettings({
-      version: 2,
-      revision: 0,
-      peonSelection: value,
-      ollamaBaseUrl: typeof value === "object" && value !== null && "ollamaBaseUrl" in value
-        ? (value as { ollamaBaseUrl?: unknown }).ollamaBaseUrl
-        : undefined,
-      providers: [],
-    }).peonSelection;
-    if (!normalized) throw new Error("Invalid Peon provider selection.");
-    return normalized;
-  }
-
-  function matchesVerifiedPeonSelection(
-    selection: PeonSelection,
-    verified: typeof verifiedPeonSelection,
-  ): boolean {
-    return verified !== null
-      && verified.provider === selection.provider
-      && (selection.provider !== "ollama" || verified.ollamaBaseUrl === selection.ollamaBaseUrl);
-  }
-
+  // peonSelectionMatchesAppliedState is enforced by peonSelectionTransaction.
   ipcMain.handle("verify-peon-provider", async (_event, provider: unknown, ollamaBaseUrl: unknown) => {
     if (typeof provider !== "string" || !provider.trim()) throw new Error("Invalid Peon provider.");
     if (ollamaBaseUrl !== undefined && typeof ollamaBaseUrl !== "string") {
       throw new Error("Invalid Ollama base URL.");
     }
-
-    const generation = ++peonSelectionGeneration;
-    verifiedPeonSelection = null;
-    const port = await restoration.getReadiness();
-    const body: { provider: string; generation: number; ollamaBaseUrl?: string } = {
-      provider: provider.trim(),
-      generation,
-    };
-    if (ollamaBaseUrl !== undefined) body.ollamaBaseUrl = ollamaBaseUrl;
-    const response = await fetch(`http://127.0.0.1:${port}/settings/peon/provider/verify`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (!response.ok) throw await parsePeonError(response, "Couldn't verify the Peon provider.");
-    const result = await response.json() as PeonProviderVerificationResponse;
-    if (generation !== peonSelectionGeneration || result.generation !== generation) {
-      throw new Error("Peon provider verification was superseded.");
-    }
-    verifiedPeonSelection = {
-      generation,
-      provider: result.provider,
-      ollamaBaseUrl: result.ollamaBaseUrl,
-    };
-    return result;
+    return peonTransaction.verify(
+      provider.trim() as ProviderId,
+      ollamaBaseUrl as string | undefined,
+    );
   });
 
   ipcMain.handle("test-and-apply-peon-provider", async (_event, value: unknown) => {
-    const selection = normalizePeonSelectionInput(value);
-    const verified = verifiedPeonSelection;
-    if (!matchesVerifiedPeonSelection(selection, verified)) {
-      throw new Error("A matching successful Peon provider verification is required before Apply.");
-    }
-
-    const port = await restoration.getReadiness();
-    const response = await fetch(`http://127.0.0.1:${port}/settings/peon/test-and-apply`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ selection, generation: verified!.generation }),
-    });
-    if (!response.ok) throw await parsePeonError(response, "Couldn't apply the Peon provider.");
-    const applied = await response.json() as PeonAppliedState;
-    if (!matchesVerifiedPeonSelection(selection, verifiedPeonSelection)) {
-      throw new Error("The Peon provider Apply was superseded.");
-    }
-    if (!peonSelectionMatchesAppliedState(selection, applied)) {
-      throw new Error("The sidecar applied a different Peon selection.");
-    }
-    appliedPeonState = applied;
-    return applied;
+    const selection = normalizePeonSelectionInput(value, persistedOllamaBaseUrl());
+    appliedPeonState = await peonTransaction.apply(selection);
+    return appliedPeonState;
   });
 
   ipcMain.handle("get-applied-peon-provider", async () => {
-    const port = await restoration.getReadiness();
-    const response = await fetch(`http://127.0.0.1:${port}/settings/peon/applied`);
-    if (!response.ok) throw await parsePeonError(response, "Couldn't read the applied Peon provider.");
-    appliedPeonState = await response.json() as PeonAppliedState;
+    appliedPeonState = await peonTransaction.getApplied();
     return appliedPeonState;
   });
 
   ipcMain.handle("save-peon-selection", async (_event, value: unknown) => {
-    const selection = normalizePeonSelectionInput(value);
-    const verified = verifiedPeonSelection;
-    if (!matchesVerifiedPeonSelection(selection, verified)) {
-      return { ok: false, error: "Save requires a matching successful Apply." };
-    }
-
-    const port = await restoration.getReadiness();
-    const response = await fetch(`http://127.0.0.1:${port}/settings/peon/applied`);
-    if (!response.ok) return { ok: false, error: await (await parsePeonError(response, "Couldn't confirm the applied Peon provider.")).message };
-    const applied = await response.json() as PeonAppliedState;
-    appliedPeonState = applied;
-    if (!matchesVerifiedPeonSelection(selection, verifiedPeonSelection)) {
-      return { ok: false, error: "Save was superseded by a newer Peon selection." };
-    }
-    if (!peonSelectionMatchesAppliedState(selection, applied)) {
-      return { ok: false, error: "Save requires the sidecar's applied provider, model, and URL to match." };
-    }
-
-    const baseSettings = currentSettings ?? readSettings(app.getPath("userData"));
-    const nextSettings = settingsWithPeonSelection(baseSettings, selection);
-    writeSettings(app.getPath("userData"), nextSettings);
-    currentSettings = nextSettings;
-    return { ok: true, settings: rendererSettings(currentSettings) };
+    const selection = normalizePeonSelectionInput(value, persistedOllamaBaseUrl());
+    const result = await peonTransaction.save(selection, async () => {
+      await enqueueSettingsWrite(() => {
+        const baseSettings = currentSettings ?? readSettings(app.getPath("userData"));
+        const nextSettings = settingsWithPeonSelection(baseSettings, selection);
+        writeSettings(app.getPath("userData"), nextSettings);
+        currentSettings = nextSettings;
+      });
+    });
+    if (!result.ok) return result;
+    return { ok: true, settings: rendererSettings(currentSettings ?? readSettings(app.getPath("userData"))) };
   });
 
   // Compatibility IPC for existing renderer consumers. Model discovery is
@@ -592,25 +584,12 @@ app.whenReady().then(() => {
       return { models: providerModels.get(providerId)! };
     }
     try {
-      const port = await restoration.getReadiness();
-      const body: { provider: string; generation: number; ollamaBaseUrl?: string } = {
-        provider: providerId,
-        generation: ++providerModelDiscoveryGeneration,
-      };
-      if (providerId === "ollama") {
-        body.ollamaBaseUrl = currentSettings?.providers.ollamaBaseUrl;
-      }
-      const resp = await fetch(`http://127.0.0.1:${port}/settings/peon/provider/verify`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (resp.ok) {
-        const data = await resp.json() as { models?: string[] };
-        if (!Array.isArray(data.models)) return { models: [] };
-        providerModels.set(providerId, data.models);
-        return { models: data.models };
-      }
+      const models = await peonTransaction.discover(
+        providerId as ProviderId,
+        providerId === "ollama" ? persistedOllamaBaseUrl() : undefined,
+      );
+      providerModels.set(providerId, models);
+      return { models };
     } catch {
       // Fall through to empty
     }

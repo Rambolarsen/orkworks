@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as settingsMemory from "../electron/settingsMemory.ts";
@@ -63,6 +65,36 @@ test("Peon selection save retains the previous file when persistence fails", () 
       /disk full/,
     );
     assert.equal(readFileSync(settingsPath(dir), "utf8"), previousFile);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("concurrent settings writers use independent atomic files and leave valid JSON", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "orkworks-settings-"));
+  const settingsModule = new URL("../electron/settingsMemory.ts", import.meta.url).href;
+  const script = `import { readSettings, writeSettings } from ${JSON.stringify(settingsModule)};
+const dir = process.argv[1];
+for (let i = 0; i < 20; i += 1) {
+  const settings = readSettings(dir);
+  settings.debug.rendererHealthLogMs = i;
+  writeSettings(dir, settings);
+}`;
+  try {
+    const children = Array.from({ length: 8 }, () => spawn(process.execPath, [
+      "--experimental-strip-types",
+      "--input-type=module",
+      "--eval",
+      script,
+      dir,
+    ]));
+    const results = await Promise.all(children.map(async (child) => {
+      const [code] = await once(child, "close");
+      return code;
+    }));
+    assert.deepEqual(results, Array.from({ length: 8 }, () => 0));
+    const persisted = JSON.parse(readFileSync(settingsPath(dir), "utf8")) as { debug?: { rendererHealthLogMs?: number } };
+    assert.equal(typeof persisted.debug?.rendererHealthLogMs, "number");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

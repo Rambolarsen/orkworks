@@ -166,6 +166,24 @@ test("a restoration timeout aborts a hung provider sync and cannot publish ready
   assert.equal(coordinator.getRestoredWorkspace(), null);
 });
 
+test("a provider sync failure rejects readiness before ready is published", async () => {
+  const { coordinator, ready, failed } = createHarness();
+
+  coordinator.beginGeneration();
+  const readiness = coordinator.getReadiness();
+  coordinator.restore(5005, {
+    restoreWorkspace: async () => ({ path: "/workspace" }),
+    applyRetentionSettings: async () => {},
+    syncProviderSettings: async () => {
+      throw new Error("provider settings unavailable");
+    },
+  });
+
+  await assert.rejects(readiness, /provider settings unavailable/);
+  assert.deepEqual(ready, []);
+  assert.deepEqual(failed, ["provider settings unavailable"]);
+});
+
 test("a timed-out restoration cannot publish after work that ignored abort completes", async () => {
   const { coordinator, timers, ready } = createHarness();
   const workspace = deferred<unknown>();

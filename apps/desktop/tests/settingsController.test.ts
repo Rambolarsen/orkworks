@@ -4,6 +4,11 @@ import { readFileSync } from "node:fs";
 import type { AppSettings } from "../src/appSettingsTypes.ts";
 import type { ProviderSettings } from "../src/providerTypes.ts";
 import { createSettingsController, type SettingsControllerApi } from "../src/settingsController.ts";
+import {
+  createPeonSelectionTransaction,
+  normalizePeonSelectionInput,
+  type PeonSelectionTransport,
+} from "../electron/peonSelectionTransaction.ts";
 
 const mainSource = readFileSync(new URL("../electron/main.ts", import.meta.url), "utf8");
 const preloadSource = readFileSync(new URL("../electron/preload.ts", import.meta.url), "utf8");
@@ -62,6 +67,116 @@ test("Peon bridge keeps Apply separate from durable Save and exposes applied ide
   assert.match(rendererTypes, /testAndApplyPeonProvider:/);
   assert.match(rendererTypes, /getAppliedPeonProvider:/);
   assert.match(rendererTypes, /savePeonSelection:/);
+});
+
+function transactionHarness(overrides: Partial<PeonSelectionTransport> = {}) {
+  const calls: string[] = [];
+  const transport: PeonSelectionTransport = {
+    verify: async ({ provider, ollamaBaseUrl, generation }) => {
+      calls.push(`verify:${generation}`);
+      return {
+        ok: true,
+        provider,
+        capabilities: { connectivity: true, modelDiscovery: true, providerDefault: true, testInference: true },
+        models: ["gpt-5"],
+        ollamaBaseUrl: provider === "ollama" ? ollamaBaseUrl ?? "http://127.0.0.1:11434" : null,
+        generation,
+      };
+    },
+    apply: async ({ selection, generation }) => {
+      calls.push(`apply:${generation}`);
+      return {
+        provider: selection.provider,
+        model: selection.model,
+        ollamaBaseUrl: selection.provider === "ollama" ? selection.ollamaBaseUrl ?? null : null,
+        appliedAt: "now",
+        connectionRevision: 1,
+      };
+    },
+    getApplied: async () => ({ provider: "copilot", model: "gpt-5", ollamaBaseUrl: null, appliedAt: "now", connectionRevision: 1 }),
+    ...overrides,
+  };
+  return { calls, transaction: createPeonSelectionTransaction(transport) };
+}
+
+test("Peon transaction requires a successful matching Apply before Save", async () => {
+  const { calls, transaction } = transactionHarness();
+  const selection = { provider: "copilot" as const, model: "gpt-5" };
+  let persisted = 0;
+  assert.deepEqual(
+    await transaction.save(selection, async () => { persisted += 1; }),
+    { ok: false, error: "Save requires a matching successful Apply." },
+  );
+  assert.equal(persisted, 0);
+
+  await transaction.verify(selection.provider);
+  await transaction.apply(selection);
+  assert.deepEqual(await transaction.save(selection, async () => { persisted += 1; }), { ok: true });
+  assert.equal(persisted, 1);
+  assert.deepEqual(calls, ["verify:1", "apply:1"]);
+});
+
+test("Peon discovery supersedes Apply verification without allowing stale work to win", async () => {
+  let resolveOld!: (value: Awaited<ReturnType<PeonSelectionTransport["verify"]>>) => void;
+  const { transaction } = transactionHarness({
+    verify: ({ provider, generation }) => provider === "copilot"
+      ? new Promise((resolve) => { resolveOld = resolve; })
+      : Promise.resolve({
+        ok: true,
+        provider,
+        capabilities: { connectivity: true, modelDiscovery: true, providerDefault: true, testInference: true },
+        models: ["llama3"],
+        ollamaBaseUrl: "http://custom-ollama:11434",
+        generation,
+      }),
+  });
+  const oldVerification = transaction.verify("copilot");
+  const discovery = await transaction.discover("ollama", "http://custom-ollama:11434");
+  assert.deepEqual(discovery, ["llama3"]);
+  resolveOld({
+    ok: true,
+    provider: "copilot",
+    capabilities: { connectivity: true, modelDiscovery: true, providerDefault: true, testInference: true },
+    models: ["gpt-5"],
+    ollamaBaseUrl: null,
+    generation: 1,
+  });
+  await assert.rejects(oldVerification, /superseded/i);
+  await assert.rejects(
+    transaction.apply({ provider: "ollama", model: "llama3", ollamaBaseUrl: "http://custom-ollama:11434" }),
+    /matching successful Peon provider verification/i,
+  );
+});
+
+test("compatibility model discovery uses the Peon transaction coordinator", () => {
+  assert.doesNotMatch(mainSource, /providerModelDiscoveryGeneration/);
+  const discoveryStart = mainSource.indexOf('ipcMain.handle("get-provider-models"');
+  assert.notEqual(discoveryStart, -1);
+  const discoveryRoute = mainSource.slice(discoveryStart);
+  assert.match(discoveryRoute, /peonTransaction\.discover\(\s*providerId/);
+  assert.doesNotMatch(discoveryRoute, /settings\/peon\/provider\/verify/);
+});
+
+test("Peon selection input resolves one persisted custom Ollama URL", () => {
+  assert.deepEqual(
+    normalizePeonSelectionInput(
+      { provider: "ollama", model: "llama3.2:3b" },
+      "https://ollama.example.test:11434",
+    ),
+    {
+      provider: "ollama",
+      model: "llama3.2:3b",
+      ollamaBaseUrl: "https://ollama.example.test:11434",
+    },
+  );
+});
+
+test("persisted Peon synchronization fails instead of allowing readiness to continue", async () => {
+  const selection = { provider: "copilot" as const, model: "gpt-5" };
+  const { transaction } = transactionHarness({
+    apply: async () => { throw new Error("inference unavailable"); },
+  });
+  await assert.rejects(transaction.syncPersistedSelection(selection), /inference unavailable/);
 });
 
 function clone<T>(value: T): T {

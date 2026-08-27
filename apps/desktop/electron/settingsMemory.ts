@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { peonSelectionMatchesAppliedState, type PeonAppliedState, type PeonSelection, type ProviderId, type ProviderCapacityState, type ProviderSettings, type ProviderSettingsEntry } from "./providerTypes.ts";
@@ -443,9 +443,14 @@ export function loadSettingsForStartup(
 export function writeSettings(userDataPath: string, settings: AppSettings): void {
   mkdirSync(userDataPath, { recursive: true });
   const target = settingsPath(userDataPath);
-  const temporary = `${target}.${process.pid}.tmp`;
-  writeFileSync(temporary, `${JSON.stringify(normalizeSettings(settings), null, 2)}\n`);
-  renameSync(temporary, target);
+  const temporaryDirectory = mkdtempSync(join(userDataPath, ".settings-"));
+  const temporary = join(temporaryDirectory, fileName);
+  try {
+    writeFileSync(temporary, `${JSON.stringify(normalizeSettings(settings), null, 2)}\n`);
+    renameSync(temporary, target);
+  } finally {
+    rmSync(temporaryDirectory, { recursive: true, force: true });
+  }
 }
 
 export function settingsWithPeonSelection(baseSettings: AppSettings, selection: PeonSelection): AppSettings {
