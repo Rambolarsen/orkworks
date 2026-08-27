@@ -51,6 +51,10 @@ function enqueueSettingsWrite<T>(operation: () => T | Promise<T>): Promise<T> {
   return result;
 }
 
+function providerModelCacheKey(providerId: string, ollamaBaseUrl?: string): string {
+  return providerId === "ollama" ? `${providerId}:${ollamaBaseUrl ?? ""}` : providerId;
+}
+
 function createMenu(settings: AppSettings): Electron.Menu {
   const template = buildMenuTemplate({
     appName: app.name,
@@ -275,14 +279,14 @@ app.whenReady().then(() => {
     if (syncError) throw syncError;
     providerModels.clear();
     if (selection) {
-      await peonTransaction.syncPersistedSelection(selection, signal);
+      await peonTransaction.syncPersistedSelection(selection, signal, port);
       signal.throwIfAborted();
     }
   }
 
   const peonTransaction: PeonSelectionTransaction = createPeonSelectionTransaction({
-    verify: async ({ provider, ollamaBaseUrl, generation, signal }) => {
-      const port = await restoration.getReadiness();
+    verify: async ({ provider, ollamaBaseUrl, generation, readyPort, signal }) => {
+      const port = readyPort ?? await restoration.getReadiness();
       const body: { provider: string; generation: number; ollamaBaseUrl?: string } = { provider, generation };
       if (provider === "ollama") body.ollamaBaseUrl = ollamaBaseUrl ?? persistedOllamaBaseUrl();
       const response = await fetch(`http://127.0.0.1:${port}/settings/peon/provider/verify`, {
@@ -294,8 +298,8 @@ app.whenReady().then(() => {
       if (!response.ok) throw await parsePeonError(response, "Couldn't verify the Peon provider.");
       return await response.json() as PeonProviderVerificationResponse;
     },
-    apply: async ({ selection, generation, signal }) => {
-      const port = await restoration.getReadiness();
+    apply: async ({ selection, generation, readyPort, signal }) => {
+      const port = readyPort ?? await restoration.getReadiness();
       const response = await fetch(`http://127.0.0.1:${port}/settings/peon/test-and-apply`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -435,7 +439,7 @@ app.whenReady().then(() => {
     }
     applyMenu(nextMenu);
 
-    return { ok: true, settings: rendererSettings(currentSettings) };
+    return { ok: true, settings: rendererSettings(nextSettings) };
   });
 
   ipcMain.handle("save-retention", async (_event, retention: unknown) => {
@@ -488,12 +492,14 @@ app.whenReady().then(() => {
       currentSettings = nextSettings;
       return nextSettings;
     });
-    return { ok: true, settings: rendererSettings(currentSettings) };
+    return { ok: true, settings: rendererSettings(nextSettings) };
   });
 
   ipcMain.handle("save-provider-settings", async (_event, providers: ProviderSettings) => {
+    let previousOllamaBaseUrl: string | undefined;
     const nextSettings = await enqueueSettingsWrite(() => {
       const baseSettings = readSettings(app.getPath("userData"));
+      previousOllamaBaseUrl = baseSettings.providers.ollamaBaseUrl;
       const nextSettings: AppSettings = {
         ...baseSettings,
         version: 1,
@@ -510,9 +516,12 @@ app.whenReady().then(() => {
     const port = await restoration.getReadiness();
     const providerApplyStatus = await pushProviderSettings(`http://127.0.0.1:${port}`, nextSettings.providers);
 
-    providerModels.clear();
+    if (previousOllamaBaseUrl !== nextSettings.providers.ollamaBaseUrl) {
+      providerModels.delete(providerModelCacheKey("ollama", previousOllamaBaseUrl));
+      providerModels.delete(providerModelCacheKey("ollama", nextSettings.providers.ollamaBaseUrl));
+    }
 
-    return { ok: true, settings: rendererSettings(currentSettings), providerApplyStatus };
+    return { ok: true, settings: rendererSettings(nextSettings), providerApplyStatus };
   });
 
   ipcMain.handle("verify-ollama", async (_event, baseUrl: string) => {
@@ -530,14 +539,6 @@ app.whenReady().then(() => {
 
     return await response.json();
   });
-
-  async function parsePeonError(response: Response, fallback: string): Promise<Error> {
-    const body = await response.json().catch(() => ({ error: undefined })) as {
-      error?: string | { message?: string };
-    };
-    const message = typeof body.error === "string" ? body.error : body.error?.message;
-    return new Error(message ?? fallback);
-  }
 
   // peonSelectionMatchesAppliedState is enforced by peonSelectionTransaction.
   ipcMain.handle("verify-peon-provider", async (_event, provider: unknown, ollamaBaseUrl: unknown) => {
@@ -565,11 +566,12 @@ app.whenReady().then(() => {
   ipcMain.handle("save-peon-selection", async (_event, value: unknown) => {
     const selection = normalizePeonSelectionInput(value, persistedOllamaBaseUrl());
     const result = await peonTransaction.save(selection, async () => {
-      await enqueueSettingsWrite(() => {
+      return enqueueSettingsWrite(() => {
         const baseSettings = currentSettings ?? readSettings(app.getPath("userData"));
         const nextSettings = settingsWithPeonSelection(baseSettings, selection);
         writeSettings(app.getPath("userData"), nextSettings);
         currentSettings = nextSettings;
+        return nextSettings;
       });
     });
     if (!result.ok) return result;
@@ -580,15 +582,17 @@ app.whenReady().then(() => {
   // gated by the staged Peon provider verification endpoint; the sidecar's
   // legacy model-list route is intentionally removed.
   ipcMain.handle("get-provider-models", async (_event, providerId: string) => {
-    if (providerModels.has(providerId)) {
-      return { models: providerModels.get(providerId)! };
+    const ollamaBaseUrl = providerId === "ollama" ? persistedOllamaBaseUrl() : undefined;
+    const cacheKey = providerModelCacheKey(providerId, ollamaBaseUrl);
+    if (providerModels.has(cacheKey)) {
+      return { models: providerModels.get(cacheKey)! };
     }
     try {
       const models = await peonTransaction.discover(
         providerId as ProviderId,
-        providerId === "ollama" ? persistedOllamaBaseUrl() : undefined,
+        ollamaBaseUrl,
       );
-      providerModels.set(providerId, models);
+      providerModels.set(cacheKey, models);
       return { models };
     } catch {
       // Fall through to empty

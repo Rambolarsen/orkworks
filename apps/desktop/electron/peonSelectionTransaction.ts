@@ -23,12 +23,14 @@ export interface PeonVerificationRequest {
   provider: ProviderId;
   ollamaBaseUrl?: string;
   generation: number;
+  readyPort?: number;
   signal?: AbortSignal;
 }
 
 export interface PeonApplyRequest {
   selection: PeonSelection;
   generation: number;
+  readyPort?: number;
   signal?: AbortSignal;
 }
 
@@ -48,14 +50,20 @@ interface VerifiedSelection {
   ollamaBaseUrl: string | null;
 }
 
+interface AppliedSelection {
+  generation: number;
+  state: PeonAppliedState;
+}
+
 export function createPeonSelectionTransaction(transport: PeonSelectionTransport) {
   let generation = 0;
   let verified: VerifiedSelection | null = null;
-  let applied: PeonAppliedState | null = null;
+  let applied: AppliedSelection | null = null;
 
   function nextGeneration(): number {
     generation += 1;
     verified = null;
+    applied = null;
     return generation;
   }
 
@@ -65,9 +73,14 @@ export function createPeonSelectionTransaction(transport: PeonSelectionTransport
       && (selection.provider !== "ollama" || candidate.ollamaBaseUrl === selection.ollamaBaseUrl);
   }
 
-  async function verify(provider: ProviderId, ollamaBaseUrl?: string, signal?: AbortSignal): Promise<PeonProviderVerificationResponse> {
+  async function verify(
+    provider: ProviderId,
+    ollamaBaseUrl?: string,
+    signal?: AbortSignal,
+    readyPort?: number,
+  ): Promise<PeonProviderVerificationResponse> {
     const requestGeneration = nextGeneration();
-    const result = await transport.verify({ provider, ollamaBaseUrl, generation: requestGeneration, signal });
+    const result = await transport.verify({ provider, ollamaBaseUrl, generation: requestGeneration, readyPort, signal });
     if (requestGeneration !== generation || result.generation !== requestGeneration) {
       throw new Error("Peon provider verification was superseded.");
     }
@@ -86,25 +99,29 @@ export function createPeonSelectionTransaction(transport: PeonSelectionTransport
     return result.models;
   }
 
-  async function apply(selection: PeonSelection, signal?: AbortSignal): Promise<PeonAppliedState> {
+  async function apply(selection: PeonSelection, signal?: AbortSignal, readyPort?: number): Promise<PeonAppliedState> {
     const candidate = verified;
     if (!matchesVerified(selection, candidate)) {
       throw new Error("A matching successful Peon provider verification is required before Apply.");
     }
-    const result = await transport.apply({ selection, generation: candidate!.generation, signal });
+    const result = await transport.apply({ selection, generation: candidate!.generation, readyPort, signal });
     if (!matchesVerified(selection, verified)) {
       throw new Error("The Peon provider Apply was superseded.");
     }
     if (!peonSelectionMatchesAppliedState(selection, result)) {
       throw new Error("The sidecar applied a different Peon selection.");
     }
-    applied = result;
+    applied = { generation: candidate!.generation, state: result };
     return result;
   }
 
-  async function syncPersistedSelection(selection: PeonSelection, signal?: AbortSignal): Promise<PeonAppliedState> {
-    await verify(selection.provider, selection.ollamaBaseUrl, signal);
-    return apply(selection, signal);
+  async function syncPersistedSelection(
+    selection: PeonSelection,
+    signal?: AbortSignal,
+    readyPort?: number,
+  ): Promise<PeonAppliedState> {
+    await verify(selection.provider, selection.ollamaBaseUrl, signal, readyPort);
+    return apply(selection, signal, readyPort);
   }
 
   async function save(
@@ -112,7 +129,11 @@ export function createPeonSelectionTransaction(transport: PeonSelectionTransport
     persist: () => void | Promise<void>,
   ): Promise<PeonSelectionSaveResult> {
     const candidate = verified;
-    if (!matchesVerified(selection, candidate)) {
+    const localApplied = applied;
+    if (!matchesVerified(selection, candidate)
+      || localApplied === null
+      || localApplied.generation !== candidate!.generation
+      || !peonSelectionMatchesAppliedState(selection, localApplied.state)) {
       return { ok: false, error: "Save requires a matching successful Apply." };
     }
     let current: PeonAppliedState;
@@ -121,8 +142,10 @@ export function createPeonSelectionTransaction(transport: PeonSelectionTransport
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : "Couldn't confirm the applied Peon provider." };
     }
-    applied = current;
-    if (!matchesVerified(selection, verified)) {
+    if (!matchesVerified(selection, verified)
+      || applied !== localApplied
+      || localApplied.generation !== verified!.generation
+      || !peonSelectionMatchesAppliedState(selection, localApplied.state)) {
       return { ok: false, error: "Save was superseded by a newer Peon selection." };
     }
     if (!peonSelectionMatchesAppliedState(selection, current)) {
@@ -133,8 +156,7 @@ export function createPeonSelectionTransaction(transport: PeonSelectionTransport
   }
 
   async function getApplied(signal?: AbortSignal): Promise<PeonAppliedState> {
-    applied = await transport.getApplied(signal);
-    return applied;
+    return transport.getApplied(signal);
   }
 
   return { verify, discover, apply, syncPersistedSelection, save, getApplied };

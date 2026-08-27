@@ -2,9 +2,7 @@
 
 ## Status
 
-Implementation is present in the worktree. This handoff commit contains only
-focused test/report changes; the implementation files remain intentionally
-unstaged.
+The implementation and focused tests are committed on the feature branch.
 
 ## Scope
 
@@ -21,6 +19,5 @@ by Ollama URL, and Electron bridge wiring.
 
 ## Concerns
 
-- `main.ts` contains two local `parsePeonError` declarations (lines 255 and 543); consolidation remains an implementation follow-up.
 - Node emits existing module-type warnings during focused tests.
 - No real packaged Electron/sidecar launch was performed.
