@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use serde_json::{json, Map, Value};
+use sha2::{Digest, Sha256};
 
 use super::{
     portable_reporter_invocation, reconcile_current, reporter_invocation, FragmentState,
@@ -15,12 +16,36 @@ use crate::harness::integration::{IntegrationActivation, IntegrationCoverage, In
 /// Windows even in the untracked-and-ignored case that worked before this
 /// change, breaking Windows Codex installs entirely rather than just
 /// falling back for the tracked case.
-fn platform_invocation(reporter: &Path) -> Result<ReporterInvocation, IntegrationError> {
+fn base_platform_invocation(reporter: &Path) -> Result<ReporterInvocation, IntegrationError> {
     if ReporterPlatform::current() == ReporterPlatform::Posix {
         portable_reporter_invocation(reporter, MARKER)
     } else {
         Ok(reporter_invocation(reporter, MARKER))
     }
+}
+
+pub(crate) fn hook_fingerprint(reporter: &Path) -> Result<String, IntegrationError> {
+    let invocation = base_platform_invocation(reporter)?;
+    Ok(format!("{:x}", Sha256::digest(invocation.shell_command.as_bytes())))
+}
+
+fn platform_invocation(reporter: &Path) -> Result<ReporterInvocation, IntegrationError> {
+    let mut invocation = base_platform_invocation(reporter)?;
+    let fingerprint = format!("{:x}", Sha256::digest(invocation.shell_command.as_bytes()));
+    let fingerprint_flag = if ReporterPlatform::current() == ReporterPlatform::Posix {
+        "--hook-fingerprint"
+    } else {
+        "-HookFingerprint"
+    };
+    invocation.args.extend([
+        fingerprint_flag.into(),
+        fingerprint.clone(),
+    ]);
+    invocation.shell_command.push(' ');
+    invocation.shell_command.push_str(fingerprint_flag);
+    invocation.shell_command.push(' ');
+    invocation.shell_command.push_str(&super::shell_quote(&fingerprint));
+    Ok(invocation)
 }
 
 const MARKER: &str = "orkworks:harness-integration:v2:codex";
@@ -345,6 +370,20 @@ mod tests {
             !command.contains(home.path().to_str().unwrap()),
             "command must not embed the real (machine-specific) home directory: {command}"
         );
+        assert!(
+            command.contains("--hook-fingerprint '"),
+            "Codex hook command must identify the exact definition: {command}"
+        );
+    }
+
+    #[test]
+    fn hook_fingerprint_changes_when_the_reporter_command_changes() {
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        let first = hook_fingerprint(&reporter_path(home.path())).unwrap();
+        let second = hook_fingerprint(&home.path().join(".orkworks/other.sh")).unwrap();
+        assert_ne!(first, second);
+        assert_eq!(first.len(), 64);
     }
 
     #[cfg(unix)]

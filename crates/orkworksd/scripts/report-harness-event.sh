@@ -3,6 +3,7 @@ set -u
 
 marker=""
 status="waiting_for_input"
+hook_fingerprint=""
 # Plan-path mode (ADR 0038): set by an installed hook entry passing
 # `--report-plan-path` (currently Claude's PostToolUse Write|Edit). In this
 # mode the reporter forwards the harness payload's `tool_input.file_path`
@@ -31,6 +32,14 @@ while [ $# -gt 0 ]; do
     --report-plan-path)
       report_plan_path="yes"
       shift 1
+      ;;
+    --hook-fingerprint)
+      if [ $# -ge 2 ]; then
+        hook_fingerprint="$2"
+        shift 2
+      else
+        shift 1
+      fi
       ;;
     *)
       shift
@@ -153,6 +162,9 @@ fi
 if [ -n "${ORKWORKS_SESSION_ID:-}" ] && [ -n "${ORKWORKS_PORT:-}" ] && [ -n "$harness_session_id" ] && [ -n "$session_source" ]; then
   escaped_session_id=$(printf '%s' "$harness_session_id" | sed 's/[\\"]/\\&/g')
   session_payload=$(printf '{"harnessSessionId":"%s","source":"%s","confidence":0.98}' "$escaped_session_id" "$session_source")
+  if [ "$session_source" = "codex_hook" ] && [ -n "$hook_fingerprint" ]; then
+    session_payload=$(python3 -c 'import json,sys; p=json.loads(sys.argv[1]); p["hookFingerprint"]=sys.argv[2]; print(json.dumps(p, separators=(",", ":")))' "$session_payload" "$hook_fingerprint")
+  fi
   curl -sS --max-time 5 --connect-timeout 2 -X POST "http://127.0.0.1:$ORKWORKS_PORT/sessions/$ORKWORKS_SESSION_ID/harness-session" \
     -H "Content-Type: application/json" \
     -d "$session_payload" >/dev/null || true

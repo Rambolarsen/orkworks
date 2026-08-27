@@ -101,6 +101,10 @@ tested in. Not resolved here — see Consequences.
 - Codex sessions get exact resume once a user approves the hook inside
   Codex once — same reliability tier as Claude Code, not Peon's 0.50-capped
   guess.
+- OrkWorks cannot read Codex's private trust store. The generated command now
+  carries a SHA-256 fingerprint of its definition; the reporter returns that
+  fingerprint with the native session-ID report, and Settings changes
+  `needs_trust` to `active` only after a matching execution is observed.
 - **Resolved by ADR 0036**: project-level `.codex/hooks.json` being tracked
   rather than local-only is handled by writing a portable, `$HOME`-relative
   reporter command instead of an absolute one, and relaxing the tracked-file
