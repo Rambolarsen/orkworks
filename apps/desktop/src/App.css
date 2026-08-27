@@ -441,12 +441,14 @@ html, body, #root {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  flex-wrap: nowrap;
 }
 
 .settings-config-item {
-  display: flex;
+  min-width: 0;
+  display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 6px;
   font: inherit;
   font-size: var(--text-md);
   color: var(--text-secondary);
@@ -486,6 +488,8 @@ html, body, #root {
   align-items: center;
   gap: 6px;
   margin-left: 4px;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .harness-detection-dot {
