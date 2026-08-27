@@ -746,6 +746,7 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
             is_worktree: meta.is_worktree,
             conflict_warning: None,
             recommendation: None,
+            peon_diagnostics: None,
             memory_state,
             resume_strategy: resume_strategy.clone(),
             resume: meta.resume.clone(),

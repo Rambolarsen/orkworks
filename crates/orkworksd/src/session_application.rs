@@ -2216,6 +2216,7 @@ async fn resume_session_workflow(
         conflict_warning: None,
         recommendation: None,
         peon_last_inference: None,
+        peon_diagnostics: None,
         memory_state: MemoryState::Live,
         resume_strategy: strategy.clone(),
         resume: meta.resume.clone(),
@@ -2558,6 +2559,7 @@ async fn create_session_workflow(
         conflict_warning: None,
         recommendation: None,
         peon_last_inference: None,
+        peon_diagnostics: None,
         memory_state: MemoryState::Live,
         resume_strategy: harness::ResumeStrategy::None,
         resume: Some(harness::ResumeMemory {

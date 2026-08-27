@@ -587,6 +587,16 @@ impl WorkflowObservationStore {
         Ok(all)
     }
 
+    /// Returns the number of retained accepted observations for one session.
+    /// Tombstones and duplicate reports are intentionally excluded.
+    pub(crate) fn session_observation_count(&self, session_id: &str) -> Result<usize, StoreError> {
+        Ok(self
+            .workspace_observations()?
+            .into_iter()
+            .filter(|observation| observation.session_id == session_id)
+            .count())
+    }
+
     pub(crate) fn delete_session_observations(&self, session_id: &str) -> Result<(), StoreError> {
         let mut inner = self.inner.lock().unwrap();
         let path = self.segment_path(session_id);
@@ -1251,6 +1261,26 @@ mod tests {
             }
             other => panic!("expected Duplicate, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn session_observation_count_does_not_count_duplicate_replays() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = open_store(dir.path());
+        let c = candidate(ObservationKind::Obstacle, "description", "evidence");
+
+        let first = store
+            .record_observation("session-1", ObservationOrigin::Agent, "key-1", c.clone())
+            .unwrap();
+        assert!(matches!(first, RecordOutcome::Accepted(_)));
+
+        let duplicate = store
+            .record_observation("session-1", ObservationOrigin::Agent, "key-1", c)
+            .unwrap();
+        assert!(matches!(duplicate, RecordOutcome::Duplicate { .. }));
+
+        assert_eq!(store.session_observation_count("session-1").unwrap(), 1);
+        assert_eq!(store.session_observation_count("session-2").unwrap(), 0);
     }
 
     #[test]

@@ -532,6 +532,7 @@ pub(crate) mod test_support {
             conflict_warning: None,
             recommendation: None,
             peon_last_inference: None,
+            peon_diagnostics: None,
             provider: None,
             provider_model: None,
             provider_state: None,
