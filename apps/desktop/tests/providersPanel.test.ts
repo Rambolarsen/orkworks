@@ -151,6 +151,22 @@ test("HarnessIntegrationSection distinguishes non-attention integrations and una
   assert.match(source, /approve the hook inside/);
 });
 
+test("HarnessDetectionStatus supports parent-triggered refresh and accessible status text", () => {
+  const source = readFileSync(new URL("../src/components/HarnessDetectionStatus.tsx", import.meta.url), "utf8");
+  assert.match(source, /refreshGeneration/);
+  assert.match(source, /Coding tool detection status/);
+  assert.match(source, /aria-live="polite"/);
+});
+
+test("HarnessIntegrationSection reports successful detection-changing mutations", () => {
+  const source = readFileSync(new URL("../src/components/HarnessIntegrationSection.tsx", import.meta.url), "utf8");
+  assert.match(source, /onDetectionChanged/);
+  assert.match(source, /onDetectionChanged\?\.\(harnessId\)/);
+
+  const settingsSource = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
+  assert.match(settingsSource, /<HarnessIntegrationSection[\s\S]*?onDetectionChanged=\{refreshDetection\}/);
+});
+
 test("ProviderSettingsSection keeps model provider editing simplified", () => {
   const source = readFileSync(new URL("../src/components/ProviderSettingsSection.tsx", import.meta.url), "utf8");
   assert.match(source, /Loading model provider settings/);

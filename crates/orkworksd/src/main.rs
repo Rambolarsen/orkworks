@@ -22,6 +22,7 @@ mod plan_handoff;
 mod procfs;
 mod providers;
 mod runtime;
+mod session_projection;
 mod session_types;
 mod session_application;
 mod session_view;
@@ -166,6 +167,8 @@ struct RetentionConfig {
 
 struct AppState {
     sessions: Mutex<HashMap<String, SessionHandle>>,
+    // Coordinates complete session projections with workspace replacement.
+    projection_lock: Mutex<()>,
     // OS pid of each session's PTY child, captured at spawn. Used to probe
     // the process's live cwd (issue #241) instead of trusting the frozen
     // launch-time cwd forever.
@@ -213,6 +216,7 @@ async fn main() {
 
     let state = Arc::new(AppState {
         sessions: Mutex::new(HashMap::new()),
+        projection_lock: Mutex::new(()),
         session_pids: Mutex::new(HashMap::new()),
         workspace: Mutex::new(None),
         peon: PeonState {
@@ -450,6 +454,7 @@ pub(crate) mod test_support {
         let (harness_catalog, harness_store) = test_harness_components();
         Arc::new(AppState {
             sessions: Mutex::new(HashMap::new()),
+            projection_lock: Mutex::new(()),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(WorkspaceState {
                 path: path.to_path_buf(),
@@ -768,6 +773,7 @@ mod tests {
     fn session_registry_create_and_list() {
         let state = Arc::new(AppState {
             sessions: Mutex::new(HashMap::new()),
+            projection_lock: Mutex::new(()),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(None),
             peon: PeonState {
