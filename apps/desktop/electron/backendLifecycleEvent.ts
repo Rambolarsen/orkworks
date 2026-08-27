@@ -1,6 +1,6 @@
 export type BackendLifecycleEvent =
   | { state: "starting" | "retrying" }
-  | { state: "ready"; port: number; workspace: BackendLifecycleWorkspace }
+  | { state: "ready"; port: number; workspace: BackendLifecycleWorkspace | null }
   | { state: "failed" | "exhausted"; message: string };
 
 export interface BackendLifecycleWorkspace {
@@ -58,13 +58,14 @@ export function canonicalizeBackendLifecycleEvent(data: unknown): BackendLifecyc
     }
     if (state === "ready") {
       const port = event.port;
-      const workspace = canonicalizeWorkspace(event.workspace);
+      const rawWorkspace = event.workspace;
+      const workspace = rawWorkspace === null ? null : canonicalizeWorkspace(rawWorkspace);
       return hasExactKeys(data, ["state", "port", "workspace"])
         && typeof port === "number"
         && Number.isInteger(port)
         && port >= 1
         && port <= 65_535
-        && workspace !== null
+        && (rawWorkspace === null || workspace !== null)
         ? { state: "ready", port, workspace }
         : null;
     }

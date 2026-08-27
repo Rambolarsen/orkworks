@@ -41,7 +41,6 @@ test("rejects extra properties and invalid ready ports", () => {
   assert.equal(canonicalizeBackendLifecycleEvent({ state: "failed", message: "offline", extra: true }), null);
 
   for (const workspace of [
-    null,
     { path: "/workspace", repo_root: null, branch: null, dirty: null, lastActiveSessionId: null, activeHarnessIds: "nope" },
     { path: "/workspace", repo_root: null, branch: null, dirty: null, lastActiveSessionId: null, activeHarnessIds: [], extra: true },
   ]) {
@@ -62,6 +61,12 @@ test("rejects extra properties and invalid ready ports", () => {
       },
     }), null);
   }
+});
+
+test("accepts an explicit null workspace on ready (no workspace restored yet)", () => {
+  const event = canonicalizeBackendLifecycleEvent({ state: "ready", port: 4444, workspace: null });
+
+  assert.deepEqual(event, { state: "ready", port: 4444, workspace: null });
 });
 
 test("snapshots lifecycle fields exactly once before forwarding them", () => {
