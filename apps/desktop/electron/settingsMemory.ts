@@ -447,7 +447,16 @@ export function writeSettings(userDataPath: string, settings: AppSettings): void
   const temporary = join(temporaryDirectory, fileName);
   try {
     writeFileSync(temporary, `${JSON.stringify(normalizeSettings(settings), null, 2)}\n`);
-    renameSync(temporary, target);
+    try {
+      renameSync(temporary, target);
+    } catch (error) {
+      // Windows refuses to rename over an existing file. Removing the target
+      // only on that platform preserves the atomic same-directory rename on
+      // Unix while allowing subsequent settings saves on Windows.
+      if (process.platform !== "win32") throw error;
+      rmSync(target, { force: true });
+      renameSync(temporary, target);
+    }
   } finally {
     rmSync(temporaryDirectory, { recursive: true, force: true });
   }

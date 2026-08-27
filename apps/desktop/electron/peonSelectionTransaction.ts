@@ -59,6 +59,13 @@ export function createPeonSelectionTransaction(transport: PeonSelectionTransport
   let generation = 0;
   let verified: VerifiedSelection | null = null;
   let applied: AppliedSelection | null = null;
+  let mutationTail: Promise<void> = Promise.resolve();
+
+  function enqueueMutation<T>(operation: () => Promise<T>): Promise<T> {
+    const result = mutationTail.then(operation, operation);
+    mutationTail = result.then(() => undefined, () => undefined);
+    return result;
+  }
 
   function nextGeneration(): number {
     generation += 1;
@@ -100,19 +107,21 @@ export function createPeonSelectionTransaction(transport: PeonSelectionTransport
   }
 
   async function apply(selection: PeonSelection, signal?: AbortSignal, readyPort?: number): Promise<PeonAppliedState> {
-    const candidate = verified;
-    if (!matchesVerified(selection, candidate)) {
-      throw new Error("A matching successful Peon provider verification is required before Apply.");
-    }
-    const result = await transport.apply({ selection, generation: candidate!.generation, readyPort, signal });
-    if (!matchesVerified(selection, verified)) {
-      throw new Error("The Peon provider Apply was superseded.");
-    }
-    if (!peonSelectionMatchesAppliedState(selection, result)) {
-      throw new Error("The sidecar applied a different Peon selection.");
-    }
-    applied = { generation: candidate!.generation, state: result };
-    return result;
+    return enqueueMutation(async () => {
+      const candidate = verified;
+      if (!matchesVerified(selection, candidate)) {
+        throw new Error("A matching successful Peon provider verification is required before Apply.");
+      }
+      const result = await transport.apply({ selection, generation: candidate!.generation, readyPort, signal });
+      if (!matchesVerified(selection, verified)) {
+        throw new Error("The Peon provider Apply was superseded.");
+      }
+      if (!peonSelectionMatchesAppliedState(selection, result)) {
+        throw new Error("The sidecar applied a different Peon selection.");
+      }
+      applied = { generation: candidate!.generation, state: result };
+      return result;
+    });
   }
 
   async function syncPersistedSelection(
@@ -128,31 +137,33 @@ export function createPeonSelectionTransaction(transport: PeonSelectionTransport
     selection: PeonSelection,
     persist: () => void | Promise<void>,
   ): Promise<PeonSelectionSaveResult> {
-    const candidate = verified;
-    const localApplied = applied;
-    if (!matchesVerified(selection, candidate)
-      || localApplied === null
-      || localApplied.generation !== candidate!.generation
-      || !peonSelectionMatchesAppliedState(selection, localApplied.state)) {
-      return { ok: false, error: "Save requires a matching successful Apply." };
-    }
-    let current: PeonAppliedState;
-    try {
-      current = await transport.getApplied();
-    } catch (error) {
-      return { ok: false, error: error instanceof Error ? error.message : "Couldn't confirm the applied Peon provider." };
-    }
-    if (!matchesVerified(selection, verified)
-      || applied !== localApplied
-      || localApplied.generation !== verified!.generation
-      || !peonSelectionMatchesAppliedState(selection, localApplied.state)) {
-      return { ok: false, error: "Save was superseded by a newer Peon selection." };
-    }
-    if (!peonSelectionMatchesAppliedState(selection, current)) {
-      return { ok: false, error: "Save requires the sidecar's applied provider, model, and URL to match." };
-    }
-    await persist();
-    return { ok: true };
+    return enqueueMutation(async () => {
+      const candidate = verified;
+      const localApplied = applied;
+      if (!matchesVerified(selection, candidate)
+        || localApplied === null
+        || localApplied.generation !== candidate!.generation
+        || !peonSelectionMatchesAppliedState(selection, localApplied.state)) {
+        return { ok: false, error: "Save requires a matching successful Apply." };
+      }
+      let current: PeonAppliedState;
+      try {
+        current = await transport.getApplied();
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : "Couldn't confirm the applied Peon provider." };
+      }
+      if (!matchesVerified(selection, verified)
+        || applied !== localApplied
+        || localApplied.generation !== verified!.generation
+        || !peonSelectionMatchesAppliedState(selection, localApplied.state)) {
+        return { ok: false, error: "Save was superseded by a newer Peon selection." };
+      }
+      if (!peonSelectionMatchesAppliedState(selection, current)) {
+        return { ok: false, error: "Save requires the sidecar's applied provider, model, and URL to match." };
+      }
+      await persist();
+      return { ok: true };
+    });
   }
 
   async function getApplied(signal?: AbortSignal): Promise<PeonAppliedState> {
