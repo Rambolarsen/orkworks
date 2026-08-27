@@ -482,18 +482,47 @@ impl ProviderRunner for ProcessRunner {
             }
         };
 
+        let pid = child.id();
+        let terminate_child = |child: &mut std::process::Child| {
+            #[cfg(unix)]
+            let _ = unsafe { libc::kill(-(pid as libc::pid_t), libc::SIGKILL) };
+            #[cfg(not(unix))]
+            let _ = child.kill();
+            let _ = child.wait();
+        };
+
         if let Some(mut stdin) = child.stdin.take() {
-            if let Err(e) = stdin.write_all(prompt.as_bytes()) {
-                tracing::warn!(provider = %id, error = %e, "peon: failed to write prompt");
-                return InvocationResult {
-                    success: false,
-                    stdout: String::new(),
-                    stderr: e.to_string(),
-                };
+            let prompt = prompt.as_bytes().to_vec();
+            let (tx, rx) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                let result = stdin.write_all(&prompt);
+                drop(stdin);
+                let _ = tx.send(result);
+            });
+
+            match rx.recv_timeout(Duration::from_secs(timeout_secs)) {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => {
+                    terminate_child(&mut child);
+                    tracing::warn!(provider = %id, error = %e, "peon: failed to write prompt");
+                    return InvocationResult {
+                        success: false,
+                        stdout: String::new(),
+                        stderr: e.to_string(),
+                    };
+                }
+                Err(_) => {
+                    terminate_child(&mut child);
+                    tracing::warn!(provider = %id, "peon: prompt write timed out");
+                    return InvocationResult {
+                        success: false,
+                        stdout: String::new(),
+                        stderr: "timed out".to_string(),
+                    };
+                }
             }
         }
 
-        let pid = child.id();
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
             let _ = tx.send(child.wait_with_output());
@@ -1581,6 +1610,47 @@ mod tests {
         );
         assert!(!missing.success);
         assert!(!missing.stderr.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn process_runner_cleans_up_provider_that_closes_stdin_during_prompt_write() {
+        use crate::test_support::make_test_executable;
+
+        let dir = tempfile::tempdir().unwrap();
+        let pidfile = dir.path().join("provider.pid");
+        let script = dir.path().join("provider-closes-stdin");
+        std::fs::write(
+            &script,
+            "#!/bin/sh\necho \"$$\" > \"$1\"\nexec 0<&-\nsleep 30\n",
+        )
+        .unwrap();
+        make_test_executable(&script);
+
+        let args = vec![pidfile.to_string_lossy().into_owned()];
+        let prompt = "x".repeat(1024 * 1024);
+        let result = ProcessRunner.run("test", script.to_str().unwrap(), &args, &prompt, 1, None);
+
+        assert!(!result.success);
+        assert!(
+            result.stderr.contains("Broken pipe"),
+            "expected broken-pipe prompt-write error, got {:?}",
+            result.stderr
+        );
+
+        let child_pid: i32 = std::fs::read_to_string(&pidfile)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        for _ in 0..40 {
+            if unsafe { libc::kill(child_pid, 0) } != 0 {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        let _ = unsafe { libc::kill(-child_pid, libc::SIGKILL) };
+        panic!("provider {child_pid} survived failed prompt-write cleanup");
     }
 
     #[cfg(unix)]
