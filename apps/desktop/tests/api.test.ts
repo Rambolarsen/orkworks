@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import type { SessionInfo, WorkspaceInfo } from "../src/api.ts";
+import type { PeonDiagnostics, SessionInfo, WorkspaceInfo } from "../src/api.ts";
 import {
   dismissTaskmasterRecommendation,
   forgetSession,
@@ -146,6 +146,50 @@ test("api.ts declares canonical terminology aliases on SessionInfo", () => {
   assert.match(source, /harnessId\?: string/);
   assert.match(source, /modelProviderId\?: string/);
   assert.match(source, /modelId\?: string/);
+});
+
+test("SessionInfo accepts the optional Peon diagnostics contract", () => {
+  const diagnostics: PeonDiagnostics = {
+    schedulerState: "completed",
+    reason: null,
+    lastAttemptAt: "2026-08-27T10:00:00Z",
+    lastSuccessfulInferenceAt: "2026-08-27T10:00:01Z",
+    providerId: "ollama",
+    providerModel: "llama3.2",
+    fallbackStep: 1,
+    attemptCount: 2,
+    errorSummary: null,
+    observationCount: 3,
+  };
+  const session: SessionInfo = {
+    id: "diagnostics-test",
+    label: "Diagnostics Test",
+    status: "running",
+    cwd: "/tmp/project",
+    created_at: "2026-08-27T10:00:00Z",
+    memoryState: "live",
+    resumeStrategy: "none",
+    peonDiagnostics: diagnostics,
+  };
+
+  assert.equal(session.peonDiagnostics?.schedulerState, "completed");
+  assert.equal(session.peonDiagnostics?.observationCount, 3);
+});
+
+test("api.ts declares the camelCase Peon diagnostics fields", () => {
+  const source = readFileSync(new URL("../src/api.ts", import.meta.url), "utf8");
+
+  assert.match(source, /export interface PeonDiagnostics/);
+  assert.match(source, /schedulerState: PeonSchedulerState/);
+  assert.match(source, /lastAttemptAt: string \| null/);
+  assert.match(source, /lastSuccessfulInferenceAt: string \| null/);
+  assert.match(source, /providerId: string \| null/);
+  assert.match(source, /providerModel: string \| null/);
+  assert.match(source, /fallbackStep: number \| null/);
+  assert.match(source, /attemptCount: number \| null/);
+  assert.match(source, /errorSummary: string \| null/);
+  assert.match(source, /observationCount: number \| null/);
+  assert.match(source, /peonDiagnostics\?: PeonDiagnostics \| null/);
 });
 
 test("WorkspaceInfo type has expected shape", () => {

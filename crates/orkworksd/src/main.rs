@@ -59,7 +59,7 @@ use crate::runtime::retention::retention_cleanup_task;
 use crate::runtime::terminal_http::{
     get_summary_log, get_terminal_output, session_terminal_handler,
 };
-use crate::session_types::SessionInfo;
+use crate::session_types::{PeonDiagnostics, PeonSchedulerState, SessionInfo};
 
 struct SessionHandle {
     info: SessionInfo,
@@ -107,6 +107,7 @@ struct PeonState {
     last_output: StdRwLock<HashMap<String, tokio::time::Instant>>,
     last_inference: StdRwLock<HashMap<String, String>>,
     in_flight: StdRwLock<HashSet<String>>,
+    diagnostics: StdRwLock<HashMap<String, PeonDiagnosticEntry>>,
     label_hint: StdRwLock<HashMap<String, LabelHint>>,
     label_pending: StdRwLock<HashSet<String>>,
     // Per-session label generation. Incremented by a harness-declared label
@@ -125,6 +126,35 @@ struct PeonState {
     // fallbacks. Currently only populated for Claude Code sessions.
     reported_cwd: StdRwLock<HashMap<String, String>>,
     config: peon::PeonConfig,
+}
+
+const MAX_PEON_DIAGNOSTIC_SESSIONS: usize = 1_024;
+
+struct PeonDiagnosticEntry {
+    snapshot: PeonDiagnostics,
+    attempt_generation: u64,
+    runtime_identity: Option<crate::runtime::session_runtime::RuntimeIdentity>,
+}
+
+impl PeonDiagnosticEntry {
+    fn new() -> Self {
+        Self {
+            snapshot: PeonDiagnostics {
+                scheduler_state: PeonSchedulerState::Idle,
+                reason: None,
+                last_attempt_at: None,
+                last_successful_inference_at: None,
+                provider_id: None,
+                provider_model: None,
+                fallback_step: None,
+                attempt_count: None,
+                error_summary: None,
+                observation_count: None,
+            },
+            attempt_generation: 0,
+            runtime_identity: None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -198,6 +228,7 @@ async fn main() {
             label_epochs: StdRwLock::new(HashMap::new()),
             input_buf: StdRwLock::new(HashMap::new()),
             reported_cwd: StdRwLock::new(HashMap::new()),
+            diagnostics: StdRwLock::new(HashMap::new()),
             config: peon::PeonConfig::from_env(),
         },
         providers,
@@ -447,6 +478,7 @@ pub(crate) mod test_support {
                 label_epochs: StdRwLock::new(HashMap::new()),
                 input_buf: StdRwLock::new(HashMap::new()),
                 reported_cwd: StdRwLock::new(HashMap::new()),
+                diagnostics: StdRwLock::new(HashMap::new()),
                 config: peon::PeonConfig::from_env(),
             },
             harness_catalog: harness_catalog.clone(),
@@ -537,6 +569,7 @@ pub(crate) mod test_support {
             conflict_warning: None,
             recommendation: None,
             peon_last_inference: None,
+            peon_diagnostics: None,
             provider: None,
             provider_model: None,
             provider_state: None,
@@ -752,6 +785,7 @@ mod tests {
                 label_epochs: StdRwLock::new(HashMap::new()),
                 input_buf: StdRwLock::new(HashMap::new()),
                 reported_cwd: StdRwLock::new(HashMap::new()),
+                diagnostics: StdRwLock::new(HashMap::new()),
                 config: peon::PeonConfig::from_env(),
             },
             harness_catalog: test_harness_components().0,

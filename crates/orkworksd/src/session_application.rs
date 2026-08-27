@@ -119,7 +119,7 @@ pub(crate) struct PeonObservationRecordResult {
 pub(crate) struct PeonInferencePersistenceResult {
     pub(crate) inference_persisted: bool,
     pub(crate) permanent_hold: bool,
-    pub(crate) label_update: Option<String>,
+    pub(crate) label_update: Option<(String, u64)>,
     pub(crate) workspace_path: Option<PathBuf>,
 }
 
@@ -259,6 +259,46 @@ impl SessionApplication {
         history_summary: Option<&str>,
         timestamp: &str,
     ) -> PeonInferencePersistenceResult {
+        self.persist_peon_observation_inner(
+            session_id,
+            inference,
+            provider_observation,
+            history_summary,
+            timestamp,
+            None,
+        )
+    }
+
+    pub(crate) fn persist_peon_observation_for_attempt(
+        &self,
+        session_id: &str,
+        attempt: &crate::runtime::peon_runtime::PeonDiagnosticAttempt,
+        inference: Option<&peon::PeonInference>,
+        provider_observation: Option<&crate::providers::ProviderObservation>,
+        history_summary: Option<&str>,
+        timestamp: &str,
+    ) -> PeonInferencePersistenceResult {
+        self.persist_peon_observation_inner(
+            session_id,
+            inference,
+            provider_observation,
+            history_summary,
+            timestamp,
+            Some(attempt),
+        )
+    }
+
+    fn persist_peon_observation_inner(
+        &self,
+        session_id: &str,
+        inference: Option<&peon::PeonInference>,
+        provider_observation: Option<&crate::providers::ProviderObservation>,
+        history_summary: Option<&str>,
+        timestamp: &str,
+        attempt: Option<&crate::runtime::peon_runtime::PeonDiagnosticAttempt>,
+    ) -> PeonInferencePersistenceResult {
+        let label_epochs = self.state.peon.label_epochs.read().unwrap();
+        let captured_label_epoch = label_epochs.get(session_id).copied().unwrap_or(0);
         let workspace_guard = self.state.workspace.lock().unwrap();
         let Some(workspace) = workspace_guard.as_ref() else {
             return PeonInferencePersistenceResult {
@@ -269,6 +309,29 @@ impl SessionApplication {
             };
         };
         let workspace_path = Some(workspace.path.clone());
+
+        // The workspace lock is acquired before the sessions lock to match
+        // the rest of the application layer. Keep the validation guard while
+        // persisting so a replacement cannot pass the check and then receive
+        // the old runtime's durable inference.
+        let _sessions_guard = if let Some(attempt) = attempt {
+            let sessions = self.state.sessions.lock().unwrap();
+            let current = sessions.get(session_id).is_some_and(|handle| {
+                handle.runtime.matches_identity(&attempt.runtime_identity)
+                    && handle.info.lifecycle_phase == "active"
+            });
+            if !current || !self.state.peon.diagnostic_attempt_is_current(session_id, attempt) {
+                return PeonInferencePersistenceResult {
+                    inference_persisted: false,
+                    permanent_hold: false,
+                    label_update: None,
+                    workspace_path: None,
+                };
+            }
+            Some(sessions)
+        } else {
+            None
+        };
 
         if let Some(observation) = provider_observation {
             workspace
@@ -316,7 +379,7 @@ impl SessionApplication {
                 inference_persisted: true,
                 permanent_hold: false,
                 label_update: history_summary
-                    .map(|summary| summary.chars().take(100).collect()),
+                    .map(|summary| (summary.chars().take(100).collect(), captured_label_epoch)),
                 workspace_path,
             },
             Err(error) => {
@@ -467,6 +530,40 @@ impl SessionApplication {
         output_range: &PeonObservationOutputRange,
         candidates: &[peon::PeonWorkflowObservation],
     ) -> PeonObservationRecordResult {
+        self.record_peon_workflow_observations_inner(
+            session_id,
+            captured_workspace_path,
+            output_range,
+            candidates,
+            None,
+        )
+    }
+
+    pub(crate) fn record_peon_workflow_observations_for_attempt(
+        &self,
+        session_id: &str,
+        captured_workspace_path: Option<&Path>,
+        attempt: &crate::runtime::peon_runtime::PeonDiagnosticAttempt,
+        output_range: &PeonObservationOutputRange,
+        candidates: &[peon::PeonWorkflowObservation],
+    ) -> PeonObservationRecordResult {
+        self.record_peon_workflow_observations_inner(
+            session_id,
+            captured_workspace_path,
+            output_range,
+            candidates,
+            Some(attempt),
+        )
+    }
+
+    fn record_peon_workflow_observations_inner(
+        &self,
+        session_id: &str,
+        captured_workspace_path: Option<&Path>,
+        output_range: &PeonObservationOutputRange,
+        candidates: &[peon::PeonWorkflowObservation],
+        attempt: Option<&crate::runtime::peon_runtime::PeonDiagnosticAttempt>,
+    ) -> PeonObservationRecordResult {
         let workspace_guard = self.state.workspace.lock().unwrap();
         let Some(workspace) = workspace_guard.as_ref() else {
             return PeonObservationRecordResult {
@@ -480,6 +577,29 @@ impl SessionApplication {
                 output_range_completed: true,
             };
         }
+
+        let _sessions_guard = if let Some(attempt) = attempt {
+            let sessions = self.state.sessions.lock().unwrap();
+            let current = sessions.get(session_id).is_some_and(|handle| {
+                handle.runtime.matches_identity(&attempt.runtime_identity)
+                    && handle.info.lifecycle_phase == "active"
+            });
+            let range_matches_attempt = output_range.runtime_instance_id
+                == attempt.runtime_identity.runtime_instance_id
+                && output_range.run_generation == attempt.runtime_identity.run_generation;
+            if !current
+                || !range_matches_attempt
+                || !self.state.peon.diagnostic_attempt_is_current(session_id, attempt)
+            {
+                return PeonObservationRecordResult {
+                    accepted_observation: false,
+                    output_range_completed: true,
+                };
+            }
+            Some(sessions)
+        } else {
+            None
+        };
         if workspace.metadata.read_session(session_id).is_none() {
             return PeonObservationRecordResult {
                 accepted_observation: false,
@@ -1125,6 +1245,31 @@ impl SessionApplication {
     /// Label epochs and queued label work remain because ended sessions can be
     /// resumed and still belong to the current conversation.
     pub(crate) fn clear_ended_session_tracking(&self, id: &str) {
+        self.clear_ended_session_tracking_with_identity(id, None);
+    }
+
+    pub(crate) fn clear_ended_session_tracking_for_runtime(
+        &self,
+        id: &str,
+        runtime_identity: &crate::runtime::session_runtime::RuntimeIdentity,
+    ) {
+        self.clear_ended_session_tracking_with_identity(id, Some(runtime_identity));
+    }
+
+    fn clear_ended_session_tracking_with_identity(
+        &self,
+        id: &str,
+        runtime_identity: Option<&crate::runtime::session_runtime::RuntimeIdentity>,
+    ) {
+        // Do not hold sessions while invalidation waits for in_flight. Peon
+        // scans take in_flight before sessions when selecting work.
+        let owns_runtime_diagnostics = self
+            .state
+            .peon
+            .invalidate_diagnostic_attempt(id, runtime_identity);
+        if runtime_identity.is_some() && !owns_runtime_diagnostics {
+            return;
+        }
         self.state.peon.last_output.write().unwrap().remove(id);
         self.state.peon.last_inference.write().unwrap().remove(id);
         self.state.peon.input_buf.write().unwrap().remove(id);
@@ -1159,6 +1304,43 @@ impl SessionApplication {
             }
         }
         if let Some(handle) = self.state.sessions.lock().unwrap().get_mut(id) {
+            handle.info.label = label;
+            updated = true;
+        }
+        updated
+    }
+
+    pub(crate) fn persist_input_label_for_attempt(
+        &self,
+        id: &str,
+        attempt: &crate::runtime::peon_runtime::PeonDiagnosticAttempt,
+        label: String,
+        captured_epoch: u64,
+    ) -> bool {
+        let epochs = self.state.peon.label_epochs.read().unwrap();
+        let current_epoch = epochs.get(id).copied().unwrap_or(0);
+        if captured_epoch != current_epoch {
+            return false;
+        }
+
+        let mut updated = false;
+        let ws_guard = self.state.workspace.lock().unwrap();
+        let mut sessions = self.state.sessions.lock().unwrap();
+        let current = sessions.get(id).is_some_and(|handle| {
+            handle.runtime.matches_identity(&attempt.runtime_identity)
+                && handle.info.lifecycle_phase == "active"
+        });
+        if !current || !self.state.peon.diagnostic_attempt_is_current(id, attempt) {
+            return false;
+        }
+        if let Some(ws) = ws_guard.as_ref() {
+            if let Some(mut meta) = ws.metadata.read_session(id) {
+                meta.label = label.clone();
+                ws.metadata.write_session(&meta);
+                updated = true;
+            }
+        }
+        if let Some(handle) = sessions.get_mut(id) {
             handle.info.label = label;
             updated = true;
         }
@@ -2216,6 +2398,7 @@ async fn resume_session_workflow(
         conflict_warning: None,
         recommendation: None,
         peon_last_inference: None,
+        peon_diagnostics: None,
         memory_state: MemoryState::Live,
         resume_strategy: strategy.clone(),
         resume: meta.resume.clone(),
@@ -2558,6 +2741,7 @@ async fn create_session_workflow(
         conflict_warning: None,
         recommendation: None,
         peon_last_inference: None,
+        peon_diagnostics: None,
         memory_state: MemoryState::Live,
         resume_strategy: harness::ResumeStrategy::None,
         resume: Some(harness::ResumeMemory {
@@ -5330,6 +5514,7 @@ mod tests {
 
     #[test]
     fn clear_ended_session_tracking_removes_runtime_state_but_preserves_label_work() {
+        let _lease_guard = crate::runtime::peon_runtime::diagnostic_test_guard();
         let root = tempfile::tempdir().unwrap();
         let state = crate::test_support::test_app_state_with_workspace(root.path());
         let id = "clear-ended-application";
@@ -5847,7 +6032,10 @@ mod tests {
 
         assert!(result.inference_persisted);
         assert!(!result.permanent_hold);
-        assert_eq!(result.label_update.as_deref(), Some("Need a decision"));
+        assert_eq!(
+            result.label_update.as_ref().map(|(label, _)| label.as_str()),
+            Some("Need a decision")
+        );
         let stored = state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(id).unwrap();
         assert_eq!(stored.observed_status.as_deref(), Some("blocked"));
         assert_eq!(stored.summary.as_deref(), Some("Need a decision"));

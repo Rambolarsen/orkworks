@@ -656,6 +656,7 @@ fn remembered_session_info(
         is_worktree: meta.is_worktree,
         conflict_warning: None,
         recommendation: None,
+        peon_diagnostics: None,
         memory_state,
         resume_strategy: resume_strategy.clone(),
         resume: meta.resume.clone(),

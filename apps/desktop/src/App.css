@@ -1613,6 +1613,45 @@ html, body, #root {
   color: var(--text-secondary);
 }
 
+.peon-diagnostics {
+  grid-column: 1 / -1;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: var(--space-3);
+}
+
+.peon-diagnostics-title {
+  margin-bottom: var(--space-2);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.peon-diagnostics-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2) var(--space-4);
+  margin: 0;
+}
+
+.peon-diagnostics-grid > div {
+  min-width: 0;
+}
+
+.peon-diagnostics-grid dt {
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+}
+
+.peon-diagnostics-grid dd {
+  margin: 2px 0 0;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}
+
 .debug-injection {
   display: flex;
   align-items: center;

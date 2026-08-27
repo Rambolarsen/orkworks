@@ -6,6 +6,9 @@ use std::sync::{Arc, RwLock};
 
 use std::time::Duration;
 
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
+
 use reqwest::Client as HttpClient;
 use serde::{Deserialize, Serialize};
 
@@ -446,6 +449,10 @@ impl ProviderRunner for CompositeRunner {
 
 struct ProcessRunner;
 
+fn remaining_until(deadline: std::time::Instant) -> Duration {
+    deadline.saturating_duration_since(std::time::Instant::now())
+}
+
 impl ProviderRunner for ProcessRunner {
     fn run(
         &self,
@@ -464,6 +471,9 @@ impl ProviderRunner for ProcessRunner {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
+        #[cfg(unix)]
+        cmd.process_group(0);
+
         let mut child = match cmd.spawn() {
             Ok(c) => c,
             Err(e) => {
@@ -476,40 +486,168 @@ impl ProviderRunner for ProcessRunner {
             }
         };
 
+        let pid = child.id();
+        let terminate_child = |child: &mut std::process::Child| {
+            #[cfg(unix)]
+            // macOS has no pidfd-style primitive that can atomically target a
+            // process group by identity. The group is created exclusively for
+            // this child, and the kill happens immediately while this
+            // invocation still owns the Child. Using child.kill() alone would
+            // leave descendants holding stdout/stderr pipes open, so the
+            // theoretical PGID-reuse window is not actionable without a
+            // supervisor process that would change this runner's semantics.
+            let _ = unsafe { libc::kill(-(pid as libc::pid_t), libc::SIGKILL) };
+            #[cfg(windows)]
+            {
+                // Terminating a Windows process does not terminate its
+                // descendants. Kill the whole tree so inherited stdio handles
+                // close and the capture threads can be joined below.
+                let _ = Command::new("taskkill")
+                    .args(["/PID", &pid.to_string(), "/T", "/F"])
+                    .output();
+            }
+            #[cfg(not(any(unix, windows)))]
+            let _ = child.kill();
+            let _ = child.wait();
+        };
+
+        let deadline = std::time::Instant::now()
+            .checked_add(Duration::from_secs(timeout_secs))
+            .unwrap_or_else(std::time::Instant::now);
+
         if let Some(mut stdin) = child.stdin.take() {
-            if let Err(e) = stdin.write_all(prompt.as_bytes()) {
-                tracing::warn!(provider = %id, error = %e, "peon: failed to write prompt");
-                return InvocationResult {
-                    success: false,
-                    stdout: String::new(),
-                    stderr: e.to_string(),
-                };
+            let prompt = prompt.as_bytes().to_vec();
+            let (tx, rx) = std::sync::mpsc::channel();
+            let thread = std::thread::spawn(move || {
+                let result = stdin.write_all(&prompt);
+                drop(stdin);
+                let _ = tx.send(result);
+            });
+
+            match rx.recv_timeout(remaining_until(deadline)) {
+                Ok(Ok(())) => {
+                    let _ = thread.join();
+                }
+                Ok(Err(e)) => {
+                    terminate_child(&mut child);
+                    let _ = thread.join();
+                    tracing::warn!(provider = %id, error = %e, "peon: failed to write prompt");
+                    return InvocationResult {
+                        success: false,
+                        stdout: String::new(),
+                        stderr: e.to_string(),
+                    };
+                }
+                Err(_) => {
+                    terminate_child(&mut child);
+                    let _ = thread.join();
+                    tracing::warn!(provider = %id, "peon: prompt write timed out");
+                    return InvocationResult {
+                        success: false,
+                        stdout: String::new(),
+                        stderr: "timed out".to_string(),
+                    };
+                }
             }
         }
-
-        let pid = child.id();
         let (tx, rx) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
-            let _ = tx.send(child.wait_with_output());
+        let stdout_thread = child.stdout.take().map(|mut stdout| {
+            let tx = tx.clone();
+            std::thread::spawn(move || {
+                let mut bytes = Vec::new();
+                let result = stdout.read_to_end(&mut bytes).map(|_| bytes);
+                let _ = tx.send((true, result));
+            })
+        });
+        let stderr_thread = child.stderr.take().map(|mut stderr| {
+            std::thread::spawn(move || {
+                let mut bytes = Vec::new();
+                let result = stderr.read_to_end(&mut bytes).map(|_| bytes);
+                let _ = tx.send((false, result));
+            })
         });
 
-        let output = match rx.recv_timeout(Duration::from_secs(timeout_secs)) {
-            Ok(Ok(out)) => out,
-            _ => {
-                let _ = Command::new("kill").arg(pid.to_string()).output();
-                tracing::warn!(provider = %id, "peon: provider timed out");
-                return InvocationResult {
-                    success: false,
-                    stdout: String::new(),
-                    stderr: "timed out".to_string(),
-                };
+        let join_capture_threads = |
+            stdout_thread: Option<std::thread::JoinHandle<()>>,
+            stderr_thread: Option<std::thread::JoinHandle<()>>,
+        | {
+            if let Some(thread) = stdout_thread {
+                let _ = thread.join();
+            }
+            if let Some(thread) = stderr_thread {
+                let _ = thread.join();
             }
         };
 
+        let status = loop {
+            match child.try_wait() {
+                Ok(Some(status)) => break status,
+                Ok(None) => {
+                    let remaining = remaining_until(deadline);
+                    if remaining.is_zero() {
+                        terminate_child(&mut child);
+                        join_capture_threads(stdout_thread, stderr_thread);
+                        tracing::warn!(provider = %id, "peon: provider timed out");
+                        return InvocationResult {
+                            success: false,
+                            stdout: String::new(),
+                            stderr: "timed out".to_string(),
+                        };
+                    }
+                    std::thread::sleep(remaining.min(Duration::from_millis(10)));
+                }
+                Err(e) => {
+                    terminate_child(&mut child);
+                    join_capture_threads(stdout_thread, stderr_thread);
+                    return InvocationResult {
+                        success: false,
+                        stdout: String::new(),
+                        stderr: e.to_string(),
+                    };
+                }
+            }
+        };
+
+        let mut stdout = None;
+        let mut stderr = None;
+        while stdout.is_none() || stderr.is_none() {
+            match rx.recv_timeout(remaining_until(deadline)) {
+                Ok((is_stdout, Ok(bytes))) => {
+                    if is_stdout {
+                        stdout = Some(bytes);
+                    } else {
+                        stderr = Some(bytes);
+                    }
+                }
+                Ok((_is_stdout, Err(e))) => {
+                    let message = e.to_string();
+                    terminate_child(&mut child);
+                    join_capture_threads(stdout_thread, stderr_thread);
+                    return InvocationResult {
+                        success: false,
+                        stdout: String::new(),
+                        stderr: message,
+                    };
+                }
+                Err(_) => {
+                    terminate_child(&mut child);
+                    join_capture_threads(stdout_thread, stderr_thread);
+                    tracing::warn!(provider = %id, "peon: provider timed out");
+                    return InvocationResult {
+                        success: false,
+                        stdout: String::new(),
+                        stderr: "timed out".to_string(),
+                    };
+                }
+            }
+        }
+
+        join_capture_threads(stdout_thread, stderr_thread);
+
         InvocationResult {
-            success: output.status.success(),
-            stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+            success: status.success(),
+            stdout: String::from_utf8_lossy(&stdout.unwrap_or_default()).into_owned(),
+            stderr: String::from_utf8_lossy(&stderr.unwrap_or_default()).into_owned(),
         }
     }
 }
@@ -1297,6 +1435,10 @@ pub struct FakeProvider {
     call_count: Option<std::sync::Arc<std::sync::atomic::AtomicUsize>>,
     invocations: Option<std::sync::Arc<std::sync::Mutex<Vec<(Vec<String>, String)>>>>,
     models: Option<std::sync::Arc<std::sync::Mutex<Vec<Option<String>>>>>,
+    barriers: Option<(
+        std::sync::Arc<std::sync::Barrier>,
+        std::sync::Arc<std::sync::Barrier>,
+    )>,
 }
 
 #[cfg(test)]
@@ -1311,6 +1453,7 @@ impl FakeProvider {
             call_count: None,
             invocations: None,
             models: None,
+            barriers: None,
         }
     }
 
@@ -1354,6 +1497,15 @@ impl FakeProvider {
         self.models = Some(models);
         self
     }
+
+    pub fn with_barriers(
+        mut self,
+        entry: std::sync::Arc<std::sync::Barrier>,
+        release: std::sync::Arc<std::sync::Barrier>,
+    ) -> Self {
+        self.barriers = Some((entry, release));
+        self
+    }
 }
 
 #[cfg(test)]
@@ -1385,6 +1537,10 @@ impl ProviderRunner for FakeRunner {
                 }
                 if let Some(ref models) = spec.models {
                     models.lock().unwrap().push(model.map(str::to_owned));
+                }
+                if let Some((entry, release)) = &spec.barriers {
+                    entry.wait();
+                    release.wait();
                 }
                 if spec.sleep_ms > 0 {
                     if spec.sleep_ms > timeout_secs.saturating_mul(1000) {
@@ -1554,6 +1710,195 @@ mod tests {
         );
         assert!(!missing.success);
         assert!(!missing.stderr.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn process_runner_cleans_up_provider_that_closes_stdin_during_prompt_write() {
+        use crate::test_support::make_test_executable;
+
+        let dir = tempfile::tempdir().unwrap();
+        let pidfile = dir.path().join("provider.pid");
+        let script = dir.path().join("provider-closes-stdin");
+        std::fs::write(
+            &script,
+            "#!/bin/sh\necho \"$$\" > \"$1\"\nexec 0<&-\nsleep 30\n",
+        )
+        .unwrap();
+        make_test_executable(&script);
+
+        let args = vec![pidfile.to_string_lossy().into_owned()];
+        let prompt = "x".repeat(1024 * 1024);
+        let result = ProcessRunner.run("test", script.to_str().unwrap(), &args, &prompt, 1, None);
+
+        assert!(!result.success);
+        assert!(
+            result.stderr.contains("Broken pipe"),
+            "expected broken-pipe prompt-write error, got {:?}",
+            result.stderr
+        );
+
+        let child_pid: i32 = std::fs::read_to_string(&pidfile)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        for _ in 0..40 {
+            if unsafe { libc::kill(child_pid, 0) } != 0 {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        let _ = unsafe { libc::kill(-child_pid, libc::SIGKILL) };
+        panic!("provider {child_pid} survived failed prompt-write cleanup");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn process_runner_uses_one_timeout_budget_for_prompt_and_output() {
+        use crate::test_support::make_test_executable;
+
+        let dir = tempfile::tempdir().unwrap();
+        let script = dir.path().join("provider-slowly-reads-prompt");
+        std::fs::write(
+            &script,
+            "#!/bin/sh\nsleep 0.7\ncat >/dev/null\nsleep 30\n",
+        )
+        .unwrap();
+        make_test_executable(&script);
+
+        let started = std::time::Instant::now();
+        let result = ProcessRunner.run(
+            "test",
+            script.to_str().unwrap(),
+            &[],
+            &"x".repeat(4 * 1024 * 1024),
+            1,
+            None,
+        );
+
+        assert!(!result.success);
+        assert_eq!(result.stderr, "timed out");
+        assert!(
+            started.elapsed() < Duration::from_millis(1_500),
+            "prompt and output used separate timeout budgets: {:?}",
+            started.elapsed()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn process_runner_collects_stdout_and_stderr_after_child_exit() {
+        let result = ProcessRunner.run(
+            "test",
+            "sh",
+            &[
+                "-c".to_string(),
+                "printf 'provider stdout'; printf 'provider stderr' >&2".to_string(),
+            ],
+            "",
+            1,
+            None,
+        );
+
+        assert!(result.success);
+        assert_eq!(result.stdout, "provider stdout");
+        assert!(result.stderr.contains("provider stderr"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn process_runner_timeout_kills_and_waits_for_the_child() {
+        let result = ProcessRunner.run(
+            "test",
+            "cmd",
+            &["/C".to_string(), "ping -n 30 127.0.0.1 > NUL".to_string()],
+            "",
+            1,
+            None,
+        );
+
+        assert!(!result.success);
+        assert_eq!(result.stderr, "timed out");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn process_runner_timeout_kills_descendants_holding_pipes() {
+        let dir = tempfile::tempdir().unwrap();
+        let pid_file = dir.path().join("descendant.pid");
+        let pid_path = pid_file.to_string_lossy().replace('\'', "''");
+        let script = format!(
+            "$p = Start-Process -FilePath ping.exe -ArgumentList @('-n','30','127.0.0.1') -PassThru -WindowStyle Hidden; Set-Content -LiteralPath '{pid_path}' -Value $p.Id; Wait-Process -Id $p.Id"
+        );
+        let result = ProcessRunner.run(
+            "test",
+            "powershell.exe",
+            &[
+                "-NoProfile".to_string(),
+                "-NonInteractive".to_string(),
+                "-Command".to_string(),
+                script,
+            ],
+            "",
+            1,
+            None,
+        );
+
+        assert!(!result.success);
+        assert_eq!(result.stderr, "timed out");
+
+        let descendant_pid = std::fs::read_to_string(&pid_file)
+            .unwrap()
+            .trim()
+            .to_string();
+        let task_list = Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {descendant_pid}"), "/NH"])
+            .output()
+            .unwrap();
+        let task_list = String::from_utf8_lossy(&task_list.stdout);
+        if task_list.contains(&descendant_pid) {
+            let _ = Command::new("taskkill")
+                .args(["/PID", &descendant_pid, "/T", "/F"])
+                .output();
+            panic!("provider descendant {descendant_pid} survived timeout cleanup");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn process_runner_timeout_terminates_descendants_holding_pipes() {
+        use crate::test_support::make_test_executable;
+
+        let dir = tempfile::tempdir().unwrap();
+        let pidfile = dir.path().join("descendant.pid");
+        let script = dir.path().join("provider-with-descendant");
+        std::fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\nsleep 30 &\necho $! > {}\nwait\n",
+                pidfile.display()
+            ),
+        )
+        .unwrap();
+        make_test_executable(&script);
+
+        let result = ProcessRunner.run("test", script.to_str().unwrap(), &[], "", 1, None);
+        assert!(!result.success);
+
+        let descendant_pid: i32 = std::fs::read_to_string(&pidfile)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        for _ in 0..20 {
+            if unsafe { libc::kill(descendant_pid, 0) } != 0 {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        let _ = unsafe { libc::kill(descendant_pid, libc::SIGKILL) };
+        panic!("provider descendant {descendant_pid} survived timeout cleanup");
     }
 
     #[cfg(target_os = "macos")]

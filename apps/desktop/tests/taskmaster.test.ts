@@ -112,6 +112,32 @@ test("Recommendations panel links affected sessions through the shared selection
   assert.match(dockview, /onSelectSession=\{ctx\.onSelectSession\}/);
 });
 
+test("SessionDetailPanel gates Peon diagnostics behind debug metadata", () => {
+  const source = readFileSync(new URL("../src/components/SessionDetailPanel.tsx", import.meta.url), "utf8");
+  const factsGridIndex = source.indexOf('<div className="detail-facts-grid">');
+  const debugGateIndex = source.indexOf("{showDebugMetadata && (", factsGridIndex);
+  const debugGateEndIndex = source.indexOf("\n          )}\n        </div>", debugGateIndex);
+
+  assert.ok(factsGridIndex >= 0, "expected the selected-session facts grid");
+  assert.ok(debugGateIndex > factsGridIndex, "expected the existing debug metadata gate in the facts grid");
+  assert.ok(debugGateEndIndex > debugGateIndex, "expected the debug metadata gate to close in the facts grid");
+
+  const debugBlock = source.slice(debugGateIndex, debugGateEndIndex);
+  assert.match(debugBlock, /Peon diagnostics/);
+  assert.match(debugBlock, /peonDiagnostics/);
+  assert.match(debugBlock, /schedulerState/);
+  assert.match(debugBlock, /lastAttemptAt/);
+  assert.match(debugBlock, /lastSuccessfulInferenceAt/);
+  assert.match(debugBlock, /providerId/);
+  assert.match(debugBlock, /providerModel/);
+  assert.match(debugBlock, /fallbackStep/);
+  assert.match(debugBlock, /attemptCount/);
+  assert.match(debugBlock, /errorSummary/);
+  assert.match(debugBlock, /observationCount/);
+  assert.match(debugBlock, /errorSummary[^\n]*\?\? "—"/);
+  assert.doesNotMatch(source.slice(0, debugGateIndex), /Peon diagnostics/);
+});
+
 test("Recommendations panel does not poll the sidecar before a workspace is loaded", () => {
   // Regression: the panel mounts as part of the default layout and used to
   // fetch immediately, racing the sidecar's async /workspace bootstrap and
