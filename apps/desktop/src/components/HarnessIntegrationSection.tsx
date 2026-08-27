@@ -14,9 +14,15 @@ interface HarnessIntegrationSectionProps {
   harnessId: string;
   harnessName: string;
   harness: HarnessConfig | undefined;
+  onDetectionChanged?: (harnessId: string) => void;
 }
 
-export default function HarnessIntegrationSection({ harnessId, harnessName, harness }: HarnessIntegrationSectionProps) {
+export default function HarnessIntegrationSection({
+  harnessId,
+  harnessName,
+  harness,
+  onDetectionChanged,
+}: HarnessIntegrationSectionProps) {
   const launchCommand = harness?.launch.kind === "command-template" ? harness.launch.command : null;
   const hasCustomPath = launchCommand !== null && looksAbsolute(launchCommand);
   const [integration, setIntegration] = useState<IntegrationStatusResult | null>(null);
@@ -46,7 +52,9 @@ export default function HarnessIntegrationSection({ harnessId, harnessName, harn
   async function installIntegrationHandler() {
     setIntegrationBusy(true);
     try {
-      setIntegration(await window.orkworks.installHarnessIntegration(harnessId));
+      const result = await window.orkworks.installHarnessIntegration(harnessId);
+      setIntegration(result);
+      if (result.ok) onDetectionChanged?.(harnessId);
     } finally {
       setIntegrationBusy(false);
     }
@@ -55,7 +63,9 @@ export default function HarnessIntegrationSection({ harnessId, harnessName, harn
   async function uninstallIntegrationHandler() {
     setIntegrationBusy(true);
     try {
-      setIntegration(await window.orkworks.uninstallHarnessIntegration(harnessId));
+      const result = await window.orkworks.uninstallHarnessIntegration(harnessId);
+      setIntegration(result);
+      if (result.ok) onDetectionChanged?.(harnessId);
     } finally {
       setIntegrationBusy(false);
     }
@@ -71,6 +81,7 @@ export default function HarnessIntegrationSection({ harnessId, harnessName, harn
         return;
       }
       setCustomPathActive(true);
+      onDetectionChanged?.(harnessId);
       setIntegration(await window.orkworks.getHarnessIntegrationStatus(harnessId));
     } catch (error) {
       setCustomPathError(error instanceof Error ? error.message : "Couldn't set the custom path.");
@@ -90,6 +101,7 @@ export default function HarnessIntegrationSection({ harnessId, harnessName, harn
       }
       setCustomPathActive(false);
       setCustomPathDraft("");
+      onDetectionChanged?.(harnessId);
       setIntegration(await window.orkworks.getHarnessIntegrationStatus(harnessId));
     } catch (error) {
       setCustomPathError(error instanceof Error ? error.message : "Couldn't clear the custom path.");
@@ -105,16 +117,6 @@ export default function HarnessIntegrationSection({ harnessId, harnessName, harn
       )}
       {integration && !integration.ok && (
         <span className="settings-config-status">{integration.error}</span>
-      )}
-      {integration?.ok && (
-        <span
-          className={
-            "settings-config-status" +
-            (integration.status.toolDetected ? " settings-config-status--ok" : "")
-          }
-        >
-          {integration.status.toolDetected ? "✓ Detected" : "Not detected"}
-        </span>
       )}
       {integration?.ok && integration.status.registration === "installed" && (
         <>
