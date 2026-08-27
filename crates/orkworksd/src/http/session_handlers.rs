@@ -5,17 +5,19 @@ use crate::session_view::{
     connectivity_for_status, derive_memory_state, detect_conflicts, merge_live_session_info,
     resolve_effective_cwds, session_recommendation, terminal_outcome_for_status,
 };
-use crate::{git, harness, metadata, peon, AppState, SessionHandle};
+use crate::{git, metadata, peon, AppState, WorkspaceState};
+#[cfg(test)]
+use crate::{harness, SessionHandle};
 #[cfg(test)]
 use crate::workspace_runtime::orkworks_global_dir;
 #[cfg(test)]
-use crate::{watcher, WorkspaceState};
+use crate::watcher;
 #[cfg(test)]
 use crate::session_application::{
-    resolve_session_launch, CreateSessionCommand,
+    resolve_session_launch, try_install_claimed_resume_handle, CreateSessionCommand,
 };
 use crate::session_application::{
-    try_install_claimed_resume_handle, DebugAttentionSignal, SessionApplication, SessionError,
+    DebugAttentionSignal, SessionApplication, SessionError,
 };
 use axum::{
     extract::{Path, State},
@@ -224,7 +226,7 @@ pub(crate) async fn create_session(
         })
         .await
         .map(|mut info| {
-            project_peon_diagnostics(&projection_state, &mut info, None);
+            project_live_peon_diagnostics(&projection_state, &mut info);
             Json(info).into_response()
         })
         .unwrap_or_else(application_error_response)
@@ -239,7 +241,7 @@ pub(crate) async fn resume_session(
         .resume_session(&id)
         .await
         .map(|mut info| {
-            project_peon_diagnostics(&projection_state, &mut info, None);
+            project_live_peon_diagnostics(&projection_state, &mut info);
             Json(info).into_response()
         })
         .unwrap_or_else(application_error_response)
@@ -457,38 +459,64 @@ fn enrich_sessions_with_git_context<F>(
 }
 
 fn project_peon_diagnostics(
-    state: &AppState,
     info: &mut SessionInfo,
     snapshot: Option<PeonDiagnostics>,
+    observation_count: Option<usize>,
 ) {
     info.peon_diagnostics = None;
     if info.memory_state != MemoryState::Live {
         return;
     }
-    let Some(mut snapshot) = snapshot.or_else(|| {
-        state
-            .peon
-            .diagnostics
-            .read()
-            .unwrap()
-            .get(&info.id)
-            .map(|entry| entry.snapshot.clone())
-    }) else {
+    let Some(mut snapshot) = snapshot else {
         return;
     };
 
-    snapshot.observation_count = state
-        .workspace
-        .lock()
-        .unwrap()
-        .as_ref()
-        .and_then(|workspace| {
-            workspace
-                .workflow_observations
-                .session_observation_count(&info.id)
-                .ok()
-        });
+    snapshot.observation_count = observation_count;
     info.peon_diagnostics = Some(snapshot);
+}
+
+fn project_live_peon_diagnostics(state: &AppState, info: &mut SessionInfo) {
+    let snapshot = state
+        .peon
+        .diagnostics
+        .read()
+        .ok()
+        .and_then(|diagnostics| diagnostics.get(&info.id).map(|entry| entry.snapshot.clone()));
+    let observation_count = snapshot.as_ref().and_then(|_| {
+        state
+            .workspace
+            .lock()
+            .ok()
+            .and_then(|workspace| {
+                workspace.as_ref().and_then(|workspace| {
+                    workspace
+                        .workflow_observations
+                        .session_observation_count(&info.id)
+                        .ok()
+                })
+            })
+    });
+    project_peon_diagnostics(info, snapshot, observation_count);
+}
+
+fn snapshot_observation_counts<F, E>(
+    workspace: Option<&WorkspaceState>,
+    session_ids: impl IntoIterator<Item = String>,
+    mut read_count: F,
+) -> HashMap<String, Option<usize>>
+where
+    F: FnMut(&WorkspaceState, &str) -> Result<usize, E>,
+{
+    let Some(workspace) = workspace else {
+        return HashMap::new();
+    };
+    session_ids
+        .into_iter()
+        .map(|session_id| {
+            let count = read_count(workspace, &session_id).ok();
+            (session_id, count)
+        })
+        .collect()
 }
 
 pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse {
@@ -527,26 +555,44 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
             .collect()
     };
 
-    let ws_guard = state.workspace.lock().unwrap();
-    let workspace_root = ws_guard.as_ref().map(|ws| ws.path.clone());
-    let metadata_map = ws_guard
-        .as_ref()
-        .map(|ws| {
-            let mut metadata = HashMap::new();
-            for (info, _, _, _, _, _, _, _, _) in &live_sessions {
-                if let Some(meta) = ws.metadata.read_session(&info.id) {
-                    metadata.insert(info.id.clone(), meta);
+    let (workspace_root, metadata_map, all_metadata_sessions, observation_counts) = {
+        let ws_guard = state.workspace.lock().unwrap();
+        let workspace_root = ws_guard.as_ref().map(|ws| ws.path.clone());
+        let metadata_map = ws_guard
+            .as_ref()
+            .map(|ws| {
+                let mut metadata = HashMap::new();
+                for (info, _, _, _, _, _, _, _, _) in &live_sessions {
+                    if let Some(meta) = ws.metadata.read_session(&info.id) {
+                        metadata.insert(info.id.clone(), meta);
+                    }
                 }
-            }
-            metadata
-        })
-        .unwrap_or_default();
+                metadata
+            })
+            .unwrap_or_default();
 
-    let all_metadata_sessions = ws_guard
-        .as_ref()
-        .map(|ws| ws.metadata.read_all_sessions())
-        .unwrap_or_default();
-    drop(ws_guard);
+        let all_metadata_sessions = ws_guard
+            .as_ref()
+            .map(|ws| ws.metadata.read_all_sessions())
+            .unwrap_or_default();
+        let observation_counts = snapshot_observation_counts(
+            ws_guard.as_ref(),
+            live_sessions
+                .iter()
+                .map(|(info, _, _, _, _, _, _, _, _)| info.id.clone()),
+            |workspace, session_id| {
+                workspace
+                    .workflow_observations
+                    .session_observation_count(session_id)
+            },
+        );
+        (
+            workspace_root,
+            metadata_map,
+            all_metadata_sessions,
+            observation_counts,
+        )
+    };
 
     let all_memory_ids: HashSet<String> = live_sessions
         .iter()
@@ -564,10 +610,14 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
         .peon
         .diagnostics
         .read()
-        .unwrap()
-        .iter()
-        .map(|(id, entry)| (id.clone(), entry.snapshot.clone()))
-        .collect();
+        .ok()
+        .map(|diagnostics| {
+            diagnostics
+                .iter()
+                .map(|(id, entry)| (id.clone(), entry.snapshot.clone()))
+                .collect()
+        })
+        .unwrap_or_default();
     let mut pending_transitions: Vec<(String, bool, bool)> = Vec::new();
     let mut capped_recheck_resets: HashSet<String> = HashSet::new();
     let mut capped_clear_baselines: HashMap<String, (u64, u64)> = HashMap::new();
@@ -594,7 +644,11 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
                     .or_else(|| registry.get("generic-shell"));
                 let mut merged =
                     merge_live_session_info(info, meta, peon_times.get(&id), resolved_harness);
-                project_peon_diagnostics(&state, &mut merged, peon_diagnostics.get(&id).cloned());
+                project_peon_diagnostics(
+                    &mut merged,
+                    peon_diagnostics.get(&id).cloned(),
+                    observation_counts.get(&id).copied().flatten(),
+                );
                 merged.has_openable_plan = meta
                     .and_then(|metadata| metadata.plan_path.as_ref())
                     .and_then(|reference| {
@@ -1096,6 +1150,21 @@ mod tests {
         }
     }
 
+    fn test_peon_diagnostics() -> PeonDiagnostics {
+        PeonDiagnostics {
+            scheduler_state: crate::session_types::PeonSchedulerState::Completed,
+            reason: None,
+            last_attempt_at: Some("2026-08-27T10:00:00Z".into()),
+            last_successful_inference_at: Some("2026-08-27T10:00:01Z".into()),
+            provider_id: Some("ollama".into()),
+            provider_model: Some("llama3.2".into()),
+            fallback_step: Some(1),
+            attempt_count: Some(2),
+            error_summary: None,
+            observation_count: Some(99),
+        }
+    }
+
     fn orphan_test_metadata(id: &str, workspace: &std::path::Path) -> metadata::SessionMetadata {
         let workspace = workspace.display().to_string();
         metadata::SessionMetadata {
@@ -1588,11 +1657,24 @@ mod tests {
             let ws = state.workspace.lock().unwrap();
             ws.as_ref().unwrap().metadata.write_session(&metadata);
         }
+        state.peon.diagnostics.write().unwrap().insert(
+            session_id.clone(),
+            crate::PeonDiagnosticEntry {
+                snapshot: test_peon_diagnostics(),
+                attempt_generation: 1,
+            },
+        );
 
         let response = resume_session(State(state.clone()), Path(session_id.clone()))
             .await
             .into_response();
         assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["peonDiagnostics"]["schedulerState"], "completed");
+        assert_eq!(body["peonDiagnostics"]["observationCount"], 0);
         assert!(state.sessions.lock().unwrap()[&session_id].resume_in_progress);
 
         crate::runtime::session_runtime::send_runtime_command(
@@ -4601,6 +4683,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let state = test_app_state_with_workspace(dir.path());
         let diagnosed_id = "diagnosed-live";
+        let second_diagnosed_id = "second-diagnosed-live";
         let undiagnosed_id = "undiagnosed-live";
 
         state.sessions.lock().unwrap().insert(
@@ -4611,23 +4694,23 @@ mod tests {
             undiagnosed_id.into(),
             attention_test_handle(undiagnosed_id, dir.path()),
         );
+        state.sessions.lock().unwrap().insert(
+            second_diagnosed_id.into(),
+            attention_test_handle(second_diagnosed_id, dir.path()),
+        );
         state.peon.diagnostics.write().unwrap().insert(
             diagnosed_id.into(),
             crate::PeonDiagnosticEntry {
-                snapshot: crate::session_types::PeonDiagnostics {
-                    scheduler_state: crate::session_types::PeonSchedulerState::Completed,
-                    reason: None,
-                    last_attempt_at: Some("2026-08-27T10:00:00Z".into()),
-                    last_successful_inference_at: Some("2026-08-27T10:00:01Z".into()),
-                    provider_id: Some("ollama".into()),
-                    provider_model: Some("llama3.2".into()),
-                    fallback_step: Some(1),
-                    attempt_count: Some(2),
-                    error_summary: None,
-                    // The projection must replace this stale in-memory value
-                    // with the accepted count read from the observation store.
-                    observation_count: Some(99),
-                },
+                // The projection must replace this stale in-memory value
+                // with the accepted count read from the observation store.
+                snapshot: test_peon_diagnostics(),
+                attempt_generation: 1,
+            },
+        );
+        state.peon.diagnostics.write().unwrap().insert(
+            second_diagnosed_id.into(),
+            crate::PeonDiagnosticEntry {
+                snapshot: test_peon_diagnostics(),
                 attempt_generation: 1,
             },
         );
@@ -4659,11 +4742,112 @@ mod tests {
             })
         );
 
+        let second_diagnosed = sessions
+            .iter()
+            .find(|session| session["id"] == second_diagnosed_id)
+            .expect("second diagnosed session should be listed");
+        assert_eq!(
+            second_diagnosed["peonDiagnostics"]["observationCount"],
+            0,
+            "all live diagnostics use the same workspace count snapshot"
+        );
+
         let undiagnosed = sessions
             .iter()
             .find(|session| session["id"] == undiagnosed_id)
             .expect("undiagnosed session should be listed");
         assert!(undiagnosed.get("peonDiagnostics").is_none());
+    }
+
+    #[test]
+    fn live_response_projection_includes_peon_diagnostics_and_observation_count() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        state.peon.diagnostics.write().unwrap().insert(
+            "live".into(),
+            crate::PeonDiagnosticEntry {
+                snapshot: test_peon_diagnostics(),
+                attempt_generation: 1,
+            },
+        );
+        let mut info = test_session_info("live", "Live", "/tmp", "running", "now");
+
+        project_live_peon_diagnostics(&state, &mut info);
+
+        let body = serde_json::to_value(info).unwrap();
+        assert_eq!(body["peonDiagnostics"]["schedulerState"], "completed");
+        assert_eq!(body["peonDiagnostics"]["observationCount"], 0);
+    }
+
+    #[tokio::test]
+    async fn observation_count_read_failure_keeps_response_successful_with_null_count() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let session_id = "count-read-failed";
+        let workspace = state.workspace.lock().unwrap();
+        let counts = snapshot_observation_counts(
+            workspace.as_ref(),
+            [session_id.to_string()],
+            |_workspace, _session_id| Err("read failed"),
+        );
+        drop(workspace);
+
+        let mut info = test_session_info(session_id, "Live", "/tmp", "running", "now");
+        project_peon_diagnostics(
+            &mut info,
+            Some(test_peon_diagnostics()),
+            counts.get(session_id).copied().flatten(),
+        );
+        let response = Json(info).into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(body["peonDiagnostics"]["observationCount"].is_null());
+    }
+
+    #[tokio::test]
+    async fn list_sessions_omits_peon_diagnostics_for_non_live_sessions() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let session_id = "remembered-with-diagnostics";
+
+        state.peon.diagnostics.write().unwrap().insert(
+            session_id.into(),
+            crate::PeonDiagnosticEntry {
+                snapshot: test_peon_diagnostics(),
+                attempt_generation: 1,
+            },
+        );
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&test_session_metadata(
+                session_id,
+                "Remembered",
+                dir.path().display().to_string(),
+                "ended",
+                "before",
+                "before",
+            ));
+
+        let response = list_sessions(State(state)).await.into_response();
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let sessions: Vec<serde_json::Value> = serde_json::from_slice(&bytes).unwrap();
+        let session = sessions
+            .iter()
+            .find(|session| session["id"] == session_id)
+            .expect("remembered session should be listed");
+        assert!(session.get("peonDiagnostics").is_none());
     }
 
     #[tokio::test]
@@ -5907,6 +6091,10 @@ mod tests {
         assert_eq!(
             body["status"], "creating",
             "the create response must reflect the pre-spawn record, not wait for spawn to finish"
+        );
+        assert!(
+            body.get("peonDiagnostics").is_none(),
+            "creating response omits diagnostics until a runtime snapshot exists"
         );
         let created_id = body["id"].as_str().unwrap().to_owned();
 
