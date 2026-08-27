@@ -162,6 +162,9 @@ test("HarnessIntegrationSection reports successful detection-changing mutations"
   const source = readFileSync(new URL("../src/components/HarnessIntegrationSection.tsx", import.meta.url), "utf8");
   assert.match(source, /onDetectionChanged/);
   assert.match(source, /onDetectionChanged\?\.\(harnessId\)/);
+
+  const settingsSource = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
+  assert.match(settingsSource, /<HarnessIntegrationSection[\s\S]*?onDetectionChanged=\{refreshDetection\}/);
 });
 
 test("ProviderSettingsSection keeps model provider editing simplified", () => {
