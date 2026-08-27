@@ -354,7 +354,11 @@ mod tests {
 
     #[test]
     fn merge_installs_a_working_pre_tool_hook() {
-        let reporter = Path::new("/tmp/report-harness-event.sh");
+        let reporter = Path::new(if cfg!(windows) {
+            r"C:\report-harness-event.ps1"
+        } else {
+            "/tmp/report-harness-event.sh"
+        });
         let mut document = Map::new();
 
         merge(&mut document, reporter).unwrap();
@@ -365,10 +369,9 @@ mod tests {
         assert_eq!(pre_tool.len(), 1);
         assert_eq!(pre_tool[0]["matcher"], "*");
         assert_eq!(pre_tool[0]["hooks"][0]["async"], true);
-        assert_eq!(
-            pre_tool[0]["hooks"][0]["args"],
-            json!(["--marker", MARKER, "--status", "working"])
-        );
+        let expected =
+            EventProfile::PreToolUse.invocation(ReporterPlatform::current(), reporter);
+        assert_eq!(pre_tool[0]["hooks"][0]["args"], json!(expected.args));
     }
 
     /// Merge must install a synchronous PostToolUse `Write|Edit` entry whose
@@ -378,7 +381,11 @@ mod tests {
     /// Bash, NotebookEdit, ...) from triggering the hook at all.
     #[test]
     fn merge_installs_a_post_tool_use_plan_path_hook() {
-        let reporter = Path::new("/tmp/report-harness-event.sh");
+        let reporter = Path::new(if cfg!(windows) {
+            r"C:\report-harness-event.ps1"
+        } else {
+            "/tmp/report-harness-event.sh"
+        });
         let mut document = Map::new();
 
         merge(&mut document, reporter).unwrap();
@@ -394,16 +401,19 @@ mod tests {
             hook.get("async").and_then(Value::as_bool).is_none(),
             "PostToolUse plan-path hook must be synchronous (no async: true); got: {hook}"
         );
-        assert_eq!(hook["command"], json!(reporter.to_string_lossy().to_string()));
+        let expected =
+            EventProfile::PostToolUse.invocation(ReporterPlatform::current(), reporter);
+        assert_eq!(hook["command"], json!(expected.program));
         assert_eq!(
             args.iter()
                 .map(Value::as_str)
                 .collect::<Vec<Option<&str>>>(),
-            vec![
-                Some("--marker"),
-                Some(MARKER),
-                Some("--report-plan-path"),
-            ],
+            expected
+                .args
+                .iter()
+                .map(String::as_str)
+                .map(Some)
+                .collect::<Vec<_>>(),
             "PostToolUse hook must invoke the shared reporter in plan-path mode"
         );
     }

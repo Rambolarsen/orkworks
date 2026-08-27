@@ -26,17 +26,5 @@ dependencies:
       skills:
         - context-engineering
         - doubt-driven-development
-  mcp:
-    - name: serena
-      registry: false
-      transport: stdio
-      command: uvx
-      args:
-        - --from
-        - git+https://github.com/oraios/serena
-        - serena
-        - start-mcp-server
-        - --context
-        - ide
 includes: auto
 scripts: {}

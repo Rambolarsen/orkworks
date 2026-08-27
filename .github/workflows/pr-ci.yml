@@ -106,7 +106,7 @@ jobs:
 
       - name: Check for doc drift
         run: |
-          OUTPUT=$(bash .claude/hooks/doc-check.sh "origin/${GITHUB_BASE_REF}...HEAD")
+          OUTPUT=$(bash scripts/doc-check.sh "origin/${GITHUB_BASE_REF}...HEAD")
           if [ -n "$OUTPUT" ]; then
             echo "$OUTPUT" | tee -a "$GITHUB_STEP_SUMMARY" || true
           fi

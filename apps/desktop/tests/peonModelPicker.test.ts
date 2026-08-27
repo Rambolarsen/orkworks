@@ -3,9 +3,19 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { pushProviderSettings } from "../electron/providerSettingsSync.ts";
 import type { ProviderSettings } from "../src/providerTypes.ts";
+import { updateProviderModel } from "../src/providerPresentation.ts";
 
 function baseSettings(peonModel: ProviderSettings["peonModel"]): ProviderSettings {
-  return { version: 1, revision: 1, peonModel, ollamaBaseUrl: "http://127.0.0.1:11434", providers: [] };
+  return {
+    version: 1,
+    revision: 1,
+    peonModel,
+    ollamaBaseUrl: "http://127.0.0.1:11434",
+    providers: [
+      { id: "copilot", model: null, enabled: true, fallbackOrder: 0, defaultState: "healthy", overrideState: null },
+      { id: "ollama", model: null, enabled: true, fallbackOrder: 1, defaultState: "unknown", overrideState: null },
+    ],
+  };
 }
 
 const okResponse = () =>
@@ -29,6 +39,25 @@ test("pushProviderSettings sends peonModel string to the sidecar", async () => {
   };
   await pushProviderSettings("http://127.0.0.1:4444", baseSettings("deepseek-v4-pro"), fetchImpl);
   assert.equal(bodies[0]?.peonModel, "deepseek-v4-pro");
+});
+
+test("pushProviderSettings serializes provider override and clearing distinctly", async () => {
+  const bodies: Record<string, any>[] = [];
+  const fetchImpl = async (_url: string, init?: RequestInit) => {
+    bodies.push(JSON.parse(String(init?.body)));
+    return okResponse();
+  };
+  const settings = baseSettings("global-model");
+  settings.providers[1]!.model = "llama3";
+
+  await pushProviderSettings("http://127.0.0.1:4444", settings, fetchImpl);
+  settings.providers[1]!.model = null;
+  await pushProviderSettings("http://127.0.0.1:4444", settings, fetchImpl);
+
+  assert.equal(bodies[0]?.providers?.find((entry: any) => entry.id === "ollama")?.model, "llama3");
+  assert.equal(bodies[1]?.providers?.find((entry: any) => entry.id === "ollama")?.model, null);
+  assert.equal(bodies[0]?.peonModel, "global-model");
+  assert.equal(bodies[1]?.peonModel, "global-model");
 });
 
 test("SettingsModal has a peon model selector", () => {
@@ -57,4 +86,40 @@ test("SettingsModal renders verify affordance and status region for Ollama", () 
   assert.match(source, /Verify Ollama/);
   assert.match(source, /role="status"/);
   assert.match(source, /window\.orkworks\.verifyOllama/);
+});
+
+test("updateProviderModel trims and updates only the selected provider override", () => {
+  const settings = baseSettings("global-model");
+  const next = updateProviderModel(settings, "ollama", "  llama3  ");
+
+  assert.equal(next.peonModel, "global-model");
+  assert.equal(next.providers.find((entry) => entry.id === "ollama")?.model, "llama3");
+  assert.equal(next.providers.find((entry) => entry.id === "copilot")?.model, null);
+  assert.notEqual(next, settings);
+  assert.notEqual(next.providers, settings.providers);
+});
+
+test("updateProviderModel clears a provider override to null", () => {
+  const settings = updateProviderModel(baseSettings(null), "ollama", "llama3");
+  const cleared = updateProviderModel(settings, "ollama", "   ");
+
+  assert.equal(cleared.providers.find((entry) => entry.id === "ollama")?.model, null);
+});
+
+test("ProviderSettingsSection wires provider-scoped model inputs and suggestions", () => {
+  const source = readFileSync(new URL("../src/components/ProviderSettingsSection.tsx", import.meta.url), "utf8");
+  assert.match(source, /providerModels/);
+  assert.match(source, /onProviderModelChange/);
+  assert.match(source, /datalist/);
+  assert.match(source, /provider-model-suggestions/);
+  assert.match(source, /Use default Peon model/);
+});
+
+test("SettingsModal keeps the global field as fallback and Ollama candidates provider-scoped", () => {
+  const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
+  assert.match(source, /Default Peon model/);
+  assert.match(source, /onProviderModelChange/);
+  assert.match(source, /updateProviderModel/);
+  assert.match(source, /ollama.*model/si);
+  assert.match(source, /does not pin.*Copilot.*Claude/si);
 });

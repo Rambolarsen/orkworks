@@ -4,6 +4,7 @@ export type ProviderEffectiveState = ProviderCapacityState | "disabled" | "check
 
 export interface ProviderSettingsEntry {
   id: ProviderId;
+  model: string | null;
   enabled: boolean;
   fallbackOrder: number;
   defaultState: ProviderCapacityState;

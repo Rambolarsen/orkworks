@@ -81,3 +81,40 @@ the final verification commands below.
 
 The first attempted exact test filter selected zero tests; it was corrected and
 is not counted as verification evidence.
+
+## Provider model selection final review fixes
+
+### Status
+
+Applied all three requested final review fixes while preserving the existing
+provider-model implementation and the user-requested policy document.
+
+### Fixes
+
+- `crates/orkworksd/src/providers.rs`: unsupported providers now receive
+  `None` as the runner model and record `ProviderObservation.provider_model` as
+  `None`; the regression test asserts both behavior and the absence of a model
+  argument.
+- `apps/desktop/tests/peonModelPicker.test.ts`: added direct serialized-payload
+  assertions for `providers[].model` override and clearing to `null`, while
+  asserting the top-level `peonModel` remains unchanged.
+- `docs/superpowers/plans/2026-08-25-provider-model-selection.md`: documented
+  the companion scope of the retained user-requested
+  `docs/agents/subagent-model-policy.md` file.
+
+### Verification
+
+- `CARGO_TARGET_DIR=/private/tmp/orkworks-provider-model-selection-target cargo test --manifest-path crates/orkworksd/Cargo.toml providers::tests -- --nocapture --skip ollama_request_uses_resolved_entry_model` — PASS, 32 passed.
+- `CARGO_TARGET_DIR=/private/tmp/orkworks-provider-model-selection-target cargo test --manifest-path crates/orkworksd/Cargo.toml providers::tests::inference_omits_model_argument_for_provider_without_model_support -- --nocapture` — PASS, 1 passed.
+- `node --experimental-strip-types --test tests/peonModelPicker.test.ts` — PASS, 11 passed.
+- `node_modules/.bin/tsc --noEmit` — PASS.
+- `rustfmt --edition 2021 --check crates/orkworksd/src/providers.rs` — PASS.
+- `git diff --check` — PASS.
+
+### Concerns
+
+The full 33-test provider suite could not complete its existing
+`ollama_request_uses_resolved_entry_model` test in the sandbox: localhost
+binding failed with `Operation not permitted`. An escalated retry hung without
+producing a result and was stopped. The remaining 32 provider tests and the
+targeted unsupported-provider regression pass.

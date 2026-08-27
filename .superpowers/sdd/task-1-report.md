@@ -1,54 +1,102 @@
 # Task 1 report
 
-## Changed files
+## Status
 
-- `docs/superpowers/specs/2026-08-22-application-module-contracts.md` — current Rust handler, renderer controller, and Electron settings draft/commit contract.
-- `.superpowers/sdd/task-1-report.md` — this report.
+Task 1 is complete in this worktree.
 
-No production code was refactored and no tests were changed. The contract now
-distinguishes current behavior from Tasks 2–4 obligations; existing tests do
-not pin all future controller behavior.
+The required Rust settings contract, normalization helpers, resolver tests,
+and the authorized mechanical `model: None` compile-site additions are present
+and verified. During this session, no additional source-code edits were needed;
+the worktree already matched the brief, so this report was refreshed against
+fresh verification.
 
-## Contract decisions
+## Requirements coverage
 
-- The future `SessionApplication` must wrap/borrow `Arc<AppState>` and must not
-  own a second session map; `AppState.sessions` remains authoritative.
-- Current handler symbols, request/result shapes, status/body mappings,
-  workspace lookup, generation-aware admission, side-effect ordering, and
-  compensation rules are frozen in the spec.
-- Create returns the pre-spawn `creating` view and reports startup failure
-  asynchronously; resume currently awaits startup and returns `500` on startup
-  failure, as asserted by the existing test. Detached/pre-spawn resume success
-  is a future target, not current behavior.
-- Renderer polling has one owner and exact returned session IDs correlate
-  pending creates. Restoration waits for the session list and terminal pruning
-  precedes snapshot publication; stale/disposed result rejection remains a
-  future controller obligation.
-- Electron-main owns settings defaults and persistence. Verification is
-  diagnostic only, never mutates saved provider settings, and failed saves keep
-  the renderer draft. Current saves are independent by domain; a durable
-  Electron save may succeed while a sidecar push failure is logged for retry.
-- Wire details include omitted empty `activeHarnessIds`, explicit plan route
-  mappings, and compatibility-sensitive `SessionInfo` serialization.
+### `crates/orkworksd/src/providers.rs`
 
-## Test commands and results
+- `ProviderSettingsEntry` includes `model: Option<String>` with
+  `#[serde(default)]` for backward-compatible deserialization.
+- Model normalization trims non-empty values and converts empty or
+  whitespace-only strings to `None`.
+- `resolve_provider_model(entry, global_model)` prefers the per-provider model,
+  then the global `peon_model`, then no model.
+- `ProviderManager::apply_settings` normalizes both the global model and each
+  provider entry model before publishing settings.
+- Provider tests cover:
+  - deserializing old payloads without `model`
+  - deserializing explicit model strings without rewriting them on load
+  - resolver precedence and whitespace handling
+  - `apply_settings` trimming and whitespace-to-`None` normalization
 
-- `cargo test --manifest-path crates/orkworksd/Cargo.toml` — PASS, 647 passed,
-  0 failed.
-- `cd apps/desktop && node --experimental-strip-types --test tests/api.test.ts tests/sessionPolling.test.ts tests/pendingCreate.test.ts tests/electronSettingsMemory.test.ts` — PASS, 49 passed, 0 failed.
-- `git diff --check` — PASS.
-- `bash .claude/hooks/doc-check.sh` — PASS; no drift warning.
+### Authorized mechanical compile-site updates
 
-## Commit
+The requested `model: None` literal additions are present, with no behavior
+change, in:
 
-Final reviewed state: `5155a298..656a46a8deb7f2981b2731ccd867dfa3ec2791a7`
+- `crates/orkworksd/src/http/session_handlers.rs`
+- `crates/orkworksd/src/runtime/peon_runtime.rs`
+- `crates/orkworksd/src/runtime/terminal_runtime.rs`
+
+## Verification run on August 25, 2026
+
+### Focused Rust tests
+
+```bash
+cargo test --manifest-path crates/orkworksd/Cargo.toml providers::tests -- --nocapture
+```
+
+Observed result: `27 passed, 0 failed, 794 filtered out`.
+
+### Repo closeout checks
+
+```bash
+bash .claude/hooks/doc-check.sh
+bash .claude/hooks/worktree-check.sh
+```
+
+Observed result: both commands exited cleanly with no output.
+
+## Self-review
+
+- Confirmed the worktree is clean after verification.
+- Confirmed the authorized compile-site additions are present at the user-named
+  locations.
+- Confirmed the report now reflects the current verified state instead of stale
+  commit metadata.
 
 ## Concerns
 
-- `bash .claude/hooks/worktree-check.sh` reports this worktree as “merged into
-  main” because it currently shares the same base commit; it was intentionally
-  retained because the task explicitly requires this isolated worktree and
-  current branch.
-- Existing test warnings remain: one unused test helper and one ignored
-  `into_response` return value in Rust, plus Node module-type warnings. No
-  failures resulted.
+- The focused provider test command is green. No Task 1 functional concerns
+  remain from this session.
+
+## Fix
+
+### Files
+
+- `crates/orkworksd/src/providers.rs` — resolve the entry model override once
+  per inference attempt, reuse it for CLI arguments and `ProviderObservation`,
+  and pass it explicitly through `ProviderRunner`, `CompositeRunner`,
+  `ProcessRunner`, `HttpRunner`, and `FakeRunner`.
+- `crates/orkworksd/src/providers.rs` — add behavioral coverage for actual
+  invocation/observation, whitespace-to-global fallback, Ollama request model,
+  unsupported HTTP providers, and the preserved Ollama no-model error.
+
+### Tests
+
+```text
+CARGO_TARGET_DIR=/tmp/orkworks-provider-model-selection-target cargo test --manifest-path crates/orkworksd/Cargo.toml --quiet
+PASS: 826 tests, 0 failed
+```
+
+The focused provider suite also passed: `32 passed, 0 failed`. Rust emitted
+only the two pre-existing warnings noted by the prior report.
+
+### Commit
+
+- `15919b7` — `fix: honor per-provider Peon model selection`
+
+### Concerns
+
+- No model-selection concerns remain. Full-suite verification used loopback
+  access for the Ollama behavioral test and a temporary Cargo target directory
+  because the worktree's existing target lock is not writable in the sandbox.

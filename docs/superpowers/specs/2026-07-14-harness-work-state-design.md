@@ -43,17 +43,19 @@ character that remains after stripping ANSI control sequences and consuming
 the submitted-line echo.
 
 A **single printable keystroke** received while the session is in `needs_you`
-set by an agent hook report also arms the fallback window, using the
-in-progress input-line buffer as the echo prefix and re-arming on each
-subsequent printable keystroke. This variant exists because Claude Code's
-prompts are predominantly single-keystroke (yes/no and choice lists)
-and never produce an Enter-terminated line; without it, the session sticks on
-`needs_you` indefinitely after such an answer. The single-key path is gated
-on `metadata_source == "agent"` so that Peon-detected `needs_you` on shell-mode
-sessions (where the terminal echoes each keystroke) is unaffected — only
-hook-sourced `needs_you` arms on a single key. See
+set by an agent hook report commits the session directly to `working` (as of
+2026-08-24 — see below), the same way an Enter-terminated line does. This
+variant exists because Claude Code's prompts are predominantly single-
+keystroke (yes/no and choice lists) and never produce an Enter-terminated
+line; without it, the session sticks on `needs_you` indefinitely after such an
+answer. The single-key path is gated on `metadata_source == "agent"` so that
+Peon-detected `needs_you` on shell-mode sessions (where the terminal echoes
+each keystroke) is unaffected — only hook-sourced `needs_you` commits on a
+single key. See
 `docs/superpowers/specs/2026-07-17-single-key-work-signal-design.md` for the
-full design, gates, and edge cases.
+full gate and edge cases (its arm-then-wait-for-output mechanism is
+superseded — see that doc's superseded note — but the gate conditions and
+edge-case reasoning still apply to the direct-commit path).
 
 Note: the Claude Code attention hook falls under this fallback path. Its hook
 is **not** active-work-capable — it only POSTs `waiting_for_input`, never

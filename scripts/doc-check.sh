@@ -1,17 +1,15 @@
 #!/usr/bin/env bash
-# Runs at end of each Claude Code session (Stop hook), and as a non-blocking
-# pr-ci.yml step. Checks whether doc files need updating based on what changed.
+# Checks whether repository documentation needs updating based on what changed.
+# This is a repository hook source shared by Claude Code, CI, and generated
+# adapters for other coding tools.
 #
 # Usage: doc-check.sh [<git-diff-range>]
-#   No args: working tree + staged changes vs HEAD (Stop-hook mode).
-#   With a range, e.g. "origin/main...HEAD": committed-history diff (CI mode).
+#   No args: working tree + staged changes vs HEAD.
+#   With a range, e.g. "origin/main...HEAD": committed-history diff.
 
 RANGE="$1"
 if [ -n "$RANGE" ]; then
   if ! CHANGED=$(git diff --name-only "$RANGE" 2>/dev/null); then
-    # Range mode (CI): a nonzero exit means the range couldn't be resolved
-    # (shallow clone, missing base ref, typo). Surface a warning on stdout so
-    # the pr-ci.yml job summary records the skip instead of looking green.
     echo "[doc-check] warning: could not resolve diff range '$RANGE'; skipping drift check."
     exit 0
   fi
@@ -22,7 +20,7 @@ fi
 
 needs=()
 
-# docs/agents/architecture.md — new routes, new Rust modules, IPC boundary, API client, or deps
+# docs/agents/architecture.md — new routes, Rust modules, IPC boundary, API client, or deps
 DIFF_TARGET="${RANGE:-HEAD}"
 NEW_RUST=$(git diff --name-status "$DIFF_TARGET" 2>/dev/null | grep -E '^A.*crates/orkworksd/src/' | wc -l)
 NEW_ROUTES=$(git diff "$DIFF_TARGET" -- crates/orkworksd/src/main.rs 2>/dev/null | grep -cE '^\+.*\.route\(')
@@ -33,13 +31,13 @@ if echo "$CHANGED" | grep -qE 'apps/desktop/src/api\.ts|apps/desktop/electron/(m
 fi
 
 # docs/agents/apm.md
-if echo "$CHANGED" | grep -qE 'orkworks/apm\.yml|opencode\.json'; then
+if echo "$CHANGED" | grep -qE '(^|/)apm\.yml$|(^|/)opencode\.json$'; then
   echo "$CHANGED" | grep -q 'docs/agents/apm\.md' || \
     needs+=("docs/agents/apm.md  (APM config or OpenCode plugins changed)")
 fi
 
 # AGENTS.md
-if echo "$CHANGED" | grep -qE '^skills/|orkworks/apm\.yml|apps/desktop/package\.json|Cargo\.toml'; then
+if echo "$CHANGED" | grep -qE '^skills/|(^|/)apm\.yml$|apps/desktop/package\.json|Cargo\.toml'; then
   echo "$CHANGED" | grep -q '^AGENTS\.md' || \
     needs+=("AGENTS.md  (skills, deps, or APM targets changed)")
 fi
@@ -53,7 +51,7 @@ fi
 [ ${#needs[@]} -eq 0 ] && exit 0
 
 # Plain stdout (no "decision":"block") so this surfaces as a warning, not a
-# Stop-hook block -- doc drift is a nudge, not a gate.
+# Stop-hook block — doc drift is a nudge, not a gate.
 printf '\n[doc-check] Consider updating before closing:\n'
 for f in "${needs[@]}"; do
   printf '  • %s\n' "$f"
