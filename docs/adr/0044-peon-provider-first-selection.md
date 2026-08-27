@@ -33,7 +33,8 @@ The form uses a staged Apply/Save transaction:
 6. Apply performs a bounded, real minimal Peon inference using the exact
    provider/model pair.
 7. A successful Apply updates the active Peon runtime configuration and records
-   the applied provider, model, and time.
+   the applied provider, model, and time. The applied timestamp is runtime-only;
+   Save persists the provider/model pair but does not persist that timestamp.
 8. Save persists the configuration only after Apply succeeds.
 
 Changing either provider or model invalidates the current applied state and
@@ -55,15 +56,20 @@ runtime state only on success. Existing provider discovery and invocation
 adapters are reused; Peon no longer iterates through fallback providers.
 
 Ollama remains a normal provider in the provider picker. Selecting it verifies
-the configured Ollama base URL, then loads candidate models from Ollama. If
-verification cannot discover a model, the user may enter a model name manually
-as an explicit override. Apply still makes a real inference call, so a bad
-manual model remains unapplyable and cannot be saved.
+the configured Ollama base URL, then loads candidate models from Ollama. For
+any provider whose verification succeeds but whose model discovery returns no
+models, the user may enter a model name manually. Manual entry is also
+available as an explicit override when discovered models are present. Apply
+still makes a real inference call, so a bad manual model remains unapplyable
+and cannot be saved.
 
-ADR 0044 supersedes the remaining fallback-execution contract for Peon. The
-historical ADR statuses remain unchanged; this ADR records the replacement
-decision for the Peon runtime and selection flow without rewriting historical
-records.
+ADR 0044 supersedes ADR 0017 specifically for its remaining fallback-execution
+contract for Peon: the backend must no longer iterate through fallback
+providers. ADR 0017 remains historically marked `superseded` for its earlier
+Settings-surface decision, and its record and README index entry retain that
+status; neither is relabeled to make this narrow replacement look like a new
+historical superseding relationship. ADR 0044 records the replacement decision
+for the Peon runtime and selection flow without rewriting historical records.
 
 ## Consequences
 
