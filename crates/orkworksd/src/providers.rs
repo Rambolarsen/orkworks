@@ -2,7 +2,8 @@ use std::collections::{HashMap, HashSet};
 use std::io::Read;
 use std::io::Write as IoWrite;
 use std::process::{Command, Stdio};
-use std::sync::{Arc, RwLock};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, RwLock};
 
 use std::time::Duration;
 
@@ -201,6 +202,77 @@ pub struct ProviderApplyStatus {
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
+pub enum ProviderOperationErrorCode {
+    Malformed,
+    UnknownProvider,
+    Unauthorized,
+    ProviderFailure,
+    ModelFailure,
+    Timeout,
+    UnsupportedCapability,
+    StaleGeneration,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProviderOperationError {
+    pub code: ProviderOperationErrorCode,
+    pub message: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct ProviderOperationErrorResponse {
+    pub error: ProviderOperationError,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderCapabilities {
+    pub connectivity: bool,
+    pub model_discovery: bool,
+    pub provider_default: bool,
+    pub test_inference: bool,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct PeonProviderVerifyRequest {
+    pub provider: String,
+    #[serde(rename = "ollamaBaseUrl", alias = "baseUrl", default)]
+    pub ollama_base_url: Option<String>,
+    #[serde(default)]
+    pub generation: u64,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct PeonProviderVerificationResponse {
+    pub ok: bool,
+    pub provider: String,
+    pub capabilities: ProviderCapabilities,
+    pub models: Vec<String>,
+    #[serde(rename = "ollamaBaseUrl")]
+    pub ollama_base_url: Option<String>,
+    pub generation: u64,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct PeonTestAndApplyRequest {
+    pub selection: PeonSelection,
+    pub generation: u64,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct PeonAppliedState {
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    #[serde(rename = "ollamaBaseUrl")]
+    pub ollama_base_url: Option<String>,
+    #[serde(rename = "appliedAt")]
+    pub applied_at: Option<String>,
+    #[serde(rename = "connectionRevision")]
+    pub connection_revision: u64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
 pub enum OllamaVerificationStatus {
     Connected,
     ConnectedEmpty,
@@ -214,6 +286,7 @@ pub enum OllamaVerificationReasonCode {
     NoModelsReturned,
     AllModelsFiltered,
     InvalidUrl,
+    Unauthorized,
     Unreachable,
     Timeout,
     HttpError,
@@ -439,6 +512,29 @@ struct InvocationResult {
     stderr: String,
 }
 
+const MAX_PROVIDER_OUTPUT_BYTES: usize = 64 * 1024;
+
+fn read_limited(reader: &mut impl Read) -> std::io::Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    let mut buffer = [0u8; 8192];
+    loop {
+        let count = reader.read(&mut buffer)?;
+        if count == 0 {
+            return Ok(bytes);
+        }
+        if bytes.len().saturating_add(count) > MAX_PROVIDER_OUTPUT_BYTES {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!(
+                    "provider output exceeded {} bytes",
+                    MAX_PROVIDER_OUTPUT_BYTES
+                ),
+            ));
+        }
+        bytes.extend_from_slice(&buffer[..count]);
+    }
+}
+
 fn block_on_http<F: std::future::Future>(f: F) -> F::Output {
     match tokio::runtime::Handle::try_current() {
         Ok(handle) => handle.block_on(f),
@@ -460,6 +556,19 @@ trait ProviderRunner: Send + Sync {
         timeout_secs: u64,
         model: Option<&str>,
     ) -> InvocationResult;
+
+    fn run_with_connection(
+        &self,
+        id: &str,
+        command: &str,
+        args: &[String],
+        prompt: &str,
+        timeout_secs: u64,
+        model: Option<&str>,
+        _connection: Option<&str>,
+    ) -> InvocationResult {
+        self.run(id, command, args, prompt, timeout_secs, model)
+    }
 }
 
 struct CompositeRunner {
@@ -481,6 +590,26 @@ impl ProviderRunner for CompositeRunner {
             "ollama" => self
                 .http
                 .run(id, command, args, prompt, timeout_secs, model),
+            _ => self
+                .process
+                .run(id, command, args, prompt, timeout_secs, model),
+        }
+    }
+
+    fn run_with_connection(
+        &self,
+        id: &str,
+        command: &str,
+        args: &[String],
+        prompt: &str,
+        timeout_secs: u64,
+        model: Option<&str>,
+        connection: Option<&str>,
+    ) -> InvocationResult {
+        match id {
+            "ollama" => self
+                .http
+                .run_at(id, command, args, prompt, timeout_secs, model, connection),
             _ => self
                 .process
                 .run(id, command, args, prompt, timeout_secs, model),
@@ -595,15 +724,13 @@ impl ProviderRunner for ProcessRunner {
         let stdout_thread = child.stdout.take().map(|mut stdout| {
             let tx = tx.clone();
             std::thread::spawn(move || {
-                let mut bytes = Vec::new();
-                let result = stdout.read_to_end(&mut bytes).map(|_| bytes);
+                let result = read_limited(&mut stdout);
                 let _ = tx.send((true, result));
             })
         });
         let stderr_thread = child.stderr.take().map(|mut stderr| {
             std::thread::spawn(move || {
-                let mut bytes = Vec::new();
-                let result = stderr.read_to_end(&mut bytes).map(|_| bytes);
+                let result = read_limited(&mut stderr);
                 let _ = tx.send((false, result));
             })
         });
@@ -697,8 +824,72 @@ struct HttpRunner {
     settings: Arc<RwLock<ProviderSettingsPayload>>,
 }
 
+enum HttpReadError {
+    Request(reqwest::Error),
+    OutputExceeded,
+}
+
+async fn read_http_body_limited(mut response: reqwest::Response) -> Result<Vec<u8>, HttpReadError> {
+    let mut body = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(HttpReadError::Request)?
+    {
+        if body.len().saturating_add(chunk.len()) > MAX_PROVIDER_OUTPUT_BYTES {
+            return Err(HttpReadError::OutputExceeded);
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(body)
+}
+
 impl ProviderRunner for HttpRunner {
     fn run(
+        &self,
+        id: &str,
+        command: &str,
+        args: &[String],
+        prompt: &str,
+        timeout_secs: u64,
+        model: Option<&str>,
+    ) -> InvocationResult {
+        let settings = self.settings.read().unwrap().clone();
+        self.run_at(
+            id,
+            command,
+            args,
+            prompt,
+            timeout_secs,
+            model,
+            Some(&settings.ollama_base_url),
+        )
+    }
+
+    fn run_with_connection(
+        &self,
+        id: &str,
+        command: &str,
+        args: &[String],
+        prompt: &str,
+        timeout_secs: u64,
+        model: Option<&str>,
+        connection: Option<&str>,
+    ) -> InvocationResult {
+        self.run_at(
+            id,
+            command,
+            args,
+            prompt,
+            timeout_secs,
+            model,
+            connection,
+        )
+    }
+}
+
+impl HttpRunner {
+    fn run_at(
         &self,
         id: &str,
         _command: &str,
@@ -706,10 +897,12 @@ impl ProviderRunner for HttpRunner {
         prompt: &str,
         timeout_secs: u64,
         model: Option<&str>,
+        connection: Option<&str>,
     ) -> InvocationResult {
-        let settings = self.settings.read().unwrap().clone();
         let base_url = match id {
-            "ollama" => settings.ollama_base_url.clone(),
+            "ollama" => connection
+                .map(str::to_owned)
+                .unwrap_or_else(|| self.settings.read().unwrap().ollama_base_url.clone()),
             _ => {
                 return InvocationResult {
                     success: false,
@@ -740,11 +933,27 @@ impl ProviderRunner for HttpRunner {
         let client = HttpClient::new();
 
         let request_fut = client.post(&url).json(&body).send();
-        let resp = match block_on_http(async {
-            tokio::time::timeout(Duration::from_secs(timeout_secs), request_fut).await
+        let (status, response_body) = match block_on_http(async {
+            tokio::time::timeout(Duration::from_secs(timeout_secs), async {
+                let response = request_fut.await.map_err(HttpReadError::Request)?;
+                let status = response.status();
+                let body = read_http_body_limited(response).await?;
+                Ok::<_, HttpReadError>((status, body))
+            })
+            .await
         }) {
-            Ok(Ok(r)) => r,
-            Ok(Err(e)) => {
+            Ok(Ok(result)) => result,
+            Ok(Err(HttpReadError::OutputExceeded)) => {
+                return InvocationResult {
+                    success: false,
+                    stdout: String::new(),
+                    stderr: format!(
+                        "provider output exceeded {} bytes",
+                        MAX_PROVIDER_OUTPUT_BYTES
+                    ),
+                };
+            }
+            Ok(Err(HttpReadError::Request(e))) => {
                 let msg = if e.is_connect() {
                     format!("Ollama endpoint unreachable at {base_url}")
                 } else if e.is_timeout() {
@@ -767,30 +976,38 @@ impl ProviderRunner for HttpRunner {
             }
         };
 
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let err_body = block_on_http(resp.text()).unwrap_or_default();
+        if response_body.len() > MAX_PROVIDER_OUTPUT_BYTES {
             return InvocationResult {
                 success: false,
                 stdout: String::new(),
                 stderr: format!(
-                    "Ollama returned HTTP {}: {}",
+                    "provider output exceeded {} bytes",
+                    MAX_PROVIDER_OUTPUT_BYTES
+                ),
+            };
+        }
+
+        if !status.is_success() {
+            let err_body = String::from_utf8_lossy(&response_body);
+            let prefix = if status == reqwest::StatusCode::UNAUTHORIZED {
+                "unauthorized: "
+            } else if status == reqwest::StatusCode::NOT_FOUND {
+                "model failure: "
+            } else {
+                ""
+            };
+            return InvocationResult {
+                success: false,
+                stdout: String::new(),
+                stderr: format!(
+                    "{prefix}Ollama returned HTTP {}: {}",
                     status.as_u16(),
                     err_body.trim()
                 ),
             };
         }
 
-        let text = match block_on_http(resp.text()) {
-            Ok(t) => t,
-            Err(e) => {
-                return InvocationResult {
-                    success: false,
-                    stdout: String::new(),
-                    stderr: format!("failed to read Ollama response: {e}"),
-                }
-            }
-        };
+        let text = String::from_utf8_lossy(&response_body);
 
         match serde_json::from_str::<OllamaGenerateResponse>(&text) {
             Ok(gen) => InvocationResult {
@@ -820,6 +1037,11 @@ pub struct ProviderManager {
     session_capped: Arc<RwLock<HashMap<String, bool>>>,
     session_reset_hint: Arc<RwLock<HashMap<String, String>>>,
     session_checking: Arc<RwLock<HashSet<String>>>,
+    active_selection: Arc<RwLock<Option<PeonSelection>>>,
+    active_applied_at: Arc<RwLock<Option<String>>>,
+    active_connection_revision: Arc<RwLock<u64>>,
+    latest_generation: Arc<AtomicU64>,
+    apply_lock: Arc<Mutex<()>>,
 }
 
 impl ProviderManager {
@@ -847,6 +1069,11 @@ impl ProviderManager {
             session_capped: Arc::new(RwLock::new(HashMap::new())),
             session_reset_hint: Arc::new(RwLock::new(HashMap::new())),
             session_checking: Arc::new(RwLock::new(HashSet::new())),
+            active_selection: Arc::new(RwLock::new(None)),
+            active_applied_at: Arc::new(RwLock::new(None)),
+            active_connection_revision: Arc::new(RwLock::new(0)),
+            latest_generation: Arc::new(AtomicU64::new(0)),
+            apply_lock: Arc::new(Mutex::new(())),
         }
     }
 
@@ -917,6 +1144,240 @@ impl ProviderManager {
             applied_revision: Some(revision),
             applied_at: Some(chrono_now()),
             last_apply_error: None,
+        }
+    }
+
+    fn accept_generation(&self, generation: u64) -> Result<(), ProviderOperationError> {
+        if generation == 0 {
+            return Err(ProviderOperationError {
+                code: ProviderOperationErrorCode::Malformed,
+                message: "selection generation must be greater than zero".into(),
+            });
+        }
+        let current = self.latest_generation.load(Ordering::SeqCst);
+        if generation < current {
+            return Err(ProviderOperationError {
+                code: ProviderOperationErrorCode::StaleGeneration,
+                message: format!(
+                    "selection generation {generation} is stale; current generation is {current}"
+                ),
+            });
+        }
+        self.latest_generation.fetch_max(generation, Ordering::SeqCst);
+        Ok(())
+    }
+
+    fn ensure_current_generation(&self, generation: u64) -> Result<(), ProviderOperationError> {
+        let current = self.latest_generation.load(Ordering::SeqCst);
+        if current != generation {
+            return Err(ProviderOperationError {
+                code: ProviderOperationErrorCode::StaleGeneration,
+                message: format!(
+                    "selection generation {generation} was superseded by generation {current}"
+                ),
+            });
+        }
+        Ok(())
+    }
+
+    fn staged_selection(
+        &self,
+        mut selection: PeonSelection,
+    ) -> Result<PeonSelection, ProviderOperationError> {
+        if selection.provider.trim() == "ollama" && selection.ollama_base_url.is_none() {
+            selection.ollama_base_url = Some(self.settings.read().unwrap().ollama_base_url.clone());
+        }
+        let valid_ids: HashSet<String> = self
+            .definitions()
+            .into_iter()
+            .map(|definition| definition.id)
+            .collect();
+        normalize_peon_selection(Some(selection), &valid_ids).ok_or(ProviderOperationError {
+            code: ProviderOperationErrorCode::Malformed,
+            message: "provider, model, or Ollama URL is invalid".into(),
+        })
+    }
+
+    fn definition(&self, provider_id: &str) -> Result<ProviderDefinition, ProviderOperationError> {
+        self.definitions()
+            .into_iter()
+            .find(|definition| definition.id == provider_id)
+            .ok_or_else(|| ProviderOperationError {
+                code: ProviderOperationErrorCode::UnknownProvider,
+                message: format!("unknown provider: {provider_id}"),
+            })
+    }
+
+    fn invoke_provider(
+        &self,
+        definition: &ProviderDefinition,
+        model: Option<&str>,
+        ollama_base_url: Option<&str>,
+    ) -> InvocationResult {
+        let prompt = peon::build_prompt(&[]);
+        let model_arg = if definition.supports_model {
+            model.and_then(|model| {
+                definition
+                    .model_arg_template
+                    .as_deref()
+                    .map(|template| template.replace("{model}", model))
+            })
+        } else {
+            None
+        };
+        let mut args = Vec::with_capacity(
+            definition.default_args.len() + model_arg.as_ref().map_or(0, |_| 1) + 1,
+        );
+        match (&model_arg, &definition.prompt_transport) {
+            (Some(rendered), PromptTransport::Argument) => {
+                args.push(rendered.clone());
+                args.extend(definition.default_args.iter().cloned());
+            }
+            _ => {
+                args.extend(definition.default_args.iter().cloned());
+                if let Some(rendered) = &model_arg {
+                    args.push(rendered.clone());
+                }
+            }
+        }
+        let invocation_prompt = match definition.prompt_transport {
+            PromptTransport::Stdin => prompt,
+            PromptTransport::Argument => {
+                args.push(prompt);
+                String::new()
+            }
+        };
+        let runner_model = if definition.id == "ollama" || definition.supports_model {
+            model
+        } else {
+            None
+        };
+        self.runner.run_with_connection(
+            &definition.id,
+            &definition.command,
+            &args,
+            &invocation_prompt,
+            definition.timeout_secs,
+            runner_model,
+            ollama_base_url,
+        )
+    }
+
+    pub fn capabilities(&self, provider_id: &str) -> Result<ProviderCapabilities, ProviderOperationError> {
+        let definition = self.definition(provider_id)?;
+        Ok(ProviderCapabilities {
+            connectivity: true,
+            model_discovery: definition.http_list_models
+                || definition.list_models_command.is_some()
+                || !definition.static_models.is_empty(),
+            provider_default: definition.id != "ollama",
+            test_inference: true,
+        })
+    }
+
+    pub fn verify_provider(
+        &self,
+        request: PeonProviderVerifyRequest,
+    ) -> Result<PeonProviderVerificationResponse, ProviderOperationError> {
+        self.accept_generation(request.generation)?;
+        let provider_id = request.provider.trim();
+        if provider_id.is_empty() {
+            return Err(ProviderOperationError {
+                code: ProviderOperationErrorCode::Malformed,
+                message: "provider is required".into(),
+            });
+        }
+        let definition = self.definition(provider_id)?;
+        let capabilities = self.capabilities(&definition.id)?;
+        let mut normalized_url = None;
+        let models = if definition.id == "ollama" {
+            let base_url = request
+                .ollama_base_url
+                .as_deref()
+                .unwrap_or(&self.settings.read().unwrap().ollama_base_url)
+                .to_string();
+            let response = self.verify_ollama(&base_url);
+            normalized_url = Some(response.normalized_base_url.clone());
+            if !response.ok {
+                return Err(ollama_operation_error(&response));
+            }
+            response.models
+        } else {
+            let result = self.invoke_provider(&definition, None, None);
+            if !result.success {
+                return Err(invocation_operation_error(&result.stderr));
+            }
+            self.list_models(&definition.id)
+                .map_err(|error| ProviderOperationError {
+                    code: classify_invocation_error(&error),
+                    message: error,
+                })?
+        };
+        self.ensure_current_generation(request.generation)?;
+        Ok(PeonProviderVerificationResponse {
+            ok: true,
+            provider: definition.id,
+            capabilities,
+            models,
+            ollama_base_url: normalized_url,
+            generation: request.generation,
+        })
+    }
+
+    pub fn test_and_apply(
+        &self,
+        request: PeonTestAndApplyRequest,
+    ) -> Result<PeonAppliedState, ProviderOperationError> {
+        self.accept_generation(request.generation)?;
+        let _apply_guard = self.apply_lock.lock().unwrap();
+        self.ensure_current_generation(request.generation)?;
+        let selection = self.staged_selection(request.selection)?;
+        let definition = self.definition(&selection.provider)?;
+        if !definition.supports_model && definition.id != "ollama" {
+            return Err(ProviderOperationError {
+                code: ProviderOperationErrorCode::UnsupportedCapability,
+                message: format!("provider {} does not support model selection", definition.id),
+            });
+        }
+        let result = self.invoke_provider(
+            &definition,
+            Some(&selection.model),
+            selection.ollama_base_url.as_deref(),
+        );
+        if !result.success {
+            return Err(invocation_operation_error(&result.stderr));
+        }
+        peon::parse_inference(&result.stdout).ok_or(ProviderOperationError {
+            code: ProviderOperationErrorCode::ModelFailure,
+            message: "provider returned invalid Peon inference JSON".into(),
+        })?;
+        self.ensure_current_generation(request.generation)?;
+
+        let applied_at = chrono_now();
+        let connection_revision = {
+            let mut revision = self.active_connection_revision.write().unwrap();
+            *revision = revision.saturating_add(1);
+            *revision
+        };
+        *self.active_selection.write().unwrap() = Some(selection.clone());
+        *self.active_applied_at.write().unwrap() = Some(applied_at.clone());
+        Ok(PeonAppliedState {
+            provider: Some(selection.provider),
+            model: Some(selection.model),
+            ollama_base_url: selection.ollama_base_url,
+            applied_at: Some(applied_at),
+            connection_revision,
+        })
+    }
+
+    pub fn get_applied(&self) -> PeonAppliedState {
+        let selection = self.active_selection.read().unwrap().clone();
+        PeonAppliedState {
+            provider: selection.as_ref().map(|selection| selection.provider.clone()),
+            model: selection.as_ref().map(|selection| selection.model.clone()),
+            ollama_base_url: selection.and_then(|selection| selection.ollama_base_url),
+            applied_at: self.active_applied_at.read().unwrap().clone(),
+            connection_revision: *self.active_connection_revision.read().unwrap(),
         }
     }
 
@@ -1008,11 +1469,16 @@ impl ProviderManager {
 
         let (tx, rx) = std::sync::mpsc::channel::<std::io::Result<(String, String)>>();
         std::thread::spawn(move || {
-            let mut out = String::new();
-            let mut err = String::new();
-            let r1 = child_stdout.read_to_string(&mut out);
-            let r2 = child_stderr.read_to_string(&mut err);
-            let _ = tx.send(r1.and(r2).map(|_| (out, err)));
+            let result = read_limited(&mut child_stdout)
+                .and_then(|out| {
+                    read_limited(&mut child_stderr).map(|err| {
+                        (
+                            String::from_utf8_lossy(&out).into_owned(),
+                            String::from_utf8_lossy(&err).into_owned(),
+                        )
+                    })
+                });
+            let _ = tx.send(result);
         });
 
         let receive_result = rx.recv_timeout(timeout);
@@ -1096,15 +1562,30 @@ impl ProviderManager {
 
         let (status, body) = match block_on_http(async {
             tokio::time::timeout(Duration::from_secs(10), async {
-                let response = client.get(&url).send().await?;
+                let response = client.get(&url).send().await.map_err(HttpReadError::Request)?;
                 let status = response.status();
-                let body = response.text().await?;
-                Ok::<_, reqwest::Error>((status, body))
+                let body = read_http_body_limited(response).await?;
+                Ok::<_, HttpReadError>((status, body))
             })
             .await
         }) {
             Ok(Ok((status, body))) => (status, body),
-            Ok(Err(error)) => {
+            Ok(Err(HttpReadError::OutputExceeded)) => {
+                return OllamaVerificationResponse {
+                    ok: false,
+                    normalized_base_url: normalized,
+                    status: OllamaVerificationStatus::Failed,
+                    reason_code: OllamaVerificationReasonCode::ParseError,
+                    http_status: None,
+                    models: vec![],
+                    excluded_models: vec![],
+                    diagnostic: Some(format!(
+                        "Ollama response exceeded {} bytes",
+                        MAX_PROVIDER_OUTPUT_BYTES
+                    )),
+                };
+            }
+            Ok(Err(HttpReadError::Request(error))) => {
                 if error.is_body() {
                     return OllamaVerificationResponse {
                         ok: false,
@@ -1134,11 +1615,16 @@ impl ProviderManager {
         };
 
         if !status.is_success() {
+            let reason_code = if status == reqwest::StatusCode::UNAUTHORIZED {
+                OllamaVerificationReasonCode::Unauthorized
+            } else {
+                OllamaVerificationReasonCode::HttpError
+            };
             return OllamaVerificationResponse {
                 ok: false,
                 normalized_base_url: normalized,
                 status: OllamaVerificationStatus::Failed,
-                reason_code: OllamaVerificationReasonCode::HttpError,
+                reason_code,
                 http_status: Some(status.as_u16()),
                 models: vec![],
                 excluded_models: vec![],
@@ -1146,7 +1632,7 @@ impl ProviderManager {
             };
         }
 
-        let tags: OllamaTagsResponse = match serde_json::from_str(&body) {
+        let tags: OllamaTagsResponse = match serde_json::from_slice(&body) {
             Ok(parsed) => parsed,
             Err(error) => {
                 return OllamaVerificationResponse {
@@ -1412,6 +1898,55 @@ fn parse_error_hint(stderr: &str) -> (String, Option<String>) {
     }
 }
 
+fn classify_invocation_error(message: &str) -> ProviderOperationErrorCode {
+    let lower = message.to_ascii_lowercase();
+    if lower.contains("timed out") || lower.contains("timeout") {
+        ProviderOperationErrorCode::Timeout
+    } else if lower.contains("unauthorized") || lower.contains("http 401") {
+        ProviderOperationErrorCode::Unauthorized
+    } else if lower.contains("model failure")
+        || lower.contains("http 404")
+        || lower.contains("no ollama model")
+    {
+        ProviderOperationErrorCode::ModelFailure
+    } else if lower.contains("unsupported") {
+        ProviderOperationErrorCode::UnsupportedCapability
+    } else {
+        ProviderOperationErrorCode::ProviderFailure
+    }
+}
+
+fn invocation_operation_error(message: &str) -> ProviderOperationError {
+    ProviderOperationError {
+        code: classify_invocation_error(message),
+        message: if message.trim().is_empty() {
+            "provider inference failed".into()
+        } else {
+            message.trim().into()
+        },
+    }
+}
+
+fn ollama_operation_error(response: &OllamaVerificationResponse) -> ProviderOperationError {
+    let code = match response.reason_code {
+        OllamaVerificationReasonCode::InvalidUrl => ProviderOperationErrorCode::Malformed,
+        OllamaVerificationReasonCode::Unauthorized => ProviderOperationErrorCode::Unauthorized,
+        OllamaVerificationReasonCode::Timeout => ProviderOperationErrorCode::Timeout,
+        OllamaVerificationReasonCode::NoModelsReturned
+        | OllamaVerificationReasonCode::AllModelsFiltered => {
+            ProviderOperationErrorCode::ModelFailure
+        }
+        _ => ProviderOperationErrorCode::ProviderFailure,
+    };
+    ProviderOperationError {
+        code,
+        message: response
+            .diagnostic
+            .clone()
+            .unwrap_or_else(|| "Ollama provider verification failed".into()),
+    }
+}
+
 fn chrono_now() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
     let secs = SystemTime::now()
@@ -1627,6 +2162,11 @@ impl ProviderManager {
             session_capped: Arc::new(RwLock::new(HashMap::new())),
             session_reset_hint: Arc::new(RwLock::new(HashMap::new())),
             session_checking: Arc::new(RwLock::new(HashSet::new())),
+            active_selection: Arc::new(RwLock::new(None)),
+            active_applied_at: Arc::new(RwLock::new(None)),
+            active_connection_revision: Arc::new(RwLock::new(0)),
+            latest_generation: Arc::new(AtomicU64::new(0)),
+            apply_lock: Arc::new(Mutex::new(())),
         }
     }
 
@@ -1647,6 +2187,11 @@ impl ProviderManager {
             session_capped: Arc::new(RwLock::new(HashMap::new())),
             session_reset_hint: Arc::new(RwLock::new(HashMap::new())),
             session_checking: Arc::new(RwLock::new(HashSet::new())),
+            active_selection: Arc::new(RwLock::new(None)),
+            active_applied_at: Arc::new(RwLock::new(None)),
+            active_connection_revision: Arc::new(RwLock::new(0)),
+            latest_generation: Arc::new(AtomicU64::new(0)),
+            apply_lock: Arc::new(Mutex::new(())),
         }
     }
 }
@@ -2992,5 +3537,333 @@ mod tests {
             response.reason_code,
             OllamaVerificationReasonCode::InvalidUrl
         );
+    }
+
+    fn custom_provider_definition() -> ProviderDefinition {
+        ProviderDefinition {
+            id: "custom-ai".into(),
+            label: "Custom AI".into(),
+            command: "custom-ai".into(),
+            default_args: vec![],
+            model_arg_template: Some("--model={model}".into()),
+            supports_model: true,
+            timeout_secs: 1,
+            prompt_transport: PromptTransport::Stdin,
+            list_models_command: None,
+            list_models_args: vec![],
+            static_models: vec!["discovered-model".into()],
+            http_list_models: false,
+        }
+    }
+
+    fn staged_selection(provider: &str, model: &str) -> PeonSelection {
+        PeonSelection {
+            provider: provider.into(),
+            model: model.into(),
+            ollama_base_url: None,
+        }
+    }
+
+    #[test]
+    fn generic_provider_verification_returns_capabilities_and_models() {
+        let manager = ProviderManager::for_tests_with_registry(
+            vec![custom_provider_definition()],
+            ProviderSettingsPayload::default(),
+            vec![fake_provider("custom-ai")
+                .stdout(r#"{"observedStatus":"working","confidence":0.9}"#)],
+        );
+
+        let response = manager
+            .verify_provider(PeonProviderVerifyRequest {
+                provider: "custom-ai".into(),
+                ollama_base_url: None,
+                generation: 1,
+            })
+            .expect("provider verification should succeed");
+
+        assert!(response.ok);
+        assert!(response.capabilities.connectivity);
+        assert!(response.capabilities.model_discovery);
+        assert!(response.capabilities.provider_default);
+        assert!(response.capabilities.test_inference);
+        assert_eq!(response.models, vec!["discovered-model"]);
+    }
+
+    #[test]
+    fn verification_rejects_unknown_provider_as_structured_error() {
+        let manager = ProviderManager::for_tests(ProviderSettingsPayload::default(), vec![]);
+        let error = manager
+            .verify_provider(PeonProviderVerifyRequest {
+                provider: "missing".into(),
+                ollama_base_url: None,
+                generation: 1,
+            })
+            .expect_err("unknown providers must not verify");
+
+        assert_eq!(error.code, ProviderOperationErrorCode::UnknownProvider);
+    }
+
+    #[test]
+    fn verification_rejects_missing_provider_as_malformed_error() {
+        let manager = ProviderManager::for_tests(ProviderSettingsPayload::default(), vec![]);
+        let error = manager
+            .verify_provider(PeonProviderVerifyRequest {
+                provider: "  ".into(),
+                ollama_base_url: None,
+                generation: 1,
+            })
+            .expect_err("a missing provider must be rejected");
+
+        assert_eq!(error.code, ProviderOperationErrorCode::Malformed);
+    }
+
+    #[test]
+    fn provider_verification_timeout_is_structured() {
+        let manager = ProviderManager::for_tests_with_registry(
+            vec![custom_provider_definition()],
+            ProviderSettingsPayload::default(),
+            vec![fake_provider("custom-ai")
+                .sleep_ms(1_100)
+                .stdout(r#"{"observedStatus":"working","confidence":0.9}"#)],
+        );
+
+        let error = manager
+            .verify_provider(PeonProviderVerifyRequest {
+                provider: "custom-ai".into(),
+                ollama_base_url: None,
+                generation: 1,
+            })
+            .expect_err("a timed-out provider must not verify");
+
+        assert_eq!(error.code, ProviderOperationErrorCode::Timeout);
+    }
+
+    #[test]
+    fn test_and_apply_uses_manual_model_and_updates_active_state_after_valid_inference() {
+        let models = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let manager = ProviderManager::for_tests_with_registry(
+            vec![custom_provider_definition()],
+            ProviderSettingsPayload::default(),
+            vec![fake_provider("custom-ai")
+                .stdout(r#"{"observedStatus":"working","confidence":0.9}"#)
+                .with_models(models.clone())],
+        );
+
+        let applied = manager
+            .test_and_apply(PeonTestAndApplyRequest {
+                selection: staged_selection("custom-ai", "manual-model"),
+                generation: 2,
+            })
+            .expect("manual model should be applyable");
+
+        assert_eq!(applied.provider.as_deref(), Some("custom-ai"));
+        assert_eq!(applied.model.as_deref(), Some("manual-model"));
+        assert!(applied.applied_at.is_some());
+        assert_eq!(manager.get_applied().provider.as_deref(), Some("custom-ai"));
+        assert_eq!(models.lock().unwrap().as_slice(), &[Some("manual-model".into())]);
+    }
+
+    #[test]
+    fn invalid_peon_inference_does_not_replace_active_selection() {
+        let manager = ProviderManager::for_tests_with_registry(
+            vec![custom_provider_definition()],
+            ProviderSettingsPayload::default(),
+            vec![fake_provider("custom-ai").stdout("not JSON")],
+        );
+
+        let error = manager
+            .test_and_apply(PeonTestAndApplyRequest {
+                selection: staged_selection("custom-ai", "bad-model"),
+                generation: 1,
+            })
+            .expect_err("invalid Peon output must fail Apply");
+
+        assert_eq!(error.code, ProviderOperationErrorCode::ModelFailure);
+        assert!(manager.get_applied().provider.is_none());
+    }
+
+    #[test]
+    fn stale_apply_is_invalidated_while_an_older_apply_is_running() {
+        let manager = ProviderManager::for_tests_with_registry(
+            vec![custom_provider_definition()],
+            ProviderSettingsPayload::default(),
+            vec![fake_provider("custom-ai")
+                .sleep_ms(100)
+                .stdout(r#"{"observedStatus":"working","confidence":0.9}"#)],
+        );
+        let older = manager.clone();
+        let first = std::thread::spawn(move || {
+            older.test_and_apply(PeonTestAndApplyRequest {
+                selection: staged_selection("custom-ai", "old-model"),
+                generation: 1,
+            })
+        });
+        std::thread::sleep(Duration::from_millis(10));
+        let newer = manager
+            .test_and_apply(PeonTestAndApplyRequest {
+                selection: staged_selection("custom-ai", "new-model"),
+                generation: 2,
+            })
+            .expect("newer Apply should supersede the older one");
+
+        let older_error = first.join().unwrap().expect_err("older Apply must be stale");
+        assert_eq!(older_error.code, ProviderOperationErrorCode::StaleGeneration);
+        assert_eq!(newer.model.as_deref(), Some("new-model"));
+        assert_eq!(manager.get_applied().model.as_deref(), Some("new-model"));
+    }
+
+    #[test]
+    fn ollama_apply_uses_the_staged_draft_url() {
+        use std::io::{Read as _, Write as _};
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0u8; 4096];
+            let _ = stream.read(&mut request);
+            let body = r#"{"response":"{\"observedStatus\":\"working\",\"confidence\":0.9}","done":true}"#;
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            )
+            .unwrap();
+        });
+
+        let manager = ProviderManager::new();
+        let applied = manager
+            .test_and_apply(PeonTestAndApplyRequest {
+                selection: PeonSelection {
+                    provider: "ollama".into(),
+                    model: "draft-model".into(),
+                    ollama_base_url: Some(format!("http://{address}/")),
+                },
+                generation: 1,
+            })
+            .expect("draft Ollama URL should be used for Apply");
+        server.join().unwrap();
+
+        assert_eq!(
+            applied.ollama_base_url.as_deref(),
+            Some(format!("http://{address}").as_str())
+        );
+    }
+
+    #[test]
+    fn ollama_verification_discovers_models_from_the_staged_url() {
+        use std::io::{Read as _, Write as _};
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0u8; 2048];
+            let _ = stream.read(&mut request);
+            let body = r#"{"models":[{"name":"llama3.2:3b"},{"name":"nomic-embed-text"}]}"#;
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            )
+            .unwrap();
+        });
+
+        let manager = ProviderManager::new();
+        let response = manager
+            .verify_provider(PeonProviderVerifyRequest {
+                provider: "ollama".into(),
+                ollama_base_url: Some(format!("http://{address}/")),
+                generation: 1,
+            })
+            .expect("Ollama verification should discover models");
+        server.join().unwrap();
+
+        assert_eq!(response.models, vec!["llama3.2:3b"]);
+        assert_eq!(
+            response.ollama_base_url.as_deref(),
+            Some(format!("http://{address}").as_str())
+        );
+    }
+
+    #[test]
+    fn ollama_verification_maps_unauthorized_response_to_structured_error() {
+        use std::io::{Read as _, Write as _};
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0u8; 2048];
+            let _ = stream.read(&mut request);
+            let body = "unauthorized";
+            write!(
+                stream,
+                "HTTP/1.1 401 Unauthorized\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            )
+            .unwrap();
+        });
+
+        let manager = ProviderManager::new();
+        let error = manager
+            .verify_provider(PeonProviderVerifyRequest {
+                provider: "ollama".into(),
+                ollama_base_url: Some(format!("http://{address}")),
+                generation: 1,
+            })
+            .expect_err("an unauthorized Ollama endpoint must not verify");
+        server.join().unwrap();
+
+        assert_eq!(error.code, ProviderOperationErrorCode::Unauthorized);
+    }
+
+    #[test]
+    fn provider_operation_errors_are_structured_for_unauthorized_and_timeout() {
+        assert_eq!(
+            classify_invocation_error("provider returned HTTP 401 Unauthorized"),
+            ProviderOperationErrorCode::Unauthorized
+        );
+        assert_eq!(
+            classify_invocation_error("provider timed out after 1s"),
+            ProviderOperationErrorCode::Timeout
+        );
+    }
+
+    #[test]
+    fn apply_rejects_malformed_selection_without_changing_active_state() {
+        let manager = ProviderManager::new();
+        let error = manager
+            .test_and_apply(PeonTestAndApplyRequest {
+                selection: PeonSelection {
+                    provider: "ollama".into(),
+                    model: "".into(),
+                    ollama_base_url: None,
+                },
+                generation: 1,
+            })
+            .expect_err("an empty model must be rejected");
+
+        assert_eq!(error.code, ProviderOperationErrorCode::Malformed);
+        assert_eq!(manager.get_applied().connection_revision, 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn process_runner_bounds_provider_output() {
+        let result = ProcessRunner.run(
+            "test",
+            "sh",
+            &["-c".into(), "printf '%*s' 70000 x".into()],
+            "",
+            1,
+            None,
+        );
+
+        assert!(!result.success);
+        assert!(result.stderr.contains("output exceeded"));
     }
 }

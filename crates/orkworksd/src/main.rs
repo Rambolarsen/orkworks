@@ -42,7 +42,8 @@ use crate::http::integration_handlers::{
     get_integration_status, install_integration, uninstall_integration,
 };
 use crate::http::provider_handlers::{
-    get_provider_models, get_providers, set_provider_settings, verify_ollama_settings,
+    get_applied_peon_provider, get_provider_models, get_providers, set_provider_settings,
+    test_and_apply_peon_provider, verify_ollama_settings, verify_peon_provider,
 };
 use crate::http::retention_handlers::set_retention;
 use crate::http::session_handlers::{
@@ -288,6 +289,12 @@ pub(crate) fn build_router(state: Arc<AppState>) -> Router {
         .route("/providers/:id/models", get(get_provider_models))
         .route("/settings/providers", post(set_provider_settings))
         .route("/settings/providers/ollama/verify", post(verify_ollama_settings))
+        .route("/settings/peon/provider/verify", post(verify_peon_provider))
+        .route(
+            "/settings/peon/test-and-apply",
+            post(test_and_apply_peon_provider),
+        )
+        .route("/settings/peon/applied", get(get_applied_peon_provider))
         .route("/workspace", post(set_workspace))
         .route("/workspace/active-session", post(set_active_session))
         .route("/workspace/active-harnesses", put(set_active_harnesses))
