@@ -3,6 +3,7 @@ import type { IntegrationStatusResult } from "../harnessTypes";
 
 interface HarnessDetectionStatusProps {
   harnessId: string;
+  refreshGeneration?: number;
 }
 
 type DetectionState = "loading" | "detected" | "not-detected" | "unknown";
@@ -14,7 +15,7 @@ type DetectionState = "loading" | "detected" | "not-detected" | "unknown";
  * but the row header shows this regardless so the list is scannable at a
  * glance, matching the design handoff.
  */
-export default function HarnessDetectionStatus({ harnessId }: HarnessDetectionStatusProps) {
+export default function HarnessDetectionStatus({ harnessId, refreshGeneration = 0 }: HarnessDetectionStatusProps) {
   const [result, setResult] = useState<IntegrationStatusResult | null>(null);
 
   useEffect(() => {
@@ -26,7 +27,7 @@ export default function HarnessDetectionStatus({ harnessId }: HarnessDetectionSt
     return () => {
       cancelled = true;
     };
-  }, [harnessId]);
+  }, [harnessId, refreshGeneration]);
 
   const state: DetectionState =
     result === null
@@ -41,7 +42,12 @@ export default function HarnessDetectionStatus({ harnessId }: HarnessDetectionSt
     state === "loading" ? "Checking…" : state === "unknown" ? "Unknown" : state === "detected" ? "Detected" : "Not detected";
 
   return (
-    <span className="harness-detection-status">
+    <span
+      className="harness-detection-status"
+      role="status"
+      aria-live="polite"
+      aria-label={`Coding tool detection status: ${text}`}
+    >
       <span className={`harness-detection-dot${state === "detected" ? " harness-detection-dot--ok" : ""}`} />
       <span className="harness-detection-text">{text}</span>
     </span>

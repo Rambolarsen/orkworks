@@ -9,6 +9,20 @@ export type WorkPhase = "ideation" | "implementation" | "review" | "debugging" |
 export type LifecyclePhase = "creating" | "active" | "ending" | "ended";
 export type SessionLifecycle = "creating" | "alive" | "stopping" | "dead";
 export type SessionAttention = "working" | "idle" | "needs_you" | "blocked" | "failed" | "capped";
+export type PeonSchedulerState = "idle" | "candidate" | "in_flight" | "completed" | "failed";
+
+export interface PeonDiagnostics {
+  schedulerState: PeonSchedulerState;
+  reason: string | null;
+  lastAttemptAt: string | null;
+  lastSuccessfulInferenceAt: string | null;
+  providerId: string | null;
+  providerModel: string | null;
+  fallbackStep: number | null;
+  attemptCount: number | null;
+  errorSummary: string | null;
+  observationCount: number | null;
+}
 
 /** Lifecycle phase with the migration fallback for payloads that predate `lifecyclePhase`. */
 export function effectiveLifecyclePhase(
@@ -73,6 +87,7 @@ export interface SessionInfo {
   capacityCheckPending?: boolean;
   usageLimitResetHint?: string;
   peonLastInference?: string;
+  peonDiagnostics?: PeonDiagnostics | null;
   metadataSource?: string;
   metadataConfidence?: number;
   repoRoot?: string;

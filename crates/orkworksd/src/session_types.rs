@@ -10,6 +10,31 @@ pub(crate) fn placeholder_label(id: &str) -> String {
     format!("Session {}", &id[..id.len().min(8)])
 }
 
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum PeonSchedulerState {
+    Idle,
+    Candidate,
+    InFlight,
+    Completed,
+    Failed,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PeonDiagnostics {
+    pub(crate) scheduler_state: PeonSchedulerState,
+    pub(crate) reason: Option<String>,
+    pub(crate) last_attempt_at: Option<String>,
+    pub(crate) last_successful_inference_at: Option<String>,
+    pub(crate) provider_id: Option<String>,
+    pub(crate) provider_model: Option<String>,
+    pub(crate) fallback_step: Option<usize>,
+    pub(crate) attempt_count: Option<usize>,
+    pub(crate) error_summary: Option<String>,
+    pub(crate) observation_count: Option<usize>,
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct SessionInfo {
     pub(crate) id: String,
@@ -92,6 +117,8 @@ pub(crate) struct SessionInfo {
     pub(crate) recommendation: Option<String>,
     #[serde(rename = "peonLastInference")]
     pub(crate) peon_last_inference: Option<String>,
+    #[serde(rename = "peonDiagnostics", skip_serializing_if = "Option::is_none")]
+    pub(crate) peon_diagnostics: Option<PeonDiagnostics>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) provider: Option<String>,
     #[serde(rename = "providerModel", skip_serializing_if = "Option::is_none")]
@@ -180,6 +207,7 @@ mod tests {
             conflict_warning: None,
             recommendation: None,
             peon_last_inference: None,
+            peon_diagnostics: None,
             provider: None,
             provider_model: None,
             provider_state: None,
@@ -219,6 +247,50 @@ mod tests {
         assert!(json.contains("\"provider\":\"Claude Code\""));
         assert!(json.contains("\"providerModel\":\"sonnet\""));
         assert!(json.contains("\"providerState\":\"healthy\""));
+    }
+
+    #[test]
+    fn session_info_serializes_peon_diagnostics_contract() {
+        let info = SessionInfo {
+            peon_diagnostics: Some(PeonDiagnostics {
+                scheduler_state: PeonSchedulerState::InFlight,
+                reason: Some("inference_completed".into()),
+                last_attempt_at: Some("2026-08-27T10:00:00Z".into()),
+                last_successful_inference_at: Some("2026-08-27T10:00:01Z".into()),
+                provider_id: Some("ollama".into()),
+                provider_model: Some("llama3.2".into()),
+                fallback_step: Some(1),
+                attempt_count: Some(2),
+                error_summary: Some("previous provider timed out".into()),
+                observation_count: Some(3),
+            }),
+            ..test_session_info("test", "Test", "/tmp", "running", "now")
+        };
+
+        let json = serde_json::to_value(&info).unwrap();
+        assert_eq!(
+            json["peonDiagnostics"],
+            serde_json::json!({
+                "schedulerState": "in_flight",
+                "reason": "inference_completed",
+                "lastAttemptAt": "2026-08-27T10:00:00Z",
+                "lastSuccessfulInferenceAt": "2026-08-27T10:00:01Z",
+                "providerId": "ollama",
+                "providerModel": "llama3.2",
+                "fallbackStep": 1,
+                "attemptCount": 2,
+                "errorSummary": "previous provider timed out",
+                "observationCount": 3,
+            })
+        );
+    }
+
+    #[test]
+    fn session_info_omits_absent_peon_diagnostics() {
+        let info = test_session_info("test", "Test", "/tmp", "running", "now");
+        let json = serde_json::to_value(&info).unwrap();
+
+        assert!(json.get("peonDiagnostics").is_none(), "unexpected {json}");
     }
 
     #[test]

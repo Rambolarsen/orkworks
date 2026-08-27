@@ -16,7 +16,7 @@ The desktop package can also build the sidecar with `cd apps/desktop && pnpm bui
 ## Module layout
 
 - `metadata.rs` — `SessionMetadata` and the on-disk metadata store, the source of truth for session state.
-- `session_types.rs`, `session_view.rs` — session-facing types and view/projection helpers.
+- `session_types.rs`, `session_view.rs` — session-facing types and pure view helpers; `session_projection.rs` owns the stateful session-listing projection and its write-back policy.
 - `harness.rs` and its `definition`, `registry`, and `store` submodules — versioned harness definitions, sparse overrides, resolved immutable capability snapshots, and persistence.
 - `providers.rs` — model provider registry, fallback, and capacity state.
 - `peon.rs` — terminal-output observation and label/status inference.

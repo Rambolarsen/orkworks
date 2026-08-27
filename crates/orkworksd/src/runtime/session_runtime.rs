@@ -35,6 +35,12 @@ pub(crate) type RuntimeGeneration = u64;
 
 static NEXT_RUNTIME_GENERATION: AtomicU64 = AtomicU64::new(1);
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct RuntimeIdentity {
+    pub(crate) runtime_instance_id: String,
+    pub(crate) run_generation: RuntimeGeneration,
+}
+
 #[cfg(test)]
 struct StartupEndingCheckGate {
     id: String,
@@ -328,6 +334,18 @@ impl SessionRuntime {
 
     pub(crate) fn run_generation(&self) -> RuntimeGeneration {
         self.run_generation
+    }
+
+    pub(crate) fn identity(&self) -> RuntimeIdentity {
+        RuntimeIdentity {
+            runtime_instance_id: self.runtime_instance_id.clone(),
+            run_generation: self.run_generation,
+        }
+    }
+
+    pub(crate) fn matches_identity(&self, identity: &RuntimeIdentity) -> bool {
+        self.runtime_instance_id == identity.runtime_instance_id
+            && self.run_generation == identity.run_generation
     }
 
     pub(crate) fn mark_startup_spawned(&mut self) {
@@ -667,7 +685,7 @@ pub(crate) async fn handle_runtime_exit(
     // `ending`. The driver still owns cleanup and finalization in that case;
     // only a generation mismatch makes the callback stale.
     let _ = set_session_status_for_generation(state, id, generation, status).await;
-    {
+    let runtime_identity = {
         let mut sessions = state.sessions.lock().unwrap();
         let Some(handle) = sessions
             .get_mut(id)
@@ -680,9 +698,10 @@ pub(crate) async fn handle_runtime_exit(
         };
         handle.runtime.attached_generation = None;
         handle.terminal_attached = false;
-    }
+        handle.runtime.identity()
+    };
     crate::session_application::SessionApplication::new(state.clone())
-        .clear_ended_session_tracking(id);
+        .clear_ended_session_tracking_for_runtime(id, &runtime_identity);
     flush_output_recency(state, id).await;
     schedule_session_ending_finalization(
         state.clone(),
@@ -707,19 +726,18 @@ fn abort_post_spawn_startup(
     let _ = child.kill();
     let _ = child.wait();
 
-    let lifecycle_phase = state
+    let Some((lifecycle_phase, runtime_identity)) = state
         .sessions
         .lock()
         .unwrap()
         .get(id)
         .filter(|handle| handle.runtime.run_generation() == generation)
-        .map(|handle| handle.info.lifecycle_phase.clone());
-    let Some(lifecycle_phase) = lifecycle_phase else {
+        .map(|handle| (handle.info.lifecycle_phase.clone(), handle.runtime.identity()))
+    else {
         return false;
     };
-
     crate::session_application::SessionApplication::new(state.clone())
-        .clear_ended_session_tracking(id);
+        .clear_ended_session_tracking_for_runtime(id, &runtime_identity);
     if lifecycle_phase != "ending" {
         return false;
     }
@@ -1254,6 +1272,7 @@ mod tests {
     fn test_state_with_runtime_session(id: &str) -> Arc<crate::AppState> {
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            projection_lock: Mutex::new(()),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(None),
             peon: crate::PeonState {
@@ -1265,6 +1284,7 @@ mod tests {
                 label_epochs: RwLock::new(HashMap::new()),
                 input_buf: RwLock::new(HashMap::new()),
                 reported_cwd: RwLock::new(HashMap::new()),
+                diagnostics: RwLock::new(HashMap::new()),
                 config: crate::peon::PeonConfig::from_env(),
             },
             harness_catalog: crate::test_support::test_harness_components().0,
@@ -1302,6 +1322,7 @@ mod tests {
 
     #[test]
     fn forgotten_session_cleanup_removes_label_epoch_but_ended_cleanup_preserves_it() {
+        let _lease_guard = crate::runtime::peon_runtime::diagnostic_test_guard();
         let state = test_state_with_runtime_session("epoch-cleanup");
         state
             .peon

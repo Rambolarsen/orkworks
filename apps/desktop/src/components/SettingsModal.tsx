@@ -86,6 +86,15 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
     normalizeActiveHarnessIds(harnesses, activeHarnessIds),
   );
   const [activeSaveStatus, setActiveSaveStatus] = useState<string | null>(null);
+  const [detectionGenerations, setDetectionGenerations] = useState<Record<string, number>>({});
+
+  function refreshDetection(harnessId: string) {
+    setDetectionGenerations((current) => ({
+      ...current,
+      [harnessId]: (current[harnessId] ?? 0) + 1,
+    }));
+  }
+
   useLayoutEffect(() => {
     const modal = modalRef.current;
     if (!modal) return;
@@ -385,17 +394,19 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
                           <div className="settings-config-item">
                             <HarnessIcon tool={h.name} size={16} />
                             <span>{h.name}</span>
-                            {/* HarnessIntegrationSection already renders its own Detected/Not
-                                detected line (and fetches the same status) once expanded below,
-                                so this row-level indicator only needs to cover the collapsed case. */}
-                            {!(INTEGRATION_HARNESS_IDS.includes(h.id) && activeDraft.includes(h.id)) && (
-                              <HarnessDetectionStatus harnessId={h.id} />
-                            )}
+                            <HarnessDetectionStatus harnessId={h.id}
+                              refreshGeneration={detectionGenerations[h.id] ?? 0}
+                            />
                           </div>
                           <Toggle checked={activeDraft.includes(h.id)} onChange={() => toggleHarness(h.id)} ariaLabel={h.name} />
                         </div>
                         {INTEGRATION_HARNESS_IDS.includes(h.id) && activeDraft.includes(h.id) && (
-                          <HarnessIntegrationSection harnessId={h.id} harnessName={h.name} harness={h} />
+                          <HarnessIntegrationSection
+                            harnessId={h.id}
+                            harnessName={h.name}
+                            harness={h}
+                            onDetectionChanged={refreshDetection}
+                          />
                         )}
                       </div>
                     ))}
