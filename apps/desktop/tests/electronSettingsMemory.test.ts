@@ -73,28 +73,48 @@ test("Peon selection save retains the previous file when persistence fails", () 
 test("concurrent settings writers use independent atomic files and leave valid JSON", async () => {
   const dir = mkdtempSync(join(tmpdir(), "orkworks-settings-"));
   const settingsModule = new URL("../electron/settingsMemory.ts", import.meta.url).href;
+  const initial = readSettings(dir);
+  initial.debug.showSessionIds = true;
+  initial.providers.peonSelection = { provider: "copilot", model: "gpt-5" };
+  writeSettings(dir, initial);
+
+  // This is a cross-process atomic-publication test. The same-directory
+  // temporary file plus rename protects readers from torn JSON, while the
+  // read-modify-write sequence has no cross-process lock or merge guarantee.
+  // POSIX and Windows filesystems may differ in replacement/locking details,
+  // so assert complete worker updates and preservation of untouched fields,
+  // not that every competing counter update survives.
   const script = `import { readSettings, writeSettings } from ${JSON.stringify(settingsModule)};
 const dir = process.argv[1];
+const worker = Number(process.argv[2]);
 for (let i = 0; i < 20; i += 1) {
   const settings = readSettings(dir);
-  settings.debug.rendererHealthLogMs = i;
+  settings.debug.rendererHealthLogMs = worker * 20 + i;
   writeSettings(dir, settings);
 }`;
   try {
-    const children = Array.from({ length: 8 }, () => spawn(process.execPath, [
+    const children = Array.from({ length: 8 }, (_, worker) => spawn(process.execPath, [
       "--experimental-strip-types",
       "--input-type=module",
       "--eval",
       script,
       dir,
+      String(worker),
     ]));
     const results = await Promise.all(children.map(async (child) => {
       const [code] = await once(child, "close");
       return code;
     }));
     assert.deepEqual(results, Array.from({ length: 8 }, () => 0));
-    const persisted = JSON.parse(readFileSync(settingsPath(dir), "utf8")) as { debug?: { rendererHealthLogMs?: number } };
-    assert.equal(typeof persisted.debug?.rendererHealthLogMs, "number");
+    const persisted = JSON.parse(readFileSync(settingsPath(dir), "utf8")) as {
+      debug?: { showSessionIds?: boolean; rendererHealthLogMs?: number };
+      providers?: { peonSelection?: PeonSelection | null };
+    };
+    assert.equal(Number.isInteger(persisted.debug?.rendererHealthLogMs), true);
+    assert.ok((persisted.debug?.rendererHealthLogMs ?? -1) >= 0);
+    assert.ok((persisted.debug?.rendererHealthLogMs ?? -1) < 160);
+    assert.equal(persisted.debug?.showSessionIds, true);
+    assert.deepEqual(persisted.providers?.peonSelection, { provider: "copilot", model: "gpt-5" });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

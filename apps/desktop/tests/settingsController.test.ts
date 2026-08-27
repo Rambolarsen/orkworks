@@ -67,6 +67,21 @@ test("Peon bridge keeps Apply separate from durable Save and exposes applied ide
   assert.match(rendererTypes, /testAndApplyPeonProvider:/);
   assert.match(rendererTypes, /getAppliedPeonProvider:/);
   assert.match(rendererTypes, /savePeonSelection:/);
+  assert.ok((mainSource.match(/async function parsePeonError/g)?.length ?? 0) >= 1);
+
+  for (const route of [
+    'ipcMain.handle("save-hotkeys"',
+    'ipcMain.handle("save-retention"',
+    'ipcMain.handle("save-debug-settings"',
+    'ipcMain.handle("save-provider-settings"',
+  ]) {
+    const start = mainSource.indexOf(route);
+    const end = mainSource.indexOf("ipcMain.handle(", start + route.length);
+    assert.match(mainSource.slice(start, end === -1 ? undefined : end), /writeSettings\(/);
+  }
+
+  const savePeonStart = mainSource.indexOf('ipcMain.handle("save-peon-selection"');
+  assert.match(mainSource.slice(savePeonStart), /writeSettings\(/);
 });
 
 function transactionHarness(overrides: Partial<PeonSelectionTransport> = {}) {
@@ -116,6 +131,76 @@ test("Peon transaction requires a successful matching Apply before Save", async 
   assert.deepEqual(calls, ["verify:1", "apply:1"]);
 });
 
+test("persisted Peon synchronization passes the already-known ready port", async () => {
+  const ports: unknown[] = [];
+  const { transaction } = transactionHarness({
+    verify: async ({ provider, ollamaBaseUrl, generation, readyPort }) => {
+      ports.push(readyPort);
+      return {
+        ok: true,
+        provider,
+        capabilities: { connectivity: true, modelDiscovery: true, providerDefault: true, testInference: true },
+        models: ["gpt-5"],
+        ollamaBaseUrl: null,
+        generation,
+      };
+    },
+    apply: async ({ selection, readyPort }) => {
+      ports.push(readyPort);
+      return {
+        provider: selection.provider,
+        model: selection.model,
+        ollamaBaseUrl: null,
+        appliedAt: "now",
+        connectionRevision: 1,
+      };
+    },
+  });
+
+  await transaction.syncPersistedSelection({ provider: "copilot", model: "gpt-5" }, undefined, 43123);
+  assert.deepEqual(ports, [43123, 43123]);
+});
+
+test("Peon Save rejects matching sidecar state without a local successful Apply", async () => {
+  const selection = { provider: "copilot" as const, model: "gpt-5" };
+  const { transaction } = transactionHarness({
+    getApplied: async () => ({
+      provider: selection.provider,
+      model: selection.model,
+      ollamaBaseUrl: null,
+      appliedAt: "now",
+      connectionRevision: 1,
+    }),
+  });
+
+  await transaction.verify(selection.provider);
+  assert.deepEqual(
+    await transaction.save(selection, async () => {}),
+    { ok: false, error: "Save requires a matching successful Apply." },
+  );
+});
+
+test("Peon Save rejects an Apply from an older generation even when sidecar identity matches", async () => {
+  const selection = { provider: "copilot" as const, model: "gpt-5" };
+  const { transaction } = transactionHarness({
+    getApplied: async () => ({
+      provider: selection.provider,
+      model: selection.model,
+      ollamaBaseUrl: null,
+      appliedAt: "now",
+      connectionRevision: 1,
+    }),
+  });
+
+  await transaction.verify(selection.provider);
+  await transaction.apply(selection);
+  await transaction.verify(selection.provider);
+  assert.deepEqual(
+    await transaction.save(selection, async () => {}),
+    { ok: false, error: "Save requires a matching successful Apply." },
+  );
+});
+
 test("Peon discovery supersedes Apply verification without allowing stale work to win", async () => {
   let resolveOld!: (value: Awaited<ReturnType<PeonSelectionTransport["verify"]>>) => void;
   const { transaction } = transactionHarness({
@@ -155,6 +240,13 @@ test("compatibility model discovery uses the Peon transaction coordinator", () =
   const discoveryRoute = mainSource.slice(discoveryStart);
   assert.match(discoveryRoute, /peonTransaction\.discover\(\s*providerId/);
   assert.doesNotMatch(discoveryRoute, /settings\/peon\/provider\/verify/);
+});
+
+test("provider model cache is keyed and invalidated by the Ollama base URL", () => {
+  assert.match(mainSource, /providerModelCacheKey/);
+  assert.match(mainSource, /providerModelCacheKey\(providerId, ollamaBaseUrl\)/);
+  assert.match(mainSource, /previousOllamaBaseUrl/);
+  assert.match(mainSource, /providerModels\.delete\(providerModelCacheKey\("ollama", previousOllamaBaseUrl\)\)/);
 });
 
 test("Peon selection input resolves one persisted custom Ollama URL", () => {
