@@ -1254,6 +1254,7 @@ mod tests {
     fn test_state_with_runtime_session(id: &str) -> Arc<crate::AppState> {
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            projection_lock: Mutex::new(()),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(None),
             peon: crate::PeonState {

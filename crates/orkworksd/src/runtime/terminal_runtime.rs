@@ -1192,6 +1192,7 @@ mod tests {
         std::fs::create_dir_all(orkworks.join("events")).unwrap();
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            projection_lock: Mutex::new(()),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
@@ -2569,6 +2570,7 @@ mod tests {
     fn mark_usage_limit_recheck_on_input_sets_origin_once() {
         let state = Arc::new(crate::AppState {
             sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
+            projection_lock: std::sync::Mutex::new(()),
             session_pids: std::sync::Mutex::new(std::collections::HashMap::new()),
             workspace: std::sync::Mutex::new(None),
             peon: crate::PeonState {
@@ -2668,6 +2670,7 @@ mod tests {
     async fn set_session_status_updates_registry() {
         let state = Arc::new(crate::AppState {
             sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
+            projection_lock: std::sync::Mutex::new(()),
             session_pids: std::sync::Mutex::new(std::collections::HashMap::new()),
             workspace: std::sync::Mutex::new(None),
             peon: crate::PeonState {
@@ -2864,6 +2867,7 @@ mod tests {
     async fn set_session_status_seeds_peon_last_output_when_session_enters_running() {
         let state = Arc::new(crate::AppState {
             sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
+            projection_lock: std::sync::Mutex::new(()),
             session_pids: std::sync::Mutex::new(std::collections::HashMap::new()),
             workspace: std::sync::Mutex::new(None),
             peon: crate::PeonState {
@@ -2930,6 +2934,7 @@ mod tests {
     async fn set_session_status_running_does_not_reset_existing_peon_last_output() {
         let state = Arc::new(crate::AppState {
             sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
+            projection_lock: std::sync::Mutex::new(()),
             session_pids: std::sync::Mutex::new(std::collections::HashMap::new()),
             workspace: std::sync::Mutex::new(None),
             peon: crate::PeonState {
@@ -3000,6 +3005,7 @@ mod tests {
     async fn terminal_status_exit_paths_should_transition_through_ending_lifecycle() {
         let state = Arc::new(crate::AppState {
             sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
+            projection_lock: std::sync::Mutex::new(()),
             session_pids: std::sync::Mutex::new(std::collections::HashMap::new()),
             workspace: std::sync::Mutex::new(None),
             peon: crate::PeonState {
@@ -3071,6 +3077,7 @@ mod tests {
 
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            projection_lock: Mutex::new(()),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
@@ -3222,6 +3229,7 @@ mod tests {
 
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            projection_lock: Mutex::new(()),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
@@ -3407,6 +3415,7 @@ mod tests {
 
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
+            projection_lock: Mutex::new(()),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
