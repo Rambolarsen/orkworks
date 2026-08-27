@@ -1,8 +1,6 @@
 use crate::session_projection::SessionProjection;
-use crate::session_types::{MemoryState, SessionInfo};
-use crate::session_view::{
-    detect_conflicts, resolve_effective_cwds, session_recommendation,
-};
+use crate::session_projection::enrich_sessions_with_git_context as project_git_context;
+use crate::session_types::SessionInfo;
 use crate::{git, harness, metadata, peon, AppState, SessionHandle};
 #[cfg(test)]
 use crate::workspace_runtime::orkworks_global_dir;
@@ -408,44 +406,11 @@ pub(crate) struct CreateSessionRequest {
 fn enrich_sessions_with_git_context<F>(
     infos: &mut [SessionInfo],
     effective_cwds: &HashMap<String, String>,
-    mut detect_git: F,
+    detect_git: F,
 ) where
     F: FnMut(&std::path::Path) -> git::GitContext,
 {
-    // `effective_cwds` prefers each session's live PTY-process cwd (issue
-    // #241 — an agent that `cd`s or `git worktree add`s mid-session
-    // shouldn't be shown frozen at its launch location forever), falling
-    // back to the launch-time `info.cwd` when there's no tracked pid or the
-    // probe fails. See `session_view::resolve_effective_cwds`.
-    let cwd_for = |info: &SessionInfo| -> String {
-        effective_cwds
-            .get(&info.id)
-            .cloned()
-            .unwrap_or_else(|| info.cwd.clone())
-    };
-
-    let mut cwd_counts: HashMap<String, usize> = HashMap::new();
-    for info in infos.iter() {
-        if info.status == "running" || info.status == "creating" {
-            *cwd_counts.entry(cwd_for(info)).or_default() += 1;
-        }
-    }
-
-    let mut contexts: HashMap<String, git::GitContext> = HashMap::new();
-    for info in infos.iter_mut() {
-        let cwd = cwd_for(info);
-        if !contexts.contains_key(&cwd) {
-            contexts.insert(cwd.clone(), detect_git(std::path::Path::new(&cwd)));
-        }
-        let ctx = &contexts[&cwd];
-        let count = cwd_counts.get(&cwd).copied().unwrap_or(1);
-        info.recommendation = session_recommendation(ctx, count);
-        info.repo_root = ctx.repo_root.clone();
-        info.branch = ctx.branch.clone();
-        info.dirty = Some(ctx.dirty);
-        info.changed_files = Some(ctx.changed_files);
-        info.is_worktree = Some(ctx.is_worktree);
-    }
+    project_git_context(infos, effective_cwds, detect_git);
 }
 
 pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse {
@@ -458,23 +423,7 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
     let projection = SessionProjection::new(state.clone());
     let mut infos = projection.list_with_hook(before_write_back);
 
-    let session_pids = state.session_pids.lock().unwrap().clone();
-    let reported_cwds = state.peon.reported_cwd.read().unwrap().clone();
-    let effective_cwds = resolve_effective_cwds(
-        &infos,
-        &reported_cwds,
-        &session_pids,
-        crate::procfs::live_cwds,
-    );
-    enrich_sessions_with_git_context(&mut infos, &effective_cwds, git::detect);
-
-    let conflict_warnings = detect_conflicts(&infos, &effective_cwds);
-    for info in &mut infos {
-        info.conflict_warning = conflict_warnings
-            .iter()
-            .find(|(id, _)| id == &info.id)
-            .map(|(_, w)| w.clone());
-    }
+    let infos = projection.enrich_workspace(infos);
     Json(infos)
 }
 

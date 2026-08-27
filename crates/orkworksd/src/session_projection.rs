@@ -1,11 +1,12 @@
+use crate::git;
 use crate::harness::registry::ResolvedHarness;
 use crate::metadata;
 use crate::plan_handoff::resolve_openable_plan_reference;
 use crate::peon;
 use crate::session_types::SessionInfo;
 use crate::session_view::{
-    connectivity_for_status, derive_memory_state, merge_live_session_info,
-    terminal_outcome_for_status,
+    connectivity_for_status, derive_memory_state, detect_conflicts, merge_live_session_info,
+    resolve_effective_cwds, session_recommendation, terminal_outcome_for_status,
 };
 use crate::AppState;
 use std::collections::{HashMap, HashSet};
@@ -126,11 +127,34 @@ impl SessionProjection {
     }
 
     pub(crate) fn list(&self) -> Vec<SessionInfo> {
+        let lock_state = self.state.clone();
+        let _projection_lock = lock_state.projection_lock.lock().unwrap();
         self.list_with_hook(|| {})
     }
 
     pub(crate) fn list_with_hook(&self, before_write_back: impl FnOnce()) -> Vec<SessionInfo> {
         self.project_capacity(self.snapshot(), before_write_back)
+    }
+
+    pub(crate) fn enrich_workspace(&self, mut infos: Vec<SessionInfo>) -> Vec<SessionInfo> {
+        let session_pids = self.state.session_pids.lock().unwrap().clone();
+        let reported_cwds = self.state.peon.reported_cwd.read().unwrap().clone();
+        let effective_cwds = resolve_effective_cwds(
+            &infos,
+            &reported_cwds,
+            &session_pids,
+            crate::procfs::live_cwds,
+        );
+        enrich_sessions_with_git_context(&mut infos, &effective_cwds, git::detect);
+
+        let conflict_warnings = detect_conflicts(&infos, &effective_cwds);
+        for info in &mut infos {
+            info.conflict_warning = conflict_warnings
+                .iter()
+                .find(|(id, _)| id == &info.id)
+                .map(|(_, warning)| warning.clone());
+        }
+        infos
     }
 
     pub(crate) fn project_capacity(
@@ -144,6 +168,13 @@ impl SessionProjection {
             .read()
             .expect("harness catalog lock poisoned")
             .clone();
+        let workspace_identity = self
+            .state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|workspace| workspace.metadata.root_path());
         let live_sessions: Vec<_> = {
             let sessions = self.state.sessions.lock().unwrap();
             sessions
@@ -151,6 +182,7 @@ impl SessionProjection {
                 .map(|h| {
                     (
                         h.info.clone(),
+                        h.runtime.run_generation(),
                         h.output_buffer.snapshot(),
                         h.scan_buf.clone(),
                         h.at_usage_limit_latched,
@@ -163,11 +195,17 @@ impl SessionProjection {
                 })
                 .collect()
         };
-        let capacity_snapshots: HashMap<String, (bool, Option<(u64, u64)>, u64, u64)> =
+        let capacity_snapshots: HashMap<
+            String,
+            (u64, bool, bool, u64, u64, Option<(u64, u64)>, bool),
+        > =
             live_sessions
                 .iter()
-                .map(|(info, _, _, latched, _, lines, bytes, origin, _)| {
-                    (info.id.clone(), (*latched, *origin, *lines, *bytes))
+                .map(|(info, generation, _, _, latched, pending, lines, bytes, origin, visible)| {
+                    (
+                        info.id.clone(),
+                        (*generation, *latched, *pending, *lines, *bytes, *origin, *visible),
+                    )
                 })
                 .collect();
         let capacity_metadata = {
@@ -181,7 +219,7 @@ impl SessionProjection {
             .map(|metadata| {
                 live_sessions
                     .iter()
-                    .filter_map(|(info, _, _, _, _, _, _, _, _)| {
+                    .filter_map(|(info, _, _, _, _, _, _, _, _, _)| {
                         metadata
                             .read_session(&info.id)
                             .filter(|session| !session.harness.is_empty())
@@ -198,6 +236,7 @@ impl SessionProjection {
             .into_iter()
             .map(|(
                 info,
+                _,
                 snapshot,
                 scan_buf,
                 prev_latch,
@@ -393,19 +432,34 @@ impl SessionProjection {
                 }
             }
         }
+        before_write_back();
+        let current_workspace_identity = self
+            .state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|workspace| workspace.metadata.root_path());
+        if current_workspace_identity != workspace_identity {
+            return Vec::new();
+        }
         self.state
             .providers
             .update_session_capping(harness_capped, harness_reset_hint, provider_checking);
 
-        before_write_back();
         let mut sessions = self.state.sessions.lock().unwrap();
         let mut write_back_snapshot_ids = HashSet::new();
         for info in &infos {
             if let Some(handle) = sessions.get_mut(&info.id) {
-                let Some((latched, origin, lines, bytes)) = capacity_snapshots.get(&info.id) else {
+                let Some((generation, latched, pending, lines, bytes, origin, visible)) =
+                    capacity_snapshots.get(&info.id)
+                else {
                     continue;
                 };
-                if handle.at_usage_limit_latched != *latched
+                if handle.runtime.run_generation() != *generation
+                    || handle.at_usage_limit_latched != *latched
+                    || handle.capacity_check_pending != *pending
+                    || handle.pending_capacity_visible_once != *visible
                     || handle.resume_scan_origin != *origin
                     || handle.output_lines_seen != *lines
                     || handle.scan_bytes_seen != *bytes
@@ -456,6 +510,41 @@ impl SessionProjection {
             }
         }
         infos
+    }
+}
+
+pub(crate) fn enrich_sessions_with_git_context<F>(
+    infos: &mut [SessionInfo],
+    effective_cwds: &HashMap<String, String>,
+    mut detect_git: F,
+) where
+    F: FnMut(&std::path::Path) -> git::GitContext,
+{
+    let cwd_for = |info: &SessionInfo| {
+        effective_cwds
+            .get(&info.id)
+            .cloned()
+            .unwrap_or_else(|| info.cwd.clone())
+    };
+    let mut cwd_counts: HashMap<String, usize> = HashMap::new();
+    for info in infos.iter() {
+        if info.status == "running" || info.status == "creating" {
+            *cwd_counts.entry(cwd_for(info)).or_default() += 1;
+        }
+    }
+    let mut contexts: HashMap<String, git::GitContext> = HashMap::new();
+    for info in infos.iter_mut() {
+        let cwd = cwd_for(info);
+        let ctx = contexts
+            .entry(cwd.clone())
+            .or_insert_with(|| detect_git(std::path::Path::new(&cwd)));
+        let count = cwd_counts.get(&cwd).copied().unwrap_or(1);
+        info.recommendation = session_recommendation(ctx, count);
+        info.repo_root = ctx.repo_root.clone();
+        info.branch = ctx.branch.clone();
+        info.dirty = Some(ctx.dirty);
+        info.changed_files = Some(ctx.changed_files);
+        info.is_worktree = Some(ctx.is_worktree);
     }
 }
 
