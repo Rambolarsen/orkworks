@@ -2447,6 +2447,13 @@ mod tests {
         FakeProvider::new(id)
     }
 
+    fn mark_applied(manager: &ProviderManager, provider: &str, model: Option<&str>) {
+        let mut state = manager.operation_state.lock().unwrap();
+        state.applied.provider = Some(provider.to_string());
+        state.applied.model = model.map(str::to_string);
+        state.applied.connection_revision = 1;
+    }
+
     #[test]
     fn process_runner_returns_spawn_errors_without_panicking() {
         let runner = ProcessRunner;
@@ -2762,6 +2769,7 @@ mod tests {
                 .stdout(r#"{"observedStatus":"working","confidence":0.9}"#)
                 .with_invocations(invocations.clone())],
         );
+        mark_applied(&manager, "custom-ai", Some("entry-model"));
 
         let result = manager.run_inference(PeonScope::Session, &["terminal line".to_owned()]);
 
@@ -2815,6 +2823,7 @@ mod tests {
                 .stdout(r#"{"observedStatus":"working","confidence":0.9}"#)
                 .with_invocations(invocations.clone())],
         );
+        mark_applied(&manager, "custom-ai", Some("global-model"));
 
         let result = manager.run_inference(PeonScope::Session, &["terminal line".to_owned()]);
 
@@ -2861,6 +2870,7 @@ mod tests {
                 .with_invocations(invocations.clone())
                 .with_models(models.clone())],
         );
+        mark_applied(&manager, "aider", None);
 
         let result = manager.run_inference(PeonScope::Session, &["terminal line".to_owned()]);
 
@@ -3111,13 +3121,13 @@ mod tests {
                 fake_provider("claude-code"),
             ]),
         );
+        mark_applied(&manager, "claude-code", None);
 
         let result = manager.run_inference(PeonScope::Session, &["terminal line".to_string()]);
 
         assert!(result.inference.is_none());
-        assert_eq!(result.attempts.len(), 2);
-        assert_eq!(result.attempts[0].outcome, AttemptOutcome::SkippedDisabled);
-        assert_eq!(result.attempts[1].outcome, AttemptOutcome::SkippedCapped);
+        assert_eq!(result.attempts.len(), 1);
+        assert_eq!(result.attempts[0].outcome, AttemptOutcome::SkippedCapped);
     }
 
     #[test]
@@ -3131,6 +3141,7 @@ mod tests {
         let manager = ProviderManager::for_tests(payload.clone(), vec![fake_provider("copilot")]);
 
         manager.apply_settings(payload);
+        mark_applied(&manager, "copilot", None);
 
         let response = manager.get_providers_response();
         assert_eq!(
@@ -3159,6 +3170,7 @@ mod tests {
         );
 
         manager.apply_settings(payload);
+        mark_applied(&manager, "copilot", None);
 
         let result = manager.run_inference(PeonScope::Session, &["terminal line".to_owned()]);
         assert_eq!(result.attempts.len(), 1);
@@ -3213,6 +3225,7 @@ mod tests {
                 .stdout(r#"{"observedStatus":"working","confidence":0.9}"#)
                 .with_invocations(invocations.clone())],
         );
+        mark_applied(&manager, "copilot", None);
 
         manager.run_inference(PeonScope::Session, &["terminal line".to_owned()]);
 
@@ -3259,6 +3272,7 @@ mod tests {
                 .stdout(r#"{"observedStatus":"working","confidence":0.9}"#)
                 .with_invocations(invocations.clone())],
         );
+        mark_applied(&manager, "copilot", Some("claude-sonnet-4.6"));
 
         manager.run_inference(PeonScope::Session, &["terminal line".to_owned()]);
 
@@ -3276,7 +3290,7 @@ mod tests {
     }
 
     #[test]
-    fn falls_back_to_second_provider_after_primary_quota_failure() {
+    fn applied_provider_failure_does_not_fall_back_to_second_provider() {
         let manager = ProviderManager::for_tests(
             sample_settings(vec![entry("opencode"), entry("claude-code")]),
             registry_with(vec![
@@ -3287,10 +3301,11 @@ mod tests {
                     .stdout(r#"{"observedStatus":"working","confidence":0.9}"#),
             ]),
         );
+        mark_applied(&manager, "opencode", None);
 
         let result = manager.run_inference(PeonScope::Session, &["terminal line".to_string()]);
 
-        assert!(result.inference.is_some());
+        assert!(result.inference.is_none());
         assert_eq!(
             result.runtime["opencode"].last_error_summary.as_deref(),
             Some("usage limit reached")
@@ -3299,7 +3314,7 @@ mod tests {
             result.runtime["opencode"].reset_hint.as_deref(),
             Some("resets in 2h")
         );
-        assert_eq!(result.runtime["claude-code"].fallback_step, Some(2));
+        assert!(!result.runtime.contains_key("claude-code"));
     }
 
     #[test]
@@ -3314,6 +3329,7 @@ mod tests {
                     .stdout(r#"{"observedStatus":"working","confidence":0.9}"#),
             ]),
         );
+        mark_applied(&manager, "opencode", None);
 
         let _ = manager.run_inference(PeonScope::Session, &["terminal line".to_string()]);
         let response = manager.get_providers_response();
@@ -3334,7 +3350,7 @@ mod tests {
             .iter()
             .find(|provider| provider.id == "claude-code")
             .unwrap();
-        assert_eq!(claude.runtime.fallback_step, Some(2));
+        assert_eq!(claude.runtime.fallback_step, None);
     }
 
     #[test]
@@ -3527,6 +3543,7 @@ mod tests {
             },
             vec![],
         );
+        mark_applied(&manager, "ollama", Some("llama3"));
         let result = manager.run_inference(PeonScope::Session, &["test".to_string()]);
         assert!(result.inference.is_none());
         assert_eq!(result.attempts.len(), 1);
@@ -3553,6 +3570,7 @@ mod tests {
             },
             vec![],
         );
+        mark_applied(&manager, "ollama", Some("llama3"));
         let result = manager.run_inference(PeonScope::Session, &["test".to_string()]);
         assert!(result.inference.is_none());
         assert_eq!(result.attempts[0].outcome, AttemptOutcome::SkippedDisabled);
