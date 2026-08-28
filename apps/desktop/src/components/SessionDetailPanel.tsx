@@ -3,7 +3,9 @@ import type { ReactNode } from "react";
 import { FileText, GitBranch, MessageCircle } from "lucide-react";
 import { getSummaryLog } from "../api";
 import type { SessionAttention, SessionInfo, SummaryLogEntry } from "../api";
-import { sessionProviderContext } from "../sessionProviderContext";
+import type { HarnessConfig } from "../harnessTypes";
+import { nativeVoicePresentation } from "../nativeVoicePresentation";
+import { sessionCodingTool, sessionProviderContext } from "../sessionProviderContext";
 import { sessionAttentionStatus } from "../sessionSort";
 import {
   attentionLabel,
@@ -33,13 +35,14 @@ const DEBUG_ATTENTION_OPTIONS: SessionAttention[] = ["working", "idle", "needs_y
 interface SessionDetailPanelProps {
   sessions: SessionInfo[];
   activeSessionId: string | null;
+  harnesses: HarnessConfig[];
   onResumeSession: (id: string) => void;
   onApplyDebugAttention: (id: string, attention: SessionAttention, message?: string) => void;
   onReviewPlan: () => void;
   showDebugMetadata: boolean;
 }
 
-function SessionDetailPanel({ sessions, activeSessionId, onResumeSession, onApplyDebugAttention, showDebugMetadata, onReviewPlan }: SessionDetailPanelProps) {
+function SessionDetailPanel({ sessions, activeSessionId, harnesses, onResumeSession, onApplyDebugAttention, showDebugMetadata, onReviewPlan }: SessionDetailPanelProps) {
   const [debugAttention, setDebugAttention] = useState<SessionAttention>("working");
   const [debugMessage, setDebugMessage] = useState("");
   const [reviewingSessionId, setReviewingSessionId] = useState<string | null>(null);
@@ -83,6 +86,7 @@ function SessionDetailPanel({ sessions, activeSessionId, onResumeSession, onAppl
   const tone = attentionTone(attn);
   const sourceTag = active.metadataSource;
   const providerContext = sessionProviderContext(active);
+  const voice = nativeVoicePresentation(sessionCodingTool(active), harnesses);
   const folder = active.cwd.split("/").pop() || active.cwd;
   const headline = situationHeadline(active);
   const tail = situationTail(active, tone);
@@ -242,6 +246,12 @@ function SessionDetailPanel({ sessions, activeSessionId, onResumeSession, onAppl
             {providerContext.model}
             <span className="session-detail-value-sub">{providerContext.modelProvider}</span>
           </DetailField>
+          {voice && (
+            <DetailField className="detail-fact" label="Voice">
+              {voice.label}
+              <span className="session-detail-value-sub">{voice.detail}</span>
+            </DetailField>
+          )}
           {showDebugMetadata && (
             <>
               <DetailField className="detail-fact" label="Work phase">
