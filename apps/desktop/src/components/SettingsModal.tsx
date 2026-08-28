@@ -172,6 +172,12 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
     return () => { mounted = false; };
   }, []);
 
+  useEffect(() => {
+    void verifyPeonSelection(initialPeonSelection);
+    // The initial selection is intentionally verified once when the modal opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   async function saveRetention(rt: RetentionSettings) {
     setRetentionSaveStatus(null);
     setRetention(rt);
@@ -231,7 +237,8 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
   }
 
 
-  const peonProviders = providerDraft.providers.filter((entry) => entry.enabled).map((entry) => entry.id).concat("ollama").filter((id, index, all) => all.indexOf(id) === index);
+  const ollamaEnabled = providerDraft.providers.find((entry) => entry.id === "ollama")?.enabled ?? true;
+  const peonProviders = providerDraft.providers.filter((entry) => entry.enabled).map((entry) => entry.id).concat(ollamaEnabled ? ["ollama"] : []).filter((id, index, all) => all.indexOf(id) === index);
   const peonApplyMatches = peonApplied?.provider === peonSelection.provider
     && peonApplied.model === peonSelection.model
     && (peonSelection.provider !== "ollama" || peonApplied.ollamaBaseUrl === peonSelection.ollamaBaseUrl)

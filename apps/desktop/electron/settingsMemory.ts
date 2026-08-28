@@ -410,6 +410,16 @@ export function readSettings(userDataPath: string): AppSettings {
 export function readSettingsWithMigration(userDataPath: string): { settings: AppSettings; migrated: boolean } {
   const path = settingsPath(userDataPath);
   if (!existsSync(path)) {
+    const backup = `${path}.backup`;
+    if (existsSync(backup)) {
+      try {
+        copyFileSync(backup, path);
+      } catch {
+        // Continue with defaults if recovery cannot publish the backup.
+      }
+    }
+  }
+  if (!existsSync(path)) {
     return { settings: defaultSettings(), migrated: false };
   }
   try {
@@ -421,6 +431,14 @@ export function readSettingsWithMigration(userDataPath: string): { settings: App
       : undefined;
     return { settings, migrated: migrated.migrated || !jsonValuesEqual(settings.providers, rawProviders) };
   } catch {
+    const backup = `${path}.backup`;
+    try {
+      const recovered = normalizeSettings(JSON.parse(readFileSync(backup, "utf8")));
+      copyFileSync(backup, path);
+      return { settings: recovered, migrated: false };
+    } catch {
+      // Fall through to safe defaults when neither file is readable.
+    }
     return { settings: defaultSettings(), migrated: false };
   }
 }
@@ -457,7 +475,9 @@ export function writeSettings(userDataPath: string, settings: AppSettings): void
         ? (error as { code?: string }).code
         : undefined;
       if (process.platform !== "win32" || !["EEXIST", "EPERM", "EBUSY"].includes(code ?? "")) throw error;
+      copyFileSync(target, `${target}.backup`);
       copyFileSync(temporary, target);
+      rmSync(`${target}.backup`, { force: true });
     }
   } finally {
     rmSync(temporaryDirectory, { recursive: true, force: true });
