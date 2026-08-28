@@ -67,13 +67,6 @@ test("SettingsModal has a peon model selector", () => {
   assert.match(source, /testAndApplyPeonProvider/);
 });
 
-test("ProviderSettingsSection renders model provider stale revision state", () => {
-  const source = readFileSync(new URL("../src/components/ProviderSettingsSection.tsx", import.meta.url), "utf8");
-  assert.match(source, /Loading model provider settings/);
-  assert.match(source, /Saved model provider settings revision/);
-  assert.match(source, /isAppliedRevisionStale/);
-});
-
 test("SettingsModal applies before saving model changes", () => {
   const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
   assert.match(source, /testAndApplyPeonProvider/);
@@ -104,15 +97,6 @@ test("updateProviderModel clears a provider override to null", () => {
   const cleared = updateProviderModel(settings, "ollama", "   ");
 
   assert.equal(cleared.providers.find((entry) => entry.id === "ollama")?.model, null);
-});
-
-test("ProviderSettingsSection wires provider-scoped model inputs and suggestions", () => {
-  const source = readFileSync(new URL("../src/components/ProviderSettingsSection.tsx", import.meta.url), "utf8");
-  assert.match(source, /providerModels/);
-  assert.match(source, /onProviderModelChange/);
-  assert.match(source, /datalist/);
-  assert.match(source, /provider-model-suggestions/);
-  assert.match(source, /Use default Peon model/);
 });
 
 test("SettingsModal uses one provider selection without fallbacks", () => {

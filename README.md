@@ -30,7 +30,7 @@ orkworks/
 - Session labels are stable topics, re-seeded only after a harness-declared fresh-conversation command; delayed old-topic inference cannot overwrite the reset placeholder (ADR 0040)
 - The app remembers the last workspace and repo-local active session for relaunch restore
 - The Electron main process owns app-level settings in `userData`, including canonical default hotkeys and persisted hotkeys that drive native menu accelerators
-- Session details show read-only `Coding tool`, `Model provider`, `Model`, and `Provider state` for the selected session. The backend fallback system (Peon skips disabled/capped model providers) remains in place behind the scenes until the provider-first selection in [ADR 0044](docs/adr/0044-peon-provider-first-selection.md) lands.
+- Session details show read-only `Coding tool`, `Model provider`, `Model`, and `Provider state` for the selected session. Peon uses the explicitly applied provider and model from Settings; it does not fall back to another provider (see [ADR 0044](docs/adr/0044-peon-provider-first-selection.md)).
 - ADR 0023 defines the target runtime lifecycle as `creating → alive → stopping → dead`, with live attention only while a session is alive. The current implementation retains the earlier lifecycle vocabulary until that migration lands (see [ADR 0023](docs/adr/0023-simplified-session-lifecycle.md))
 - Lifecycle transitions remain metadata-driven; the previously unwired domain aggregate was removed, with a future typed state-machine tracked in [issue #181](https://github.com/Rambolarsen/orkworks/issues/181) (see [ADR 0021](docs/adr/0021-session-lifecycle-phases.md)).
 - PTY lifetime is owned by the Rust sidecar session runtime rather than by a renderer WebSocket; active work survives terminal detach while `orkworksd` stays alive (see [ADR 0022](docs/adr/0022-session-runtime-owned-pty-lifetime.md))
@@ -141,7 +141,7 @@ The Rust sidecar has one Windows-only dependency feature (`windows-sys` / `Win32
 
 Peon runs in the Rust sidecar as a background task. After a session's terminal goes quiet, Peon asks a model provider to classify the recent output and writes the result to `~/.orkworks/workspaces/<hash>/sessions/<id>.json`. User input into the terminal also resets this debounce window — typing counts as activity. While an inference is in flight for a session, a second one is not launched for the same session. Sessions quiet past `PEON_IDLE_TIMEOUT` are marked idle by timer, without an LLM call.
 
-Which tool performs the inference is no longer chosen by environment variable: Peon routes through the model-provider fallback system (`providers.rs`), which skips disabled/capped providers in fallback order. The per-provider Peon model is configured in the app's Settings. The provider-first selection described in [ADR 0044](docs/adr/0044-peon-provider-first-selection.md) is planned to replace this fallback behavior when implemented.
+Which provider performs Peon inference is selected explicitly in the app's Settings. Selecting a provider verifies it before loading its models; the user then chooses a verified model or enters a manual model override, applies the selection, and saves it. Peon uses only that applied provider/model pair and does not fall back to another provider (see [ADR 0044](docs/adr/0044-peon-provider-first-selection.md)).
 
 The observation loop itself is tuned via environment variables on `orkworksd`:
 

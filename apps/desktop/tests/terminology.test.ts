@@ -56,9 +56,7 @@ test("api.ts defines applyDebugAttention against the debug-injection endpoint", 
 
 test("Settings provider copy refers to model providers", () => {
   const modal = source("../src/components/SettingsModal.tsx");
-  const section = source("../src/components/ProviderSettingsSection.tsx");
   assert.match(modal, /Model providers/);
-  assert.match(section, /model provider/);
 });
 
 test("No active coding tool prompt does not call tools providers", () => {
