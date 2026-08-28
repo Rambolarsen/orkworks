@@ -8,7 +8,7 @@
     "url": "https://github.com/Rambolarsen/orkworks.git"
   },
   "main": "dist-electron/main.js",
-  "packageManager": "pnpm@11.9.0",
+  "packageManager": "pnpm@11.24.0",
   "scripts": {
     "postinstall": "node scripts/setup-electron.mjs",
     "dev": "tsc -p tsconfig.node.json && node scripts/build-preload.mjs && node scripts/dev.mjs",
