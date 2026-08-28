@@ -243,6 +243,11 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
     try {
       const result = await window.orkworks.verifyPeonProvider(selection.provider, selection.provider === "ollama" ? selection.ollamaBaseUrl : undefined);
       setPeonVerification(result);
+      if (result.ok && selection.provider === "ollama" && result.ollamaBaseUrl) {
+        setPeonSelection((current) => current.provider === "ollama"
+          ? { ...current, ollamaBaseUrl: result.ollamaBaseUrl! }
+          : current);
+      }
       if (!result.ok) setPeonError("Provider verification failed.");
     } catch (error) {
       setPeonError(error instanceof Error ? error.message : "Provider verification failed.");

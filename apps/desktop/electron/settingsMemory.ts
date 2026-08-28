@@ -457,8 +457,16 @@ export function writeSettings(userDataPath: string, settings: AppSettings): void
         ? (error as { code?: string }).code
         : undefined;
       if (process.platform !== "win32" || !["EEXIST", "EPERM", "EBUSY"].includes(code ?? "")) throw error;
-      rmSync(target, { force: true });
-      renameSync(temporary, target);
+      const backup = `${target}.backup`;
+      rmSync(backup, { force: true });
+      renameSync(target, backup);
+      try {
+        renameSync(temporary, target);
+      } catch (replacementError) {
+        renameSync(backup, target);
+        throw replacementError;
+      }
+      rmSync(backup, { force: true });
     }
   } finally {
     rmSync(temporaryDirectory, { recursive: true, force: true });
