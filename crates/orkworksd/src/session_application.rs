@@ -1865,7 +1865,7 @@ impl SessionApplication {
             }
         };
         let prompt = format!(
-            "Please review the plan or specification at {plan_path}. If your tooling can spawn a separate review subagent, delegate the review to it instead of reviewing your own work; otherwise review it yourself. Check for missing requirements, risky assumptions, and unclear steps, then report the findings.\r"
+            "Please review the plan or specification at {plan_path}. Delegate this review to a subagent if you can; otherwise review it yourself. Check for missing requirements, risky assumptions, and unclear steps, then report the findings.\r"
         );
         crate::runtime::terminal_runtime::submit_approved_input(&self.state, id, prompt)
             .await
@@ -5284,7 +5284,7 @@ mod tests {
                 response = &mut request => panic!("review request returned {:?} before reaching the PTY", response.unwrap()),
             })
         else { panic!("expected terminal input"); };
-        assert_eq!(data, "Please review the plan or specification at specs/plan.md. If your tooling can spawn a separate review subagent, delegate the review to it instead of reviewing your own work; otherwise review it yourself. Check for missing requirements, risky assumptions, and unclear steps, then report the findings.\r");
+        assert_eq!(data, "Please review the plan or specification at specs/plan.md. Delegate this review to a subagent if you can; otherwise review it yourself. Check for missing requirements, risky assumptions, and unclear steps, then report the findings.\r");
         assert!(state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_events(id).is_empty());
         accepted.unwrap().send(Ok(())).unwrap();
 
