@@ -89,6 +89,7 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
   );
   const [activeSaveStatus, setActiveSaveStatus] = useState<string | null>(null);
   const [detectionGenerations, setDetectionGenerations] = useState<Record<string, number>>({});
+  const verificationTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function refreshDetection(harnessId: string) {
     setDetectionGenerations((current) => ({
@@ -244,6 +245,22 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
     && (peonSelection.provider !== "ollama" || peonApplied.ollamaBaseUrl === peonSelection.ollamaBaseUrl)
     && peonLocallyApplied;
 
+  function canonicalPeonSelection(selection: PeonSelection): PeonSelection {
+    return { ...selection, model: selection.model.trim() };
+  }
+
+  function scheduleVerifyPeonSelection(selection: PeonSelection, immediate = false) {
+    if (verificationTimer.current) clearTimeout(verificationTimer.current);
+    if (immediate) {
+      void verifyPeonSelection(selection);
+      return;
+    }
+    verificationTimer.current = setTimeout(() => {
+      verificationTimer.current = null;
+      void verifyPeonSelection(selection);
+    }, 300);
+  }
+
   async function verifyPeonSelection(selection: PeonSelection) {
     const requestGeneration = ++peonVerificationGeneration.current;
     setPeonBusy(true);
@@ -263,16 +280,18 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
       if (requestGeneration !== peonVerificationGeneration.current) return;
       setPeonError(error instanceof Error ? error.message : "Provider verification failed.");
     } finally {
-      setPeonBusy(false);
+      if (requestGeneration === peonVerificationGeneration.current) setPeonBusy(false);
     }
   }
 
   async function applyPeonSelection() {
     if (!peonVerification?.ok || !peonSelection.model.trim()) return;
+    const selection = canonicalPeonSelection(peonSelection);
+    setPeonSelection(selection);
     setPeonBusy(true);
     setPeonError(null);
     try {
-      const applied = await window.orkworks.testAndApplyPeonProvider(peonSelection);
+      const applied = await window.orkworks.testAndApplyPeonProvider(selection);
       setPeonApplied(applied);
       setPeonLocallyApplied(true);
       setProviderSaveStatus("Applied; save to persist");
@@ -290,7 +309,9 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
       const result = await window.orkworks.savePeonSelection(peonSelection);
       if (!result.ok) throw new Error(result.error);
       settingsController.updateDraft("providers", { ...providerDraft, peonSelection, peonModel: peonSelection.model, ollamaBaseUrl: peonSelection.ollamaBaseUrl ?? providerDraft.ollamaBaseUrl });
-      onSaved(result.settings);
+      const commit = await settingsController.commit();
+      if (!commit.ok) throw new Error(`Couldn't save ${commit.failedDomain} settings.`);
+      onSaved(commit.settings ?? result.settings);
       onClose();
     } catch (error) {
       setPeonError(error instanceof Error ? error.message : "Peon Save failed.");
@@ -419,7 +440,7 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
                       const next = { provider, model: "", ...(provider === "ollama" ? { ollamaBaseUrl: providerDraft.ollamaBaseUrl } : {}) };
                       setPeonSelection(next);
                       setPeonLocallyApplied(false);
-                      void verifyPeonSelection(next);
+                      scheduleVerifyPeonSelection(next, true);
                     }}>
                       {peonProviders.map((provider) => <option key={provider} value={provider}>{provider}</option>)}
                     </select>
@@ -428,18 +449,17 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
                       setPeonSelection(next);
                       setPeonLocallyApplied(false);
                       setPeonVerification(null);
-                      setPeonApplied(null);
                       setPeonError(null);
-                      void verifyPeonSelection(next);
+                      scheduleVerifyPeonSelection(next);
                     }} placeholder="http://127.0.0.1:11434" />}
                     <div role="status" aria-live="polite" className="provider-verify-status">{peonBusy ? "Verifying provider…" : peonVerification?.ok ? "Provider verified." : peonError ?? "Choose a provider to verify it."}</div>
                     <div className="provider-label">Peon model</div>
-                    <select className="provider-model-select" disabled={manualModelOverride || !peonVerification?.ok} value={manualModelOverride ? "" : peonSelection.model} onChange={(event) => { setPeonSelection({ ...peonSelection, model: event.target.value }); setPeonApplied(null); setPeonLocallyApplied(false); }}>
+                    <select className="provider-model-select" disabled={manualModelOverride || !peonVerification?.ok} value={manualModelOverride ? "" : peonSelection.model} onChange={(event) => { setPeonSelection({ ...peonSelection, model: event.target.value }); setPeonLocallyApplied(false); }}>
                       <option value="">Select a verified model</option>
                       {(peonVerification?.models ?? []).map((model) => <option key={model} value={model}>{model}</option>)}
                     </select>
-                    <label><input type="checkbox" checked={manualModelOverride} onChange={(event) => { setManualModelOverride(event.target.checked); setPeonApplied(null); setPeonLocallyApplied(false); if (!event.target.checked) setPeonSelection({ ...peonSelection, model: "" }); }} /> Enter model manually</label>
-                    {manualModelOverride && <input className="provider-model-select" type="text" value={peonSelection.model} onChange={(event) => { setPeonSelection({ ...peonSelection, model: event.target.value }); setPeonApplied(null); setPeonLocallyApplied(false); }} placeholder="Enter model name" />}
+                    <label><input type="checkbox" checked={manualModelOverride} onChange={(event) => { setManualModelOverride(event.target.checked); setPeonLocallyApplied(false); if (!event.target.checked) setPeonSelection({ ...peonSelection, model: "" }); }} /> Enter model manually</label>
+                    {manualModelOverride && <input className="provider-model-select" type="text" value={peonSelection.model} onChange={(event) => { setPeonSelection({ ...peonSelection, model: event.target.value }); setPeonLocallyApplied(false); }} placeholder="Enter model name" />}
                     <datalist id="peon-selected-models">{(peonVerification?.models ?? []).map((model) => <option key={model} value={model} />)}</datalist>
                     <div className="provider-label">Applied Peon configuration</div>
                     <div role="status">{peonApplied ? `${peonApplied.provider} · ${peonApplied.model}${peonApplied.ollamaBaseUrl ? ` · ${peonApplied.ollamaBaseUrl}` : ""}` : "No staged configuration applied."}</div>

@@ -87,6 +87,7 @@ test("Peon bridge keeps Apply separate from durable Save and exposes applied ide
 function transactionHarness(overrides: Partial<PeonSelectionTransport> = {}) {
   const calls: string[] = [];
   const transport: PeonSelectionTransport = {
+    discover: async () => ["llama3"],
     verify: async ({ provider, ollamaBaseUrl, generation }) => {
       calls.push(`verify:${generation}`);
       return {
@@ -201,7 +202,7 @@ test("Peon Save rejects an Apply from an older generation even when sidecar iden
   );
 });
 
-test("Peon discovery supersedes Apply verification without allowing stale work to win", async () => {
+test("Peon discovery does not mutate or supersede the Apply transaction", async () => {
   let resolveOld!: (value: Awaited<ReturnType<PeonSelectionTransport["verify"]>>) => void;
   const { transaction } = transactionHarness({
     verify: ({ provider, generation }) => provider === "copilot"
@@ -226,19 +227,16 @@ test("Peon discovery supersedes Apply verification without allowing stale work t
     ollamaBaseUrl: null,
     generation: 1,
   });
-  await assert.rejects(oldVerification, /superseded/i);
-  await assert.rejects(
-    transaction.apply({ provider: "ollama", model: "llama3", ollamaBaseUrl: "http://custom-ollama:11434" }),
-    /matching successful Peon provider verification/i,
-  );
+  await oldVerification;
 });
 
-test("compatibility model discovery uses the Peon transaction coordinator", () => {
+test("compatibility model discovery uses sidecar discovery without the transaction coordinator", () => {
   assert.doesNotMatch(mainSource, /providerModelDiscoveryGeneration/);
   const discoveryStart = mainSource.indexOf('ipcMain.handle("get-provider-models"');
   assert.notEqual(discoveryStart, -1);
   const discoveryRoute = mainSource.slice(discoveryStart);
-  assert.match(discoveryRoute, /peonTransaction\.discover\(\s*providerId/);
+  assert.match(discoveryRoute, /settings\/providers\/\$\{encodeURIComponent\(providerId\)\}\/models/);
+  assert.doesNotMatch(discoveryRoute, /peonTransaction\.discover\(/);
   assert.doesNotMatch(discoveryRoute, /settings\/peon\/provider\/verify/);
 });
 

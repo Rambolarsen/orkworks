@@ -1396,6 +1396,28 @@ impl ProviderManager {
         })
     }
 
+    pub fn discover_provider_models(
+        &self,
+        provider_id: &str,
+        ollama_base_url: Option<&str>,
+    ) -> Result<Vec<String>, ProviderOperationError> {
+        let definition = self.definition(provider_id)?;
+        if definition.id == "ollama" {
+            let base_url = ollama_base_url.map(str::to_owned).unwrap_or_else(|| {
+                self.settings.read().unwrap().ollama_base_url.clone()
+            });
+            let response = self.verify_ollama(&base_url);
+            if !response.ok {
+                return Err(ollama_operation_error(&response));
+            }
+            return Ok(response.models);
+        }
+        self.discover_models(&definition.id).map_err(|message| ProviderOperationError {
+            code: classify_invocation_error(&message),
+            message,
+        })
+    }
+
     pub fn verify_provider(
         &self,
         request: PeonProviderVerifyRequest,
@@ -1469,6 +1491,21 @@ impl ProviderManager {
         let selection = self.staged_selection(request.selection)?;
         let definition = self.definition(&selection.provider)?;
         self.validate_apply_capability(&definition)?;
+        if let Some(entry) = self.settings.read().unwrap().providers.iter()
+            .find(|entry| entry.id == selection.provider)
+        {
+            match entry.effective_state() {
+                ProviderEffectiveState::Disabled => return Err(ProviderOperationError {
+                    code: ProviderOperationErrorCode::UnsupportedCapability,
+                    message: "selected provider is disabled".into(),
+                }),
+                ProviderEffectiveState::Capped => return Err(ProviderOperationError {
+                    code: ProviderOperationErrorCode::UnsupportedCapability,
+                    message: "selected provider is capped".into(),
+                }),
+                _ => {}
+            }
+        }
         let fingerprint = Self::selection_fingerprint(&selection);
         self.require_matching_verification(request.generation, &fingerprint)?;
         let result = self.invoke_provider(
@@ -1837,9 +1874,8 @@ impl ProviderManager {
                 runtime,
             };
         };
-        let ordered_entries = vec![applied_entry];
 
-        for (step_idx, entry) in ordered_entries.iter().enumerate() {
+        for (step_idx, entry) in [applied_entry].iter().enumerate() {
             let step = step_idx + 1;
 
             if !entry.enabled {

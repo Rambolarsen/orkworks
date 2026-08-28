@@ -274,17 +274,32 @@ app.whenReady().then(() => {
       abortableFetch,
     );
     signal.throwIfAborted();
-    const selection = settings.providers.peonSelection;
     const syncError = providerSettingsSyncError(result);
     if (syncError) throw syncError;
     providerModels.clear();
-    if (selection) {
-      await peonTransaction.syncPersistedSelection(selection, signal, port);
-      signal.throwIfAborted();
-    }
+  }
+
+  function restorePersistedPeonSelection(port: number): void {
+    const selection = currentSettings?.providers.peonSelection;
+    if (!selection) return;
+    void peonTransaction.syncPersistedSelection(selection, undefined, port)
+      .then((applied) => { appliedPeonState = applied; })
+      .catch((error: unknown) => {
+        console.warn(`[main] failed to restore Peon selection: ${error instanceof Error ? error.message : "unknown error"}`);
+      });
   }
 
   const peonTransaction: PeonSelectionTransaction = createPeonSelectionTransaction({
+    discover: async (provider, ollamaBaseUrl) => {
+      const port = await restoration.getReadiness();
+      const response = await fetch(`http://127.0.0.1:${port}/settings/providers/${encodeURIComponent(provider)}/models`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(ollamaBaseUrl ? { baseUrl: ollamaBaseUrl } : {}),
+      });
+      if (!response.ok) throw new Error("model discovery failed");
+      return (await response.json() as { models: string[] }).models;
+    },
     verify: async ({ provider, ollamaBaseUrl, generation, readyPort, signal }) => {
       const port = readyPort ?? await restoration.getReadiness();
       const body: { provider: string; generation: number; ollamaBaseUrl?: string } = { provider, generation };
@@ -322,6 +337,7 @@ app.whenReady().then(() => {
     clearTimeout: (timer) => clearTimeout(timer as NodeJS.Timeout),
     onReady: (port, workspace) => {
       publishBackendLifecycle({ state: "ready", port, workspace });
+      restorePersistedPeonSelection(port);
     },
     onFailure: (error) => {
       logBackendLifecycleFailure("restoration", error);
@@ -577,9 +593,9 @@ app.whenReady().then(() => {
     return { ok: true, settings: rendererSettings(currentSettings ?? readSettings(app.getPath("userData"))) };
   });
 
-  // Compatibility IPC for existing renderer consumers. Model discovery is
-  // gated by the staged Peon provider verification endpoint; the sidecar's
-  // legacy model-list route is intentionally removed.
+  // Compatibility IPC for existing renderer consumers. Discovery is
+  // connectivity/model-listing only; it never runs Peon inference or mutates
+  // the staged Apply transaction.
   ipcMain.handle("get-provider-models", async (_event, providerId: string) => {
     const ollamaBaseUrl = providerId === "ollama" ? persistedOllamaBaseUrl() : undefined;
     const cacheKey = providerModelCacheKey(providerId, ollamaBaseUrl);
@@ -587,10 +603,14 @@ app.whenReady().then(() => {
       return { models: providerModels.get(cacheKey)! };
     }
     try {
-      const models = await peonTransaction.discover(
-        providerId as ProviderId,
-        ollamaBaseUrl,
-      );
+      const port = await restoration.getReadiness();
+      const response = await fetch(`http://127.0.0.1:${port}/settings/providers/${encodeURIComponent(providerId)}/models`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(ollamaBaseUrl ? { baseUrl: ollamaBaseUrl } : {}),
+      });
+      if (!response.ok) throw new Error("model discovery failed");
+      const models = (await response.json() as { models: string[] }).models;
       providerModels.set(cacheKey, models);
       return { models };
     } catch {

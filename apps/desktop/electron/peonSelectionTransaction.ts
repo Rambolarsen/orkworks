@@ -36,6 +36,7 @@ export interface PeonApplyRequest {
 
 export interface PeonSelectionTransport {
   verify(request: PeonVerificationRequest): Promise<PeonProviderVerificationResponse>;
+  discover(provider: ProviderId, ollamaBaseUrl?: string): Promise<string[]>;
   apply(request: PeonApplyRequest): Promise<PeonAppliedState>;
   getApplied(signal?: AbortSignal): Promise<PeonAppliedState>;
 }
@@ -100,10 +101,7 @@ export function createPeonSelectionTransaction(transport: PeonSelectionTransport
   }
 
   async function discover(provider: ProviderId, ollamaBaseUrl?: string): Promise<string[]> {
-    const result = await verify(provider, ollamaBaseUrl);
-    if (generation !== result.generation) throw new Error("Peon model discovery was superseded.");
-    verified = null;
-    return result.models;
+    return transport.discover(provider, ollamaBaseUrl);
   }
 
   async function apply(selection: PeonSelection, signal?: AbortSignal, readyPort?: number): Promise<PeonAppliedState> {

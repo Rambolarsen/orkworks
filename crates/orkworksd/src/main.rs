@@ -42,7 +42,7 @@ use crate::http::integration_handlers::{
     get_integration_status, install_integration, uninstall_integration,
 };
 use crate::http::provider_handlers::{
-    get_applied_peon_provider, get_providers, set_provider_settings, test_and_apply_peon_provider,
+    discover_provider_models, get_applied_peon_provider, get_providers, set_provider_settings, test_and_apply_peon_provider,
     verify_ollama_settings, verify_peon_provider,
 };
 use crate::http::retention_handlers::set_retention;
@@ -288,6 +288,7 @@ pub(crate) fn build_router(state: Arc<AppState>) -> Router {
         .route("/providers", get(get_providers))
         .route("/settings/providers", post(set_provider_settings))
         .route("/settings/providers/ollama/verify", post(verify_ollama_settings))
+        .route("/settings/providers/:provider_id/models", post(discover_provider_models))
         .route("/settings/peon/provider/verify", post(verify_peon_provider))
         .route(
             "/settings/peon/test-and-apply",

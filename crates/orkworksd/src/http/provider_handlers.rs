@@ -45,6 +45,28 @@ pub(crate) async fn verify_ollama_settings(
     }
 }
 
+pub(crate) async fn discover_provider_models(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Path(provider_id): axum::extract::Path<String>,
+    payload: Result<axum::Json<providers::OllamaVerifyRequest>, JsonRejection>,
+) -> axum::response::Response {
+    let base_url = match payload {
+        Ok(axum::Json(payload)) => Some(payload.base_url),
+        Err(_) => None,
+    };
+    let provider_manager = state.providers.clone();
+    match tokio::task::spawn_blocking(move || {
+        provider_manager.discover_provider_models(&provider_id, base_url.as_deref())
+    }).await {
+        Ok(Ok(models)) => axum::Json(serde_json::json!({ "models": models })).into_response(),
+        Ok(Err(error)) => provider_error_response(error),
+        Err(_) => provider_error_response(providers::ProviderOperationError {
+            code: providers::ProviderOperationErrorCode::ProviderFailure,
+            message: "model discovery task failed".into(),
+        }),
+    }
+}
+
 fn provider_error_response(error: providers::ProviderOperationError) -> axum::response::Response {
     let status = match error.code {
         providers::ProviderOperationErrorCode::Malformed
