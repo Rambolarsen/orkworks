@@ -51,7 +51,7 @@ const hotkeyRows: Array<{ action: HotkeyAction; label: string; optional?: boolea
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 const INTEGRATION_HARNESS_IDS = ["claude-code", "gemini", "copilot", "codex", "opencode"];
 
-export default function SettingsModal({ initialSettings, harnesses, activeHarnessIds, providerRuntime, onClose, onSaved, onSaveActiveHarnesses }: SettingsModalProps) {
+export default function SettingsModal({ initialSettings, harnesses, activeHarnessIds, onClose, onSaved, onSaveActiveHarnesses }: SettingsModalProps) {
   const modalRef = useRef<HTMLElement>(null);
   const settingsControllerRef = useRef<ReturnType<typeof createSettingsController> | null>(null);
   if (!settingsControllerRef.current) {
@@ -69,7 +69,7 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
   const [retentionSaveStatus, setRetentionSaveStatus] = useState<string | null>(null);
   const [debugSettings, setDebugSettings] = useState<DebugSettings>(initialSettings.debug);
   const [debugSaveStatus, setDebugSaveStatus] = useState<string | null>(null);
-  const [providerDraft, setProviderDraft] = useState<ProviderSettings>(initialSettings.providers);
+  const [providerDraft] = useState<ProviderSettings>(initialSettings.providers);
   const [providerSaveStatus, setProviderSaveStatus] = useState<string | null>(null);
   const initialPeonSelection: PeonSelection = initialSettings.providers.peonSelection ?? {
     provider: "ollama",
