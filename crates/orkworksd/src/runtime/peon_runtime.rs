@@ -727,7 +727,7 @@ where
             };
 
             if cancellation.load(Ordering::SeqCst) {
-                finish_attempt_if_active(&cleanup_state, &id, &attempt);
+                cleanup_state.peon.cleanup_attempt(&id, &attempt);
                 return;
             }
 
@@ -1276,6 +1276,7 @@ mod tests {
             .with_barriers(provider_entered.clone(), provider_release.clone());
         let state_mut = Arc::get_mut(&mut state).unwrap();
         state_mut.providers = providers::ProviderManager::for_tests(settings, vec![fake_provider]);
+        state_mut.providers.mark_applied_for_tests("ollama", Some("test-model"));
         state_mut.peon.config.interval_secs = 0;
 
         let session_id = "shutdown-blocking-inference";
@@ -1322,8 +1323,13 @@ mod tests {
             .unwrap();
 
         shutdown_tx.send(()).unwrap();
+        // The provider call is deliberately blocking. Release it after
+        // shutdown starts so the runtime can finish its bounded drain instead
+        // of waiting forever for a barrier that this test releases too late.
+        tokio::task::spawn_blocking(move || provider_release.wait())
+            .await
+            .unwrap();
         loop_task.await.unwrap();
-        provider_release.wait();
 
         assert!(!state
             .peon

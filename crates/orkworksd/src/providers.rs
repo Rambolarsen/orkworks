@@ -2355,6 +2355,14 @@ impl ProviderRunner for FakeRunner {
 
 #[cfg(test)]
 impl ProviderManager {
+    #[cfg(test)]
+    pub fn mark_applied_for_tests(&self, provider: &str, model: Option<&str>) {
+        let mut state = self.operation_state.lock().unwrap();
+        state.applied.provider = Some(provider.to_string());
+        state.applied.model = model.map(str::to_string);
+        state.applied.connection_revision = 1;
+    }
+
     pub fn for_tests(settings: ProviderSettingsPayload, fakes: Vec<FakeProvider>) -> Self {
         let specs: HashMap<String, FakeProvider> =
             fakes.into_iter().map(|f| (f.id.to_string(), f)).collect();
