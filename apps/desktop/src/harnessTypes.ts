@@ -3,6 +3,13 @@ export type HarnessLaunch =
   | { kind: "command-template"; command: string; args: string[]; modelPrefix: string | null }
   | { kind: "platform-shell"; login: boolean };
 
+export interface HarnessVoiceCapability {
+  nativeVoice: boolean;
+  requiresMicrophonePermission: boolean;
+  orkworksDictation: boolean;
+  orkworksVoiceCommands: boolean;
+}
+
 /** Mirrors crates/orkworksd/src/harness/definition.rs HarnessDefinition (v2, resolved-registry shape). */
 export interface HarnessConfig {
   id: string;
@@ -16,7 +23,7 @@ export interface HarnessConfig {
   capacity: unknown;
   sessionSignals: unknown;
   integration: unknown;
-  voice: unknown;
+  voice: HarnessVoiceCapability | null;
 }
 
 export interface CreateSessionOptions {
