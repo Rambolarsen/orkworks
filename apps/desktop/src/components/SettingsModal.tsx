@@ -83,6 +83,7 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
   const [peonBusy, setPeonBusy] = useState(false);
   const [peonError, setPeonError] = useState<string | null>(null);
   const [manualModelOverride, setManualModelOverride] = useState(false);
+  const peonVerificationGeneration = useRef(0);
   const [activeDraft, setActiveDraft] = useState<string[]>(() =>
     normalizeActiveHarnessIds(harnesses, activeHarnessIds),
   );
@@ -237,11 +238,13 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
     && peonLocallyApplied;
 
   async function verifyPeonSelection(selection: PeonSelection) {
+    const requestGeneration = ++peonVerificationGeneration.current;
     setPeonBusy(true);
     setPeonError(null);
     setPeonVerification(null);
     try {
       const result = await window.orkworks.verifyPeonProvider(selection.provider, selection.provider === "ollama" ? selection.ollamaBaseUrl : undefined);
+      if (requestGeneration !== peonVerificationGeneration.current) return;
       setPeonVerification(result);
       if (result.ok && selection.provider === "ollama" && result.ollamaBaseUrl) {
         setPeonSelection((current) => current.provider === "ollama"
@@ -250,6 +253,7 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
       }
       if (!result.ok) setPeonError("Provider verification failed.");
     } catch (error) {
+      if (requestGeneration !== peonVerificationGeneration.current) return;
       setPeonError(error instanceof Error ? error.message : "Provider verification failed.");
     } finally {
       setPeonBusy(false);

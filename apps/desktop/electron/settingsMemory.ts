@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { peonSelectionMatchesAppliedState, type PeonAppliedState, type PeonSelection, type ProviderId, type ProviderCapacityState, type ProviderSettings, type ProviderSettingsEntry } from "./providerTypes.ts";
@@ -450,23 +450,14 @@ export function writeSettings(userDataPath: string, settings: AppSettings): void
     try {
       renameSync(temporary, target);
     } catch (error) {
-      // Windows refuses to rename over an existing file. Removing the target
-      // only on that platform preserves the atomic same-directory rename on
-      // Unix while allowing subsequent settings saves on Windows.
+      // Windows refuses to rename over an existing file. Copying over the
+      // target avoids deleting the live settings file or sharing a backup
+      // path between concurrent writers; Unix keeps the atomic rename path.
       const code = error && typeof error === "object" && "code" in error
         ? (error as { code?: string }).code
         : undefined;
       if (process.platform !== "win32" || !["EEXIST", "EPERM", "EBUSY"].includes(code ?? "")) throw error;
-      const backup = `${target}.backup`;
-      rmSync(backup, { force: true });
-      renameSync(target, backup);
-      try {
-        renameSync(temporary, target);
-      } catch (replacementError) {
-        renameSync(backup, target);
-        throw replacementError;
-      }
-      rmSync(backup, { force: true });
+      copyFileSync(temporary, target);
     }
   } finally {
     rmSync(temporaryDirectory, { recursive: true, force: true });
