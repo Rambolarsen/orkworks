@@ -1037,7 +1037,7 @@ html, body, #root {
 .session-row--unread:hover { background: var(--surface-2); }
 .session-row[aria-selected="true"] { background: var(--surface-active); }
 .session-row[aria-selected="true"]:hover { background: var(--surface-active); }
-.session-row--remembered { opacity: 0.78; }
+.session-row--remembered { opacity: 0.62; }
 
 /* Which tones are "loud" lives in labels.ts (isLoudTone) — the component
    stamps session-row--loud so this file never re-lists the tone set. */
