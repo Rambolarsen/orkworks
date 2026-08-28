@@ -1816,12 +1816,28 @@ impl ProviderManager {
     ) -> ProviderRunResult {
         let settings = self.settings.read().unwrap().clone();
         let prompt = peon::build_prompt(output);
+        let applied = self.operation_state.lock().unwrap().applied.clone();
 
         let mut attempts = Vec::new();
         let mut runtime: HashMap<String, ProviderRuntimeEntry> = HashMap::new();
 
-        let mut ordered_entries: Vec<&ProviderSettingsEntry> = settings.providers.iter().collect();
-        ordered_entries.sort_by_key(|e| e.fallback_order);
+        let Some(applied_provider) = applied.provider.as_deref() else {
+            return ProviderRunResult {
+                inference: None,
+                observation: None,
+                attempts,
+                runtime,
+            };
+        };
+        let Some(applied_entry) = settings.providers.iter().find(|entry| entry.id == applied_provider) else {
+            return ProviderRunResult {
+                inference: None,
+                observation: None,
+                attempts,
+                runtime,
+            };
+        };
+        let ordered_entries = vec![applied_entry];
 
         for (step_idx, entry) in ordered_entries.iter().enumerate() {
             let step = step_idx + 1;
@@ -1858,7 +1874,11 @@ impl ProviderManager {
                 }
             };
 
-            let resolved_model = resolve_provider_model(entry, settings.peon_model.as_deref());
+            let resolved_model = if definition.supports_model {
+                applied.model.clone()
+            } else {
+                None
+            };
             let model_arg = if definition.supports_model {
                 resolved_model.as_deref().and_then(|model| {
                     definition
@@ -1898,7 +1918,7 @@ impl ProviderManager {
                 }
             };
             let timeout_secs = timeout_secs_override.unwrap_or(definition.timeout_secs);
-            let result = self.runner.run(
+            let result = self.runner.run_with_connection(
                 &entry.id,
                 &definition.command,
                 &args,
@@ -1906,6 +1926,11 @@ impl ProviderManager {
                 timeout_secs,
                 if definition.supports_model {
                     resolved_model.as_deref()
+                } else {
+                    None
+                },
+                if entry.id == "ollama" {
+                    applied.ollama_base_url.as_deref()
                 } else {
                     None
                 },
