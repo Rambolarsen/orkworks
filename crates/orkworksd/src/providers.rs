@@ -2369,7 +2369,7 @@ impl ProviderManager {
         let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
         let resolved =
             Arc::new(resolve_document(&builtins, &HarnessUserDocument::default()).unwrap());
-        Self {
+        let manager = Self {
             registry: builtin_provider_registry(),
             harness_catalog: Some(Arc::new(RwLock::new(resolved))),
             settings: Arc::new(RwLock::new(settings)),
@@ -2383,7 +2383,11 @@ impl ProviderManager {
             apply_lock: Arc::new(Mutex::new(())),
             #[cfg(test)]
             apply_parse_hook: None,
+        };
+        if let Some(selection) = manager.settings.read().unwrap().peon_selection.clone() {
+            manager.mark_applied_for_tests(&selection.provider, Some(&selection.model));
         }
+        manager
     }
 
     pub fn for_tests_with_registry(

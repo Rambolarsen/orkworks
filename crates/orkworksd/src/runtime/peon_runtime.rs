@@ -1935,7 +1935,11 @@ mod tests {
                     version: 1,
                     revision: 1,
                     peon_model: None,
-                    peon_selection: None,
+                    peon_selection: Some(providers::PeonSelection {
+                        provider: "opencode".into(),
+                        model: "test-model".into(),
+                        ollama_base_url: None,
+                    }),
                     ollama_base_url: providers::default_ollama_base_url(),
                     providers: vec![providers::ProviderSettingsEntry {
                         id: "opencode".into(),
@@ -2050,7 +2054,11 @@ mod tests {
                     version: 1,
                     revision: 1,
                     peon_model: None,
-                    peon_selection: None,
+                    peon_selection: Some(providers::PeonSelection {
+                        provider: "opencode".into(),
+                        model: "test-model".into(),
+                        ollama_base_url: None,
+                    }),
                     ollama_base_url: providers::default_ollama_base_url(),
                     providers: vec![providers::ProviderSettingsEntry {
                         id: "opencode".into(),
@@ -2193,7 +2201,11 @@ mod tests {
                     version: 1,
                     revision: 1,
                     peon_model: None,
-                    peon_selection: None,
+                    peon_selection: Some(providers::PeonSelection {
+                        provider: "opencode".into(),
+                        model: "test-model".into(),
+                        ollama_base_url: None,
+                    }),
                     ollama_base_url: providers::default_ollama_base_url(),
                     providers: vec![providers::ProviderSettingsEntry {
                         id: "opencode".into(),
@@ -2354,7 +2366,11 @@ mod tests {
                     version: 1,
                     revision: 1,
                     peon_model: None,
-                    peon_selection: None,
+                    peon_selection: Some(providers::PeonSelection {
+                        provider: "opencode".into(),
+                        model: "test-model".into(),
+                        ollama_base_url: None,
+                    }),
                     ollama_base_url: providers::default_ollama_base_url(),
                     providers: vec![providers::ProviderSettingsEntry {
                         id: "opencode".into(),
@@ -2510,7 +2526,11 @@ mod tests {
                     version: 1,
                     revision: 1,
                     peon_model: None,
-                    peon_selection: None,
+                    peon_selection: Some(providers::PeonSelection {
+                        provider: "opencode".into(),
+                        model: "test-model".into(),
+                        ollama_base_url: None,
+                    }),
                     ollama_base_url: providers::default_ollama_base_url(),
                     providers: vec![providers::ProviderSettingsEntry {
                         id: "opencode".into(),
@@ -2670,7 +2690,11 @@ mod tests {
                     version: 1,
                     revision: 1,
                     peon_model: None,
-                    peon_selection: None,
+                    peon_selection: Some(providers::PeonSelection {
+                        provider: "opencode".into(),
+                        model: "test-model".into(),
+                        ollama_base_url: None,
+                    }),
                     ollama_base_url: providers::default_ollama_base_url(),
                     providers: vec![providers::ProviderSettingsEntry {
                         id: "opencode".to_string(),
@@ -2881,7 +2905,11 @@ mod tests {
                     version: 1,
                     revision: 1,
                     peon_model: None,
-                    peon_selection: None,
+                    peon_selection: Some(providers::PeonSelection {
+                        provider: "opencode".into(),
+                        model: "test-model".into(),
+                        ollama_base_url: None,
+                    }),
                     ollama_base_url: providers::default_ollama_base_url(),
                     providers: vec![providers::ProviderSettingsEntry {
                         id: "opencode".to_string(),
@@ -3012,7 +3040,11 @@ mod tests {
                     version: 1,
                     revision: 1,
                     peon_model: None,
-                    peon_selection: None,
+                    peon_selection: Some(providers::PeonSelection {
+                        provider: "opencode".into(),
+                        model: "test-model".into(),
+                        ollama_base_url: None,
+                    }),
                     ollama_base_url: providers::default_ollama_base_url(),
                     providers: vec![providers::ProviderSettingsEntry {
                         id: "opencode".to_string(),
@@ -4306,7 +4338,11 @@ mod tests {
                     version: 1,
                     revision: 1,
                     peon_model: None,
-                    peon_selection: None,
+                    peon_selection: Some(providers::PeonSelection {
+                        provider: "opencode".into(),
+                        model: "test-model".into(),
+                        ollama_base_url: None,
+                    }),
                     ollama_base_url: providers::default_ollama_base_url(),
                     providers: vec![providers::ProviderSettingsEntry {
                         id: "opencode".to_string(),
@@ -4489,7 +4525,11 @@ mod tests {
                     version: 1,
                     revision: 1,
                     peon_model: None,
-                    peon_selection: None,
+                    peon_selection: Some(providers::PeonSelection {
+                        provider: "opencode".into(),
+                        model: "test-model".into(),
+                        ollama_base_url: None,
+                    }),
                     ollama_base_url: providers::default_ollama_base_url(),
                     providers: vec![providers::ProviderSettingsEntry {
                         id: "opencode".to_string(),
@@ -4614,7 +4654,11 @@ mod tests {
                     version: 1,
                     revision: 1,
                     peon_model: None,
-                    peon_selection: None,
+                    peon_selection: Some(providers::PeonSelection {
+                        provider: "opencode".into(),
+                        model: "test-model".into(),
+                        ollama_base_url: None,
+                    }),
                     ollama_base_url: providers::default_ollama_base_url(),
                     providers: vec![providers::ProviderSettingsEntry {
                         id: "opencode".into(),
