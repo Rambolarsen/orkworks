@@ -1,5 +1,5 @@
-import { peonSelectionMatchesAppliedState, type PeonAppliedState, type PeonProviderVerificationResponse, type PeonSelection, type ProviderId } from "./providerTypes";
-import { normalizeProviderSettings } from "./settingsMemory";
+import { peonSelectionMatchesAppliedState, type PeonAppliedState, type PeonProviderVerificationResponse, type PeonSelection, type ProviderId } from "./providerTypes.ts";
+import { normalizeProviderSettings } from "./settingsMemory.ts";
 
 export function normalizePeonSelectionInput(value: unknown, fallbackOllamaBaseUrl?: string): PeonSelection {
   const candidate = value && typeof value === "object" && !Array.isArray(value)
