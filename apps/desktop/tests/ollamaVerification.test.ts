@@ -21,16 +21,15 @@ test("Electron model suggestions use staged Peon verification instead of the rem
   const main = readFileSync(new URL("../electron/main.ts", import.meta.url), "utf8");
   assert.match(main, /settings\/peon\/provider\/verify/);
   assert.doesNotMatch(main, /\/providers\/\$\{providerId\}\/models/);
-  assert.match(main, /providerModelDiscoveryGeneration/);
+  assert.match(main, /peonTransaction\.discover/);
   assert.doesNotMatch(main, /generation:\s*0/);
 });
 
-test("SettingsModal guards against stale verification results", () => {
+test("SettingsModal verifies and invalidates provider-first drafts", () => {
   const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
-  assert.match(source, /const verifyRequestRef = useRef\(0\)/);
-  assert.match(source, /const requestId = \+\+verifyRequestRef\.current/);
-  assert.match(source, /if \(requestId !== verifyRequestRef\.current\) return/);
-  assert.match(source, /verifyRequestRef\.current\+\+/);
-  assert.match(source, /setOllamaVerification\(\{ phase: "idle" }\)/);
-  assert.doesNotMatch(source, /result\.normalizedBaseUrl !== normalizedDraft/);
+  assert.match(source, /verifyPeonSelection/);
+  assert.match(source, /getAppliedPeonProvider/);
+  assert.match(source, /setPeonVerification\(null\)/);
+  assert.match(source, /testAndApplyPeonProvider/);
+  assert.match(source, /savePeonSelection/);
 });

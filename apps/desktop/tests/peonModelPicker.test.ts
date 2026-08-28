@@ -64,7 +64,7 @@ test("SettingsModal has a peon model selector", () => {
   const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
   assert.match(source, /Peon model/);
   assert.match(source, /provider-model-select/);
-  assert.match(source, /savePeonModel/);
+  assert.match(source, /testAndApplyPeonProvider/);
 });
 
 test("ProviderSettingsSection renders model provider stale revision state", () => {
@@ -74,16 +74,16 @@ test("ProviderSettingsSection renders model provider stale revision state", () =
   assert.match(source, /isAppliedRevisionStale/);
 });
 
-test("SettingsModal auto-saves on model change", () => {
+test("SettingsModal applies before saving model changes", () => {
   const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
-  assert.match(source, /savePeonModel/);
-  assert.match(source, /saveProviderSettings/);
-  assert.match(source, /ollamaBaseUrl:\s*nextBaseUrl/);
+  assert.match(source, /testAndApplyPeonProvider/);
+  assert.match(source, /savePeonSelection/);
+  assert.match(source, /peonApplyMatches/);
 });
 
 test("SettingsModal renders verify affordance and status region for Ollama", () => {
   const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
-  assert.match(source, /Verify Ollama/);
+  assert.match(source, /verifyPeonProvider/);
   assert.match(source, /role="status"/);
   assert.match(source, /window\.orkworks\.verifyOllama/);
 });
@@ -115,11 +115,10 @@ test("ProviderSettingsSection wires provider-scoped model inputs and suggestions
   assert.match(source, /Use default Peon model/);
 });
 
-test("SettingsModal keeps the global field as fallback and Ollama candidates provider-scoped", () => {
+test("SettingsModal uses one provider selection without fallbacks", () => {
   const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
-  assert.match(source, /Default Peon model/);
-  assert.match(source, /onProviderModelChange/);
-  assert.match(source, /updateProviderModel/);
-  assert.match(source, /ollama.*model/si);
-  assert.match(source, /does not pin.*Copilot.*Claude/si);
+  assert.match(source, /Peon provider/);
+  assert.match(source, /Enter model manually/);
+  assert.match(source, /Apply/);
+  assert.match(source, /Save/);
 });

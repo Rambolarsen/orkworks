@@ -81,6 +81,7 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
   const [peonApplied, setPeonApplied] = useState<PeonAppliedState | null>(null);
   const [peonBusy, setPeonBusy] = useState(false);
   const [peonError, setPeonError] = useState<string | null>(null);
+  const [manualModelOverride, setManualModelOverride] = useState(false);
   const [activeDraft, setActiveDraft] = useState<string[]>(() =>
     normalizeActiveHarnessIds(harnesses, activeHarnessIds),
   );
@@ -158,6 +159,16 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
       window.orkworks.setHotkeyCaptureActive(false);
     };
   }, [capturing]);
+
+  useEffect(() => {
+    let mounted = true;
+    void window.orkworks.getAppliedPeonProvider().then((applied) => {
+      if (mounted) setPeonApplied(applied);
+    }).catch(() => {
+      if (mounted) setPeonError("Couldn't load the applied Peon configuration.");
+    });
+    return () => { mounted = false; };
+  }, []);
 
   async function saveRetention(rt: RetentionSettings) {
     setRetentionSaveStatus(null);
@@ -392,10 +403,22 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
                     }}>
                       {peonProviders.map((provider) => <option key={provider} value={provider}>{provider}</option>)}
                     </select>
-                    {peonSelection.provider === "ollama" && <Input value={peonSelection.ollamaBaseUrl ?? ""} onChange={(event) => setPeonSelection({ ...peonSelection, ollamaBaseUrl: event.target.value })} placeholder="http://127.0.0.1:11434" />}
+                    {peonSelection.provider === "ollama" && <Input value={peonSelection.ollamaBaseUrl ?? ""} onChange={(event) => {
+                      const next = { ...peonSelection, ollamaBaseUrl: event.target.value };
+                      setPeonSelection(next);
+                      setPeonVerification(null);
+                      setPeonApplied(null);
+                      setPeonError(null);
+                      void verifyPeonSelection(next);
+                    }} placeholder="http://127.0.0.1:11434" />}
                     <div role="status" aria-live="polite" className="provider-verify-status">{peonBusy ? "Verifying provider…" : peonVerification?.ok ? "Provider verified." : peonError ?? "Choose a provider to verify it."}</div>
                     <div className="provider-label">Peon model</div>
-                    <input className="provider-model-select" type="text" list="peon-selected-models" value={peonSelection.model} onChange={(event) => { setPeonSelection({ ...peonSelection, model: event.target.value }); setPeonApplied(null); }} placeholder="Select or enter a model" />
+                    <select className="provider-model-select" disabled={manualModelOverride || !peonVerification?.ok} value={manualModelOverride ? "" : peonSelection.model} onChange={(event) => { setPeonSelection({ ...peonSelection, model: event.target.value }); setPeonApplied(null); }}>
+                      <option value="">Select a verified model</option>
+                      {(peonVerification?.models ?? []).map((model) => <option key={model} value={model}>{model}</option>)}
+                    </select>
+                    <label><input type="checkbox" checked={manualModelOverride} onChange={(event) => { setManualModelOverride(event.target.checked); setPeonApplied(null); if (!event.target.checked) setPeonSelection({ ...peonSelection, model: "" }); }} /> Enter model manually</label>
+                    {manualModelOverride && <input className="provider-model-select" type="text" value={peonSelection.model} onChange={(event) => { setPeonSelection({ ...peonSelection, model: event.target.value }); setPeonApplied(null); }} placeholder="Enter model name" />}
                     <datalist id="peon-selected-models">{(peonVerification?.models ?? []).map((model) => <option key={model} value={model} />)}</datalist>
                     <div className="provider-label">Applied Peon configuration</div>
                     <div role="status">{peonApplied ? `${peonApplied.provider} · ${peonApplied.model}${peonApplied.ollamaBaseUrl ? ` · ${peonApplied.ollamaBaseUrl}` : ""}` : "No staged configuration applied."}</div>
