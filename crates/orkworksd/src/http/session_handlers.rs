@@ -46,6 +46,8 @@ pub(crate) struct HarnessSessionReportRequest {
     pub(crate) harness_session_id: String,
     pub(crate) source: String,
     pub(crate) confidence: f64,
+    #[serde(rename = "hookFingerprint", default)]
+    pub(crate) hook_fingerprint: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -346,6 +348,8 @@ pub(crate) async fn report_harness_session(
     Path(id): Path<String>,
     Json(req): Json<HarnessSessionReportRequest>,
 ) -> impl IntoResponse {
+    let observation_state = state.clone();
+    let is_codex_hook = req.source == "codex_hook";
     let report = metadata::HarnessSessionReport {
         harness_session_id: req.harness_session_id,
         source: req.source,
@@ -359,6 +363,20 @@ pub(crate) async fn report_harness_session(
         }
         Err(_) => return axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     };
+
+    if let Some(fingerprint) = req.hook_fingerprint {
+        if is_codex_hook
+            && metadata::valid_hook_fingerprint(&fingerprint)
+            && matches!(
+                result,
+                metadata::HarnessSessionMergeResult::Accepted
+                    | metadata::HarnessSessionMergeResult::IgnoredLowerConfidence
+            )
+        {
+            let _ = SessionApplication::new(observation_state)
+                .record_codex_hook_observation(&id, &fingerprint);
+        }
+    }
 
     match result {
         metadata::HarnessSessionMergeResult::Accepted
@@ -1247,6 +1265,7 @@ mod tests {
                 harness_session_id: "bad id".into(),
                 source: "test".into(),
                 confidence: 0.9,
+                hook_fingerprint: None,
             }),
         )
         .await
@@ -1266,6 +1285,7 @@ mod tests {
                 harness_session_id: "native-123".into(),
                 source: "test".into(),
                 confidence: 0.9,
+                hook_fingerprint: None,
             }),
         )
         .await
@@ -1288,7 +1308,7 @@ mod tests {
                     label: "Known".into(),
                     workspace: dir.path().display().to_string(),
                     task: "".into(),
-                    harness: "opencode".into(),
+                    harness: "codex".into(),
                     model: "".into(),
                     cwd: dir.path().display().to_string(),
                     status: "running".into(),
@@ -1342,8 +1362,9 @@ mod tests {
             Path("known".into()),
             Json(HarnessSessionReportRequest {
                 harness_session_id: "native-123".into(),
-                source: "opencode_env".into(),
+                source: "codex_hook".into(),
                 confidence: 0.98,
+                hook_fingerprint: Some("a".repeat(64)),
             }),
         )
         .await
@@ -1352,6 +1373,15 @@ mod tests {
         assert_eq!(response.status(), axum::http::StatusCode::OK);
         let ws = state.workspace.lock().unwrap();
         let updated = ws.as_ref().unwrap().metadata.read_session("known").unwrap();
+        assert_eq!(
+            ws.as_ref()
+                .unwrap()
+                .metadata
+                .read_codex_hook_observation()
+                .unwrap()
+                .fingerprint,
+            "a".repeat(64)
+        );
         assert_eq!(
             updated
                 .resume
@@ -1479,6 +1509,7 @@ mod tests {
                 harness_session_id: "native-123".into(),
                 source: "opencode_env".into(),
                 confidence: 0.98,
+                hook_fingerprint: None,
             }),
         )
         .await
