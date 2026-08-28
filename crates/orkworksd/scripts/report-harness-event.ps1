@@ -2,6 +2,7 @@
 param(
     [string]$Marker = "",
     [string]$Status = "waiting_for_input",
+    [string]$HookFingerprint = "",
     # Plan-path mode (ADR 0038): set by Claude's installed PostToolUse
     # Write|Edit hook entry. In this mode the reporter forwards the hook
     # payload's `tool_input.file_path` to `/sessions/:id/plan-path` and
@@ -130,7 +131,11 @@ if ($sessionId -and $port -and $sessionSource -ne "codex_hook") {
 
 if ($sessionId -and $port -and $harnessSessionId -and $sessionSource) {
     try {
-        $sessionBody = @{ harnessSessionId = $harnessSessionId; source = $sessionSource; confidence = 0.98 } | ConvertTo-Json -Compress
+        $sessionReport = @{ harnessSessionId = $harnessSessionId; source = $sessionSource; confidence = 0.98 }
+        if ($sessionSource -eq "codex_hook" -and $HookFingerprint) {
+            $sessionReport["hookFingerprint"] = $HookFingerprint
+        }
+        $sessionBody = $sessionReport | ConvertTo-Json -Compress
         Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$port/sessions/$sessionId/harness-session" `
             -ContentType "application/json" -Body $sessionBody -TimeoutSec 5 | Out-Null
     } catch {}

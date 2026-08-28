@@ -207,6 +207,7 @@ An ADR earns a bullet below only while it is `accepted` (not superseded), constr
 - `~/.orkworks/workspaces/<hash>/capacity/<id>.json` — capacity per model/harness
 - `~/.orkworks/workspaces/<hash>/recommendations/<id>.json` — Taskmaster recommendation state and history
 - `~/.orkworks/workspaces/<hash>/workspace.json` — workspace memory, including the last active session
+- `~/.orkworks/workspaces/<hash>/codex-hook-observation.json` — the last Codex hook fingerprint observed executing; Settings reports Codex activation only when it matches the currently installed hook definition
 - `~/.orkworks/workspaces/<hash>/integrations/aider.json` — versioned OrkWorks-owned Aider notification-command preference
 - `~/.orkworks/harnesses.json` — global harness definitions
 - `~/.orkworks/hook-scripts/` — stable copies of harness reporter scripts (e.g. the Claude Code Notification hook), installed hook commands always point here rather than at the packaged/dev source, so they keep working across app updates and packaging schemes whose own paths aren't stable at runtime (Linux AppImage's per-launch mount point, in particular). The workspace-local harness hook configuration that invokes these reporters is gitignored and must not be committed.

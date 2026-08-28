@@ -370,6 +370,13 @@ pub struct WorkspaceMemory {
     pub active_harness_ids: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CodexHookObservation {
+    pub fingerprint: String,
+    #[serde(rename = "observedAt")]
+    pub observed_at: String,
+}
+
 fn normalize_session_metadata(mut meta: SessionMetadata) -> SessionMetadata {
     meta.work_phase = normalize_work_phase(&meta.work_phase);
 
@@ -925,6 +932,10 @@ pub fn valid_harness_session_report(report: &HarnessSessionReport) -> bool {
         && (0.0..=1.0).contains(&report.confidence)
 }
 
+pub fn valid_hook_fingerprint(fingerprint: &str) -> bool {
+    fingerprint.len() == 64 && fingerprint.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct EventFileStamp {
     len: u64,
@@ -968,6 +979,36 @@ impl MetadataStore {
 
     pub fn workspace_memory_path(&self) -> PathBuf {
         self.root.join("workspace.json")
+    }
+
+    pub fn codex_hook_observation_path(&self) -> PathBuf {
+        self.root.join("codex-hook-observation.json")
+    }
+
+    pub fn read_codex_hook_observation(&self) -> Option<CodexHookObservation> {
+        let data = fs::read_to_string(self.codex_hook_observation_path()).ok()?;
+        serde_json::from_str(&data).ok()
+    }
+
+    pub fn write_codex_hook_observation(&self, observation: &CodexHookObservation) {
+        let path = self.codex_hook_observation_path();
+        let result = (|| -> std::io::Result<()> {
+            fs::create_dir_all(&self.root)?;
+            let json = serde_json::to_string_pretty(observation)
+                .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
+            write_atomic(&path, &json)
+        })();
+        if let Err(error) = result {
+            warn!(%error, "failed to write Codex hook observation");
+        }
+    }
+
+    pub fn clear_codex_hook_observation(&self) {
+        if let Err(error) = fs::remove_file(self.codex_hook_observation_path()) {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                warn!(%error, "failed to clear Codex hook observation");
+            }
+        }
     }
 
     pub fn read_workspace_memory(&self) -> Option<WorkspaceMemory> {
@@ -3050,6 +3091,21 @@ mod tests {
             memory.last_active_at.as_deref(),
             Some("2026-06-17T12:00:00Z")
         );
+    }
+
+    #[test]
+    fn codex_hook_observation_round_trips_and_can_be_cleared() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let observation = CodexHookObservation {
+            fingerprint: "a".repeat(64),
+            observed_at: "2026-08-27T12:00:00Z".into(),
+        };
+
+        store.write_codex_hook_observation(&observation);
+        assert_eq!(store.read_codex_hook_observation(), Some(observation));
+        store.clear_codex_hook_observation();
+        assert_eq!(store.read_codex_hook_observation(), None);
     }
 
     #[test]

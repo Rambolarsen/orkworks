@@ -146,7 +146,7 @@ test("HarnessIntegrationSection distinguishes non-attention integrations and una
   // and "installed" must not read as "active" while activation is
   // needs_trust (Codex requires a one-time in-tool /hooks approval).
   assert.match(source, /isAttentionSignal/);
-  assert.match(source, /Session capture hook installed/);
+  assert.match(source, /Session capture hook active/);
   assert.match(source, /needs_trust/);
   assert.match(source, /approve the hook inside/);
 });

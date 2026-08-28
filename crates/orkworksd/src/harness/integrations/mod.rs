@@ -263,7 +263,20 @@ impl JsonHookHandler {
             });
             IntegrationActivation::Unknown
         } else if registration == IntegrationRegistration::Installed {
-            self.contract.activation.clone()
+            if self.contract.harness_id == "codex" {
+                let observed = ctx
+                    .workspace_metadata
+                    .and_then(|metadata| metadata.read_codex_hook_observation())
+                    .map(|observation| observation.fingerprint);
+                let current = crate::harness::integrations::codex::hook_fingerprint(reporter)?;
+                if observed.as_deref() == Some(current.as_str()) {
+                    IntegrationActivation::Active
+                } else {
+                    IntegrationActivation::NeedsTrust
+                }
+            } else {
+                self.contract.activation.clone()
+            }
         } else {
             IntegrationActivation::Disabled
         };
@@ -338,6 +351,11 @@ impl IntegrationHandler for JsonHookHandler {
         let replacement = serde_json::to_vec_pretty(&document)
             .map_err(|error| IntegrationError::InvalidConfig(error.to_string()))?;
         transaction.commit(&replacement)?;
+        if self.contract.harness_id == "codex" {
+            if let Some(metadata) = ctx.workspace_metadata {
+                metadata.clear_codex_hook_observation();
+            }
+        }
         self.status(ctx)
     }
 
@@ -347,13 +365,25 @@ impl IntegrationHandler for JsonHookHandler {
     ) -> Result<IntegrationStatus, IntegrationError> {
         let (transaction, mut document, reporter) = self.load(ctx)?;
         match (self.remove)(&mut document)? {
-            FragmentState::Absent => return self.status_from_document(ctx, &document, &reporter),
+            FragmentState::Absent => {
+                if self.contract.harness_id == "codex" {
+                    if let Some(metadata) = ctx.workspace_metadata {
+                        metadata.clear_codex_hook_observation();
+                    }
+                }
+                return self.status_from_document(ctx, &document, &reporter);
+            }
             FragmentState::Ambiguous => return Err(IntegrationError::OwnershipAmbiguous),
             FragmentState::Installed | FragmentState::Drifted => {}
         }
         let replacement = serde_json::to_vec_pretty(&document)
             .map_err(|error| IntegrationError::InvalidConfig(error.to_string()))?;
         transaction.commit(&replacement)?;
+        if self.contract.harness_id == "codex" {
+            if let Some(metadata) = ctx.workspace_metadata {
+                metadata.clear_codex_hook_observation();
+            }
+        }
         self.status(ctx)
     }
 }
@@ -497,7 +527,8 @@ mod tests {
     use super::*;
     use crate::harness::definition::{BuiltinDocument, IntegrationBinding, EMBEDDED_BUILTINS};
     use crate::harness::integration::{
-        IntegrationContext, IntegrationOwnership, IntegrationRegistration, ReporterAssetResolver,
+        DetectedTool, IntegrationContext, IntegrationOwnership, IntegrationRegistration,
+        ReporterAssetResolver,
     };
     use crate::metadata::MetadataStore;
     use crate::test_support::FakeHome;
@@ -526,6 +557,7 @@ mod tests {
     fn report_harness_event_captures_codex_session_id_only_for_codex_marker() {
         let script = include_str!("../../../scripts/report-harness-event.sh");
         assert!(script.contains(":codex"));
+        assert!(script.contains("hookFingerprint"));
         assert!(script.contains("/sessions/$ORKWORKS_SESSION_ID/harness-session"));
         assert!(script.contains("codex_hook"));
     }
@@ -663,13 +695,18 @@ mod tests {
 
     #[test]
     fn report_harness_event_runs_and_forwards_session_id_from_a_real_codex_session_start_payload() {
-        let trace = run_report_harness_event_sh_trace(
+        let trace = run_report_harness_event_sh_trace_with_args(
             "orkworks:harness-integration:v2:codex",
             r#"{"session_id":"thr_123","cwd":"/tmp/some/worktree","hook_event_name":"SessionStart","source":"startup"}"#,
+            &["--hook-fingerprint", "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"],
         );
         assert!(
             trace.contains(r#"{"harnessSessionId":"thr_123","source":"codex_hook","confidence":0.98}"#),
             "expected codex session_id to be forwarded; trace:\n{trace}"
+        );
+        assert!(
+            trace.contains(r#""hookFingerprint":"a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"#),
+            "expected codex hook fingerprint to be forwarded; trace:\n{trace}"
         );
     }
 
@@ -934,6 +971,57 @@ mod tests {
         let claude_status = handler(&IntegrationBinding::Claude).status(&context).unwrap();
         let claude_confirmation = claude_status.confirmation.expect("claude confirmation");
         assert!(claude_confirmation.executable_code_warning);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn codex_activation_becomes_active_only_after_matching_hook_observation() {
+        let workspace = tempfile::tempdir().unwrap();
+        let repo = git2::Repository::init(workspace.path()).unwrap();
+        fs::write(workspace.path().join(".gitignore"), ".codex/hooks.json\n").unwrap();
+        let empty_excludes = workspace.path().join("empty-global-excludes");
+        fs::write(&empty_excludes, "").unwrap();
+        repo.config().unwrap().set_str("core.excludesFile", empty_excludes.to_str().unwrap()).unwrap();
+        fs::create_dir(workspace.path().join(".codex")).unwrap();
+        fs::write(workspace.path().join(".codex/hooks.json"), "{}").unwrap();
+
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        let assets = tempfile::tempdir().unwrap();
+        fs::write(assets.path().join(ReporterPlatform::Posix.asset_name()), "#!/bin/sh\n").unwrap();
+        let reporter = ReporterAssetResolver {
+            source_dir: assets.path().to_path_buf(),
+            stable_dir: home.path().join(".orkworks/hook-scripts"),
+        };
+        let metadata_root = home.path().join("metadata");
+        let store = MetadataStore::new(&metadata_root);
+        let detected = DetectedTool {
+            executable: home.path().join("codex"),
+            version: Some("0.150.1".into()),
+            compatible: true,
+        };
+        let context = IntegrationContext {
+            workspace: workspace.path(),
+            workspace_metadata: Some(&store),
+            orkworks_root: home.path(),
+            enabled: true,
+            detected_tool: Some(&detected),
+            reporter_assets: &reporter,
+        };
+
+        handler(&IntegrationBinding::Codex).install(&context).unwrap();
+        assert_eq!(handler(&IntegrationBinding::Codex).status(&context).unwrap().activation, IntegrationActivation::NeedsTrust);
+        store.write_codex_hook_observation(&crate::metadata::CodexHookObservation {
+            fingerprint: crate::harness::integrations::codex::hook_fingerprint(&home.path().join(".orkworks/hook-scripts/report-harness-event.sh")).unwrap(),
+            observed_at: "2026-08-27T12:00:00Z".into(),
+        });
+        assert_eq!(handler(&IntegrationBinding::Codex).status(&context).unwrap().activation, IntegrationActivation::Active);
+        fs::remove_file(workspace.path().join(".codex/hooks.json")).unwrap();
+        handler(&IntegrationBinding::Codex).install(&context).unwrap();
+        assert_eq!(handler(&IntegrationBinding::Codex).status(&context).unwrap().activation, IntegrationActivation::NeedsTrust);
+        assert_eq!(store.read_codex_hook_observation(), None);
+        handler(&IntegrationBinding::Codex).uninstall(&context).unwrap();
+        assert_eq!(store.read_codex_hook_observation(), None);
     }
 
     // Codex only accepts a tracked target on POSIX (ADR 0036) — on Windows
