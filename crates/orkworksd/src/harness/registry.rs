@@ -790,6 +790,26 @@ mod tests {
     }
 
     #[test]
+    fn copilot_declares_native_voice_capability() {
+        let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
+        let registry = resolve_document(&builtins, &HarnessUserDocument::default()).unwrap();
+        let copilot = registry.get("copilot").expect("Copilot builtin");
+        let voice = copilot
+            .definition
+            .voice
+            .as_ref()
+            .expect("Copilot voice capability");
+
+        assert!(voice.native_voice);
+        assert!(voice.requires_microphone_permission);
+        assert!(!voice.orkworks_dictation);
+        assert!(!voice.orkworks_voice_commands);
+        assert!(copilot
+            .effective_capabilities
+            .contains(&CapabilityName::Voice));
+    }
+
+    #[test]
     fn opencode_launch_and_resume_share_one_definition() {
         let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
         let registry = resolve_document(&builtins, &HarnessUserDocument::default()).unwrap();
