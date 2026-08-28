@@ -453,6 +453,14 @@ test("session list marks dead sessions separately from alive sessions", () => {
   assert.match(source, /remembered\s*\?\s*"session-row--remembered"/);
 });
 
+test("dead session rows use the dimmed remembered treatment", () => {
+  const panel = readFileSync(new URL("../src/components/SessionListPanel.tsx", import.meta.url), "utf8");
+  const styles = readFileSync(new URL("../src/App.css", import.meta.url), "utf8");
+
+  assert.match(panel, /remembered \? "session-row--remembered"/);
+  assert.match(styles, /\.session-row--remembered \{ opacity: 0\.62; \}/);
+});
+
 test("session list only offers kill for alive sessions", () => {
   const source = readFileSync(
     new URL("../src/components/SessionListPanel.tsx", import.meta.url),
