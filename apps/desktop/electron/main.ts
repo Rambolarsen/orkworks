@@ -566,12 +566,11 @@ app.whenReady().then(() => {
   ipcMain.handle("save-peon-selection", async (_event, value: unknown) => {
     const selection = normalizePeonSelectionInput(value, persistedOllamaBaseUrl());
     const result = await peonTransaction.save(selection, async () => {
-      return enqueueSettingsWrite(() => {
+      await enqueueSettingsWrite(() => {
         const baseSettings = currentSettings ?? readSettings(app.getPath("userData"));
         const nextSettings = settingsWithPeonSelection(baseSettings, selection);
         writeSettings(app.getPath("userData"), nextSettings);
         currentSettings = nextSettings;
-        return nextSettings;
       });
     });
     if (!result.ok) return result;

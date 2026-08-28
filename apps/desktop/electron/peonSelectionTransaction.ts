@@ -1,11 +1,11 @@
-import { peonSelectionMatchesAppliedState, type PeonAppliedState, type PeonProviderVerificationResponse, type PeonSelection, type ProviderId } from "./providerTypes.ts";
-import { normalizeProviderSettings } from "./settingsMemory.ts";
+import { peonSelectionMatchesAppliedState, type PeonAppliedState, type PeonProviderVerificationResponse, type PeonSelection, type ProviderId } from "./providerTypes";
+import { normalizeProviderSettings } from "./settingsMemory";
 
 export function normalizePeonSelectionInput(value: unknown, fallbackOllamaBaseUrl?: string): PeonSelection {
   const candidate = value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
-    : value;
-  const selection = candidate && typeof candidate === "object" && !Array.isArray(candidate)
+    : undefined;
+  const selection = candidate && !Array.isArray(candidate)
     && candidate.provider === "ollama" && candidate.ollamaBaseUrl == null && fallbackOllamaBaseUrl
     ? { ...candidate, ollamaBaseUrl: fallbackOllamaBaseUrl }
     : candidate;
