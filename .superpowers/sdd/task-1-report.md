@@ -100,3 +100,35 @@ only the two pre-existing warnings noted by the prior report.
 - No model-selection concerns remain. Full-suite verification used loopback
   access for the Ollama behavioral test and a temporary Cargo target directory
   because the worktree's existing target lock is not writable in the sandbox.
+
+## Review fix
+
+### Changes
+
+- Electron Ollama URL normalization now removes multiple trailing slashes
+  before URL parsing, matching Rust normalization for values such as
+  \`http://localhost:11434//\`.
+- Electron and Rust tests cover the multiple-trailing-slash case.
+- The provider-settings migration preservation test now asserts an unrelated
+  Ollama provider entry survives in memory and on disk, including its model,
+  enabled, default capacity, and override capacity fields.
+
+### Verification
+
+\`\`\`text
+node --experimental-strip-types --test tests/electronSettingsMemory.test.ts
+PASS: 37 tests, 0 failed
+
+cargo test --manifest-path crates/orkworksd/Cargo.toml providers::tests -- --nocapture
+PASS: 43 tests, 0 failed
+\`\`\`
+
+The full Electron test command reached 465 passing tests but had one unrelated
+existing \`tests/terminalLinks.test.ts\` module-resolution failure. The full
+Rust suite reached all 866 tests but was stopped after existing runtime tests
+continued running without completion for more than two minutes; no failure was
+reported before stopping it.
+
+### Commit
+
+- Review-fix implementation commit: 28028a2 (fix: align Ollama URL migration handling).

@@ -25,7 +25,7 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 | [0014](./0014-main-process-owned-app-settings.md) | Main-process-owned app settings and menu accelerators | accepted |
 | [0015](./0015-provider-ops-peon-fallback.md) | Provider ops panel and app-wide Peon fallback | superseded by 0016 |
 | [0016](./0016-session-details-provider-context.md) | Session details provider context | superseded by 0017 (Settings surface) |
-| [0017](./0017-provider-context-session-scoped.md) | Provider context is session-scoped, not app-wide | superseded (peon model picker restores per-provider model selection in Settings) |
+| [0017](./0017-provider-context-session-scoped.md) | Provider context is session-scoped, not app-wide | superseded (peon model picker restores per-provider model selection in Settings; fallback execution superseded for Peon by [0044](./0044-peon-provider-first-selection.md)) |
 | [0019](./0019-attention-signal-endpoint-opt-in-hook-install.md) | Attention signal via unauthenticated localhost endpoint, opt-in hook install only | superseded by [0026](./0026-resolved-harness-capability-registry.md) |
 | [0020](./0020-phosphor-visual-refresh-token-layer.md) | Phosphor visual refresh: cool-graphite + lime token layer | accepted |
 | [0021](./0021-session-lifecycle-phases.md) | Explicit session lifecycle phases with frozen final observed state | superseded by [0023](./0023-simplified-session-lifecycle.md) |
@@ -51,3 +51,4 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 | [0041](./0041-session-runtime-generation-ownership.md) | Session runtime generation ownership | accepted |
 | [0042](./0042-workflow-observations-replace-summary-checkpoints.md) | Workflow observations replace summary checkpoints | accepted |
 | [0043](./0043-local-harness-hook-configuration.md) | Harness hook configuration is local; doc checks use a committed shared source | accepted |
+| [0044](./0044-peon-provider-first-selection.md) | Peon provider-first selection | proposed |

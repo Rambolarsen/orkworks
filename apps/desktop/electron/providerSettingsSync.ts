@@ -1,5 +1,11 @@
 import type { ProviderApplyStatus, ProviderSettings } from "./providerTypes.ts";
 
+export function providerSettingsSyncError(status: ProviderApplyStatus): Error | null {
+  return status.lastApplyError
+    ? new Error(`failed to restore provider settings: ${status.lastApplyError}`)
+    : null;
+}
+
 export async function pushProviderSettings(
   baseUrl: string,
   settings: ProviderSettings,

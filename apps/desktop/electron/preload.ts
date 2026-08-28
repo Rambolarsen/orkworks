@@ -20,6 +20,12 @@ contextBridge.exposeInMainWorld("orkworks", {
   getLayout: (): Promise<string | null> => ipcRenderer.invoke("get-layout"),
   saveLayout: (json: string): Promise<void> => ipcRenderer.invoke("save-layout", json),
   getSettings: (): Promise<unknown> => ipcRenderer.invoke("get-settings"),
+  verifyPeonProvider: (provider: string, ollamaBaseUrl?: string): Promise<unknown> =>
+    ipcRenderer.invoke("verify-peon-provider", provider, ollamaBaseUrl),
+  testAndApplyPeonProvider: (selection: unknown): Promise<unknown> =>
+    ipcRenderer.invoke("test-and-apply-peon-provider", selection),
+  getAppliedPeonProvider: (): Promise<unknown> => ipcRenderer.invoke("get-applied-peon-provider"),
+  savePeonSelection: (selection: unknown): Promise<unknown> => ipcRenderer.invoke("save-peon-selection", selection),
   saveHotkeys: (hotkeys: unknown): Promise<unknown> => ipcRenderer.invoke("save-hotkeys", hotkeys),
   saveRetention: (retention: unknown): Promise<{ ok: boolean; retentionApplyStatus?: { appliedRevision: number | null; appliedAt: string | null; lastApplyError: string | null } }> =>
     ipcRenderer.invoke("save-retention", retention),

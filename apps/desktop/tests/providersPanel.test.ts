@@ -110,7 +110,8 @@ test("SettingsModal renders a Model providers section", () => {
   assert.match(source, /Model providers/);
   assert.match(source, /providerDraft/);
   assert.match(source, /provider-model-select/);
-  assert.match(source, /getProviderModels/);
+  assert.match(source, /verifyPeonProvider/);
+  assert.match(source, /testAndApplyPeonProvider/);
 });
 
 test("SettingsModal mounts a per-harness attention hook install affordance when enabled but not installed", () => {
@@ -167,20 +168,9 @@ test("HarnessIntegrationSection reports successful detection-changing mutations"
   assert.match(settingsSource, /<HarnessIntegrationSection[\s\S]*?onDetectionChanged=\{refreshDetection\}/);
 });
 
-test("ProviderSettingsSection keeps model provider editing simplified", () => {
-  const source = readFileSync(new URL("../src/components/ProviderSettingsSection.tsx", import.meta.url), "utf8");
-  assert.match(source, /Loading model provider settings/);
-  assert.match(source, /Saved model provider settings revision/);
-  assert.match(source, /isAppliedRevisionStale/);
-  assert.match(source, /providers-stale-banner/);
-  assert.doesNotMatch(source, /Move up/);
-  assert.doesNotMatch(source, /Clear override/);
-  assert.doesNotMatch(source, /Last error/);
-});
-
-test("SettingsModal renders a visible candidate model list with a use action", () => {
+test("SettingsModal renders verified model choices and manual override", () => {
   const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
-  assert.match(source, /Use this model/);
-  assert.match(source, /ollama-candidate-list/);
-  assert.match(source, /selected-model/);
+  assert.match(source, /peonVerification\?\.models/);
+  assert.match(source, /Enter model manually/);
+  assert.match(source, /Select a verified model/);
 });
