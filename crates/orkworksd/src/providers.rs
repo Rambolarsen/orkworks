@@ -1874,7 +1874,7 @@ impl ProviderManager {
                 }
             };
 
-            let resolved_model = if definition.supports_model {
+            let resolved_model = if definition.supports_model || entry.id == "ollama" {
                 applied.model.clone()
             } else {
                 None
@@ -1924,7 +1924,7 @@ impl ProviderManager {
                 &args,
                 &invocation_prompt,
                 timeout_secs,
-                if definition.supports_model {
+                if definition.supports_model || entry.id == "ollama" {
                     resolved_model.as_deref()
                 } else {
                     None
@@ -1960,7 +1960,7 @@ impl ProviderManager {
                     let observation = ProviderObservation {
                         provider_id: entry.id.clone(),
                         provider_label: definition.label.clone(),
-                        provider_model: if definition.supports_model {
+                        provider_model: if definition.supports_model || entry.id == "ollama" {
                             resolved_model
                         } else {
                             None
@@ -3058,6 +3058,7 @@ mod tests {
             providers: vec![entry("ollama").model(Some("ollama-entry-model")).build()],
             ..sample_settings(vec![])
         });
+        mark_applied(&manager, "ollama", Some("ollama-entry-model"));
 
         let result = manager.run_inference(PeonScope::Session, &["terminal line".to_owned()]);
         match server.join().expect("Ollama test server thread panicked") {
