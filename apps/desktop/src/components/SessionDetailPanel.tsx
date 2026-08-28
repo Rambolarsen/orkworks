@@ -5,7 +5,7 @@ import { getSummaryLog } from "../api";
 import type { SessionAttention, SessionInfo, SummaryLogEntry } from "../api";
 import type { HarnessConfig } from "../harnessTypes";
 import { nativeVoicePresentation } from "../nativeVoicePresentation";
-import { sessionProviderContext } from "../sessionProviderContext";
+import { sessionCodingTool, sessionProviderContext } from "../sessionProviderContext";
 import { sessionAttentionStatus } from "../sessionSort";
 import {
   attentionLabel,
@@ -86,7 +86,7 @@ function SessionDetailPanel({ sessions, activeSessionId, harnesses, onResumeSess
   const tone = attentionTone(attn);
   const sourceTag = active.metadataSource;
   const providerContext = sessionProviderContext(active);
-  const voice = nativeVoicePresentation(active.harness, harnesses);
+  const voice = nativeVoicePresentation(sessionCodingTool(active), harnesses);
   const folder = active.cwd.split("/").pop() || active.cwd;
   const headline = situationHeadline(active);
   const tail = situationTail(active, tone);
