@@ -69,18 +69,35 @@ authority boundaries. A conceptual result is:
 
 ```ts
 type ActiveHarnessSaveResult = {
-  activeHarnessesPersisted: boolean;
+  activeHarnesses: {
+    outcome: "persisted" | "failed" | "stale_workspace";
+    message?: string;
+  };
   integrations: Record<string, {
-    ok: boolean;
-    state: "healthy" | "warning" | "unsupported" | "unchanged";
+    operation: "install" | "repair" | "uninstall" | "skipped";
+    outcome: "succeeded" | "failed" | "unsupported" | "stale_workspace";
+    registration: IntegrationRegistration;
+    activation: IntegrationActivation;
+    coverage: IntegrationCoverage;
+    diagnosticCode?: string;
     message?: string;
   }>;
 };
 ```
 
-The exact shared type may be duplicated across the preload boundary according
-to the existing Electron contract convention. The renderer never gains direct
-filesystem or hook-mutation authority.
+`skipped` is used for tools without an integration capability; it is not an
+error. Mutation failure, status-query failure, ownership ambiguity, and Codex
+trust requirement are distinct diagnostics even when they map to the same
+user-action color. A stale-workspace result is never presented as a successful
+Save. The exact shared type may be duplicated across the preload boundary
+according to the existing Electron contract convention. The renderer never
+gains direct filesystem or hook-mutation authority.
+
+The operation captures the current workspace identity and backend generation
+before persisting active tools. If the workspace changes before or during
+reconciliation, remaining work is aborted and the result is
+`stale_workspace`; the renderer ignores late results from the old workspace
+and reloads the new workspace's active tools and integration statuses.
 
 ## Toggle states
 
@@ -91,26 +108,36 @@ accessible name/tooltip:
 | --- | --- | --- |
 | Disabled and clean | Neutral/off | Tool is unavailable and no OrkWorks-owned hook remains. |
 | Enabled without hook support | Neutral/on | Tool is enabled, but this coding tool has no OrkWorks hook capability. |
-| Enabled and healthy | Green | Tool is enabled and its OrkWorks hook is installed. |
+| Enabled with limited integration | Green/on | Tool is enabled and its limited OrkWorks integration is applied; the tooltip explains the limited coverage. |
+| Enabled and healthy | Green/on | Tool is enabled and its OrkWorks integration is installed with no action-required diagnostic. |
+| Enabled but absent | Needs-you blue/on | Tool is enabled, but its supported integration is absent and needs installation. |
 | Enabled with failed or drifted hook | Needs-you blue | Tool is enabled, but the hook failed to install or needs repair. |
 | Enabled with hook trust pending | Needs-you blue | Tool is enabled, but the coding tool must approve the hook before it can activate. |
+| Disabled with owned registration | Needs-you blue/off | Tool is disabled, but an OrkWorks-owned integration remains and needs cleanup. |
 | Disabled with failed cleanup | Needs-you blue | Tool is disabled, but an OrkWorks-owned hook remains because removal failed. |
-| Integration status unavailable | Needs-you blue | OrkWorks cannot verify hook health; the tooltip gives the status-query failure. |
-| Hook update/repair in progress | Neutral with spinner | OrkWorks is applying the hook mutation; no user action is required yet. |
+| Integration status unavailable | Error color with offline glyph | OrkWorks cannot verify hook health; the tooltip says to retry the status check. |
+| Integration operation in progress | Neutral with spinner | OrkWorks is applying an install, repair, or uninstall; no user action is required yet. |
 
-The needs-you blue state is the exact existing `--attention-needs-you` color
+The needs-you blue state is the exact existing `--attention-needs-you` token
 used by the session view for “Needs you.” It consistently means the user must
 take or retry an action. It covers retryable operation failures, detected
-drift, trust approval, incomplete cleanup, and unavailable verification. The
-in-progress state is neutral with a spinner so it does not imply either
-healthy completion or required user action. A red state is not required by
-this design.
+drift, trust approval, absent integrations, incomplete cleanup, and ownership
+ambiguity. Status-query failures use the existing error token instead because
+they indicate an OrkWorks/sidecar problem rather than a user-fixable hook
+condition. The in-progress state is neutral with a spinner so it does not
+imply either healthy completion or required user action. The token must be
+used in both light and dark themes; no hard-coded color is introduced. A red
+state is not required by this design.
 
 The accessible label and native tooltip include the specific condition. For
 example: “Enabled, but hook installation failed: permission denied.” The
 toggle uses the needs-you color plus a non-color status glyph for warning
 states, and a spinner for in-progress states, so color is not the only signal.
-A successful install/repair or uninstall clears the warning state.
+A successful install/repair clears the warning only when the returned status
+has no action-required diagnostic. In particular, successful Codex
+installation leaves the needs-you state in place while activation is
+`needs_trust`; successful uninstall clears the warning only after the owned
+registration is gone.
 
 Coding-tool detection remains a separate status signal and must not be
 conflated with hook health.
@@ -136,25 +163,53 @@ operation or the modal is reopened. Reopening reloads durable integration
 status; operation-specific text is intentionally not persisted, so a reopened
 modal may show the status diagnostic rather than the original failure wording.
 
-Unsupported or limited tools remain ordinary active-tool choices and do not
-claim hook health. They use the neutral toggle state with an accessible
-description that no OrkWorks hook is available. Ownership ambiguity is never
-treated as safe to remove; it produces a needs-you warning with an explanation
-and leaves foreign configuration untouched. Tool detection, Codex hook trust,
+Unsupported tools remain ordinary active-tool choices, use `skipped`, and do
+not claim hook health. Limited tools, including Aider, use their declared
+limited integration capability and show green only when that capability is
+successfully applied, with the limited-coverage explanation in the tooltip.
+The UI derives participation from the resolved harness integration capability,
+not from a second hard-coded harness-ID allowlist; retired Gemini behavior is
+therefore governed by the resolved registry and existing selectable-harness
+rules.
+
+Ownership ambiguity is never treated as safe to remove; it produces a
+needs-you warning explaining that OrkWorks will not modify the ambiguous
+configuration. The tooltip identifies the safe recovery action: inspect the
+workspace-local configuration, remove or reconcile the foreign entry outside
+OrkWorks, then press Tools Save to retry. Tool detection, Codex hook trust,
 and hook registration are separate facts: an undetected tool or Codex
 `needs_trust` state must be described in the tooltip/status model rather than
 silently presented as a healthy green hook.
 
-The custom executable-path controls are preserved. They move out of the hook
-integration section into a small per-tool command-path control in the row (or
-an equivalent separate settings component); removing hook actions must not
-remove the ability to save or clear a custom executable path.
+The custom executable-path controls are preserved in a separate
+`HarnessCommandPathControl` rather than being removed with the hook section.
+They retain immediate Save/Clear behavior, keep path errors next to that
+control, and remain available for command-template tools regardless of hook
+support or coverage. Changing a path refreshes detection/integration status
+but does not silently install a hook; if an integration operation is running,
+the path control is disabled until it completes.
 
-The blue state is local renderer state for the duration of the orchestration
-promise. Each tool has an independent reconciliation state, but the Save
-action is disabled while the batch is running. Stale results from a closed
-modal or changed workspace are ignored, and the next Settings open reloads
-status from the current workspace.
+The in-progress state is local renderer state for the duration of the
+orchestration promise and is named “integration operation,” not “hook update.”
+The toggle keeps its draft on/off position while showing the neutral spinner.
+Each tool has an independent final result, but the Tools Save action is
+disabled while the batch is running. Stale results from a closed modal or
+changed workspace are ignored, and the next Settings open reloads status from
+the current workspace.
+
+Warning precedence is: current operation failure, current status diagnostic,
+then any older local warning. A successful operation for one tool clears only
+that tool's warning; other tools retain their own warnings. Status-query
+failures show the error presentation and a “Retry status check” tooltip/action
+without changing the tool's active draft.
+
+The stable accessible name remains the coding-tool name. The state and reason
+are exposed through `aria-describedby` on a visible status description, with a
+native `title` tooltip for pointer users. Warning uses a warning glyph and
+text, trust-pending uses a hook/trust glyph and text, and in-progress uses a
+spinner with “Integration operation in progress.” The toggle remains
+`role="switch"`; it is disabled during the batch, preserves keyboard focus,
+and uses the shared token's light/dark theme values with sufficient contrast.
 
 ## Testing
 
@@ -164,12 +219,17 @@ Desktop tests should cover:
 - disabling a tool requests ownership-aware hook removal;
 - saving with no active-state change retries reconciliation for enabled
   needs-you tools and incomplete disabled cleanups;
+- enabled-but-absent, disabled-but-owned, unsupported, limited, and status
+  unavailable states;
 - hook failure preserves the requested enabled/disabled transition and
   produces the needs-you warning state with the failure reason;
+- Codex installation success with `needs_trust` keeps the needs-you state;
 - active-tool persistence failure prevents hook mutation and does not claim
   that the settings were saved;
 - multiple tools return independent integration outcomes, including partial
   success;
+- workspace changes during reconciliation produce stale results and do not
+  report success for the old workspace;
 - an in-flight hook mutation presents the blue state and disables conflicting
   interaction;
 - a successful repair or uninstall clears the warning state;
@@ -179,6 +239,12 @@ Desktop tests should cover:
 - Tools owns its Save and warning lifecycle, while Hotkeys owns Restore
   defaults and subsection revert behavior;
 - custom executable-path save/clear behavior remains available;
+- custom-path operations remain independent and are disabled while integration
+  operations run;
+- warning precedence and per-tool warning retention when another tool
+  succeeds;
+- accessible descriptions, native tooltips, status glyphs, keyboard focus,
+  and both theme token variants;
 - tool detection status remains rendered independently of hook state.
 
 Existing sidecar integration tests should remain authoritative for preserving
