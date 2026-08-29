@@ -40,6 +40,20 @@ export default function HarnessIntegrationSection({
   const [customPathActive, setCustomPathActive] = useState<boolean>(() => hasCustomPath);
   const [customPathBusy, setCustomPathBusy] = useState(false);
   const [customPathError, setCustomPathError] = useState<string | null>(null);
+  const integrationStatus = integration?.ok ? integration.status : null;
+  const canCleanupOwnedDisabledIntegration =
+    integrationStatus !== null &&
+    !integrationStatus.enabled &&
+    integrationStatus.ownership === "ork_works" &&
+    integrationStatus.registration !== "absent";
+  const canInstallOrRepairIntegration =
+    integrationStatus !== null &&
+    integrationStatus.enabled &&
+    (integrationStatus.registration === "absent" || integrationStatus.registration === "drifted");
+  const canUninstallIntegration =
+    integrationStatus !== null &&
+    ((integrationStatus.enabled && integrationStatus.registration === "installed") ||
+      canCleanupOwnedDisabledIntegration);
 
   useEffect(() => {
     let cancelled = false;
@@ -121,10 +135,17 @@ export default function HarnessIntegrationSection({
       {integration && !integration.ok && (
         <span className="settings-config-status">{integration.error}</span>
       )}
-      {integration?.ok && integration.status.registration === "installed" && (
+      {canUninstallIntegration && integrationStatus && (
         <>
-          {shouldShowInstalledConfirmation(integration.status.diagnostics) &&
-            (integration.status.activation === "needs_trust" ? (
+          {canCleanupOwnedDisabledIntegration ? (
+            <span className="settings-config-status">
+              Disabled — remove the OrkWorks-owned{" "}
+              {isAttentionSignal(harnessId) ? "attention hooks" : "session capture hook"} to finish
+              cleanup.
+            </span>
+          ) : (
+            shouldShowInstalledConfirmation(integrationStatus.diagnostics) &&
+            (integrationStatus.activation === "needs_trust" ? (
               <span className="settings-config-status">
                 Installed — approve the hook inside {harnessName} (run /hooks) to activate it
               </span>
@@ -132,26 +153,25 @@ export default function HarnessIntegrationSection({
               <span className="settings-config-status settings-config-status--ok">
                 {isAttentionSignal(harnessId)
                   ? "✓ Attention hooks installed"
-                  : integration.status.activation === "active"
+                  : integrationStatus.activation === "active"
                     ? "✓ Session capture hook active"
                     : "✓ Session capture hook installed"}
               </span>
-            ))}
+            ))
+          )}
           <button type="button" onClick={uninstallIntegrationHandler} disabled={integrationBusy}>
             {integrationBusy ? "Removing…" : "Uninstall"}
           </button>
         </>
       )}
-      {integration?.ok &&
-        (integration.status.registration === "absent" ||
-          integration.status.registration === "drifted") && (
+      {canInstallOrRepairIntegration && integrationStatus && (
           <>
-            {integration.status.confirmation && (
+            {integrationStatus.confirmation && (
               <p className="settings-section-copy">
                 Installing will add {isAttentionSignal(harnessId) ? "attention hooks" : "a session capture hook"} to{" "}
-                {integration.status.confirmation.relativePaths.join(", ")} in this
-                workspace ({integration.status.confirmation.coverageSummary}).
-                {integration.status.confirmation.executableCodeWarning && (
+                {integrationStatus.confirmation.relativePaths.join(", ")} in this
+                workspace ({integrationStatus.confirmation.coverageSummary}).
+                {integrationStatus.confirmation.executableCodeWarning && (
                   <> OrkWorks reports when {harnessName} waits for input and begins a tool action.</>
                 )}
               </p>
@@ -159,7 +179,7 @@ export default function HarnessIntegrationSection({
             <button type="button" onClick={installIntegrationHandler} disabled={integrationBusy}>
               {integrationBusy
                 ? "Installing…"
-                : integration.status.registration === "drifted"
+                : integrationStatus.registration === "drifted"
                   ? "Reinstall"
                   : isAttentionSignal(harnessId)
                     ? "Install attention hook"
@@ -167,18 +187,18 @@ export default function HarnessIntegrationSection({
             </button>
           </>
         )}
-      {integration?.ok && integration.status.registration === "unsupported" && (
+      {integrationStatus?.registration === "unsupported" && (
         <span className="settings-config-status">
           Attention hook isn't supported for this coding tool.
         </span>
       )}
-      {integration?.ok && integration.status.diagnostics.length > 0 && (
+      {integrationStatus && integrationStatus.diagnostics.length > 0 && (
         <span className="settings-config-status">
-          {integration.status.diagnostics[0].message}
+          {integrationStatus.diagnostics[0].message}
         </span>
       )}
-      {integration?.ok &&
-        (integration.status.diagnostics.some((d) => d.code === "tool_not_detected") ||
+      {integrationStatus &&
+        (integrationStatus.diagnostics.some((d) => d.code === "tool_not_detected") ||
           customPathActive) && (
           <div className="settings-config-custom-path">
             <label>

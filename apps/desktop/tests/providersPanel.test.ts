@@ -159,6 +159,25 @@ test("HarnessIntegrationSection only claims 'active' for a backend-verified acti
   assert.match(source, /Session capture hook installed/);
 });
 
+test("HarnessIntegrationSection suppresses install or reinstall actions when saved status is disabled", () => {
+  const source = readFileSync(new URL("../src/components/HarnessIntegrationSection.tsx", import.meta.url), "utf8");
+  assert.match(
+    source,
+    /const canInstallOrRepairIntegration =[\s\S]*?integrationStatus\.enabled[\s\S]*?registration === "absent"[\s\S]*?registration === "drifted"/,
+  );
+});
+
+test("HarnessIntegrationSection keeps disabled OrkWorks-owned integrations on the uninstall cleanup path", () => {
+  const source = readFileSync(new URL("../src/components/HarnessIntegrationSection.tsx", import.meta.url), "utf8");
+  assert.match(
+    source,
+    /const canCleanupOwnedDisabledIntegration =[\s\S]*?!integrationStatus\.enabled[\s\S]*?ownership === "ork_works"[\s\S]*?registration !== "absent"/,
+  );
+  assert.match(source, /canCleanupOwnedDisabledIntegration \? \([\s\S]*?Disabled — remove the OrkWorks-owned/);
+  assert.match(source, /Removing…/);
+  assert.match(source, /Uninstall/);
+});
+
 test("HarnessDetectionStatus supports parent-triggered refresh and accessible status text", () => {
   const source = readFileSync(new URL("../src/components/HarnessDetectionStatus.tsx", import.meta.url), "utf8");
   assert.match(source, /refreshGeneration/);
