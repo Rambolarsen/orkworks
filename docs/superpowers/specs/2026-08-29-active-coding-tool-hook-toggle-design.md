@@ -33,9 +33,9 @@ The Save operation follows this order:
   integration-capable tool: enabled tools are installed or repaired, and
   disabled tools with an OrkWorks-owned registration are uninstalled.
 - Reconciliation runs even when a tool's active state did not change, so Save
-  is also the retry/repair action for an already-enabled orange tool.
+  is also the retry/repair action for an already-enabled needs-you tool.
 - The requested tool-state transition remains durable even if its hook
-  mutation fails; the failed integration is represented by the orange toggle
+  mutation fails; the failed integration is represented by the needs-you toggle
   state and its tooltip so the user can retry.
 - The result reports partial failures per tool. If any integration mutation
   fails, Settings remains open and does not show an inline save error; the
@@ -72,21 +72,25 @@ accessible name/tooltip:
 | Disabled and clean | Neutral/off | Tool is unavailable and no OrkWorks-owned hook remains. |
 | Enabled without hook support | Neutral/on | Tool is enabled, but this coding tool has no OrkWorks hook capability. |
 | Enabled and healthy | Green | Tool is enabled and its OrkWorks hook is installed. |
-| Enabled with failed or drifted hook | Orange | Tool is enabled, but the hook failed to install or needs repair. |
-| Enabled with hook trust pending | Orange | Tool is enabled, but the coding tool must approve the hook before it can activate. |
-| Disabled with failed cleanup | Orange | Tool is disabled, but an OrkWorks-owned hook remains because removal failed. |
-| Integration status unavailable | Orange | OrkWorks cannot verify hook health; the tooltip gives the status-query failure. |
-| Hook update/repair in progress | Blue | OrkWorks is applying the hook mutation. |
+| Enabled with failed or drifted hook | Needs-you blue | Tool is enabled, but the hook failed to install or needs repair. |
+| Enabled with hook trust pending | Needs-you blue | Tool is enabled, but the coding tool must approve the hook before it can activate. |
+| Disabled with failed cleanup | Needs-you blue | Tool is disabled, but an OrkWorks-owned hook remains because removal failed. |
+| Integration status unavailable | Needs-you blue | OrkWorks cannot verify hook health; the tooltip gives the status-query failure. |
+| Hook update/repair in progress | Neutral with spinner | OrkWorks is applying the hook mutation; no user action is required yet. |
 
-Blue is transient and represents an operation in progress. Orange covers both
-retryable operation failures and a detected drifted installation. A red state
-is not required by this design.
+The needs-you blue state is the exact existing `--attention-needs-you` color
+used by the session view for “Needs you.” It consistently means the user must
+take or retry an action. It covers retryable operation failures, detected
+drift, trust approval, incomplete cleanup, and unavailable verification. The
+in-progress state is neutral with a spinner so it does not imply either
+healthy completion or required user action. A red state is not required by
+this design.
 
 The accessible label and native tooltip include the specific condition. For
 example: “Enabled, but hook installation failed: permission denied.” The
-toggle uses color plus a non-color status glyph for warning/in-progress states
-so color is not the only signal. A successful install/repair or uninstall
-clears the warning state.
+toggle uses the needs-you color plus a non-color status glyph for warning
+states, and a spinner for in-progress states, so color is not the only signal.
+A successful install/repair or uninstall clears the warning state.
 
 Coding-tool detection remains a separate status signal and must not be
 conflated with hook health.
@@ -95,14 +99,14 @@ conflated with hook health.
 
 When an enable-time hook mutation fails, the tool remains enabled because the
 user explicitly enabled it. The UI keeps the failed integration visible
-through the orange toggle state and tooltip; it does not render a separate
+through the needs-you toggle state and tooltip; it does not render a separate
 inline save error or integration section. Save remains open so the warning is
 visible and can be retried.
 
 When a disable-time mutation succeeds, only OrkWorks-owned entries are
 removed. Foreign entries and unrelated configuration remain unchanged. If
 disable-time removal fails, the tool becomes disabled as requested, but the
-orange tooltip describes the remaining cleanup failure so the user can retry.
+needs-you tooltip describes the remaining cleanup failure so the user can retry.
 The next Save still attempts cleanup and removes only OrkWorks-owned entries.
 
 The integration status response remains the source of truth for installed,
@@ -115,7 +119,7 @@ modal may show the status diagnostic rather than the original failure wording.
 Unsupported or limited tools remain ordinary active-tool choices and do not
 claim hook health. They use the neutral toggle state with an accessible
 description that no OrkWorks hook is available. Ownership ambiguity is never
-treated as safe to remove; it produces an orange warning with an explanation
+treated as safe to remove; it produces a needs-you warning with an explanation
 and leaves foreign configuration untouched. Tool detection, Codex hook trust,
 and hook registration are separate facts: an undetected tool or Codex
 `needs_trust` state must be described in the tooltip/status model rather than
@@ -138,10 +142,10 @@ Desktop tests should cover:
 
 - enabling a supported tool requests hook installation as part of the save;
 - disabling a tool requests ownership-aware hook removal;
-- saving with no active-state change retries reconciliation for enabled orange
-  tools and incomplete disabled cleanups;
+- saving with no active-state change retries reconciliation for enabled
+  needs-you tools and incomplete disabled cleanups;
 - hook failure preserves the requested enabled/disabled transition and
-  produces the orange warning state with the failure reason;
+  produces the needs-you warning state with the failure reason;
 - active-tool persistence failure prevents hook mutation and does not claim
   that the settings were saved;
 - multiple tools return independent integration outcomes, including partial
