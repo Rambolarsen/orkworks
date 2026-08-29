@@ -25,7 +25,7 @@
 - Modify `apps/desktop/electron/main.ts`: add the privileged Tools Save orchestration IPC handler and typed result mapping.
 - Modify `apps/desktop/electron/preload.ts`: expose the narrow orchestration method.
 - Modify `apps/desktop/src/orkworksWindow.d.ts`: mirror the preload contract.
-- Modify `apps/desktop/src/api.ts`: add typed sidecar helpers for active-tool persistence and integration status/mutations used by the main-process orchestration seam.
+- Create `apps/desktop/electron/activeHarnessIntegration.ts`: keep Electron-main sidecar fetch helpers and orchestration out of renderer `src/`.
 - Modify `apps/desktop/src/App.tsx`: return structured active-tool save results instead of swallowing failures; refresh active tools after successful persistence.
 - Modify `apps/desktop/src/components/SettingsModal.tsx`: own all subsection drafts/actions, load per-tool statuses, remove the global footer, and remove the integration section mount.
 - Modify `apps/desktop/src/components/Toggle.tsx`: support an explicit visual state, status description, tooltip, and non-color glyph while preserving `role="switch"`.
@@ -88,7 +88,7 @@
 
 **Files:**
 - Modify: `apps/desktop/electron/main.ts`
-- Modify: `apps/desktop/src/api.ts`
+- Add: `apps/desktop/electron/activeHarnessIntegration.ts`
 - Modify: `apps/desktop/src/App.tsx`
 - Modify: `apps/desktop/tests/api.test.ts`
 - Test: `apps/desktop/tests/backendRestoration.test.ts` or a new `apps/desktop/tests/activeHarnessSave.test.ts`
@@ -119,7 +119,7 @@
 - [ ] **Step 6: Commit.**
 
   ```bash
-  git add apps/desktop/electron/main.ts apps/desktop/electron/preload.ts apps/desktop/src/api.ts apps/desktop/src/App.tsx apps/desktop/src/orkworksWindow.d.ts apps/desktop/tests/activeHarnessSave.test.ts apps/desktop/tests/api.test.ts crates/orkworksd/src/http/integration_handlers.rs
+  git add apps/desktop/electron/main.ts apps/desktop/electron/activeHarnessIntegration.ts apps/desktop/electron/preload.ts apps/desktop/src/App.tsx apps/desktop/src/orkworksWindow.d.ts apps/desktop/tests/activeHarnessSave.test.ts apps/desktop/tests/api.test.ts crates/orkworksd/src/http/integration_handlers.rs
   git commit -m "feat: orchestrate coding tool integration saves"
   ```
 
