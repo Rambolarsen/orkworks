@@ -44,3 +44,16 @@ test("Toggle CSS maps semantic states to shared tokens and keeps in-progress neu
   assert.match(inProgressBlock[0], /(var\(--surface-3\)|var\(--surface-2\))/);
   assert.doesNotMatch(inProgressBlock[0], /var\(--attention-needs-you\)/);
 });
+
+test("Toggle CSS uses the needs-you token for actionable warning status text", () => {
+  const css = source("../src/App.css");
+  const warningBlock = css.match(/\.ui-toggle-status--warning\s*\{[^}]+\}/);
+  const trustBlock = css.match(/\.ui-toggle-status--trust\s*\{[^}]+\}/);
+
+  assert.ok(warningBlock, "expected warning status CSS block");
+  assert.ok(trustBlock, "expected trust status CSS block");
+
+  assert.match(warningBlock[0], /var\(--attention-needs-you\)/);
+  assert.doesNotMatch(warningBlock[0], /var\(--state-warn\)/);
+  assert.match(trustBlock[0], /var\(--attention-needs-you\)/);
+});

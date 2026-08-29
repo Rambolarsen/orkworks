@@ -222,12 +222,30 @@ test("SettingsModal derives active coding tool toggle presentation from per-tool
   assert.match(source, /visualState=/);
 });
 
+test("SettingsModal uses a stable integration status effect dependency instead of the integration harness array identity", () => {
+  const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /const integrationHarnessStatusKey = toolHarnesses[\s\S]*?filter\(\(h\) => h\.integration !== null\)[\s\S]*?map\(\(h\) => h\.id\)[\s\S]*?join\("\\0"\)/);
+  assert.match(source, /\[\s*integrationHarnessStatusKey,\s*integrationStatusGeneration\s*\]/);
+  assert.doesNotMatch(source, /\[\s*integrationHarnesses,\s*integrationStatusGeneration\s*\]/);
+});
+
 test("SettingsModal keeps the draft toggle position while a tools save is in progress", () => {
   const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
 
   assert.match(source, /checked=\{activeDraft\.includes\(h\.id\)\}/);
   assert.match(source, /disabled=\{[^}]*tools[^}]*save[^}]*inProgress[^}]*\}/i);
   assert.match(source, /inProgress:\s*[^,\n]*tools[^,\n]*save[^,\n]*inProgress/i);
+});
+
+test("SettingsModal disables inline integration controls while the tools batch save is active", () => {
+  const settingsSource = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
+  const integrationSource = readFileSync(new URL("../src/components/HarnessIntegrationSection.tsx", import.meta.url), "utf8");
+
+  assert.match(settingsSource, /<HarnessIntegrationSection[\s\S]*?disabled=\{toolsSaveInProgress\}/);
+  assert.match(integrationSource, /disabled\?: boolean/);
+  assert.match(integrationSource, /disabled=\{disabled \|\| integrationBusy\}/);
+  assert.match(integrationSource, /disabled=\{disabled \|\| customPathBusy/);
 });
 
 test("SettingsModal removes the modal-wide save footer and generic saveError path", () => {

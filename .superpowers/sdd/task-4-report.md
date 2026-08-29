@@ -220,3 +220,41 @@ Implemented in `/Users/froomiebot/workspace/orkworks-active-coding-tool-hook-tog
 
 - `HarnessIntegrationSection` is intentionally still mounted in Task 4 because the Task 5 brief owns extracting and preserving the standalone command-path control.
 - The focused Node test runs still emit the repository's existing `MODULE_TYPELESS_PACKAGE_JSON` warnings.
+
+## Task 4 review-fix follow-up — 2026-08-29
+
+### Status
+
+Implemented in `/Users/froomiebot/workspace/orkworks-active-coding-tool-hook-toggle`.
+
+### Changes
+
+- `apps/desktop/src/components/SettingsModal.tsx`
+  - Replaced the integration-status effect's array dependency with a stable harness-id key so the status fetch only reruns when the relevant harness set changes or the explicit refresh generation increments.
+  - Passes the tools batch-save busy state into `HarnessIntegrationSection` so inline integration/path mutations are disabled during the combined save.
+- `apps/desktop/src/components/HarnessIntegrationSection.tsx`
+  - Added a `disabled` prop and applied it to install, uninstall, custom-path save, custom-path clear, and custom-path input controls.
+- `apps/desktop/src/App.css`
+  - Switched actionable toggle warning text from the amber warning token to the shared `--attention-needs-you` blue token so install/repair/failure/trust-required states align with the session view semantic.
+- `apps/desktop/tests/providersPanel.test.ts`
+  - Added source regressions for the stable integration-status dependency key and the batch-save disabled handoff to `HarnessIntegrationSection`.
+- `apps/desktop/tests/toggle.test.ts`
+  - Added a CSS regression asserting actionable warning/trust status text uses `--attention-needs-you`, not `--state-warn`.
+
+### TDD evidence
+
+- RED: `rtk node --experimental-strip-types --test tests/toggle.test.ts tests/providersPanel.test.ts` failed 3 checks for the unstable effect dependency, missing disabled handoff, and amber warning-token usage.
+- GREEN: the same focused suite passed after the targeted UI changes.
+
+### Verification
+
+- `cd apps/desktop && rtk node --experimental-strip-types --test tests/toggle.test.ts tests/providersPanel.test.ts` — PASS, 28 passed, 0 failed.
+- `cd apps/desktop && rtk pnpm exec tsc --noEmit` — PASS.
+- `rtk git diff --check` — PASS.
+- `rtk bash scripts/doc-check.sh` — PASS.
+- `rtk bash .claude/hooks/worktree-check.sh` — PASS.
+
+### Concerns
+
+- The review fix closes the batch-save race in the direction called out by review: inline mutations cannot start while the combined Tools save is active. It does not add the inverse lockout for starting the Tools save while an inline mutation is already in flight.
+- Focused tests remain source/CSS level for this pass; no interactive renderer test harness was added.

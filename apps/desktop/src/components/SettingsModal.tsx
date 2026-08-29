@@ -59,7 +59,10 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
   const toolHarnesses = selectableHarnesses(harnesses)
     .filter((h) => h.id !== "generic-shell")
     .sort((a, b) => a.name.localeCompare(b.name));
-  const integrationHarnesses = toolHarnesses.filter((h) => h.integration !== null);
+  const integrationHarnessStatusKey = toolHarnesses
+    .filter((h) => h.integration !== null)
+    .map((h) => h.id)
+    .join("\0");
   const [activeSection, setActiveSection] = useState<SettingsSection>("tools");
   const [draft, setDraft] = useState<HotkeySettings>(initialSettings.hotkeys);
   const [savedHotkeys, setSavedHotkeys] = useState<HotkeySettings>(initialSettings.hotkeys);
@@ -199,19 +202,22 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
 
   useEffect(() => {
     let cancelled = false;
+    const integrationHarnessIds = integrationHarnessStatusKey === ""
+      ? []
+      : integrationHarnessStatusKey.split("\0");
 
     async function loadIntegrationStatuses() {
-      if (integrationHarnesses.length === 0) {
+      if (integrationHarnessIds.length === 0) {
         if (!cancelled) setIntegrationStatuses({});
         return;
       }
       const entries = await Promise.all(
-        integrationHarnesses.map(async (harness) => {
+        integrationHarnessIds.map(async (harnessId) => {
           try {
-            return [harness.id, await window.orkworks.getHarnessIntegrationStatus(harness.id)] as const;
+            return [harnessId, await window.orkworks.getHarnessIntegrationStatus(harnessId)] as const;
           } catch (error) {
             return [
-              harness.id,
+              harnessId,
               { ok: false, error: error instanceof Error ? error.message : "Integration status unavailable." },
             ] as const;
           }
@@ -226,7 +232,7 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
     return () => {
       cancelled = true;
     };
-  }, [integrationHarnesses, integrationStatusGeneration]);
+  }, [integrationHarnessStatusKey, integrationStatusGeneration]);
 
   function updateSavedSettings(nextSettings: AppSettings) {
     const next = clone(nextSettings);
@@ -535,6 +541,7 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
                             harnessId={h.id}
                             harnessName={h.name}
                             harness={h}
+                            disabled={toolsSaveInProgress}
                             refreshGeneration={detectionGenerations[h.id] ?? 0}
                             onDetectionChanged={refreshDetection}
                           />

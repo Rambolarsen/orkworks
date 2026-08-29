@@ -766,7 +766,7 @@ html, body, #root {
 }
 
 .ui-toggle-status--warning {
-  color: var(--state-warn);
+  color: var(--attention-needs-you);
 }
 
 .ui-toggle-status--trust {

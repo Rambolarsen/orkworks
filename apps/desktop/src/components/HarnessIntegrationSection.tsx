@@ -14,6 +14,7 @@ interface HarnessIntegrationSectionProps {
   harnessId: string;
   harnessName: string;
   harness: HarnessConfig | undefined;
+  disabled?: boolean;
   refreshGeneration?: number;
   onDetectionChanged?: (harnessId: string) => void;
 }
@@ -22,6 +23,7 @@ export default function HarnessIntegrationSection({
   harnessId,
   harnessName,
   harness,
+  disabled = false,
   refreshGeneration = 0,
   onDetectionChanged,
 }: HarnessIntegrationSectionProps) {
@@ -159,7 +161,7 @@ export default function HarnessIntegrationSection({
               </span>
             ))
           )}
-          <button type="button" onClick={uninstallIntegrationHandler} disabled={integrationBusy}>
+          <button type="button" onClick={uninstallIntegrationHandler} disabled={disabled || integrationBusy}>
             {integrationBusy ? "Removing…" : "Uninstall"}
           </button>
         </>
@@ -176,7 +178,7 @@ export default function HarnessIntegrationSection({
                 )}
               </p>
             )}
-            <button type="button" onClick={installIntegrationHandler} disabled={integrationBusy}>
+            <button type="button" onClick={installIntegrationHandler} disabled={disabled || integrationBusy}>
               {integrationBusy
                 ? "Installing…"
                 : integrationStatus.registration === "drifted"
@@ -208,7 +210,7 @@ export default function HarnessIntegrationSection({
                 value={customPathDraft}
                 onChange={(e) => setCustomPathDraft(e.target.value)}
                 placeholder="/path/to/binary"
-                disabled={customPathBusy}
+                disabled={disabled || customPathBusy}
               />
             </label>
             <p className="settings-section-copy">
@@ -218,12 +220,12 @@ export default function HarnessIntegrationSection({
             <button
               type="button"
               onClick={saveCustomPathHandler}
-              disabled={customPathBusy || !looksAbsolute(customPathDraft.trim())}
+              disabled={disabled || customPathBusy || !looksAbsolute(customPathDraft.trim())}
             >
               {customPathBusy ? "Saving…" : "Save"}
             </button>
             {customPathActive && (
-              <button type="button" onClick={clearCustomPathHandler} disabled={customPathBusy}>
+              <button type="button" onClick={clearCustomPathHandler} disabled={disabled || customPathBusy}>
                 Clear
               </button>
             )}
