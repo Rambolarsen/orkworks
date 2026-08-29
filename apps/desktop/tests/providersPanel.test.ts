@@ -114,68 +114,18 @@ test("SettingsModal renders a Model providers section", () => {
   assert.match(source, /testAndApplyPeonProvider/);
 });
 
-test("SettingsModal mounts a per-harness attention hook install affordance when enabled but not installed", () => {
+test("SettingsModal mounts a per-harness command path control for command-template tools", () => {
   const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
-  assert.doesNotMatch(source, /INTEGRATION_HARNESS_IDS/);
-  assert.match(source, /h\.integration !== null/);
-  assert.match(source, /<HarnessIntegrationSection/);
+  assert.match(source, /import HarnessCommandPathControl from "\.\/HarnessCommandPathControl"/);
+  assert.match(source, /h\.launch\.kind === "command-template"/);
+  assert.match(source, /<HarnessCommandPathControl/);
 });
 
-test("SettingsModal derives integration participation from each harness capability", () => {
+test("SettingsModal keeps integration participation capability-derived without gating command-path controls on hook support", () => {
   const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
   assert.match(source, /h\.integration !== null/);
   assert.doesNotMatch(source, /h\.id === "codex"|h\.id === "aider"|h\.id === "claude-code"/);
-});
-
-test("HarnessIntegrationSection offers the attention hook install affordance", () => {
-  const source = readFileSync(new URL("../src/components/HarnessIntegrationSection.tsx", import.meta.url), "utf8");
-  assert.match(source, /getHarnessIntegrationStatus/);
-  assert.match(source, /installHarnessIntegration/);
-  assert.match(source, /uninstallHarnessIntegration/);
-  assert.match(source, /Install attention hook/);
-  assert.match(source, /Attention hooks installed/);
-  assert.match(source, /begins a tool action/);
-});
-
-test("HarnessIntegrationSection distinguishes non-attention integrations and unapproved installs", () => {
-  const source = readFileSync(new URL("../src/components/HarnessIntegrationSection.tsx", import.meta.url), "utf8");
-  // Codex's SessionStart hook only reports a session ID (ADR 0034) — the
-  // "attention hook"/"waits for input" copy must not be the only wording,
-  // and "installed" must not read as "active" while activation is
-  // needs_trust (Codex requires a one-time in-tool /hooks approval).
-  assert.match(source, /isAttentionSignal/);
-  assert.match(source, /Session capture hook active/);
-  assert.match(source, /needs_trust/);
-  assert.match(source, /approve the hook inside/);
-});
-
-test("HarnessIntegrationSection only claims 'active' for a backend-verified activation, not merely 'installed'", () => {
-  const source = readFileSync(new URL("../src/components/HarnessIntegrationSection.tsx", import.meta.url), "utf8");
-  // Only Codex's fingerprint check ever resolves to activation "active";
-  // other non-attention-signal harnesses (e.g. OpenCode) resolve to
-  // "unknown" once installed and must keep the weaker, accurate "installed"
-  // wording instead of falsely claiming a verified-active hook.
-  assert.match(source, /activation === "active"[\s\S]{0,120}Session capture hook active/);
-  assert.match(source, /Session capture hook installed/);
-});
-
-test("HarnessIntegrationSection suppresses install or reinstall actions when saved status is disabled", () => {
-  const source = readFileSync(new URL("../src/components/HarnessIntegrationSection.tsx", import.meta.url), "utf8");
-  assert.match(
-    source,
-    /const canInstallOrRepairIntegration =[\s\S]*?integrationStatus\.enabled[\s\S]*?registration === "absent"[\s\S]*?registration === "drifted"/,
-  );
-});
-
-test("HarnessIntegrationSection keeps disabled OrkWorks-owned integrations on the uninstall cleanup path", () => {
-  const source = readFileSync(new URL("../src/components/HarnessIntegrationSection.tsx", import.meta.url), "utf8");
-  assert.match(
-    source,
-    /const canCleanupOwnedDisabledIntegration =[\s\S]*?!integrationStatus\.enabled[\s\S]*?ownership === "ork_works"[\s\S]*?registration !== "absent"/,
-  );
-  assert.match(source, /canCleanupOwnedDisabledIntegration \? \([\s\S]*?Disabled — remove the OrkWorks-owned/);
-  assert.match(source, /Removing…/);
-  assert.match(source, /Uninstall/);
+  assert.doesNotMatch(source, /h\.integration !== null[\s\S]{0,160}<HarnessCommandPathControl/);
 });
 
 test("HarnessDetectionStatus supports parent-triggered refresh and accessible status text", () => {
@@ -185,23 +135,15 @@ test("HarnessDetectionStatus supports parent-triggered refresh and accessible st
   assert.match(source, /aria-live="polite"/);
 });
 
-test("combined coding-tool saves can invalidate both header detection and mounted integration rows", () => {
-  const sectionSource = readFileSync(new URL("../src/components/HarnessIntegrationSection.tsx", import.meta.url), "utf8");
-  assert.match(sectionSource, /refreshGeneration/);
-  assert.match(sectionSource, /\[harnessId,\s*refreshGeneration\]/);
-
+test("combined coding-tool saves can invalidate both header detection and the per-harness integration status map", () => {
   const settingsSource = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
   assert.match(settingsSource, /Object\.keys\(result\.integrations\)/);
-  assert.match(settingsSource, /<HarnessIntegrationSection[\s\S]*?refreshGeneration=\{detectionGenerations\[h\.id\] \?\? 0\}/);
+  assert.match(settingsSource, /setIntegrationStatusGeneration\(\(current\) => current \+ 1\)/);
 });
 
-test("HarnessIntegrationSection reports successful detection-changing mutations", () => {
-  const source = readFileSync(new URL("../src/components/HarnessIntegrationSection.tsx", import.meta.url), "utf8");
-  assert.match(source, /onDetectionChanged/);
-  assert.match(source, /onDetectionChanged\?\.\(harnessId\)/);
-
+test("SettingsModal wires command-path mutations back into the shared detection refresh callback", () => {
   const settingsSource = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
-  assert.match(settingsSource, /<HarnessIntegrationSection[\s\S]*?onDetectionChanged=\{refreshDetection\}/);
+  assert.match(settingsSource, /<HarnessCommandPathControl[\s\S]*?onChanged=\{refreshDetection\}/);
 });
 
 test("SettingsModal renders verified model choices and manual override", () => {
@@ -238,14 +180,10 @@ test("SettingsModal keeps the draft toggle position while a tools save is in pro
   assert.match(source, /inProgress:\s*[^,\n]*tools[^,\n]*save[^,\n]*inProgress/i);
 });
 
-test("SettingsModal disables inline integration controls while the tools batch save is active", () => {
+test("SettingsModal disables mounted command-path controls while the tools batch save is active", () => {
   const settingsSource = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
-  const integrationSource = readFileSync(new URL("../src/components/HarnessIntegrationSection.tsx", import.meta.url), "utf8");
-
-  assert.match(settingsSource, /<HarnessIntegrationSection[\s\S]*?disabled=\{toolsSaveInProgress\}/);
-  assert.match(integrationSource, /disabled\?: boolean/);
-  assert.match(integrationSource, /disabled=\{disabled \|\| integrationBusy\}/);
-  assert.match(integrationSource, /disabled=\{disabled \|\| customPathBusy/);
+  assert.match(settingsSource, /<HarnessCommandPathControl[\s\S]*?disabled=\{toolsSaveInProgress\}/);
+  assert.doesNotMatch(settingsSource, /<HarnessIntegrationSection/);
 });
 
 test("SettingsModal removes the modal-wide save footer and generic saveError path", () => {

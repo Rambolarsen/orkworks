@@ -11,7 +11,7 @@ import {
   type IntegrationDisplayState,
 } from "../harnessIntegrationPresentation";
 import { normalizeActiveHarnessIds, selectableHarnesses } from "../newSessionDialogState";
-import HarnessIntegrationSection from "./HarnessIntegrationSection";
+import HarnessCommandPathControl from "./HarnessCommandPathControl";
 import HarnessDetectionStatus from "./HarnessDetectionStatus";
 import HarnessIcon from "./HarnessIcon";
 import Toggle from "./Toggle";
@@ -536,14 +536,13 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
                             tooltip={display.tooltip}
                           />
                         </div>
-                        {h.integration !== null && (
-                          <HarnessIntegrationSection
+                        {h.launch.kind === "command-template" && (
+                          <HarnessCommandPathControl
                             harnessId={h.id}
                             harnessName={h.name}
                             harness={h}
                             disabled={toolsSaveInProgress}
-                            refreshGeneration={detectionGenerations[h.id] ?? 0}
-                            onDetectionChanged={refreshDetection}
+                            onChanged={refreshDetection}
                           />
                         )}
                       </div>

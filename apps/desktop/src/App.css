@@ -477,6 +477,38 @@ html, body, #root {
   padding-left: 26px;
 }
 
+.settings-config-custom-path {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings-config-custom-path-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: min(100%, 440px);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+.settings-config-custom-path-input {
+  width: 100%;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: 6px 8px;
+  color: var(--text-primary);
+  background: var(--surface-0);
+  font: inherit;
+}
+
+.settings-config-custom-path-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .settings-config-footer {
   display: flex;
   align-items: center;
