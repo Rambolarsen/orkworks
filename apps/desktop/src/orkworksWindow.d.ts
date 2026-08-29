@@ -8,6 +8,22 @@ export type BackendLifecycleEvent =
   | { state: "ready"; port: number; workspace: WorkspaceInfo | null }
   | { state: "failed" | "exhausted"; message: string };
 
+export type ActiveHarnessSaveResult = {
+  activeHarnesses: {
+    outcome: "persisted" | "failed" | "stale_workspace";
+    message?: string;
+  };
+  integrations: Record<string, {
+    operation: "install" | "repair" | "uninstall" | "skipped";
+    outcome: "succeeded" | "failed" | "unsupported" | "stale_workspace";
+    registration: "unsupported" | "absent" | "installed" | "drifted" | "error";
+    activation: "active" | "needs_trust" | "disabled" | "unknown" | "not_applicable";
+    coverage: "full" | "limited" | "none";
+    diagnosticCode?: string;
+    message?: string;
+  }>;
+};
+
 declare global {
   interface Window {
     orkworks: {
@@ -31,6 +47,7 @@ declare global {
       verifyOllama: (baseUrl: string) => Promise<OllamaVerificationResponse>;
       getProviderModels: (providerId: string) => Promise<ProviderModelsResponse>;
       getProviderLabels: () => Promise<ProviderLabelsResponse>;
+      saveActiveHarnessesWithIntegrations: (ids: string[]) => Promise<ActiveHarnessSaveResult>;
       getHarnessIntegrationStatus: (harnessId: string) => Promise<IntegrationStatusResult>;
       installHarnessIntegration: (harnessId: string) => Promise<IntegrationStatusResult>;
       uninstallHarnessIntegration: (harnessId: string) => Promise<IntegrationStatusResult>;

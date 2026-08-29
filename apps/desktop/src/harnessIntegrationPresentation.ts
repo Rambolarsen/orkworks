@@ -1,3 +1,10 @@
+import type {
+  IntegrationActivation,
+  IntegrationCoverage,
+  IntegrationRegistration,
+  IntegrationStatusResult,
+} from "./harnessTypes.ts";
+
 // TODO(#271): derive this from a backend-declared event-semantics field on
 // the integration status instead of a per-harness special case here — Codex
 // and OpenCode are the only integrations today whose hook doesn't mean
@@ -10,4 +17,184 @@ export function shouldShowInstalledConfirmation(
   diagnostics: ReadonlyArray<{ code: string }>,
 ): boolean {
   return !diagnostics.some((diagnostic) => diagnostic.code === "unsupported_tool_version");
+}
+
+export interface IntegrationDisplayState {
+  appearance: "off" | "neutral" | "healthy" | "needs-you" | "error" | "in-progress";
+  label: string;
+  description: string;
+  tooltip: string;
+  glyph: "neutral" | "healthy" | "warning" | "trust" | "offline" | "spinner";
+}
+
+export interface ActiveHarnessIntegrationResult {
+  operation: "install" | "repair" | "uninstall" | "skipped";
+  outcome: "succeeded" | "failed" | "unsupported" | "stale_workspace";
+  registration: IntegrationRegistration;
+  activation: IntegrationActivation;
+  coverage: IntegrationCoverage;
+  diagnosticCode?: string;
+  message?: string;
+}
+
+export interface ActiveHarnessSaveResult {
+  activeHarnesses: {
+    outcome: "persisted" | "failed" | "stale_workspace";
+    message?: string;
+  };
+  integrations: Record<string, ActiveHarnessIntegrationResult>;
+}
+
+interface DeriveIntegrationDisplayStateInput {
+  harnessName: string;
+  enabled: boolean;
+  status: IntegrationStatusResult;
+  operation?: ActiveHarnessIntegrationResult | null;
+  inProgress?: boolean;
+}
+
+function displayState(
+  appearance: IntegrationDisplayState["appearance"],
+  label: IntegrationDisplayState["label"],
+  description: string,
+  tooltip: string,
+  glyph: IntegrationDisplayState["glyph"],
+): IntegrationDisplayState {
+  return { appearance, label, description, tooltip, glyph };
+}
+
+function unsupportedState(harnessName: string, enabled: boolean): IntegrationDisplayState {
+  if (!enabled) {
+    return displayState(
+      "off",
+      "off",
+      "Disabled. No OrkWorks integration remains.",
+      `${harnessName} is disabled and no OrkWorks-owned integration remains in this workspace.`,
+      "neutral",
+    );
+  }
+  return displayState(
+    "neutral",
+    "no hook support",
+    "Enabled. No OrkWorks hook support for this coding tool.",
+    `${harnessName} is enabled, but this coding tool has no OrkWorks hook capability.`,
+    "neutral",
+  );
+}
+
+export function deriveIntegrationDisplayState({
+  harnessName,
+  enabled,
+  status,
+  operation,
+  inProgress = false,
+}: DeriveIntegrationDisplayStateInput): IntegrationDisplayState {
+  if (inProgress) {
+    return displayState(
+      "in-progress",
+      "updating",
+      "Integration operation in progress.",
+      `OrkWorks is updating the ${harnessName} integration.`,
+      "spinner",
+    );
+  }
+
+  if (!status.ok) {
+    return displayState(
+      "error",
+      "status unavailable",
+      "Integration status unavailable.",
+      `${harnessName} integration status is unavailable. Retry status check.`,
+      "offline",
+    );
+  }
+
+  const current = status.status;
+  const diagnostic = current.diagnostics[0];
+
+  if (operation && operation.outcome !== "succeeded" && operation.outcome !== "unsupported") {
+    const message = operation.message ?? "The last integration operation needs attention.";
+    return displayState("needs-you", "action required", message, message, "warning");
+  }
+
+  if (diagnostic) {
+    return displayState(
+      "needs-you",
+      "action required",
+      diagnostic.message,
+      `${harnessName}: ${diagnostic.message}`,
+      diagnostic.code === "needs_trust" ? "trust" : "warning",
+    );
+  }
+
+  if (!enabled) {
+    if (current.ownership === "ork_works" && current.registration !== "absent") {
+      const message = `${harnessName} is disabled, but OrkWorks-owned integration cleanup is still needed.`;
+      return displayState("needs-you", "cleanup needed", message, message, "warning");
+    }
+    return unsupportedState(harnessName, false);
+  }
+
+  if (current.activation === "needs_trust") {
+    return displayState(
+      "needs-you",
+      "approval needed",
+      "Enabled, but the coding tool still needs to approve the hook.",
+      `${harnessName} is enabled, but you still need to approve the hook inside the coding tool.`,
+      "trust",
+    );
+  }
+
+  if (current.ownership === "ambiguous") {
+    return displayState(
+      "needs-you",
+      "ownership unclear",
+      "Enabled, but OrkWorks cannot safely change the existing integration.",
+      `${harnessName} has an ambiguous workspace-local integration. Reconcile it outside OrkWorks, then retry.`,
+      "warning",
+    );
+  }
+
+  if (current.registration === "absent") {
+    return displayState(
+      "needs-you",
+      "install needed",
+      "Enabled, but the integration needs installation.",
+      `${harnessName} is enabled, but its OrkWorks integration needs installation.`,
+      "warning",
+    );
+  }
+
+  if (current.registration === "drifted" || current.registration === "error") {
+    return displayState(
+      "needs-you",
+      "repair needed",
+      "Enabled, but the integration needs repair.",
+      `${harnessName} is enabled, but its OrkWorks integration needs repair.`,
+      "warning",
+    );
+  }
+
+  if (current.registration === "unsupported") {
+    return unsupportedState(harnessName, true);
+  }
+
+  if (current.coverage === "limited") {
+    const summary = current.confirmation?.coverageSummary ?? "limited coverage";
+    return displayState(
+      "healthy",
+      "limited coverage",
+      "Installed with limited OrkWorks coverage.",
+      `${harnessName} integration is installed with ${summary}.`,
+      "healthy",
+    );
+  }
+
+  return displayState(
+    "healthy",
+    "healthy",
+    "Installed and healthy.",
+    `${harnessName} integration is installed and healthy.`,
+    "healthy",
+  );
 }

@@ -184,3 +184,17 @@ test("SettingsModal renders verified model choices and manual override", () => {
   assert.match(source, /Enter model manually/);
   assert.match(source, /Select a verified model/);
 });
+
+test("preload exposes the combined active-harness save IPC bridge", () => {
+  const source = readFileSync(new URL("../electron/preload.ts", import.meta.url), "utf8");
+  assert.match(source, /saveActiveHarnessesWithIntegrations/);
+  assert.match(source, /ipcRenderer\.invoke\("save-active-harnesses-with-integrations", ids\)/);
+});
+
+test("orkworksWindow declares the typed combined active-harness save result", () => {
+  const source = readFileSync(new URL("../src/orkworksWindow.d.ts", import.meta.url), "utf8");
+  assert.match(source, /type ActiveHarnessSaveResult = \{/);
+  assert.match(source, /operation: "install" \| "repair" \| "uninstall" \| "skipped"/);
+  assert.match(source, /outcome: "succeeded" \| "failed" \| "unsupported" \| "stale_workspace"/);
+  assert.match(source, /saveActiveHarnessesWithIntegrations: \(ids: string\[\]\) => Promise<ActiveHarnessSaveResult>/);
+});

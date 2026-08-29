@@ -1,6 +1,22 @@
 import { contextBridge, ipcRenderer } from "electron";
 import { subscribeBackendLifecycle, type BackendLifecycleEvent } from "./backendLifecycleEvent";
 
+type ActiveHarnessSaveResult = {
+  activeHarnesses: {
+    outcome: "persisted" | "failed" | "stale_workspace";
+    message?: string;
+  };
+  integrations: Record<string, {
+    operation: "install" | "repair" | "uninstall" | "skipped";
+    outcome: "succeeded" | "failed" | "unsupported" | "stale_workspace";
+    registration: "unsupported" | "absent" | "installed" | "drifted" | "error";
+    activation: "active" | "needs_trust" | "disabled" | "unknown" | "not_applicable";
+    coverage: "full" | "limited" | "none";
+    diagnosticCode?: string;
+    message?: string;
+  }>;
+};
+
 contextBridge.exposeInMainWorld("orkworks", {
   platform: process.platform,
   getBackendUrl: (): Promise<string> => ipcRenderer.invoke("get-backend-url"),
@@ -35,6 +51,8 @@ contextBridge.exposeInMainWorld("orkworks", {
   verifyOllama: (baseUrl: string): Promise<unknown> => ipcRenderer.invoke("verify-ollama", baseUrl),
   getProviderModels: (providerId: string): Promise<unknown> => ipcRenderer.invoke("get-provider-models", providerId),
   getProviderLabels: (): Promise<unknown> => ipcRenderer.invoke("get-provider-labels"),
+  saveActiveHarnessesWithIntegrations: (ids: string[]): Promise<ActiveHarnessSaveResult> =>
+    ipcRenderer.invoke("save-active-harnesses-with-integrations", ids),
   getHarnessIntegrationStatus: (harnessId: string): Promise<unknown> =>
     ipcRenderer.invoke("get-harness-integration-status", harnessId),
   installHarnessIntegration: (harnessId: string): Promise<unknown> =>
