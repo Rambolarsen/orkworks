@@ -3,8 +3,13 @@ import { acceleratorFromKeyboardEvent } from "../hotkeyCapture";
 import type { AppSettings, DebugSettings, HotkeySettings, RetentionSettings } from "../appSettingsTypes";
 import type { ProviderId, ProviderSettings, PeonSelection, PeonAppliedState, PeonProviderVerificationResponse } from "../providerTypes";
 import type { ProviderRuntimeResponse } from "../api";
-import type { HarnessConfig } from "../harnessTypes";
-import type { ActiveHarnessSaveResult } from "../harnessIntegrationPresentation";
+import type { HarnessConfig, IntegrationStatusResult } from "../harnessTypes";
+import {
+  deriveIntegrationDisplayState,
+  type ActiveHarnessIntegrationResult,
+  type ActiveHarnessSaveResult,
+  type IntegrationDisplayState,
+} from "../harnessIntegrationPresentation";
 import { normalizeActiveHarnessIds, selectableHarnesses } from "../newSessionDialogState";
 import HarnessIntegrationSection from "./HarnessIntegrationSection";
 import HarnessDetectionStatus from "./HarnessDetectionStatus";
@@ -12,10 +17,6 @@ import HarnessIcon from "./HarnessIcon";
 import Toggle from "./Toggle";
 import Button from "./Button";
 import Input from "./Input";
-import { createSettingsController } from "../settingsController";
-
-// The controller delegates to the existing window.orkworks.verifyOllama and
-// window.orkworks.saveProviderSettings IPC methods; the modal never bypasses it.
 
 type HotkeyAction = keyof HotkeySettings;
 
@@ -53,23 +54,23 @@ const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), selec
 
 export default function SettingsModal({ initialSettings, harnesses, activeHarnessIds, onClose, onSaved, onSaveActiveHarnesses }: SettingsModalProps) {
   const modalRef = useRef<HTMLElement>(null);
-  const settingsControllerRef = useRef<ReturnType<typeof createSettingsController> | null>(null);
-  if (!settingsControllerRef.current) {
-    settingsControllerRef.current = createSettingsController(window.orkworks, initialSettings);
-  }
-  const settingsController = settingsControllerRef.current;
+  const savedSettingsRef = useRef<AppSettings>(clone(initialSettings));
   const defaultHotkeys = initialSettings.defaultHotkeys;
+  const toolHarnesses = selectableHarnesses(harnesses)
+    .filter((h) => h.id !== "generic-shell")
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const integrationHarnesses = toolHarnesses.filter((h) => h.integration !== null);
   const [activeSection, setActiveSection] = useState<SettingsSection>("tools");
   const [draft, setDraft] = useState<HotkeySettings>(initialSettings.hotkeys);
+  const [savedHotkeys, setSavedHotkeys] = useState<HotkeySettings>(initialSettings.hotkeys);
   const [capturing, setCapturing] = useState<HotkeyAction | null>(null);
   const [errors, setErrors] = useState<Partial<Record<HotkeyAction, string[]>>>({});
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
+  const [hotkeySaveStatus, setHotkeySaveStatus] = useState<string | null>(null);
   const [retention, setRetention] = useState<RetentionSettings>(initialSettings.retention);
   const [retentionSaveStatus, setRetentionSaveStatus] = useState<string | null>(null);
   const [debugSettings, setDebugSettings] = useState<DebugSettings>(initialSettings.debug);
   const [debugSaveStatus, setDebugSaveStatus] = useState<string | null>(null);
-  const [providerDraft] = useState<ProviderSettings>(initialSettings.providers);
+  const [providerDraft, setProviderDraft] = useState<ProviderSettings>(initialSettings.providers);
   const [providerSaveStatus, setProviderSaveStatus] = useState<string | null>(null);
   const initialPeonSelection: PeonSelection = initialSettings.providers.peonSelection ?? {
     provider: "ollama",
@@ -88,7 +89,11 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
     normalizeActiveHarnessIds(harnesses, activeHarnessIds),
   );
   const [activeSaveStatus, setActiveSaveStatus] = useState<string | null>(null);
+  const [toolsSaveInProgress, setToolsSaveInProgress] = useState(false);
   const [detectionGenerations, setDetectionGenerations] = useState<Record<string, number>>({});
+  const [integrationStatuses, setIntegrationStatuses] = useState<Record<string, IntegrationStatusResult>>({});
+  const [integrationOperationFailures, setIntegrationOperationFailures] = useState<Record<string, ActiveHarnessIntegrationResult>>({});
+  const [integrationStatusGeneration, setIntegrationStatusGeneration] = useState(0);
   const verificationTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function refreshDetection(harnessId: string) {
@@ -96,6 +101,7 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
       ...current,
       [harnessId]: (current[harnessId] ?? 0) + 1,
     }));
+    setIntegrationStatusGeneration((current) => current + 1);
   }
 
   function refreshDetections(harnessIds: readonly string[]) {
@@ -107,6 +113,7 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
       }
       return next;
     });
+    setIntegrationStatusGeneration((current) => current + 1);
   }
 
   useLayoutEffect(() => {
@@ -190,45 +197,72 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadIntegrationStatuses() {
+      if (integrationHarnesses.length === 0) {
+        if (!cancelled) setIntegrationStatuses({});
+        return;
+      }
+      const entries = await Promise.all(
+        integrationHarnesses.map(async (harness) => {
+          try {
+            return [harness.id, await window.orkworks.getHarnessIntegrationStatus(harness.id)] as const;
+          } catch (error) {
+            return [
+              harness.id,
+              { ok: false, error: error instanceof Error ? error.message : "Integration status unavailable." },
+            ] as const;
+          }
+        }),
+      );
+      if (!cancelled) {
+        setIntegrationStatuses(Object.fromEntries(entries));
+      }
+    }
+
+    void loadIntegrationStatuses();
+    return () => {
+      cancelled = true;
+    };
+  }, [integrationHarnesses, integrationStatusGeneration]);
+
+  function updateSavedSettings(nextSettings: AppSettings) {
+    const next = clone(nextSettings);
+    savedSettingsRef.current = next;
+    onSaved(next);
+  }
+
+  function mergeSavedSettings(partial: Partial<AppSettings>) {
+    updateSavedSettings({ ...savedSettingsRef.current, ...partial });
+  }
+
   async function saveRetention(rt: RetentionSettings) {
     setRetentionSaveStatus(null);
     setRetention(rt);
-    settingsController.updateDraft("retention", rt);
-    setRetentionSaveStatus("Pending save");
+    try {
+      const result = await window.orkworks.saveRetention(rt);
+      if (!result.ok) throw new Error("save-retention failed");
+      setRetentionSaveStatus(result.retentionApplyStatus?.lastApplyError ? "Saved locally; sidecar pending" : "Saved");
+      mergeSavedSettings({ retention: clone(rt) });
+    } catch {
+      setRetentionSaveStatus("Session retention could not be saved.");
+    }
   }
 
   async function saveDebugSettings(debug: DebugSettings) {
     setDebugSaveStatus(null);
     setDebugSettings(debug);
-    settingsController.updateDraft("debug", debug);
-    setDebugSaveStatus("Pending save");
-  }
-
-  async function save() {
-    setSaving(true);
-    setErrors({});
-    setSaveError(null);
     try {
-      settingsController.updateDraft("hotkeys", draft);
-      const result = await settingsController.commit();
-      if (result.ok) {
-        const retentionPending = Boolean(result.retentionApplyStatus?.lastApplyError);
-        const providerPending = Boolean(result.providerApplyStatus?.lastApplyError);
-        if (retentionPending) setRetentionSaveStatus("Saved locally; sidecar pending");
-        if (providerPending) setProviderSaveStatus("Saved locally; sidecar pending");
-        if (retentionPending || providerPending) return;
-        onSaved(result.settings);
-        onClose();
-      } else {
-        setSaveError(`Couldn't save ${result.failedDomain} settings.`);
-      }
+      const result = await window.orkworks.saveDebugSettings(debug);
+      setDebugSettings(result.settings.debug);
+      setDebugSaveStatus("Saved");
+      updateSavedSettings(result.settings);
     } catch {
-      setSaveError("Settings could not be saved. The active shortcuts were not changed.");
-    } finally {
-      setSaving(false);
+      setDebugSaveStatus("Debug settings could not be saved.");
     }
   }
-
 
   function toggleHarness(id: string) {
     setActiveDraft((prev) =>
@@ -236,12 +270,25 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
     );
   }
 
+  function updateIntegrationFailures(results: Record<string, ActiveHarnessIntegrationResult>) {
+    setIntegrationOperationFailures((current) => {
+      const next = { ...current };
+      for (const [harnessId, result] of Object.entries(results)) {
+        if (result.outcome === "failed") next[harnessId] = result;
+        else delete next[harnessId];
+      }
+      return next;
+    });
+  }
+
   async function saveActiveHarnessesHandler() {
     setActiveSaveStatus(null);
+    setToolsSaveInProgress(true);
     try {
       const normalizedActiveDraft = normalizeActiveHarnessIds(harnesses, activeDraft);
       const result = await onSaveActiveHarnesses(normalizedActiveDraft);
       if (result.activeHarnesses.outcome === "persisted") {
+        updateIntegrationFailures(result.integrations);
         refreshDetections(Object.keys(result.integrations));
         setActiveDraft(normalizedActiveDraft);
         return;
@@ -249,9 +296,92 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
       setActiveSaveStatus(result.activeHarnesses.message ?? "Couldn't save active coding tools.");
     } catch {
       setActiveSaveStatus("Couldn't save active coding tools.");
+    } finally {
+      setToolsSaveInProgress(false);
     }
   }
 
+  async function saveHotkeysHandler() {
+    setHotkeySaveStatus(null);
+    setErrors({});
+    try {
+      const result = await window.orkworks.saveHotkeys(draft);
+      if (!result.ok) {
+        setErrors(result.errors);
+        return;
+      }
+      setDraft(clone(result.settings.hotkeys));
+      setSavedHotkeys(clone(result.settings.hotkeys));
+      setHotkeySaveStatus("Saved");
+      updateSavedSettings(result.settings);
+    } catch {
+      setHotkeySaveStatus("Hotkeys could not be saved.");
+    }
+  }
+
+  function restoreHotkeyDefaults() {
+    setDraft(clone(defaultHotkeys));
+    setErrors({});
+    setHotkeySaveStatus(null);
+  }
+
+  function cancelHotkeyChanges() {
+    setCapturing(null);
+    setDraft(clone(savedHotkeys));
+    setErrors({});
+    setHotkeySaveStatus(null);
+  }
+
+  function toolDisplayState(harness: HarnessConfig): IntegrationDisplayState {
+    const enabled = activeDraft.includes(harness.id);
+    if (harness.integration === null) {
+      if (toolsSaveInProgress) {
+        return {
+          appearance: "in-progress",
+          label: "updating",
+          description: "Integration operation in progress.",
+          tooltip: `OrkWorks is updating the ${harness.name} tool settings.`,
+          glyph: "spinner",
+        };
+      }
+      return enabled
+        ? {
+            appearance: "neutral",
+            label: "no hook support",
+            description: "Enabled. No OrkWorks hook support for this coding tool.",
+            tooltip: `${harness.name} is enabled, but this coding tool has no OrkWorks hook capability.`,
+            glyph: "neutral",
+          }
+        : {
+            appearance: "off",
+            label: "off",
+            description: "Disabled. No OrkWorks integration remains.",
+            tooltip: `${harness.name} is disabled and no OrkWorks-owned integration remains in this workspace.`,
+            glyph: "neutral",
+          };
+    }
+
+    const status = integrationStatuses[harness.id];
+    if (!status) {
+      return {
+        appearance: "neutral",
+        label: "checking status",
+        description: "Checking integration status.",
+        tooltip: `OrkWorks is checking the ${harness.name} integration status.`,
+        glyph: "neutral",
+      };
+    }
+
+    return deriveIntegrationDisplayState({
+      harnessName: harness.name,
+      enabled,
+      status,
+      operation: integrationOperationFailures[harness.id],
+      inProgress: toolsSaveInProgress,
+    });
+  }
+
+  const hotkeysDirty = !deepEqual(draft, savedHotkeys);
 
   const ollamaEnabled = providerDraft.providers.find((entry) => entry.id === "ollama")?.enabled ?? true;
   const peonProviders = providerDraft.providers.filter((entry) => entry.enabled).map((entry) => entry.id).concat(ollamaEnabled ? ["ollama"] : []).filter((id, index, all) => all.indexOf(id) === index);
@@ -323,11 +453,10 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
     try {
       const result = await window.orkworks.savePeonSelection(peonSelection);
       if (!result.ok) throw new Error(result.error);
-      settingsController.updateDraft("providers", { ...providerDraft, peonSelection, peonModel: peonSelection.model, ollamaBaseUrl: peonSelection.ollamaBaseUrl ?? providerDraft.ollamaBaseUrl });
-      const commit = await settingsController.commit();
-      if (!commit.ok) throw new Error(`Couldn't save ${commit.failedDomain} settings.`);
-      onSaved(commit.settings ?? result.settings);
-      onClose();
+      setProviderDraft(result.settings.providers);
+      setPeonLocallyApplied(false);
+      setProviderSaveStatus("Saved");
+      updateSavedSettings(result.settings);
     } catch (error) {
       setPeonError(error instanceof Error ? error.message : "Peon Save failed.");
     } finally {
@@ -343,7 +472,7 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
             <h2 id="settings-title">Settings</h2>
             <p>Configure OrkWorks desktop preferences.</p>
           </div>
-          <button className="settings-icon-button" type="button" onClick={() => { settingsController.discard(); onClose(); }} aria-label="Close settings">
+          <button className="settings-icon-button" type="button" onClick={onClose} aria-label="Close settings">
             ×
           </button>
         </header>
@@ -377,10 +506,10 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
                 </p>
 
                 <div className="settings-config-list">
-                  {selectableHarnesses(harnesses)
-                    .filter((h) => h.id !== "generic-shell")
-                    .sort((a, b) => a.name.localeCompare(b.name))
-                    .map((h) => (
+                  {toolHarnesses.map((h) => {
+                    const display = toolDisplayState(h);
+
+                    return (
                       <div key={h.id} className="settings-config-item-row">
                         <div className="settings-config-item-header">
                           <div className="settings-config-item">
@@ -390,7 +519,16 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
                               refreshGeneration={detectionGenerations[h.id] ?? 0}
                             />
                           </div>
-                          <Toggle checked={activeDraft.includes(h.id)} onChange={() => toggleHarness(h.id)} ariaLabel={h.name} />
+                          <Toggle
+                            checked={activeDraft.includes(h.id)}
+                            onChange={() => toggleHarness(h.id)}
+                            ariaLabel={h.name}
+                            disabled={toolsSaveInProgress}
+                            visualState={display.appearance}
+                            statusDescription={display.description}
+                            statusGlyph={display.glyph}
+                            tooltip={display.tooltip}
+                          />
                         </div>
                         {h.integration !== null && (
                           <HarnessIntegrationSection
@@ -402,13 +540,16 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
                           />
                         )}
                       </div>
-                    ))}
+                    );
+                  })}
                 </div>
 
                 <div className="settings-config-footer">
-                  <Button variant="secondary" size="sm" onClick={saveActiveHarnessesHandler}>Save</Button>
+                  <Button variant="secondary" size="sm" onClick={saveActiveHarnessesHandler} disabled={toolsSaveInProgress}>
+                    {toolsSaveInProgress ? "Saving..." : "Save"}
+                  </Button>
                   {activeSaveStatus && (
-                    <span className={`settings-config-status ${activeSaveStatus === "Saved" ? "settings-config-status--ok" : ""}`}>
+                    <span className="settings-config-status">
                       {activeSaveStatus}
                     </span>
                   )}
@@ -515,7 +656,6 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
                           variant="ghost"
                           size="sm"
                           onClick={() => {
-                            settingsController.resetHotkey(row.action);
                             setDraft((current) => ({ ...current, [row.action]: defaultHotkeys[row.action] }));
                           }}
                         >
@@ -524,6 +664,19 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
                       </div>
                     </div>
                   ))}
+                </div>
+
+                <div className="settings-subsection-actions">
+                  <Button variant="secondary" size="sm" onClick={restoreHotkeyDefaults}>Restore defaults</Button>
+                  <Button variant="ghost" size="sm" onClick={cancelHotkeyChanges} disabled={!hotkeysDirty}>Cancel</Button>
+                  <Button variant="primary" size="sm" onClick={() => void saveHotkeysHandler()} disabled={!hotkeysDirty || capturing !== null}>
+                    Save
+                  </Button>
+                  {hotkeySaveStatus && (
+                    <span className={`settings-subsection-status ${hotkeySaveStatus === "Saved" ? "settings-subsection-status--ok" : ""}`}>
+                      {hotkeySaveStatus}
+                    </span>
+                  )}
                 </div>
               </div>
             )}
@@ -590,20 +743,6 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
             )}
           </div>
         </div>
-
-        {saveError && <div className="settings-save-error">{saveError}</div>}
-
-        <footer className="settings-modal-footer">
-          <Button variant="secondary" size="sm" onClick={() => {
-            settingsController.updateDraft("hotkeys", { ...defaultHotkeys });
-            setDraft({ ...defaultHotkeys });
-          }}>Restore defaults</Button>
-          <span className="settings-footer-spacer" />
-          <Button variant="ghost" size="sm" onClick={() => { settingsController.discard(); onClose(); }}>Cancel</Button>
-          <Button variant="primary" size="sm" disabled={saving} onClick={save}>
-            {saving ? "Saving..." : "Save"}
-          </Button>
-        </footer>
       </section>
     </div>
   );
@@ -611,4 +750,12 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
 
 function isBareKey(event: KeyboardEvent): boolean {
   return !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey;
+}
+
+function clone<T>(value: T): T {
+  return structuredClone(value);
+}
+
+function deepEqual(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
 }

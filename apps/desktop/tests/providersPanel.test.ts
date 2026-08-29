@@ -211,6 +211,38 @@ test("SettingsModal renders verified model choices and manual override", () => {
   assert.match(source, /Select a verified model/);
 });
 
+test("SettingsModal derives active coding tool toggle presentation from per-tool integration status", () => {
+  const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /deriveIntegrationDisplayState/);
+  assert.match(source, /getHarnessIntegrationStatus/);
+  assert.match(source, /statusDescription=/);
+  assert.match(source, /statusGlyph=/);
+  assert.match(source, /tooltip=/);
+  assert.match(source, /visualState=/);
+});
+
+test("SettingsModal keeps the draft toggle position while a tools save is in progress", () => {
+  const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /checked=\{activeDraft\.includes\(h\.id\)\}/);
+  assert.match(source, /disabled=\{[^}]*tools[^}]*save[^}]*inProgress[^}]*\}/i);
+  assert.match(source, /inProgress:\s*[^,\n]*tools[^,\n]*save[^,\n]*inProgress/i);
+});
+
+test("SettingsModal removes the modal-wide save footer and generic saveError path", () => {
+  const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
+
+  assert.doesNotMatch(source, /const \[saveError,\s*setSaveError\]/);
+  assert.doesNotMatch(source, /const \[saving,\s*setSaving\]/);
+  assert.doesNotMatch(source, /function save\(/);
+  assert.doesNotMatch(source, /settings-save-error/);
+  assert.doesNotMatch(source, /settings-modal-footer/);
+  assert.match(source, /activeSection === "hotkeys"[\s\S]*Restore defaults/);
+  assert.match(source, /activeSection === "hotkeys"[\s\S]*Cancel/);
+  assert.match(source, /activeSection === "hotkeys"[\s\S]*Save/);
+});
+
 test("preload exposes the combined active-harness save IPC bridge", () => {
   const source = readFileSync(new URL("../electron/preload.ts", import.meta.url), "utf8");
   assert.match(

@@ -176,3 +176,47 @@ Implemented on `fix-runtime-recovery`. The pre-existing uncommitted edit to
 
 The fix commit hash is reported at handoff because changing this report line
 would change the hash.
+
+## Active coding tool hook toggle Task 4 — 2026-08-29
+
+### Status
+
+Implemented in `/Users/froomiebot/workspace/orkworks-active-coding-tool-hook-toggle`.
+
+### Changes
+
+- `apps/desktop/src/components/Toggle.tsx`
+  - Added semantic `visualState`, `statusDescription`, `tooltip`, and `statusGlyph` props.
+  - Kept `role="switch"` and the stable accessible name on the toggle itself.
+  - Added visible status text plus `aria-describedby` so the state/reason is exposed without relying on color.
+- `apps/desktop/src/components/SettingsModal.tsx`
+  - Removed the modal-wide Save/Cancel/Restore footer and the global `saveError`/`saving` path.
+  - Moved hotkey Save/Cancel/Restore defaults into the Hotkeys subsection.
+  - Switched retention, debug, provider, and tools actions to subsection-local save/apply behavior.
+  - Loaded per-tool integration status in the modal and mapped combined save results onto toggle presentation.
+  - Kept the draft toggle on/off value stable while the tools batch save is in progress.
+- `apps/desktop/src/App.css`
+  - Added semantic toggle state classes for healthy, needs-you, error, and in-progress states.
+  - Added visible status glyph/text styling, including a neutral spinner treatment for in-progress work.
+- `apps/desktop/tests/providersPanel.test.ts`
+  - Added source checks for status-driven toggles, in-progress draft preservation, and removal of the global footer/save-error path.
+- `apps/desktop/tests/toggle.test.ts`
+  - Added focused checks for the new toggle prop/accessibility contract and semantic CSS token usage.
+
+### TDD evidence
+
+- RED: `node --experimental-strip-types --test tests/toggle.test.ts tests/providersPanel.test.ts` failed on the missing toggle state props/CSS and the still-present modal-wide footer/save path.
+- GREEN: the same focused suite passed after the implementation landed.
+
+### Verification
+
+- `cd apps/desktop && node --experimental-strip-types --test tests/toggle.test.ts tests/providersPanel.test.ts` — PASS, 25 passed, 0 failed.
+- `cd apps/desktop && pnpm exec tsc --noEmit` — PASS.
+- `bash scripts/doc-check.sh` — PASS.
+- `bash .claude/hooks/worktree-check.sh` — PASS.
+- `git diff --check` — PASS.
+
+### Concerns
+
+- `HarnessIntegrationSection` is intentionally still mounted in Task 4 because the Task 5 brief owns extracting and preserving the standalone command-path control.
+- The focused Node test runs still emit the repository's existing `MODULE_TYPELESS_PACKAGE_JSON` warnings.
