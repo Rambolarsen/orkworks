@@ -1,7 +1,7 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import type { ProviderId, ProviderCapacityState, ProviderSettings, ProviderSettingsEntry } from "./providerTypes.ts";
+import { peonSelectionMatchesAppliedState, type PeonAppliedState, type PeonSelection, type ProviderId, type ProviderCapacityState, type ProviderSettings, type ProviderSettingsEntry } from "./providerTypes.ts";
 
 export interface RetentionSettings {
   maxSessions: number;
@@ -112,8 +112,9 @@ const VALID_PROVIDER_IDS = new Set<ProviderId>(["opencode", "claude-code", "code
 const VALID_CAPACITY_STATES = new Set<ProviderCapacityState>(["healthy", "degraded", "capped", "unknown"]);
 
 export const DEFAULT_PROVIDER_SETTINGS: ProviderSettings = {
-  version: 1,
+  version: 2,
   revision: 0,
+  peonSelection: null,
   peonModel: null,
   ollamaBaseUrl: "http://127.0.0.1:11434",
   providers: [
@@ -260,26 +261,70 @@ export function normalizeProviderSettings(value: unknown): ProviderSettings {
     .map((entry, index) => ({ ...entry, fallbackOrder: index }));
 
   return {
-    version: 1,
+    version: 2,
     revision:
       typeof raw.revision === "number" && Number.isFinite(raw.revision)
         ? Math.max(0, Math.trunc(raw.revision))
         : DEFAULT_PROVIDER_SETTINGS.revision,
+    peonSelection: normalizePeonSelection(raw, normalizedById),
     peonModel: normalizePeonModel(raw),
     ollamaBaseUrl: normalizeOllamaBaseUrl(raw),
     providers,
   };
 }
 
-function normalizeOllamaBaseUrl(raw: Record<string, unknown>): string {
-  const val = raw.ollamaBaseUrl;
-  if (typeof val === "string" && val.length > 0) {
-    const trimmed = val.trim();
-    if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
-      return trimmed.replace(/\/+$/, "");
-    }
+function normalizePeonSelection(
+  raw: Record<string, unknown>,
+  entries: Map<ProviderId, ProviderSettingsEntry>,
+): PeonSelection | null {
+  const candidate = raw.peonSelection;
+  if (candidate && typeof candidate === "object" && !Array.isArray(candidate)) {
+    const selection = candidate as Record<string, unknown>;
+    return normalizedSelection(selection.provider, selection.model, selection.ollamaBaseUrl);
   }
-  return DEFAULT_PROVIDER_SETTINGS.ollamaBaseUrl;
+
+  if (raw.version === 2) return null;
+
+  const modeled = Array.from(entries.values()).filter((entry) => entry.model !== null);
+  if (modeled.length !== 1) return null;
+  const entry = modeled[0];
+  return normalizedSelection(entry.id, entry.model, raw.ollamaBaseUrl);
+}
+
+function normalizedSelection(provider: unknown, model: unknown, ollamaBaseUrl: unknown): PeonSelection | null {
+  if (!VALID_PROVIDER_IDS.has(provider as ProviderId) || typeof model !== "string") return null;
+  const normalizedModel = model.trim();
+  if (!normalizedModel) return null;
+  if (provider !== "ollama") return { provider: provider as ProviderId, model: normalizedModel };
+  const normalizedUrl = ollamaBaseUrl == null
+    ? DEFAULT_PROVIDER_SETTINGS.ollamaBaseUrl
+    : parseOllamaBaseUrl(ollamaBaseUrl);
+  if (!normalizedUrl) return null;
+  return { provider: "ollama", model: normalizedModel, ollamaBaseUrl: normalizedUrl };
+}
+
+function normalizeOllamaBaseUrl(raw: Record<string, unknown>): string {
+  return normalizeOllamaBaseUrlValue(raw.ollamaBaseUrl);
+}
+
+function normalizeOllamaBaseUrlValue(value: unknown): string {
+  return parseOllamaBaseUrl(value) ?? DEFAULT_PROVIDER_SETTINGS.ollamaBaseUrl;
+}
+
+function parseOllamaBaseUrl(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  try {
+    const parsed = new URL(value.trim().replace(/\/+$/, ""));
+    if (!(parsed.protocol === "http:" || parsed.protocol === "https:")
+      || parsed.username
+      || parsed.password
+      || parsed.pathname !== "/"
+      || parsed.search
+      || parsed.hash) return null;
+    return parsed.origin;
+  } catch {
+    return null;
+  }
 }
 
 function normalizePeonModel(raw: Record<string, unknown>): string | null {
@@ -365,12 +410,35 @@ export function readSettings(userDataPath: string): AppSettings {
 export function readSettingsWithMigration(userDataPath: string): { settings: AppSettings; migrated: boolean } {
   const path = settingsPath(userDataPath);
   if (!existsSync(path)) {
+    const backup = `${path}.backup`;
+    if (existsSync(backup)) {
+      try {
+        copyFileSync(backup, path);
+      } catch {
+        // Continue with defaults if recovery cannot publish the backup.
+      }
+    }
+  }
+  if (!existsSync(path)) {
     return { settings: defaultSettings(), migrated: false };
   }
   try {
-    const migrated = migrateRawProviderSettings(JSON.parse(readFileSync(path, "utf8")));
-    return { settings: normalizeSettings(migrated.value), migrated: migrated.migrated };
+    const raw = JSON.parse(readFileSync(path, "utf8"));
+    const migrated = migrateRawProviderSettings(raw);
+    const settings = normalizeSettings(migrated.value);
+    const rawProviders = migrated.value && typeof migrated.value === "object" && !Array.isArray(migrated.value)
+      ? (migrated.value as Record<string, unknown>).providers
+      : undefined;
+    return { settings, migrated: migrated.migrated || !jsonValuesEqual(settings.providers, rawProviders) };
   } catch {
+    const backup = `${path}.backup`;
+    try {
+      const recovered = normalizeSettings(JSON.parse(readFileSync(backup, "utf8")));
+      copyFileSync(backup, path);
+      return { settings: recovered, migrated: false };
+    } catch {
+      // Fall through to safe defaults when neither file is readable.
+    }
     return { settings: defaultSettings(), migrated: false };
   }
 }
@@ -392,8 +460,53 @@ export function loadSettingsForStartup(
 
 export function writeSettings(userDataPath: string, settings: AppSettings): void {
   mkdirSync(userDataPath, { recursive: true });
-  writeFileSync(settingsPath(userDataPath), `${JSON.stringify(normalizeSettings(settings), null, 2)}\n`);
+  const target = settingsPath(userDataPath);
+  const temporaryDirectory = mkdtempSync(join(userDataPath, ".settings-"));
+  const temporary = join(temporaryDirectory, fileName);
+  try {
+    writeFileSync(temporary, `${JSON.stringify(normalizeSettings(settings), null, 2)}\n`);
+    try {
+      renameSync(temporary, target);
+    } catch (error) {
+      // Windows refuses to rename over an existing file. Copying over the
+      // target avoids deleting the live settings file or sharing a backup
+      // path between concurrent writers; Unix keeps the atomic rename path.
+      const code = error && typeof error === "object" && "code" in error
+        ? (error as { code?: string }).code
+        : undefined;
+      if (process.platform !== "win32" || !["EEXIST", "EPERM", "EBUSY"].includes(code ?? "")) throw error;
+      copyFileSync(target, `${target}.backup`);
+      copyFileSync(temporary, target);
+      rmSync(`${target}.backup`, { force: true });
+    }
+  } finally {
+    rmSync(temporaryDirectory, { recursive: true, force: true });
+  }
 }
+
+export function settingsWithPeonSelection(baseSettings: AppSettings, selection: PeonSelection): AppSettings {
+  const providers = normalizeProviderSettings({
+    ...baseSettings.providers,
+    version: 2,
+    revision: baseSettings.providers.revision + 1,
+    peonSelection: selection,
+  });
+  if (!providers.peonSelection) throw new Error("Invalid Peon provider selection.");
+  return { ...baseSettings, version: 1, providers };
+}
+
+export function savePeonSelection(
+  userDataPath: string,
+  selection: PeonSelection,
+  persist: (path: string, settings: AppSettings) => void = writeSettings,
+): AppSettings {
+  const nextSettings = settingsWithPeonSelection(readSettings(userDataPath), selection);
+  persist(userDataPath, nextSettings);
+  return nextSettings;
+}
+
+export { peonSelectionMatchesAppliedState };
+export type { PeonAppliedState, PeonSelection };
 
 function migrateRawProviderSettings(value: unknown): { value: unknown; migrated: boolean } {
   if (!value || typeof value !== "object" || Array.isArray(value)) return { value, migrated: false };
@@ -408,7 +521,7 @@ function migrateRawProviderSettings(value: unknown): { value: unknown; migrated:
   const hasCanonicalCopilot = providerSettings.providers.some(
     (entry) => entry && typeof entry === "object" && !Array.isArray(entry) && (entry as Record<string, unknown>).id === "copilot",
   );
-  let migrated = false;
+  let migrated = providerSettings.version !== 2;
   let migratedLegacyCopilot = false;
   const providers = providerSettings.providers.flatMap((entry) => {
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) return [entry];
@@ -426,11 +539,44 @@ function migrateRawProviderSettings(value: unknown): { value: unknown; migrated:
     return [entry];
   });
 
-  if (!migrated) return { value, migrated: false };
+  const nextProviderSettings: Record<string, unknown> = { ...providerSettings, version: 2 };
+  if (providerSettings.version !== 2 && !nextProviderSettings.peonSelection) {
+    const modeled = providers
+      .map((entry) => (entry && typeof entry === "object" && !Array.isArray(entry) ? entry as Record<string, unknown> : null))
+      .filter((entry): entry is Record<string, unknown> => entry !== null && VALID_PROVIDER_IDS.has(entry.id as ProviderId) && typeof entry.model === "string" && entry.model.trim().length > 0);
+    if (modeled.length === 1) {
+      const entry = modeled[0];
+      nextProviderSettings.peonSelection = {
+        provider: entry.id,
+        model: (entry.model as string).trim(),
+        ...(entry.id === "ollama" ? { ollamaBaseUrl: providerSettings.ollamaBaseUrl } : {}),
+      };
+    } else {
+      nextProviderSettings.peonSelection = null;
+    }
+  }
+
+  if (!migrated && JSON.stringify(nextProviderSettings) === JSON.stringify(providerSettings)) return { value, migrated: false };
   return {
-    value: { ...root, providers: { ...providerSettings, providers } },
+    value: { ...root, providers: { ...nextProviderSettings, providers } },
     migrated: true,
   };
+}
+
+function jsonValuesEqual(left: unknown, right: unknown): boolean {
+  if (left === right) return true;
+  if (Array.isArray(left) && Array.isArray(right)) {
+    return left.length === right.length && left.every((value, index) => jsonValuesEqual(value, right[index]));
+  }
+  if (left && typeof left === "object" && right && typeof right === "object") {
+    const leftRecord = left as Record<string, unknown>;
+    const rightRecord = right as Record<string, unknown>;
+    const leftKeys = Object.keys(leftRecord).sort();
+    const rightKeys = Object.keys(rightRecord).sort();
+    return leftKeys.length === rightKeys.length
+      && leftKeys.every((key, index) => key === rightKeys[index] && jsonValuesEqual(leftRecord[key], rightRecord[key]));
+  }
+  return false;
 }
 
 export function validateHotkeys(hotkeys: HotkeySettings): HotkeyValidationResult {

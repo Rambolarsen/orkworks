@@ -913,6 +913,7 @@ mod tests {
                 version: 1,
                 revision: 1,
                 peon_model: None,
+                peon_selection: None,
                 ollama_base_url: crate::providers::default_ollama_base_url(),
                 providers: vec![crate::providers::ProviderSettingsEntry {
                     id: "codex".into(),
@@ -973,6 +974,7 @@ mod tests {
                 version: 1,
                 revision: 1,
                 peon_model: None,
+                peon_selection: None,
                 ollama_base_url: crate::providers::default_ollama_base_url(),
                 providers: vec![crate::providers::ProviderSettingsEntry {
                     id: "codex".into(),
@@ -5297,6 +5299,7 @@ mod tests {
             version: 1,
             revision: 1,
             peon_model: None,
+            peon_selection: None,
             ollama_base_url: crate::providers::default_ollama_base_url(),
             providers: vec![crate::providers::ProviderSettingsEntry {
                 id: "opencode".into(),
@@ -5491,6 +5494,7 @@ mod tests {
                 version: 1,
                 revision: 1,
                 peon_model: None,
+                peon_selection: None,
                 ollama_base_url: crate::providers::default_ollama_base_url(),
                 providers: vec![crate::providers::ProviderSettingsEntry {
                     id: "codex".into(),
@@ -6544,7 +6548,7 @@ mod tests {
         }) else {
             panic!("expected terminal input")
         };
-        assert_eq!(data, "Please review the plan or specification at specs/plan.md. If your tooling can spawn a separate review subagent, delegate the review to it instead of reviewing your own work; otherwise review it yourself. Check for missing requirements, risky assumptions, and unclear steps, then report the findings.\r");
+        assert_eq!(data, "Please review the plan or specification at specs/plan.md. Delegate this review to a subagent if you can; otherwise review it yourself. Check for missing requirements, risky assumptions, and unclear steps, then report the findings.\r");
         accepted.unwrap().send(Ok(())).unwrap();
         let response = request.await.unwrap().into_response();
         std::env::remove_var("ORKWORKS_OPEN_PLAN_TOKEN");

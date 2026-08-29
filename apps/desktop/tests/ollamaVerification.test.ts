@@ -17,12 +17,18 @@ test("preload and window typing expose verifyOllama", () => {
   assert.match(types, /verifyOllama:\s*\(baseUrl: string\)\s*=>\s*Promise<OllamaVerificationResponse>/);
 });
 
-test("SettingsModal guards against stale verification results", () => {
+test("Electron model suggestions use sidecar discovery without Peon verification", () => {
+  const main = readFileSync(new URL("../electron/main.ts", import.meta.url), "utf8");
+  assert.match(main, /settings\/providers\/\$\{encodeURIComponent\(providerId\)\}\/models/);
+  assert.doesNotMatch(main, /peonTransaction\.discover\(/);
+  assert.doesNotMatch(main, /settings\/peon\/provider\/verify.*providerId/);
+});
+
+test("SettingsModal verifies and invalidates provider-first drafts", () => {
   const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
-  assert.match(source, /const verifyRequestRef = useRef\(0\)/);
-  assert.match(source, /const requestId = \+\+verifyRequestRef\.current/);
-  assert.match(source, /if \(requestId !== verifyRequestRef\.current\) return/);
-  assert.match(source, /verifyRequestRef\.current\+\+/);
-  assert.match(source, /setOllamaVerification\(\{ phase: "idle" }\)/);
-  assert.doesNotMatch(source, /result\.normalizedBaseUrl !== normalizedDraft/);
+  assert.match(source, /verifyPeonSelection/);
+  assert.match(source, /getAppliedPeonProvider/);
+  assert.match(source, /setPeonVerification\(null\)/);
+  assert.match(source, /testAndApplyPeonProvider/);
+  assert.match(source, /savePeonSelection/);
 });

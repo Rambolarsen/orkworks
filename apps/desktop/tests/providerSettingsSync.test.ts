@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { pushProviderSettings } from "../electron/providerSettingsSync.ts";
+import { providerSettingsSyncError, pushProviderSettings } from "../electron/providerSettingsSync.ts";
 import type { ProviderEffectiveState } from "../electron/providerTypes.ts";
 import type { ProviderSettings } from "../src/providerTypes.ts";
 
@@ -44,4 +44,20 @@ test("pushProviderSettings keeps the last error on non-fatal sidecar failures", 
 
   assert.equal(result.appliedRevision, null);
   assert.match(result.lastApplyError ?? "", /500/);
+});
+
+test("provider settings sync errors are fatal to restoration readiness", () => {
+  const error = providerSettingsSyncError({
+    appliedRevision: null,
+    appliedAt: null,
+    lastApplyError: "settings push failed: 500",
+  });
+
+  assert.ok(error);
+  assert.match(error.message, /settings push failed: 500/);
+  assert.equal(providerSettingsSyncError({
+    appliedRevision: 3,
+    appliedAt: "2026-06-21T10:00:00Z",
+    lastApplyError: null,
+  }), null);
 });

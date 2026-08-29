@@ -683,7 +683,8 @@ test("SettingsModal includes a Model providers section above Hotkeys", () => {
   assert.match(source, /Model providers/);
   assert.match(source, /providerDraft/);
   assert.match(source, /provider-model-select/);
-  assert.match(source, /getProviderModels/);
+  assert.match(source, /verifyPeonProvider/);
+  assert.match(source, /testAndApplyPeonProvider/);
 });
 
 test("TerminalPanel marks CenterPanel as starting while the session is still being created", () => {

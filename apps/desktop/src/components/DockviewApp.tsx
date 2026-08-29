@@ -90,6 +90,7 @@ function DetailPanel() {
     <SessionDetailPanel
       sessions={ctx.sessions}
       activeSessionId={ctx.activeSessionId}
+      harnesses={ctx.harnesses}
       onResumeSession={ctx.onResumeSession}
       onApplyDebugAttention={ctx.onApplyDebugAttention}
       onReviewPlan={ctx.onReviewPlan}
