@@ -99,6 +99,17 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
     }));
   }
 
+  function refreshDetections(harnessIds: readonly string[]) {
+    if (harnessIds.length === 0) return;
+    setDetectionGenerations((current) => {
+      const next = { ...current };
+      for (const harnessId of harnessIds) {
+        next[harnessId] = (next[harnessId] ?? 0) + 1;
+      }
+      return next;
+    });
+  }
+
   useLayoutEffect(() => {
     const modal = modalRef.current;
     if (!modal) return;
@@ -232,6 +243,7 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
       const normalizedActiveDraft = normalizeActiveHarnessIds(harnesses, activeDraft);
       const result = await onSaveActiveHarnesses(normalizedActiveDraft);
       if (result.activeHarnesses.outcome === "persisted") {
+        refreshDetections(Object.keys(result.integrations));
         setActiveDraft(normalizedActiveDraft);
         return;
       }
@@ -386,6 +398,7 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
                             harnessId={h.id}
                             harnessName={h.name}
                             harness={h}
+                            refreshGeneration={detectionGenerations[h.id] ?? 0}
                             onDetectionChanged={refreshDetection}
                           />
                         )}

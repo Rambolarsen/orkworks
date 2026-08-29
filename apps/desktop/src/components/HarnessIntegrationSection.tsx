@@ -14,6 +14,7 @@ interface HarnessIntegrationSectionProps {
   harnessId: string;
   harnessName: string;
   harness: HarnessConfig | undefined;
+  refreshGeneration?: number;
   onDetectionChanged?: (harnessId: string) => void;
 }
 
@@ -21,6 +22,7 @@ export default function HarnessIntegrationSection({
   harnessId,
   harnessName,
   harness,
+  refreshGeneration = 0,
   onDetectionChanged,
 }: HarnessIntegrationSectionProps) {
   const launchCommand = harness?.launch.kind === "command-template" ? harness.launch.command : null;
@@ -41,13 +43,14 @@ export default function HarnessIntegrationSection({
 
   useEffect(() => {
     let cancelled = false;
+    setIntegration(null);
     window.orkworks.getHarnessIntegrationStatus(harnessId).then((result) => {
       if (!cancelled) setIntegration(result);
     });
     return () => {
       cancelled = true;
     };
-  }, [harnessId]);
+  }, [harnessId, refreshGeneration]);
 
   async function installIntegrationHandler() {
     setIntegrationBusy(true);

@@ -169,6 +169,16 @@ test("HarnessDetectionStatus supports parent-triggered refresh and accessible st
   assert.match(source, /aria-live="polite"/);
 });
 
+test("combined coding-tool saves can invalidate both header detection and mounted integration rows", () => {
+  const sectionSource = readFileSync(new URL("../src/components/HarnessIntegrationSection.tsx", import.meta.url), "utf8");
+  assert.match(sectionSource, /refreshGeneration/);
+  assert.match(sectionSource, /\[harnessId,\s*refreshGeneration\]/);
+
+  const settingsSource = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
+  assert.match(settingsSource, /Object\.keys\(result\.integrations\)/);
+  assert.match(settingsSource, /<HarnessIntegrationSection[\s\S]*?refreshGeneration=\{detectionGenerations\[h\.id\] \?\? 0\}/);
+});
+
 test("HarnessIntegrationSection reports successful detection-changing mutations", () => {
   const source = readFileSync(new URL("../src/components/HarnessIntegrationSection.tsx", import.meta.url), "utf8");
   assert.match(source, /onDetectionChanged/);

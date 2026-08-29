@@ -86,6 +86,10 @@ interface PlannedMutation {
   mutate: boolean;
 }
 
+function selectableHarnesses(harnesses: ElectronHarnessConfig[]): ElectronHarnessConfig[] {
+  return harnesses.filter((harness) => !harness.retired);
+}
+
 function integrationResultFromStatus(
   operation: ActiveHarnessIntegrationResult["operation"],
   outcome: ActiveHarnessIntegrationResult["outcome"],
@@ -263,8 +267,7 @@ export async function saveActiveHarnessesWithIntegrations(
     };
   }
 
-  const harnesses = (await deps.listHarnesses())
-    .filter((harness) => harness.id !== "generic-shell");
+  const harnesses = selectableHarnesses(await deps.listHarnesses());
   const harnessIds = harnesses.map((harness) => harness.id);
 
   if (isStale(initialGuard, deps.captureWorkspaceGuard())) {

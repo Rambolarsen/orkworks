@@ -154,6 +154,14 @@ test("orchestrates per-tool install, repair, uninstall, unsupported skip, and is
             ownership: "none",
             activation: "unknown",
           });
+        case "generic-shell":
+          return status({
+            harnessId,
+            registration: "unsupported",
+            ownership: "none",
+            activation: "not_applicable",
+            coverage: "none",
+          });
         default:
           throw new Error(`unexpected harness ${harnessId}`);
       }
@@ -201,6 +209,7 @@ test("orchestrates per-tool install, repair, uninstall, unsupported skip, and is
     "status:antigravity",
     "status:opencode",
     "install:opencode",
+    "status:generic-shell",
   ]);
   assert.deepEqual(result.activeHarnesses, { outcome: "persisted" });
   assert.deepEqual(result.integrations["claude-code"], {
@@ -241,6 +250,13 @@ test("orchestrates per-tool install, repair, uninstall, unsupported skip, and is
     coverage: "full",
     diagnosticCode: "mutation_failed",
     message: "permission denied",
+  });
+  assert.deepEqual(result.integrations["generic-shell"], {
+    operation: "skipped",
+    outcome: "unsupported",
+    registration: "unsupported",
+    activation: "not_applicable",
+    coverage: "none",
   });
 });
 
@@ -294,4 +310,135 @@ test("workspace switches abort the batch and erase old-workspace successes", asy
     "status:claude-code",
     "install:claude-code",
   ]);
+});
+
+test("retired Gemini is excluded from reconciliation and keeps its owned workspace entry untouched", async () => {
+  const deps = createDeps({
+    listHarnesses: async () => {
+      deps.calls.push("list");
+      return [
+        { ...harness("gemini"), retired: true },
+        harness("antigravity"),
+        harness("generic-shell"),
+      ];
+    },
+    getIntegrationStatus: async (harnessId) => {
+      deps.calls.push(`status:${harnessId}`);
+      if (harnessId === "gemini") throw new Error("retired Gemini must not be reconciled");
+      if (harnessId === "antigravity" || harnessId === "generic-shell") {
+        return status({
+          harnessId,
+          registration: "unsupported",
+          ownership: "none",
+          activation: "not_applicable",
+          coverage: "none",
+        });
+      }
+      throw new Error(`unexpected harness ${harnessId}`);
+    },
+    uninstallIntegration: async (harnessId) => {
+      deps.calls.push(`uninstall:${harnessId}`);
+      throw new Error(`unexpected uninstall:${harnessId}`);
+    },
+  });
+
+  const result = await saveActiveHarnessesWithIntegrations(["antigravity"], deps);
+
+  assert.deepEqual(deps.calls, [
+    "persist",
+    "list",
+    "status:antigravity",
+    "status:generic-shell",
+  ]);
+  assert.equal("gemini" in result.integrations, false);
+  assert.deepEqual(result.integrations.antigravity, {
+    operation: "skipped",
+    outcome: "unsupported",
+    registration: "unsupported",
+    activation: "not_applicable",
+    coverage: "none",
+  });
+  assert.deepEqual(result.integrations["generic-shell"], {
+    operation: "skipped",
+    outcome: "unsupported",
+    registration: "unsupported",
+    activation: "not_applicable",
+    coverage: "none",
+  });
+});
+
+test("ambiguous ownership returns structured failure without mutating either enable or disable flows", async () => {
+  const deps = createDeps({
+    listHarnesses: async () => {
+      deps.calls.push("list");
+      return [harness("claude-code"), harness("copilot"), harness("generic-shell")];
+    },
+    getIntegrationStatus: async (harnessId) => {
+      deps.calls.push(`status:${harnessId}`);
+      if (harnessId === "claude-code") {
+        return status({
+          harnessId,
+          registration: "installed",
+          ownership: "ambiguous",
+          activation: "active",
+          diagnostics: [{ code: "ownership_unclear", message: "Resolve the existing hook manually." }],
+        });
+      }
+      if (harnessId === "copilot") {
+        return status({
+          harnessId,
+          registration: "installed",
+          ownership: "ambiguous",
+          activation: "disabled",
+          diagnostics: [{ code: "ownership_unclear", message: "Resolve the existing hook manually." }],
+        });
+      }
+      if (harnessId === "generic-shell") {
+        return status({
+          harnessId,
+          registration: "unsupported",
+          ownership: "none",
+          activation: "not_applicable",
+          coverage: "none",
+        });
+      }
+      throw new Error(`unexpected harness ${harnessId}`);
+    },
+    installIntegration: async (harnessId) => {
+      deps.calls.push(`install:${harnessId}`);
+      throw new Error(`unexpected install:${harnessId}`);
+    },
+    uninstallIntegration: async (harnessId) => {
+      deps.calls.push(`uninstall:${harnessId}`);
+      throw new Error(`unexpected uninstall:${harnessId}`);
+    },
+  });
+
+  const result = await saveActiveHarnessesWithIntegrations(["claude-code"], deps);
+
+  assert.deepEqual(deps.calls, [
+    "persist",
+    "list",
+    "status:claude-code",
+    "status:copilot",
+    "status:generic-shell",
+  ]);
+  assert.deepEqual(result.integrations["claude-code"], {
+    operation: "skipped",
+    outcome: "failed",
+    registration: "installed",
+    activation: "active",
+    coverage: "full",
+    diagnosticCode: "ownership_ambiguous",
+    message: "Resolve the existing hook manually.",
+  });
+  assert.deepEqual(result.integrations.copilot, {
+    operation: "skipped",
+    outcome: "failed",
+    registration: "installed",
+    activation: "disabled",
+    coverage: "full",
+    diagnosticCode: "ownership_ambiguous",
+    message: "Resolve the existing hook manually.",
+  });
 });

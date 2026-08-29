@@ -168,3 +168,43 @@ Results:
 
 - `SettingsModal.tsx` now stops showing the unconditional `"Saved"` status for coding-tool saves, but the richer per-tool partial-failure UI still belongs to later settings tasks in the active plan.
 - The stale-workspace guard is implemented entirely in Electron main by comparing the captured workspace path plus a main-owned sidecar generation token before mutations and after the batch; no Rust route changes were needed for this task because the sidecar integration handlers already revalidate workspace identity per request.
+
+## Review-fix follow-up — 2026-08-29
+
+### Fixes
+
+- `apps/desktop/electron/activeHarnessIntegration.ts`
+  - Reconciliation now uses the same non-retired participation rule as the renderer.
+  - Retired Gemini is excluded from reconciliation, so saved OrkWorks-owned Gemini workspace entries are preserved instead of being uninstalled.
+  - `generic-shell` stays in the batch result set and now returns a structured `skipped` + `unsupported` result instead of being omitted.
+- `apps/desktop/src/components/HarnessIntegrationSection.tsx`
+  - Added a parent-driven refresh generation so open integration rows can refetch status after a successful combined save.
+- `apps/desktop/src/components/SettingsModal.tsx`
+  - Successful combined coding-tool saves now invalidate affected detection/integration rows in-place, so the open Settings UI does not keep stale pre-save status.
+- Tests
+  - Added regression coverage for retired Gemini preservation, visible `generic-shell` unsupported results, and `ownership === "ambiguous"` no-mutation handling.
+  - Added a narrow Settings source-contract test proving the modal can invalidate both the header detection badge and the mounted integration row after a combined save.
+
+### Verification
+
+```bash
+cd apps/desktop
+node --experimental-strip-types --test tests/activeHarnessSave.test.ts tests/api.test.ts tests/providersPanel.test.ts
+npx tsc --noEmit
+cd ../..
+bash scripts/doc-check.sh
+bash .claude/hooks/worktree-check.sh
+git diff --check
+```
+
+Results:
+
+- Focused desktop tests: PASS
+- TypeScript: PASS
+- `doc-check`: PASS
+- `worktree-check`: PASS
+- `git diff --check`: PASS
+
+### Notes
+
+- No new modal render-test harness was introduced for this follow-up; the UI refresh path is covered at the existing source-contract seam to keep the patch scoped to the Task 2 review findings.
