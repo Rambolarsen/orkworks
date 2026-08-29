@@ -17,13 +17,14 @@ tool configuration and remove only entries it owns.
 The active coding-tool toggle is the single user-facing control for both tool
 availability and OrkWorks hook integration.
 
-The existing Settings Save action remains the commit boundary. The renderer
-uses a new typed Electron-main operation for active coding-tool changes rather
-than calling the active-harness sidecar route and hook IPC methods separately.
+The Tools subsection's Save action remains the commit boundary for active
+coding-tool changes. The renderer uses a new typed Electron-main operation
+for those changes rather than calling the active-harness sidecar route and
+hook IPC methods separately.
 Electron main owns the orchestration and returns one result containing the
 active-tool persistence result plus a per-tool integration result.
 
-The Save operation follows this order:
+The Tools Save operation follows this order:
 
 - Toggling a tool changes the draft state.
 - Save persists the requested active-tool set through the existing sidecar
@@ -43,6 +44,25 @@ The Save operation follows this order:
   the modal as it does today.
 - Existing separate inline install, reinstall, and uninstall actions are
   removed.
+
+The Settings modal has no overall footer-level Save, Cancel, or Restore
+defaults section. Each subsection owns its own persistence and draft
+lifecycle:
+
+- **Coding tools** owns the active-tool draft, combined tool/hook Save, and
+  tool-save warning states. Its Save is the retry action for incomplete hook
+  reconciliation.
+- **Model providers** keeps its existing provider-specific Apply and Save
+  actions.
+- **Hotkeys** owns its draft, Save, Reset, Restore defaults, and subsection
+  Cancel/revert behavior.
+- **Session retention** and **Debug** retain their existing immediate or
+  field-level save behavior and status feedback.
+
+Closing the modal through the title-bar close control discards unsaved drafts
+in every subsection and does not perform a global commit. A subsection Cancel
+or revert restores only that subsection's last committed values. A subsection
+that has no staged draft does not need a Cancel control.
 
 Hook mutations continue to use the existing Electron-main and sidecar
 authority boundaries. A conceptual result is:
@@ -155,6 +175,9 @@ Desktop tests should cover:
 - a successful repair or uninstall clears the warning state;
 - the separate inline integration controls and inline save error are no
   longer rendered;
+- the modal has no overall Save, Cancel, or Restore defaults footer;
+- Tools owns its Save and warning lifecycle, while Hotkeys owns Restore
+  defaults and subsection revert behavior;
 - custom executable-path save/clear behavior remains available;
 - tool detection status remains rendered independently of hook state.
 
