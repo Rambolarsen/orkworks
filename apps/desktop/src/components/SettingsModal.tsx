@@ -4,6 +4,7 @@ import type { AppSettings, DebugSettings, HotkeySettings, RetentionSettings } fr
 import type { ProviderId, ProviderSettings, PeonSelection, PeonAppliedState, PeonProviderVerificationResponse } from "../providerTypes";
 import type { ProviderRuntimeResponse } from "../api";
 import type { HarnessConfig } from "../harnessTypes";
+import type { ActiveHarnessSaveResult } from "../harnessIntegrationPresentation";
 import { normalizeActiveHarnessIds, selectableHarnesses } from "../newSessionDialogState";
 import HarnessIntegrationSection from "./HarnessIntegrationSection";
 import HarnessDetectionStatus from "./HarnessDetectionStatus";
@@ -35,7 +36,7 @@ interface SettingsModalProps {
   providerRuntime: ProviderRuntimeResponse | null;
   onClose: () => void;
   onSaved: (settings: AppSettings) => void;
-  onSaveActiveHarnesses: (ids: string[]) => Promise<void>;
+  onSaveActiveHarnesses: (ids: string[]) => Promise<ActiveHarnessSaveResult>;
 }
 
 const hotkeyRows: Array<{ action: HotkeyAction; label: string; optional?: boolean }> = [
@@ -229,9 +230,12 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
     setActiveSaveStatus(null);
     try {
       const normalizedActiveDraft = normalizeActiveHarnessIds(harnesses, activeDraft);
-      await onSaveActiveHarnesses(normalizedActiveDraft);
-      setActiveDraft(normalizedActiveDraft);
-      setActiveSaveStatus("Saved");
+      const result = await onSaveActiveHarnesses(normalizedActiveDraft);
+      if (result.activeHarnesses.outcome === "persisted") {
+        setActiveDraft(normalizedActiveDraft);
+        return;
+      }
+      setActiveSaveStatus(result.activeHarnesses.message ?? "Couldn't save active coding tools.");
     } catch {
       setActiveSaveStatus("Couldn't save active coding tools.");
     }

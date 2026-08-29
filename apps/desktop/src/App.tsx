@@ -16,7 +16,6 @@ import {
   type ProviderRuntimeResponse,
   listHarnesses,
   applyDebugAttention,
-  saveActiveHarnesses,
   setActiveWorkspaceSession,
   getProviders,
 } from "./api";
@@ -24,7 +23,7 @@ import { disposeTerminal, getTerminal, pruneTerminals, getLiveTerminalCount, get
 import { captureRendererHealth, type RendererHealthSample } from "./rendererHealthProbe";
 import type { AppSettings } from "./appSettingsTypes";
 import type { HarnessConfig, CreateSessionOptions } from "./harnessTypes";
-import type { BackendLifecycleEvent } from "./orkworksWindow";
+import type { ActiveHarnessSaveResult, BackendLifecycleEvent } from "./orkworksWindow";
 import { shouldEnableSessionPolling, type BackendStatus } from "./backendPollingGate";
 import { createWorkspaceSessionController } from "./workspaceSessionController";
 
@@ -177,14 +176,12 @@ function App() {
 
   const filteredHarnesses = activeNewSessionHarnesses(harnesses, activeHarnessIds);
 
-  const handleSaveActiveHarnesses = useCallback(async (ids: string[]) => {
-    try {
-      const baseUrl = await window.orkworks.getBackendUrl();
-      await saveActiveHarnesses(baseUrl, ids);
+  const handleSaveActiveHarnesses = useCallback(async (ids: string[]): Promise<ActiveHarnessSaveResult> => {
+    const result = await window.orkworks.saveActiveHarnessesWithIntegrations(ids);
+    if (result.activeHarnesses.outcome === "persisted") {
       setActiveHarnessIds(ids);
-    } catch {
-      pushToast("error", "Couldn't save active harnesses.");
     }
+    return result;
   }, []);
 
   const handleOpenWorkspace = useCallback(async () => {

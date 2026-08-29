@@ -131,3 +131,40 @@ code. No unrelated formatting was applied.
   not the full Rust or desktop suites.
 - Repository-wide formatting remains red for unrelated pre-existing diffs;
   `git diff --check` is clean for this patch.
+
+## Current Task 2 Report — active coding tool hook toggle
+
+### Files
+
+- Added `apps/desktop/electron/activeHarnessIntegration.ts`
+- Added `apps/desktop/tests/activeHarnessSave.test.ts`
+- Modified `apps/desktop/electron/main.ts`
+- Modified `apps/desktop/src/App.tsx`
+- Modified `apps/desktop/src/components/SettingsModal.tsx`
+- Modified `apps/desktop/tests/api.test.ts`
+- Modified `docs/agents/architecture.md`
+
+### Tests
+
+```bash
+cd apps/desktop
+node --experimental-strip-types --test tests/activeHarnessSave.test.ts tests/api.test.ts
+npx tsc --noEmit
+cd ../..
+bash scripts/doc-check.sh
+bash .claude/hooks/worktree-check.sh
+git diff --check
+```
+
+Results:
+
+- Focused Task 2 desktop tests: PASS
+- TypeScript: PASS
+- `doc-check`: PASS after updating `docs/agents/architecture.md`
+- `worktree-check`: PASS
+- `git diff --check`: PASS
+
+### Concerns
+
+- `SettingsModal.tsx` now stops showing the unconditional `"Saved"` status for coding-tool saves, but the richer per-tool partial-failure UI still belongs to later settings tasks in the active plan.
+- The stale-workspace guard is implemented entirely in Electron main by comparing the captured workspace path plus a main-owned sidecar generation token before mutations and after the batch; no Rust route changes were needed for this task because the sidecar integration handlers already revalidate workspace identity per request.
