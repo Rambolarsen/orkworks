@@ -182,6 +182,24 @@ test("deriveIntegrationDisplayState returns error when status is unavailable", (
   assert.match(display.tooltip, /Retry status check/);
 });
 
+test("deriveIntegrationDisplayState keeps failed operations actionable even when status refresh is unavailable", () => {
+  const display = deriveIntegrationDisplayState({
+    harnessName: "Codex",
+    enabled: true,
+    status: { ok: false, error: "backend unavailable" },
+    operation: integrationOperation({
+      outcome: "failed",
+      diagnosticCode: "permission_denied",
+      message: "Hook installation failed: permission denied.",
+    }),
+  });
+
+  assert.equal(display.appearance, "needs-you");
+  assert.equal(display.label, "action required");
+  assert.equal(display.glyph, "warning");
+  assert.match(display.tooltip, /permission denied/i);
+});
+
 test("deriveIntegrationDisplayState gives operation failure precedence over status diagnostics", () => {
   const display = deriveIntegrationDisplayState({
     harnessName: "Codex",
@@ -199,6 +217,23 @@ test("deriveIntegrationDisplayState gives operation failure precedence over stat
   assert.equal(display.appearance, "needs-you");
   assert.equal(display.glyph, "warning");
   assert.match(display.tooltip, /permission denied/i);
+});
+
+test("deriveIntegrationDisplayState ignores stale_workspace outcomes in the display contract", () => {
+  const display = deriveIntegrationDisplayState({
+    harnessName: "Codex",
+    enabled: true,
+    status: integrationStatus(),
+    operation: integrationOperation({
+      outcome: "stale_workspace",
+      message: "Workspace changed while saving.",
+    }),
+  });
+
+  assert.equal(display.appearance, "healthy");
+  assert.equal(display.label, "healthy");
+  assert.equal(display.glyph, "healthy");
+  assert.doesNotMatch(display.tooltip, /workspace changed/i);
 });
 
 test("deriveIntegrationDisplayState returns neutral spinner state while integration work is in progress", () => {

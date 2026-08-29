@@ -99,6 +99,11 @@ export function deriveIntegrationDisplayState({
     );
   }
 
+  if (operation?.outcome === "failed") {
+    const message = operation.message ?? "The last integration operation needs attention.";
+    return displayState("needs-you", "action required", message, message, "warning");
+  }
+
   if (!status.ok) {
     return displayState(
       "error",
@@ -111,11 +116,6 @@ export function deriveIntegrationDisplayState({
 
   const current = status.status;
   const diagnostic = current.diagnostics[0];
-
-  if (operation && operation.outcome !== "succeeded" && operation.outcome !== "unsupported") {
-    const message = operation.message ?? "The last integration operation needs attention.";
-    return displayState("needs-you", "action required", message, message, "warning");
-  }
 
   if (diagnostic) {
     return displayState(

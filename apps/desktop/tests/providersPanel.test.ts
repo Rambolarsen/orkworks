@@ -187,14 +187,28 @@ test("SettingsModal renders verified model choices and manual override", () => {
 
 test("preload exposes the combined active-harness save IPC bridge", () => {
   const source = readFileSync(new URL("../electron/preload.ts", import.meta.url), "utf8");
-  assert.match(source, /saveActiveHarnessesWithIntegrations/);
-  assert.match(source, /ipcRenderer\.invoke\("save-active-harnesses-with-integrations", ids\)/);
+  assert.match(
+    source,
+    /saveActiveHarnessesWithIntegrations: \(ids: string\[\]\): Promise<ActiveHarnessSaveResult> =>\s*ipcRenderer\.invoke\("save-active-harnesses-with-integrations", ids\)/,
+  );
 });
 
-test("orkworksWindow declares the typed combined active-harness save result", () => {
-  const source = readFileSync(new URL("../src/orkworksWindow.d.ts", import.meta.url), "utf8");
-  assert.match(source, /type ActiveHarnessSaveResult = \{/);
-  assert.match(source, /operation: "install" \| "repair" \| "uninstall" \| "skipped"/);
-  assert.match(source, /outcome: "succeeded" \| "failed" \| "unsupported" \| "stale_workspace"/);
-  assert.match(source, /saveActiveHarnessesWithIntegrations: \(ids: string\[\]\) => Promise<ActiveHarnessSaveResult>/);
+test("preload and orkworksWindow keep the combined active-harness save contract aligned", () => {
+  const preloadSource = readFileSync(new URL("../electron/preload.ts", import.meta.url), "utf8");
+  const windowSource = readFileSync(new URL("../src/orkworksWindow.d.ts", import.meta.url), "utf8");
+
+  const preloadType = preloadSource.match(/type ActiveHarnessSaveResult = \{[\s\S]*?\n\};/);
+  const windowType = windowSource.match(/export type ActiveHarnessSaveResult = \{[\s\S]*?\n\};/);
+
+  assert.ok(preloadType, "expected ActiveHarnessSaveResult in preload.ts");
+  assert.ok(windowType, "expected ActiveHarnessSaveResult in orkworksWindow.d.ts");
+
+  const normalizeType = (value: string) =>
+    value
+      .replace(/^export\s+/m, "")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  assert.equal(normalizeType(preloadType[0]), normalizeType(windowType[0]));
+  assert.match(windowSource, /saveActiveHarnessesWithIntegrations: \(ids: string\[\]\) => Promise<ActiveHarnessSaveResult>/);
 });
