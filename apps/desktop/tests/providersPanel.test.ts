@@ -116,18 +116,15 @@ test("SettingsModal renders a Model providers section", () => {
 
 test("SettingsModal mounts a per-harness attention hook install affordance when enabled but not installed", () => {
   const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
-  assert.match(source, /INTEGRATION_HARNESS_IDS\.includes\(h\.id\) && activeDraft\.includes\(h\.id\)/);
+  assert.doesNotMatch(source, /INTEGRATION_HARNESS_IDS/);
+  assert.match(source, /h\.integration !== null/);
   assert.match(source, /<HarnessIntegrationSection/);
 });
 
-test("SettingsModal exposes Codex's hook integration through the same Settings path", () => {
-  // A working backend integration is unreachable if this allowlist omits
-  // the harness id — HarnessIntegrationSection never mounts for it.
+test("SettingsModal derives integration participation from each harness capability", () => {
   const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
-  const match = source.match(/const INTEGRATION_HARNESS_IDS = (\[[^\]]*\]);/);
-  assert.ok(match, "expected to find the INTEGRATION_HARNESS_IDS declaration");
-  const ids = JSON.parse(match[1].replace(/'/g, '"'));
-  assert.ok(ids.includes("codex"), `expected "codex" in ${match[1]}`);
+  assert.match(source, /h\.integration !== null/);
+  assert.doesNotMatch(source, /h\.id === "codex"|h\.id === "aider"|h\.id === "claude-code"/);
 });
 
 test("HarnessIntegrationSection offers the attention hook install affordance", () => {

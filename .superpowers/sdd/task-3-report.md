@@ -1,23 +1,15 @@
-# Task 3 Report: Electron Peon selection transaction
+## Task 3 local implementation report
 
-## Status
+Implemented capability-derived integration participation in `SettingsModal`:
 
-The implementation and focused tests are committed on the feature branch.
+- Removed the hard-coded `INTEGRATION_HARNESS_IDS` allowlist.
+- Mounted integration status for every selectable harness with a non-null resolved `integration` capability, regardless of active state; this includes Aider and leaves unsupported tools neutral through the existing status path.
+- Updated the source-contract tests to pin capability-derived participation and reject per-harness ID exceptions.
 
-## Scope
+Verification:
 
-The changed tests cover settings normalization, durable Peon selection save,
-Apply identity/generation checks, persisted synchronization, cache invalidation
-by Ollama URL, and Electron bridge wiring.
+- `node --experimental-strip-types --test tests/providersPanel.test.ts tests/newSessionDialogState.test.ts`: 24 passed, 0 failed.
+- `pnpm exec tsc --noEmit`: passed.
+- `git diff --check`: passed.
 
-## Verification
-
-- `node --experimental-strip-types --test tests/electronSettingsMemory.test.ts tests/settingsController.test.ts` — PASS, 59/59.
-- `perl -e 'alarm 20; exec @ARGV' npx tsc --noEmit` — bounded exit 142 (SIGALRM). `npx` emitted `npm error ENOTFOUND` attempting to fetch `tsc`; no compiler was available locally.
-- Full desktop suite: not run.
-- `git diff --check` — PASS.
-
-## Concerns
-
-- Node emits existing module-type warnings during focused tests.
-- No real packaged Electron/sidecar launch was performed.
+Note: the planned subagent implementation could not start because the platform reported the subagent usage limit. This scoped change was completed locally.

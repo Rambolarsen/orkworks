@@ -50,7 +50,6 @@ const hotkeyRows: Array<{ action: HotkeyAction; label: string; optional?: boolea
 ];
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
-const INTEGRATION_HARNESS_IDS = ["claude-code", "gemini", "copilot", "codex", "opencode"];
 
 export default function SettingsModal({ initialSettings, harnesses, activeHarnessIds, onClose, onSaved, onSaveActiveHarnesses }: SettingsModalProps) {
   const modalRef = useRef<HTMLElement>(null);
@@ -393,7 +392,7 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
                           </div>
                           <Toggle checked={activeDraft.includes(h.id)} onChange={() => toggleHarness(h.id)} ariaLabel={h.name} />
                         </div>
-                        {INTEGRATION_HARNESS_IDS.includes(h.id) && activeDraft.includes(h.id) && (
+                        {h.integration !== null && (
                           <HarnessIntegrationSection
                             harnessId={h.id}
                             harnessName={h.name}
