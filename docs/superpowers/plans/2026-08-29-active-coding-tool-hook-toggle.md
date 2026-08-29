@@ -171,9 +171,9 @@
 - `Toggle` accepts `visualState`, `statusDescription`, `tooltip`, and `statusGlyph` while retaining `checked`, `onChange`, `disabled`, and `role="switch"`.
 - The stable accessible name remains the tool name; `aria-describedby` points to visible status text. Native `title` mirrors the tooltip.
 
-- [ ] **Step 1: Write failing UI/source tests.** Assert colored classes use semantic states, `--attention-needs-you` is used in CSS, status glyph/text is present, the Tools toggle preserves its draft on/off position during in-progress work, and the modal no longer renders the global Save/Cancel/Restore footer or `saveError`.
+- [ ] **Step 1: Write failing UI/source tests.** Assert colored classes use semantic states, `--attention-needs-you` is used in CSS only for actionable states, status glyph/text is present, the Tools toggle preserves its draft on/off position during in-progress work, and the modal no longer renders the global Save/Cancel/Restore footer or `saveError`.
 
-- [ ] **Step 2: Implement Toggle state props.** Render the stable switch label, a visible non-color glyph/status description for warning/error/in-progress states, `aria-describedby`, and `title`. Disable the switch during integration operations while leaving `aria-checked` tied to the draft.
+- [ ] **Step 2: Implement Toggle state props.** Render the stable switch label, a visible non-color glyph/status description for warning/error/in-progress states, `aria-describedby`, and `title`. Disable the switch during integration operations while leaving `aria-checked` tied to the draft; use the neutral spinner for in-progress, never the needs-you color.
 
 - [ ] **Step 3: Add CSS.** Add semantic toggle modifier classes. Needs-you states must use `var(--attention-needs-you)` in both themes; healthy uses `var(--state-ok)`; status-query failure uses `var(--state-error)`; in-progress uses neutral track plus spinner. Preserve visible focus styles and contrast.
 

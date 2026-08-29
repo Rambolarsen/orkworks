@@ -230,8 +230,8 @@ Desktop tests should cover:
   success;
 - workspace changes during reconciliation produce stale results and do not
   report success for the old workspace;
-- an in-flight hook mutation presents the blue state and disables conflicting
-  interaction;
+- an in-flight integration operation presents the neutral spinner state and
+  disables conflicting interaction;
 - a successful repair or uninstall clears the warning state;
 - the separate inline integration controls and inline save error are no
   longer rendered;
