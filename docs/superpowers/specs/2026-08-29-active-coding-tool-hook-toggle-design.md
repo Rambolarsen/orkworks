@@ -17,22 +17,50 @@ tool configuration and remove only entries it owns.
 The active coding-tool toggle is the single user-facing control for both tool
 availability and OrkWorks hook integration.
 
-The existing Settings Save transaction remains the commit boundary:
+The existing Settings Save action remains the commit boundary. The renderer
+uses a new typed Electron-main operation for active coding-tool changes rather
+than calling the active-harness sidecar route and hook IPC methods separately.
+Electron main owns the orchestration and returns one result containing the
+active-tool persistence result plus a per-tool integration result.
+
+The Save operation follows this order:
 
 - Toggling a tool changes the draft state.
-- Saving a transition to enabled enables the tool and installs or repairs its
-  OrkWorks-owned hook.
-- Saving a transition to disabled disables the tool and removes only
-  OrkWorks-owned hook entries.
+- Save persists the requested active-tool set through the existing sidecar
+  workspace route. If that persistence fails, no hook mutation is attempted
+  and the draft remains unsaved.
+- After active-tool persistence succeeds, Save reconciles every
+  integration-capable tool: enabled tools are installed or repaired, and
+  disabled tools with an OrkWorks-owned registration are uninstalled.
+- Reconciliation runs even when a tool's active state did not change, so Save
+  is also the retry/repair action for an already-enabled orange tool.
 - The requested tool-state transition remains durable even if its hook
   mutation fails; the failed integration is represented by the orange toggle
   state and its tooltip so the user can retry.
+- The result reports partial failures per tool. If any integration mutation
+  fails, Settings remains open and does not show an inline save error; the
+  affected toggles show their warning state. A fully successful Save may close
+  the modal as it does today.
 - Existing separate inline install, reinstall, and uninstall actions are
   removed.
 
 Hook mutations continue to use the existing Electron-main and sidecar
-authority boundaries. The renderer requests the combined settings operation;
-it does not gain direct filesystem or hook-mutation authority.
+authority boundaries. A conceptual result is:
+
+```ts
+type ActiveHarnessSaveResult = {
+  activeHarnessesPersisted: boolean;
+  integrations: Record<string, {
+    ok: boolean;
+    state: "healthy" | "warning" | "unsupported" | "unchanged";
+    message?: string;
+  }>;
+};
+```
+
+The exact shared type may be duplicated across the preload boundary according
+to the existing Electron contract convention. The renderer never gains direct
+filesystem or hook-mutation authority.
 
 ## Toggle states
 
@@ -42,19 +70,23 @@ accessible name/tooltip:
 | State | Toggle appearance | Meaning |
 | --- | --- | --- |
 | Disabled and clean | Neutral/off | Tool is unavailable and no OrkWorks-owned hook remains. |
+| Enabled without hook support | Neutral/on | Tool is enabled, but this coding tool has no OrkWorks hook capability. |
 | Enabled and healthy | Green | Tool is enabled and its OrkWorks hook is installed. |
 | Enabled with failed or drifted hook | Orange | Tool is enabled, but the hook failed to install or needs repair. |
+| Enabled with hook trust pending | Orange | Tool is enabled, but the coding tool must approve the hook before it can activate. |
+| Disabled with failed cleanup | Orange | Tool is disabled, but an OrkWorks-owned hook remains because removal failed. |
+| Integration status unavailable | Orange | OrkWorks cannot verify hook health; the tooltip gives the status-query failure. |
 | Hook update/repair in progress | Blue | OrkWorks is applying the hook mutation. |
 
 Blue is transient and represents an operation in progress. Orange covers both
 retryable operation failures and a detected drifted installation. A red state
 is not required by this design.
 
-The accessible label and tooltip include the specific condition. For example:
-“Enabled, but hook installation failed: permission denied.” The warning is
-shown on the tool’s existing top-row icon/toggle rather than in a separate
-inline error section. A successful install/repair or uninstall clears the
-warning state.
+The accessible label and native tooltip include the specific condition. For
+example: “Enabled, but hook installation failed: permission denied.” The
+toggle uses color plus a non-color status glyph for warning/in-progress states
+so color is not the only signal. A successful install/repair or uninstall
+clears the warning state.
 
 Coding-tool detection remains a separate status signal and must not be
 conflated with hook health.
@@ -64,19 +96,41 @@ conflated with hook health.
 When an enable-time hook mutation fails, the tool remains enabled because the
 user explicitly enabled it. The UI keeps the failed integration visible
 through the orange toggle state and tooltip; it does not render a separate
-inline save error or integration section.
+inline save error or integration section. Save remains open so the warning is
+visible and can be retried.
 
 When a disable-time mutation succeeds, only OrkWorks-owned entries are
 removed. Foreign entries and unrelated configuration remain unchanged. If
 disable-time removal fails, the tool becomes disabled as requested, but the
 orange tooltip describes the remaining cleanup failure so the user can retry.
-The next disable or repair operation must still remove only OrkWorks-owned
-entries.
+The next Save still attempts cleanup and removes only OrkWorks-owned entries.
 
 The integration status response remains the source of truth for installed,
 drifted, unsupported, ownership, and diagnostic conditions. The operation
 failure message is retained in the Settings view until the next successful
-operation or the modal is reopened.
+operation or the modal is reopened. Reopening reloads durable integration
+status; operation-specific text is intentionally not persisted, so a reopened
+modal may show the status diagnostic rather than the original failure wording.
+
+Unsupported or limited tools remain ordinary active-tool choices and do not
+claim hook health. They use the neutral toggle state with an accessible
+description that no OrkWorks hook is available. Ownership ambiguity is never
+treated as safe to remove; it produces an orange warning with an explanation
+and leaves foreign configuration untouched. Tool detection, Codex hook trust,
+and hook registration are separate facts: an undetected tool or Codex
+`needs_trust` state must be described in the tooltip/status model rather than
+silently presented as a healthy green hook.
+
+The custom executable-path controls are preserved. They move out of the hook
+integration section into a small per-tool command-path control in the row (or
+an equivalent separate settings component); removing hook actions must not
+remove the ability to save or clear a custom executable path.
+
+The blue state is local renderer state for the duration of the orchestration
+promise. Each tool has an independent reconciliation state, but the Save
+action is disabled while the batch is running. Stale results from a closed
+modal or changed workspace are ignored, and the next Settings open reloads
+status from the current workspace.
 
 ## Testing
 
@@ -84,13 +138,20 @@ Desktop tests should cover:
 
 - enabling a supported tool requests hook installation as part of the save;
 - disabling a tool requests ownership-aware hook removal;
+- saving with no active-state change retries reconciliation for enabled orange
+  tools and incomplete disabled cleanups;
 - hook failure preserves the requested enabled/disabled transition and
   produces the orange warning state with the failure reason;
+- active-tool persistence failure prevents hook mutation and does not claim
+  that the settings were saved;
+- multiple tools return independent integration outcomes, including partial
+  success;
 - an in-flight hook mutation presents the blue state and disables conflicting
   interaction;
 - a successful repair or uninstall clears the warning state;
 - the separate inline integration controls and inline save error are no
   longer rendered;
+- custom executable-path save/clear behavior remains available;
 - tool detection status remains rendered independently of hook state.
 
 Existing sidecar integration tests should remain authoritative for preserving
