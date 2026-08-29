@@ -701,12 +701,10 @@ mod tests {
             &["--hook-fingerprint", "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"],
         );
         assert!(
-            trace.contains(r#"{"harnessSessionId":"thr_123","source":"codex_hook","confidence":0.98}"#),
-            "expected codex session_id to be forwarded; trace:\n{trace}"
-        );
-        assert!(
-            trace.contains(r#""hookFingerprint":"a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"#),
-            "expected codex hook fingerprint to be forwarded; trace:\n{trace}"
+            trace.contains(
+                r#"{"harnessSessionId":"thr_123","source":"codex_hook","confidence":0.98,"hookFingerprint":"a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"}"#
+            ),
+            "expected codex session_id and hook fingerprint to be forwarded together in one payload; trace:\n{trace}"
         );
     }
 
