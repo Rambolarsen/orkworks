@@ -127,7 +127,11 @@ export default function HarnessIntegrationSection({
               </span>
             ) : (
               <span className="settings-config-status settings-config-status--ok">
-                {isAttentionSignal(harnessId) ? "✓ Attention hooks installed" : "✓ Session capture hook active"}
+                {isAttentionSignal(harnessId)
+                  ? "✓ Attention hooks installed"
+                  : integration.status.activation === "active"
+                    ? "✓ Session capture hook active"
+                    : "✓ Session capture hook installed"}
               </span>
             ))}
           <button type="button" onClick={uninstallIntegrationHandler} disabled={integrationBusy}>

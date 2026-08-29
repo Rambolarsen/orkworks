@@ -152,6 +152,16 @@ test("HarnessIntegrationSection distinguishes non-attention integrations and una
   assert.match(source, /approve the hook inside/);
 });
 
+test("HarnessIntegrationSection only claims 'active' for a backend-verified activation, not merely 'installed'", () => {
+  const source = readFileSync(new URL("../src/components/HarnessIntegrationSection.tsx", import.meta.url), "utf8");
+  // Only Codex's fingerprint check ever resolves to activation "active";
+  // other non-attention-signal harnesses (e.g. OpenCode) resolve to
+  // "unknown" once installed and must keep the weaker, accurate "installed"
+  // wording instead of falsely claiming a verified-active hook.
+  assert.match(source, /activation === "active"[\s\S]{0,120}Session capture hook active/);
+  assert.match(source, /Session capture hook installed/);
+});
+
 test("HarnessDetectionStatus supports parent-triggered refresh and accessible status text", () => {
   const source = readFileSync(new URL("../src/components/HarnessDetectionStatus.tsx", import.meta.url), "utf8");
   assert.match(source, /refreshGeneration/);

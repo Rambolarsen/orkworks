@@ -161,9 +161,11 @@ fi
 
 if [ -n "${ORKWORKS_SESSION_ID:-}" ] && [ -n "${ORKWORKS_PORT:-}" ] && [ -n "$harness_session_id" ] && [ -n "$session_source" ]; then
   escaped_session_id=$(printf '%s' "$harness_session_id" | sed 's/[\\"]/\\&/g')
-  session_payload=$(printf '{"harnessSessionId":"%s","source":"%s","confidence":0.98}' "$escaped_session_id" "$session_source")
   if [ "$session_source" = "codex_hook" ] && [ -n "$hook_fingerprint" ]; then
-    session_payload=$(python3 -c 'import json,sys; p=json.loads(sys.argv[1]); p["hookFingerprint"]=sys.argv[2]; print(json.dumps(p, separators=(",", ":")))' "$session_payload" "$hook_fingerprint")
+    escaped_fingerprint=$(printf '%s' "$hook_fingerprint" | sed 's/[\\"]/\\&/g')
+    session_payload=$(printf '{"harnessSessionId":"%s","source":"%s","confidence":0.98,"hookFingerprint":"%s"}' "$escaped_session_id" "$session_source" "$escaped_fingerprint")
+  else
+    session_payload=$(printf '{"harnessSessionId":"%s","source":"%s","confidence":0.98}' "$escaped_session_id" "$session_source")
   fi
   curl -sS --max-time 5 --connect-timeout 2 -X POST "http://127.0.0.1:$ORKWORKS_PORT/sessions/$ORKWORKS_SESSION_ID/harness-session" \
     -H "Content-Type: application/json" \
