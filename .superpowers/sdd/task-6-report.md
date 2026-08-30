@@ -25,3 +25,9 @@ Implemented Task 6 in the active coding-tool hook toggle branch with TDD.
 
 - The desktop test command still emits the existing `MODULE_TYPELESS_PACKAGE_JSON` and `NO_COLOR` warnings from the current repo/tooling setup.
 - One minimal `src/App.css` adjustment was required to keep the current full-suite Settings header expectation green alongside the Task 6 modal changes.
+
+## Follow-up: Review finding (2026-08-30)
+
+- Adjusted `mergeIntegrationOperationFailures()` so a successful `install` or `repair` clears only that harness's cached operation failure, letting fresh status diagnostics such as Codex `needs_trust` drive the warning state.
+- Preserved cached warnings for unrelated harnesses and for non-success follow-up results such as `failed` and `stale_workspace`.
+- Added regression coverage for failed -> successful install/repair -> `needs_trust` and kept the one-tool isolation assertion in `settingsController.test.ts`.

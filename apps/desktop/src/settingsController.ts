@@ -96,18 +96,7 @@ export function mergeIntegrationOperationFailures(
 }
 
 function clearsIntegrationOperationFailure(result: ActiveHarnessIntegrationResult): boolean {
-  if (result.outcome !== "succeeded") return false;
-  if (result.diagnosticCode) return false;
-
-  if (result.registration === "absent") {
-    return result.operation === "uninstall" || result.operation === "skipped";
-  }
-
-  if (result.registration === "installed") {
-    return result.activation !== "needs_trust";
-  }
-
-  return false;
+  return result.outcome === "succeeded";
 }
 
 function clone<T>(value: T): T {

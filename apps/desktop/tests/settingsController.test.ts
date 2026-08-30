@@ -311,29 +311,31 @@ test("draft edits are isolated and discard restores the committed snapshot", asy
   assert.deepEqual(controller.snapshot().draft, controller.snapshot().committed);
 });
 
-test("mergeIntegrationOperationFailures keeps an actionable warning until reconciliation is healthy", () => {
+test("mergeIntegrationOperationFailures clears a prior failure when Codex repair succeeds so status diagnostics can surface", () => {
   const current = {
     codex: failedIntegration("Approve the hook in Codex."),
     opencode: failedIntegration("permission denied"),
   };
 
-  assert.deepEqual(
-    mergeIntegrationOperationFailures(current, {
-      codex: {
-        operation: "repair",
-        outcome: "succeeded",
-        registration: "installed",
-        activation: "needs_trust",
-        coverage: "full",
-        diagnosticCode: "needs_trust",
-        message: "Approve the hook in Codex.",
+  for (const operation of ["install", "repair"] as const) {
+    assert.deepEqual(
+      mergeIntegrationOperationFailures(current, {
+        codex: {
+          operation,
+          outcome: "succeeded",
+          registration: "installed",
+          activation: "needs_trust",
+          coverage: "full",
+          diagnosticCode: "needs_trust",
+          message: "Approve the hook in Codex.",
+        },
+      }),
+      {
+        opencode: failedIntegration("permission denied"),
       },
-    }),
-    {
-      codex: failedIntegration("Approve the hook in Codex."),
-      opencode: failedIntegration("permission denied"),
-    },
-  );
+      `expected ${operation} success to clear the old Codex failure cache`,
+    );
+  }
 });
 
 test("mergeIntegrationOperationFailures records new failures without clearing unrelated warnings", () => {
