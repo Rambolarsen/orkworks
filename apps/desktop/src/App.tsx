@@ -40,6 +40,7 @@ function App() {
   const [providerRuntime, setProviderRuntime] = useState<ProviderRuntimeResponse | null>(null);
   const [noProvidersPrompt, setNoProvidersPrompt] = useState(false);
   const [resumeTick, setResumeTick] = useState(0);
+  const [reviewTick, setReviewTick] = useState(0);
   const [harnesses, setHarnesses] = useState<HarnessConfig[]>([]);
   const [activeHarnessIds, setActiveHarnessIds] = useState<string[]>([]);
   const [newSessionDialogOpen, setNewSessionDialogOpen] = useState(false);
@@ -309,6 +310,7 @@ function App() {
       position: { referencePanel: "terminal" },
     });
     panel?.api.setActive();
+    setReviewTick((tick) => tick + 1);
   }, []);
 
   useEffect(() => {
@@ -522,11 +524,13 @@ function App() {
         unreadIds={unreadState.unreadIds}
         harnesses={harnesses}
         resumeTick={resumeTick}
+        reviewTick={reviewTick}
         onSelectSession={handleSelectSession}
         onCreateSession={handleCreateSession}
         onKillSession={handleKillSession}
         onForgetSession={handleForgetSession}
         onResumeSession={handleResumeSession}
+        onRefreshReview={() => setReviewTick((tick) => tick + 1)}
         onApplyDebugAttention={handleApplyDebugAttention}
         onFocusTerminal={handleFocusTerminal}
         onOpenWorkspace={handleOpenWorkspace}

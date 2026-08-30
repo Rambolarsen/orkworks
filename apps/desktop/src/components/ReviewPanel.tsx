@@ -33,23 +33,43 @@ const markdownComponents: Components = { a: ReviewLink };
 // sessionId is unchanged; react-markdown re-parses its input on every render
 // with no internal caching, so without this the whole Markdown pipeline
 // would rerun on a timer instead of only when the reviewed content changes.
-function ReviewPanel({ sessionId }: { sessionId: string | null }) {
+interface ReviewPanelProps {
+  sessionId: string | null;
+  reviewTick?: number;
+}
+
+function ReviewPanel({ sessionId, reviewTick }: ReviewPanelProps) {
   const [content, setContent] = useState<string | null>(null);
   const [error, setError] = useState(false);
   const requestId = useRef(0);
+  const lastSessionIdRef = useRef<string | null>(null);
+
   const load = useCallback(() => {
-    if (!sessionId) return;
+    if (!sessionId) {
+      setContent(null);
+      setError(false);
+      lastSessionIdRef.current = null;
+      return;
+    }
     const currentRequest = ++requestId.current;
-    setContent(null);
+    if (lastSessionIdRef.current !== sessionId) {
+      setContent(null);
+    }
     setError(false);
+    lastSessionIdRef.current = sessionId;
+
     void window.orkworks.getPlanContent(sessionId)
-      .then((value) => { if (currentRequest === requestId.current) setContent(value); })
-      .catch(() => { if (currentRequest === requestId.current) setError(true); });
+      .then((value) => {
+        if (currentRequest === requestId.current) setContent(value);
+      })
+      .catch(() => {
+        if (currentRequest === requestId.current) setError(true);
+      });
   }, [sessionId]);
 
   useEffect(() => {
     load();
-  }, [load]);
+  }, [sessionId, reviewTick, load]);
 
   if (!sessionId) return <EmptyState message="Select a session with a plan to review it." />;
   if (error) return <EmptyState message="This plan is no longer available." action={{ label: "Retry", onClick: load }} />;

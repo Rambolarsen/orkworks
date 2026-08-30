@@ -133,6 +133,19 @@ test("ReviewPanel routes Markdown links through the safe external-link bridge in
   assert.match(source, /const markdownComponents: Components = \{ a: ReviewLink \};/);
 });
 
+test("ReviewPanel supports reviewTick prop and retains memoization", () => {
+  const source = readFileSync(new URL("../src/components/ReviewPanel.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /reviewTick\?: number/);
+  // Content clears only on a session change — never on a same-session tick
+  // refresh — so an explicit refresh updates in place without a flash, and a
+  // tick change coinciding with a session switch can't leak stale content.
+  assert.match(source, /if \(lastSessionIdRef\.current !== sessionId\)\s*\{\s*setContent\(null\);/);
+  assert.doesNotMatch(source, /isExplicitRefresh|lastTickRef/);
+  assert.match(source, /window\.orkworks\.getPlanContent\(sessionId\)/);
+  assert.match(source, /export default memo\(ReviewPanel\);/);
+});
+
 test("DockviewApp default layout opens sessions/detail/terminal only (Capacity & Recommendations closed until they carry signal)", () => {
   const source = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
 
@@ -163,26 +176,39 @@ test("App and DockviewApp share one canonical default-layout builder", () => {
   assert.match(app, /buildDefaultLayout\(api\)/);
 });
 
-test("DockviewApp exposes a right-side header action for the Sessions panel", () => {
+test("DockviewApp exposes header actions for Sessions and Review panels", () => {
   const source = readFileSync(
     new URL("../src/components/DockviewApp.tsx", import.meta.url),
     "utf8",
   );
 
-  assert.match(source, /rightHeaderActionsComponent=\{SessionsHeaderActions\}/);
-  assert.match(source, /activePanel\?\.id !== PANEL_DEFAULTS\.sessions\.component/);
+  assert.match(source, /rightHeaderActionsComponent=\{DockviewHeaderActions\}/);
+  assert.match(source, /PANEL_DEFAULTS\.sessions\.component/);
+  assert.match(source, /PANEL_DEFAULTS\.review\.component/);
   assert.match(source, /dockview-header-action/);
 });
 
-test("Sessions header action is gated on workspace presence and panel identity", () => {
-  const source = readFileSync(
-    new URL("../src/components/DockviewApp.tsx", import.meta.url),
-    "utf8",
-  );
+test("DockviewHeaderActions renders Refresh plan button with RotateCw for review tab when session has an openable plan", () => {
+  const source = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
 
+  assert.match(source, /RotateCw/);
+  assert.match(source, /title="Refresh plan"/);
+  assert.match(source, /aria-label="Refresh plan"/);
+  assert.match(source, /onClick=\{\(\)\s*=>\s*ctx\.onRefreshReview\(\)\}/);
+  assert.match(source, /reviewTick=\{ctx\.reviewTick\}/);
+});
+
+test("App owns reviewTick state and wires it into DockviewApp with an incrementing refresh callback", () => {
+  const source = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /useState\(0\)/);
+  assert.match(source, /reviewTick=\{reviewTick\}/);
+  // handleReviewPlan must bump the tick after activating the panel so an
+  // already-open Review tab refetches instead of showing stale content.
+  assert.match(source, /setActive\(\);\s*\n\s*setReviewTick\(/);
   assert.match(
     source,
-    /if \(!ctx\.workspace \|\| props\.activePanel\?\.id !== PANEL_DEFAULTS\.sessions\.component\) \{\s*return null;\s*\}/,
+    /onRefreshReview=\{\(\)\s*=>\s*setReviewTick\(\(?\w+\)?\s*=>\s*\w+\s*\+\s*1\)\}/,
   );
 });
 
