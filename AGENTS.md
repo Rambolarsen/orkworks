@@ -14,10 +14,11 @@ Use **pnpm** for all Node.js package-management tasks in this repository, includ
 
 ## CI routing
 
-GitHub Actions now has five distinct workflow classes:
+GitHub Actions now has six distinct workflow classes:
 
 - `.github/workflows/release.yml` for tag-driven release packaging only
 - `.github/workflows/pr-ci.yml` for pull-request validation on `main`
+- `.github/workflows/main-ci.yml` re-runs the full desktop and Rust test suites against `main` itself, unconditionally (no path filtering) — on every push to `main`, on a daily schedule, and via manual dispatch. It exists because `pr-ci.yml` only triggers on `pull_request` and never re-validates `main` after a merge, so a bad merge (including one that bypasses branch protection as an admin) can sit undetected until the next PR; the daily schedule additionally catches drift with no code change (flaky tests, dependency updates).
 - `.github/workflows/docs.yml` builds the VitePress docs site and deploys it to GitHub Pages on doc-path pushes to `main`
 - `.github/workflows/quality-audit.yml` for the weekly scheduled quality audit — rotates through the audit skills in `skills/` (one per week, so each fires roughly monthly) and files scoped issues per those skills' guardrails; requires the `CLAUDE_CODE_OAUTH_TOKEN` repo secret (subscription auth via `claude setup-token`; an `ANTHROPIC_API_KEY` swap is documented in the workflow header)
 - `.github/workflows/pr-review.yml` posts one automated first-pass review comment on newly opened PRs that touch `apps/desktop/` or `crates/orkworksd/`, reusing the same `CLAUDE_CODE_OAUTH_TOKEN` secret. It is informational only — excluded from required status checks, cannot block a merge, and does not replace the manual `/code-review` review gate below; it always says so in its own comment.
