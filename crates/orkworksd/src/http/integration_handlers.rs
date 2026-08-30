@@ -41,6 +41,13 @@ fn reporter_assets() -> Result<ReporterAssetResolver, String> {
     })
 }
 
+fn workspace_harness_enabled(workspace: &crate::WorkspaceState, harness_id: &str) -> bool {
+    workspace
+        .metadata
+        .read_workspace_memory()
+        .is_some_and(|memory| memory.active_harness_ids.iter().any(|id| id == harness_id))
+}
+
 fn integration_error_response(error: IntegrationError) -> axum::response::Response {
     let status = match &error {
         IntegrationError::NoWorkspace
@@ -172,7 +179,7 @@ async fn run_integration_action(
             workspace: &ws.path,
             workspace_metadata: Some(&ws.metadata),
             orkworks_root: &orkworks_root,
-            enabled: true,
+            enabled: workspace_harness_enabled(ws, &harness.definition.id),
             detected_tool,
             reporter_assets: &reporter_assets,
         };
@@ -222,6 +229,7 @@ pub(crate) async fn uninstall_integration(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::session_application::SessionApplication;
     use crate::test_support::{test_app_state_with_workspace, FakeHome};
     use serde_json::Value;
 
@@ -299,6 +307,7 @@ mod tests {
             .unwrap();
         let body: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(body["registration"], "absent");
+        assert_eq!(body["enabled"], false);
     }
 
     #[tokio::test]
@@ -332,11 +341,13 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let _fake_home = FakeHome::set(home.path());
         let state = test_app_state_with_workspace(dir.path());
+        SessionApplication::new(state.clone())
+            .set_active_harnesses(vec!["codex".into()])
+            .unwrap();
 
-        let install_response =
-            install_integration(State(state.clone()), AxumPath("codex".into()))
-                .await
-                .into_response();
+        let install_response = install_integration(State(state.clone()), AxumPath("codex".into()))
+            .await
+            .into_response();
         assert_eq!(install_response.status(), StatusCode::OK);
 
         let status_response = get_integration_status(State(state), AxumPath("codex".into()))
@@ -358,6 +369,9 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let _fake_home = FakeHome::set(home.path());
         let state = test_app_state_with_workspace(dir.path());
+        SessionApplication::new(state.clone())
+            .set_active_harnesses(vec!["codex".into()])
+            .unwrap();
 
         let fake_bin_dir = tempfile::tempdir().unwrap();
         let bin_name = if cfg!(windows) { "codex.exe" } else { "codex" };
@@ -394,6 +408,9 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let _fake_home = FakeHome::set(home.path());
         let state = test_app_state_with_workspace(dir.path());
+        SessionApplication::new(state.clone())
+            .set_active_harnesses(vec!["claude-code".into()])
+            .unwrap();
 
         let install_response =
             install_integration(State(state.clone()), AxumPath("claude-code".into()))
@@ -462,6 +479,9 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let _fake_home = FakeHome::set(home.path());
         let state = test_app_state_with_workspace(dir.path());
+        SessionApplication::new(state.clone())
+            .set_active_harnesses(vec!["claude-code".into()])
+            .unwrap();
 
         let install_response =
             install_integration(State(state.clone()), AxumPath("claude-code".into()))
@@ -505,6 +525,9 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let _fake_home = FakeHome::set(home.path());
         let state = test_app_state_with_workspace(dir.path());
+        SessionApplication::new(state.clone())
+            .set_active_harnesses(vec!["copilot".into()])
+            .unwrap();
 
         state
             .harness_store
@@ -564,6 +587,9 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let _fake_home = FakeHome::set(home.path());
         let state = test_app_state_with_workspace(dir.path());
+        SessionApplication::new(state.clone())
+            .set_active_harnesses(vec!["copilot".into()])
+            .unwrap();
 
         state
             .harness_store
@@ -1081,7 +1107,10 @@ mod tests {
             .await
             .unwrap();
         let payload: Value = serde_json::from_slice(&bytes).unwrap();
-        assert_eq!(payload["error"], "workspace changed during this request; retry");
+        assert_eq!(
+            payload["error"],
+            "workspace changed during this request; retry"
+        );
     }
 
     #[tokio::test]
@@ -1187,6 +1216,143 @@ mod tests {
     // it can't hide a real `claude` install elsewhere on PATH, and this
     // test must still pass on a machine that has Claude Code installed.
     #[tokio::test]
+    async fn status_reports_disabled_for_an_owned_integration_until_the_tool_is_active() {
+        let dir = tempfile::tempdir().unwrap();
+        init_git_workspace_with_claude_settings_ignored(dir.path());
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        let state = test_app_state_with_workspace(dir.path());
+
+        let install_response =
+            install_integration(State(state.clone()), AxumPath("claude-code".into()))
+                .await
+                .into_response();
+        assert_eq!(install_response.status(), StatusCode::OK);
+
+        let disabled_response =
+            get_integration_status(State(state.clone()), AxumPath("claude-code".into()))
+                .await
+                .into_response();
+        let disabled_bytes = axum::body::to_bytes(disabled_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let disabled_body: Value = serde_json::from_slice(&disabled_bytes).unwrap();
+        assert_eq!(disabled_body["registration"], "installed");
+        assert_eq!(disabled_body["enabled"], false);
+        assert_eq!(disabled_body["activation"], "disabled");
+
+        SessionApplication::new(state.clone())
+            .set_active_harnesses(vec!["claude-code".into()])
+            .unwrap();
+        let enabled_response = get_integration_status(State(state), AxumPath("claude-code".into()))
+            .await
+            .into_response();
+        let enabled_bytes = axum::body::to_bytes(enabled_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let enabled_body: Value = serde_json::from_slice(&enabled_bytes).unwrap();
+        assert_eq!(enabled_body["registration"], "installed");
+        assert_eq!(enabled_body["enabled"], true);
+    }
+
+    #[tokio::test]
+    async fn aider_status_reports_limited_coverage_and_truthful_enablement() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        let state = test_app_state_with_workspace(dir.path());
+        SessionApplication::new(state.clone())
+            .set_active_harnesses(vec!["aider".into()])
+            .unwrap();
+
+        let install_response = install_integration(State(state.clone()), AxumPath("aider".into()))
+            .await
+            .into_response();
+        assert_eq!(install_response.status(), StatusCode::OK);
+
+        let enabled_response =
+            get_integration_status(State(state.clone()), AxumPath("aider".into()))
+                .await
+                .into_response();
+        let enabled_bytes = axum::body::to_bytes(enabled_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let enabled_body: Value = serde_json::from_slice(&enabled_bytes).unwrap();
+        assert_eq!(enabled_body["registration"], "installed");
+        assert_eq!(enabled_body["enabled"], true);
+        assert_eq!(enabled_body["coverage"], "limited");
+
+        SessionApplication::new(state.clone())
+            .set_active_harnesses(vec![])
+            .unwrap();
+        let disabled_response = get_integration_status(State(state), AxumPath("aider".into()))
+            .await
+            .into_response();
+        let disabled_bytes = axum::body::to_bytes(disabled_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let disabled_body: Value = serde_json::from_slice(&disabled_bytes).unwrap();
+        assert_eq!(disabled_body["registration"], "installed");
+        assert_eq!(disabled_body["enabled"], false);
+        assert_eq!(disabled_body["activation"], "disabled");
+        assert_eq!(disabled_body["coverage"], "limited");
+    }
+
+    #[tokio::test]
+    async fn unsupported_generic_shell_status_reports_unsupported_without_hardcoded_enablement() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+
+        let disabled_response =
+            get_integration_status(State(state.clone()), AxumPath("generic-shell".into()))
+                .await
+                .into_response();
+        assert_eq!(disabled_response.status(), StatusCode::OK);
+        let disabled_bytes = axum::body::to_bytes(disabled_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let disabled_body: Value = serde_json::from_slice(&disabled_bytes).unwrap();
+        assert_eq!(disabled_body["registration"], "unsupported");
+        assert_eq!(disabled_body["enabled"], false);
+        assert_eq!(disabled_body["activation"], "not_applicable");
+
+        SessionApplication::new(state.clone())
+            .set_active_harnesses(vec!["generic-shell".into()])
+            .unwrap();
+        let enabled_response =
+            get_integration_status(State(state), AxumPath("generic-shell".into()))
+                .await
+                .into_response();
+        let enabled_bytes = axum::body::to_bytes(enabled_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let enabled_body: Value = serde_json::from_slice(&enabled_bytes).unwrap();
+        assert_eq!(enabled_body["registration"], "unsupported");
+        assert_eq!(enabled_body["enabled"], true);
+        assert_eq!(enabled_body["activation"], "not_applicable");
+    }
+
+    #[tokio::test]
+    async fn uninstall_preserves_ambiguous_foreign_codex_hooks() {
+        let dir = tempfile::tempdir().unwrap();
+        init_git_workspace_with_codex_hooks_ignored(dir.path());
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        let hooks_dir = dir.path().join(".codex");
+        std::fs::create_dir_all(&hooks_dir).unwrap();
+        let hooks_path = hooks_dir.join("hooks.json");
+        let foreign = r#"{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"/path/to/report-harness-event.sh --marker 'orkworks:harness-integration:v2:claude-code'"}]}]}}"#;
+        std::fs::write(&hooks_path, foreign).unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+
+        let response = uninstall_integration(State(state), AxumPath("codex".into()))
+            .await
+            .into_response();
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        assert_eq!(std::fs::read_to_string(&hooks_path).unwrap(), foreign);
+    }
+
+    #[tokio::test]
     async fn detected_tool_stays_absent_when_the_command_is_not_on_path() {
         use crate::harness::definition::{HarnessPatch, LaunchPatch};
         use crate::test_support::FakePath;
@@ -1196,6 +1362,9 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let _fake_home = FakeHome::set(home.path());
         let state = test_app_state_with_workspace(dir.path());
+        SessionApplication::new(state.clone())
+            .set_active_harnesses(vec!["claude-code".into()])
+            .unwrap();
 
         state
             .harness_store

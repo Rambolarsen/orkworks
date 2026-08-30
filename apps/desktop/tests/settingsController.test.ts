@@ -3,7 +3,12 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import type { AppSettings } from "../src/appSettingsTypes.ts";
 import type { ProviderSettings } from "../src/providerTypes.ts";
-import { createSettingsController, type SettingsControllerApi } from "../src/settingsController.ts";
+import {
+  createSettingsController,
+  mergeIntegrationOperationFailures,
+  type SettingsControllerApi,
+} from "../src/settingsController.ts";
+import type { ActiveHarnessIntegrationResult } from "../src/harnessIntegrationPresentation.ts";
 import {
   createPeonSelectionTransaction,
   normalizePeonSelectionInput,
@@ -13,6 +18,7 @@ import {
 const mainSource = readFileSync(new URL("../electron/main.ts", import.meta.url), "utf8");
 const preloadSource = readFileSync(new URL("../electron/preload.ts", import.meta.url), "utf8");
 const rendererTypes = readFileSync(new URL("../src/orkworksWindow.d.ts", import.meta.url), "utf8");
+const settingsControllerSource = readFileSync(new URL("../src/settingsController.ts", import.meta.url), "utf8");
 
 const settings: AppSettings = {
   version: 1,
@@ -274,17 +280,24 @@ function clone<T>(value: T): T {
 }
 
 function apiFor(overrides: Partial<SettingsControllerApi> = {}) {
-  const calls: string[] = [];
   const api: SettingsControllerApi = {
     getSettings: async () => clone(settings),
-    saveHotkeys: async (value) => { calls.push("hotkeys"); return { ok: true, settings: { ...clone(settings), hotkeys: clone(value) } }; },
-    saveRetention: async (value) => { calls.push("retention"); return { ok: true }; },
-    saveDebugSettings: async (value) => { calls.push("debug"); return { ok: true, settings: { ...clone(settings), debug: clone(value) } }; },
-    saveProviderSettings: async (value) => { calls.push("providers"); return { ok: true, settings: { ...clone(settings), providers: clone(value) } }; },
     verifyOllama: async () => ({ ok: true, normalizedBaseUrl: settings.providers.ollamaBaseUrl, status: "connected", reasonCode: "connected", httpStatus: 200, models: [], excludedModels: [], diagnostic: null }),
     ...overrides,
   };
-  return { api, calls };
+  return { api };
+}
+
+function failedIntegration(message: string): ActiveHarnessIntegrationResult {
+  return {
+    operation: "install",
+    outcome: "failed",
+    registration: "absent",
+    activation: "unknown",
+    coverage: "full",
+    diagnosticCode: "mutation_failed",
+    message,
+  };
 }
 
 test("draft edits are isolated and discard restores the committed snapshot", async () => {
@@ -298,6 +311,70 @@ test("draft edits are isolated and discard restores the committed snapshot", asy
   assert.deepEqual(controller.snapshot().draft, controller.snapshot().committed);
 });
 
+test("mergeIntegrationOperationFailures clears a prior failure when Codex repair succeeds so status diagnostics can surface", () => {
+  const current = {
+    codex: failedIntegration("Approve the hook in Codex."),
+    opencode: failedIntegration("permission denied"),
+  };
+
+  for (const operation of ["install", "repair"] as const) {
+    assert.deepEqual(
+      mergeIntegrationOperationFailures(current, {
+        codex: {
+          operation,
+          outcome: "succeeded",
+          registration: "installed",
+          activation: "needs_trust",
+          coverage: "full",
+          diagnosticCode: "needs_trust",
+          message: "Approve the hook in Codex.",
+        },
+      }),
+      {
+        opencode: failedIntegration("permission denied"),
+      },
+      `expected ${operation} success to clear the old Codex failure cache`,
+    );
+  }
+});
+
+test("mergeIntegrationOperationFailures records new failures without clearing unrelated warnings", () => {
+  const current = {
+    codex: failedIntegration("Approve the hook in Codex."),
+  };
+
+  assert.deepEqual(
+    mergeIntegrationOperationFailures(current, {
+      claude: failedIntegration("workspace config is read-only"),
+    }),
+    {
+      codex: failedIntegration("Approve the hook in Codex."),
+      claude: failedIntegration("workspace config is read-only"),
+    },
+  );
+});
+
+test("mergeIntegrationOperationFailures ignores stale workspace results when preserving warnings", () => {
+  const current = {
+    codex: failedIntegration("Approve the hook in Codex."),
+  };
+
+  assert.deepEqual(
+    mergeIntegrationOperationFailures(current, {
+      codex: {
+        operation: "repair",
+        outcome: "stale_workspace",
+        registration: "installed",
+        activation: "active",
+        coverage: "full",
+        diagnosticCode: "stale_workspace",
+        message: "Workspace changed while saving coding tools.",
+      },
+    }),
+    current,
+  );
+});
+
 test("resetHotkey uses Electron-provided nullable defaults", async () => {
   const { api } = apiFor();
   const controller = createSettingsController(api);
@@ -305,6 +382,15 @@ test("resetHotkey uses Electron-provided nullable defaults", async () => {
   controller.updateDraft("hotkeys", { ...settings.hotkeys, resetLayout: "CmdOrCtrl+L" });
   controller.resetHotkey("resetLayout");
   assert.equal(controller.snapshot().draft.hotkeys.resetLayout, settings.defaultHotkeys.resetLayout);
+});
+
+test("settingsController removes the obsolete modal-wide commit path", () => {
+  assert.doesNotMatch(settingsControllerSource, /SettingsCommitResult/);
+  assert.doesNotMatch(settingsControllerSource, /\bcommit\(\): Promise/);
+  assert.doesNotMatch(settingsControllerSource, /saveHotkeys:/);
+  assert.doesNotMatch(settingsControllerSource, /saveRetention:/);
+  assert.doesNotMatch(settingsControllerSource, /saveDebugSettings:/);
+  assert.doesNotMatch(settingsControllerSource, /saveProviderSettings:/);
 });
 
 test("verification is diagnostic and a late rejection cannot replace a newer result", async () => {
@@ -344,55 +430,4 @@ test("verification is diagnostic and a late success cannot replace a newer resul
   resolveOld({ ok: true, normalizedBaseUrl: "http://old", status: "connected", reasonCode: "connected", httpStatus: 200, models: [], excludedModels: [], diagnostic: null });
   await old;
   assert.equal(controller.snapshot().verification?.normalizedBaseUrl, "http://new");
-});
-
-test("commit saves changed domains in deterministic order", async () => {
-  const { api, calls } = apiFor();
-  const controller = createSettingsController(api);
-  await controller.load();
-  controller.updateDraft("providers", { ...settings.providers, peonModel: "large" });
-  controller.updateDraft("debug", { ...settings.debug, showSessionIds: true });
-  controller.updateDraft("retention", { ...settings.retention, maxSessions: 8 });
-  controller.updateDraft("hotkeys", { ...settings.hotkeys, newSession: "CmdOrCtrl+Alt+N" });
-  const result = await controller.commit();
-  assert.equal(result.ok, true);
-  assert.deepEqual(calls, ["hotkeys", "retention", "debug", "providers"]);
-});
-
-test("a failed domain retains the complete draft and reports that domain", async () => {
-  const { api } = apiFor({ saveRetention: async () => { throw new Error("disk full"); } });
-  const controller = createSettingsController(api);
-  await controller.load();
-  const draft = { ...settings.retention, maxSessions: 77 };
-  controller.updateDraft("retention", draft);
-  const result = await controller.commit();
-  assert.equal(result.ok, false);
-  assert.equal(result.failedDomain, "retention");
-  assert.deepEqual(controller.snapshot().draft.retention, draft);
-});
-
-test("successful provider persistence preserves a stale or pending sidecar result", async () => {
-  const sidecar = { appliedRevision: null, appliedAt: null, lastApplyError: "sidecar unavailable" };
-  const { api } = apiFor({
-    saveProviderSettings: async (value) => ({ ok: true, settings: { ...clone(settings), providers: clone(value) }, providerApplyStatus: sidecar }),
-  });
-  const controller = createSettingsController(api);
-  await controller.load();
-  controller.updateDraft("providers", { ...settings.providers, peonModel: "large" });
-  const result = await controller.commit();
-  assert.equal(result.ok, true);
-  assert.deepEqual(result.providerApplyStatus, sidecar);
-});
-
-test("successful retention persistence preserves a stale or pending sidecar result", async () => {
-  const sidecar = { appliedRevision: null, appliedAt: null, lastApplyError: "sidecar unavailable" };
-  const { api } = apiFor({
-    saveRetention: async () => ({ ok: true, retentionApplyStatus: sidecar }),
-  });
-  const controller = createSettingsController(api);
-  await controller.load();
-  controller.updateDraft("retention", { ...settings.retention, maxSessions: 8 });
-  const result = await controller.commit();
-  assert.equal(result.ok, true);
-  assert.deepEqual(result.retentionApplyStatus, sidecar);
 });

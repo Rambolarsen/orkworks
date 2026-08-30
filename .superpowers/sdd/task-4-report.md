@@ -176,3 +176,85 @@ Implemented on `fix-runtime-recovery`. The pre-existing uncommitted edit to
 
 The fix commit hash is reported at handoff because changing this report line
 would change the hash.
+
+## Active coding tool hook toggle Task 4 — 2026-08-29
+
+### Status
+
+Implemented in `/Users/froomiebot/workspace/orkworks-active-coding-tool-hook-toggle`.
+
+### Changes
+
+- `apps/desktop/src/components/Toggle.tsx`
+  - Added semantic `visualState`, `statusDescription`, `tooltip`, and `statusGlyph` props.
+  - Kept `role="switch"` and the stable accessible name on the toggle itself.
+  - Added visible status text plus `aria-describedby` so the state/reason is exposed without relying on color.
+- `apps/desktop/src/components/SettingsModal.tsx`
+  - Removed the modal-wide Save/Cancel/Restore footer and the global `saveError`/`saving` path.
+  - Moved hotkey Save/Cancel/Restore defaults into the Hotkeys subsection.
+  - Switched retention, debug, provider, and tools actions to subsection-local save/apply behavior.
+  - Loaded per-tool integration status in the modal and mapped combined save results onto toggle presentation.
+  - Kept the draft toggle on/off value stable while the tools batch save is in progress.
+- `apps/desktop/src/App.css`
+  - Added semantic toggle state classes for healthy, needs-you, error, and in-progress states.
+  - Added visible status glyph/text styling, including a neutral spinner treatment for in-progress work.
+- `apps/desktop/tests/providersPanel.test.ts`
+  - Added source checks for status-driven toggles, in-progress draft preservation, and removal of the global footer/save-error path.
+- `apps/desktop/tests/toggle.test.ts`
+  - Added focused checks for the new toggle prop/accessibility contract and semantic CSS token usage.
+
+### TDD evidence
+
+- RED: `node --experimental-strip-types --test tests/toggle.test.ts tests/providersPanel.test.ts` failed on the missing toggle state props/CSS and the still-present modal-wide footer/save path.
+- GREEN: the same focused suite passed after the implementation landed.
+
+### Verification
+
+- `cd apps/desktop && node --experimental-strip-types --test tests/toggle.test.ts tests/providersPanel.test.ts` — PASS, 25 passed, 0 failed.
+- `cd apps/desktop && pnpm exec tsc --noEmit` — PASS.
+- `bash scripts/doc-check.sh` — PASS.
+- `bash .claude/hooks/worktree-check.sh` — PASS.
+- `git diff --check` — PASS.
+
+### Concerns
+
+- `HarnessIntegrationSection` is intentionally still mounted in Task 4 because the Task 5 brief owns extracting and preserving the standalone command-path control.
+- The focused Node test runs still emit the repository's existing `MODULE_TYPELESS_PACKAGE_JSON` warnings.
+
+## Task 4 review-fix follow-up — 2026-08-29
+
+### Status
+
+Implemented in `/Users/froomiebot/workspace/orkworks-active-coding-tool-hook-toggle`.
+
+### Changes
+
+- `apps/desktop/src/components/SettingsModal.tsx`
+  - Replaced the integration-status effect's array dependency with a stable harness-id key so the status fetch only reruns when the relevant harness set changes or the explicit refresh generation increments.
+  - Passes the tools batch-save busy state into `HarnessIntegrationSection` so inline integration/path mutations are disabled during the combined save.
+- `apps/desktop/src/components/HarnessIntegrationSection.tsx`
+  - Added a `disabled` prop and applied it to install, uninstall, custom-path save, custom-path clear, and custom-path input controls.
+- `apps/desktop/src/App.css`
+  - Switched actionable toggle warning text from the amber warning token to the shared `--attention-needs-you` blue token so install/repair/failure/trust-required states align with the session view semantic.
+- `apps/desktop/tests/providersPanel.test.ts`
+  - Added source regressions for the stable integration-status dependency key and the batch-save disabled handoff to `HarnessIntegrationSection`.
+- `apps/desktop/tests/toggle.test.ts`
+  - Added a CSS regression asserting actionable warning/trust status text uses `--attention-needs-you`, not `--state-warn`.
+
+### TDD evidence
+
+- RED: `rtk node --experimental-strip-types --test tests/toggle.test.ts tests/providersPanel.test.ts` failed 3 checks for the unstable effect dependency, missing disabled handoff, and amber warning-token usage.
+- GREEN: the same focused suite passed after the targeted UI changes.
+
+### Verification
+
+- `cd apps/desktop && rtk node --experimental-strip-types --test tests/toggle.test.ts tests/providersPanel.test.ts` — PASS, 28 passed, 0 failed.
+- `cd apps/desktop && rtk pnpm exec tsc --noEmit` — PASS.
+- `rtk git diff --check` — PASS.
+- `rtk bash scripts/doc-check.sh` — PASS.
+- `rtk bash .claude/hooks/worktree-check.sh` — PASS.
+
+### Concerns
+
+- The review fix closes the batch-save race in the direction called out by review: inline mutations cannot start while the combined Tools save is active. It does not add the inverse lockout for starting the Tools save while an inline mutation is already in flight.
+- Focused tests remain source/CSS level for this pass; no interactive renderer test harness was added.

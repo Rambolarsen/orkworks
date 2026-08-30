@@ -299,3 +299,18 @@ test("Taskmaster dismissal sends an optional reason and accepts a successful res
     globalThis.fetch = origFetch;
   }
 });
+
+test("App routes active harness saves through the combined preload operation", () => {
+  const source = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /window\.orkworks\.saveActiveHarnessesWithIntegrations\(ids\)/);
+});
+
+test("App only updates active harness ids after persisted active-harness saves", () => {
+  const source = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+
+  assert.match(
+    source,
+    /if \(result\.activeHarnesses\.outcome === "persisted"\)\s*\{\s*setActiveHarnessIds\(ids\);/s,
+  );
+});

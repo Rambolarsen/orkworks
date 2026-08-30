@@ -114,52 +114,18 @@ test("SettingsModal renders a Model providers section", () => {
   assert.match(source, /testAndApplyPeonProvider/);
 });
 
-test("SettingsModal mounts a per-harness attention hook install affordance when enabled but not installed", () => {
+test("SettingsModal mounts a per-harness command path control for command-template tools", () => {
   const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
-  assert.match(source, /INTEGRATION_HARNESS_IDS\.includes\(h\.id\) && activeDraft\.includes\(h\.id\)/);
-  assert.match(source, /<HarnessIntegrationSection/);
+  assert.match(source, /import HarnessCommandPathControl from "\.\/HarnessCommandPathControl"/);
+  assert.match(source, /h\.launch\.kind === "command-template"/);
+  assert.match(source, /<HarnessCommandPathControl/);
 });
 
-test("SettingsModal exposes Codex's hook integration through the same Settings path", () => {
-  // A working backend integration is unreachable if this allowlist omits
-  // the harness id — HarnessIntegrationSection never mounts for it.
+test("SettingsModal keeps integration participation capability-derived without gating command-path controls on hook support", () => {
   const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
-  const match = source.match(/const INTEGRATION_HARNESS_IDS = (\[[^\]]*\]);/);
-  assert.ok(match, "expected to find the INTEGRATION_HARNESS_IDS declaration");
-  const ids = JSON.parse(match[1].replace(/'/g, '"'));
-  assert.ok(ids.includes("codex"), `expected "codex" in ${match[1]}`);
-});
-
-test("HarnessIntegrationSection offers the attention hook install affordance", () => {
-  const source = readFileSync(new URL("../src/components/HarnessIntegrationSection.tsx", import.meta.url), "utf8");
-  assert.match(source, /getHarnessIntegrationStatus/);
-  assert.match(source, /installHarnessIntegration/);
-  assert.match(source, /uninstallHarnessIntegration/);
-  assert.match(source, /Install attention hook/);
-  assert.match(source, /Attention hooks installed/);
-  assert.match(source, /begins a tool action/);
-});
-
-test("HarnessIntegrationSection distinguishes non-attention integrations and unapproved installs", () => {
-  const source = readFileSync(new URL("../src/components/HarnessIntegrationSection.tsx", import.meta.url), "utf8");
-  // Codex's SessionStart hook only reports a session ID (ADR 0034) — the
-  // "attention hook"/"waits for input" copy must not be the only wording,
-  // and "installed" must not read as "active" while activation is
-  // needs_trust (Codex requires a one-time in-tool /hooks approval).
-  assert.match(source, /isAttentionSignal/);
-  assert.match(source, /Session capture hook active/);
-  assert.match(source, /needs_trust/);
-  assert.match(source, /approve the hook inside/);
-});
-
-test("HarnessIntegrationSection only claims 'active' for a backend-verified activation, not merely 'installed'", () => {
-  const source = readFileSync(new URL("../src/components/HarnessIntegrationSection.tsx", import.meta.url), "utf8");
-  // Only Codex's fingerprint check ever resolves to activation "active";
-  // other non-attention-signal harnesses (e.g. OpenCode) resolve to
-  // "unknown" once installed and must keep the weaker, accurate "installed"
-  // wording instead of falsely claiming a verified-active hook.
-  assert.match(source, /activation === "active"[\s\S]{0,120}Session capture hook active/);
-  assert.match(source, /Session capture hook installed/);
+  assert.match(source, /h\.integration !== null/);
+  assert.doesNotMatch(source, /h\.id === "codex"|h\.id === "aider"|h\.id === "claude-code"/);
+  assert.doesNotMatch(source, /h\.integration !== null[\s\S]{0,160}<HarnessCommandPathControl/);
 });
 
 test("HarnessDetectionStatus supports parent-triggered refresh and accessible status text", () => {
@@ -169,13 +135,15 @@ test("HarnessDetectionStatus supports parent-triggered refresh and accessible st
   assert.match(source, /aria-live="polite"/);
 });
 
-test("HarnessIntegrationSection reports successful detection-changing mutations", () => {
-  const source = readFileSync(new URL("../src/components/HarnessIntegrationSection.tsx", import.meta.url), "utf8");
-  assert.match(source, /onDetectionChanged/);
-  assert.match(source, /onDetectionChanged\?\.\(harnessId\)/);
-
+test("combined coding-tool saves can invalidate both header detection and the per-harness integration status map", () => {
   const settingsSource = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
-  assert.match(settingsSource, /<HarnessIntegrationSection[\s\S]*?onDetectionChanged=\{refreshDetection\}/);
+  assert.match(settingsSource, /Object\.keys\(result\.integrations\)/);
+  assert.match(settingsSource, /setIntegrationStatusGeneration\(\(current\) => current \+ 1\)/);
+});
+
+test("SettingsModal wires command-path mutations back into the shared detection refresh callback", () => {
+  const settingsSource = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
+  assert.match(settingsSource, /<HarnessCommandPathControl[\s\S]*?onChanged=\{refreshDetection\}/);
 });
 
 test("SettingsModal renders verified model choices and manual override", () => {
@@ -183,4 +151,101 @@ test("SettingsModal renders verified model choices and manual override", () => {
   assert.match(source, /peonVerification\?\.models/);
   assert.match(source, /Enter model manually/);
   assert.match(source, /Select a verified model/);
+});
+
+test("SettingsModal derives active coding tool toggle presentation from per-tool integration status", () => {
+  const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /deriveIntegrationDisplayState/);
+  assert.match(source, /getHarnessIntegrationStatus/);
+  assert.match(source, /statusDescription=/);
+  assert.match(source, /statusGlyph=/);
+  assert.match(source, /tooltip=/);
+  assert.match(source, /visualState=/);
+});
+
+test("SettingsModal uses a stable integration status effect dependency instead of the integration harness array identity", () => {
+  const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /const integrationHarnessStatusKey = toolHarnesses[\s\S]*?filter\(\(h\) => h\.integration !== null\)[\s\S]*?map\(\(h\) => h\.id\)[\s\S]*?join\("\\0"\)/);
+  assert.match(source, /\[\s*integrationHarnessStatusKey,\s*integrationStatusGeneration\s*\]/);
+  assert.doesNotMatch(source, /\[\s*integrationHarnesses,\s*integrationStatusGeneration\s*\]/);
+});
+
+test("SettingsModal keeps the draft toggle position while a tools save is in progress", () => {
+  const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /checked=\{activeDraft\.includes\(h\.id\)\}/);
+  assert.match(source, /disabled=\{[^}]*tools[^}]*save[^}]*inProgress[^}]*\}/i);
+  assert.match(source, /inProgress:\s*[^,\n]*tools[^,\n]*save[^,\n]*inProgress/i);
+});
+
+test("SettingsModal disables mounted command-path controls while the tools batch save is active", () => {
+  const settingsSource = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
+  assert.match(settingsSource, /<HarnessCommandPathControl[\s\S]*?disabled=\{toolsSaveInProgress\}/);
+  assert.doesNotMatch(settingsSource, /<HarnessIntegrationSection/);
+});
+
+test("SettingsModal removes the modal-wide save footer and generic saveError path", () => {
+  const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
+
+  assert.doesNotMatch(source, /const \[saveError,\s*setSaveError\]/);
+  assert.doesNotMatch(source, /const \[saving,\s*setSaving\]/);
+  assert.doesNotMatch(source, /function save\(/);
+  assert.doesNotMatch(source, /settings-save-error/);
+  assert.doesNotMatch(source, /settings-modal-footer/);
+  assert.match(source, /activeSection === "hotkeys"[\s\S]*Restore defaults/);
+  assert.match(source, /activeSection === "hotkeys"[\s\S]*Cancel/);
+  assert.match(source, /activeSection === "hotkeys"[\s\S]*Save/);
+});
+
+test("SettingsModal title-bar close discards subsection drafts before the modal exits", () => {
+  const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /function discardDraftsAndClose\(\)/);
+  assert.match(source, /setDraft\(clone\(savedHotkeys\)\)/);
+  assert.match(source, /setProviderDraft\(clone\(savedSettingsRef\.current\.providers\)\)/);
+  assert.match(source, /setActiveDraft\(normalizeActiveHarnessIds\(harnesses,\s*activeHarnessIds\)\)/);
+  assert.match(source, /setIntegrationStatuses\(\{\}\)/);
+  assert.match(source, /setIntegrationOperationFailures\(\{\}\)/);
+  assert.match(source, /setIntegrationStatusGeneration\(\(current\) => current \+ 1\)/);
+  assert.match(source, /onClick=\{discardDraftsAndClose\}/);
+});
+
+test("SettingsModal guards late tool-save and status-refresh results with local generations", () => {
+  const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /const modalLifecycleGeneration = useRef\(0\)/);
+  assert.match(source, /const toolsSaveGeneration = useRef\(0\)/);
+  assert.match(source, /const integrationStatusRequestGeneration = useRef\(0\)/);
+  assert.match(source, /if \(requestGeneration !== toolsSaveGeneration\.current \|\| lifecycleGeneration !== modalLifecycleGeneration\.current\) return;/);
+  assert.match(source, /if \(cancelled \|\| requestGeneration !== integrationStatusRequestGeneration\.current \|\| lifecycleGeneration !== modalLifecycleGeneration\.current\)/);
+});
+
+test("preload exposes the combined active-harness save IPC bridge", () => {
+  const source = readFileSync(new URL("../electron/preload.ts", import.meta.url), "utf8");
+  assert.match(
+    source,
+    /saveActiveHarnessesWithIntegrations: \(ids: string\[\]\): Promise<ActiveHarnessSaveResult> =>\s*ipcRenderer\.invoke\("save-active-harnesses-with-integrations", ids\)/,
+  );
+});
+
+test("preload and orkworksWindow keep the combined active-harness save contract aligned", () => {
+  const preloadSource = readFileSync(new URL("../electron/preload.ts", import.meta.url), "utf8");
+  const windowSource = readFileSync(new URL("../src/orkworksWindow.d.ts", import.meta.url), "utf8");
+
+  const preloadType = preloadSource.match(/type ActiveHarnessSaveResult = \{[\s\S]*?\n\};/);
+  const windowType = windowSource.match(/export type ActiveHarnessSaveResult = \{[\s\S]*?\n\};/);
+
+  assert.ok(preloadType, "expected ActiveHarnessSaveResult in preload.ts");
+  assert.ok(windowType, "expected ActiveHarnessSaveResult in orkworksWindow.d.ts");
+
+  const normalizeType = (value: string) =>
+    value
+      .replace(/^export\s+/m, "")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  assert.equal(normalizeType(preloadType[0]), normalizeType(windowType[0]));
+  assert.match(windowSource, /saveActiveHarnessesWithIntegrations: \(ids: string\[\]\) => Promise<ActiveHarnessSaveResult>/);
 });

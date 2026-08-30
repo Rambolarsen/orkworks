@@ -22,6 +22,15 @@ import { sanitizeBackendLifecycleFailure } from "./backendLifecycleFailure";
 import { rendererConsoleDiagnostic, rendererConsoleLevel, rendererOrigin, sanitizeRendererDiagnosticMessage } from "./rendererDiagnostic";
 import { recoveryDocumentUrl } from "./rendererRecoveryDocument";
 import { createRecoveryDocumentGuard } from "./rendererRecoveryState";
+import {
+  isStale,
+  saveActiveHarnessesWithIntegrations,
+  type ActiveHarnessSaveResult,
+  type ElectronHarnessConfig,
+  type IntegrationStatus,
+  type IntegrationStatusResult,
+  type PlannedIntegrationMutation,
+} from "./activeHarnessIntegration";
 
 app.setName("OrkWorks");
 
@@ -203,6 +212,7 @@ app.whenReady().then(() => {
   let latestBackendLifecycle: BackendLifecycleEvent | null = null;
   let lastBackendFailure = "The OrkWorks sidecar is unavailable.";
   let appliedPeonState: PeonAppliedState | null = null;
+  let backendGeneration = 0;
 
   function publishBackendLifecycle(event: BackendLifecycleEvent): void {
     latestBackendLifecycle = event;
@@ -258,6 +268,36 @@ app.whenReady().then(() => {
     };
     const message = typeof body.error === "string" ? body.error : body.error?.message;
     return new Error(message ?? fallback);
+  }
+
+  async function persistActiveHarnesses(ids: string[]): Promise<{ ok: true } | { ok: false; error: string }> {
+    const guard = { workspacePath, generation: backendGeneration };
+    const port = await restoration.getReadiness();
+    if (isStale(guard, { workspacePath, generation: backendGeneration })) {
+      // Workspace switched mid-await: readiness now resolves to a different
+      // sidecar than the one this save started against. Skip the write
+      // rather than persisting the old workspace's selection into the new
+      // one's backend; saveActiveHarnessesWithIntegrations independently
+      // re-checks the guard right after this resolves and reports
+      // stale_workspace, so this result is discarded either way.
+      return { ok: true };
+    }
+    const response = await fetch(`http://127.0.0.1:${port}/workspace/active-harnesses`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ activeHarnessIds: ids }),
+    });
+    if (response.ok) return { ok: true };
+    return { ok: false, error: await parseErrorBody(response, "Couldn't save active coding tools.") };
+  }
+
+  async function fetchHarnessesForSave(): Promise<ElectronHarnessConfig[]> {
+    const port = await restoration.getReadiness();
+    const response = await fetch(`http://127.0.0.1:${port}/harnesses`);
+    if (!response.ok) throw new Error(await parseErrorBody(response, "Couldn't load coding tool definitions."));
+    const data = await response.json() as { harnesses?: ElectronHarnessConfig[] };
+    if (!Array.isArray(data.harnesses)) throw new Error("Malformed harness list response.");
+    return data.harnesses;
   }
 
   function persistedOllamaBaseUrl(): string | undefined {
@@ -382,6 +422,7 @@ app.whenReady().then(() => {
       },
       onState: (state: SidecarState) => {
         if (state === "starting") {
+          backendGeneration += 1;
           restoration.beginGeneration();
           publishBackendLifecycle({ state: "starting" });
         } else if (state === "retrying") {
@@ -663,7 +704,10 @@ app.whenReady().then(() => {
     uninstall: "uninstall the integration",
   };
 
-  async function callIntegrationRoute(harnessId: unknown, action: "status" | "install" | "uninstall") {
+  async function callIntegrationRoute(
+    harnessId: unknown,
+    action: "status" | "install" | "uninstall",
+  ): Promise<{ ok: true; status: unknown } | { ok: false; error: string }> {
     if (typeof harnessId !== "string" || !harnessId) throw new Error("Invalid harness ID.");
     try {
       const port = await restoration.getReadiness();
@@ -682,14 +726,66 @@ app.whenReady().then(() => {
     }
   }
 
+  function toIntegrationStatusResult(
+    response: Awaited<ReturnType<typeof callIntegrationRoute>>,
+  ): IntegrationStatusResult {
+    return response.ok
+      ? { ok: true, status: response.status as IntegrationStatus }
+      : { ok: false, error: response.error };
+  }
+
   ipcMain.handle("get-harness-integration-status", async (_event, harnessId: unknown) =>
     callIntegrationRoute(harnessId, "status"));
 
-  ipcMain.handle("install-harness-integration", async (_event, harnessId: unknown) =>
-    callIntegrationRoute(harnessId, "install"));
+  // install/uninstall intentionally have no direct IPC channel: hook-mutating
+  // routes are reachable only through the confirmed batched save orchestrator
+  // ("save-active-harnesses-with-integrations"), never from the renderer alone.
 
-  ipcMain.handle("uninstall-harness-integration", async (_event, harnessId: unknown) =>
-    callIntegrationRoute(harnessId, "uninstall"));
+  async function confirmMutations(planned: PlannedIntegrationMutation[]): Promise<boolean> {
+    if (!mainWindow) return false;
+
+    const hasExecutableCodeWarning = planned.some((entry) => entry.confirmation?.executableCodeWarning);
+    const lines = planned.map((entry) => {
+      const label = entry.operation === "uninstall" ? "Remove" : entry.operation === "repair" ? "Repair" : "Install";
+      const toolName = entry.confirmation?.toolName ?? entry.harnessName;
+      const paths = entry.confirmation?.relativePaths.length ? ` (${entry.confirmation.relativePaths.join(", ")})` : "";
+      return `• ${label} ${toolName}${paths}`;
+    });
+    const detail = [
+      lines.join("\n"),
+      hasExecutableCodeWarning
+        ? "\nOne or more of these integrations installs a hook file that OrkWorks executes automatically."
+        : "",
+    ].filter(Boolean).join("\n");
+
+    const { response } = await dialog.showMessageBox(mainWindow, {
+      type: hasExecutableCodeWarning ? "warning" : "question",
+      buttons: ["Cancel", "Confirm"],
+      defaultId: 0,
+      cancelId: 0,
+      title: "Update coding tool integrations",
+      message: "OrkWorks will change hook files for the following coding tools:",
+      detail,
+    });
+
+    return response === 1;
+  }
+
+  ipcMain.handle("save-active-harnesses-with-integrations", async (_event, ids: unknown): Promise<ActiveHarnessSaveResult> => {
+    if (!Array.isArray(ids) || ids.some((id) => typeof id !== "string" || !id)) {
+      throw new Error("Invalid active harness IDs.");
+    }
+
+    return saveActiveHarnessesWithIntegrations(ids, {
+      captureWorkspaceGuard: () => ({ workspacePath, generation: backendGeneration }),
+      persistActiveHarnesses,
+      listHarnesses: fetchHarnessesForSave,
+      getIntegrationStatus: async (harnessId) => toIntegrationStatusResult(await callIntegrationRoute(harnessId, "status")),
+      installIntegration: async (harnessId) => toIntegrationStatusResult(await callIntegrationRoute(harnessId, "install")),
+      confirmMutations,
+      uninstallIntegration: async (harnessId) => toIntegrationStatusResult(await callIntegrationRoute(harnessId, "uninstall")),
+    });
+  });
 
   async function parseErrorBody(resp: Response, fallback: string): Promise<string> {
     const body = await resp.json().catch(() => ({ error: undefined }));

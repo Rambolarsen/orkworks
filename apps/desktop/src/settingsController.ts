@@ -1,24 +1,13 @@
-import type { AppSettings, DebugSettings, HotkeySettings, RetentionSettings, SaveHotkeysResult } from "./appSettingsTypes.ts";
-import type { OllamaVerificationResponse, ProviderApplyStatus, ProviderSettings, RetentionApplyStatus } from "./providerTypes.ts";
+import type { AppSettings, HotkeySettings } from "./appSettingsTypes.ts";
+import type { OllamaVerificationResponse } from "./providerTypes.ts";
+import type { ActiveHarnessIntegrationResult } from "./harnessIntegrationPresentation.ts";
 
 export type SettingsDomain = "hotkeys" | "retention" | "debug" | "providers";
 
 export interface SettingsControllerApi {
   getSettings: () => Promise<AppSettings>;
-  saveHotkeys: (value: HotkeySettings) => Promise<SaveHotkeysResult>;
-  saveRetention: (value: RetentionSettings) => Promise<{ ok: boolean; retentionApplyStatus?: RetentionApplyStatus }>;
-  saveDebugSettings: (value: DebugSettings) => Promise<{ ok: true; settings: AppSettings }>;
-  saveProviderSettings: (value: ProviderSettings) => Promise<{
-    ok: true;
-    settings: AppSettings;
-    providerApplyStatus?: ProviderApplyStatus;
-  }>;
   verifyOllama: (baseUrl: string) => Promise<OllamaVerificationResponse>;
 }
-
-export type SettingsCommitResult =
-  | { ok: true; settings: AppSettings; providerApplyStatus?: ProviderApplyStatus; retentionApplyStatus?: RetentionApplyStatus }
-  | { ok: false; failedDomain: SettingsDomain; error: unknown; settings: AppSettings };
 
 export interface SettingsControllerSnapshot {
   committed: AppSettings | null;
@@ -27,15 +16,12 @@ export interface SettingsControllerSnapshot {
   verificationError: unknown;
 }
 
-const domains: SettingsDomain[] = ["hotkeys", "retention", "debug", "providers"];
-
 export function createSettingsController(api: SettingsControllerApi = window.orkworks, initialSettings?: AppSettings): {
   load(): Promise<AppSettings>;
   updateDraft(domain: SettingsDomain, value: unknown): void;
   discard(): void;
   verifyOllama(baseUrl: string): Promise<OllamaVerificationResponse>;
   resetHotkey(action: keyof HotkeySettings): void;
-  commit(): Promise<SettingsCommitResult>;
   snapshot(): SettingsControllerSnapshot;
 } {
   let committed: AppSettings | null = initialSettings ? clone(initialSettings) : null;
@@ -89,56 +75,32 @@ export function createSettingsController(api: SettingsControllerApi = window.ork
     draft = { ...draft, hotkeys: { ...draft.hotkeys, [action]: draft.defaultHotkeys[action] } };
   }
 
-  async function commit(): Promise<SettingsCommitResult> {
-    if (!draft || !committed) throw new Error("Settings must be loaded before commit");
-    let providerApplyStatus: ProviderApplyStatus | undefined;
-    let retentionApplyStatus: RetentionApplyStatus | undefined;
-
-    for (const domain of domains) {
-      if (deepEqual(draft[domain], committed[domain])) continue;
-      try {
-        if (domain === "hotkeys") {
-          const result = await api.saveHotkeys(draft.hotkeys);
-          if (!result.ok) throw new SettingsDomainError(result.errors);
-          committed = clone(result.settings);
-        } else if (domain === "retention") {
-          const result = await api.saveRetention(draft.retention);
-          if (!result.ok) throw new SettingsDomainError(result);
-          retentionApplyStatus = result.retentionApplyStatus;
-          committed = { ...committed, retention: clone(draft.retention) };
-        } else if (domain === "debug") {
-          const result = await api.saveDebugSettings(draft.debug);
-          committed = clone(result.settings);
-        } else {
-          const result = await api.saveProviderSettings(draft.providers);
-          providerApplyStatus = result.providerApplyStatus;
-          committed = clone(result.settings);
-        }
-        draft = { ...draft, [domain]: clone(committed[domain]) } as AppSettings;
-      } catch (error) {
-        return { ok: false, failedDomain: domain, error, settings: clone(committed) };
-      }
-    }
-
-    return { ok: true, settings: clone(committed), providerApplyStatus, retentionApplyStatus };
-  }
-
-  return { load, updateDraft, discard, verifyOllama, resetHotkey, commit, snapshot };
+  return { load, updateDraft, discard, verifyOllama, resetHotkey, snapshot };
 }
 
-class SettingsDomainError extends Error {
-  readonly details: unknown;
-
-  constructor(details: unknown) {
-    super("Settings domain save failed");
-    this.details = details;
+export function mergeIntegrationOperationFailures(
+  current: Record<string, ActiveHarnessIntegrationResult>,
+  results: Record<string, ActiveHarnessIntegrationResult>,
+): Record<string, ActiveHarnessIntegrationResult> {
+  const next = { ...current };
+  for (const [harnessId, result] of Object.entries(results)) {
+    if (result.outcome === "failed") {
+      next[harnessId] = result;
+      continue;
+    }
+    if (clearsIntegrationOperationFailure(result)) {
+      delete next[harnessId];
+    }
   }
+  return next;
+}
+
+function clearsIntegrationOperationFailure(result: ActiveHarnessIntegrationResult): boolean {
+  // "unsupported" also clears: if the tool fell out of eligibility, the last
+  // operation's "action required" failure is no longer actionable.
+  return result.outcome === "succeeded" || result.outcome === "unsupported";
 }
 
 function clone<T>(value: T): T {
   return structuredClone(value);
-}
-
-function deepEqual(left: unknown, right: unknown): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
 }
