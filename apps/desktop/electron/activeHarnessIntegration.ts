@@ -66,6 +66,13 @@ export interface WorkspaceGuardSnapshot {
   generation: number;
 }
 
+export interface PlannedIntegrationMutation {
+  harnessId: string;
+  harnessName: string;
+  operation: ActiveHarnessIntegrationResult["operation"];
+  confirmation: IntegrationConfirmation | null;
+}
+
 export interface ActiveHarnessIntegrationDeps {
   captureWorkspaceGuard(): WorkspaceGuardSnapshot;
   persistActiveHarnesses(ids: string[]): Promise<{ ok: true } | { ok: false; error: string }>;
@@ -73,6 +80,12 @@ export interface ActiveHarnessIntegrationDeps {
   getIntegrationStatus(harnessId: string): Promise<IntegrationStatusResult>;
   installIntegration(harnessId: string): Promise<IntegrationStatusResult>;
   uninstallIntegration(harnessId: string): Promise<IntegrationStatusResult>;
+  /**
+   * Electron-main confirmation, required by specs/orkworks-mvp.md before any
+   * install/repair/uninstall mutation. Called at most once per save, with
+   * every planned mutation batched together.
+   */
+  confirmMutations(planned: PlannedIntegrationMutation[]): Promise<boolean>;
 }
 
 const STALE_WORKSPACE_MESSAGE = "Workspace changed while saving coding tools. Reload the current workspace and retry.";
@@ -80,6 +93,8 @@ const STATUS_UNAVAILABLE_CODE = "status_unavailable";
 const MUTATION_FAILED_CODE = "mutation_failed";
 const OWNERSHIP_AMBIGUOUS_CODE = "ownership_ambiguous";
 const STALE_WORKSPACE_CODE = "stale_workspace";
+const CONFIRMATION_DECLINED_CODE = "confirmation_declined";
+const CONFIRMATION_DECLINED_MESSAGE = "Declined the confirmation prompt.";
 
 interface PlannedMutation {
   operation: ActiveHarnessIntegrationResult["operation"];
@@ -293,10 +308,13 @@ export async function saveActiveHarnessesWithIntegrations(
   const results: Record<string, ActiveHarnessIntegrationResult> = {};
   const latestStatus = new Map<string, IntegrationStatus>();
   const plannedOperations = new Map<string, ActiveHarnessIntegrationResult["operation"]>();
+  const statusByHarness = new Map<string, IntegrationStatusResult>();
+  const toMutate: { harness: ElectronHarnessConfig; operation: ActiveHarnessIntegrationResult["operation"] }[] = [];
 
   for (const harness of harnesses) {
     const statusResult = await deps.getIntegrationStatus(harness.id);
     if (statusResult.ok) latestStatus.set(harness.id, statusResult.status);
+    statusByHarness.set(harness.id, statusResult);
 
     const plan = planMutation(activeIds.has(harness.id), statusResult);
     plannedOperations.set(harness.id, plan.operation);
@@ -310,25 +328,66 @@ export async function saveActiveHarnessesWithIntegrations(
       return staleWorkspaceResult(harnessIds, results, plannedOperations, latestStatus);
     }
 
-    const mutationResult = plan.operation === "uninstall"
-      ? await deps.uninstallIntegration(harness.id)
-      : await deps.installIntegration(harness.id);
+    toMutate.push({ harness, operation: plan.operation });
+  }
+
+  if (toMutate.length > 0) {
+    const confirmed = await deps.confirmMutations(
+      toMutate.map(({ harness, operation }) => {
+        const statusResult = statusByHarness.get(harness.id);
+        return {
+          harnessId: harness.id,
+          harnessName: harness.name,
+          operation,
+          confirmation: statusResult?.ok ? statusResult.status.confirmation : null,
+        };
+      }),
+    );
 
     if (isStale(initialGuard, deps.captureWorkspaceGuard())) {
       return staleWorkspaceResult(harnessIds, results, plannedOperations, latestStatus);
     }
 
-    if (!mutationResult.ok) {
-      results[harness.id] = failedMutationResult(plan.operation, statusResult, mutationResult.error);
-      continue;
+    if (!confirmed) {
+      for (const { harness, operation } of toMutate) {
+        results[harness.id] = failedMutationResult(
+          operation,
+          statusByHarness.get(harness.id)!,
+          CONFIRMATION_DECLINED_MESSAGE,
+          CONFIRMATION_DECLINED_CODE,
+        );
+      }
+      return {
+        activeHarnesses: { outcome: "persisted" },
+        integrations: results,
+      };
     }
 
-    latestStatus.set(harness.id, mutationResult.status);
-    results[harness.id] = integrationResultFromStatus(
-      plan.operation,
-      mutationResult.status.registration === "unsupported" ? "unsupported" : "succeeded",
-      mutationResult.status,
-    );
+    for (const { harness, operation } of toMutate) {
+      if (isStale(initialGuard, deps.captureWorkspaceGuard())) {
+        return staleWorkspaceResult(harnessIds, results, plannedOperations, latestStatus);
+      }
+
+      const mutationResult = operation === "uninstall"
+        ? await deps.uninstallIntegration(harness.id)
+        : await deps.installIntegration(harness.id);
+
+      if (isStale(initialGuard, deps.captureWorkspaceGuard())) {
+        return staleWorkspaceResult(harnessIds, results, plannedOperations, latestStatus);
+      }
+
+      if (!mutationResult.ok) {
+        results[harness.id] = failedMutationResult(operation, statusByHarness.get(harness.id)!, mutationResult.error);
+        continue;
+      }
+
+      latestStatus.set(harness.id, mutationResult.status);
+      results[harness.id] = integrationResultFromStatus(
+        operation,
+        mutationResult.status.registration === "unsupported" ? "unsupported" : "succeeded",
+        mutationResult.status,
+      );
+    }
   }
 
   if (isStale(initialGuard, deps.captureWorkspaceGuard())) {

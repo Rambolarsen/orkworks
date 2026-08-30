@@ -7,6 +7,7 @@ import {
   type ElectronHarnessConfig,
   type IntegrationStatus,
   type IntegrationStatusResult,
+  type PlannedIntegrationMutation,
 } from "../electron/activeHarnessIntegration.ts";
 
 function harness(id: string): ElectronHarnessConfig {
@@ -77,6 +78,7 @@ function createDeps(
         activation: "disabled",
       });
     },
+    confirmMutations: async () => true,
     ...overrides,
   };
 }
@@ -201,15 +203,15 @@ test("orchestrates per-tool install, repair, uninstall, unsupported skip, and is
     "persist",
     "list",
     "status:claude-code",
-    "install:claude-code",
     "status:codex",
-    "install:codex",
     "status:copilot",
-    "uninstall:copilot",
     "status:antigravity",
     "status:opencode",
-    "install:opencode",
     "status:generic-shell",
+    "install:claude-code",
+    "install:codex",
+    "uninstall:copilot",
+    "install:opencode",
   ]);
   assert.deepEqual(result.activeHarnesses, { outcome: "persisted" });
   assert.deepEqual(result.integrations["claude-code"], {
@@ -308,6 +310,7 @@ test("workspace switches abort the batch and erase old-workspace successes", asy
     "persist",
     "list",
     "status:claude-code",
+    "status:copilot",
     "install:claude-code",
   ]);
 });
@@ -423,6 +426,173 @@ test("a harness-listing failure after a successful persist still reports persist
   assert.equal(result.integrations["claude-code"]?.diagnosticCode, "status_unavailable");
   assert.equal(result.integrations.codex?.outcome, "failed");
   assert.equal(result.integrations.codex?.diagnosticCode, "status_unavailable");
+});
+
+test("planned mutations are confirmed once, batched, before any install or uninstall runs", async () => {
+  const confirmations: PlannedIntegrationMutation[][] = [];
+  const deps = createDeps({
+    listHarnesses: async () => {
+      deps.calls.push("list");
+      return [harness("claude-code"), harness("copilot")];
+    },
+    getIntegrationStatus: async (harnessId) => {
+      deps.calls.push(`status:${harnessId}`);
+      if (harnessId === "claude-code") {
+        return status({
+          harnessId,
+          registration: "absent",
+          ownership: "none",
+          activation: "unknown",
+          confirmation: {
+            toolName: "Claude Code",
+            workspaceLabel: "workspace",
+            coverageSummary: "full coverage",
+            relativePaths: [".claude/settings.json"],
+            executableCodeWarning: true,
+          },
+        });
+      }
+      return status({
+        harnessId,
+        registration: "installed",
+        ownership: "ork_works",
+        activation: "disabled",
+      });
+    },
+    confirmMutations: async (planned) => {
+      deps.calls.push("confirm");
+      confirmations.push(planned);
+      return true;
+    },
+  });
+
+  const result = await saveActiveHarnessesWithIntegrations(["claude-code"], deps);
+
+  assert.deepEqual(deps.calls, [
+    "persist",
+    "list",
+    "status:claude-code",
+    "status:copilot",
+    "confirm",
+    "install:claude-code",
+    "uninstall:copilot",
+  ]);
+  assert.equal(confirmations.length, 1);
+  assert.deepEqual(confirmations[0], [
+    {
+      harnessId: "claude-code",
+      harnessName: "claude-code",
+      operation: "install",
+      confirmation: {
+        toolName: "Claude Code",
+        workspaceLabel: "workspace",
+        coverageSummary: "full coverage",
+        relativePaths: [".claude/settings.json"],
+        executableCodeWarning: true,
+      },
+    },
+    {
+      harnessId: "copilot",
+      harnessName: "copilot",
+      operation: "uninstall",
+      confirmation: null,
+    },
+  ]);
+  assert.equal(result.activeHarnesses.outcome, "persisted");
+});
+
+test("declining the confirmation prompt persists active selection but skips every planned mutation", async () => {
+  const deps = createDeps({
+    listHarnesses: async () => {
+      deps.calls.push("list");
+      return [harness("claude-code")];
+    },
+    getIntegrationStatus: async (harnessId) => {
+      deps.calls.push(`status:${harnessId}`);
+      return status({
+        harnessId,
+        registration: "absent",
+        ownership: "none",
+        activation: "unknown",
+      });
+    },
+    installIntegration: async (harnessId) => {
+      deps.calls.push(`install:${harnessId}`);
+      throw new Error(`unexpected install:${harnessId}`);
+    },
+    confirmMutations: async () => {
+      deps.calls.push("confirm");
+      return false;
+    },
+  });
+
+  const result = await saveActiveHarnessesWithIntegrations(["claude-code"], deps);
+
+  assert.deepEqual(deps.calls, ["persist", "list", "status:claude-code", "confirm"]);
+  assert.equal(result.activeHarnesses.outcome, "persisted");
+  assert.deepEqual(result.integrations["claude-code"], {
+    operation: "install",
+    outcome: "failed",
+    registration: "absent",
+    activation: "unknown",
+    coverage: "full",
+    diagnosticCode: "confirmation_declined",
+    message: "Declined the confirmation prompt.",
+  });
+});
+
+test("no confirmation prompt is shown when nothing needs to mutate", async () => {
+  const deps = createDeps({
+    listHarnesses: async () => {
+      deps.calls.push("list");
+      return [harness("claude-code")];
+    },
+    getIntegrationStatus: async (harnessId) => {
+      deps.calls.push(`status:${harnessId}`);
+      return status({ harnessId, registration: "installed", ownership: "ork_works", activation: "active" });
+    },
+    confirmMutations: async () => {
+      deps.calls.push("confirm");
+      return true;
+    },
+  });
+
+  await saveActiveHarnessesWithIntegrations(["claude-code"], deps);
+
+  assert.deepEqual(deps.calls, ["persist", "list", "status:claude-code"]);
+});
+
+test("a workspace switch while the confirmation prompt is open aborts every planned mutation", async () => {
+  const deps = createDeps({
+    listHarnesses: async () => {
+      deps.calls.push("list");
+      return [harness("claude-code")];
+    },
+    getIntegrationStatus: async (harnessId) => {
+      deps.calls.push(`status:${harnessId}`);
+      return status({
+        harnessId,
+        registration: "absent",
+        ownership: "none",
+        activation: "unknown",
+      });
+    },
+    installIntegration: async (harnessId) => {
+      deps.calls.push(`install:${harnessId}`);
+      throw new Error(`unexpected install:${harnessId}`);
+    },
+    confirmMutations: async () => {
+      deps.calls.push("confirm");
+      deps.setGuard({ workspacePath: "/other", generation: 2 });
+      return true;
+    },
+  });
+
+  const result = await saveActiveHarnessesWithIntegrations(["claude-code"], deps);
+
+  assert.deepEqual(deps.calls, ["persist", "list", "status:claude-code", "confirm"]);
+  assert.equal(result.activeHarnesses.outcome, "stale_workspace");
+  assert.equal(result.integrations["claude-code"]?.outcome, "stale_workspace");
 });
 
 test("ambiguous ownership returns structured failure without mutating either enable or disable flows", async () => {

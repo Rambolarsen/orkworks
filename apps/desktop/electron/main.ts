@@ -29,6 +29,7 @@ import {
   type ElectronHarnessConfig,
   type IntegrationStatus,
   type IntegrationStatusResult,
+  type PlannedIntegrationMutation,
 } from "./activeHarnessIntegration";
 
 app.setName("OrkWorks");
@@ -742,6 +743,36 @@ app.whenReady().then(() => {
   ipcMain.handle("uninstall-harness-integration", async (_event, harnessId: unknown) =>
     callIntegrationRoute(harnessId, "uninstall"));
 
+  async function confirmMutations(planned: PlannedIntegrationMutation[]): Promise<boolean> {
+    if (!mainWindow) return false;
+
+    const hasExecutableCodeWarning = planned.some((entry) => entry.confirmation?.executableCodeWarning);
+    const lines = planned.map((entry) => {
+      const label = entry.operation === "uninstall" ? "Remove" : entry.operation === "repair" ? "Repair" : "Install";
+      const toolName = entry.confirmation?.toolName ?? entry.harnessName;
+      const paths = entry.confirmation?.relativePaths.length ? ` (${entry.confirmation.relativePaths.join(", ")})` : "";
+      return `• ${label} ${toolName}${paths}`;
+    });
+    const detail = [
+      lines.join("\n"),
+      hasExecutableCodeWarning
+        ? "\nOne or more of these integrations installs a hook file that OrkWorks executes automatically."
+        : "",
+    ].filter(Boolean).join("\n");
+
+    const { response } = await dialog.showMessageBox(mainWindow, {
+      type: hasExecutableCodeWarning ? "warning" : "question",
+      buttons: ["Cancel", "Confirm"],
+      defaultId: 0,
+      cancelId: 0,
+      title: "Update coding tool integrations",
+      message: "OrkWorks will change hook files for the following coding tools:",
+      detail,
+    });
+
+    return response === 1;
+  }
+
   ipcMain.handle("save-active-harnesses-with-integrations", async (_event, ids: unknown): Promise<ActiveHarnessSaveResult> => {
     if (!Array.isArray(ids) || ids.some((id) => typeof id !== "string" || !id)) {
       throw new Error("Invalid active harness IDs.");
@@ -753,6 +784,7 @@ app.whenReady().then(() => {
       listHarnesses: fetchHarnessesForSave,
       getIntegrationStatus: async (harnessId) => toIntegrationStatusResult(await callIntegrationRoute(harnessId, "status")),
       installIntegration: async (harnessId) => toIntegrationStatusResult(await callIntegrationRoute(harnessId, "install")),
+      confirmMutations,
       uninstallIntegration: async (harnessId) => toIntegrationStatusResult(await callIntegrationRoute(harnessId, "uninstall")),
     });
   });
