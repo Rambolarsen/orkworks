@@ -704,13 +704,27 @@ app.whenReady().then(() => {
     uninstall: "uninstall the integration",
   };
 
+  const STALE_WORKSPACE_FALLBACK_MESSAGE =
+    "The workspace changed before this integration request could run. Reload the current workspace and retry.";
+
   async function callIntegrationRoute(
     harnessId: unknown,
     action: "status" | "install" | "uninstall",
   ): Promise<{ ok: true; status: unknown } | { ok: false; error: string }> {
     if (typeof harnessId !== "string" || !harnessId) throw new Error("Invalid harness ID.");
+    // Same inner guard as persistActiveHarnesses: restoration.getReadiness()
+    // may resolve to a different sidecar than the one this call started
+    // against if the workspace switched mid-await. Fail closed rather than
+    // sending the request to — for install/uninstall, mutating hook files
+    // in — the wrong workspace. The save orchestrator independently
+    // re-checks staleness after this resolves and reports stale_workspace,
+    // so this failure result is superseded there either way.
+    const guard = { workspacePath, generation: backendGeneration };
     try {
       const port = await restoration.getReadiness();
+      if (isStale(guard, { workspacePath, generation: backendGeneration })) {
+        return { ok: false, error: STALE_WORKSPACE_FALLBACK_MESSAGE };
+      }
       const method = action === "status" ? "GET" : "POST";
       const resp = await fetch(
         `http://127.0.0.1:${port}/workspace/integrations/${encodeURIComponent(harnessId)}/${action}`,
