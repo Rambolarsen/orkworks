@@ -692,7 +692,10 @@ app.whenReady().then(() => {
     uninstall: "uninstall the integration",
   };
 
-  async function callIntegrationRoute(harnessId: unknown, action: "status" | "install" | "uninstall") {
+  async function callIntegrationRoute(
+    harnessId: unknown,
+    action: "status" | "install" | "uninstall",
+  ): Promise<{ ok: true; status: unknown } | { ok: false; error: string }> {
     if (typeof harnessId !== "string" || !harnessId) throw new Error("Invalid harness ID.");
     try {
       const port = await restoration.getReadiness();
