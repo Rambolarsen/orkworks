@@ -310,6 +310,7 @@ function App() {
       position: { referencePanel: "terminal" },
     });
     panel?.api.setActive();
+    setReviewTick((tick) => tick + 1);
   }, []);
 
   useEffect(() => {

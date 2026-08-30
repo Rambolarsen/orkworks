@@ -43,9 +43,8 @@ function ReviewPanel({ sessionId, reviewTick }: ReviewPanelProps) {
   const [error, setError] = useState(false);
   const requestId = useRef(0);
   const lastSessionIdRef = useRef<string | null>(null);
-  const lastTickRef = useRef(reviewTick);
 
-  const load = useCallback((isExplicitRefresh = false) => {
+  const load = useCallback(() => {
     if (!sessionId) {
       setContent(null);
       setError(false);
@@ -53,7 +52,7 @@ function ReviewPanel({ sessionId, reviewTick }: ReviewPanelProps) {
       return;
     }
     const currentRequest = ++requestId.current;
-    if (!isExplicitRefresh && lastSessionIdRef.current !== sessionId) {
+    if (lastSessionIdRef.current !== sessionId) {
       setContent(null);
     }
     setError(false);
@@ -69,9 +68,7 @@ function ReviewPanel({ sessionId, reviewTick }: ReviewPanelProps) {
   }, [sessionId]);
 
   useEffect(() => {
-    const isTickChange = reviewTick !== undefined && reviewTick !== lastTickRef.current;
-    lastTickRef.current = reviewTick;
-    load(isTickChange);
+    load();
   }, [sessionId, reviewTick, load]);
 
   if (!sessionId) return <EmptyState message="Select a session with a plan to review it." />;

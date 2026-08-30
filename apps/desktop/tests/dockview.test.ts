@@ -133,12 +133,15 @@ test("ReviewPanel routes Markdown links through the safe external-link bridge in
   assert.match(source, /const markdownComponents: Components = \{ a: ReviewLink \};/);
 });
 
-test("ReviewPanel supports reviewTick prop with lastTickRef and retains memoization", () => {
+test("ReviewPanel supports reviewTick prop and retains memoization", () => {
   const source = readFileSync(new URL("../src/components/ReviewPanel.tsx", import.meta.url), "utf8");
 
   assert.match(source, /reviewTick\?: number/);
-  assert.match(source, /lastSessionIdRef/);
-  assert.match(source, /lastTickRef/);
+  // Content clears only on a session change — never on a same-session tick
+  // refresh — so an explicit refresh updates in place without a flash, and a
+  // tick change coinciding with a session switch can't leak stale content.
+  assert.match(source, /if \(lastSessionIdRef\.current !== sessionId\)\s*\{\s*setContent\(null\);/);
+  assert.doesNotMatch(source, /isExplicitRefresh|lastTickRef/);
   assert.match(source, /window\.orkworks\.getPlanContent\(sessionId\)/);
   assert.match(source, /export default memo\(ReviewPanel\);/);
 });
@@ -200,6 +203,9 @@ test("App owns reviewTick state and wires it into DockviewApp with an incrementi
 
   assert.match(source, /useState\(0\)/);
   assert.match(source, /reviewTick=\{reviewTick\}/);
+  // handleReviewPlan must bump the tick after activating the panel so an
+  // already-open Review tab refetches instead of showing stale content.
+  assert.match(source, /setActive\(\);\s*\n\s*setReviewTick\(/);
   assert.match(
     source,
     /onRefreshReview=\{\(\)\s*=>\s*setReviewTick\(\(?\w+\)?\s*=>\s*\w+\s*\+\s*1\)\}/,
