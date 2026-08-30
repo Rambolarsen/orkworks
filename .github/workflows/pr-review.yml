@@ -3,13 +3,18 @@
 # and quality-audit.yml (scheduled audits).
 #
 # Posts one informational review comment on newly opened PRs that touch
-# apps/desktop/ or crates/orkworksd/ — the same scope as the manual
-# /code-review review-gate in AGENTS.md. This is a convenience first pass,
-# not a replacement: it is intentionally excluded from required status
-# checks and can never block a merge, same rationale as pr-ci.yml's
-# doc-drift job. The PR author is still responsible for the manual
-# /code-review the review-gate requires, especially for anything the
-# gate says to escalate to medium effort or higher.
+# apps/desktop/ or crates/orkworksd/ AND exceed the review gate's escalation
+# threshold (roughly more than 8 non-docs code files or 500 non-docs changed
+# lines — the same heuristic AGENTS.md's /code-review gate uses). Small,
+# low-risk PRs are deliberately skipped: they are covered by the manual
+# /code-review low gate, GitHub's native Copilot code review, and pr-ci.yml,
+# and a full automated Claude pass on every small PR costs more tokens than
+# the findings justify. This is a convenience first pass, not a replacement:
+# it is intentionally excluded from required status checks and can never
+# block a merge, same rationale as pr-ci.yml's doc-drift job. The PR author
+# is still responsible for the manual /code-review the review-gate requires,
+# especially for anything the gate says to escalate to medium effort or
+# higher.
 #
 # Setup: reuses the CLAUDE_CODE_OAUTH_TOKEN repo secret already configured
 # for quality-audit.yml — no additional setup needed.
@@ -32,6 +37,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       relevant_code_changed: ${{ steps.filter.outputs.desktop == 'true' || steps.filter.outputs.rust == 'true' }}
+      over_review_threshold: ${{ steps.size.outputs.over_threshold }}
     steps:
       - uses: actions/checkout@v4
 
@@ -44,10 +50,29 @@ jobs:
             rust:
               - 'crates/orkworksd/**'
 
+      - id: size
+        name: Compare diff size against the review gate's escalation threshold
+        if: steps.filter.outputs.desktop == 'true' || steps.filter.outputs.rust == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          read -r files lines <<< "$(gh api \
+            "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files?per_page=100" \
+            --jq '[.[] | select((.filename | endswith(".md")) | not)] |
+                  (length | tostring) + " " + ([.[] | .additions + .deletions] | add // 0 | tostring)')"
+          files="${files:-0}"
+          lines="${lines:-0}"
+          echo "non-docs files: ${files}, changed lines: ${lines}"
+          if [ "${files}" -gt 8 ] || [ "${lines}" -gt 500 ]; then
+            echo "over_threshold=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "over_threshold=false" >> "$GITHUB_OUTPUT"
+          fi
+
   review:
     name: Automated review
     needs: changes
-    if: needs.changes.outputs.relevant_code_changed == 'true'
+    if: needs.changes.outputs.relevant_code_changed == 'true' && needs.changes.outputs.over_review_threshold == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -91,13 +116,12 @@ jobs:
                general code-quality opinions not required by AGENTS.md;
                pre-existing issues outside the diff; issues on lines the PR
                didn't touch; changes that are clearly intentional.
-            4. Judge the size/risk of the diff using the same heuristic
-               AGENTS.md's review gate uses for humans (cross-cutting
-               architecture/runtime work, concurrency or lifecycle changes,
-               protocol/schema/migration changes, security-sensitive work,
-               or a diff over roughly 8 code files or 500 lines all count as
-               higher-risk) and look harder at those changes; for small,
-               low-risk diffs a quick pass is enough.
+            4. This workflow only runs for PRs past the review gate's size
+                threshold, so treat the diff as higher-risk by AGENTS.md's
+                review-gate heuristic (cross-cutting architecture/runtime
+                work, concurrency or lifecycle changes, protocol/schema/
+                migration changes, security-sensitive work) and look hard at
+                those areas specifically.
             5. Do not attempt to build, typecheck, or run tests yourself —
                pr-ci.yml already does that.
 
