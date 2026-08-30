@@ -9,7 +9,7 @@ description: Use when starting a new piece of work in OrkWorks — picks the rig
 
 OrkWorks is built to coordinate parallel AI sessions, and the dev workflow is parallel AI sessions. This skill is the procedural counterpart to the **Branch and PR workflow** section in `AGENTS.md` — that section defines the rules, this skill walks through executing them when you sit down to start a task.
 
-Use this skill at the start of any task that will produce code changes. Skip it for pure conversation, exploration, or read-only investigation.
+Use this skill at the start of any task that will produce changes (code or docs). Skip it for pure conversation, exploration, or read-only investigation.
 
 ## Preflight: establish checkout ownership
 
@@ -23,7 +23,7 @@ Pick the lowest-overhead option that satisfies the rules in `AGENTS.md`.
 
 | Change shape | Where to work |
 | ------------ | ------------- |
-| Docs-only (`docs/`, `specs/`, ADRs, `*.md` outside `apps/`/`crates/`) or trivial code fix <~20 lines | Directly on `main` in the primary checkout |
+| Docs-only (`docs/`, `specs/`, ADRs, `*.md` outside `apps/`/`crates/`) or trivial code fix <~20 lines | Branch in the primary checkout (worktree when the concurrency/foreign-branch triggers below apply) |
 | Code change in `apps/desktop/` or `crates/orkworksd/`, no other agent active, branch is **yours or explicitly authorized by its owner** | Branch in the primary checkout |
 | Code change while the active branch in the primary checkout is **not yours and not explicitly authorized by its owner** | Worktree (do not add commits to someone else's branch) |
 | Code change while another branch is already in flight in the primary checkout, or another agent is running | Worktree |

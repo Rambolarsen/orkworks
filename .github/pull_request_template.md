@@ -14,9 +14,10 @@
 ## Code review
 
 <!-- AGENTS.md requires a `/code-review` run before merge for any PR touching
-     apps/desktop/ or crates/orkworksd/. Default to a lightweight review.
-     Escalate to medium effort or higher only for bigger/riskier changes such
-     as architecture/runtime, concurrency/lifecycle, protocol/schema/migration,
-     security-sensitive work, or unusually large diffs. Summarize the findings
-     and how each was addressed (fixed, or noted as intentional) — or state
-     why this PR is exempt (e.g. docs-only). -->
+     apps/desktop/ or crates/orkworksd/. Default to low effort (/code-review low
+     where the harness supports an effort argument). Escalate to medium effort
+     or higher only for bigger/riskier changes such as architecture/runtime,
+     concurrency/lifecycle, protocol/schema/migration, security-sensitive work,
+     or unusually large diffs. Summarize the findings and how each was addressed
+     (fixed, or noted as intentional) — or state why this PR is exempt
+     (e.g. docs-only). -->
