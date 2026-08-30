@@ -163,27 +163,26 @@ test("App and DockviewApp share one canonical default-layout builder", () => {
   assert.match(app, /buildDefaultLayout\(api\)/);
 });
 
-test("DockviewApp exposes a right-side header action for the Sessions panel", () => {
+test("DockviewApp exposes header actions for Sessions and Review panels", () => {
   const source = readFileSync(
     new URL("../src/components/DockviewApp.tsx", import.meta.url),
     "utf8",
   );
 
-  assert.match(source, /rightHeaderActionsComponent=\{SessionsHeaderActions\}/);
-  assert.match(source, /activePanel\?\.id !== PANEL_DEFAULTS\.sessions\.component/);
+  assert.match(source, /rightHeaderActionsComponent=\{DockviewHeaderActions\}/);
+  assert.match(source, /PANEL_DEFAULTS\.sessions\.component/);
+  assert.match(source, /PANEL_DEFAULTS\.review\.component/);
   assert.match(source, /dockview-header-action/);
 });
 
-test("Sessions header action is gated on workspace presence and panel identity", () => {
-  const source = readFileSync(
-    new URL("../src/components/DockviewApp.tsx", import.meta.url),
-    "utf8",
-  );
+test("DockviewHeaderActions renders Refresh plan button with RotateCw for review tab when session has an openable plan", () => {
+  const source = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
 
-  assert.match(
-    source,
-    /if \(!ctx\.workspace \|\| props\.activePanel\?\.id !== PANEL_DEFAULTS\.sessions\.component\) \{\s*return null;\s*\}/,
-  );
+  assert.match(source, /RotateCw/);
+  assert.match(source, /title="Refresh plan"/);
+  assert.match(source, /aria-label="Refresh plan"/);
+  assert.match(source, /onClick=\{\(\)\s*=>\s*ctx\.onRefreshReview\(\)\}/);
+  assert.match(source, /reviewTick=\{ctx\.reviewTick\}/);
 });
 
 test("App.css resolves dockview overrides through tokens, not raw hex literals", () => {

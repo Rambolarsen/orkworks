@@ -7,6 +7,7 @@ import {
   type IDockviewHeaderActionsProps,
   type IDockviewPanelHeaderProps,
 } from "dockview-react";
+import { RotateCw } from "lucide-react";
 import type { SessionAttention, SessionInfo, WorkspaceInfo } from "../api";
 import type { HarnessConfig } from "../harnessTypes";
 import type { DebugSettings } from "../appSettingsTypes";
@@ -27,11 +28,13 @@ interface DockviewAppData {
   unreadIds: ReadonlySet<string>;
   harnesses: HarnessConfig[];
   resumeTick: number;
+  reviewTick: number;
   onSelectSession: (id: string) => void;
   onCreateSession: () => void;
   onKillSession: (id: string) => void;
   onForgetSession: (id: string) => void;
   onResumeSession: (id: string) => void;
+  onRefreshReview: () => void;
   onApplyDebugAttention: (id: string, attention: SessionAttention, message?: string) => void;
   onFocusTerminal: () => void;
   onOpenWorkspace: () => void;
@@ -61,23 +64,41 @@ function SessionsPanel() {
   );
 }
 
-function SessionsHeaderActions(props: IDockviewHeaderActionsProps) {
+function DockviewHeaderActions(props: IDockviewHeaderActionsProps) {
   const ctx = useContext(DockviewContext);
 
-  if (!ctx.workspace || props.activePanel?.id !== PANEL_DEFAULTS.sessions.component) {
-    return null;
+  if (props.activePanel?.id === PANEL_DEFAULTS.sessions.component) {
+    if (!ctx.workspace) return null;
+    return (
+      <button
+        className="dockview-header-action"
+        type="button"
+        title="New session"
+        aria-label="New session"
+        onClick={() => ctx.onCreateSession()}
+      >
+        +
+      </button>
+    );
   }
 
-  return (
-    <button
-      className="dockview-header-action"
-      type="button"
-      title="New session"
-      onClick={() => ctx.onCreateSession()}
-    >
-      +
-    </button>
-  );
+  if (props.activePanel?.id === PANEL_DEFAULTS.review.component) {
+    const session = ctx.sessions.find((s) => s.id === ctx.activeSessionId);
+    if (!session?.hasOpenablePlan) return null;
+    return (
+      <button
+        className="dockview-header-action"
+        type="button"
+        title="Refresh plan"
+        aria-label="Refresh plan"
+        onClick={() => ctx.onRefreshReview()}
+      >
+        <RotateCw size={14} />
+      </button>
+    );
+  }
+
+  return null;
 }
 
 function DockviewTab(props: IDockviewPanelHeaderProps) {
@@ -107,7 +128,12 @@ function TermPanel() {
 function ReviewTab() {
   const ctx = useContext(DockviewContext);
   const session = ctx.sessions.find((s) => s.id === ctx.activeSessionId);
-  return <ReviewPanel sessionId={session?.hasOpenablePlan ? ctx.activeSessionId : null} />;
+  return (
+    <ReviewPanel
+      sessionId={session?.hasOpenablePlan ? ctx.activeSessionId : null}
+      reviewTick={ctx.reviewTick}
+    />
+  );
 }
 
 function CapPanel() {
@@ -206,7 +232,7 @@ function DockviewApp(props: DockviewAppData) {
           className="orkworks-dockview"
           defaultTabComponent={DockviewTab}
           singleTabMode="fullwidth"
-          rightHeaderActionsComponent={SessionsHeaderActions}
+          rightHeaderActionsComponent={DockviewHeaderActions}
           onReady={(event: DockviewReadyEvent) => {
             if (initializedRef.current) return;
             initializedRef.current = true;
