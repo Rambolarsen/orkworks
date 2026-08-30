@@ -94,6 +94,8 @@ Agents doing development work in this repo must use the installed Superpowers sk
 - Use `verification-before-completion` before claiming work is complete, committing, pushing, or opening a PR.
 - Use `requesting-code-review` for substantial implementation work before merge/PR handoff.
 
+When delegating work to subagents, prefer the harness's current lower-cost model tier at high reasoning effort over older or premium-tier models. Escalate to a more capable or expensive model only when the task's risk or complexity clearly warrants it.
+
 These workflow requirements constrain how agents work in this repository. They do not expand OrkWorks product scope or override the MVP non-goals.
 
 ## Instruction scoping
