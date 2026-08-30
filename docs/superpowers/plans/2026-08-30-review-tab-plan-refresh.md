@@ -4,7 +4,7 @@
 
 **Goal:** Refresh the Review tab's plan file content on demand via a tab-header action and on "Review plan" clicks, updating smoothly without layout flashes or stale workspace state.
 
-**Architecture:** A Dockview header action in `DockviewApp.tsx` renders a `RotateCw` refresh button when the Review tab is active and the selected session has an openable plan. An incrementing `reviewTick` state in `App.tsx` coordinates manual refreshes and "Review plan" button / terminal-link activations. `ReviewPanel.tsx` uses `reviewTick` to fetch fresh content in the background without clearing the rendered view on same-session refreshes, protected by request ID guards.
+**Architecture:** A Dockview header action in `DockviewApp.tsx` renders a `RotateCw` refresh button when the Review tab is active and the selected session has an openable plan. An incrementing `reviewTick` state in `App.tsx` coordinates manual refreshes and "Review plan" button / terminal-link activations. `ReviewPanel.tsx` uses `reviewTick` with `lastTickRef` to fetch fresh content in the background without clearing the rendered view on same-session refreshes, protected by request ID guards and memoization.
 
 **Tech Stack:** React 19, TypeScript, Dockview (`dockview-react`), Lucide React (`RotateCw`), Node.js test runner.
 
@@ -14,10 +14,11 @@
 - Existing authenticated IPC bridge `getPlanContent(sessionId)` and sidecar route `/sessions/:id/plan-content` are reused as-is.
 - No background polling thread or file watchers are added.
 - Electron-main and renderer boundary invariant is strictly preserved.
+- `ReviewPanel` must remain memoized (`export default memo(ReviewPanel)`) to avoid re-parsing markdown on session polling ticks.
 
 ---
 
-### Task 1: Add Review Tab Refresh Header Action & reviewTick Coordination in DockviewApp
+### Task 1: Add Review Tab Refresh Header Action & reviewTick Plumbing in DockviewApp
 
 **Files:**
 - Modify: `apps/desktop/src/components/DockviewApp.tsx`
@@ -27,16 +28,30 @@
 - Consumes: `DockviewAppData` interface, `PANEL_DEFAULTS`, `SessionInfo.hasOpenablePlan`
 - Produces: `DockviewAppData.reviewTick: number`, `DockviewAppData.onRefreshReview: () => void`, and `DockviewHeaderActions` rendering the refresh icon button when `review` panel is active
 
-- [ ] **Step 1: Write the failing tests in `apps/desktop/tests/dockview.test.ts`**
+- [ ] **Step 1: Write and update header action tests in `apps/desktop/tests/dockview.test.ts`**
+
+Update the existing `SessionsHeaderActions` tests to match `DockviewHeaderActions` and add the new review tab header action test:
 
 ```ts
+test("DockviewApp exposes header actions for Sessions and Review panels", () => {
+  const source = readFileSync(
+    new URL("../src/components/DockviewApp.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(source, /rightHeaderActionsComponent=\{DockviewHeaderActions\}/);
+  assert.match(source, /PANEL_DEFAULTS\.sessions\.component/);
+  assert.match(source, /PANEL_DEFAULTS\.review\.component/);
+  assert.match(source, /dockview-header-action/);
+});
+
 test("DockviewHeaderActions renders Refresh plan button with RotateCw for review tab when session has an openable plan", () => {
   const source = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
 
   assert.match(source, /RotateCw/);
   assert.match(source, /title="Refresh plan"/);
   assert.match(source, /aria-label="Refresh plan"/);
-  assert.match(source, /onClick=\{\(\) => ctx\.onRefreshReview\(\)\}/);
+  assert.match(source, /onClick=\{\(\)\s*=>\s*ctx\.onRefreshReview\(\)\}/);
   assert.match(source, /reviewTick=\{ctx\.reviewTick\}/);
 });
 ```
@@ -44,7 +59,7 @@ test("DockviewHeaderActions renders Refresh plan button with RotateCw for review
 - [ ] **Step 2: Run tests to verify failure**
 
 Run: `node --experimental-strip-types --test apps/desktop/tests/dockview.test.ts`
-Expected: FAIL with assertion error on `RotateCw` or `Refresh plan`.
+Expected: FAIL with assertion error on `DockviewHeaderActions` or `RotateCw`.
 
 - [ ] **Step 3: Implement header actions and reviewTick plumbing in `DockviewApp.tsx`**
 
@@ -130,24 +145,26 @@ git commit -m "feat(desktop): add review tab header refresh action and reviewTic
 
 **Interfaces:**
 - Consumes: `{ sessionId: string | null; reviewTick?: number }`, `window.orkworks.getPlanContent(sessionId)`
-- Produces: `ReviewPanel` with background refresh preserving rendered content on `reviewTick` changes and resetting on `sessionId` switches
+- Produces: `ReviewPanel` with background refresh preserving rendered content on `reviewTick` changes, single unified effect using `lastTickRef`, and preserved `memo` wrapper
 
-- [ ] **Step 1: Write the failing tests in `apps/desktop/tests/dockview.test.ts`**
+- [ ] **Step 1: Write tests in `apps/desktop/tests/dockview.test.ts`**
 
 ```ts
-test("ReviewPanel supports reviewTick prop for smooth reloads without clearing content on refresh", () => {
+test("ReviewPanel supports reviewTick prop with lastTickRef and retains memoization", () => {
   const source = readFileSync(new URL("../src/components/ReviewPanel.tsx", import.meta.url), "utf8");
 
   assert.match(source, /reviewTick\?: number/);
   assert.match(source, /lastSessionIdRef/);
+  assert.match(source, /lastTickRef/);
   assert.match(source, /window\.orkworks\.getPlanContent\(sessionId\)/);
+  assert.match(source, /export default memo\(ReviewPanel\);/);
 });
 ```
 
 - [ ] **Step 2: Run tests to verify failure**
 
 Run: `node --experimental-strip-types --test apps/desktop/tests/dockview.test.ts`
-Expected: FAIL with assertion error on `reviewTick?: number`.
+Expected: FAIL with assertion error on `reviewTick?: number` or `lastTickRef`.
 
 - [ ] **Step 3: Update `ReviewPanel.tsx`**
 
@@ -162,6 +179,7 @@ function ReviewPanel({ sessionId, reviewTick }: ReviewPanelProps) {
   const [error, setError] = useState(false);
   const requestId = useRef(0);
   const lastSessionIdRef = useRef<string | null>(null);
+  const lastTickRef = useRef(reviewTick);
 
   const load = useCallback((isExplicitRefresh = false) => {
     if (!sessionId) {
@@ -187,17 +205,13 @@ function ReviewPanel({ sessionId, reviewTick }: ReviewPanelProps) {
   }, [sessionId]);
 
   useEffect(() => {
-    load(false);
-  }, [load]);
-
-  useEffect(() => {
-    if (reviewTick !== undefined && reviewTick > 0) {
-      load(true);
-    }
-  }, [reviewTick, load]);
+    const isTickChange = reviewTick !== undefined && reviewTick !== lastTickRef.current;
+    lastTickRef.current = reviewTick;
+    load(isTickChange);
+  }, [sessionId, reviewTick, load]);
 
   if (!sessionId) return <EmptyState message="Select a session with a plan to review it." />;
-  if (error) return <EmptyState message="This plan is no longer available." action={{ label: "Retry", onClick: () => load(false) }} />;
+  if (error) return <EmptyState message="This plan is no longer available." action={{ label: "Retry", onClick: load }} />;
   if (content === null) return <EmptyState message="Loading plan…" />;
   return (
     <div className="review-plan-content">
@@ -205,6 +219,8 @@ function ReviewPanel({ sessionId, reviewTick }: ReviewPanelProps) {
     </div>
   );
 }
+
+export default memo(ReviewPanel);
 ```
 
 - [ ] **Step 4: Run tests to verify pass**
@@ -238,7 +254,7 @@ test("App.tsx increments reviewTick on handleReviewPlan and passes reviewTick to
   const source = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
 
   assert.match(source, /const \[reviewTick, setReviewTick\] = useState\(0\);/);
-  assert.match(source, /setReviewTick\(t => t \+ 1\);/);
+  assert.match(source, /setReviewTick\(\(?t\)?\s*=>\s*t\s*\+\s*1\);/);
   assert.match(source, /onRefreshReview=\{/);
   assert.match(source, /reviewTick=\{reviewTick\}/);
 });
