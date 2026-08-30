@@ -133,6 +133,16 @@ test("ReviewPanel routes Markdown links through the safe external-link bridge in
   assert.match(source, /const markdownComponents: Components = \{ a: ReviewLink \};/);
 });
 
+test("ReviewPanel supports reviewTick prop with lastTickRef and retains memoization", () => {
+  const source = readFileSync(new URL("../src/components/ReviewPanel.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /reviewTick\?: number/);
+  assert.match(source, /lastSessionIdRef/);
+  assert.match(source, /lastTickRef/);
+  assert.match(source, /window\.orkworks\.getPlanContent\(sessionId\)/);
+  assert.match(source, /export default memo\(ReviewPanel\);/);
+});
+
 test("DockviewApp default layout opens sessions/detail/terminal only (Capacity & Recommendations closed until they carry signal)", () => {
   const source = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
 
