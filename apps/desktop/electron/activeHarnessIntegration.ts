@@ -147,7 +147,10 @@ function shouldRepair(status: IntegrationStatus): boolean {
   if (status.registration !== "installed") return false;
 
   return status.diagnostics.some(
-    (diagnostic) => diagnostic.code !== "tool_not_detected" && diagnostic.code !== "needs_trust",
+    (diagnostic) =>
+      diagnostic.code !== "tool_not_detected"
+      && diagnostic.code !== "needs_trust"
+      && diagnostic.code !== "unsupported_tool_version",
   );
 }
 
@@ -196,7 +199,7 @@ function noMutationResult(
   return integrationResultFromStatus("skipped", "succeeded", status);
 }
 
-function isStale(initial: WorkspaceGuardSnapshot, current: WorkspaceGuardSnapshot): boolean {
+export function isStale(initial: WorkspaceGuardSnapshot, current: WorkspaceGuardSnapshot): boolean {
   return initial.workspacePath !== current.workspacePath || initial.generation !== current.generation;
 }
 
@@ -267,7 +270,20 @@ export async function saveActiveHarnessesWithIntegrations(
     };
   }
 
-  const harnesses = selectableHarnesses(await deps.listHarnesses());
+  let harnesses: ElectronHarnessConfig[];
+  try {
+    harnesses = selectableHarnesses(await deps.listHarnesses());
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Couldn't load coding tool definitions.";
+    const integrations: Record<string, ActiveHarnessIntegrationResult> = {};
+    for (const id of activeIds) {
+      integrations[id] = fallbackIntegrationResult("skipped", "failed", message, STATUS_UNAVAILABLE_CODE);
+    }
+    return {
+      activeHarnesses: { outcome: "persisted" },
+      integrations,
+    };
+  }
   const harnessIds = harnesses.map((harness) => harness.id);
 
   if (isStale(initialGuard, deps.captureWorkspaceGuard())) {

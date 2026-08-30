@@ -23,6 +23,7 @@ import { rendererConsoleDiagnostic, rendererConsoleLevel, rendererOrigin, saniti
 import { recoveryDocumentUrl } from "./rendererRecoveryDocument";
 import { createRecoveryDocumentGuard } from "./rendererRecoveryState";
 import {
+  isStale,
   saveActiveHarnessesWithIntegrations,
   type ActiveHarnessSaveResult,
   type ElectronHarnessConfig,
@@ -269,7 +270,17 @@ app.whenReady().then(() => {
   }
 
   async function persistActiveHarnesses(ids: string[]): Promise<{ ok: true } | { ok: false; error: string }> {
+    const guard = { workspacePath, generation: backendGeneration };
     const port = await restoration.getReadiness();
+    if (isStale(guard, { workspacePath, generation: backendGeneration })) {
+      // Workspace switched mid-await: readiness now resolves to a different
+      // sidecar than the one this save started against. Skip the write
+      // rather than persisting the old workspace's selection into the new
+      // one's backend; saveActiveHarnessesWithIntegrations independently
+      // re-checks the guard right after this resolves and reports
+      // stale_workspace, so this result is discarded either way.
+      return { ok: true };
+    }
     const response = await fetch(`http://127.0.0.1:${port}/workspace/active-harnesses`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },

@@ -367,6 +367,64 @@ test("retired Gemini is excluded from reconciliation and keeps its owned workspa
   });
 });
 
+test("an installed integration with only a version-mismatch diagnostic is not repaired", async () => {
+  const deps = createDeps({
+    listHarnesses: async () => {
+      deps.calls.push("list");
+      return [harness("opencode")];
+    },
+    getIntegrationStatus: async (harnessId) => {
+      deps.calls.push(`status:${harnessId}`);
+      return status({
+        harnessId,
+        registration: "installed",
+        ownership: "ork_works",
+        activation: "unknown",
+        diagnostics: [{ code: "unsupported_tool_version", message: "The detected OpenCode version is not eligible for this integration." }],
+      });
+    },
+    installIntegration: async (harnessId) => {
+      deps.calls.push(`install:${harnessId}`);
+      throw new Error(`unexpected install:${harnessId}`);
+    },
+    uninstallIntegration: async (harnessId) => {
+      deps.calls.push(`uninstall:${harnessId}`);
+      throw new Error(`unexpected uninstall:${harnessId}`);
+    },
+  });
+
+  const result = await saveActiveHarnessesWithIntegrations(["opencode"], deps);
+
+  assert.deepEqual(deps.calls, ["persist", "list", "status:opencode"]);
+  assert.deepEqual(result.integrations.opencode, {
+    operation: "skipped",
+    outcome: "succeeded",
+    registration: "installed",
+    activation: "unknown",
+    coverage: "full",
+    diagnosticCode: "unsupported_tool_version",
+    message: "The detected OpenCode version is not eligible for this integration.",
+  });
+});
+
+test("a harness-listing failure after a successful persist still reports persisted, not a rejected save", async () => {
+  const deps = createDeps({
+    listHarnesses: async () => {
+      deps.calls.push("list");
+      throw new Error("backend unreachable");
+    },
+  });
+
+  const result = await saveActiveHarnessesWithIntegrations(["claude-code", "codex"], deps);
+
+  assert.deepEqual(deps.calls, ["persist", "list"]);
+  assert.deepEqual(result.activeHarnesses, { outcome: "persisted" });
+  assert.equal(result.integrations["claude-code"]?.outcome, "failed");
+  assert.equal(result.integrations["claude-code"]?.diagnosticCode, "status_unavailable");
+  assert.equal(result.integrations.codex?.outcome, "failed");
+  assert.equal(result.integrations.codex?.diagnosticCode, "status_unavailable");
+});
+
 test("ambiguous ownership returns structured failure without mutating either enable or disable flows", async () => {
   const deps = createDeps({
     listHarnesses: async () => {

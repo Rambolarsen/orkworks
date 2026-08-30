@@ -19,6 +19,12 @@ export function shouldShowInstalledConfirmation(
   return !diagnostics.some((diagnostic) => diagnostic.code === "unsupported_tool_version");
 }
 
+// Diagnostics that describe a permanent, inherent capability limitation
+// rather than something actionable — the backend attaches these
+// unconditionally alongside an otherwise-healthy status, so they must not
+// force the "needs-you" display state.
+const INFORMATIONAL_DIAGNOSTIC_CODES = new Set(["no_native_session_id", "no_deterministic_integration"]);
+
 export interface IntegrationDisplayState {
   appearance: "off" | "neutral" | "healthy" | "needs-you" | "error" | "in-progress";
   label: string;
@@ -115,7 +121,7 @@ export function deriveIntegrationDisplayState({
   }
 
   const current = status.status;
-  const diagnostic = current.diagnostics[0];
+  const diagnostic = current.diagnostics.find((d) => !INFORMATIONAL_DIAGNOSTIC_CODES.has(d.code));
 
   if (diagnostic) {
     return displayState(

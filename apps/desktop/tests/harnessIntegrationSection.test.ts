@@ -129,7 +129,7 @@ test("deriveIntegrationDisplayState returns needs-you for disabled tools with ow
   assert.match(display.description, /cleanup/i);
 });
 
-test("deriveIntegrationDisplayState returns neutral for enabled unsupported integrations", () => {
+test("deriveIntegrationDisplayState returns neutral for enabled unsupported integrations even with the backend's always-present diagnostic", () => {
   const display = deriveIntegrationDisplayState({
     harnessName: "Antigravity CLI",
     enabled: true,
@@ -139,6 +139,7 @@ test("deriveIntegrationDisplayState returns neutral for enabled unsupported inte
       ownership: "none",
       activation: "not_applicable",
       coverage: "none",
+      diagnostics: [{ code: "no_deterministic_integration", message: "No deterministic OrkWorks integration exists for this coding tool." }],
     }),
   });
 
@@ -147,7 +148,7 @@ test("deriveIntegrationDisplayState returns neutral for enabled unsupported inte
   assert.match(display.description, /No OrkWorks hook support/);
 });
 
-test("deriveIntegrationDisplayState returns healthy with limited coverage explanation for aider", () => {
+test("deriveIntegrationDisplayState returns healthy with limited coverage explanation for aider even with its always-present diagnostic", () => {
   const display = deriveIntegrationDisplayState({
     harnessName: "Aider",
     enabled: true,
@@ -155,6 +156,7 @@ test("deriveIntegrationDisplayState returns healthy with limited coverage explan
       harnessId: "aider",
       activation: "unknown",
       coverage: "limited",
+      diagnostics: [{ code: "no_native_session_id", message: "Aider notifications report attention only; Aider has no native session ID contract." }],
       confirmation: {
         toolName: "Aider",
         workspaceLabel: "workspace",
