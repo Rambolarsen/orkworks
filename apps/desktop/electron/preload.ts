@@ -55,10 +55,6 @@ contextBridge.exposeInMainWorld("orkworks", {
     ipcRenderer.invoke("save-active-harnesses-with-integrations", ids),
   getHarnessIntegrationStatus: (harnessId: string): Promise<unknown> =>
     ipcRenderer.invoke("get-harness-integration-status", harnessId),
-  installHarnessIntegration: (harnessId: string): Promise<unknown> =>
-    ipcRenderer.invoke("install-harness-integration", harnessId),
-  uninstallHarnessIntegration: (harnessId: string): Promise<unknown> =>
-    ipcRenderer.invoke("uninstall-harness-integration", harnessId),
   setHarnessCommandOverride: (harnessId: string, commandPath: string): Promise<unknown> =>
     ipcRenderer.invoke("set-harness-command-override", harnessId, commandPath),
   clearHarnessCommandOverride: (harnessId: string): Promise<unknown> =>

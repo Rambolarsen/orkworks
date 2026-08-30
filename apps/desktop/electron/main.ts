@@ -737,11 +737,9 @@ app.whenReady().then(() => {
   ipcMain.handle("get-harness-integration-status", async (_event, harnessId: unknown) =>
     callIntegrationRoute(harnessId, "status"));
 
-  ipcMain.handle("install-harness-integration", async (_event, harnessId: unknown) =>
-    callIntegrationRoute(harnessId, "install"));
-
-  ipcMain.handle("uninstall-harness-integration", async (_event, harnessId: unknown) =>
-    callIntegrationRoute(harnessId, "uninstall"));
+  // install/uninstall intentionally have no direct IPC channel: hook-mutating
+  // routes are reachable only through the confirmed batched save orchestrator
+  // ("save-active-harnesses-with-integrations"), never from the renderer alone.
 
   async function confirmMutations(planned: PlannedIntegrationMutation[]): Promise<boolean> {
     if (!mainWindow) return false;

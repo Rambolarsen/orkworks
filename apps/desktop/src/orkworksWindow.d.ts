@@ -49,8 +49,6 @@ declare global {
       getProviderLabels: () => Promise<ProviderLabelsResponse>;
       saveActiveHarnessesWithIntegrations: (ids: string[]) => Promise<ActiveHarnessSaveResult>;
       getHarnessIntegrationStatus: (harnessId: string) => Promise<IntegrationStatusResult>;
-      installHarnessIntegration: (harnessId: string) => Promise<IntegrationStatusResult>;
-      uninstallHarnessIntegration: (harnessId: string) => Promise<IntegrationStatusResult>;
       setHarnessCommandOverride: (
         harnessId: string,
         commandPath: string,

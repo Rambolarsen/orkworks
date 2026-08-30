@@ -24,11 +24,13 @@ export default function HarnessCommandPathControl({
   disabled = false,
   onChanged,
 }: HarnessCommandPathControlProps) {
-  if (!harness || harness.launch.kind !== "command-template") return null;
-
-  const launchCommand = harness.launch.command;
-  const hasCustomPath = looksAbsolute(launchCommand);
-  const [customPathDraft, setCustomPathDraft] = useState<string>(() => (hasCustomPath ? launchCommand : ""));
+  // Narrow once up front; the early `return null` for non-command-template
+  // harnesses lives below the hooks so hook order stays stable even if the
+  // `harness` prop's launch kind were to change between renders.
+  const launch = harness?.launch.kind === "command-template" ? harness.launch : undefined;
+  const launchCommand = launch?.command;
+  const hasCustomPath = launchCommand !== undefined && looksAbsolute(launchCommand);
+  const [customPathDraft, setCustomPathDraft] = useState<string>(() => (hasCustomPath ? launchCommand ?? "" : ""));
   // Locally owned rather than derived from `hasCustomPath` on every render:
   // the `harness` prop only refreshes when Settings is reopened, so a
   // save/clear updates this immediately instead of leaving the Clear
@@ -85,6 +87,8 @@ export default function HarnessCommandPathControl({
       setCustomPathBusy(false);
     }
   }
+
+  if (!launch) return null;
 
   return (
     <div className="settings-config-item-actions settings-config-custom-path">

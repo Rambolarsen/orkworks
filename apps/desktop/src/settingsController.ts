@@ -96,7 +96,9 @@ export function mergeIntegrationOperationFailures(
 }
 
 function clearsIntegrationOperationFailure(result: ActiveHarnessIntegrationResult): boolean {
-  return result.outcome === "succeeded";
+  // "unsupported" also clears: if the tool fell out of eligibility, the last
+  // operation's "action required" failure is no longer actionable.
+  return result.outcome === "succeeded" || result.outcome === "unsupported";
 }
 
 function clone<T>(value: T): T {
