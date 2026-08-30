@@ -131,19 +131,15 @@ Before OpenCode implementation work, verify that the skill tool lists Superpower
 
 ## Branch and PR workflow
 
-`main` is the trunk, not the workspace. Use branches and PRs for code; keep main fast for low-risk writing.
+`main` is the trunk, not the workspace. All changes — code and docs alike — land through branches and PRs.
 
 **`main` checkout ownership:** The local `main` branch may be checked out only in the primary checkout. Linked worktrees must be attached to an explicitly agent-owned or owner-authorized feature or fix branch; they must never check out `main` or remain detached. The primary checkout may temporarily use an agent-owned or owner-authorized branch under the rules below.
 
-When starting any task that will produce code changes, invoke the `starting-work` skill (in `skills/starting-work/`) before editing. It walks through the branch-vs-worktree decision, naming convention, and per-checkout setup that operationalize the rules in this section.
+When starting any task that will produce changes (code or docs), invoke the `starting-work` skill (in `skills/starting-work/`) before editing. It walks through the branch-vs-worktree decision, naming convention, and per-checkout setup that operationalize the rules in this section.
 
 **Don't stack commits on branches you don't own.** This rule exists to prevent two writers on one branch: an agent silently adding commits to a branch another agent or person is actively working on causes lost work, confusing history, and clobbered checkouts. It is not a ban on landing legitimate changes — if the branch owner explicitly asks you to push to their branch (e.g. applying review fixes to their PR), do so. Absent that permission: if the primary checkout is on a branch someone else created, do not add commits to it — open a worktree on your own branch instead. If you find yourself on a foreign branch in a worktree, stop and create a new one.
 
-**Direct to `main` is allowed for:**
-- Docs-only changes: `docs/`, `specs/`, ADRs, `README.md`, `AGENTS.md`, `CLAUDE.md`, and other `*.md` outside `apps/`/`crates/`.
-- Trivial code fixes under ~20 lines (typos, comment edits, single-line config tweaks). When in doubt, branch.
-
-**Everything else requires a branch + PR**, including any change to `apps/desktop/src/`, `apps/desktop/electron/`, `apps/desktop/tests/`, or `crates/orkworksd/`, regardless of commit-type prefix.
+**Every change requires a branch + PR.** This includes docs-only changes (`docs/`, `specs/`, ADRs, `README.md`, `AGENTS.md`, `CLAUDE.md`, and other `*.md` outside `apps/`/`crates/`) and trivial code fixes under ~20 lines (typos, comment edits, single-line config tweaks). There are no direct-to-`main` pushes: branch protection enforces the required review and status checks on everyone, including admins (admin-enforcement policy decision, 2026-08-30). The `/code-review` gate below still applies only to PRs touching code, not to docs-only PRs.
 
 **One PR per logical unit of work.** A burst of 5–10 small commits in a few minutes that share a feature name is one PR, not ten commits on main. Squash or rebase locally before opening it.
 
