@@ -10,10 +10,8 @@ type DetectionState = "loading" | "detected" | "not-detected" | "unknown";
 
 /**
  * Always-on "Detected"/"Not detected" indicator for a coding-tool row.
- * Independent of whether the tool is enabled — HarnessIntegrationSection
- * only mounts (and re-fetches the same status) once a tool is toggled on,
- * but the row header shows this regardless so the list is scannable at a
- * glance, matching the design handoff.
+ * Independent of whether the tool is enabled. The row header shows this
+ * regardless so the list is scannable at a glance, matching the design handoff.
  */
 export default function HarnessDetectionStatus({ harnessId, refreshGeneration = 0 }: HarnessDetectionStatusProps) {
   const [result, setResult] = useState<IntegrationStatusResult | null>(null);
