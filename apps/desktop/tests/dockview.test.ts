@@ -195,6 +195,17 @@ test("DockviewHeaderActions renders Refresh plan button with RotateCw for review
   assert.match(source, /reviewTick=\{ctx\.reviewTick\}/);
 });
 
+test("App owns reviewTick state and wires it into DockviewApp with an incrementing refresh callback", () => {
+  const source = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /useState\(0\)/);
+  assert.match(source, /reviewTick=\{reviewTick\}/);
+  assert.match(
+    source,
+    /onRefreshReview=\{\(\)\s*=>\s*setReviewTick\(\(?\w+\)?\s*=>\s*\w+\s*\+\s*1\)\}/,
+  );
+});
+
 test("App.css resolves dockview overrides through tokens, not raw hex literals", () => {
   const source = readFileSync(new URL("../src/App.css", import.meta.url), "utf8");
 
