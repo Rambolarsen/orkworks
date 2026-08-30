@@ -33,6 +33,8 @@ A Podman/OCI toolchain container (`Containerfile` + `compose.yaml` at the repo r
 
 Substitute `docker compose` for `podman compose` if you use Docker.
 
+`podman compose` requires a compose provider (`podman-compose` or `docker-compose`) on the host; a bare Podman install does not include one. Without it, `podman compose` fails with `looking up compose provider failed` — install `podman-compose` (e.g. `brew install podman-compose`) or point Podman at `docker-compose`.
+
 ```bash
 # Build the toolchain image
 podman compose build
