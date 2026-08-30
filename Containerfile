@@ -12,11 +12,14 @@ FROM node:22-bookworm-slim
 # via cmake + a C toolchain; git2's default `https` feature links openssl-sys,
 # which needs libssl-dev + pkg-config on Linux (ubuntu CI ships these already,
 # bookworm-slim does not); git/curl/ca-certificates back rustup and crate fetches.
+# python3 is a runtime dep of the harness reporter scripts (hook payloads);
+# macOS hosts and ubuntu CI runners ship it, bookworm-slim does not.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       build-essential \
       cmake \
       pkg-config \
       libssl-dev \
+      python3 \
       git \
       curl \
       ca-certificates \
@@ -30,7 +33,11 @@ ENV RUSTUP_HOME=/usr/local/rustup \
     PATH=/usr/local/cargo/bin:$PATH
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
       | sh -s -- -y --no-modify-path --profile minimal \
-        --default-toolchain stable --component clippy rustfmt
+        --default-toolchain stable --component clippy --component rustfmt
+
+# /etc/profile (sourced by login shells, e.g. the documented `bash -lc` runs)
+# resets PATH and would drop cargo/rustup; re-export it for login shells.
+RUN printf 'export PATH="/usr/local/cargo/bin:$PATH"\n' > /etc/profile.d/cargo.sh
 
 # pnpm 11 via corepack (bundled with Node 22), matching the packageManager pin
 # in apps/desktop/package.json.
