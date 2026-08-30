@@ -454,10 +454,10 @@ html, body, #root {
 
 .settings-config-item-header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 
 .settings-config-item {

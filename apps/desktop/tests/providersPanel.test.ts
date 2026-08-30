@@ -199,6 +199,29 @@ test("SettingsModal removes the modal-wide save footer and generic saveError pat
   assert.match(source, /activeSection === "hotkeys"[\s\S]*Save/);
 });
 
+test("SettingsModal title-bar close discards subsection drafts before the modal exits", () => {
+  const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /function discardDraftsAndClose\(\)/);
+  assert.match(source, /setDraft\(clone\(savedHotkeys\)\)/);
+  assert.match(source, /setProviderDraft\(clone\(savedSettingsRef\.current\.providers\)\)/);
+  assert.match(source, /setActiveDraft\(normalizeActiveHarnessIds\(harnesses,\s*activeHarnessIds\)\)/);
+  assert.match(source, /setIntegrationStatuses\(\{\}\)/);
+  assert.match(source, /setIntegrationOperationFailures\(\{\}\)/);
+  assert.match(source, /setIntegrationStatusGeneration\(\(current\) => current \+ 1\)/);
+  assert.match(source, /onClick=\{discardDraftsAndClose\}/);
+});
+
+test("SettingsModal guards late tool-save and status-refresh results with local generations", () => {
+  const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /const modalLifecycleGeneration = useRef\(0\)/);
+  assert.match(source, /const toolsSaveGeneration = useRef\(0\)/);
+  assert.match(source, /const integrationStatusRequestGeneration = useRef\(0\)/);
+  assert.match(source, /if \(requestGeneration !== toolsSaveGeneration\.current \|\| lifecycleGeneration !== modalLifecycleGeneration\.current\) return;/);
+  assert.match(source, /if \(cancelled \|\| requestGeneration !== integrationStatusRequestGeneration\.current \|\| lifecycleGeneration !== modalLifecycleGeneration\.current\)/);
+});
+
 test("preload exposes the combined active-harness save IPC bridge", () => {
   const source = readFileSync(new URL("../electron/preload.ts", import.meta.url), "utf8");
   assert.match(

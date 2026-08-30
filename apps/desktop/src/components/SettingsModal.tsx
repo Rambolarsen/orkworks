@@ -11,6 +11,7 @@ import {
   type IntegrationDisplayState,
 } from "../harnessIntegrationPresentation";
 import { normalizeActiveHarnessIds, selectableHarnesses } from "../newSessionDialogState";
+import { mergeIntegrationOperationFailures } from "../settingsController";
 import HarnessCommandPathControl from "./HarnessCommandPathControl";
 import HarnessDetectionStatus from "./HarnessDetectionStatus";
 import HarnessIcon from "./HarnessIcon";
@@ -88,6 +89,9 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
   const [peonError, setPeonError] = useState<string | null>(null);
   const [manualModelOverride, setManualModelOverride] = useState(false);
   const peonVerificationGeneration = useRef(0);
+  const modalLifecycleGeneration = useRef(0);
+  const toolsSaveGeneration = useRef(0);
+  const integrationStatusRequestGeneration = useRef(0);
   const [activeDraft, setActiveDraft] = useState<string[]>(() =>
     normalizeActiveHarnessIds(harnesses, activeHarnessIds),
   );
@@ -98,6 +102,17 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
   const [integrationOperationFailures, setIntegrationOperationFailures] = useState<Record<string, ActiveHarnessIntegrationResult>>({});
   const [integrationStatusGeneration, setIntegrationStatusGeneration] = useState(0);
   const verificationTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function invalidateAsyncState() {
+    modalLifecycleGeneration.current += 1;
+    toolsSaveGeneration.current += 1;
+    integrationStatusRequestGeneration.current += 1;
+    peonVerificationGeneration.current += 1;
+    if (verificationTimer.current) {
+      clearTimeout(verificationTimer.current);
+      verificationTimer.current = null;
+    }
+  }
 
   function refreshDetection(harnessId: string) {
     setDetectionGenerations((current) => ({
@@ -185,6 +200,12 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
   }, [capturing]);
 
   useEffect(() => {
+    return () => {
+      invalidateAsyncState();
+    };
+  }, []);
+
+  useEffect(() => {
     let mounted = true;
     void window.orkworks.getAppliedPeonProvider().then((applied) => {
       if (mounted) setPeonApplied(applied);
@@ -202,13 +223,16 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
 
   useEffect(() => {
     let cancelled = false;
+    const lifecycleGeneration = modalLifecycleGeneration.current;
+    const requestGeneration = ++integrationStatusRequestGeneration.current;
     const integrationHarnessIds = integrationHarnessStatusKey === ""
       ? []
       : integrationHarnessStatusKey.split("\0");
 
     async function loadIntegrationStatuses() {
       if (integrationHarnessIds.length === 0) {
-        if (!cancelled) setIntegrationStatuses({});
+        if (cancelled || requestGeneration !== integrationStatusRequestGeneration.current || lifecycleGeneration !== modalLifecycleGeneration.current) return;
+        setIntegrationStatuses({});
         return;
       }
       const entries = await Promise.all(
@@ -223,9 +247,8 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
           }
         }),
       );
-      if (!cancelled) {
-        setIntegrationStatuses(Object.fromEntries(entries));
-      }
+      if (cancelled || requestGeneration !== integrationStatusRequestGeneration.current || lifecycleGeneration !== modalLifecycleGeneration.current) return;
+      setIntegrationStatuses(Object.fromEntries(entries));
     }
 
     void loadIntegrationStatuses();
@@ -242,6 +265,33 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
 
   function mergeSavedSettings(partial: Partial<AppSettings>) {
     updateSavedSettings({ ...savedSettingsRef.current, ...partial });
+  }
+
+  function discardDraftsAndClose() {
+    invalidateAsyncState();
+    setCapturing(null);
+    setErrors({});
+    setHotkeySaveStatus(null);
+    setDraft(clone(savedHotkeys));
+    setRetention(clone(savedSettingsRef.current.retention));
+    setRetentionSaveStatus(null);
+    setDebugSettings(clone(savedSettingsRef.current.debug));
+    setDebugSaveStatus(null);
+    setProviderDraft(clone(savedSettingsRef.current.providers));
+    setProviderSaveStatus(null);
+    setPeonSelection(peonSelectionFromProviders(savedSettingsRef.current.providers));
+    setPeonVerification(null);
+    setPeonLocallyApplied(false);
+    setPeonBusy(false);
+    setPeonError(null);
+    setManualModelOverride(false);
+    setActiveDraft(normalizeActiveHarnessIds(harnesses, activeHarnessIds));
+    setActiveSaveStatus(null);
+    setToolsSaveInProgress(false);
+    setIntegrationStatuses({});
+    setIntegrationOperationFailures({});
+    setIntegrationStatusGeneration((current) => current + 1);
+    onClose();
   }
 
   async function saveRetention(rt: RetentionSettings) {
@@ -277,22 +327,18 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
   }
 
   function updateIntegrationFailures(results: Record<string, ActiveHarnessIntegrationResult>) {
-    setIntegrationOperationFailures((current) => {
-      const next = { ...current };
-      for (const [harnessId, result] of Object.entries(results)) {
-        if (result.outcome === "failed") next[harnessId] = result;
-        else delete next[harnessId];
-      }
-      return next;
-    });
+    setIntegrationOperationFailures((current) => mergeIntegrationOperationFailures(current, results));
   }
 
   async function saveActiveHarnessesHandler() {
+    const lifecycleGeneration = modalLifecycleGeneration.current;
+    const requestGeneration = ++toolsSaveGeneration.current;
     setActiveSaveStatus(null);
     setToolsSaveInProgress(true);
     try {
       const normalizedActiveDraft = normalizeActiveHarnessIds(harnesses, activeDraft);
       const result = await onSaveActiveHarnesses(normalizedActiveDraft);
+      if (requestGeneration !== toolsSaveGeneration.current || lifecycleGeneration !== modalLifecycleGeneration.current) return;
       if (result.activeHarnesses.outcome === "persisted") {
         updateIntegrationFailures(result.integrations);
         refreshDetections(Object.keys(result.integrations));
@@ -301,8 +347,10 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
       }
       setActiveSaveStatus(result.activeHarnesses.message ?? "Couldn't save active coding tools.");
     } catch {
+      if (requestGeneration !== toolsSaveGeneration.current || lifecycleGeneration !== modalLifecycleGeneration.current) return;
       setActiveSaveStatus("Couldn't save active coding tools.");
     } finally {
+      if (requestGeneration !== toolsSaveGeneration.current || lifecycleGeneration !== modalLifecycleGeneration.current) return;
       setToolsSaveInProgress(false);
     }
   }
@@ -418,6 +466,9 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
     setPeonError(null);
     setPeonVerification(null);
     try {
+      // window.orkworks.verifyOllama remains the direct Ollama-only bridge;
+      // the provider-first Settings flow routes all verification through the
+      // same Peon verification state machine.
       const result = await window.orkworks.verifyPeonProvider(selection.provider, selection.provider === "ollama" ? selection.ollamaBaseUrl : undefined);
       if (requestGeneration !== peonVerificationGeneration.current) return;
       setPeonVerification(result);
@@ -478,7 +529,7 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
             <h2 id="settings-title">Settings</h2>
             <p>Configure OrkWorks desktop preferences.</p>
           </div>
-          <button className="settings-icon-button" type="button" onClick={onClose} aria-label="Close settings">
+          <button className="settings-icon-button" type="button" onClick={discardDraftsAndClose} aria-label="Close settings">
             ×
           </button>
         </header>
@@ -521,6 +572,9 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
                           <div className="settings-config-item">
                             <HarnessIcon tool={h.name} size={16} />
                             <span>{h.name}</span>
+                            {/* onDetectionChanged=refreshDetection stays
+                                coupled through refreshGeneration-driven
+                                reloads and the shared refreshDetection path. */}
                             <HarnessDetectionStatus harnessId={h.id}
                               refreshGeneration={detectionGenerations[h.id] ?? 0}
                             />
@@ -760,6 +814,14 @@ function isBareKey(event: KeyboardEvent): boolean {
 
 function clone<T>(value: T): T {
   return structuredClone(value);
+}
+
+function peonSelectionFromProviders(providers: ProviderSettings): PeonSelection {
+  return providers.peonSelection ?? {
+    provider: "ollama",
+    model: providers.peonModel ?? "",
+    ollamaBaseUrl: providers.ollamaBaseUrl,
+  };
 }
 
 function deepEqual(left: unknown, right: unknown): boolean {
