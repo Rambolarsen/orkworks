@@ -112,6 +112,22 @@ pub(crate) fn arm_pending_work_signal(
     }
 }
 
+/// Re-bases an armed signal's banner grace onto the runtime's post-spawn
+/// startup horizon. The signal is armed pre-spawn in
+/// `create_session_workflow`, but no output can be consumed before this
+/// runtime's PTY reader starts, so the deadline that matters is the
+/// `startup_grace_ends_at` computed after spawn: aligning the two restores
+/// the invariant that banner tolerance covers the whole promotion-block
+/// window regardless of how long spawn setup took (PR #396 review).
+pub(crate) fn align_banner_grace_with_startup(
+    slot: &mut Option<PendingWorkSignal>,
+    startup_grace_ends_at: tokio::time::Instant,
+) {
+    if let Some(signal) = slot.as_mut() {
+        signal.banner_grace_ends_at = startup_grace_ends_at;
+    }
+}
+
 /// A chunk only "counts" as visible output if it has at least one character
 /// that isn't whitespace and isn't a control code (e.g. a bare BEL or other
 /// C0 byte left over after ANSI stripping must not qualify as model output).
@@ -894,6 +910,17 @@ pub(crate) async fn start_session_runtime(
             return Err(error.to_string());
         }
     };
+    // Placed after the startup gates above (tests park there while possibly
+    // holding the sessions lock) and before the reader below starts: no
+    // output can have been consumed yet, so re-basing the armed signal's
+    // banner grace onto the post-spawn horizon loses nothing and keeps
+    // banner tolerance covering the full promotion-block window.
+    {
+        let mut sessions = state.sessions.lock().unwrap();
+        if let Some(handle) = sessions.get_mut(&id) {
+            align_banner_grace_with_startup(&mut handle.pending_work_signal, startup_grace_ends_at);
+        }
+    }
     let writer = match pair.master.take_writer() {
         Ok(writer) => writer,
         Err(error) => {
@@ -1767,6 +1794,38 @@ mod tests {
     }
 
     #[test]
+    fn banner_grace_extends_to_post_spawn_startup_horizon() {
+        let now = tokio::time::Instant::now();
+        let mut signal = Some(arm_pending_work_signal(
+            "fix",
+            now,
+            std::time::Duration::ZERO,
+        ));
+        // Spawn setup consumed wall-clock time between arming and the
+        // runtime computing its startup horizon; the grace deadline must
+        // move with it or output landing in the gap consumes the signal
+        // while promotion is still blocked.
+        let spawn_delay = std::time::Duration::from_millis(150);
+        let startup_grace_ends_at = now + spawn_delay + STARTUP_ATTENTION_GRACE;
+        align_banner_grace_with_startup(&mut signal, startup_grace_ends_at);
+        assert!(!consume_pending_work_signal(
+            &mut signal,
+            "banner",
+            startup_grace_ends_at - std::time::Duration::from_millis(100),
+        ));
+        assert!(
+            signal.is_some(),
+            "output inside the post-spawn startup grace must not consume the signal"
+        );
+        assert!(consume_pending_work_signal(
+            &mut signal,
+            "Thinking…",
+            startup_grace_ends_at + std::time::Duration::from_millis(100),
+        ));
+        assert!(signal.is_none());
+    }
+
+    #[test]
     fn prompt_echo_still_trims_during_banner_grace() {
         let now = tokio::time::Instant::now();
         let mut signal = Some(arm_pending_work_signal(
@@ -2445,7 +2504,11 @@ mod tests {
             .any(|line| line.contains("startup-grace-output")));
         assert_ne!(session.info.attention.as_deref(), Some("working"));
         assert_ne!(session.info.observed_status.as_deref(), Some("working"));
-        assert!(session.pending_work_signal.is_none());
+        assert!(
+            session.pending_work_signal.is_some(),
+            "output inside the startup grace must not consume the armed signal; \
+             promotion stays possible for post-grace output (issue #390)"
+        );
         drop(handle);
 
         kill_tx.send(true).unwrap();
