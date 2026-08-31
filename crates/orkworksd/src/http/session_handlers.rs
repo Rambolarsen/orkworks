@@ -8,10 +8,10 @@ use crate::session_projection::enrich_sessions_with_git_context as project_git_c
 use crate::session_projection::SessionProjection;
 use crate::session_types::{MemoryState, PeonDiagnostics, SessionInfo};
 #[cfg(test)]
+use crate::watcher;
+#[cfg(test)]
 use crate::workspace_runtime::orkworks_global_dir;
 use crate::{git, harness, metadata, peon, AppState, SessionHandle, WorkspaceState};
-#[cfg(test)]
-use crate::watcher;
 use axum::{
     extract::{Path, State},
     http::HeaderMap,
@@ -478,25 +478,20 @@ fn project_peon_diagnostics(
 }
 
 fn project_live_peon_diagnostics(state: &AppState, info: &mut SessionInfo) {
-    let snapshot = state
-        .peon
-        .diagnostics
-        .read()
-        .ok()
-        .and_then(|diagnostics| diagnostics.get(&info.id).map(|entry| entry.snapshot.clone()));
+    let snapshot = state.peon.diagnostics.read().ok().and_then(|diagnostics| {
+        diagnostics
+            .get(&info.id)
+            .map(|entry| entry.snapshot.clone())
+    });
     let observation_count = snapshot.as_ref().and_then(|_| {
-        state
-            .workspace
-            .lock()
-            .ok()
-            .and_then(|workspace| {
-                workspace.as_ref().and_then(|workspace| {
-                    workspace
-                        .workflow_observations
-                        .session_observation_count(&info.id)
-                        .ok()
-                })
+        state.workspace.lock().ok().and_then(|workspace| {
+            workspace.as_ref().and_then(|workspace| {
+                workspace
+                    .workflow_observations
+                    .session_observation_count(&info.id)
+                    .ok()
             })
+        })
     });
     project_peon_diagnostics(info, snapshot, observation_count);
 }
@@ -4819,8 +4814,7 @@ mod tests {
             .find(|session| session["id"] == second_diagnosed_id)
             .expect("second diagnosed session should be listed");
         assert_eq!(
-            second_diagnosed["peonDiagnostics"]["observationCount"],
-            0,
+            second_diagnosed["peonDiagnostics"]["observationCount"], 0,
             "all live diagnostics use the same workspace count snapshot"
         );
 

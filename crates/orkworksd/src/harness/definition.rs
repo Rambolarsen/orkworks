@@ -807,15 +807,27 @@ mod tests {
         assert!(resolved.get("gemini").unwrap().definition.retired);
         assert!(!resolved.get("antigravity").unwrap().definition.retired);
         assert_eq!(
-            resolved.get("claude-code").unwrap().definition.label_reset_commands,
+            resolved
+                .get("claude-code")
+                .unwrap()
+                .definition
+                .label_reset_commands,
             ["/clear", "/reset", "/new"]
         );
         assert_eq!(
-            resolved.get("opencode").unwrap().definition.label_reset_commands,
+            resolved
+                .get("opencode")
+                .unwrap()
+                .definition
+                .label_reset_commands,
             ["/clear", "/new"]
         );
         assert_eq!(
-            resolved.get("copilot").unwrap().definition.label_reset_commands,
+            resolved
+                .get("copilot")
+                .unwrap()
+                .definition
+                .label_reset_commands,
             ["/clear", "/new"]
         );
         assert!(resolved
@@ -841,17 +853,30 @@ mod tests {
 
     #[test]
     fn label_reset_command_patch_replaces_or_clears_the_builtin_list() {
-        let original = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap()
-            .builtins.into_iter().find(|h| h.id == "claude-code").unwrap();
+        let original = BuiltinDocument::parse(EMBEDDED_BUILTINS)
+            .unwrap()
+            .builtins
+            .into_iter()
+            .find(|h| h.id == "claude-code")
+            .unwrap();
         assert_eq!(original.label_reset_commands, ["/clear", "/reset", "/new"]);
 
-        let replacement: HarnessPatch = serde_json::from_str(
-            r#"{"labelResetCommands":["/fresh"]}"#,
-        ).unwrap();
-        assert_eq!(original.apply_patch(&replacement).unwrap().label_reset_commands, ["/fresh"]);
+        let replacement: HarnessPatch =
+            serde_json::from_str(r#"{"labelResetCommands":["/fresh"]}"#).unwrap();
+        assert_eq!(
+            original
+                .apply_patch(&replacement)
+                .unwrap()
+                .label_reset_commands,
+            ["/fresh"]
+        );
 
         let cleared: HarnessPatch = serde_json::from_str(r#"{"labelResetCommands":null}"#).unwrap();
-        assert!(original.apply_patch(&cleared).unwrap().label_reset_commands.is_empty());
+        assert!(original
+            .apply_patch(&cleared)
+            .unwrap()
+            .label_reset_commands
+            .is_empty());
     }
 
     #[test]

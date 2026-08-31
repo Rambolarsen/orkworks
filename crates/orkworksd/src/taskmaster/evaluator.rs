@@ -4,7 +4,7 @@
 //! evaluator and serialized model cannot drift. This module is the stable
 //! Taskmaster-facing seam for the next coordinator increment.
 
-use crate::{AppState, session_application::SessionApplication};
+use crate::{session_application::SessionApplication, AppState};
 use std::sync::Arc;
 
 pub(crate) fn refresh_now(state: &Arc<AppState>) {

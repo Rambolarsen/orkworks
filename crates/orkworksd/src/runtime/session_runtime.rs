@@ -1,14 +1,13 @@
 use crate::runtime::observed_status::{
     apply_process_transition_to_handle, process_transition_fields, ProcessTransition,
 };
+#[cfg(windows)]
+use crate::runtime::terminal_runtime::resolve_windows_program;
 use crate::runtime::terminal_runtime::{
-    clear_workflow_report_token_if_matches, make_pty_system,
-    new_workflow_report_token,
+    clear_workflow_report_token_if_matches, make_pty_system, new_workflow_report_token,
     schedule_session_ending_finalization, session_env_overrides, set_session_status_for_generation,
     set_workflow_report_token, should_forward_terminal_env, terminal_env_overrides,
 };
-#[cfg(windows)]
-use crate::runtime::terminal_runtime::resolve_windows_program;
 use crate::{harness, peon, plan_handoff, AppState};
 use chrono::{DateTime, Utc};
 use portable_pty::{CommandBuilder, PtySize, PtySystem};
@@ -378,7 +377,9 @@ impl SessionRuntime {
             .unwrap_or(true);
         due.then(|| {
             self.last_output_persisted_at = Some(now);
-            self.pending_output_at.take().expect("pending output timestamp set above")
+            self.pending_output_at
+                .take()
+                .expect("pending output timestamp set above")
         })
     }
 
@@ -387,12 +388,17 @@ impl SessionRuntime {
         self.pending_output_at.take()
     }
 
-    fn schedule_output_recency_flush(&mut self, now: tokio::time::Instant) -> Option<std::time::Duration> {
+    fn schedule_output_recency_flush(
+        &mut self,
+        now: tokio::time::Instant,
+    ) -> Option<std::time::Duration> {
         if self.pending_output_at.is_none() || self.output_flush_scheduled {
             return None;
         }
         self.output_flush_scheduled = true;
-        let due_at = self.last_output_persisted_at.expect("pending output has a prior persistence")
+        let due_at = self
+            .last_output_persisted_at
+            .expect("pending output has a prior persistence")
             + OUTPUT_RECENCY_PERSIST_INTERVAL;
         Some(due_at.saturating_duration_since(now))
     }
@@ -421,7 +427,8 @@ async fn flush_output_recency(state: &Arc<AppState>, id: &str) {
         let _ = tokio::task::spawn_blocking(move || {
             crate::session_application::SessionApplication::new(state)
                 .persist_output_recency(&id, timestamp)
-        }).await;
+        })
+        .await;
     }
 }
 
@@ -687,13 +694,9 @@ pub(crate) async fn handle_runtime_exit(
     let _ = set_session_status_for_generation(state, id, generation, status).await;
     let runtime_identity = {
         let mut sessions = state.sessions.lock().unwrap();
-        let Some(handle) = sessions
-            .get_mut(id)
-            .filter(|handle| {
-                handle.runtime.run_generation() == generation
-                    && handle.info.lifecycle_phase == "ending"
-            })
-        else {
+        let Some(handle) = sessions.get_mut(id).filter(|handle| {
+            handle.runtime.run_generation() == generation && handle.info.lifecycle_phase == "ending"
+        }) else {
             return false;
         };
         handle.runtime.attached_generation = None;
@@ -732,7 +735,12 @@ fn abort_post_spawn_startup(
         .unwrap()
         .get(id)
         .filter(|handle| handle.runtime.run_generation() == generation)
-        .map(|handle| (handle.info.lifecycle_phase.clone(), handle.runtime.identity()))
+        .map(|handle| {
+            (
+                handle.info.lifecycle_phase.clone(),
+                handle.runtime.identity(),
+            )
+        })
     else {
         return false;
     };
@@ -750,14 +758,15 @@ fn abort_post_spawn_startup(
     true
 }
 
-fn startup_generation_is_ending(
-    state: &AppState,
-    id: &str,
-    generation: RuntimeGeneration,
-) -> bool {
-    state.sessions.lock().unwrap().get(id).is_some_and(|handle| {
-        handle.runtime.run_generation() == generation && handle.info.lifecycle_phase == "ending"
-    })
+fn startup_generation_is_ending(state: &AppState, id: &str, generation: RuntimeGeneration) -> bool {
+    state
+        .sessions
+        .lock()
+        .unwrap()
+        .get(id)
+        .is_some_and(|handle| {
+            handle.runtime.run_generation() == generation && handle.info.lifecycle_phase == "ending"
+        })
 }
 
 pub(crate) async fn start_session_runtime(
@@ -1305,8 +1314,8 @@ mod tests {
                 scan_buf: String::new(),
                 pending_work_signal: None,
                 runtime: SessionRuntime::detached_test(),
-            terminal_attached: false,
-            resume_in_progress: false,
+                terminal_attached: false,
+                resume_in_progress: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
                 output_lines_seen: 0,
@@ -1334,12 +1343,7 @@ mod tests {
         crate::session_application::SessionApplication::new(state.clone())
             .clear_ended_session_tracking("epoch-cleanup");
         assert_eq!(
-            state
-                .peon
-                .label_epochs
-                .read()
-                .unwrap()
-                .get("epoch-cleanup"),
+            state.peon.label_epochs.read().unwrap().get("epoch-cleanup"),
             Some(&3)
         );
 
@@ -1406,7 +1410,8 @@ mod tests {
             Some(first.clone())
         );
         assert_eq!(
-            runtime.record_output_recency(second.clone(), start + std::time::Duration::from_secs(1)),
+            runtime
+                .record_output_recency(second.clone(), start + std::time::Duration::from_secs(1)),
             None
         );
         assert_eq!(
@@ -1757,7 +1762,10 @@ mod tests {
         );
 
         let sessions = state.sessions.lock().unwrap();
-        assert_eq!(sessions[session_id].info.attention.as_deref(), Some("working"));
+        assert_eq!(
+            sessions[session_id].info.attention.as_deref(),
+            Some("working")
+        );
         assert_eq!(
             sessions[session_id].info.metadata_source.as_deref(),
             Some("process"),
@@ -3092,8 +3100,7 @@ mod tests {
 
         let (_kill_tx, kill_rx) = tokio::sync::watch::channel(false);
         let result = {
-            let _force =
-                crate::runtime::terminal_runtime::ForceTokenGenerationFailure::enable();
+            let _force = crate::runtime::terminal_runtime::ForceTokenGenerationFailure::enable();
             start_session_runtime(
                 state.clone(),
                 session_id.to_string(),
@@ -3276,9 +3283,9 @@ mod tests {
         .await
         .expect("persisted replay should contain the final unterminated suffix");
 
-        assert!(replay.iter().any(|record| {
-            record == &crate::metadata::TerminalOutputRecord::raw("three", "")
-        }));
+        assert!(replay
+            .iter()
+            .any(|record| { record == &crate::metadata::TerminalOutputRecord::raw("three", "") }));
     }
 
     #[tokio::test]

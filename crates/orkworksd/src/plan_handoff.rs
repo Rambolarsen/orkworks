@@ -4,11 +4,20 @@ use crate::metadata::PlanReference;
 
 fn git_common_dir(path: &Path) -> Result<PathBuf, String> {
     let repo = git2::Repository::discover(path).map_err(|error| error.to_string())?;
-    let git_dir = repo.path().canonicalize().map_err(|error| error.to_string())?;
+    let git_dir = repo
+        .path()
+        .canonicalize()
+        .map_err(|error| error.to_string())?;
     if repo.is_worktree() {
         let worktrees = git_dir.parent().ok_or("linked worktree has no parent")?;
-        if worktrees.file_name().is_some_and(|name| name == "worktrees") {
-            return worktrees.parent().map(Path::to_path_buf).ok_or_else(|| "linked worktree has no common git directory".into());
+        if worktrees
+            .file_name()
+            .is_some_and(|name| name == "worktrees")
+        {
+            return worktrees
+                .parent()
+                .map(Path::to_path_buf)
+                .ok_or_else(|| "linked worktree has no common git directory".into());
         }
     }
     Ok(git_dir)
@@ -20,28 +29,68 @@ fn is_supported_plan_path(relative: &Path) -> bool {
         || relative.starts_with("specs")
 }
 
-pub(crate) fn resolve_printed_plan_path(launch_root: &Path, printed_path: &str) -> Result<(PathBuf, String), String> {
-    if printed_path.chars().any(char::is_control) { return Err("plan path must not contain control characters".into()); }
+pub(crate) fn resolve_printed_plan_path(
+    launch_root: &Path,
+    printed_path: &str,
+) -> Result<(PathBuf, String), String> {
+    if printed_path.chars().any(char::is_control) {
+        return Err("plan path must not contain control characters".into());
+    }
     let printed = Path::new(printed_path);
-    let launch_root = launch_root.canonicalize().map_err(|error| error.to_string())?;
-    let candidate = if printed.is_absolute() { printed.to_path_buf() } else {
-        if printed.components().any(|component| matches!(component, Component::ParentDir | Component::RootDir | Component::Prefix(_))) { return Err("relative plan path must not escape launch worktree".into()); }
+    let launch_root = launch_root
+        .canonicalize()
+        .map_err(|error| error.to_string())?;
+    let candidate = if printed.is_absolute() {
+        printed.to_path_buf()
+    } else {
+        if printed.components().any(|component| {
+            matches!(
+                component,
+                Component::ParentDir | Component::RootDir | Component::Prefix(_)
+            )
+        }) {
+            return Err("relative plan path must not escape launch worktree".into());
+        }
         launch_root.join(printed)
-    }.canonicalize().map_err(|error| error.to_string())?;
+    }
+    .canonicalize()
+    .map_err(|error| error.to_string())?;
     let candidate_repo = git_common_dir(&candidate)?;
-    if candidate_repo != git_common_dir(&launch_root)? { return Err("plan path is outside the session repository worktree family".into()); }
-    let root = git2::Repository::discover(&candidate).map_err(|error| error.to_string())?.workdir().ok_or("plan repository is bare")?.canonicalize().map_err(|error| error.to_string())?;
-    let relative = candidate.strip_prefix(&root).map_err(|_| "plan path is outside its worktree".to_string())?;
-    if !candidate.is_file() || !candidate.extension().is_some_and(|extension| extension.eq_ignore_ascii_case("md")) || !is_supported_plan_path(relative) { return Err("plan path is not a supported plan or specification".into()); }
-    Ok((root, relative.to_str().ok_or("plan path is not valid UTF-8")?.to_owned()))
+    if candidate_repo != git_common_dir(&launch_root)? {
+        return Err("plan path is outside the session repository worktree family".into());
+    }
+    let root = git2::Repository::discover(&candidate)
+        .map_err(|error| error.to_string())?
+        .workdir()
+        .ok_or("plan repository is bare")?
+        .canonicalize()
+        .map_err(|error| error.to_string())?;
+    let relative = candidate
+        .strip_prefix(&root)
+        .map_err(|_| "plan path is outside its worktree".to_string())?;
+    if !candidate.is_file()
+        || !candidate
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("md"))
+        || !is_supported_plan_path(relative)
+    {
+        return Err("plan path is not a supported plan or specification".into());
+    }
+    Ok((
+        root,
+        relative
+            .to_str()
+            .ok_or("plan path is not valid UTF-8")?
+            .to_owned(),
+    ))
 }
 
 /// Verbs that indicate a line is reporting a file the agent just wrote,
 /// rather than merely mentioning or quoting an existing path (e.g. a `grep`
 /// hit, an error message, or prose referencing someone else's plan).
 const WRITE_SIGNALS: [&str; 12] = [
-    "wrote", "write", "writes", "writing", "written", "created", "create",
-    "creates", "creating", "saved", "save", "saves",
+    "wrote", "write", "writes", "writing", "written", "created", "create", "creates", "creating",
+    "saved", "save", "saves",
 ];
 
 /// Maximum token index at which a write-signal verb counts as the
@@ -67,7 +116,12 @@ const WRITE_VERB_PROXIMITY: usize = 3;
 const WRITE_VERB_ADJACENCY: usize = 1;
 
 fn trim_plan_token(word: &str) -> &str {
-    word.trim_matches(|ch: char| matches!(ch, '`' | '\'' | '"' | '(' | ')' | '[' | ']' | '{' | '}' | ',' | '.' | ':'))
+    word.trim_matches(|ch: char| {
+        matches!(
+            ch,
+            '`' | '\'' | '"' | '(' | ')' | '[' | ']' | '{' | '}' | ',' | '.' | ':'
+        )
+    })
 }
 
 /// Returns the first Markdown path printed by an agent that sits under one
@@ -114,10 +168,12 @@ pub(crate) fn printed_plan_path(output: &str) -> Option<String> {
         }
         tokens.iter().enumerate().find_map(|(i, word)| {
             let path = trim_plan_token(word);
-            if Path::new(path)
-                .components()
-                .any(|component| matches!(component, Component::ParentDir | Component::RootDir | Component::Prefix(_)))
-            {
+            if Path::new(path).components().any(|component| {
+                matches!(
+                    component,
+                    Component::ParentDir | Component::RootDir | Component::Prefix(_)
+                )
+            }) {
                 return None;
             }
             if !(path.starts_with("docs/superpowers/plans/")
@@ -128,14 +184,13 @@ pub(crate) fn printed_plan_path(output: &str) -> Option<String> {
             {
                 return None;
             }
-            let verb_precedes_within_proximity = write_verb_positions
-                .iter()
-                .any(|&vp| vp <= WRITE_VERB_LINE_PREFIX && vp < i && i - vp <= WRITE_VERB_PROXIMITY);
+            let verb_precedes_within_proximity = write_verb_positions.iter().any(|&vp| {
+                vp <= WRITE_VERB_LINE_PREFIX && vp < i && i - vp <= WRITE_VERB_PROXIMITY
+            });
             let verb_adjacent_to_path = write_verb_positions
                 .iter()
                 .any(|&vp| vp < i && i - vp <= WRITE_VERB_ADJACENCY);
-            (verb_precedes_within_proximity || verb_adjacent_to_path)
-                .then_some(path.to_owned())
+            (verb_precedes_within_proximity || verb_adjacent_to_path).then_some(path.to_owned())
         })
     })
 }
@@ -299,7 +354,10 @@ pub(crate) fn normalize_reported_plan_path(
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_reported_plan_path, printed_plan_path, resolve_openable_plan, resolve_openable_plan_reference, resolve_printed_plan_path};
+    use super::{
+        normalize_reported_plan_path, printed_plan_path, resolve_openable_plan,
+        resolve_openable_plan_reference, resolve_printed_plan_path,
+    };
     use crate::metadata::{PlanReference, PlanSource};
     use std::fs;
     use std::path::Path;
@@ -352,11 +410,8 @@ mod tests {
         let sibling = tempfile::tempdir().unwrap();
         std::env::set_current_dir(sibling.path()).unwrap();
         assert_eq!(
-            normalize_reported_plan_path(
-                workspace.path(),
-                "docs/superpowers/plans/relative.md"
-            )
-            .unwrap(),
+            normalize_reported_plan_path(workspace.path(), "docs/superpowers/plans/relative.md")
+                .unwrap(),
             "docs/superpowers/plans/relative.md"
         );
     }
@@ -374,11 +429,7 @@ mod tests {
 
         // Even if the canonicalized target lands inside the workspace,
         // lexical escape via `..` must be rejected up front.
-        assert!(normalize_reported_plan_path(
-            workspace.path(),
-            "../outside.md"
-        )
-        .is_err());
+        assert!(normalize_reported_plan_path(workspace.path(), "../outside.md").is_err());
     }
 
     #[cfg(unix)]
@@ -436,7 +487,8 @@ mod tests {
         let plan_dir = workspace.path().join("specs");
         fs::create_dir_all(&plan_dir).unwrap();
         fs::write(plan_dir.join("plan.md"), "# plan").unwrap();
-        let (root, relative) = resolve_printed_plan_path(workspace.path(), "specs/plan.md").unwrap();
+        let (root, relative) =
+            resolve_printed_plan_path(workspace.path(), "specs/plan.md").unwrap();
         assert_eq!(root, workspace.path().canonicalize().unwrap());
         assert_eq!(relative, "specs/plan.md");
     }
@@ -480,7 +532,13 @@ mod tests {
         run_git(&main_dir, &["branch", "feature"]);
         run_git(
             &main_dir,
-            &["worktree", "add", "-q", linked_dir.to_str().unwrap(), "feature"],
+            &[
+                "worktree",
+                "add",
+                "-q",
+                linked_dir.to_str().unwrap(),
+                "feature",
+            ],
         );
 
         let plan_dir = linked_dir.join("docs/superpowers/specs");
@@ -568,9 +626,7 @@ mod tests {
             None
         );
         assert_eq!(
-            printed_plan_path(
-                "Saved the previous draft earlier; specs/legacy.md remains open"
-            ),
+            printed_plan_path("Saved the previous draft earlier; specs/legacy.md remains open"),
             None
         );
     }
@@ -613,9 +669,15 @@ mod tests {
     fn ignores_printed_markdown_outside_plan_roots() {
         assert_eq!(printed_plan_path("Read docs/readme.md"), None);
         assert_eq!(printed_plan_path("Read ../specs/escape.md"), None);
-        assert_eq!(printed_plan_path("Read docs/superpowers/plans/not-a-plan.txt"), None);
+        assert_eq!(
+            printed_plan_path("Read docs/superpowers/plans/not-a-plan.txt"),
+            None
+        );
         assert_eq!(printed_plan_path("Read specs/../README.md"), None);
-        assert_eq!(printed_plan_path("Read docs/superpowers/plans/../../README.md"), None);
+        assert_eq!(
+            printed_plan_path("Read docs/superpowers/plans/../../README.md"),
+            None
+        );
     }
 
     #[cfg(unix)]

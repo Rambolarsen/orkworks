@@ -1,5 +1,5 @@
-pub(crate) mod store;
 pub(crate) mod evaluator;
+pub(crate) mod store;
 
 use crate::workflow_observations::{Impact, ObservationKind, ObservationSource};
 use serde::{Deserialize, Serialize};
@@ -157,12 +157,8 @@ pub(crate) fn evaluate_workflow_improvements(
             .max_by(|left, right| left.updated_at.cmp(&right.updated_at));
 
         let mut evidence: Vec<WorkflowObservationEvidence> = prior
-            .filter(|recommendation| {
-                recommendation.status == RecommendationStatus::Proposed
-            })
-            .map(|recommendation| {
-                recommendation.evidence.clone()
-            })
+            .filter(|recommendation| recommendation.status == RecommendationStatus::Proposed)
+            .map(|recommendation| recommendation.evidence.clone())
             .unwrap_or_default();
         for observation in qualifying {
             if !evidence
@@ -185,22 +181,23 @@ pub(crate) fn evaluate_workflow_improvements(
         }
         evidence.sort_by_key(|item| item.sequence);
 
-        if let Some(dismissed) = prior.filter(|recommendation| {
-            recommendation.status == RecommendationStatus::Dismissed
-        }) {
-            let watermark = dismissed
-                .workflow_improvement
-                .dismissal_watermark
-                .as_ref();
+        if let Some(dismissed) =
+            prior.filter(|recommendation| recommendation.status == RecommendationStatus::Dismissed)
+        {
+            let watermark = dismissed.workflow_improvement.dismissal_watermark.as_ref();
             let later = evidence.iter().filter(|item| {
                 watermark.is_some_and(|mark| item.sequence > mark.dismissed_through_sequence)
             });
             let later: Vec<_> = later.collect();
             let impact_increased = watermark.is_some_and(|mark| {
-                evidence.iter().any(|item| item.reported_impact > mark.highest_impact)
+                evidence
+                    .iter()
+                    .any(|item| item.reported_impact > mark.highest_impact)
             });
             let new_session = watermark.is_some_and(|mark| {
-                later.iter().any(|item| !mark.affected_session_ids.contains(&item.session_id))
+                later
+                    .iter()
+                    .any(|item| !mark.affected_session_ids.contains(&item.session_id))
             });
             if !impact_increased && !(later.len() >= 2 && new_session) {
                 continue;
@@ -225,19 +222,22 @@ pub(crate) fn evaluate_workflow_improvements(
         let id = prior
             .filter(|recommendation| recommendation.status == RecommendationStatus::Proposed)
             .map(|recommendation| recommendation.id.clone())
-            .unwrap_or_else(|| format!("recommendation-{}", stable_id(&dedupe_key, &observation_ids)));
+            .unwrap_or_else(|| {
+                format!(
+                    "recommendation-{}",
+                    stable_id(&dedupe_key, &observation_ids)
+                )
+            });
         let supersedes = prior
             .filter(|recommendation| recommendation.status == RecommendationStatus::Dismissed)
             .map(|recommendation| recommendation.id.clone());
         let title = format!("Improve {}", target_surface_name(target_surface));
         let description = evidence[0].description.clone();
-        let proposed_improvement = format!(
-            "{}: {}",
-            improvement_prefix(evidence[0].kind),
-            description
-        );
+        let proposed_improvement =
+            format!("{}: {}", improvement_prefix(evidence[0].kind), description);
         let summary = proposed_improvement.clone();
-        let reason = format!(
+        let reason =
+            format!(
             "{} qualifying observation{} across {} session{}; highest impact {:?}; sources: {}.",
             evidence.len(),
             if evidence.len() == 1 { "" } else { "s" },
@@ -258,7 +258,9 @@ pub(crate) fn evaluate_workflow_improvements(
             chain_id: prior
                 .map(|recommendation| recommendation.chain_id.clone())
                 .unwrap_or_else(|| dedupe_key.clone()),
-            chain_depth: prior.map(|recommendation| recommendation.chain_depth).unwrap_or(0),
+            chain_depth: prior
+                .map(|recommendation| recommendation.chain_depth)
+                .unwrap_or(0),
             recommendation_type: RecommendationType::ImproveWorkflow,
             status: RecommendationStatus::Proposed,
             priority: impact,
@@ -301,9 +303,9 @@ fn target_surface(kind: ObservationKind) -> TargetSurface {
         | ObservationKind::Assumption
         | ObservationKind::Correction => TargetSurface::Instructions,
         ObservationKind::VerificationGap => TargetSurface::Test,
-        ObservationKind::Repetition
-        | ObservationKind::Obstacle
-        | ObservationKind::Workaround => TargetSurface::Tooling,
+        ObservationKind::Repetition | ObservationKind::Obstacle | ObservationKind::Workaround => {
+            TargetSurface::Tooling
+        }
     }
 }
 
@@ -340,8 +342,12 @@ fn expected_benefit(target: TargetSurface) -> &'static str {
 }
 
 fn source_mix(evidence: &[WorkflowObservationEvidence]) -> String {
-    let has_agent = evidence.iter().any(|item| item.source == ObservationSource::Agent);
-    let has_peon = evidence.iter().any(|item| item.source == ObservationSource::Peon);
+    let has_agent = evidence
+        .iter()
+        .any(|item| item.source == ObservationSource::Agent);
+    let has_peon = evidence
+        .iter()
+        .any(|item| item.source == ObservationSource::Peon);
     match (has_agent, has_peon) {
         (true, true) => "agent and peon".into(),
         (true, false) => "agent".into(),
@@ -408,8 +414,14 @@ mod tests {
         );
 
         assert_eq!(proposals.len(), 1);
-        assert_eq!(proposals[0].recommendation_type, RecommendationType::ImproveWorkflow);
-        assert_eq!(proposals[0].workflow_improvement.target_surface, TargetSurface::Tooling);
+        assert_eq!(
+            proposals[0].recommendation_type,
+            RecommendationType::ImproveWorkflow
+        );
+        assert_eq!(
+            proposals[0].workflow_improvement.target_surface,
+            TargetSurface::Tooling
+        );
         assert_eq!(proposals[0].workflow_improvement.recurrence_count, 2);
         assert_eq!(proposals[0].confidence, RecommendationConfidence::Medium);
         assert!(!proposals[0].requires_approval);
@@ -420,12 +432,8 @@ mod tests {
     fn proposes_a_high_impact_single_observation_but_ignores_weak_evidence() {
         let high = observation("high", 1, "session-a", 0.8, Impact::High);
         let weak = observation("weak", 2, "session-b", 0.59, Impact::High);
-        let proposals = evaluate_workflow_improvements(
-            &[high],
-            &[],
-            "workspace-1",
-            "2026-08-21T12:00:00Z",
-        );
+        let proposals =
+            evaluate_workflow_improvements(&[high], &[], "workspace-1", "2026-08-21T12:00:00Z");
         assert_eq!(proposals.len(), 1);
         assert_eq!(proposals[0].priority, Impact::High);
 

@@ -16,7 +16,10 @@ fn make_executable(path: &std::path::Path) {
 
 #[cfg(unix)]
 fn run_reporter(hook_fingerprint: &str, harness_session_id: &str) -> serde_json::Value {
-    let script = concat!(env!("CARGO_MANIFEST_DIR"), "/scripts/report-harness-event.sh");
+    let script = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/scripts/report-harness-event.sh"
+    );
 
     let dir = tempfile::tempdir().unwrap();
     let capture = dir.path().join("curl-capture.txt");
@@ -31,7 +34,11 @@ fn run_reporter(hook_fingerprint: &str, harness_session_id: &str) -> serde_json:
     .unwrap();
     make_executable(&fake_curl);
 
-    let path = format!("{}:{}", dir.path().display(), std::env::var("PATH").unwrap());
+    let path = format!(
+        "{}:{}",
+        dir.path().display(),
+        std::env::var("PATH").unwrap()
+    );
 
     let mut child = Command::new("bash")
         .arg(script)
@@ -56,10 +63,12 @@ fn run_reporter(hook_fingerprint: &str, harness_session_id: &str) -> serde_json:
     let status = child.wait().unwrap();
     assert!(status.success(), "reporter script exited non-zero");
 
-    let captured = fs::read_to_string(&capture)
-        .unwrap_or_else(|_| panic!("expected {capture:?} to exist \u{2014} curl was never invoked with -d"));
-    serde_json::from_str(&captured)
-        .unwrap_or_else(|e| panic!("harness-session POST body was not valid JSON: {e}\nbody: {captured}"))
+    let captured = fs::read_to_string(&capture).unwrap_or_else(|_| {
+        panic!("expected {capture:?} to exist \u{2014} curl was never invoked with -d")
+    });
+    serde_json::from_str(&captured).unwrap_or_else(|e| {
+        panic!("harness-session POST body was not valid JSON: {e}\nbody: {captured}")
+    })
 }
 
 #[cfg(unix)]
@@ -106,7 +115,10 @@ fn the_harness_session_payload_survives_a_failing_fingerprint_merge_helper() {
     .to_string();
     assert!(!real_python3.is_empty(), "test requires python3 on PATH");
 
-    let script = concat!(env!("CARGO_MANIFEST_DIR"), "/scripts/report-harness-event.sh");
+    let script = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/scripts/report-harness-event.sh"
+    );
     let dir = tempfile::tempdir().unwrap();
     let capture = dir.path().join("curl-capture.txt");
     let fake_curl = dir.path().join("curl");
@@ -134,7 +146,11 @@ fn the_harness_session_payload_survives_a_failing_fingerprint_merge_helper() {
     .unwrap();
     make_executable(&fake_python3);
 
-    let path = format!("{}:{}", dir.path().display(), std::env::var("PATH").unwrap());
+    let path = format!(
+        "{}:{}",
+        dir.path().display(),
+        std::env::var("PATH").unwrap()
+    );
 
     let mut child = Command::new("bash")
         .arg(script)
@@ -159,10 +175,12 @@ fn the_harness_session_payload_survives_a_failing_fingerprint_merge_helper() {
     let status = child.wait().unwrap();
     assert!(status.success(), "reporter script exited non-zero");
 
-    let captured = fs::read_to_string(&capture)
-        .unwrap_or_else(|_| panic!("expected {capture:?} to exist \u{2014} curl was never invoked with -d"));
-    let payload: serde_json::Value = serde_json::from_str(&captured)
-        .unwrap_or_else(|e| panic!("harness-session POST body was not valid JSON: {e}\nbody: {captured}"));
+    let captured = fs::read_to_string(&capture).unwrap_or_else(|_| {
+        panic!("expected {capture:?} to exist \u{2014} curl was never invoked with -d")
+    });
+    let payload: serde_json::Value = serde_json::from_str(&captured).unwrap_or_else(|e| {
+        panic!("harness-session POST body was not valid JSON: {e}\nbody: {captured}")
+    });
 
     assert_eq!(
         payload["harnessSessionId"], "session-44",

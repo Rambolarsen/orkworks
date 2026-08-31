@@ -22,9 +22,9 @@ mod plan_handoff;
 mod procfs;
 mod providers;
 mod runtime;
+mod session_application;
 mod session_projection;
 mod session_types;
-mod session_application;
 mod session_view;
 mod taskmaster;
 mod watcher;
@@ -42,13 +42,14 @@ use crate::http::integration_handlers::{
     get_integration_status, install_integration, uninstall_integration,
 };
 use crate::http::provider_handlers::{
-    discover_provider_models, get_applied_peon_provider, get_providers, set_provider_settings, test_and_apply_peon_provider,
-    verify_ollama_settings, verify_peon_provider,
+    discover_provider_models, get_applied_peon_provider, get_providers, set_provider_settings,
+    test_and_apply_peon_provider, verify_ollama_settings, verify_peon_provider,
 };
 use crate::http::retention_handlers::set_retention;
 use crate::http::session_handlers::{
-    apply_debug_attention, create_session, delete_session, forget_session, list_sessions,
-get_session_plan_content, request_session_plan_review, report_attention, report_harness_session, report_session_plan_path, resume_session, select_terminal_plan,
+    apply_debug_attention, create_session, delete_session, forget_session,
+    get_session_plan_content, list_sessions, report_attention, report_harness_session,
+    report_session_plan_path, request_session_plan_review, resume_session, select_terminal_plan,
     set_active_harnesses, set_active_session, set_workspace,
 };
 use crate::http::taskmaster_handlers::{
@@ -287,8 +288,14 @@ pub(crate) fn build_router(state: Arc<AppState>) -> Router {
         .route("/health", get(health_check))
         .route("/providers", get(get_providers))
         .route("/settings/providers", post(set_provider_settings))
-        .route("/settings/providers/ollama/verify", post(verify_ollama_settings))
-        .route("/settings/providers/:provider_id/models", post(discover_provider_models))
+        .route(
+            "/settings/providers/ollama/verify",
+            post(verify_ollama_settings),
+        )
+        .route(
+            "/settings/providers/:provider_id/models",
+            post(discover_provider_models),
+        )
         .route("/settings/peon/provider/verify", post(verify_peon_provider))
         .route(
             "/settings/peon/test-and-apply",
@@ -315,10 +322,16 @@ pub(crate) fn build_router(state: Arc<AppState>) -> Router {
         .route("/sessions/:id", delete(delete_session))
         .route("/sessions/:id/forget", delete(forget_session))
         .route("/sessions/:id/resume", post(resume_session))
-        .route("/sessions/:id/harness-session", post(report_harness_session))
+        .route(
+            "/sessions/:id/harness-session",
+            post(report_harness_session),
+        )
         .route("/sessions/:id/attention", post(report_attention))
         .route("/sessions/:id/plan-path", post(report_session_plan_path))
-        .route("/sessions/:id/select-terminal-plan", post(select_terminal_plan))
+        .route(
+            "/sessions/:id/select-terminal-plan",
+            post(select_terminal_plan),
+        )
         .route("/sessions/:id/debug-injection", post(apply_debug_attention))
         .route("/sessions/:id/plan-content", get(get_session_plan_content))
         .route(
@@ -327,10 +340,7 @@ pub(crate) fn build_router(state: Arc<AppState>) -> Router {
         )
         .route("/settings/retention", post(set_retention))
         .route("/taskmaster/recommendations", get(list_recommendations))
-        .route(
-            "/taskmaster/recommendations/:id",
-            get(get_recommendation),
-        )
+        .route("/taskmaster/recommendations/:id", get(get_recommendation))
         .route(
             "/taskmaster/recommendations/:id/dismiss",
             post(dismiss_recommendation),

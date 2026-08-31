@@ -97,7 +97,10 @@ pub(crate) fn normalize_peon_selection(
         return None;
     }
     if selection.provider == "ollama" {
-        let base_url = selection.ollama_base_url.as_deref().unwrap_or_else(|| "http://127.0.0.1:11434");
+        let base_url = selection
+            .ollama_base_url
+            .as_deref()
+            .unwrap_or_else(|| "http://127.0.0.1:11434");
         selection.ollama_base_url = normalize_ollama_base_url(base_url).ok();
         if selection.ollama_base_url.is_none() {
             return None;
@@ -626,9 +629,10 @@ impl ProviderRunner for CompositeRunner {
         connection: Option<&str>,
     ) -> InvocationResult {
         match id {
-            "ollama" => self
-                .http
-                .run_at(id, command, args, prompt, timeout_secs, model, connection),
+            "ollama" => {
+                self.http
+                    .run_at(id, command, args, prompt, timeout_secs, model, connection)
+            }
             _ => self
                 .process
                 .run(id, command, args, prompt, timeout_secs, model),
@@ -754,17 +758,16 @@ impl ProviderRunner for ProcessRunner {
             })
         });
 
-        let join_capture_threads = |
-            stdout_thread: Option<std::thread::JoinHandle<()>>,
-            stderr_thread: Option<std::thread::JoinHandle<()>>,
-        | {
-            if let Some(thread) = stdout_thread {
-                let _ = thread.join();
-            }
-            if let Some(thread) = stderr_thread {
-                let _ = thread.join();
-            }
-        };
+        let join_capture_threads =
+            |stdout_thread: Option<std::thread::JoinHandle<()>>,
+             stderr_thread: Option<std::thread::JoinHandle<()>>| {
+                if let Some(thread) = stdout_thread {
+                    let _ = thread.join();
+                }
+                if let Some(thread) = stderr_thread {
+                    let _ = thread.join();
+                }
+            };
 
         let status = loop {
             match child.try_wait() {
@@ -850,11 +853,7 @@ enum HttpReadError {
 
 async fn read_http_body_limited(mut response: reqwest::Response) -> Result<Vec<u8>, HttpReadError> {
     let mut body = Vec::new();
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .map_err(HttpReadError::Request)?
-    {
+    while let Some(chunk) = response.chunk().await.map_err(HttpReadError::Request)? {
         if body.len().saturating_add(chunk.len()) > MAX_PROVIDER_OUTPUT_BYTES {
             return Err(HttpReadError::OutputExceeded);
         }
@@ -895,15 +894,7 @@ impl ProviderRunner for HttpRunner {
         model: Option<&str>,
         connection: Option<&str>,
     ) -> InvocationResult {
-        self.run_at(
-            id,
-            command,
-            args,
-            prompt,
-            timeout_secs,
-            model,
-            connection,
-        )
+        self.run_at(id, command, args, prompt, timeout_secs, model, connection)
     }
 }
 
@@ -1403,19 +1394,20 @@ impl ProviderManager {
     ) -> Result<Vec<String>, ProviderOperationError> {
         let definition = self.definition(provider_id)?;
         if definition.id == "ollama" {
-            let base_url = ollama_base_url.map(str::to_owned).unwrap_or_else(|| {
-                self.settings.read().unwrap().ollama_base_url.clone()
-            });
+            let base_url = ollama_base_url
+                .map(str::to_owned)
+                .unwrap_or_else(|| self.settings.read().unwrap().ollama_base_url.clone());
             let response = self.verify_ollama(&base_url);
             if !response.ok {
                 return Err(ollama_operation_error(&response));
             }
             return Ok(response.models);
         }
-        self.discover_models(&definition.id).map_err(|message| ProviderOperationError {
-            code: classify_invocation_error(&message),
-            message,
-        })
+        self.discover_models(&definition.id)
+            .map_err(|message| ProviderOperationError {
+                code: classify_invocation_error(&message),
+                message,
+            })
     }
 
     pub fn verify_provider(
@@ -1491,18 +1483,27 @@ impl ProviderManager {
         let selection = self.staged_selection(request.selection)?;
         let definition = self.definition(&selection.provider)?;
         self.validate_apply_capability(&definition)?;
-        if let Some(entry) = self.settings.read().unwrap().providers.iter()
+        if let Some(entry) = self
+            .settings
+            .read()
+            .unwrap()
+            .providers
+            .iter()
             .find(|entry| entry.id == selection.provider)
         {
             match entry.effective_state() {
-                ProviderEffectiveState::Disabled => return Err(ProviderOperationError {
-                    code: ProviderOperationErrorCode::UnsupportedCapability,
-                    message: "selected provider is disabled".into(),
-                }),
-                ProviderEffectiveState::Capped => return Err(ProviderOperationError {
-                    code: ProviderOperationErrorCode::UnsupportedCapability,
-                    message: "selected provider is capped".into(),
-                }),
+                ProviderEffectiveState::Disabled => {
+                    return Err(ProviderOperationError {
+                        code: ProviderOperationErrorCode::UnsupportedCapability,
+                        message: "selected provider is disabled".into(),
+                    })
+                }
+                ProviderEffectiveState::Capped => {
+                    return Err(ProviderOperationError {
+                        code: ProviderOperationErrorCode::UnsupportedCapability,
+                        message: "selected provider is capped".into(),
+                    })
+                }
                 _ => {}
             }
         }
@@ -1654,15 +1655,14 @@ impl ProviderManager {
 
         let (tx, rx) = std::sync::mpsc::channel::<std::io::Result<(String, String)>>();
         std::thread::spawn(move || {
-            let result = read_limited(&mut child_stdout)
-                .and_then(|out| {
-                    read_limited(&mut child_stderr).map(|err| {
-                        (
-                            String::from_utf8_lossy(&out).into_owned(),
-                            String::from_utf8_lossy(&err).into_owned(),
-                        )
-                    })
-                });
+            let result = read_limited(&mut child_stdout).and_then(|out| {
+                read_limited(&mut child_stderr).map(|err| {
+                    (
+                        String::from_utf8_lossy(&out).into_owned(),
+                        String::from_utf8_lossy(&err).into_owned(),
+                    )
+                })
+            });
             let _ = tx.send(result);
         });
 
@@ -1747,7 +1747,11 @@ impl ProviderManager {
 
         let (status, body) = match block_on_http(async {
             tokio::time::timeout(Duration::from_secs(10), async {
-                let response = client.get(&url).send().await.map_err(HttpReadError::Request)?;
+                let response = client
+                    .get(&url)
+                    .send()
+                    .await
+                    .map_err(HttpReadError::Request)?;
                 let status = response.status();
                 let body = read_http_body_limited(response).await?;
                 Ok::<_, HttpReadError>((status, body))
@@ -1866,7 +1870,11 @@ impl ProviderManager {
                 runtime,
             };
         };
-        let Some(applied_entry) = settings.providers.iter().find(|entry| entry.id == applied_provider) else {
+        let Some(applied_entry) = settings
+            .providers
+            .iter()
+            .find(|entry| entry.id == applied_provider)
+        else {
             return ProviderRunResult {
                 inference: None,
                 observation: None,
@@ -2574,11 +2582,7 @@ mod tests {
 
         let dir = tempfile::tempdir().unwrap();
         let script = dir.path().join("provider-slowly-reads-prompt");
-        std::fs::write(
-            &script,
-            "#!/bin/sh\nsleep 0.7\ncat >/dev/null\nsleep 30\n",
-        )
-        .unwrap();
+        std::fs::write(&script, "#!/bin/sh\nsleep 0.7\ncat >/dev/null\nsleep 30\n").unwrap();
         make_test_executable(&script);
 
         let started = std::time::Instant::now();
@@ -2735,7 +2739,12 @@ mod tests {
         worker_active.store(false, Ordering::Relaxed);
         worker.join().expect("worker thread should stop cleanly");
         for invocation in invocations {
-            assert!(invocation.join().expect("provider thread should stop cleanly").success);
+            assert!(
+                invocation
+                    .join()
+                    .expect("provider thread should stop cleanly")
+                    .success
+            );
         }
     }
 
@@ -3550,8 +3559,16 @@ mod tests {
             vec![],
         );
 
-        assert!(manager.capabilities("command-provider").unwrap().model_discovery);
-        assert_eq!(manager.discover_models("command-provider").unwrap(), vec!["command-model"]);
+        assert!(
+            manager
+                .capabilities("command-provider")
+                .unwrap()
+                .model_discovery
+        );
+        assert_eq!(
+            manager.discover_models("command-provider").unwrap(),
+            vec!["command-model"]
+        );
     }
 
     #[test]
@@ -3681,7 +3698,10 @@ mod tests {
             "providers": []
         });
         let decoded: ProviderSettingsPayload = serde_json::from_value(payload).unwrap();
-        assert_eq!(decoded.peon_selection.as_ref().unwrap().model, " llama3.2:3b ");
+        assert_eq!(
+            decoded.peon_selection.as_ref().unwrap().model,
+            " llama3.2:3b "
+        );
         let encoded = serde_json::to_value(&decoded).unwrap();
         assert_eq!(encoded["peonSelection"]["provider"], " ollama ");
 
@@ -3689,7 +3709,10 @@ mod tests {
             decoded.peon_selection,
             &["ollama".to_string()].into_iter().collect(),
         );
-        assert_eq!(normalized.unwrap().ollama_base_url.as_deref(), Some("http://127.0.0.1:11434"));
+        assert_eq!(
+            normalized.unwrap().ollama_base_url.as_deref(),
+            Some("http://127.0.0.1:11434")
+        );
     }
 
     #[test]
@@ -3714,8 +3737,29 @@ mod tests {
             ..ProviderSettingsPayload::default()
         });
         assert_eq!(status.applied_revision, Some(0));
-        assert_eq!(manager.settings.read().unwrap().peon_selection.as_ref().unwrap().model, "llama3.2:3b");
-        assert_eq!(manager.settings.read().unwrap().peon_selection.as_ref().unwrap().ollama_base_url.as_deref(), Some("http://127.0.0.1:11434"));
+        assert_eq!(
+            manager
+                .settings
+                .read()
+                .unwrap()
+                .peon_selection
+                .as_ref()
+                .unwrap()
+                .model,
+            "llama3.2:3b"
+        );
+        assert_eq!(
+            manager
+                .settings
+                .read()
+                .unwrap()
+                .peon_selection
+                .as_ref()
+                .unwrap()
+                .ollama_base_url
+                .as_deref(),
+            Some("http://127.0.0.1:11434")
+        );
     }
 
     #[test]
@@ -3742,14 +3786,22 @@ mod tests {
         let valid = ["copilot".to_string()].into_iter().collect();
         assert_eq!(
             normalize_peon_selection(
-                Some(PeonSelection { provider: "gemini".into(), model: "model".into(), ollama_base_url: None }),
+                Some(PeonSelection {
+                    provider: "gemini".into(),
+                    model: "model".into(),
+                    ollama_base_url: None
+                }),
                 &valid,
             ),
             None
         );
         assert_eq!(
             normalize_peon_selection(
-                Some(PeonSelection { provider: "copilot".into(), model: "  ".into(), ollama_base_url: None }),
+                Some(PeonSelection {
+                    provider: "copilot".into(),
+                    model: "  ".into(),
+                    ollama_base_url: None
+                }),
                 &valid,
             ),
             None
@@ -4026,7 +4078,10 @@ mod tests {
             })
             .expect("the real provider process should apply");
 
-        assert_eq!(std::fs::read_to_string(capture_path).unwrap(), "--model=manual-model");
+        assert_eq!(
+            std::fs::read_to_string(capture_path).unwrap(),
+            "--model=manual-model"
+        );
     }
 
     #[test]
@@ -4052,7 +4107,10 @@ mod tests {
     #[test]
     fn apply_rejects_a_different_provider_with_the_same_generation() {
         let manager = ProviderManager::for_tests_with_registry(
-            vec![custom_provider_definition(), second_custom_provider_definition()],
+            vec![
+                custom_provider_definition(),
+                second_custom_provider_definition(),
+            ],
             ProviderSettingsPayload::default(),
             vec![
                 fake_provider("custom-ai")
@@ -4111,7 +4169,10 @@ mod tests {
             })
             .expect_err("explicit Apply must reject missing model delivery");
 
-        assert_eq!(error.code, ProviderOperationErrorCode::UnsupportedCapability);
+        assert_eq!(
+            error.code,
+            ProviderOperationErrorCode::UnsupportedCapability
+        );
     }
 
     #[test]
@@ -4132,7 +4193,10 @@ mod tests {
     #[test]
     fn stale_verification_success_cannot_authorize_a_newer_generation() {
         let manager = ProviderManager::for_tests_with_registry(
-            vec![custom_provider_definition(), second_custom_provider_definition()],
+            vec![
+                custom_provider_definition(),
+                second_custom_provider_definition(),
+            ],
             ProviderSettingsPayload::default(),
             vec![
                 fake_provider("custom-ai")
@@ -4177,7 +4241,10 @@ mod tests {
     #[test]
     fn stale_verification_failure_cannot_clear_a_newer_success() {
         let manager = ProviderManager::for_tests_with_registry(
-            vec![custom_provider_definition(), second_custom_provider_definition()],
+            vec![
+                custom_provider_definition(),
+                second_custom_provider_definition(),
+            ],
             ProviderSettingsPayload::default(),
             vec![
                 fake_provider("custom-ai").sleep_ms(100).exit_code(1),
@@ -4202,7 +4269,10 @@ mod tests {
             })
             .unwrap();
 
-        let error = first.join().unwrap().expect_err("the older verification must fail");
+        let error = first
+            .join()
+            .unwrap()
+            .expect_err("the older verification must fail");
         assert_eq!(error.code, ProviderOperationErrorCode::StaleGeneration);
         let applied = manager
             .test_and_apply(PeonTestAndApplyRequest {
@@ -4309,8 +4379,14 @@ mod tests {
             })
             .expect("newer Apply should supersede the older one");
 
-        let older_error = first.join().unwrap().expect_err("older Apply must be stale");
-        assert_eq!(older_error.code, ProviderOperationErrorCode::StaleGeneration);
+        let older_error = first
+            .join()
+            .unwrap()
+            .expect_err("older Apply must be stale");
+        assert_eq!(
+            older_error.code,
+            ProviderOperationErrorCode::StaleGeneration
+        );
         assert_eq!(newer.model.as_deref(), Some("new-model"));
         assert_eq!(manager.get_applied().model.as_deref(), Some("new-model"));
     }

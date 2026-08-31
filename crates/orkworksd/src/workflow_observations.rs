@@ -405,7 +405,13 @@ impl WorkflowObservationStore {
 
                 observations.sort_by_key(|o| o.observation.sequence);
                 tombstones.sort_by_key(|t| t.sequence);
-                session_cache.insert(session_id, SessionCache { observations, tombstones });
+                session_cache.insert(
+                    session_id,
+                    SessionCache {
+                        observations,
+                        tombstones,
+                    },
+                );
             }
         }
 
@@ -776,7 +782,12 @@ fn hash_key(session_id: &str, idempotency_key: &str) -> String {
     hex::encode(hasher.finalize())
 }
 
-fn hash_payload(kind: ObservationKind, description: &str, evidence: &str, impact: Impact) -> String {
+fn hash_payload(
+    kind: ObservationKind,
+    description: &str,
+    evidence: &str,
+    impact: Impact,
+) -> String {
     let mut hasher = Sha256::new();
     hasher.update(kind.as_str().as_bytes());
     hasher.update([0u8]);
@@ -989,7 +1000,10 @@ fn append_line(path: &Path, line: &str) -> std::io::Result<()> {
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir)?;
     }
-    let mut file = fs::OpenOptions::new().create(true).append(true).open(path)?;
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)?;
     writeln!(file, "{line}")?;
     file.sync_data()?;
     Ok(())
@@ -1048,13 +1062,19 @@ mod tests {
                     "session-1",
                     ObservationOrigin::Agent,
                     &format!("key-{i}"),
-                    candidate(*kind, "Something made this harder than necessary", "concrete evidence"),
+                    candidate(
+                        *kind,
+                        "Something made this harder than necessary",
+                        "concrete evidence",
+                    ),
                 )
                 .unwrap();
             match outcome {
                 RecordOutcome::Accepted(obs) => {
                     assert_eq!(obs.kind, *kind);
-                    assert!(obs.fingerprint.starts_with(&format!("v1:{}:", kind.as_str())));
+                    assert!(obs
+                        .fingerprint
+                        .starts_with(&format!("v1:{}:", kind.as_str())));
                 }
                 other => panic!("expected Accepted, got {other:?}"),
             }
@@ -1255,7 +1275,11 @@ mod tests {
             .record_observation("session-1", ObservationOrigin::Agent, "key-1", c)
             .unwrap();
         match second {
-            RecordOutcome::Duplicate { observation_id, sequence, .. } => {
+            RecordOutcome::Duplicate {
+                observation_id,
+                sequence,
+                ..
+            } => {
                 assert_eq!(observation_id, first_id);
                 assert_eq!(sequence, first_seq);
             }
@@ -1350,7 +1374,10 @@ mod tests {
             store.workspace_observations().unwrap().len(),
             MAX_WORKSPACE_OBSERVATIONS
         );
-        assert_eq!(store.session_observation_count("target-session").unwrap(), 1);
+        assert_eq!(
+            store.session_observation_count("target-session").unwrap(),
+            1
+        );
     }
 
     #[test]
@@ -1403,14 +1430,23 @@ mod tests {
             .iter()
             .filter(|r| matches!(r, RecordOutcome::Accepted(_)))
             .collect();
-        assert_eq!(accepted.len(), 1, "expected exactly one Accepted, got {results:?}");
+        assert_eq!(
+            accepted.len(),
+            1,
+            "expected exactly one Accepted, got {results:?}"
+        );
 
         let (accepted_id, accepted_seq) = match accepted[0] {
             RecordOutcome::Accepted(obs) => (obs.id.clone(), obs.sequence),
             _ => unreachable!(),
         };
         for result in &results {
-            if let RecordOutcome::Duplicate { observation_id, sequence, .. } = result {
+            if let RecordOutcome::Duplicate {
+                observation_id,
+                sequence,
+                ..
+            } = result
+            {
                 assert_eq!(observation_id, &accepted_id);
                 assert_eq!(*sequence, accepted_seq);
             }
@@ -1554,7 +1590,11 @@ mod tests {
             )
             .unwrap();
         match retry {
-            RecordOutcome::Duplicate { observation_id, sequence, .. } => {
+            RecordOutcome::Duplicate {
+                observation_id,
+                sequence,
+                ..
+            } => {
                 assert_eq!(observation_id, original_id);
                 assert_eq!(sequence, original_seq);
             }
@@ -1715,7 +1755,10 @@ mod tests {
         let observations = store.workspace_observations().unwrap();
         assert_eq!(observations.len(), MAX_WORKSPACE_OBSERVATIONS);
         let min_sequence = observations.iter().map(|o| o.sequence).min().unwrap();
-        assert_eq!(min_sequence, sequence - MAX_WORKSPACE_OBSERVATIONS as u64 + 1);
+        assert_eq!(
+            min_sequence,
+            sequence - MAX_WORKSPACE_OBSERVATIONS as u64 + 1
+        );
     }
 
     // -- Corruption / crash recovery ----------------------------------------
@@ -1757,7 +1800,8 @@ mod tests {
 
         let diags = store.diagnostics();
         assert!(
-            diags.iter().any(|d| d.code == "crash_tail_truncated" && d.session_id.as_deref() == Some("session-1")),
+            diags.iter().any(|d| d.code == "crash_tail_truncated"
+                && d.session_id.as_deref() == Some("session-1")),
             "expected a crash_tail_truncated diagnostic, got {diags:?}"
         );
 
@@ -1766,7 +1810,11 @@ mod tests {
         assert_eq!(observations[0].id, "obs-1");
 
         let on_disk = fs::read_to_string(&path).unwrap();
-        assert_eq!(on_disk, format!("{valid_line}\n"), "crash tail must be truncated from disk");
+        assert_eq!(
+            on_disk,
+            format!("{valid_line}\n"),
+            "crash tail must be truncated from disk"
+        );
     }
 
     #[test]
@@ -1803,7 +1851,10 @@ mod tests {
 
         let diags = store.diagnostics();
         assert!(
-            diags.iter().any(|d| d.code == "interior_corruption" && d.session_id.as_deref() == Some("session-1")),
+            diags
+                .iter()
+                .any(|d| d.code == "interior_corruption"
+                    && d.session_id.as_deref() == Some("session-1")),
             "expected an interior_corruption diagnostic, got {diags:?}"
         );
 
@@ -1844,7 +1895,13 @@ mod tests {
         let mut sorted = sequences.clone();
         sorted.sort_unstable();
         assert_eq!(sequences, sorted, "sequences must already be increasing");
-        assert_eq!(sequences.len(), sequences.iter().collect::<std::collections::HashSet<_>>().len());
+        assert_eq!(
+            sequences.len(),
+            sequences
+                .iter()
+                .collect::<std::collections::HashSet<_>>()
+                .len()
+        );
     }
 
     #[test]
@@ -1981,7 +2038,11 @@ mod tests {
                     "session-1",
                     ObservationOrigin::Agent,
                     &format!("key-{i}"),
-                    candidate(ObservationKind::Obstacle, &format!("description {i}"), "evidence"),
+                    candidate(
+                        ObservationKind::Obstacle,
+                        &format!("description {i}"),
+                        "evidence",
+                    ),
                 )
                 .unwrap();
             assert!(
@@ -1995,7 +2056,11 @@ mod tests {
                 "session-1",
                 ObservationOrigin::Agent,
                 "key-overflow",
-                candidate(ObservationKind::Obstacle, "description overflow", "evidence"),
+                candidate(
+                    ObservationKind::Obstacle,
+                    "description overflow",
+                    "evidence",
+                ),
             )
             .unwrap_err();
         assert_eq!(err, RecordError::RateLimited);
@@ -2025,7 +2090,11 @@ mod tests {
                     "session-1",
                     ObservationOrigin::Agent,
                     &format!("key-{i}"),
-                    candidate(ObservationKind::Obstacle, &format!("description {i}"), "evidence"),
+                    candidate(
+                        ObservationKind::Obstacle,
+                        &format!("description {i}"),
+                        "evidence",
+                    ),
                 )
                 .unwrap();
             last_sequence = match outcome {
@@ -2039,7 +2108,11 @@ mod tests {
                 "session-1",
                 ObservationOrigin::Agent,
                 "key-overflow",
-                candidate(ObservationKind::Obstacle, "description overflow", "evidence"),
+                candidate(
+                    ObservationKind::Obstacle,
+                    "description overflow",
+                    "evidence",
+                ),
             )
             .unwrap_err();
         assert_eq!(err, RecordError::RateLimited);
@@ -2087,7 +2160,11 @@ mod tests {
                     "session-1",
                     ObservationOrigin::Agent,
                     &format!("key-{i}"),
-                    candidate(ObservationKind::Obstacle, &format!("description {i}"), "evidence"),
+                    candidate(
+                        ObservationKind::Obstacle,
+                        &format!("description {i}"),
+                        "evidence",
+                    ),
                 )
                 .unwrap();
         }
@@ -2099,7 +2176,11 @@ mod tests {
                 "session-1",
                 ObservationOrigin::Agent,
                 "key-overflow",
-                candidate(ObservationKind::Obstacle, "description overflow", "evidence"),
+                candidate(
+                    ObservationKind::Obstacle,
+                    "description overflow",
+                    "evidence",
+                ),
             )
             .unwrap_err();
         assert_eq!(err, RecordError::RateLimited);
@@ -2116,7 +2197,11 @@ mod tests {
             )
             .unwrap();
         match retry {
-            RecordOutcome::Duplicate { observation_id, sequence, .. } => {
+            RecordOutcome::Duplicate {
+                observation_id,
+                sequence,
+                ..
+            } => {
                 assert_eq!(observation_id, first_id);
                 assert_eq!(sequence, first_seq);
             }
@@ -2144,7 +2229,10 @@ mod tests {
         let observations = store.workspace_observations().unwrap();
         assert!(observations.is_empty());
 
-        let path = dir.path().join("workflow-observations").join("session-1.ndjson");
+        let path = dir
+            .path()
+            .join("workflow-observations")
+            .join("session-1.ndjson");
         assert!(!path.exists());
 
         // The idempotency key must no longer be recognized as a duplicate:
@@ -2154,7 +2242,11 @@ mod tests {
                 "session-1",
                 ObservationOrigin::Agent,
                 "key-1",
-                candidate(ObservationKind::Obstacle, "a completely different description", "evidence"),
+                candidate(
+                    ObservationKind::Obstacle,
+                    "a completely different description",
+                    "evidence",
+                ),
             )
             .unwrap();
         assert!(matches!(outcome, RecordOutcome::Accepted(_)));

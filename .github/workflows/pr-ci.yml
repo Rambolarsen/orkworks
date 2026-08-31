@@ -85,6 +85,9 @@ jobs:
         with:
           workspaces: crates/orkworksd
 
+      - name: Check Rust formatting
+        run: cargo fmt --manifest-path crates/orkworksd/Cargo.toml --check
+
       - name: Run Rust tests
         run: cargo test --manifest-path crates/orkworksd/Cargo.toml
 

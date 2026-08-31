@@ -48,7 +48,8 @@ mod tests {
         child.kill().ok();
         child.wait().ok();
 
-        let resolved = std::path::PathBuf::from(resolved.expect("live_cwds should resolve a running process"));
+        let resolved =
+            std::path::PathBuf::from(resolved.expect("live_cwds should resolve a running process"));
         let expected = dir.canonicalize().unwrap_or(dir);
         assert_eq!(resolved.canonicalize().unwrap_or(resolved), expected);
     }

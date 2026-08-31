@@ -192,5 +192,4 @@ mod tests {
         assert_eq!(meta.metadata_confidence, 1.0);
         assert_eq!(meta.needs_user_input, None);
     }
-
 }

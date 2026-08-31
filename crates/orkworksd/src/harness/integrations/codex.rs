@@ -26,7 +26,10 @@ fn base_platform_invocation(reporter: &Path) -> Result<ReporterInvocation, Integ
 
 pub(crate) fn hook_fingerprint(reporter: &Path) -> Result<String, IntegrationError> {
     let invocation = base_platform_invocation(reporter)?;
-    Ok(format!("{:x}", Sha256::digest(invocation.shell_command.as_bytes())))
+    Ok(format!(
+        "{:x}",
+        Sha256::digest(invocation.shell_command.as_bytes())
+    ))
 }
 
 fn platform_invocation(reporter: &Path) -> Result<ReporterInvocation, IntegrationError> {
@@ -37,14 +40,15 @@ fn platform_invocation(reporter: &Path) -> Result<ReporterInvocation, Integratio
     } else {
         "-HookFingerprint"
     };
-    invocation.args.extend([
-        fingerprint_flag.into(),
-        fingerprint.clone(),
-    ]);
+    invocation
+        .args
+        .extend([fingerprint_flag.into(), fingerprint.clone()]);
     invocation.shell_command.push(' ');
     invocation.shell_command.push_str(fingerprint_flag);
     invocation.shell_command.push(' ');
-    invocation.shell_command.push_str(&super::shell_quote(&fingerprint));
+    invocation
+        .shell_command
+        .push_str(&super::shell_quote(&fingerprint));
     Ok(invocation)
 }
 
@@ -330,8 +334,7 @@ mod tests {
         // reported Installed.
         let home = tempfile::tempdir().unwrap();
         let _fake_home = FakeHome::set(home.path());
-        let invocation =
-            portable_reporter_invocation(&reporter_path(home.path()), MARKER).unwrap();
+        let invocation = portable_reporter_invocation(&reporter_path(home.path()), MARKER).unwrap();
         let group = json!({
             "matcher": "resume",
             "hooks": [
@@ -388,8 +391,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn probe_reports_installed_after_merge_and_drifted_for_a_pre_portable_absolute_path_fragment()
-    {
+    fn probe_reports_installed_after_merge_and_drifted_for_a_pre_portable_absolute_path_fragment() {
         let home = tempfile::tempdir().unwrap();
         let _fake_home = FakeHome::set(home.path());
         let script = reporter_path(home.path());

@@ -217,7 +217,6 @@ pub(crate) fn new_workflow_report_token() -> Result<String, getrandom::Error> {
     Ok(hex::encode(bytes))
 }
 
-
 #[derive(Debug, PartialEq)]
 pub(crate) enum TerminalAction {
     Input(String),
@@ -497,7 +496,11 @@ fn record_peon_input_side_effects(
 
 /// Submits a sidecar-owned, user-approved prompt through the same accepted-input
 /// bookkeeping used by the terminal transport.
-pub(crate) async fn submit_approved_input(state: &Arc<AppState>, id: &str, data: String) -> Result<(), ()> {
+pub(crate) async fn submit_approved_input(
+    state: &Arc<AppState>,
+    id: &str,
+    data: String,
+) -> Result<(), ()> {
     let (is_sensitive, output_boundary) = snapshot_input_context(state, id);
     let result = crate::runtime::session_runtime::send_runtime_input(state, id, data.clone()).await;
     record_input_after_delivery(
@@ -578,10 +581,9 @@ fn record_terminal_input_impl(
     // reinserted under the new epoch.
     if !is_sensitive {
         with_label_epoch_read(state, id, |epoch| {
-            let queue_topic_inference = crate::session_application::SessionApplication::new(
-                state.clone(),
-            )
-            .record_user_input_topic(id, &label_line, label_worthy);
+            let queue_topic_inference =
+                crate::session_application::SessionApplication::new(state.clone())
+                    .record_user_input_topic(id, &label_line, label_worthy);
 
             // Reuses the same decision as the metadata write above (rather
             // than re-checking the in-memory label independently) so the two
@@ -615,11 +617,7 @@ fn reset_label_for_declared_command(state: &Arc<AppState>, id: &str, line: &str)
 /// session's current label epoch. The epoch read guard spans both the capture
 /// and the insert so a reset cannot land in between and leave work from the
 /// previous conversation queued under the new epoch.
-fn with_label_epoch_read<T>(
-    state: &Arc<AppState>,
-    id: &str,
-    f: impl FnOnce(u64) -> T,
-) -> T {
+fn with_label_epoch_read<T>(state: &Arc<AppState>, id: &str, f: impl FnOnce(u64) -> T) -> T {
     let epochs = state.peon.label_epochs.read().unwrap();
     let epoch = epochs.get(id).copied().unwrap_or(0);
     f(epoch)
@@ -942,8 +940,7 @@ pub(crate) async fn finalize_session_ending(
     {
         let sessions = state.sessions.lock().unwrap();
         if !sessions.get(&id).is_some_and(|handle| {
-            handle.runtime.run_generation() == generation
-                && handle.info.lifecycle_phase == "ending"
+            handle.runtime.run_generation() == generation && handle.info.lifecycle_phase == "ending"
         }) {
             return;
         }
@@ -1197,10 +1194,9 @@ mod tests {
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
-                workflow_observations: crate::workflow_observations::WorkflowObservationStore::open(
-                    orkworks.clone(),
-                )
-                .expect("open workflow observation store"),
+                workflow_observations:
+                    crate::workflow_observations::WorkflowObservationStore::open(orkworks.clone())
+                        .expect("open workflow observation store"),
                 recommendation_store: crate::taskmaster::store::RecommendationStore::open(
                     orkworks.clone(),
                 )
@@ -1254,9 +1250,9 @@ mod tests {
                     crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
                     crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
                 ),
-            terminal_attached: false,
-            resume_in_progress: false,
-            at_usage_limit_latched: false,
+                terminal_attached: false,
+                resume_in_progress: false,
+                at_usage_limit_latched: false,
                 capacity_check_pending: false,
                 output_lines_seen: 0,
                 scan_bytes_seen: 0,
@@ -1779,7 +1775,12 @@ mod tests {
         }
         {
             let ws = state.workspace.lock().unwrap();
-            let mut meta = ws.as_ref().unwrap().metadata.read_session(session_id).unwrap();
+            let mut meta = ws
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(session_id)
+                .unwrap();
             meta.label = placeholder.clone();
             ws.as_ref().unwrap().metadata.write_session(&meta);
         }
@@ -1805,7 +1806,12 @@ mod tests {
                 epoch: 0,
             })
         );
-        assert!(state.peon.label_pending.read().unwrap().contains(session_id));
+        assert!(state
+            .peon
+            .label_pending
+            .read()
+            .unwrap()
+            .contains(session_id));
     }
 
     #[test]
@@ -1819,7 +1825,12 @@ mod tests {
         }
         {
             let ws = state.workspace.lock().unwrap();
-            let mut meta = ws.as_ref().unwrap().metadata.read_session(session_id).unwrap();
+            let mut meta = ws
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(session_id)
+                .unwrap();
             meta.label = placeholder;
             ws.as_ref().unwrap().metadata.write_session(&meta);
         }
@@ -1870,8 +1881,19 @@ mod tests {
             .read_session(session_id)
             .unwrap();
         assert_eq!(meta.label, "Prompted session");
-        assert!(state.peon.label_hint.read().unwrap().get(session_id).is_none());
-        assert!(!state.peon.label_pending.read().unwrap().contains(session_id));
+        assert!(state
+            .peon
+            .label_hint
+            .read()
+            .unwrap()
+            .get(session_id)
+            .is_none());
+        assert!(!state
+            .peon
+            .label_pending
+            .read()
+            .unwrap()
+            .contains(session_id));
     }
 
     /// Persists `harness` as the session's durable harness ID — the only ID a
@@ -1938,12 +1960,7 @@ mod tests {
         let worker_id = id.to_string();
         let worker = std::thread::spawn(move || {
             with_label_epoch_read(&worker_state, &worker_id, |epoch| {
-                queue_label_hint_at_epoch(
-                    &worker_state,
-                    &worker_id,
-                    "old topic".into(),
-                    epoch,
-                );
+                queue_label_hint_at_epoch(&worker_state, &worker_id, "old topic".into(), epoch);
                 entered_tx.send(()).unwrap();
                 release_rx.recv().unwrap();
             });
@@ -1989,7 +2006,10 @@ mod tests {
     }
 
     fn live_label(state: &Arc<crate::AppState>, session_id: &str) -> String {
-        state.sessions.lock().unwrap()[session_id].info.label.clone()
+        state.sessions.lock().unwrap()[session_id]
+            .info
+            .label
+            .clone()
     }
 
     fn stored_label(state: &Arc<crate::AppState>, session_id: &str) -> String {
@@ -2018,9 +2038,21 @@ mod tests {
 
     /// Asserts the whole label lifecycle is exactly as `set_label` /
     /// `seed_label_hint` left it: no reset happened.
-    fn assert_label_lifecycle_untouched(state: &Arc<crate::AppState>, session_id: &str, case: &str) {
-        assert_eq!(live_label(state, session_id), "Old conversation title", "{case}");
-        assert_eq!(stored_label(state, session_id), "Old conversation title", "{case}");
+    fn assert_label_lifecycle_untouched(
+        state: &Arc<crate::AppState>,
+        session_id: &str,
+        case: &str,
+    ) {
+        assert_eq!(
+            live_label(state, session_id),
+            "Old conversation title",
+            "{case}"
+        );
+        assert_eq!(
+            stored_label(state, session_id),
+            "Old conversation title",
+            "{case}"
+        );
         assert_eq!(
             state.peon.label_hint.read().unwrap().get(session_id),
             Some(&crate::LabelHint {
@@ -2030,7 +2062,12 @@ mod tests {
             "{case}"
         );
         assert!(
-            state.peon.label_pending.read().unwrap().contains(session_id),
+            state
+                .peon
+                .label_pending
+                .read()
+                .unwrap()
+                .contains(session_id),
             "{case}"
         );
         assert_eq!(label_epoch(state, session_id), 0, "{case}");
@@ -2292,7 +2329,9 @@ mod tests {
         let token = new_workflow_report_token().expect("token generation succeeds");
         assert_eq!(token.len(), 64, "32 bytes hex-encoded is 64 chars");
         assert!(
-            token.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
+            token
+                .chars()
+                .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
             "token must be lowercase hex: {token}"
         );
     }
@@ -2308,7 +2347,10 @@ mod tests {
     fn new_workflow_report_token_fails_closed_when_os_randomness_fails() {
         let _force = ForceTokenGenerationFailure::enable();
         let result = new_workflow_report_token();
-        assert!(result.is_err(), "a getrandom failure must propagate, not silently substitute a weak token");
+        assert!(
+            result.is_err(),
+            "a getrandom failure must propagate, not silently substitute a weak token"
+        );
     }
 
     #[test]
@@ -2356,9 +2398,15 @@ mod tests {
         let session_id = format!("cap-test-{}", uuid::Uuid::new_v4());
         set_workflow_report_token(&session_id, "replacement-token".to_string());
         clear_workflow_report_token_if_matches(&session_id, "stale-token");
-        assert!(verify_workflow_report_token(&session_id, "replacement-token"));
+        assert!(verify_workflow_report_token(
+            &session_id,
+            "replacement-token"
+        ));
         clear_workflow_report_token_if_matches(&session_id, "replacement-token");
-        assert!(!verify_workflow_report_token(&session_id, "replacement-token"));
+        assert!(!verify_workflow_report_token(
+            &session_id,
+            "replacement-token"
+        ));
     }
 
     #[test]
@@ -2790,8 +2838,7 @@ mod tests {
                 .await
         );
         assert!(
-            !set_session_status_for_generation(&state, session_id, old_generation, "ended",)
-                .await
+            !set_session_status_for_generation(&state, session_id, old_generation, "ended",).await
         );
 
         let sessions = state.sessions.lock().unwrap();
@@ -3088,10 +3135,9 @@ mod tests {
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
-                workflow_observations: crate::workflow_observations::WorkflowObservationStore::open(
-                    orkworks.clone(),
-                )
-                .expect("open workflow observation store"),
+                workflow_observations:
+                    crate::workflow_observations::WorkflowObservationStore::open(orkworks.clone())
+                        .expect("open workflow observation store"),
                 recommendation_store: crate::taskmaster::store::RecommendationStore::open(
                     orkworks.clone(),
                 )
@@ -3191,7 +3237,7 @@ mod tests {
                 provider_state: None,
                 created_at: "now".into(),
                 last_activity: "now".into(),
-        last_output_at: None,
+                last_output_at: None,
                 metadata_source: "peon".into(),
                 metadata_confidence: 0.8,
                 repo_root: None,
@@ -3241,10 +3287,9 @@ mod tests {
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
-                workflow_observations: crate::workflow_observations::WorkflowObservationStore::open(
-                    orkworks.clone(),
-                )
-                .expect("open workflow observation store"),
+                workflow_observations:
+                    crate::workflow_observations::WorkflowObservationStore::open(orkworks.clone())
+                        .expect("open workflow observation store"),
                 recommendation_store: crate::taskmaster::store::RecommendationStore::open(
                     orkworks.clone(),
                 )
@@ -3349,7 +3394,7 @@ mod tests {
                 provider_state: None,
                 created_at: "now".into(),
                 last_activity: "now".into(),
-        last_output_at: None,
+                last_output_at: None,
                 metadata_source: "process".into(),
                 metadata_confidence: 1.0,
                 repo_root: None,
@@ -3428,10 +3473,9 @@ mod tests {
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
-                workflow_observations: crate::workflow_observations::WorkflowObservationStore::open(
-                    orkworks.clone(),
-                )
-                .expect("open workflow observation store"),
+                workflow_observations:
+                    crate::workflow_observations::WorkflowObservationStore::open(orkworks.clone())
+                        .expect("open workflow observation store"),
                 recommendation_store: crate::taskmaster::store::RecommendationStore::open(
                     orkworks.clone(),
                 )
@@ -3570,7 +3614,7 @@ mod tests {
                 provider_state: None,
                 created_at: "now".into(),
                 last_activity: "now".into(),
-        last_output_at: None,
+                last_output_at: None,
                 metadata_source: "process".into(),
                 metadata_confidence: 1.0,
                 repo_root: None,

@@ -57,7 +57,9 @@ pub(crate) async fn discover_provider_models(
     let provider_manager = state.providers.clone();
     match tokio::task::spawn_blocking(move || {
         provider_manager.discover_provider_models(&provider_id, base_url.as_deref())
-    }).await {
+    })
+    .await
+    {
         Ok(Ok(models)) => axum::Json(serde_json::json!({ "models": models })).into_response(),
         Ok(Err(error)) => provider_error_response(error),
         Err(_) => provider_error_response(providers::ProviderOperationError {
