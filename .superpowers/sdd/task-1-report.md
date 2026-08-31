@@ -27,6 +27,10 @@ review-fix commit for persistence-boundary validation and diagnostics.
   and atomic custom-definition/profile cleanup on deletion.
 - Added field-specific paths for nested schema type and required-field errors
   and a trailing-input parser regression test.
+- Routed create and update HTTP bodies through the strict parser and the
+  restricted custom-definition parser, including strict envelope validation.
+- Tightened ID segments, capability-variant field combinations, and Peon
+  model-template placeholder validation.
 
 ## Verification
 
@@ -35,7 +39,10 @@ rtk cargo fmt --manifest-path crates/orkworksd/Cargo.toml -- --check
 pass
 
 rtk cargo test --manifest-path crates/orkworksd/Cargo.toml harness::
-cargo test: 177 passed, 737 filtered out (2 suites)
+cargo test: 179 passed, 740 filtered out (2 suites)
+
+rtk cargo test --manifest-path crates/orkworksd/Cargo.toml http::harness_handlers::tests
+3 passed
 
 rtk git diff --check
 pass

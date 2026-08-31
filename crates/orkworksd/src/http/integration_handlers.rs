@@ -816,12 +816,15 @@ mod tests {
         let update_response = crate::http::harness_handlers::update_harness(
             State(state.clone()),
             AxumPath("copilot".into()),
-            Json(UpdateHarnessRequest::BuiltinPatch {
-                patch: HarnessPatch {
-                    min_version: Some(Some(VersionRequirement { min: (0, 0, 2) })),
-                    ..Default::default()
-                },
-            }),
+            axum::body::Bytes::from(
+                serde_json::to_vec(&serde_json::json!({
+                    "kind": "BuiltinPatch",
+                    "patch": {
+                        "minVersion": { "min": [0, 0, 2] }
+                    }
+                }))
+                .unwrap(),
+            ),
         )
         .await
         .into_response();

@@ -717,14 +717,29 @@ fn validate_custom_schema(value: &serde_json::Value) -> Result<(), Vec<HarnessDi
         validate_string_value(launch.get("kind"), "$.launch.kind")?;
         match launch.get("kind").and_then(serde_json::Value::as_str) {
             Some("command-template") => {
+                reject_fields(
+                    launch,
+                    "$.launch",
+                    &["kind", "command", "args", "modelPrefix"],
+                )?;
+                require_field(launch, "command", "$.launch.command")?;
+                require_field(launch, "args", "$.launch.args")?;
                 validate_string_value(launch.get("command"), "$.launch.command")?;
                 validate_string_array(launch.get("args"), "$.launch.args")?;
                 validate_nullable_string(launch.get("modelPrefix"), "$.launch.modelPrefix")?;
             }
             Some("platform-shell") => {
+                reject_fields(launch, "$.launch", &["kind", "login"])?;
+                require_field(launch, "login", "$.launch.login")?;
                 validate_bool_value(launch.get("login"), "$.launch.login")?;
             }
-            _ => {}
+            _ => {
+                return Err(vec![HarnessDiagnostic::document(
+                    "invalid_schema",
+                    "Launch kind must be command-template or platform-shell.",
+                    Some("$.launch.kind"),
+                )]);
+            }
         }
     }
     validate_json_object_fields(
@@ -746,6 +761,33 @@ fn validate_custom_schema(value: &serde_json::Value) -> Result<(), Vec<HarnessDi
         "$.models",
         &["kind", "models", "command", "args"],
     )?;
+    if let Some(models) = object.get("models").and_then(serde_json::Value::as_object) {
+        validate_string_value(models.get("kind"), "$.models.kind")?;
+        match models.get("kind").and_then(serde_json::Value::as_str) {
+            Some("static") => {
+                reject_fields(models, "$.models", &["kind", "models"])?;
+                require_field(models, "models", "$.models.models")?;
+                validate_string_array(models.get("models"), "$.models.models")?;
+            }
+            Some("command") => {
+                reject_fields(models, "$.models", &["kind", "command", "args"])?;
+                require_field(models, "command", "$.models.command")?;
+                require_field(models, "args", "$.models.args")?;
+                validate_string_value(models.get("command"), "$.models.command")?;
+                validate_string_array(models.get("args"), "$.models.args")?;
+            }
+            Some("http") => {
+                reject_fields(models, "$.models", &["kind"])?;
+            }
+            _ => {
+                return Err(vec![HarnessDiagnostic::document(
+                    "invalid_schema",
+                    "Model kind must be static, command, or http.",
+                    Some("$.models.kind"),
+                )]);
+            }
+        }
+    }
     validate_json_object_fields(
         object.get("peon"),
         "$.peon",
@@ -821,6 +863,24 @@ fn require_field(
             Some(path),
         )])
     }
+}
+
+fn reject_fields(
+    object: &serde_json::Map<String, serde_json::Value>,
+    path: &str,
+    allowed: &[&str],
+) -> Result<(), Vec<HarnessDiagnostic>> {
+    if let Some(field) = object
+        .keys()
+        .find(|field| !allowed.contains(&field.as_str()))
+    {
+        return Err(vec![HarnessDiagnostic::document(
+            "invalid_capability_combination",
+            &format!("Field {field} is not valid for this capability variant."),
+            Some(&format!("{path}.{field}")),
+        )]);
+    }
+    Ok(())
 }
 
 fn validate_string_value(
@@ -1149,12 +1209,14 @@ impl HarnessDefinition {
 
     pub(crate) fn validate(&self, origin: DefinitionOrigin) -> Result<(), Vec<HarnessDiagnostic>> {
         let mut errors = Vec::new();
-        if self.id.trim().is_empty()
-            || !self
-                .id
-                .bytes()
-                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
-        {
+        let valid_id = !self.id.is_empty()
+            && self.id.split('-').all(|segment| {
+                !segment.is_empty()
+                    && segment
+                        .bytes()
+                        .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+            });
+        if !valid_id {
             errors.push(HarnessDiagnostic::for_id(
                 &self.id,
                 "invalid_id",
@@ -1214,6 +1276,9 @@ impl HarnessDefinition {
                     "invalid_peon_command",
                     "Peon requires a non-empty command: set peon.commandOverride or use a command-template launch.",
                 ));
+            }
+            if let Some(template) = &peon.model_arg_template {
+                validate_templates(&self.id, std::slice::from_ref(template), &mut errors);
             }
         }
         if matches!(origin, DefinitionOrigin::Custom)
@@ -1759,6 +1824,38 @@ mod tests {
 
         assert!(valid.is_ok());
         assert!(invalid.is_err());
+
+        for id in ["-copilot", "copilot-", "copilot--local"] {
+            let value = format!(
+                r#"{{"id":"{id}","name":"Copilot Local","launch":{{"kind":"command-template","command":"copilot-local","args":[],"modelPrefix":null}}}}"#
+            );
+            assert!(
+                parse_custom_definition(value.as_bytes()).is_err(),
+                "invalid ID: {id}"
+            );
+        }
+    }
+
+    #[test]
+    fn custom_json_rejects_fields_from_the_wrong_launch_variant() {
+        let error = parse_custom_definition(
+            br#"{"id":"shell-tool","name":"Shell Tool","launch":{"kind":"platform-shell","login":true,"command":"unexpected"}}"#,
+        )
+        .expect_err("platform-shell must not accept command-template fields");
+        assert!(error
+            .iter()
+            .any(|diagnostic| diagnostic.path.as_deref() == Some("$.launch.command")));
+    }
+
+    #[test]
+    fn custom_json_validates_peon_model_placeholders() {
+        let error = parse_custom_definition(
+            br#"{"id":"peon-tool","name":"Peon Tool","launch":{"kind":"command-template","command":"tool","args":[],"modelPrefix":null},"peon":{"commandOverride":null,"args":[],"modelArgTemplate":"--model={unknown}","supportsModel":true,"timeoutSecs":30,"promptTransport":"stdin"}}"#,
+        )
+        .expect_err("Peon model templates must use the closed placeholder set");
+        assert!(error
+            .iter()
+            .any(|diagnostic| diagnostic.code == "invalid_placeholder"));
     }
 
     #[test]

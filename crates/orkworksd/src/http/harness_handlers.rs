@@ -1,13 +1,16 @@
-use crate::harness::definition::{HarnessDefinition, HarnessDiagnostic, HarnessPatch};
+use crate::harness::definition::{
+    parse_custom_definition, parse_strict_json, HarnessDefinition, HarnessDiagnostic, HarnessPatch,
+};
 use crate::harness::store::HarnessStoreError;
 use crate::AppState;
+use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::response::IntoResponse;
 use axum::{http::StatusCode, Json};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", tag = "kind")]
 pub(crate) enum UpdateHarnessRequest {
     BuiltinPatch { patch: HarnessPatch },
@@ -43,8 +46,12 @@ pub(crate) async fn list_harnesses(State(state): State<Arc<AppState>>) -> impl I
 
 pub(crate) async fn create_harness(
     State(state): State<Arc<AppState>>,
-    Json(definition): Json<HarnessDefinition>,
+    body: Bytes,
 ) -> impl IntoResponse {
+    let definition = match parse_custom_definition(&body) {
+        Ok(definition) => definition,
+        Err(diagnostics) => return store_error(HarnessStoreError::Validation(diagnostics)),
+    };
     let id = definition.id.clone();
     let store = state.harness_store.clone();
     let catalog = state.harness_catalog.clone();
@@ -85,8 +92,12 @@ pub(crate) async fn create_harness(
 pub(crate) async fn update_harness(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
-    Json(request): Json<UpdateHarnessRequest>,
+    body: Bytes,
 ) -> impl IntoResponse {
+    let request = match parse_update_request(&body) {
+        Ok(request) => request,
+        Err(diagnostics) => return store_error(HarnessStoreError::Validation(diagnostics)),
+    };
     let store = state.harness_store.clone();
     let catalog = state.harness_catalog.clone();
     let requested_id = id.clone();
@@ -244,6 +255,88 @@ fn store_error(error: HarnessStoreError) -> axum::response::Response {
         .into_response()
 }
 
+fn parse_update_request(bytes: &[u8]) -> Result<UpdateHarnessRequest, Vec<HarnessDiagnostic>> {
+    let value = parse_strict_json::<serde_json::Value>(bytes, 256 * 1024)
+        .map_err(|diagnostic| vec![diagnostic])?;
+    let object = value.as_object().ok_or_else(|| {
+        vec![HarnessDiagnostic::document(
+            "invalid_schema",
+            "Harness update request must be a JSON object.",
+            Some("$"),
+        )]
+    })?;
+    let kind = object
+        .get("kind")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| {
+            vec![HarnessDiagnostic::document(
+                "missing_field",
+                "Harness update request requires kind.",
+                Some("$.kind"),
+            )]
+        })?;
+    let allowed = match kind {
+        "BuiltinPatch" => &["kind", "patch"][..],
+        "CustomReplace" => &["kind", "definition"][..],
+        _ => {
+            return Err(vec![HarnessDiagnostic::document(
+                "invalid_schema",
+                "Harness update kind must be BuiltinPatch or CustomReplace.",
+                Some("$.kind"),
+            )]);
+        }
+    };
+    if let Some(field) = object
+        .keys()
+        .find(|field| !allowed.contains(&field.as_str()))
+    {
+        return Err(vec![HarnessDiagnostic::document(
+            "unknown_field",
+            &format!("Unknown harness update field {field}."),
+            Some(&format!("$.{field}")),
+        )]);
+    }
+    match kind {
+        "BuiltinPatch" => {
+            let patch = object.get("patch").cloned().ok_or_else(|| {
+                vec![HarnessDiagnostic::document(
+                    "missing_field",
+                    "BuiltinPatch requires patch.",
+                    Some("$.patch"),
+                )]
+            })?;
+            serde_json::from_value::<HarnessPatch>(patch)
+                .map(|patch| UpdateHarnessRequest::BuiltinPatch { patch })
+                .map_err(|error| {
+                    vec![HarnessDiagnostic::document(
+                        "invalid_schema",
+                        &error.to_string(),
+                        Some("$.patch"),
+                    )]
+                })
+        }
+        "CustomReplace" => {
+            let definition = object.get("definition").cloned().ok_or_else(|| {
+                vec![HarnessDiagnostic::document(
+                    "missing_field",
+                    "CustomReplace requires definition.",
+                    Some("$.definition"),
+                )]
+            })?;
+            let serialized = serde_json::to_vec(&definition).map_err(|error| {
+                vec![HarnessDiagnostic::document(
+                    "invalid_schema",
+                    &error.to_string(),
+                    Some("$.definition"),
+                )]
+            })?;
+            parse_custom_definition(&serialized)
+                .map(|definition| UpdateHarnessRequest::CustomReplace { definition })
+        }
+        _ => unreachable!("request kind was validated above"),
+    }
+}
+
 fn internal_error(message: &str) -> axum::response::Response {
     (
         StatusCode::INTERNAL_SERVER_ERROR,
@@ -253,4 +346,39 @@ fn internal_error(message: &str) -> axum::response::Response {
         }),
     )
         .into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn update_parser_rejects_duplicate_keys() {
+        let diagnostics =
+            parse_update_request(br#"{"kind":"BuiltinPatch","kind":"BuiltinPatch","patch":{}}"#)
+                .expect_err("duplicate request keys must be rejected");
+        assert_eq!(diagnostics[0].code, "duplicate_key");
+    }
+
+    #[test]
+    fn update_parser_uses_the_restricted_custom_schema() {
+        let diagnostics = parse_update_request(
+            br#"{"kind":"CustomReplace","definition":{"id":"local","name":"Local","launch":{"kind":"command-template","command":"local","args":[],"integration":{"kind":"copilot"}}}}"#,
+        )
+        .expect_err("custom replacement must reject compiled fields");
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == "unknown_field"
+                && diagnostic.path.as_deref() == Some("$.launch.integration")
+        }));
+    }
+
+    #[test]
+    fn update_parser_rejects_unknown_envelope_fields() {
+        let diagnostics =
+            parse_update_request(br#"{"kind":"BuiltinPatch","patch":{},"unexpected":true}"#)
+                .expect_err("unknown request fields must be rejected");
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == "unknown_field" && diagnostic.path.as_deref() == Some("$.unexpected")
+        }));
+    }
 }
