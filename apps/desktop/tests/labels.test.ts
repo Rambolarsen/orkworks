@@ -70,6 +70,7 @@ test("attentionTone collapses statuses into the visual-weight axis", () => {
   assert.equal(attentionTone("stale"), "idle");
   assert.equal(attentionTone("idle"), "idle");
   assert.equal(attentionTone("ended"), "neutral");
+  assert.equal(attentionTone("error"), "failed");
   assert.equal(attentionTone("anything-else"), "neutral");
 });
 

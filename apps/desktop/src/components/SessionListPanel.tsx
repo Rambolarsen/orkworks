@@ -135,7 +135,10 @@ function SessionListPanel({
                 // Unread is "changed since you looked" — a remembered session
                 // can't change under you, so the signal is suppressed there.
                 const unread = unreadIds.has(s.id) && !remembered;
-                const loud = isLoudTone(tone);
+                // A dead session can carry a failed tone now (terminal
+                // outcome "error"), but remembered rows stay dimmed — the
+                // icon is the signal, never the loud treatment.
+                const loud = isLoudTone(tone) && !remembered;
                 // Display name, never the raw harness id — ids leak into the
                 // icon tooltip/aria-label otherwise.
                 const tool = harnessDisplayName(harnesses, sessionCodingTool(s));

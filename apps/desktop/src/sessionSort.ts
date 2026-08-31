@@ -15,7 +15,10 @@ export function sessionAttentionStatus(session: SessionInfo): string {
   // "working" on its own — the fallback below reads idle immediately unless
   // the harness has actually reported otherwise.
   if (session.lifecycle === "creating" || session.lifecycle === "stopping") return "working";
-  if (session.lifecycle !== "alive") return "neutral";
+  // Dead sessions: the backend already knows how the run finished
+  // ("ended" | "killed" | "error") — surface it instead of erasing it.
+  // A crashed session deserves a second look; one the user killed doesn't.
+  if (session.lifecycle !== "alive") return session.terminalOutcome ?? "neutral";
   return session.attention ?? "idle";
 }
 
