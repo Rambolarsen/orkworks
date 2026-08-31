@@ -1746,6 +1746,27 @@ mod tests {
     }
 
     #[test]
+    fn banner_tail_straddling_grace_boundary_consumes_on_post_grace_chunk() {
+        let now = tokio::time::Instant::now();
+        let mut signal = Some(arm_pending_work_signal("fix", now, STARTUP_ATTENTION_GRACE));
+        // Known limitation, pinned deliberately: a banner slow enough to
+        // straddle the grace boundary burns the signal on its post-grace
+        // tail. The grace bounds promotion delay; it cannot classify a
+        // boundary-spanning chunk as banner vs harness output.
+        assert!(!consume_pending_work_signal(
+            &mut signal,
+            "\r\nnvm is not compatible",
+            now + STARTUP_ATTENTION_GRACE - std::time::Duration::from_millis(100),
+        ));
+        assert!(consume_pending_work_signal(
+            &mut signal,
+            " with the npm config\r\n",
+            now + STARTUP_ATTENTION_GRACE + std::time::Duration::from_millis(100),
+        ));
+        assert!(signal.is_none());
+    }
+
+    #[test]
     fn prompt_echo_still_trims_during_banner_grace() {
         let now = tokio::time::Instant::now();
         let mut signal = Some(arm_pending_work_signal(
