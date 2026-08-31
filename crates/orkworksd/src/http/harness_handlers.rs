@@ -175,12 +175,7 @@ pub(crate) async fn delete_harness(
     let requested_id = id.clone();
     let result = tokio::task::spawn_blocking(move || {
         store.mutate(&catalog, |document| {
-            if let Some(position) = document
-                .custom
-                .iter()
-                .position(|custom| custom.id == requested_id)
-            {
-                document.custom.remove(position);
+            if document.remove_custom_definition(&requested_id) {
                 return Ok(());
             }
             if document.overrides.remove(&requested_id).is_some() {

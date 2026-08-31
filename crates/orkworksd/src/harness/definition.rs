@@ -164,7 +164,7 @@ pub(crate) struct HarnessUserDocument {
     #[serde(default)]
     pub custom: Vec<HarnessDefinition>,
     #[serde(default)]
-    pub compatibility_profiles: BTreeMap<String, super::compatibility::CompatibilityProfile>,
+    compatibility_profiles: BTreeMap<String, super::compatibility::CompatibilityProfile>,
 }
 
 impl Default for HarnessUserDocument {
@@ -175,6 +175,54 @@ impl Default for HarnessUserDocument {
             custom: Vec::new(),
             compatibility_profiles: BTreeMap::new(),
         }
+    }
+}
+
+impl HarnessUserDocument {
+    /// Returns the sidecar-owned profile assigned to a custom harness.
+    pub(crate) fn compatibility_profile(
+        &self,
+        id: &str,
+    ) -> Option<super::compatibility::CompatibilityProfile> {
+        self.compatibility_profiles.get(id).copied()
+    }
+
+    pub(crate) fn compatibility_profiles(
+        &self,
+    ) -> &BTreeMap<String, super::compatibility::CompatibilityProfile> {
+        &self.compatibility_profiles
+    }
+
+    /// Assigns a profile through the sidecar-owned mutation boundary.
+    pub(crate) fn set_compatibility_profile(
+        &mut self,
+        id: &str,
+        profile: super::compatibility::CompatibilityProfile,
+    ) -> Result<(), HarnessDiagnostic> {
+        if !self.custom.iter().any(|definition| definition.id == id) {
+            return Err(HarnessDiagnostic::for_id(
+                id,
+                "unknown_compatibility_profile_target",
+                "Compatibility profile target must be a custom harness.",
+            ));
+        }
+        self.compatibility_profiles.insert(id.to_owned(), profile);
+        Ok(())
+    }
+
+    pub(crate) fn clear_compatibility_profiles(&mut self) {
+        self.compatibility_profiles.clear();
+    }
+
+    /// Removes a custom definition and its sidecar-owned compatibility profile
+    /// as one document mutation.
+    pub(crate) fn remove_custom_definition(&mut self, id: &str) -> bool {
+        let Some(position) = self.custom.iter().position(|custom| custom.id == id) else {
+            return false;
+        };
+        self.custom.remove(position);
+        self.compatibility_profiles.remove(id);
+        true
     }
 }
 
@@ -505,15 +553,30 @@ fn parse_custom_definition_value(
     value: serde_json::Value,
 ) -> Result<HarnessDefinition, Vec<HarnessDiagnostic>> {
     validate_custom_schema(&value)?;
-    let definition = serde_json::from_value::<CustomHarnessDefinition>(value)
-        .map(HarnessDefinition::from)
-        .map_err(|error| {
-            vec![HarnessDiagnostic::document(
-                "invalid_schema",
-                &error.to_string(),
-                Some("$"),
-            )]
-        })?;
+    let serialized = serde_json::to_vec(&value).map_err(|error| {
+        vec![HarnessDiagnostic::document(
+            "invalid_schema",
+            &error.to_string(),
+            Some("$"),
+        )]
+    })?;
+    let mut deserializer = serde_json::Deserializer::from_slice(&serialized);
+    let definition =
+        serde_path_to_error::deserialize::<_, CustomHarnessDefinition>(&mut deserializer)
+            .map(HarnessDefinition::from)
+            .map_err(|error| {
+                let raw_path = error.path().to_string();
+                let path = if raw_path == "." {
+                    "$".into()
+                } else {
+                    format!("$.{raw_path}")
+                };
+                vec![HarnessDiagnostic::document(
+                    "invalid_schema",
+                    &error.inner().to_string(),
+                    Some(&path),
+                )]
+            })?;
     definition.validate(DefinitionOrigin::Custom)?;
     Ok(definition)
 }
@@ -582,12 +645,19 @@ pub(crate) fn parse_user_document(
             }
         }
     }
-    Ok(HarnessUserDocument {
+    let mut document = HarnessUserDocument {
         version: wire.version,
         overrides: wire.overrides,
         custom,
-        compatibility_profiles: wire.compatibility_profiles,
-    })
+        compatibility_profiles: BTreeMap::new(),
+    };
+    for (id, profile) in wire.compatibility_profiles {
+        if let Err(mut diagnostic) = document.set_compatibility_profile(&id, profile) {
+            diagnostic.path = Some(format!("$.compatibilityProfiles.{id}"));
+            return Err(vec![diagnostic]);
+        }
+    }
+    Ok(document)
 }
 
 fn validate_custom_schema(value: &serde_json::Value) -> Result<(), Vec<HarnessDiagnostic>> {
@@ -633,11 +703,30 @@ fn validate_custom_schema(value: &serde_json::Value) -> Result<(), Vec<HarnessDi
             )]);
         }
     }
+    require_field(object, "id", "$.id")?;
+    require_field(object, "name", "$.name")?;
+    require_field(object, "launch", "$.launch")?;
+    validate_string_value(object.get("id"), "$.id")?;
+    validate_string_value(object.get("name"), "$.name")?;
     validate_json_object_fields(
         object.get("launch"),
         "$.launch",
         &["kind", "command", "args", "modelPrefix", "login"],
     )?;
+    if let Some(launch) = object.get("launch").and_then(serde_json::Value::as_object) {
+        validate_string_value(launch.get("kind"), "$.launch.kind")?;
+        match launch.get("kind").and_then(serde_json::Value::as_str) {
+            Some("command-template") => {
+                validate_string_value(launch.get("command"), "$.launch.command")?;
+                validate_string_array(launch.get("args"), "$.launch.args")?;
+                validate_nullable_string(launch.get("modelPrefix"), "$.launch.modelPrefix")?;
+            }
+            Some("platform-shell") => {
+                validate_bool_value(launch.get("login"), "$.launch.login")?;
+            }
+            _ => {}
+        }
+    }
     validate_json_object_fields(
         object.get("resume"),
         "$.resume",
@@ -693,8 +782,18 @@ fn validate_json_object_fields(
     path: &str,
     allowed: &[&str],
 ) -> Result<(), Vec<HarnessDiagnostic>> {
-    let Some(object) = value.and_then(serde_json::Value::as_object) else {
+    let Some(value) = value else {
         return Ok(());
+    };
+    if value.is_null() {
+        return Ok(());
+    }
+    let Some(object) = value.as_object() else {
+        return Err(vec![HarnessDiagnostic::document(
+            "invalid_schema",
+            "Expected a JSON object.",
+            Some(path),
+        )]);
     };
     for field in object.keys() {
         if !allowed.contains(&field.as_str()) {
@@ -706,6 +805,89 @@ fn validate_json_object_fields(
         }
     }
     Ok(())
+}
+
+fn require_field(
+    object: &serde_json::Map<String, serde_json::Value>,
+    field: &str,
+    path: &str,
+) -> Result<(), Vec<HarnessDiagnostic>> {
+    if object.contains_key(field) {
+        Ok(())
+    } else {
+        Err(vec![HarnessDiagnostic::document(
+            "missing_field",
+            &format!("Required field {field} is missing."),
+            Some(path),
+        )])
+    }
+}
+
+fn validate_string_value(
+    value: Option<&serde_json::Value>,
+    path: &str,
+) -> Result<(), Vec<HarnessDiagnostic>> {
+    if value.is_some_and(serde_json::Value::is_string) {
+        Ok(())
+    } else {
+        Err(vec![HarnessDiagnostic::document(
+            "invalid_schema",
+            "Expected a string.",
+            Some(path),
+        )])
+    }
+}
+
+fn validate_nullable_string(
+    value: Option<&serde_json::Value>,
+    path: &str,
+) -> Result<(), Vec<HarnessDiagnostic>> {
+    if value.is_none() || value.is_some_and(|value| value.is_null() || value.is_string()) {
+        Ok(())
+    } else {
+        Err(vec![HarnessDiagnostic::document(
+            "invalid_schema",
+            "Expected a string or null.",
+            Some(path),
+        )])
+    }
+}
+
+fn validate_bool_value(
+    value: Option<&serde_json::Value>,
+    path: &str,
+) -> Result<(), Vec<HarnessDiagnostic>> {
+    if value.is_some_and(serde_json::Value::is_boolean) {
+        Ok(())
+    } else {
+        Err(vec![HarnessDiagnostic::document(
+            "invalid_schema",
+            "Expected a boolean.",
+            Some(path),
+        )])
+    }
+}
+
+fn validate_string_array(
+    value: Option<&serde_json::Value>,
+    path: &str,
+) -> Result<(), Vec<HarnessDiagnostic>> {
+    let Some(array) = value.and_then(serde_json::Value::as_array) else {
+        return Err(vec![HarnessDiagnostic::document(
+            "invalid_schema",
+            "Expected an array of strings.",
+            Some(path),
+        )]);
+    };
+    if array.iter().all(serde_json::Value::is_string) {
+        Ok(())
+    } else {
+        Err(vec![HarnessDiagnostic::document(
+            "invalid_schema",
+            "Expected an array of strings.",
+            Some(path),
+        )])
+    }
 }
 
 /// Parses JSON while rejecting duplicate object keys, trailing input, and oversized input.
@@ -1550,6 +1732,23 @@ mod tests {
     }
 
     #[test]
+    fn custom_json_reports_nested_schema_paths() {
+        let invalid_type = parse_custom_definition(
+            br#"{"id":"copilot-local","name":"Copilot Local","launch":{"kind":"command-template","command":true,"args":[],"modelPrefix":null}}"#,
+        )
+        .expect_err("nested type errors must be rejected");
+        assert!(invalid_type
+            .iter()
+            .any(|diagnostic| diagnostic.path.as_deref() == Some("$.launch.command")));
+
+        let missing = parse_custom_definition(br#"{"id":"copilot-local","name":"Copilot Local"}"#)
+            .expect_err("required fields must be rejected");
+        assert!(missing
+            .iter()
+            .any(|diagnostic| diagnostic.path.as_deref() == Some("$.launch")));
+    }
+
+    #[test]
     fn custom_json_requires_lowercase_kebab_case_ids() {
         let valid = parse_custom_definition(
             br#"{"id":"copilot-local","name":"Copilot Local","launch":{"kind":"command-template","command":"copilot-local","args":[],"modelPrefix":null}}"#,
@@ -1560,6 +1759,25 @@ mod tests {
 
         assert!(valid.is_ok());
         assert!(invalid.is_err());
+    }
+
+    #[test]
+    fn removing_a_custom_definition_also_removes_its_profile() {
+        let definition = parse_custom_definition(
+            br#"{"id":"copilot-local","name":"Copilot Local","launch":{"kind":"command-template","command":"copilot-local","args":[],"modelPrefix":null}}"#,
+        )
+        .expect("custom definition");
+        let mut document = HarnessUserDocument::default();
+        document.custom.push(definition);
+        document.compatibility_profiles.insert(
+            "copilot-local".into(),
+            super::super::compatibility::CompatibilityProfile::Copilot,
+        );
+
+        assert!(document.remove_custom_definition("copilot-local"));
+        assert!(document.custom.is_empty());
+        assert!(document.compatibility_profiles.is_empty());
+        assert!(!document.remove_custom_definition("copilot-local"));
     }
 
     #[test]

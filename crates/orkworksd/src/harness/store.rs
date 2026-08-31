@@ -232,7 +232,7 @@ fn parse_document(
             let migrated_from_v2 = document.version == 2;
             if migrated_from_v2 {
                 document.version = 3;
-                document.compatibility_profiles.clear();
+                document.clear_compatibility_profiles();
             }
             Ok((document, Vec::new(), migrated_from_v2))
         }
@@ -735,7 +735,7 @@ mod tests {
         let loaded = fixture.store.load().unwrap();
         assert!(!loaded.migrated_from_v1);
         assert_eq!(loaded.document.version, 3);
-        assert!(loaded.document.compatibility_profiles.is_empty());
+        assert!(loaded.document.compatibility_profiles().is_empty());
     }
 
     #[test]
@@ -743,6 +743,10 @@ mod tests {
         let duplicate = parse_strict_json::<serde_json::Value>(br#"{"id":1,"id":2}"#, 256 * 1024)
             .expect_err("duplicate object keys must be rejected");
         assert_eq!(duplicate.code, "duplicate_key");
+
+        let trailing = parse_strict_json::<serde_json::Value>(br#"{} {}"#, 256 * 1024)
+            .expect_err("trailing JSON values must be rejected");
+        assert_eq!(trailing.code, "invalid_json");
 
         let oversized = vec![b' '; 256 * 1024 + 1];
         let error = parse_strict_json::<serde_json::Value>(&oversized, 256 * 1024)
@@ -769,7 +773,7 @@ mod tests {
                 .and_then(|patch| patch.name.as_deref()),
             Some("Configured Codex")
         );
-        assert!(document.compatibility_profiles.is_empty());
+        assert!(document.compatibility_profiles().is_empty());
     }
 
     #[test]
@@ -805,6 +809,24 @@ mod tests {
         assert!(diagnostics.iter().any(|diagnostic| {
             diagnostic.code == "unknown_field"
                 && diagnostic.path.as_deref() == Some("$.custom[0].reporterCommand")
+        }));
+    }
+
+    #[test]
+    fn v3_documents_reject_profiles_without_a_custom_target() {
+        let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
+        let error = parse_document(
+            br#"{"version":3,"overrides":{},"custom":[],"compatibilityProfiles":{"missing":"copilot"}}"#,
+            &builtins,
+        )
+        .expect_err("profiles must target custom harness IDs");
+
+        let HarnessStoreError::Validation(diagnostics) = error else {
+            panic!("expected profile-target validation diagnostics");
+        };
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == "unknown_compatibility_profile_target"
+                && diagnostic.path.as_deref() == Some("$.compatibilityProfiles.missing")
         }));
     }
 
