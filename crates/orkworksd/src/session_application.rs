@@ -2843,6 +2843,7 @@ async fn create_session_workflow(
             crate::runtime::session_runtime::arm_pending_work_signal(
                 prompt,
                 tokio::time::Instant::now(),
+                crate::runtime::session_runtime::STARTUP_ATTENTION_GRACE,
             )
         });
     // The initial prompt is written straight to the PTY (bypassing the
@@ -5116,6 +5117,7 @@ mod tests {
             Some(crate::runtime::session_runtime::arm_pending_work_signal(
                 "y",
                 tokio::time::Instant::now(),
+                std::time::Duration::ZERO,
             ));
         state.sessions.lock().unwrap().insert(id.into(), handle);
 
@@ -5257,6 +5259,7 @@ mod tests {
             Some(crate::runtime::session_runtime::arm_pending_work_signal(
                 "y",
                 tokio::time::Instant::now(),
+                std::time::Duration::ZERO,
             ));
         state.sessions.lock().unwrap().insert(id.into(), handle);
 

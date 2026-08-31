@@ -26,7 +26,7 @@ const CONTROL_CHANNEL_CAPACITY: usize = 64;
 pub(crate) const STARTUP_PENDING_INPUT_BYTES: usize = 64 * 1024;
 const MAX_PARTIAL_PERSIST_BYTES: usize = 64 * 1024;
 const INITIAL_RESIZE_GRACE: std::time::Duration = std::time::Duration::from_millis(150);
-const STARTUP_ATTENTION_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
+pub(crate) const STARTUP_ATTENTION_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
 const WORK_SIGNAL_WINDOW: std::time::Duration = std::time::Duration::from_secs(10);
 const OUTPUT_RECENCY_PERSIST_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
 
@@ -97,15 +97,18 @@ async fn wait_at_startup_ending_check(id: &str) {
 pub(crate) struct PendingWorkSignal {
     remaining_echo: String,
     expires_at: tokio::time::Instant,
+    banner_grace_ends_at: tokio::time::Instant,
 }
 
 pub(crate) fn arm_pending_work_signal(
     submitted_line: &str,
     now: tokio::time::Instant,
+    banner_grace: std::time::Duration,
 ) -> PendingWorkSignal {
     PendingWorkSignal {
         remaining_echo: submitted_line.to_string(),
         expires_at: now + WORK_SIGNAL_WINDOW,
+        banner_grace_ends_at: now + banner_grace,
     }
 }
 
@@ -144,6 +147,15 @@ pub(crate) fn consume_pending_work_signal(
         .unwrap_or(&output);
     if signal.remaining_echo.starts_with(output) {
         signal.remaining_echo.drain(..output.len());
+        return false;
+    }
+    // Post-arming banner grace (issue #390): an initial prompt armed at
+    // session creation on a shell-wrapped custom harness sees login-shell
+    // profile output before the harness's own first render. Visible non-echo
+    // output inside the grace passes through without consuming the signal so
+    // promotion fires on the harness's real output instead; echo trimming
+    // above stays live throughout.
+    if now < signal.banner_grace_ends_at {
         return false;
     }
 
@@ -1616,7 +1628,11 @@ mod tests {
     #[test]
     fn split_echo_does_not_qualify_until_new_visible_output_arrives() {
         let now = tokio::time::Instant::now();
-        let mut signal = Some(arm_pending_work_signal("fix status", now));
+        let mut signal = Some(arm_pending_work_signal(
+            "fix status",
+            now,
+            std::time::Duration::ZERO,
+        ));
         assert!(!consume_pending_work_signal(&mut signal, "fix ", now));
         assert!(!consume_pending_work_signal(&mut signal, "status\r\n", now));
         assert!(consume_pending_work_signal(&mut signal, "Thinking…", now));
@@ -1626,7 +1642,11 @@ mod tests {
     fn one_leading_line_ending_is_ignored_when_matching_echo() {
         let now = tokio::time::Instant::now();
         for leading in ['\r', '\n'] {
-            let mut signal = Some(arm_pending_work_signal("fix", now));
+            let mut signal = Some(arm_pending_work_signal(
+                "fix",
+                now,
+                std::time::Duration::ZERO,
+            ));
 
             assert!(!consume_pending_work_signal(
                 &mut signal,
@@ -1640,7 +1660,11 @@ mod tests {
     #[test]
     fn ansi_only_output_and_expired_submission_do_not_qualify() {
         let now = tokio::time::Instant::now();
-        let mut signal = Some(arm_pending_work_signal("fix", now));
+        let mut signal = Some(arm_pending_work_signal(
+            "fix",
+            now,
+            std::time::Duration::ZERO,
+        ));
         assert!(!consume_pending_work_signal(&mut signal, "\x1b[2K\r", now));
         assert!(!consume_pending_work_signal(
             &mut signal,
@@ -1656,7 +1680,11 @@ mod tests {
     #[test]
     fn ansi_only_output_preserves_pending_echo_for_following_output() {
         let now = tokio::time::Instant::now();
-        let mut signal = Some(arm_pending_work_signal("fix", now));
+        let mut signal = Some(arm_pending_work_signal(
+            "fix",
+            now,
+            std::time::Duration::ZERO,
+        ));
 
         assert!(!consume_pending_work_signal(&mut signal, "\x1b[2K\r", now));
         assert!(!consume_pending_work_signal(&mut signal, "fix\r\n", now));
@@ -1666,12 +1694,73 @@ mod tests {
     #[test]
     fn control_only_output_does_not_qualify_as_visible() {
         let now = tokio::time::Instant::now();
-        let mut signal = Some(arm_pending_work_signal("fix", now));
+        let mut signal = Some(arm_pending_work_signal(
+            "fix",
+            now,
+            std::time::Duration::ZERO,
+        ));
         assert!(!consume_pending_work_signal(&mut signal, "fix\r\n", now));
         // A bare BEL (or other C0 control byte) surviving ANSI-stripping must
         // not be mistaken for genuine model output.
         assert!(!consume_pending_work_signal(&mut signal, "\x07", now));
         assert!(consume_pending_work_signal(&mut signal, "Thinking…", now));
+    }
+
+    #[test]
+    fn banner_output_during_banner_grace_does_not_consume_initial_prompt_signal() {
+        let now = tokio::time::Instant::now();
+        let mut signal = Some(arm_pending_work_signal(
+            "fix status",
+            now,
+            STARTUP_ATTENTION_GRACE,
+        ));
+        assert!(!consume_pending_work_signal(
+            &mut signal,
+            "\r\nnvm is not compatible with the npm config\r\n",
+            now,
+        ));
+        assert!(
+            signal.is_some(),
+            "banner output during the grace must leave the signal armed"
+        );
+        let after_grace = now + STARTUP_ATTENTION_GRACE + std::time::Duration::from_millis(100);
+        assert!(consume_pending_work_signal(
+            &mut signal,
+            "Thinking…",
+            after_grace
+        ));
+        assert!(signal.is_none());
+    }
+
+    #[test]
+    fn visible_output_after_banner_grace_consumes_signal_as_before() {
+        let now = tokio::time::Instant::now();
+        let mut signal = Some(arm_pending_work_signal("fix", now, STARTUP_ATTENTION_GRACE));
+        let after_grace = now + STARTUP_ATTENTION_GRACE + std::time::Duration::from_millis(100);
+        assert!(consume_pending_work_signal(
+            &mut signal,
+            "profile banner",
+            after_grace
+        ));
+        assert!(signal.is_none());
+    }
+
+    #[test]
+    fn prompt_echo_still_trims_during_banner_grace() {
+        let now = tokio::time::Instant::now();
+        let mut signal = Some(arm_pending_work_signal(
+            "fix status",
+            now,
+            STARTUP_ATTENTION_GRACE,
+        ));
+        assert!(!consume_pending_work_signal(&mut signal, "fix ", now));
+        assert!(!consume_pending_work_signal(&mut signal, "banner", now));
+        let after_grace = now + STARTUP_ATTENTION_GRACE + std::time::Duration::from_millis(100);
+        assert!(consume_pending_work_signal(
+            &mut signal,
+            "Thinking…",
+            after_grace
+        ));
     }
 
     #[test]
@@ -2281,6 +2370,7 @@ mod tests {
             handle.pending_work_signal = Some(arm_pending_work_signal(
                 "submitted command",
                 tokio::time::Instant::now(),
+                std::time::Duration::ZERO,
             ));
         }
 
