@@ -1970,7 +1970,7 @@ mod tests {
         let command = harness::CommandSpec {
             program: "/bin/sh".into(),
             args: vec![
-                "-lc".into(),
+                "-c".into(),
                 "sleep 2.2; printf 'model-output-after-single-key\\n'; sleep 1".into(),
             ],
             cwd: dir.path().display().to_string(),
@@ -2268,7 +2268,7 @@ mod tests {
         let command = harness::CommandSpec {
             program: "/bin/sh".into(),
             args: vec![
-                "-lc".into(),
+                "-c".into(),
                 "sleep 1.9; printf 'startup-grace-output\\n'; sleep 1".into(),
             ],
             cwd: dir.path().display().to_string(),
@@ -2383,7 +2383,7 @@ mod tests {
         let command = harness::CommandSpec {
             program: "/bin/sh".into(),
             args: vec![
-                "-lc".into(),
+                "-c".into(),
                 "sleep 2.2; printf 'unsolicited-output\\n'; read -r command; printf 'qualifying-output\\n'; sleep 1".into(),
             ],
             cwd: dir.path().display().to_string(),
@@ -2513,7 +2513,7 @@ mod tests {
         let command = harness::CommandSpec {
             program: "/bin/sh".into(),
             args: vec![
-                "-lc".into(),
+                "-c".into(),
                 "read -r command; printf 'capable-output\\n'; sleep 1".into(),
             ],
             cwd: dir.path().display().to_string(),
@@ -2851,7 +2851,7 @@ mod tests {
         let command = harness::CommandSpec {
             program: "/bin/sh".into(),
             args: vec![
-                "-lc".into(),
+                "-c".into(),
                 format!("stty size > {}", output_path.display()),
             ],
             cwd: dir.path().display().to_string(),
@@ -2914,7 +2914,7 @@ mod tests {
 
         let command = harness::CommandSpec {
             program: "/bin/sh".into(),
-            args: vec!["-lc".into(), "sleep 0.3".into()],
+            args: vec!["-c".into(), "sleep 0.3".into()],
             cwd: dir.path().display().to_string(),
         };
 
@@ -3094,7 +3094,7 @@ mod tests {
 
         let command = harness::CommandSpec {
             program: "/bin/sh".into(),
-            args: vec!["-lc".into(), "sleep 5".into()],
+            args: vec!["-c".into(), "sleep 5".into()],
             cwd: dir.path().display().to_string(),
         };
 
@@ -3154,7 +3154,7 @@ mod tests {
 
         let command = harness::CommandSpec {
             program: "/bin/sh".into(),
-            args: vec!["-lc".into(), "exit 0".into()],
+            args: vec!["-c".into(), "exit 0".into()],
             cwd: dir.path().display().to_string(),
         };
 
@@ -3233,7 +3233,7 @@ mod tests {
         let mut events = output_tx.subscribe();
         let command = harness::CommandSpec {
             program: "/bin/sh".into(),
-            args: vec!["-lc".into(), "printf 'one\\ntwo\\nthree'".into()],
+            args: vec!["-c".into(), "printf 'one\\ntwo\\nthree'".into()],
             cwd: dir.path().display().to_string(),
         };
 
@@ -3302,7 +3302,7 @@ mod tests {
         let command = harness::CommandSpec {
             program: "/bin/sh".into(),
             args: vec![
-                "-lc".into(),
+                "-c".into(),
                 "i=0; while :; do printf 'flood%06d\\n' \"$i\"; i=$((i+1)); done".into(),
             ],
             cwd: dir.path().display().to_string(),
