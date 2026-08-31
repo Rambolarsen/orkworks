@@ -11,7 +11,7 @@
   "packageManager": "pnpm@11.24.0",
   "scripts": {
     "postinstall": "node scripts/setup-electron.mjs",
-    "dev": "tsc -p tsconfig.node.json && node scripts/build-preload.mjs && node scripts/dev.mjs",
+    "dev": "pnpm build:rust && tsc -p tsconfig.node.json && node scripts/build-preload.mjs && node scripts/dev.mjs",
     "build": "tsc -p tsconfig.node.json && node scripts/build-preload.mjs && vite build",
     "build:rust": "cargo build --manifest-path ../../crates/orkworksd/Cargo.toml",
     "build:rust:release": "cargo build --release --manifest-path ../../crates/orkworksd/Cargo.toml",
