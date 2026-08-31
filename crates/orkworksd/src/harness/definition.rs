@@ -155,7 +155,7 @@ pub(crate) struct LegacyBuiltinSnapshot {
     pub environment_dependent: bool,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct HarnessUserDocument {
     pub version: u32,
@@ -597,7 +597,7 @@ struct UserDocumentWire {
 /// used by the create/replace API. The public runtime definition remains broad
 /// enough to represent built-ins and derived bindings, but persisted custom JSON
 /// must never be allowed to populate those compiled-only fields.
-pub(crate) fn parse_user_document(
+pub(crate) fn parse_stored_user_document(
     value: serde_json::Value,
 ) -> Result<HarnessUserDocument, Vec<HarnessDiagnostic>> {
     let object = value.as_object().ok_or_else(|| {
@@ -651,10 +651,12 @@ pub(crate) fn parse_user_document(
         custom,
         compatibility_profiles: BTreeMap::new(),
     };
-    for (id, profile) in wire.compatibility_profiles {
-        if let Err(mut diagnostic) = document.set_compatibility_profile(&id, profile) {
-            diagnostic.path = Some(format!("$.compatibilityProfiles.{id}"));
-            return Err(vec![diagnostic]);
+    if wire.version != 2 {
+        for (id, profile) in wire.compatibility_profiles {
+            if let Err(mut diagnostic) = document.set_compatibility_profile(&id, profile) {
+                diagnostic.path = Some(format!("$.compatibilityProfiles.{id}"));
+                return Err(vec![diagnostic]);
+            }
         }
     }
     Ok(document)
@@ -1493,14 +1495,14 @@ mod tests {
 
     #[test]
     fn label_reset_commands_default_for_legacy_custom_documents() {
-        let document: HarnessUserDocument = serde_json::from_str(
+        let document = parse_stored_user_document(serde_json::from_str(
             r#"{"version":2,"custom":[{
               "id":"company-tool","name":"Company Tool",
               "launch":{"kind":"command-template","command":"company-tool","args":[],"modelPrefix":null},
               "defaultModel":null,"resume":null,"models":null,"peon":null,
-              "capacity":null,"sessionSignals":null,"integration":null,"voice":null
+              "capacity":null,"voice":null
             }]}"#,
-        ).unwrap();
+        ).unwrap()).unwrap();
         assert!(document.custom[0].label_reset_commands.is_empty());
     }
 
@@ -1756,6 +1758,20 @@ mod tests {
         assert!(error
             .iter()
             .any(|diagnostic| diagnostic.path.as_deref() == Some("$.integration")));
+
+        for field in [
+            r#""compatibilityProfile":"copilot""#,
+            r#""compatibilityProfiles":{}"#,
+        ] {
+            let json = format!(
+                r#"{{"id":"copilot-local","name":"Copilot Local","launch":{{"kind":"command-template","command":"copilot-local","args":[],"modelPrefix":null}},{field}}}"#
+            );
+            let error = parse_custom_definition(json.as_bytes())
+                .expect_err("profile metadata must not be editable custom JSON");
+            assert!(error
+                .iter()
+                .any(|diagnostic| diagnostic.code == "custom_authority_binding"));
+        }
     }
 
     #[test]
@@ -1882,9 +1898,14 @@ mod tests {
         let serialized = serde_json::to_value(HarnessUserDocument::default()).unwrap();
         assert!(serialized.get("compatibilityProfiles").is_some());
 
-        assert!(serde_json::from_str::<HarnessUserDocument>(
-            r#"{"version":3,"overrides":{},"custom":[],"compatibilityProfiles":{},"unknown":true}"#,
-        )
-        .is_err());
+        let error = parse_stored_user_document(serde_json::json!({
+            "version": 3,
+            "overrides": {},
+            "custom": [],
+            "compatibilityProfiles": {},
+            "unknown": true,
+        }))
+        .expect_err("unknown stored-document fields must be rejected");
+        assert_eq!(error[0].code, "unknown_field");
     }
 }

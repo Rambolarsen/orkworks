@@ -227,7 +227,7 @@ fn parse_document(
             Ok((document, diagnostics, true))
         }
         value => {
-            let mut document = super::definition::parse_user_document(value)
+            let mut document = super::definition::parse_stored_user_document(value)
                 .map_err(HarnessStoreError::Validation)?;
             let migrated_from_v2 = document.version == 2;
             if migrated_from_v2 {
@@ -671,10 +671,11 @@ mod tests {
             }
         }
         fn read_document(&self) -> HarnessUserDocument {
-            serde_json::from_slice(
-                &fs::read(&self.path).unwrap_or_else(|_| {
+            super::super::definition::parse_stored_user_document(
+                serde_json::from_slice(&fs::read(&self.path).unwrap_or_else(|_| {
                     serde_json::to_vec(&HarnessUserDocument::default()).unwrap()
-                }),
+                }))
+                .unwrap(),
             )
             .unwrap()
         }
@@ -773,6 +774,20 @@ mod tests {
                 .and_then(|patch| patch.name.as_deref()),
             Some("Configured Codex")
         );
+        assert!(document.compatibility_profiles().is_empty());
+    }
+
+    #[test]
+    fn v2_migration_ignores_any_profile_map_from_the_old_document() {
+        let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
+        let (document, diagnostics, migrated) = parse_document(
+            br#"{"version":2,"overrides":{},"custom":[],"compatibilityProfiles":{"missing":"copilot"}}"#,
+            &builtins,
+        )
+        .expect("v2 migration must discard profile metadata");
+
+        assert!(diagnostics.is_empty());
+        assert!(migrated);
         assert!(document.compatibility_profiles().is_empty());
     }
 

@@ -31,6 +31,10 @@ review-fix commit for persistence-boundary validation and diagnostics.
   restricted custom-definition parser, including strict envelope validation.
 - Tightened ID segments, capability-variant field combinations, and Peon
   model-template placeholder validation.
+- Kept persisted `compatibilityProfiles` in a sidecar-only stored-document
+  parser while removing generic `HarnessUserDocument` deserialization, so the
+  editable custom JSON/API paths cannot mutate profile metadata; v2 migration
+  discards any legacy profile field.
 
 ## Verification
 
@@ -39,7 +43,7 @@ rtk cargo fmt --manifest-path crates/orkworksd/Cargo.toml -- --check
 pass
 
 rtk cargo test --manifest-path crates/orkworksd/Cargo.toml harness::
-cargo test: 179 passed, 740 filtered out (2 suites)
+cargo test: 180 passed, 740 filtered out (2 suites)
 
 rtk cargo test --manifest-path crates/orkworksd/Cargo.toml http::harness_handlers::tests
 3 passed
