@@ -263,11 +263,12 @@ pub(crate) fn resolve_document(
     builtins: &BuiltinDocument,
     user: &HarnessUserDocument,
 ) -> Result<ResolvedHarnessRegistry, Vec<HarnessDiagnostic>> {
-    if builtins.version != 2 || user.version != 2 {
+    if builtins.version != 2 || !matches!(user.version, 2 | 3) {
         return Err(vec![HarnessDiagnostic {
             harness_id: None,
             code: "unsupported_document_version".into(),
-            message: "Harness documents must use version 2.".into(),
+            message: "Harness documents must use version 2 or 3.".into(),
+            path: None,
         }]);
     }
     let mut diagnostics = Vec::new();

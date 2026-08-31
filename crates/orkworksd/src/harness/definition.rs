@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use serde::de::{DeserializeOwned, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Serialize};
 
 use super::CommandTemplate;
@@ -155,20 +156,24 @@ pub(crate) struct LegacyBuiltinSnapshot {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct HarnessUserDocument {
     pub version: u32,
     #[serde(default)]
     pub overrides: BTreeMap<String, HarnessPatch>,
     #[serde(default)]
     pub custom: Vec<HarnessDefinition>,
+    #[serde(default)]
+    pub compatibility_profiles: BTreeMap<String, super::compatibility::CompatibilityProfile>,
 }
 
 impl Default for HarnessUserDocument {
     fn default() -> Self {
         Self {
-            version: 2,
+            version: 3,
             overrides: BTreeMap::new(),
             custom: Vec::new(),
+            compatibility_profiles: BTreeMap::new(),
         }
     }
 }
@@ -274,8 +279,6 @@ impl<'de> Deserialize<'de> for HarnessPatch {
                 "models",
                 "peon",
                 "capacity",
-                "sessionSignals",
-                "integration",
                 "voice",
                 "minVersion",
                 "labelResetCommands",
@@ -440,6 +443,389 @@ where
         return Err(E::custom(format!("unknown patch field {field}")));
     }
     Ok(())
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CustomHarnessDefinition {
+    id: String,
+    name: String,
+    #[serde(default)]
+    retired: bool,
+    launch: LaunchCapability,
+    #[serde(default)]
+    default_model: Option<String>,
+    #[serde(default)]
+    resume: Option<ResumeCapability>,
+    #[serde(default)]
+    models: Option<ModelCapability>,
+    #[serde(default)]
+    peon: Option<PeonCapability>,
+    #[serde(default)]
+    capacity: Option<CapacityCapability>,
+    #[serde(default)]
+    voice: Option<VoiceCapability>,
+    #[serde(default)]
+    min_version: Option<VersionRequirement>,
+    #[serde(default)]
+    label_reset_commands: Vec<String>,
+}
+
+impl From<CustomHarnessDefinition> for HarnessDefinition {
+    fn from(value: CustomHarnessDefinition) -> Self {
+        Self {
+            id: value.id,
+            name: value.name,
+            retired: value.retired,
+            launch: value.launch,
+            default_model: value.default_model,
+            resume: value.resume,
+            models: value.models,
+            peon: value.peon,
+            capacity: value.capacity,
+            session_signals: None,
+            integration: None,
+            voice: value.voice,
+            min_version: value.min_version,
+            label_reset_commands: value.label_reset_commands,
+        }
+    }
+}
+
+/// Parses an editable custom harness definition without exposing compiled bindings.
+pub(crate) fn parse_custom_definition(
+    bytes: &[u8],
+) -> Result<HarnessDefinition, Vec<HarnessDiagnostic>> {
+    let value = parse_strict_json::<serde_json::Value>(bytes, 256 * 1024)
+        .map_err(|diagnostic| vec![diagnostic])?;
+    parse_custom_definition_value(value)
+}
+
+fn parse_custom_definition_value(
+    value: serde_json::Value,
+) -> Result<HarnessDefinition, Vec<HarnessDiagnostic>> {
+    validate_custom_schema(&value)?;
+    let definition = serde_json::from_value::<CustomHarnessDefinition>(value)
+        .map(HarnessDefinition::from)
+        .map_err(|error| {
+            vec![HarnessDiagnostic::document(
+                "invalid_schema",
+                &error.to_string(),
+                Some("$"),
+            )]
+        })?;
+    definition.validate(DefinitionOrigin::Custom)?;
+    Ok(definition)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UserDocumentWire {
+    version: u32,
+    #[serde(default)]
+    overrides: BTreeMap<String, HarnessPatch>,
+    #[serde(default)]
+    custom: Vec<serde_json::Value>,
+    #[serde(default)]
+    compatibility_profiles: BTreeMap<String, super::compatibility::CompatibilityProfile>,
+}
+
+/// Parses the persisted user document through the same restricted custom schema
+/// used by the create/replace API. The public runtime definition remains broad
+/// enough to represent built-ins and derived bindings, but persisted custom JSON
+/// must never be allowed to populate those compiled-only fields.
+pub(crate) fn parse_user_document(
+    value: serde_json::Value,
+) -> Result<HarnessUserDocument, Vec<HarnessDiagnostic>> {
+    let object = value.as_object().ok_or_else(|| {
+        vec![HarnessDiagnostic::document(
+            "invalid_schema",
+            "Harness user document must be a JSON object.",
+            Some("$"),
+        )]
+    })?;
+    for field in object.keys() {
+        if !["version", "overrides", "custom", "compatibilityProfiles"].contains(&field.as_str()) {
+            return Err(vec![HarnessDiagnostic::document(
+                "unknown_field",
+                &format!("Unknown harness document field {field}."),
+                Some(&format!("$.{field}")),
+            )]);
+        }
+    }
+    let wire = serde_json::from_value::<UserDocumentWire>(value).map_err(|error| {
+        vec![HarnessDiagnostic::document(
+            "invalid_schema",
+            &error.to_string(),
+            Some("$"),
+        )]
+    })?;
+    let mut custom = Vec::with_capacity(wire.custom.len());
+    for (index, value) in wire.custom.into_iter().enumerate() {
+        match parse_custom_definition_value(value) {
+            Ok(definition) => custom.push(definition),
+            Err(diagnostics) => {
+                return Err(diagnostics
+                    .into_iter()
+                    .map(|mut diagnostic| {
+                        let base = format!("$.custom[{index}]");
+                        diagnostic.path = Some(match diagnostic.path.as_deref() {
+                            Some("$") | None => base.clone(),
+                            Some(path) if path.starts_with("$.") => {
+                                format!("{base}{}", &path[1..])
+                            }
+                            Some(path) => format!("{base}.{path}"),
+                        });
+                        diagnostic
+                    })
+                    .collect());
+            }
+        }
+    }
+    Ok(HarnessUserDocument {
+        version: wire.version,
+        overrides: wire.overrides,
+        custom,
+        compatibility_profiles: wire.compatibility_profiles,
+    })
+}
+
+fn validate_custom_schema(value: &serde_json::Value) -> Result<(), Vec<HarnessDiagnostic>> {
+    let object = value.as_object().ok_or_else(|| {
+        vec![HarnessDiagnostic::document(
+            "invalid_schema",
+            "Custom harness definition must be a JSON object.",
+            Some("$"),
+        )]
+    })?;
+    for field in object.keys() {
+        let path = format!("$.{field}");
+        if matches!(
+            field.as_str(),
+            "integration" | "sessionSignals" | "compatibilityProfile" | "compatibilityProfiles"
+        ) {
+            return Err(vec![HarnessDiagnostic::document(
+                "custom_authority_binding",
+                "Custom definitions cannot select compiled bindings or compatibility profiles.",
+                Some(&path),
+            )]);
+        }
+        if ![
+            "id",
+            "name",
+            "retired",
+            "launch",
+            "defaultModel",
+            "resume",
+            "models",
+            "peon",
+            "capacity",
+            "voice",
+            "minVersion",
+            "labelResetCommands",
+        ]
+        .contains(&field.as_str())
+        {
+            return Err(vec![HarnessDiagnostic::document(
+                "unknown_field",
+                &format!("Unknown custom definition field {field}."),
+                Some(&path),
+            )]);
+        }
+    }
+    validate_json_object_fields(
+        object.get("launch"),
+        "$.launch",
+        &["kind", "command", "args", "modelPrefix", "login"],
+    )?;
+    validate_json_object_fields(
+        object.get("resume"),
+        "$.resume",
+        &["exact", "latestCwd", "latestRepo"],
+    )?;
+    if let Some(resume) = object.get("resume").and_then(serde_json::Value::as_object) {
+        for (field, value) in resume {
+            validate_json_object_fields(
+                Some(value),
+                &format!("$.resume.{field}"),
+                &["command", "args"],
+            )?;
+        }
+    }
+    validate_json_object_fields(
+        object.get("models"),
+        "$.models",
+        &["kind", "models", "command", "args"],
+    )?;
+    validate_json_object_fields(
+        object.get("peon"),
+        "$.peon",
+        &[
+            "commandOverride",
+            "args",
+            "modelArgTemplate",
+            "supportsModel",
+            "timeoutSecs",
+            "promptTransport",
+        ],
+    )?;
+    validate_json_object_fields(
+        object.get("capacity"),
+        "$.capacity",
+        &["kind", "limitPatterns"],
+    )?;
+    validate_json_object_fields(
+        object.get("voice"),
+        "$.voice",
+        &[
+            "nativeVoice",
+            "requiresMicrophonePermission",
+            "orkworksDictation",
+            "orkworksVoiceCommands",
+        ],
+    )?;
+    validate_json_object_fields(object.get("minVersion"), "$.minVersion", &["min"])?;
+    Ok(())
+}
+
+fn validate_json_object_fields(
+    value: Option<&serde_json::Value>,
+    path: &str,
+    allowed: &[&str],
+) -> Result<(), Vec<HarnessDiagnostic>> {
+    let Some(object) = value.and_then(serde_json::Value::as_object) else {
+        return Ok(());
+    };
+    for field in object.keys() {
+        if !allowed.contains(&field.as_str()) {
+            return Err(vec![HarnessDiagnostic::document(
+                "unknown_field",
+                &format!("Unknown custom definition field {field}."),
+                Some(&format!("{path}.{field}")),
+            )]);
+        }
+    }
+    Ok(())
+}
+
+/// Parses JSON while rejecting duplicate object keys, trailing input, and oversized input.
+pub(crate) fn parse_strict_json<T>(bytes: &[u8], max_bytes: usize) -> Result<T, HarnessDiagnostic>
+where
+    T: DeserializeOwned,
+{
+    if bytes.len() > max_bytes {
+        return Err(HarnessDiagnostic::document(
+            "document_too_large",
+            "Harness document exceeds the maximum size.",
+            Some("$"),
+        ));
+    }
+    let mut deserializer = serde_json::Deserializer::from_slice(bytes);
+    StrictJson::deserialize(&mut deserializer).map_err(strict_json_error)?;
+    deserializer.end().map_err(strict_json_error)?;
+    serde_json::from_slice(bytes).map_err(strict_json_error)
+}
+
+struct StrictJson;
+
+impl<'de> Deserialize<'de> for StrictJson {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer.deserialize_any(StrictJsonVisitor)?;
+        Ok(Self)
+    }
+}
+
+struct StrictJsonVisitor;
+
+impl<'de> Visitor<'de> for StrictJsonVisitor {
+    type Value = ();
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("valid JSON")
+    }
+
+    fn visit_bool<E>(self, _: bool) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        Ok(())
+    }
+
+    fn visit_i64<E>(self, _: i64) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        Ok(())
+    }
+
+    fn visit_u64<E>(self, _: u64) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        Ok(())
+    }
+
+    fn visit_f64<E>(self, _: f64) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        Ok(())
+    }
+
+    fn visit_str<E>(self, _: &str) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        Ok(())
+    }
+
+    fn visit_none<E>(self) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        Ok(())
+    }
+
+    fn visit_unit<E>(self) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        Ok(())
+    }
+
+    fn visit_seq<A>(self, mut sequence: A) -> Result<Self::Value, A::Error>
+    where
+        A: SeqAccess<'de>,
+    {
+        while sequence.next_element::<StrictJson>()?.is_some() {}
+        Ok(())
+    }
+
+    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+    where
+        A: MapAccess<'de>,
+    {
+        let mut fields = std::collections::BTreeSet::new();
+        while let Some(field) = map.next_key::<String>()? {
+            if !fields.insert(field.clone()) {
+                return Err(serde::de::Error::custom(format!("duplicate key {field}")));
+            }
+            map.next_value::<StrictJson>()?;
+        }
+        Ok(())
+    }
+}
+
+fn strict_json_error(error: serde_json::Error) -> HarnessDiagnostic {
+    let message = error.to_string();
+    let code = message
+        .starts_with("duplicate key ")
+        .then_some("duplicate_key")
+        .unwrap_or("invalid_json");
+    HarnessDiagnostic::document(code, &message, Some("$"))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -729,18 +1115,26 @@ fn patch_voice(existing: Option<&VoiceCapability>, patch: &VoicePatch) -> VoiceC
 
 fn validate_templates(id: &str, values: &[String], errors: &mut Vec<HarnessDiagnostic>) {
     for value in values {
-        for token in value.match_indices('{').map(|(index, _)| &value[index..]) {
-            if !["{model}", "{cwd}", "{repoRoot}", "{harnessSessionId}"]
+        let mut index = 0;
+        while index < value.len() {
+            let remainder = &value[index..];
+            let Some(offset) = remainder.find(['{', '}']) else {
+                break;
+            };
+            index += offset;
+            let token = &value[index..];
+            let Some(placeholder) = ["{model}", "{cwd}", "{repoRoot}", "{harnessSessionId}"]
                 .iter()
-                .any(|allowed| token.starts_with(allowed))
-            {
+                .find(|placeholder| token.starts_with(**placeholder))
+            else {
                 errors.push(HarnessDiagnostic::for_id(
                     id,
                     "invalid_placeholder",
                     "Command templates use only {model}, {cwd}, {repoRoot}, or {harnessSessionId}.",
                 ));
                 break;
-            }
+            };
+            index += placeholder.len();
         }
     }
 }
@@ -751,6 +1145,8 @@ pub(crate) struct HarnessDiagnostic {
     pub harness_id: Option<String>,
     pub code: String,
     pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
 }
 
 impl HarnessDiagnostic {
@@ -759,6 +1155,16 @@ impl HarnessDiagnostic {
             harness_id: Some(id.to_owned()),
             code: code.to_owned(),
             message: message.to_owned(),
+            path: None,
+        }
+    }
+
+    pub(crate) fn document(code: &str, message: &str, path: Option<&str>) -> Self {
+        Self {
+            harness_id: None,
+            code: code.to_owned(),
+            message: message.to_owned(),
+            path: path.map(ToOwned::to_owned),
         }
     }
 }
@@ -1000,7 +1406,7 @@ mod tests {
         assert!(omitted.launch.is_none());
 
         let optional: HarnessPatch = serde_json::from_str(
-            r#"{"defaultModel":null,"resume":null,"models":null,"peon":null,"capacity":null,"sessionSignals":null,"integration":null,"voice":null}"#,
+            r#"{"defaultModel":null,"resume":null,"models":null,"peon":null,"capacity":null,"voice":null}"#,
         )
         .unwrap();
         assert_eq!(optional.default_model, Some(None));
@@ -1008,9 +1414,11 @@ mod tests {
         assert_eq!(optional.models, Some(None));
         assert_eq!(optional.peon, Some(None));
         assert_eq!(optional.capacity, Some(None));
-        assert_eq!(optional.session_signals, Some(None));
-        assert_eq!(optional.integration, Some(None));
         assert_eq!(optional.voice, Some(None));
+
+        for binding in [r#"{"sessionSignals":null}"#, r#"{"integration":null}"#] {
+            assert!(serde_json::from_str::<HarnessPatch>(binding).is_err());
+        }
     }
 
     #[test]
@@ -1084,6 +1492,83 @@ mod tests {
         assert!(serde_json::from_str::<HarnessPatch>(r#"{"untrusted":true}"#).is_err());
         assert!(serde_json::from_str::<HarnessPatch>(
             r#"{"launch":{"command":"codex","unknown":true}}"#
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn custom_json_cannot_select_a_compiled_integration() {
+        let error = parse_custom_definition(
+            br#"{"id":"copilot-local","name":"Copilot Local","launch":{"kind":"command-template","command":"copilot-local","args":[],"modelPrefix":null},"integration":{"kind":"copilot"}}"#,
+        )
+        .expect_err("custom JSON must not select an integration binding");
+
+        assert!(error
+            .iter()
+            .any(|diagnostic| diagnostic.code == "custom_authority_binding"));
+        assert!(error
+            .iter()
+            .any(|diagnostic| diagnostic.path.as_deref() == Some("$.integration")));
+    }
+
+    #[test]
+    fn custom_json_rejects_unknown_fields_with_a_json_path() {
+        let error = parse_custom_definition(
+            br#"{"id":"copilot-local","name":"Copilot Local","launch":{"kind":"command-template","command":"copilot-local","args":[],"modelPrefix":null},"unknown":true}"#,
+        )
+        .expect_err("unknown custom fields must be rejected");
+
+        assert!(error
+            .iter()
+            .any(|diagnostic| diagnostic.code == "unknown_field"));
+        assert!(error
+            .iter()
+            .any(|diagnostic| diagnostic.path.as_deref() == Some("$.unknown")));
+
+        let nested = parse_custom_definition(
+            br#"{"id":"copilot-local","name":"Copilot Local","launch":{"kind":"command-template","command":"copilot-local","args":[],"modelPrefix":null,"hookPath":"/tmp/untrusted"}}"#,
+        )
+        .expect_err("unknown nested custom fields must be rejected");
+        assert!(nested
+            .iter()
+            .any(|diagnostic| diagnostic.code == "unknown_field"));
+        assert!(nested
+            .iter()
+            .any(|diagnostic| diagnostic.path.as_deref() == Some("$.launch.hookPath")));
+    }
+
+    #[test]
+    fn custom_json_rejects_malformed_command_placeholders() {
+        let error = parse_custom_definition(
+            br#"{"id":"copilot-local","name":"Copilot Local","launch":{"kind":"command-template","command":"copilot-local","args":["--model={unknown}"],"modelPrefix":null}}"#,
+        )
+        .expect_err("unknown command placeholders must be rejected");
+
+        assert!(error
+            .iter()
+            .any(|diagnostic| diagnostic.code == "invalid_placeholder"));
+    }
+
+    #[test]
+    fn custom_json_requires_lowercase_kebab_case_ids() {
+        let valid = parse_custom_definition(
+            br#"{"id":"copilot-local","name":"Copilot Local","launch":{"kind":"command-template","command":"copilot-local","args":[],"modelPrefix":null}}"#,
+        );
+        let invalid = parse_custom_definition(
+            br#"{"id":"Copilot_Local","name":"Copilot Local","launch":{"kind":"command-template","command":"copilot-local","args":[],"modelPrefix":null}}"#,
+        );
+
+        assert!(valid.is_ok());
+        assert!(invalid.is_err());
+    }
+
+    #[test]
+    fn user_document_uses_the_v3_profile_wire_name_and_rejects_unknown_fields() {
+        let serialized = serde_json::to_value(HarnessUserDocument::default()).unwrap();
+        assert!(serialized.get("compatibilityProfiles").is_some());
+
+        assert!(serde_json::from_str::<HarnessUserDocument>(
+            r#"{"version":3,"overrides":{},"custom":[],"compatibilityProfiles":{},"unknown":true}"#,
         )
         .is_err());
     }

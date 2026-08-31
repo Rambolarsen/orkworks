@@ -214,6 +214,7 @@ fn store_error(error: HarnessStoreError) -> axum::response::Response {
                 harness_id: None,
                 code: "revision_changed".into(),
                 message: "Harness configuration changed; retry the request.".into(),
+                path: None,
             }],
         ),
         HarnessStoreError::Io(error) => (
@@ -222,6 +223,7 @@ fn store_error(error: HarnessStoreError) -> axum::response::Response {
                 harness_id: None,
                 code: "write_failed".into(),
                 message: error.to_string(),
+                path: None,
             }],
         ),
         HarnessStoreError::Parse(error) => (
@@ -230,6 +232,7 @@ fn store_error(error: HarnessStoreError) -> axum::response::Response {
                 harness_id: None,
                 code: "invalid_document".into(),
                 message: error.to_string(),
+                path: None,
             }],
         ),
     };

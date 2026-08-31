@@ -1,4 +1,4 @@
-//! Durable v2 harness-document storage.
+//! Durable versioned harness-document storage.
 //!
 //! Legacy recognition is intentionally limited to the immediate pre-v2 main
 //! baseline, `pre-v2-main@f13f460`. Its canonical serde JSON is hashed before
@@ -18,8 +18,9 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use super::definition::{
-    BuiltinDocument, HarnessDefinition, HarnessDiagnostic, HarnessPatch, HarnessUserDocument,
-    LaunchCapability, ModelCapability, PeonCapability, PeonPatch, VoiceCapability, VoicePatch,
+    parse_strict_json, BuiltinDocument, HarnessDefinition, HarnessDiagnostic, HarnessPatch,
+    HarnessUserDocument, LaunchCapability, ModelCapability, PeonCapability, PeonPatch,
+    VoiceCapability, VoicePatch,
 };
 use super::integration::atomic_replace;
 use super::registry::{resolve_document, HarnessCatalog, ResolvedHarnessRegistry};
@@ -218,14 +219,22 @@ fn parse_document(
     bytes: &[u8],
     builtins: &BuiltinDocument,
 ) -> Result<(HarnessUserDocument, Vec<HarnessDiagnostic>, bool), HarnessStoreError> {
-    match serde_json::from_slice::<serde_json::Value>(bytes)? {
+    match parse_strict_json::<serde_json::Value>(bytes, 256 * 1024)
+        .map_err(|diagnostic| HarnessStoreError::Validation(vec![diagnostic]))?
+    {
         serde_json::Value::Array(legacy) => {
             let (document, diagnostics) = migrate_v1(legacy, builtins);
             Ok((document, diagnostics, true))
         }
         value => {
-            let document = serde_json::from_value::<HarnessUserDocument>(value)?;
-            Ok((document, Vec::new(), false))
+            let mut document = super::definition::parse_user_document(value)
+                .map_err(HarnessStoreError::Validation)?;
+            let migrated_from_v2 = document.version == 2;
+            if migrated_from_v2 {
+                document.version = 3;
+                document.compatibility_profiles.clear();
+            }
+            Ok((document, Vec::new(), migrated_from_v2))
         }
     }
 }
@@ -245,6 +254,7 @@ fn migrate_v1(
                     harness_id: None,
                     code: "invalid_legacy_entry".into(),
                     message: format!("Legacy harness entry {index} was skipped: {error}"),
+                    path: Some(format!("$[{index}]")),
                 });
                 continue;
             }
@@ -724,7 +734,78 @@ mod tests {
         let fixture = StoreFixture::v2();
         let loaded = fixture.store.load().unwrap();
         assert!(!loaded.migrated_from_v1);
-        assert_eq!(loaded.document.version, 2);
+        assert_eq!(loaded.document.version, 3);
+        assert!(loaded.document.compatibility_profiles.is_empty());
+    }
+
+    #[test]
+    fn strict_json_rejects_duplicate_keys_and_oversized_documents() {
+        let duplicate = parse_strict_json::<serde_json::Value>(br#"{"id":1,"id":2}"#, 256 * 1024)
+            .expect_err("duplicate object keys must be rejected");
+        assert_eq!(duplicate.code, "duplicate_key");
+
+        let oversized = vec![b' '; 256 * 1024 + 1];
+        let error = parse_strict_json::<serde_json::Value>(&oversized, 256 * 1024)
+            .expect_err("oversized documents must be rejected");
+        assert_eq!(error.code, "document_too_large");
+    }
+
+    #[test]
+    fn v2_documents_migrate_to_v3_with_an_empty_profile_map() {
+        let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
+        let (document, diagnostics, migrated) = parse_document(
+            br#"{"version":2,"overrides":{"codex":{"name":"Configured Codex"}},"custom":[]}"#,
+            &builtins,
+        )
+        .expect("v2 document migrates");
+
+        assert!(diagnostics.is_empty());
+        assert!(migrated);
+        assert_eq!(document.version, 3);
+        assert_eq!(
+            document
+                .overrides
+                .get("codex")
+                .and_then(|patch| patch.name.as_deref()),
+            Some("Configured Codex")
+        );
+        assert!(document.compatibility_profiles.is_empty());
+    }
+
+    #[test]
+    fn v3_documents_reject_code_owned_custom_bindings_at_the_document_boundary() {
+        let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
+        let error = parse_document(
+            br#"{"version":3,"overrides":{},"custom":[{"id":"copilot-local","name":"Copilot Local","launch":{"kind":"command-template","command":"copilot-local","args":[],"modelPrefix":null},"integration":{"kind":"copilot"}}],"compatibilityProfiles":{}}"#,
+            &builtins,
+        )
+        .expect_err("v3 custom definitions must not select compiled bindings");
+
+        let HarnessStoreError::Validation(diagnostics) = error else {
+            panic!("expected custom-definition validation diagnostics");
+        };
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == "custom_authority_binding"
+                && diagnostic.path.as_deref() == Some("$.custom[0].integration")
+        }));
+    }
+
+    #[test]
+    fn v3_documents_reject_unknown_custom_fields_at_the_document_boundary() {
+        let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
+        let error = parse_document(
+            br#"{"version":3,"overrides":{},"custom":[{"id":"copilot-local","name":"Copilot Local","launch":{"kind":"command-template","command":"copilot-local","args":[],"modelPrefix":null},"reporterCommand":"untrusted"}],"compatibilityProfiles":{}}"#,
+            &builtins,
+        )
+        .expect_err("v3 custom definitions must reject unknown fields");
+
+        let HarnessStoreError::Validation(diagnostics) = error else {
+            panic!("expected custom-definition validation diagnostics");
+        };
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == "unknown_field"
+                && diagnostic.path.as_deref() == Some("$.custom[0].reporterCommand")
+        }));
     }
 
     #[test]
@@ -962,7 +1043,7 @@ mod tests {
             .diagnostics()
             .iter()
             .any(|diagnostic| { diagnostic.code == "invalid_legacy_entry" }));
-        assert_eq!(loaded.document.version, 2);
+        assert_eq!(loaded.document.version, 3);
         assert!(!serde_json::to_string(&loaded.document)
             .unwrap()
             .contains("invalid_legacy_entry"));
