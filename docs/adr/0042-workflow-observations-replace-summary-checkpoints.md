@@ -1,6 +1,7 @@
 # Workflow observations replace summary checkpoints
 
-- Status: accepted
+- Status: accepted (the reachable-status clause of the "Embedded
+  recommendation evidence" decision below is superseded by ADR 0045)
 - Deciders: Rambolarsen
 - Date: 2026-08-14
 
@@ -80,8 +81,9 @@ decisions and replaces the durable-summary-checkpoint mechanism:
 - **Embedded recommendation evidence**: a qualifying cluster produces the
   passive `improve_workflow` variant of the canonical Taskmaster
   recommendation contract — `requiresApproval: false`, no accept/execute
-  action, and only `proposed`/`dismissed`/`superseded` reachable in this
-  version. Each recommendation embeds immutable snapshots of every cited
+  action, and only `proposed`/`dismissed` reachable in this version (the
+  original clause listing `superseded` as reachable was superseded by
+  ADR 0045; see there for the dismissal-immutability rationale). Each recommendation embeds immutable snapshots of every cited
   observation, so ordinary segment trimming cannot invalidate an existing
   card. Dismissal persists an evidence watermark (`dismissedAt`,
   `dismissedThroughSequence`, qualifying observation IDs/count, highest

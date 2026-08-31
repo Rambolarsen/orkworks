@@ -447,9 +447,13 @@ Recommendations use the existing workspace recommendation persistence area and
 Taskmaster list/dismiss interfaces. They remain derived proposals, not
 authoritative facts. `requiresApproval: false` means there is no executable
 action to approve; it does not authorize OrkWorks to apply the improvement.
-For this passive variant, only `proposed`, `dismissed`, and `superseded` are
-reachable in the first version. Other canonical statuses remain valid for
-shared deserialization but cannot be produced by its evaluator. Priority is the
+For this passive variant, only `proposed` and `dismissed` are reachable in
+the first version. Other canonical statuses, including `superseded`, remain
+valid for shared deserialization but cannot be produced by its evaluator.
+When a dismissed recommendation's evidence later qualifies for a resurfaced
+successor, the dismissed record remains immutable history and the successor's
+`supersedesRecommendationId` records the lineage; the predecessor's status is
+never rewritten. Priority is the
 highest cited impact. Recommendation confidence is conservative: `high` only
 when every qualifying cited observation is at least `0.8`; otherwise it is
 `medium`. Ineligible observations are not cited or counted. A proposed
