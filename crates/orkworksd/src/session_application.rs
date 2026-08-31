@@ -1,18 +1,18 @@
-use crate::{git, metadata, migration, plan_handoff, watcher, AppState, WorkspaceState};
-use crate::workspace_runtime::{iso_now, orkworks_global_dir};
-use crate::session_types::{MemoryState, SessionInfo};
-use crate::session_view::{connectivity_for_status, terminal_outcome_for_status};
 use crate::plan_handoff::{
     normalize_reported_plan_path, resolve_openable_plan_reference, resolve_printed_plan_path,
 };
 use crate::runtime::observed_status::apply_live_attention_fields;
+use crate::session_types::{MemoryState, SessionInfo};
+use crate::session_view::{connectivity_for_status, terminal_outcome_for_status};
 use crate::taskmaster::{RecommendationStatus, RecommendationType};
 use crate::workspace_runtime::parse_hook_observed_at;
+use crate::workspace_runtime::{iso_now, orkworks_global_dir};
+use crate::{git, metadata, migration, plan_handoff, watcher, AppState, WorkspaceState};
+use crate::{harness, peon, SessionHandle};
 use portable_pty::PtySize;
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use crate::{harness, peon, SessionHandle};
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum SessionError {
@@ -320,7 +320,12 @@ impl SessionApplication {
                 handle.runtime.matches_identity(&attempt.runtime_identity)
                     && handle.info.lifecycle_phase == "active"
             });
-            if !current || !self.state.peon.diagnostic_attempt_is_current(session_id, attempt) {
+            if !current
+                || !self
+                    .state
+                    .peon
+                    .diagnostic_attempt_is_current(session_id, attempt)
+            {
                 return PeonInferencePersistenceResult {
                     inference_persisted: false,
                     permanent_hold: false,
@@ -488,8 +493,7 @@ impl SessionApplication {
                             break;
                         }
                         Err(error)
-                            if attempt < 2 && is_retryable_observation_record_error(&error) =>
-                        {}
+                            if attempt < 2 && is_retryable_observation_record_error(&error) => {}
                         Err(error) => {
                             tracing::warn!(
                                 session_id = %session_id,
@@ -589,7 +593,10 @@ impl SessionApplication {
                 && output_range.run_generation == attempt.runtime_identity.run_generation;
             if !current
                 || !range_matches_attempt
-                || !self.state.peon.diagnostic_attempt_is_current(session_id, attempt)
+                || !self
+                    .state
+                    .peon
+                    .diagnostic_attempt_is_current(session_id, attempt)
             {
                 return PeonObservationRecordResult {
                     accepted_observation: false,
@@ -1085,10 +1092,12 @@ impl SessionApplication {
                 output_boundary.unwrap_or(handle.runtime.peon_output_revision);
             drop(sessions);
             drop(ws_guard);
-            self.state.peon.last_output.write().unwrap().insert(
-                id.to_string(),
-                tokio::time::Instant::now(),
-            );
+            self.state
+                .peon
+                .last_output
+                .write()
+                .unwrap()
+                .insert(id.to_string(), tokio::time::Instant::now());
             return;
         }
         let fields = crate::runtime::observed_status::process_transition_fields(
@@ -1106,10 +1115,12 @@ impl SessionApplication {
                 output_boundary.unwrap_or(handle.runtime.peon_output_revision);
             drop(sessions);
             drop(ws_guard);
-            self.state.peon.last_output.write().unwrap().insert(
-                id.to_string(),
-                tokio::time::Instant::now(),
-            );
+            self.state
+                .peon
+                .last_output
+                .write()
+                .unwrap()
+                .insert(id.to_string(), tokio::time::Instant::now());
             return;
         }
         let ws = ws_guard.as_ref().expect("workspace checked above");
@@ -1124,7 +1135,10 @@ impl SessionApplication {
             tracing::warn!(session_id = %id, "failed to persist input attention transition");
             return;
         }
-        crate::runtime::observed_status::apply_process_transition_to_handle(&mut handle.info, &fields);
+        crate::runtime::observed_status::apply_process_transition_to_handle(
+            &mut handle.info,
+            &fields,
+        );
         handle.pending_work_signal = None;
         handle.runtime.input_generation = next_generation;
         handle.runtime.accepted_input_at = Some(accepted_at);
@@ -1132,10 +1146,12 @@ impl SessionApplication {
             output_boundary.unwrap_or(handle.runtime.peon_output_revision);
         drop(sessions);
         drop(ws_guard);
-        self.state.peon.last_output.write().unwrap().insert(
-            id.to_string(),
-            tokio::time::Instant::now(),
-        );
+        self.state
+            .peon
+            .last_output
+            .write()
+            .unwrap()
+            .insert(id.to_string(), tokio::time::Instant::now());
     }
 
     /// Applies the Peon idle-timeout transition to persisted metadata and the
@@ -1282,12 +1298,7 @@ impl SessionApplication {
 
     /// Persists a validated Peon input label while preventing a reset from
     /// racing between the durable and live projections.
-    pub(crate) fn persist_input_label(
-        &self,
-        id: &str,
-        label: String,
-        captured_epoch: u64,
-    ) -> bool {
+    pub(crate) fn persist_input_label(&self, id: &str, label: String, captured_epoch: u64) -> bool {
         let epochs = self.state.peon.label_epochs.read().unwrap();
         let current_epoch = epochs.get(id).copied().unwrap_or(0);
         if captured_epoch != current_epoch {
@@ -1435,15 +1446,12 @@ impl SessionApplication {
         false
     }
 
-    pub(crate) fn open_workspace(
-        &self,
-        path: PathBuf,
-    ) -> Result<WorkspaceSnapshot, SessionError> {
+    pub(crate) fn open_workspace(&self, path: PathBuf) -> Result<WorkspaceSnapshot, SessionError> {
         if !path.is_dir() {
             return Err(SessionError::BadRequest("not a directory"));
         }
-        let global_dir = orkworks_global_dir(&path)
-            .ok_or(SessionError::Internal("no home directory"))?;
+        let global_dir =
+            orkworks_global_dir(&path).ok_or(SessionError::Internal("no home directory"))?;
         for dir in &["sessions", "events", "capacity", "skills"] {
             if let Err(error) = std::fs::create_dir_all(global_dir.join(dir)) {
                 tracing::warn!(path = %global_dir.display(), dir, %error, "failed to create metadata dir");
@@ -1456,7 +1464,9 @@ impl SessionApplication {
         let last_active_session_id = memory
             .as_ref()
             .and_then(|memory| memory.last_active_session_id.clone());
-        let active_harness_ids = memory.map(|memory| memory.active_harness_ids).unwrap_or_default();
+        let active_harness_ids = memory
+            .map(|memory| memory.active_harness_ids)
+            .unwrap_or_default();
         let watcher = watcher::MetadataWatcher::start(&global_dir.join("sessions"));
 
         let mut workspace = self.state.workspace.lock().unwrap();
@@ -1481,7 +1491,9 @@ impl SessionApplication {
             .collect::<std::collections::HashSet<_>>();
         if let Err(error) = recommendation_store.scrub_orphans(&retained_session_ids) {
             tracing::warn!(path = %global_dir.display(), %error, "failed to scrub orphaned recommendations");
-            return Err(SessionError::Internal("failed to scrub orphaned recommendations"));
+            return Err(SessionError::Internal(
+                "failed to scrub orphaned recommendations",
+            ));
         }
         *workspace = Some(WorkspaceState {
             path: path.clone(),
@@ -1592,12 +1604,16 @@ impl SessionApplication {
             .read_session(session_id)
             .ok_or(SessionError::NotFound)?;
         if session.harness != "codex" {
-            return Err(SessionError::BadRequest("hook fingerprint requires a Codex session"));
+            return Err(SessionError::BadRequest(
+                "hook fingerprint requires a Codex session",
+            ));
         }
-        workspace.metadata.write_codex_hook_observation(&metadata::CodexHookObservation {
-            fingerprint: fingerprint.into(),
-            observed_at: iso_now(),
-        });
+        workspace
+            .metadata
+            .write_codex_hook_observation(&metadata::CodexHookObservation {
+                fingerprint: fingerprint.into(),
+                observed_at: iso_now(),
+            });
         Ok(())
     }
 
@@ -1696,7 +1712,11 @@ impl SessionApplication {
             signal.attention.clone()
         };
         let is_capped = signal.attention == "capped";
-        let summary_message = if is_capped { None } else { signal.message.clone() };
+        let summary_message = if is_capped {
+            None
+        } else {
+            signal.message.clone()
+        };
         let debug_hint_mutation = if is_capped {
             signal
                 .message
@@ -1739,7 +1759,10 @@ impl SessionApplication {
     ) -> Result<(), SessionError> {
         let workspace_guard = self.state.workspace.lock().unwrap();
         let workspace = workspace_guard.as_ref().ok_or(SessionError::Conflict)?;
-        let mut metadata = workspace.metadata.read_session(id).ok_or(SessionError::NotFound)?;
+        let mut metadata = workspace
+            .metadata
+            .read_session(id)
+            .ok_or(SessionError::NotFound)?;
         if metadata.lifecycle != "alive" {
             return Err(SessionError::Conflict);
         }
@@ -1835,7 +1858,10 @@ impl SessionApplication {
     pub(crate) fn read_plan_content(&self, id: &str) -> Result<String, SessionError> {
         let workspace_guard = self.state.workspace.lock().unwrap();
         let workspace = workspace_guard.as_ref().ok_or(SessionError::Conflict)?;
-        let metadata = workspace.metadata.read_session(id).ok_or(SessionError::NotFound)?;
+        let metadata = workspace
+            .metadata
+            .read_session(id)
+            .ok_or(SessionError::NotFound)?;
         let plan_path = metadata.plan_path.ok_or(SessionError::Conflict)?;
         let path = resolve_openable_plan_reference(&workspace.path, &plan_path)
             .map_err(|_| SessionError::Conflict)?;
@@ -1846,7 +1872,10 @@ impl SessionApplication {
         let plan_path = {
             let workspace_guard = self.state.workspace.lock().unwrap();
             let workspace = workspace_guard.as_ref().ok_or(SessionError::Conflict)?;
-            let metadata = workspace.metadata.read_session(id).ok_or(SessionError::NotFound)?;
+            let metadata = workspace
+                .metadata
+                .read_session(id)
+                .ok_or(SessionError::NotFound)?;
             if metadata.lifecycle != "alive" {
                 return Err(SessionError::Conflict);
             }
@@ -1920,7 +1949,10 @@ impl SessionApplication {
                 .and_then(|handle| handle.runtime.accepted_input_at)
                 .is_some_and(|accepted_at| timestamp <= accepted_at)
         }) {
-            return self.workspace_exists().then_some(()).ok_or(SessionError::Conflict);
+            return self
+                .workspace_exists()
+                .then_some(())
+                .ok_or(SessionError::Conflict);
         }
         if let Some(cwd) = signal.cwd.as_deref().filter(|cwd| !cwd.is_empty()) {
             self.state
@@ -1976,18 +2008,27 @@ impl SessionApplication {
         }
         if result == metadata::AttentionMergeResult::Accepted {
             let mut bufs = self.state.peon.input_buf.write().unwrap();
-            if bufs.get(&id).is_some_and(|buf| !peon::is_descriptive_input(buf)) {
+            if bufs
+                .get(&id)
+                .is_some_and(|buf| !peon::is_descriptive_input(buf))
+            {
                 bufs.remove(&id);
             }
         }
         match result {
-            metadata::AttentionMergeResult::Accepted | metadata::AttentionMergeResult::Ignored => Ok(()),
+            metadata::AttentionMergeResult::Accepted | metadata::AttentionMergeResult::Ignored => {
+                Ok(())
+            }
             metadata::AttentionMergeResult::NotFound => Err(SessionError::NotFound),
-            metadata::AttentionMergeResult::PersistFailed => Err(SessionError::Internal("application operation failed")),
+            metadata::AttentionMergeResult::PersistFailed => {
+                Err(SessionError::Internal("application operation failed"))
+            }
         }
     }
 
-    fn workspace_exists(&self) -> bool { self.state.workspace.lock().unwrap().is_some() }
+    fn workspace_exists(&self) -> bool {
+        self.state.workspace.lock().unwrap().is_some()
+    }
 
     pub(crate) async fn select_plan(
         &self,
@@ -2029,11 +2070,15 @@ impl SessionApplication {
         let workspace_guard = self.state.workspace.lock().unwrap();
         let workspace = workspace_guard.as_ref().ok_or(SessionError::Conflict)?;
         let existing = workspace.metadata.read_workspace_memory();
-        workspace.metadata.write_workspace_memory(&metadata::WorkspaceMemory {
-            last_active_session_id: Some(session_id.to_string()),
-            last_active_at: Some(iso_now()),
-            active_harness_ids: existing.map(|memory| memory.active_harness_ids).unwrap_or_default(),
-        });
+        workspace
+            .metadata
+            .write_workspace_memory(&metadata::WorkspaceMemory {
+                last_active_session_id: Some(session_id.to_string()),
+                last_active_at: Some(iso_now()),
+                active_harness_ids: existing
+                    .map(|memory| memory.active_harness_ids)
+                    .unwrap_or_default(),
+            });
         Ok(())
     }
 
@@ -2044,13 +2089,15 @@ impl SessionApplication {
         let workspace_guard = self.state.workspace.lock().unwrap();
         let workspace = workspace_guard.as_ref().ok_or(SessionError::Conflict)?;
         let existing = workspace.metadata.read_workspace_memory();
-        workspace.metadata.write_workspace_memory(&metadata::WorkspaceMemory {
-            last_active_session_id: existing
-                .as_ref()
-                .and_then(|memory| memory.last_active_session_id.clone()),
-            last_active_at: Some(iso_now()),
-            active_harness_ids,
-        });
+        workspace
+            .metadata
+            .write_workspace_memory(&metadata::WorkspaceMemory {
+                last_active_session_id: existing
+                    .as_ref()
+                    .and_then(|memory| memory.last_active_session_id.clone()),
+                last_active_at: Some(iso_now()),
+                active_harness_ids,
+            });
         Ok(())
     }
 
@@ -2086,16 +2133,14 @@ impl SessionApplication {
         if !workspace.metadata.session_file_exists(id) {
             return Err(SessionError::NotFound);
         }
-        if let Err(error) = crate::runtime::retention::delete_session_evidence(
-            workspace,
-            id,
-            |session_id| {
+        if let Err(error) =
+            crate::runtime::retention::delete_session_evidence(workspace, id, |session_id| {
                 workspace
                     .recommendation_store
                     .delete_referencing_session(session_id)
                     .map_err(|error| error.to_string())
-            },
-        ) {
+            })
+        {
             tracing::error!(session_id = %id, %error, "failed to delete session evidence");
             if !workspace.metadata.session_file_exists(id) {
                 drop(workspace_guard);
@@ -2562,7 +2607,9 @@ async fn resume_session_workflow(
         Ok(()) => {}
         Err(error) => {
             tracing::error!(session_id = %id, %error, "failed to start resumed session runtime");
-            return Err(crate::session_application::SessionError::Internal("application operation failed"));
+            return Err(crate::session_application::SessionError::Internal(
+                "application operation failed",
+            ));
         }
     }
     let info = state
@@ -2885,7 +2932,7 @@ async fn create_session_workflow(
                 provider_state: None,
                 created_at: created_at.clone(),
                 last_activity: created_at.clone(),
-        last_output_at: None,
+                last_output_at: None,
                 metadata_source: "process".into(),
                 metadata_confidence: 1.0,
                 repo_root: meta_git_ctx.repo_root.clone(),
@@ -2972,7 +3019,6 @@ async fn create_session_workflow(
     Ok(info)
 }
 
-
 fn normalize_hook_attention_status(status: &str, supports_active_work: bool) -> Option<String> {
     match status {
         "working" | "thinking" | "reasoning" if supports_active_work => Some("working".into()),
@@ -2994,12 +3040,19 @@ fn clear_claude_capacity_after_working(
         .and_then(|handle| handle.info.harness_id.as_deref())
         .map(str::to_owned)
         .filter(|harness_id| *harness_id == "claude-code")
-    else { return; };
+    else {
+        return;
+    };
     if sessions.values().any(|handle| {
         handle.info.harness_id.as_deref() == Some(harness_id.as_str())
             && handle.at_usage_limit_latched
-            && handle.runtime.usage_limit_latched_at.is_some_and(|latched_at| latched_at > observed_at)
-    }) { return; }
+            && handle
+                .runtime
+                .usage_limit_latched_at
+                .is_some_and(|latched_at| latched_at > observed_at)
+    }) {
+        return;
+    }
     for handle in sessions.values_mut() {
         if handle.info.harness_id.as_deref() == Some(harness_id.as_str()) {
             handle.at_usage_limit_latched = false;
@@ -3051,7 +3104,10 @@ mod tests {
             other => panic!("expected accepted observation, got {other:?}"),
         };
         assert_eq!(observation.session_id, id);
-        assert_eq!(observation.source, crate::workflow_observations::ObservationSource::Agent);
+        assert_eq!(
+            observation.source,
+            crate::workflow_observations::ObservationSource::Agent
+        );
         assert_eq!(observation.confidence, 0.9);
     }
 
@@ -3122,13 +3178,21 @@ mod tests {
             confidence: 0.8,
         }];
 
-        let first = SessionApplication::new(state.clone())
-            .record_peon_workflow_observations(id, Some(root.path()), &range, &candidates);
+        let first = SessionApplication::new(state.clone()).record_peon_workflow_observations(
+            id,
+            Some(root.path()),
+            &range,
+            &candidates,
+        );
         assert!(first.accepted_observation);
         assert!(first.output_range_completed);
 
-        let duplicate = SessionApplication::new(state.clone())
-            .record_peon_workflow_observations(id, Some(root.path()), &range, &candidates);
+        let duplicate = SessionApplication::new(state.clone()).record_peon_workflow_observations(
+            id,
+            Some(root.path()),
+            &range,
+            &candidates,
+        );
         assert!(!duplicate.accepted_observation);
         assert!(duplicate.output_range_completed);
         let observations = state
@@ -3141,7 +3205,10 @@ mod tests {
             .workspace_observations()
             .unwrap();
         assert_eq!(observations.len(), 1);
-        assert_eq!(observations[0].source, crate::workflow_observations::ObservationSource::Peon);
+        assert_eq!(
+            observations[0].source,
+            crate::workflow_observations::ObservationSource::Peon
+        );
     }
 
     #[test]
@@ -3205,14 +3272,14 @@ mod tests {
             runtime: std::collections::HashMap::new(),
         };
 
-        let first = SessionApplication::new(state.clone())
-            .persist_final_peon_scan(id, 7, Some(&scan));
+        let first =
+            SessionApplication::new(state.clone()).persist_final_peon_scan(id, 7, Some(&scan));
         assert!(first.should_finalize);
         assert!(first.observation_accepted);
         assert_eq!(first.metadata.unwrap().lifecycle_phase, "ending");
 
-        let duplicate = SessionApplication::new(state.clone())
-            .persist_final_peon_scan(id, 7, Some(&scan));
+        let duplicate =
+            SessionApplication::new(state.clone()).persist_final_peon_scan(id, 7, Some(&scan));
         assert!(duplicate.should_finalize);
         assert!(!duplicate.observation_accepted);
         assert_eq!(
@@ -3267,8 +3334,8 @@ mod tests {
             runtime: std::collections::HashMap::new(),
         };
 
-        let result = SessionApplication::new(state.clone())
-            .persist_final_peon_scan(id, 8, Some(&scan));
+        let result =
+            SessionApplication::new(state.clone()).persist_final_peon_scan(id, 8, Some(&scan));
         assert!(result.should_finalize);
         assert!(!result.observation_accepted);
         let persisted = state
@@ -3288,8 +3355,11 @@ mod tests {
     fn rejects_missing_or_ended_final_scan_sessions_before_writes() {
         let root = tempfile::tempdir().unwrap();
         let state = crate::test_support::test_app_state_with_workspace(root.path());
-        let missing = SessionApplication::new(state.clone())
-            .persist_final_peon_scan("missing-final-scan", 1, None);
+        let missing = SessionApplication::new(state.clone()).persist_final_peon_scan(
+            "missing-final-scan",
+            1,
+            None,
+        );
         assert!(missing.should_finalize);
         assert!(!missing.observation_accepted);
         assert!(missing.metadata.is_none());
@@ -3305,8 +3375,11 @@ mod tests {
             attempts: vec![],
             runtime: std::collections::HashMap::new(),
         };
-        let missing_with_provider = SessionApplication::new(state.clone())
-            .persist_final_peon_scan("missing-final-scan", 2, Some(&provider_scan));
+        let missing_with_provider = SessionApplication::new(state.clone()).persist_final_peon_scan(
+            "missing-final-scan",
+            2,
+            Some(&provider_scan),
+        );
         assert!(missing_with_provider.should_finalize);
         assert!(!missing_with_provider.observation_accepted);
         assert!(missing_with_provider.metadata.is_none());
@@ -3328,8 +3401,7 @@ mod tests {
             .unwrap()
             .metadata
             .write_session(&metadata);
-        let ended = SessionApplication::new(state)
-            .persist_final_peon_scan(id, 1, None);
+        let ended = SessionApplication::new(state).persist_final_peon_scan(id, 1, None);
         assert!(!ended.should_finalize);
         assert!(!ended.observation_accepted);
         assert_eq!(ended.metadata.unwrap().lifecycle_phase, "ended");
@@ -3338,16 +3410,29 @@ mod tests {
     #[test]
     fn observation_key_binds_runtime_and_captured_range() {
         let first = peon_observation_key("runtime-a", "session", 2, 10, 12, 0);
-        assert_eq!(first, peon_observation_key("runtime-a", "session", 2, 10, 12, 0));
-        assert_ne!(first, peon_observation_key("runtime-b", "session", 2, 10, 12, 0));
-        assert_ne!(first, peon_observation_key("runtime-a", "session", 2, 11, 12, 0));
+        assert_eq!(
+            first,
+            peon_observation_key("runtime-a", "session", 2, 10, 12, 0)
+        );
+        assert_ne!(
+            first,
+            peon_observation_key("runtime-b", "session", 2, 10, 12, 0)
+        );
+        assert_ne!(
+            first,
+            peon_observation_key("runtime-a", "session", 2, 11, 12, 0)
+        );
     }
 
     fn attention_test_handle(id: &str, cwd: &std::path::Path) -> SessionHandle {
         let (kill_tx, _) = tokio::sync::watch::channel(false);
         SessionHandle {
             info: crate::test_support::test_session_info(
-                id, "Attention", cwd.display().to_string(), "running", "now",
+                id,
+                "Attention",
+                cwd.display().to_string(),
+                "running",
+                "now",
             ),
             active_work_hook: false,
             kill_tx,
@@ -3523,7 +3608,13 @@ mod tests {
             .read_session(id)
             .unwrap();
         assert_eq!(stored.observed_status.as_deref(), Some("idle"));
-        assert_eq!(state.sessions.lock().unwrap()[id].info.observed_status.as_deref(), Some("idle"));
+        assert_eq!(
+            state.sessions.lock().unwrap()[id]
+                .info
+                .observed_status
+                .as_deref(),
+            Some("idle")
+        );
     }
 
     #[test]
@@ -3581,14 +3672,36 @@ mod tests {
         metadata.lifecycle = "alive".into();
         metadata.lifecycle_phase = "active".into();
         metadata.observed_status = Some("capped".into());
-        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&metadata);
-        state.sessions.lock().unwrap().insert(id.into(), attention_test_handle(id, root.path()));
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .insert(id.into(), attention_test_handle(id, root.path()));
 
         SessionApplication::new(state.clone()).apply_idle_timeout(id);
 
-        let stored = state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(id).unwrap();
+        let stored = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
         assert_eq!(stored.observed_status.as_deref(), Some("capped"));
-        assert_eq!(state.sessions.lock().unwrap()[id].info.observed_status, None);
+        assert_eq!(
+            state.sessions.lock().unwrap()[id].info.observed_status,
+            None
+        );
     }
 
     #[test]
@@ -3613,13 +3726,28 @@ mod tests {
             store.sessions_dir()
         };
         std::fs::create_dir_all(sessions_dir.join(format!("{id}.json.tmp"))).unwrap();
-        state.sessions.lock().unwrap().insert(id.into(), attention_test_handle(id, root.path()));
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .insert(id.into(), attention_test_handle(id, root.path()));
 
         SessionApplication::new(state.clone()).apply_idle_timeout(id);
 
-        let persisted = state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(id).unwrap();
+        let persisted = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
         assert_ne!(persisted.observed_status.as_deref(), Some("idle"));
-        assert_eq!(state.sessions.lock().unwrap()[id].info.observed_status, None);
+        assert_eq!(
+            state.sessions.lock().unwrap()[id].info.observed_status,
+            None
+        );
     }
 
     #[test]
@@ -3639,7 +3767,9 @@ mod tests {
         let state = crate::test_support::test_app_state_with_workspace(root.path());
         let application = SessionApplication::new(state);
 
-        let snapshot = application.open_workspace(root.path().to_path_buf()).unwrap();
+        let snapshot = application
+            .open_workspace(root.path().to_path_buf())
+            .unwrap();
 
         assert_eq!(snapshot.path, root.path().to_string_lossy());
     }
@@ -3681,12 +3811,14 @@ mod tests {
             confidence: Some(0.91),
             observed_at: Some("after".into()),
         };
-        assert!(SessionApplication::new(state.clone()).complete_session_ending(
-            id,
-            generation,
-            snapshot.clone(),
-            "error",
-        ));
+        assert!(
+            SessionApplication::new(state.clone()).complete_session_ending(
+                id,
+                generation,
+                snapshot.clone(),
+                "error",
+            )
+        );
 
         let live = state.sessions.lock().unwrap()[id].info.clone();
         assert_eq!(live.status, "killed");
@@ -3718,12 +3850,14 @@ mod tests {
         state.sessions.lock().unwrap().insert(id.into(), handle);
         *state.workspace.lock().unwrap() = None;
 
-        assert!(SessionApplication::new(state.clone()).complete_session_ending(
-            id,
-            generation,
-            metadata::canonical_null_snapshot("recovery", None),
-            "error",
-        ));
+        assert!(
+            SessionApplication::new(state.clone()).complete_session_ending(
+                id,
+                generation,
+                metadata::canonical_null_snapshot("recovery", None),
+                "error",
+            )
+        );
 
         let live = state.sessions.lock().unwrap()[id].info.clone();
         assert_eq!(live.status, "error");
@@ -3744,11 +3878,7 @@ mod tests {
         state.sessions.lock().unwrap().insert(id.into(), handle);
         *state.workspace.lock().unwrap() = None;
 
-        SessionApplication::new(state.clone()).commit_accepted_input(
-            id,
-            Some(7),
-            true,
-        );
+        SessionApplication::new(state.clone()).commit_accepted_input(id, Some(7), true);
 
         let sessions = state.sessions.lock().unwrap();
         let live = &sessions[id];
@@ -3776,7 +3906,10 @@ mod tests {
         let sessions = state.sessions.lock().unwrap();
         let live = &sessions[id];
         assert_eq!(live.info.attention.as_deref(), Some("needs_you"));
-        assert_eq!(live.info.observed_status.as_deref(), Some("waiting_for_input"));
+        assert_eq!(
+            live.info.observed_status.as_deref(),
+            Some("waiting_for_input")
+        );
         assert_eq!(live.runtime.input_generation, 1);
         assert_eq!(live.runtime.min_peon_output_revision, 3);
         assert!(live.runtime.accepted_input_at.is_some());
@@ -4018,28 +4151,58 @@ mod tests {
         );
 
         let mut dead = crate::test_support::test_session_metadata(
-            "dead-plan", "Dead plan", root.path().display().to_string(), "ended", "before", "before",
+            "dead-plan",
+            "Dead plan",
+            root.path().display().to_string(),
+            "ended",
+            "before",
+            "before",
         );
         dead.lifecycle = "ended".into();
-        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&dead);
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&dead);
         assert_eq!(
-            application.report_plan_path("dead-plan", root.path().join("plan.md").to_str().unwrap()),
+            application
+                .report_plan_path("dead-plan", root.path().join("plan.md").to_str().unwrap()),
             Err(SessionError::Conflict)
         );
 
         let mut invalid = crate::test_support::test_session_metadata(
-            "invalid-plan", "Invalid plan", root.path().display().to_string(), "running", "before", "before",
+            "invalid-plan",
+            "Invalid plan",
+            root.path().display().to_string(),
+            "running",
+            "before",
+            "before",
         );
         invalid.lifecycle = "alive".into();
         invalid.lifecycle_phase = "active".into();
-        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&invalid);
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&invalid);
         assert_eq!(
             application.report_plan_path("invalid-plan", "../outside.md"),
             Err(SessionError::EmptyBadRequest)
         );
 
         let mut selected = crate::test_support::test_session_metadata(
-            "selected-plan", "Selected plan", root.path().display().to_string(), "running", "before", "before",
+            "selected-plan",
+            "Selected plan",
+            root.path().display().to_string(),
+            "running",
+            "before",
+            "before",
         );
         selected.lifecycle = "alive".into();
         selected.lifecycle_phase = "active".into();
@@ -4048,10 +4211,33 @@ mod tests {
             relative_path: "user-plan.md".into(),
             source: metadata::PlanSource::UserSelected,
         });
-        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&selected);
-        application.report_plan_path("selected-plan", root.path().join("hook-plan.md").to_str().unwrap()).unwrap();
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&selected);
+        application
+            .report_plan_path(
+                "selected-plan",
+                root.path().join("hook-plan.md").to_str().unwrap(),
+            )
+            .unwrap();
         assert_eq!(
-            state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session("selected-plan").unwrap().plan_path.unwrap().relative_path,
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session("selected-plan")
+                .unwrap()
+                .plan_path
+                .unwrap()
+                .relative_path,
             "user-plan.md"
         );
 
@@ -4073,19 +4259,47 @@ mod tests {
         let application = SessionApplication::new(state.clone());
         let id = "printed-fallback";
         let mut session = crate::test_support::test_session_metadata(
-            id, "Fallback", root.path().display().to_string(), "running", "now", "now",
+            id,
+            "Fallback",
+            root.path().display().to_string(),
+            "running",
+            "now",
+            "now",
         );
         session.lifecycle = "alive".into();
         session.lifecycle_phase = "active".into();
-        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&session);
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&session);
 
         assert!(application.persist_printed_plan_fallback(id, "docs/superpowers/plans/fallback.md"));
-        let stored = state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(id).unwrap();
+        let stored = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
         let reference = stored.plan_path.unwrap();
-        assert_eq!(reference.relative_path, "docs/superpowers/plans/fallback.md");
-        assert_eq!(reference.worktree_root, Some(root.path().display().to_string()));
+        assert_eq!(
+            reference.relative_path,
+            "docs/superpowers/plans/fallback.md"
+        );
+        assert_eq!(
+            reference.worktree_root,
+            Some(root.path().display().to_string())
+        );
         assert_eq!(reference.source, metadata::PlanSource::TerminalFallback);
-        assert!(!application.persist_printed_plan_fallback(id, "docs/superpowers/plans/fallback.md"));
+        assert!(
+            !application.persist_printed_plan_fallback(id, "docs/superpowers/plans/fallback.md")
+        );
     }
 
     #[test]
@@ -4102,15 +4316,33 @@ mod tests {
         let application = SessionApplication::new(state.clone());
         let id = "printed-clear";
         let mut session = crate::test_support::test_session_metadata(
-            id, "Fallback", root.path().display().to_string(), "running", "now", "now",
+            id,
+            "Fallback",
+            root.path().display().to_string(),
+            "running",
+            "now",
+            "now",
         );
         session.lifecycle = "alive".into();
         session.lifecycle_phase = "active".into();
-        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&session);
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&session);
 
         assert!(!application.persist_printed_plan_fallback(id, "specs/missing.md"));
         assert!(!application.persist_printed_plan_fallback(id, outside_plan.to_str().unwrap()));
-        let result = state.workspace.lock().unwrap().as_ref().unwrap().metadata
+        let result = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
             .merge_agent_attention_signal_with_plan(
                 id,
                 "waiting_for_input",
@@ -4177,7 +4409,9 @@ mod tests {
         {
             let workspace = state.workspace.lock().unwrap();
             let workspace = workspace.as_ref().unwrap();
-            workspace.metadata.append_terminal_output_records(id, &records);
+            workspace
+                .metadata
+                .append_terminal_output_records(id, &records);
             workspace.metadata.write_terminal_size(id, 120, 40);
         }
 
@@ -4200,7 +4434,9 @@ mod tests {
         {
             let workspace = state.workspace.lock().unwrap();
             let workspace = workspace.as_ref().unwrap();
-            workspace.metadata.write_session(&crate::test_support::test_session_metadata(
+            workspace
+                .metadata
+                .write_session(&crate::test_support::test_session_metadata(
                     id,
                     "Summary query",
                     root.path().display().to_string(),
@@ -4328,10 +4564,12 @@ mod tests {
             .metadata
             .write_session(&session);
 
-        assert!(SessionApplication::new(state.clone()).persist_process_transition(
-            id,
-            crate::runtime::observed_status::ProcessTransition::CommittedWorking,
-        ));
+        assert!(
+            SessionApplication::new(state.clone()).persist_process_transition(
+                id,
+                crate::runtime::observed_status::ProcessTransition::CommittedWorking,
+            )
+        );
 
         let stored = state
             .workspace
@@ -4379,7 +4617,14 @@ mod tests {
             "now",
         );
         session.plan_path = Some("docs/superpowers/plans/plan.md".into());
-        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&session);
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&session);
 
         assert_eq!(
             SessionApplication::new(state).read_plan_content("plan-content"),
@@ -4393,31 +4638,82 @@ mod tests {
         let state = crate::test_support::test_app_state_with_workspace(root.path());
         let application = SessionApplication::new(state.clone());
 
-        assert_eq!(application.read_plan_content("missing"), Err(SessionError::NotFound));
+        assert_eq!(
+            application.read_plan_content("missing"),
+            Err(SessionError::NotFound)
+        );
 
         let mut no_plan = crate::test_support::test_session_metadata(
-            "no-plan", "No plan", root.path().display().to_string(), "running", "now", "now",
+            "no-plan",
+            "No plan",
+            root.path().display().to_string(),
+            "running",
+            "now",
+            "now",
         );
         no_plan.plan_path = None;
-        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&no_plan);
-        assert_eq!(application.read_plan_content("no-plan"), Err(SessionError::Conflict));
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&no_plan);
+        assert_eq!(
+            application.read_plan_content("no-plan"),
+            Err(SessionError::Conflict)
+        );
 
         let mut invalid = crate::test_support::test_session_metadata(
-            "invalid-plan", "Invalid plan", root.path().display().to_string(), "running", "now", "now",
+            "invalid-plan",
+            "Invalid plan",
+            root.path().display().to_string(),
+            "running",
+            "now",
+            "now",
         );
         invalid.plan_path = Some("../outside.md".into());
-        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&invalid);
-        assert_eq!(application.read_plan_content("invalid-plan"), Err(SessionError::Conflict));
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&invalid);
+        assert_eq!(
+            application.read_plan_content("invalid-plan"),
+            Err(SessionError::Conflict)
+        );
 
         let mut unreadable = crate::test_support::test_session_metadata(
-            "unreadable-plan", "Unreadable plan", root.path().display().to_string(), "running", "now", "now",
+            "unreadable-plan",
+            "Unreadable plan",
+            root.path().display().to_string(),
+            "running",
+            "now",
+            "now",
         );
         unreadable.plan_path = Some("docs/superpowers/plans/missing.md".into());
-        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&unreadable);
-        assert_eq!(application.read_plan_content("unreadable-plan"), Err(SessionError::Conflict));
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&unreadable);
+        assert_eq!(
+            application.read_plan_content("unreadable-plan"),
+            Err(SessionError::Conflict)
+        );
 
         *state.workspace.lock().unwrap() = None;
-        assert_eq!(application.read_plan_content("no-plan"), Err(SessionError::Conflict));
+        assert_eq!(
+            application.read_plan_content("no-plan"),
+            Err(SessionError::Conflict)
+        );
     }
 
     #[test]
@@ -4430,23 +4726,53 @@ mod tests {
         let state = crate::test_support::test_app_state_with_workspace(root.path());
         let id = "hook-plan";
         let mut session = crate::test_support::test_session_metadata(
-            id, "Hook plan", root.path().display().to_string(), "running", "before", "before",
+            id,
+            "Hook plan",
+            root.path().display().to_string(),
+            "running",
+            "before",
+            "before",
         );
         session.lifecycle = "alive".into();
         session.lifecycle_phase = "active".into();
         session.attention = Some("working".into());
-        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&session);
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&session);
 
         SessionApplication::new(state.clone())
             .report_plan_path(id, plan.to_str().unwrap())
             .unwrap();
 
-        let stored = state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(id).unwrap();
+        let stored = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
         let reference = stored.plan_path.unwrap();
         assert_eq!(reference.relative_path, "docs/superpowers/plans/plan.md");
         assert_eq!(reference.source, metadata::PlanSource::HookReported);
         assert_eq!(stored.attention.as_deref(), Some("working"));
-        let event = state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_events(id).into_iter().find(|event| event.event_type == "session.plan_path_hooked").unwrap();
+        let event = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_events(id)
+            .into_iter()
+            .find(|event| event.event_type == "session.plan_path_hooked")
+            .unwrap();
         assert_eq!(event.source.as_deref(), Some("agent"));
         assert_eq!(event.confidence, Some(1.0));
     }
@@ -4461,19 +4787,47 @@ mod tests {
         let state = crate::test_support::test_app_state_with_workspace(root.path());
         let id = "write-fails-plan";
         let mut session = crate::test_support::test_session_metadata(
-            id, "Write fails", root.path().display().to_string(), "running", "before", "before",
+            id,
+            "Write fails",
+            root.path().display().to_string(),
+            "running",
+            "before",
+            "before",
         );
         session.lifecycle = "alive".into();
         session.lifecycle_phase = "active".into();
-        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&session);
-        let sessions_path = state.workspace.lock().unwrap().as_ref().unwrap().metadata.sessions_dir();
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&session);
+        let sessions_path = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .sessions_dir();
         std::fs::create_dir_all(sessions_path.join(format!("{id}.json.tmp"))).unwrap();
 
         assert_eq!(
             SessionApplication::new(state.clone()).report_plan_path(id, plan.to_str().unwrap()),
             Err(SessionError::Internal("application operation failed"))
         );
-        assert!(state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_events(id).into_iter().all(|event| event.event_type != "session.plan_path_hooked"));
+        assert!(state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_events(id)
+            .into_iter()
+            .all(|event| event.event_type != "session.plan_path_hooked"));
     }
 
     #[tokio::test]
@@ -4621,10 +4975,15 @@ mod tests {
         });
         let ws = state.workspace.lock().unwrap();
         ws.as_ref().unwrap().metadata.write_session(&metadata);
-        ws.as_ref().unwrap().metadata.write_terminal_size(id, 120, 40);
+        ws.as_ref()
+            .unwrap()
+            .metadata
+            .write_terminal_size(id, 120, 40);
         drop(ws);
 
-        let result = SessionApplication::new(state.clone()).resume_session(id).await;
+        let result = SessionApplication::new(state.clone())
+            .resume_session(id)
+            .await;
 
         assert!(matches!(
             result,
@@ -4665,19 +5024,47 @@ mod tests {
         let state = crate::test_support::test_app_state_with_workspace(root.path());
         let id = "attention-application";
         let mut meta = crate::test_support::test_session_metadata(
-            id, "Attention", root.path().display().to_string(), "running", "before", "before",
+            id,
+            "Attention",
+            root.path().display().to_string(),
+            "running",
+            "before",
+            "before",
         );
         meta.lifecycle = "alive".into();
         meta.lifecycle_phase = "active".into();
-        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&meta);
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&meta);
 
         SessionApplication::new(state.clone())
-            .report_attention(id, AttentionSignal {
-                status: "waiting_for_input".into(), message: Some("question".into()),
-                plan_path: metadata::PlanPathUpdate::Unchanged, observed_at: None, cwd: None,
-            }).await.unwrap();
+            .report_attention(
+                id,
+                AttentionSignal {
+                    status: "waiting_for_input".into(),
+                    message: Some("question".into()),
+                    plan_path: metadata::PlanPathUpdate::Unchanged,
+                    observed_at: None,
+                    cwd: None,
+                },
+            )
+            .await
+            .unwrap();
 
-        let stored = state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(id).unwrap();
+        let stored = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
         assert_eq!(stored.observed_status.as_deref(), Some("waiting_for_input"));
         assert_eq!(stored.attention.as_deref(), Some("needs_you"));
     }
@@ -4686,10 +5073,18 @@ mod tests {
     async fn report_attention_application_seam_rejects_invalid_status() {
         let root = tempfile::tempdir().unwrap();
         let state = crate::test_support::test_app_state_with_workspace(root.path());
-        let result = SessionApplication::new(state).report_attention("missing", AttentionSignal {
-            status: "invalid".into(), message: None, plan_path: metadata::PlanPathUpdate::Unchanged,
-            observed_at: None, cwd: None,
-        }).await;
+        let result = SessionApplication::new(state)
+            .report_attention(
+                "missing",
+                AttentionSignal {
+                    status: "invalid".into(),
+                    message: None,
+                    plan_path: metadata::PlanPathUpdate::Unchanged,
+                    observed_at: None,
+                    cwd: None,
+                },
+            )
+            .await;
         assert!(matches!(result, Err(SessionError::EmptyBadRequest)));
     }
 
@@ -4699,40 +5094,71 @@ mod tests {
         let state = crate::test_support::test_app_state_with_workspace(root.path());
         let id = "attention-merge-hook";
         let mut meta = crate::test_support::test_session_metadata(
-            id, "Attention", root.path().display().to_string(), "running", "before", "before",
+            id,
+            "Attention",
+            root.path().display().to_string(),
+            "running",
+            "before",
+            "before",
         );
         meta.lifecycle = "alive".into();
         meta.lifecycle_phase = "active".into();
-        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&meta);
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&meta);
         let mut handle = attention_test_handle(id, root.path());
-        handle.pending_work_signal = Some(crate::runtime::session_runtime::arm_pending_work_signal(
-            "y", tokio::time::Instant::now(),
-        ));
+        handle.pending_work_signal =
+            Some(crate::runtime::session_runtime::arm_pending_work_signal(
+                "y",
+                tokio::time::Instant::now(),
+            ));
         state.sessions.lock().unwrap().insert(id.into(), handle);
 
-        let result = SessionApplication::new(state.clone()).apply_attention_signal(AttentionMergeSignal {
-            session_id: id.into(),
-            observed_status: "waiting_for_input".into(),
-            message: Some("question".into()),
-            plan_path: metadata::PlanPathUpdate::Unchanged,
-            timestamp: "2026-01-01T00:00:00Z".into(),
-            source: "agent".into(),
-            confidence: 1.0,
-            observed_at: Some(parse_hook_observed_at("2026-01-01T00:00:01.000000Z").unwrap()),
-            reject_stale_observed_at: true,
-            update_hook_timestamp: true,
-            clear_pending_work_signal: true,
-            require_alive: false,
-            debug_hint_mutation: None,
-        });
+        let result =
+            SessionApplication::new(state.clone()).apply_attention_signal(AttentionMergeSignal {
+                session_id: id.into(),
+                observed_status: "waiting_for_input".into(),
+                message: Some("question".into()),
+                plan_path: metadata::PlanPathUpdate::Unchanged,
+                timestamp: "2026-01-01T00:00:00Z".into(),
+                source: "agent".into(),
+                confidence: 1.0,
+                observed_at: Some(parse_hook_observed_at("2026-01-01T00:00:01.000000Z").unwrap()),
+                reject_stale_observed_at: true,
+                update_hook_timestamp: true,
+                clear_pending_work_signal: true,
+                require_alive: false,
+                debug_hint_mutation: None,
+            });
 
         assert_eq!(result, Ok(metadata::AttentionMergeResult::Accepted));
         let sessions = state.sessions.lock().unwrap();
         let live = sessions.get(id).unwrap();
         assert!(live.pending_work_signal.is_none());
         assert_eq!(live.info.attention.as_deref(), Some("needs_you"));
-        assert_eq!(live.runtime.last_hook_attention_at.unwrap().to_rfc3339(), "2026-01-01T00:00:01+00:00");
-        assert_eq!(state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(id).unwrap().attention.as_deref(), Some("needs_you"));
+        assert_eq!(
+            live.runtime.last_hook_attention_at.unwrap().to_rfc3339(),
+            "2026-01-01T00:00:01+00:00"
+        );
+        assert_eq!(
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(id)
+                .unwrap()
+                .attention
+                .as_deref(),
+            Some("needs_you")
+        );
     }
 
     #[test]
@@ -4741,34 +5167,66 @@ mod tests {
         let state = crate::test_support::test_app_state_with_workspace(root.path());
         let id = "attention-merge-stale";
         let mut meta = crate::test_support::test_session_metadata(
-            id, "Attention", root.path().display().to_string(), "running", "before", "before",
+            id,
+            "Attention",
+            root.path().display().to_string(),
+            "running",
+            "before",
+            "before",
         );
         meta.lifecycle = "alive".into();
         meta.lifecycle_phase = "active".into();
-        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&meta);
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&meta);
         let mut handle = attention_test_handle(id, root.path());
-        handle.runtime.last_hook_attention_at = Some(parse_hook_observed_at("2026-01-01T00:00:02.000000Z").unwrap());
+        handle.runtime.last_hook_attention_at =
+            Some(parse_hook_observed_at("2026-01-01T00:00:02.000000Z").unwrap());
         state.sessions.lock().unwrap().insert(id.into(), handle);
 
-        let result = SessionApplication::new(state.clone()).apply_attention_signal(AttentionMergeSignal {
-            session_id: id.into(),
-            observed_status: "working".into(),
-            message: Some("stale".into()),
-            plan_path: metadata::PlanPathUpdate::Unchanged,
-            timestamp: "2026-01-01T00:00:00Z".into(),
-            source: "agent".into(),
-            confidence: 1.0,
-            observed_at: Some(parse_hook_observed_at("2026-01-01T00:00:01.000000Z").unwrap()),
-            reject_stale_observed_at: true,
-            update_hook_timestamp: true,
-            clear_pending_work_signal: true,
-            require_alive: false,
-            debug_hint_mutation: None,
-        });
+        let result =
+            SessionApplication::new(state.clone()).apply_attention_signal(AttentionMergeSignal {
+                session_id: id.into(),
+                observed_status: "working".into(),
+                message: Some("stale".into()),
+                plan_path: metadata::PlanPathUpdate::Unchanged,
+                timestamp: "2026-01-01T00:00:00Z".into(),
+                source: "agent".into(),
+                confidence: 1.0,
+                observed_at: Some(parse_hook_observed_at("2026-01-01T00:00:01.000000Z").unwrap()),
+                reject_stale_observed_at: true,
+                update_hook_timestamp: true,
+                clear_pending_work_signal: true,
+                require_alive: false,
+                debug_hint_mutation: None,
+            });
 
         assert_eq!(result, Ok(metadata::AttentionMergeResult::Ignored));
-        assert!(state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(id).unwrap().summary.is_none());
-        assert!(state.sessions.lock().unwrap().get(id).unwrap().info.summary.is_none());
+        assert!(state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap()
+            .summary
+            .is_none());
+        assert!(state
+            .sessions
+            .lock()
+            .unwrap()
+            .get(id)
+            .unwrap()
+            .info
+            .summary
+            .is_none());
     }
 
     #[test]
@@ -4777,32 +5235,47 @@ mod tests {
         let state = crate::test_support::test_app_state_with_workspace(root.path());
         let id = "attention-merge-debug";
         let mut meta = crate::test_support::test_session_metadata(
-            id, "Attention", root.path().display().to_string(), "running", "before", "before",
+            id,
+            "Attention",
+            root.path().display().to_string(),
+            "running",
+            "before",
+            "before",
         );
         meta.lifecycle = "alive".into();
         meta.lifecycle_phase = "active".into();
-        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&meta);
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&meta);
         let mut handle = attention_test_handle(id, root.path());
-        handle.pending_work_signal = Some(crate::runtime::session_runtime::arm_pending_work_signal(
-            "y", tokio::time::Instant::now(),
-        ));
+        handle.pending_work_signal =
+            Some(crate::runtime::session_runtime::arm_pending_work_signal(
+                "y",
+                tokio::time::Instant::now(),
+            ));
         state.sessions.lock().unwrap().insert(id.into(), handle);
 
-        let result = SessionApplication::new(state.clone()).apply_attention_signal(AttentionMergeSignal {
-            session_id: id.into(),
-            observed_status: "waiting_for_input".into(),
-            message: None,
-            plan_path: metadata::PlanPathUpdate::Unchanged,
-            timestamp: "2026-01-01T00:00:00Z".into(),
-            source: "debug".into(),
-            confidence: 0.0,
-            observed_at: None,
-            reject_stale_observed_at: false,
-            update_hook_timestamp: false,
-            clear_pending_work_signal: false,
-            require_alive: true,
-            debug_hint_mutation: Some(DebugHintMutation::Preserve),
-        });
+        let result =
+            SessionApplication::new(state.clone()).apply_attention_signal(AttentionMergeSignal {
+                session_id: id.into(),
+                observed_status: "waiting_for_input".into(),
+                message: None,
+                plan_path: metadata::PlanPathUpdate::Unchanged,
+                timestamp: "2026-01-01T00:00:00Z".into(),
+                source: "debug".into(),
+                confidence: 0.0,
+                observed_at: None,
+                reject_stale_observed_at: false,
+                update_hook_timestamp: false,
+                clear_pending_work_signal: false,
+                require_alive: true,
+                debug_hint_mutation: Some(DebugHintMutation::Preserve),
+            });
 
         assert_eq!(result, Ok(metadata::AttentionMergeResult::Accepted));
         let sessions = state.sessions.lock().unwrap();
@@ -4818,50 +5291,77 @@ mod tests {
         let state = crate::test_support::test_app_state_with_workspace(root.path());
         let id = "attention-merge-concurrent";
         let mut meta = crate::test_support::test_session_metadata(
-            id, "Attention", root.path().display().to_string(), "running", "before", "before",
+            id,
+            "Attention",
+            root.path().display().to_string(),
+            "running",
+            "before",
+            "before",
         );
         meta.lifecycle = "alive".into();
         meta.lifecycle_phase = "active".into();
-        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&meta);
-        state.sessions.lock().unwrap().insert(id.into(), attention_test_handle(id, root.path()));
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&meta);
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .insert(id.into(), attention_test_handle(id, root.path()));
 
         let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
-        let calls = [
-            ("waiting_for_input", "A"),
-            ("blocked", "B"),
-        ]
-        .into_iter()
-        .map(|(status, message)| {
-            let state = state.clone();
-            let barrier = barrier.clone();
-            std::thread::spawn(move || {
-                barrier.wait();
-                SessionApplication::new(state).apply_attention_signal(AttentionMergeSignal {
-                    session_id: id.into(),
-                    observed_status: status.into(),
-                    message: Some(message.into()),
-                    plan_path: metadata::PlanPathUpdate::Unchanged,
-                    timestamp: "2026-01-01T00:00:00Z".into(),
-                    source: "agent".into(),
-                    confidence: 1.0,
-                    observed_at: None,
-                    reject_stale_observed_at: false,
-                    update_hook_timestamp: false,
-                    clear_pending_work_signal: true,
-                    require_alive: false,
-                    debug_hint_mutation: None,
+        let calls = [("waiting_for_input", "A"), ("blocked", "B")]
+            .into_iter()
+            .map(|(status, message)| {
+                let state = state.clone();
+                let barrier = barrier.clone();
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    SessionApplication::new(state).apply_attention_signal(AttentionMergeSignal {
+                        session_id: id.into(),
+                        observed_status: status.into(),
+                        message: Some(message.into()),
+                        plan_path: metadata::PlanPathUpdate::Unchanged,
+                        timestamp: "2026-01-01T00:00:00Z".into(),
+                        source: "agent".into(),
+                        confidence: 1.0,
+                        observed_at: None,
+                        reject_stale_observed_at: false,
+                        update_hook_timestamp: false,
+                        clear_pending_work_signal: true,
+                        require_alive: false,
+                        debug_hint_mutation: None,
+                    })
                 })
             })
-        })
-        .collect::<Vec<_>>();
+            .collect::<Vec<_>>();
         for call in calls {
-            assert_eq!(call.join().unwrap(), Ok(metadata::AttentionMergeResult::Accepted));
+            assert_eq!(
+                call.join().unwrap(),
+                Ok(metadata::AttentionMergeResult::Accepted)
+            );
         }
 
-        let persisted = state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(id).unwrap();
+        let persisted = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
         let sessions = state.sessions.lock().unwrap();
         let live = &sessions.get(id).unwrap().info;
-        assert_eq!(live.observed_status.as_deref(), persisted.observed_status.as_deref());
+        assert_eq!(
+            live.observed_status.as_deref(),
+            persisted.observed_status.as_deref()
+        );
         assert_eq!(live.attention.as_deref(), persisted.attention.as_deref());
         assert_eq!(live.summary.as_deref(), persisted.summary.as_deref());
     }
@@ -4905,11 +5405,7 @@ mod tests {
 
         let workspace = state.workspace.lock().unwrap();
         assert_eq!(
-            workspace
-                .as_ref()
-                .unwrap()
-                .metadata
-                .read_terminal_size(&id),
+            workspace.as_ref().unwrap().metadata.read_terminal_size(&id),
             Some((120, 40))
         );
     }
@@ -4920,18 +5416,41 @@ mod tests {
         let state = crate::test_support::test_app_state_with_workspace(root.path());
         let id = "output-recency-application";
         let mut metadata = crate::test_support::test_session_metadata(
-            id, "Output recency", &root.path().display().to_string(), "running", "now", "now",
+            id,
+            "Output recency",
+            &root.path().display().to_string(),
+            "running",
+            "now",
+            "now",
         );
         metadata.last_output_at = Some("2026-07-29T10:00:00Z".into());
-        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&metadata);
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
         let application = SessionApplication::new(state.clone());
 
         application.persist_output_recency(id, "2026-07-29T10:00:01Z".into());
         application.persist_output_recency(id, "2026-07-29T10:00:01Z".into());
         application.persist_output_recency(id, "2026-07-29T09:59:59Z".into());
 
-        let stored = state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(id).unwrap();
-        assert_eq!(stored.last_output_at.as_deref(), Some("2026-07-29T10:00:01Z"));
+        let stored = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
+        assert_eq!(
+            stored.last_output_at.as_deref(),
+            Some("2026-07-29T10:00:01Z")
+        );
     }
 
     #[test]
@@ -4940,15 +5459,38 @@ mod tests {
         let state = crate::test_support::test_app_state_with_workspace(root.path());
         let id = "output-recency-new";
         let metadata = crate::test_support::test_session_metadata(
-            id, "Output recency", &root.path().display().to_string(), "running", "now", "now",
+            id,
+            "Output recency",
+            &root.path().display().to_string(),
+            "running",
+            "now",
+            "now",
         );
-        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&metadata);
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
 
         SessionApplication::new(state.clone())
             .persist_output_recency(id, "2026-07-29T10:00:00Z".into());
 
-        let stored = state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(id).unwrap();
-        assert_eq!(stored.last_output_at.as_deref(), Some("2026-07-29T10:00:00Z"));
+        let stored = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
+        assert_eq!(
+            stored.last_output_at.as_deref(),
+            Some("2026-07-29T10:00:00Z")
+        );
     }
 
     #[test]
@@ -4957,16 +5499,39 @@ mod tests {
         let state = crate::test_support::test_app_state_with_workspace(root.path());
         let id = "output-recency-malformed-stored";
         let mut metadata = crate::test_support::test_session_metadata(
-            id, "Output recency", &root.path().display().to_string(), "running", "now", "now",
+            id,
+            "Output recency",
+            &root.path().display().to_string(),
+            "running",
+            "now",
+            "now",
         );
         metadata.last_output_at = Some("not-a-timestamp".into());
-        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&metadata);
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
 
         SessionApplication::new(state.clone())
             .persist_output_recency(id, "2026-07-29T10:00:00Z".into());
 
-        let stored = state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(id).unwrap();
-        assert_eq!(stored.last_output_at.as_deref(), Some("2026-07-29T10:00:00Z"));
+        let stored = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
+        assert_eq!(
+            stored.last_output_at.as_deref(),
+            Some("2026-07-29T10:00:00Z")
+        );
     }
 
     #[test]
@@ -4975,15 +5540,38 @@ mod tests {
         let state = crate::test_support::test_app_state_with_workspace(root.path());
         let id = "output-recency-malformed-incoming";
         let mut metadata = crate::test_support::test_session_metadata(
-            id, "Output recency", &root.path().display().to_string(), "running", "now", "now",
+            id,
+            "Output recency",
+            &root.path().display().to_string(),
+            "running",
+            "now",
+            "now",
         );
         metadata.last_output_at = Some("2026-07-29T10:00:00Z".into());
-        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&metadata);
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
 
         SessionApplication::new(state.clone()).persist_output_recency(id, "not-a-timestamp".into());
 
-        let stored = state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(id).unwrap();
-        assert_eq!(stored.last_output_at.as_deref(), Some("2026-07-29T10:00:00Z"));
+        let stored = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
+        assert_eq!(
+            stored.last_output_at.as_deref(),
+            Some("2026-07-29T10:00:00Z")
+        );
     }
 
     #[test]
@@ -5003,25 +5591,53 @@ mod tests {
         let state = crate::test_support::test_app_state_with_workspace(root.path());
         let id = "attention-stale-application";
         let mut meta = crate::test_support::test_session_metadata(
-            id, "Attention", root.path().display().to_string(), "running", "before", "before",
+            id,
+            "Attention",
+            root.path().display().to_string(),
+            "running",
+            "before",
+            "before",
         );
         meta.lifecycle = "alive".into();
         meta.lifecycle_phase = "active".into();
         meta.observed_status = Some("working".into());
         meta.attention = Some("working".into());
-        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&meta);
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&meta);
         let mut handle = attention_test_handle(id, root.path());
-        handle.runtime.accepted_input_at = Some(parse_hook_observed_at("2026-08-22T08:00:01.000000Z").unwrap());
+        handle.runtime.accepted_input_at =
+            Some(parse_hook_observed_at("2026-08-22T08:00:01.000000Z").unwrap());
         state.sessions.lock().unwrap().insert(id.into(), handle);
 
         SessionApplication::new(state.clone())
-            .report_attention(id, AttentionSignal {
-                status: "waiting_for_input".into(), message: Some("old".into()),
-                plan_path: metadata::PlanPathUpdate::Unchanged,
-                observed_at: Some("2026-08-22T08:00:00.000000Z".into()), cwd: Some("/stale".into()),
-            }).await.unwrap();
+            .report_attention(
+                id,
+                AttentionSignal {
+                    status: "waiting_for_input".into(),
+                    message: Some("old".into()),
+                    plan_path: metadata::PlanPathUpdate::Unchanged,
+                    observed_at: Some("2026-08-22T08:00:00.000000Z".into()),
+                    cwd: Some("/stale".into()),
+                },
+            )
+            .await
+            .unwrap();
 
-        let stored = state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(id).unwrap();
+        let stored = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
         assert_eq!(stored.observed_status.as_deref(), Some("working"));
         assert_eq!(state.peon.reported_cwd.read().unwrap().get(id), None);
     }
@@ -5032,18 +5648,45 @@ mod tests {
         let state = crate::test_support::test_app_state_with_workspace(root.path());
         let id = "attention-persist-failure";
         let mut meta = crate::test_support::test_session_metadata(
-            id, "Attention", root.path().display().to_string(), "running", "before", "before",
+            id,
+            "Attention",
+            root.path().display().to_string(),
+            "running",
+            "before",
+            "before",
         );
         meta.lifecycle = "alive".into();
-        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&meta);
-        std::fs::create_dir_all(root.path().join(".orkworks-test/sessions/attention-persist-failure.json.tmp")).unwrap();
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&meta);
+        std::fs::create_dir_all(
+            root.path()
+                .join(".orkworks-test/sessions/attention-persist-failure.json.tmp"),
+        )
+        .unwrap();
 
-        let result = SessionApplication::new(state).report_attention(id, AttentionSignal {
-            status: "waiting_for_input".into(), message: Some("not persisted".into()),
-            plan_path: metadata::PlanPathUpdate::Unchanged, observed_at: None, cwd: None,
-        }).await;
+        let result = SessionApplication::new(state)
+            .report_attention(
+                id,
+                AttentionSignal {
+                    status: "waiting_for_input".into(),
+                    message: Some("not persisted".into()),
+                    plan_path: metadata::PlanPathUpdate::Unchanged,
+                    observed_at: None,
+                    cwd: None,
+                },
+            )
+            .await;
 
-        assert!(matches!(result, Err(SessionError::Internal("application operation failed"))));
+        assert!(matches!(
+            result,
+            Err(SessionError::Internal("application operation failed"))
+        ));
     }
 
     #[tokio::test]
@@ -5053,14 +5696,31 @@ mod tests {
         let state = crate::test_support::test_app_state_with_workspace(root.path());
         let id = "plan-rejected-application";
         let mut meta = crate::test_support::test_session_metadata(
-            id, "Plan", root.path().display().to_string(), "running", "before", "before",
+            id,
+            "Plan",
+            root.path().display().to_string(),
+            "running",
+            "before",
+            "before",
         );
         meta.cwd = root.path().display().to_string();
-        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&meta);
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&meta);
 
-        let result = SessionApplication::new(state).select_plan(id, PlanSelection {
-            printed_path: "../outside-plan.md".into(),
-        }).await;
+        let result = SessionApplication::new(state)
+            .select_plan(
+                id,
+                PlanSelection {
+                    printed_path: "../outside-plan.md".into(),
+                },
+            )
+            .await;
 
         assert!(matches!(result, Err(SessionError::Conflict)));
     }
@@ -5074,19 +5734,56 @@ mod tests {
         let state = crate::test_support::test_app_state_with_workspace(root.path());
         let id = "plan-application";
         let mut meta = crate::test_support::test_session_metadata(
-            id, "Plan", root.path().display().to_string(), "running", "before", "before",
+            id,
+            "Plan",
+            root.path().display().to_string(),
+            "running",
+            "before",
+            "before",
         );
         meta.cwd = root.path().display().to_string();
-        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&meta);
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&meta);
 
-        SessionApplication::new(state.clone()).select_plan(id, PlanSelection {
-            printed_path: "docs/superpowers/plans/task.md".into(),
-        }).await.unwrap();
+        SessionApplication::new(state.clone())
+            .select_plan(
+                id,
+                PlanSelection {
+                    printed_path: "docs/superpowers/plans/task.md".into(),
+                },
+            )
+            .await
+            .unwrap();
 
-        let stored = state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(id).unwrap();
-        assert_eq!(stored.plan_path.as_ref().unwrap().source, metadata::PlanSource::UserSelected);
-        assert!(state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_events(id)
-            .iter().any(|event| event.event_type == "session.plan_selected_by_user"));
+        let stored = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
+        assert_eq!(
+            stored.plan_path.as_ref().unwrap().source,
+            metadata::PlanSource::UserSelected
+        );
+        assert!(state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_events(id)
+            .iter()
+            .any(|event| event.event_type == "session.plan_selected_by_user"));
     }
 
     #[tokio::test]
@@ -5095,17 +5792,47 @@ mod tests {
         let state = crate::test_support::test_app_state_with_workspace(root.path());
         let id = "delete-application";
         let mut meta = crate::test_support::test_session_metadata(
-            id, "Delete", root.path().display().to_string(), "running", "before", "before",
+            id,
+            "Delete",
+            root.path().display().to_string(),
+            "running",
+            "before",
+            "before",
         );
         meta.lifecycle = "alive".into();
-        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&meta);
-        state.sessions.lock().unwrap().insert(id.into(), attention_test_handle(id, root.path()));
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&meta);
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .insert(id.into(), attention_test_handle(id, root.path()));
 
-        SessionApplication::new(state.clone()).delete_session(id).await.unwrap();
+        SessionApplication::new(state.clone())
+            .delete_session(id)
+            .await
+            .unwrap();
 
         assert_eq!(state.sessions.lock().unwrap()[id].info.status, "running");
-        assert_eq!(state.sessions.lock().unwrap()[id].info.lifecycle_phase, "ending");
-        let stored = state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(id).unwrap();
+        assert_eq!(
+            state.sessions.lock().unwrap()[id].info.lifecycle_phase,
+            "ending"
+        );
+        let stored = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
         assert_eq!(stored.status, "running");
         assert_eq!(stored.pending_terminal_status.as_deref(), Some("killed"));
     }
@@ -5115,11 +5842,20 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let state = crate::test_support::test_app_state_with_workspace(root.path());
         let id = "forget-live-application";
-        state.sessions.lock().unwrap().insert(id.into(), attention_test_handle(id, root.path()));
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .insert(id.into(), attention_test_handle(id, root.path()));
 
         let result = SessionApplication::new(state).forget_session(id).await;
 
-        assert_eq!(result, Err(SessionError::ConflictWithMessage("Cannot forget a live session. Kill it first.")));
+        assert_eq!(
+            result,
+            Err(SessionError::ConflictWithMessage(
+                "Cannot forget a live session. Kill it first."
+            ))
+        );
     }
 
     #[tokio::test]
@@ -5131,24 +5867,48 @@ mod tests {
             let ws = state.workspace.lock().unwrap();
             let store = &ws.as_ref().unwrap().metadata;
             store.write_session(&crate::test_support::test_session_metadata(
-                id, "Forget", root.path().display().to_string(), "ended", "before", "before",
+                id,
+                "Forget",
+                root.path().display().to_string(),
+                "ended",
+                "before",
+                "before",
             ));
-            store.append_event(id, &metadata::Event {
-                event_type: "test.event".into(), timestamp: "now".into(), status: "ended".into(),
-                observed_status: None, confidence: None, summary: None, source: None,
-            });
+            store.append_event(
+                id,
+                &metadata::Event {
+                    event_type: "test.event".into(),
+                    timestamp: "now".into(),
+                    status: "ended".into(),
+                    observed_status: None,
+                    confidence: None,
+                    summary: None,
+                    source: None,
+                },
+            );
             store.write_workspace_memory(&metadata::WorkspaceMemory {
-                last_active_session_id: Some(id.into()), last_active_at: Some("now".into()), active_harness_ids: vec![],
+                last_active_session_id: Some(id.into()),
+                last_active_at: Some("now".into()),
+                active_harness_ids: vec![],
             });
         }
 
-        SessionApplication::new(state.clone()).forget_session(id).await.unwrap();
+        SessionApplication::new(state.clone())
+            .forget_session(id)
+            .await
+            .unwrap();
 
         let ws = state.workspace.lock().unwrap();
         let store = &ws.as_ref().unwrap().metadata;
         assert!(!store.session_file_exists(id));
         assert!(store.read_events(id).is_empty());
-        assert_eq!(store.read_workspace_memory().unwrap().last_active_session_id, None);
+        assert_eq!(
+            store
+                .read_workspace_memory()
+                .unwrap()
+                .last_active_session_id,
+            None
+        );
         assert!(!state.sessions.lock().unwrap().contains_key(id));
     }
 
@@ -5161,7 +5921,12 @@ mod tests {
             let workspace = state.workspace.lock().unwrap();
             let store = &workspace.as_ref().unwrap().metadata;
             store.write_session(&crate::test_support::test_session_metadata(
-                id, "Forget", root.path().display().to_string(), "ended", "before", "before",
+                id,
+                "Forget",
+                root.path().display().to_string(),
+                "ended",
+                "before",
+                "before",
             ));
             let session_path = store.sessions_dir().join(format!("{id}.json"));
             std::fs::remove_file(&session_path).unwrap();
@@ -5170,7 +5935,10 @@ mod tests {
 
         let result = SessionApplication::new(state).forget_session(id).await;
 
-        assert_eq!(result, Err(SessionError::Internal("application operation failed")));
+        assert_eq!(
+            result,
+            Err(SessionError::Internal("application operation failed"))
+        );
     }
 
     #[test]
@@ -5203,7 +5971,10 @@ mod tests {
             .metadata
             .read_workspace_memory()
             .unwrap();
-        assert_eq!(memory.last_active_session_id.as_deref(), Some("after-session"));
+        assert_eq!(
+            memory.last_active_session_id.as_deref(),
+            Some("after-session")
+        );
         assert_eq!(memory.active_harness_ids, vec!["codex", "claude"]);
         assert_ne!(memory.last_active_at.as_deref(), Some("before-time"));
         assert!(memory.last_active_at.is_some());
@@ -5239,7 +6010,10 @@ mod tests {
             .metadata
             .read_workspace_memory()
             .unwrap();
-        assert_eq!(memory.last_active_session_id.as_deref(), Some("active-session"));
+        assert_eq!(
+            memory.last_active_session_id.as_deref(),
+            Some("active-session")
+        );
         assert_eq!(memory.active_harness_ids, vec!["aider", "gemini"]);
         assert_ne!(memory.last_active_at.as_deref(), Some("before-time"));
         assert!(memory.last_active_at.is_some());
@@ -5252,8 +6026,14 @@ mod tests {
         *state.workspace.lock().unwrap() = None;
         let application = SessionApplication::new(state);
 
-        assert_eq!(application.set_active_session("session"), Err(SessionError::Conflict));
-        assert_eq!(application.set_active_harnesses(vec!["codex".into()]), Err(SessionError::Conflict));
+        assert_eq!(
+            application.set_active_session("session"),
+            Err(SessionError::Conflict)
+        );
+        assert_eq!(
+            application.set_active_harnesses(vec!["codex".into()]),
+            Err(SessionError::Conflict)
+        );
     }
 
     #[tokio::test]
@@ -5264,33 +6044,63 @@ mod tests {
         let state = crate::test_support::test_app_state_with_workspace(root.path());
         let id = "plan-review-application";
         let mut metadata = crate::test_support::test_session_metadata(
-            id, "Plan review", &root.path().display().to_string(), "running", "now", "now",
+            id,
+            "Plan review",
+            &root.path().display().to_string(),
+            "running",
+            "now",
+            "now",
         );
         metadata.lifecycle_phase = "active".into();
         metadata.lifecycle = "alive".into();
         metadata.plan_path = Some("specs/plan.md".into());
-        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&metadata);
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
 
         let mut handle = attention_test_handle(id, root.path());
-        let (runtime, mut control_rx) = crate::runtime::session_runtime::SessionRuntime::live(24, 80);
+        let (runtime, mut control_rx) =
+            crate::runtime::session_runtime::SessionRuntime::live(24, 80);
         handle.runtime = runtime;
         state.sessions.lock().unwrap().insert(id.into(), handle);
 
         let application = SessionApplication::new(state.clone());
         let mut request = tokio::spawn(async move { application.request_plan_review(id).await });
-        let crate::runtime::session_runtime::RuntimeCommand::Input { data, accepted } =
-            (tokio::select! {
-                command = control_rx.recv() => command.unwrap(),
-                response = &mut request => panic!("review request returned {:?} before reaching the PTY", response.unwrap()),
-            })
-        else { panic!("expected terminal input"); };
+        let crate::runtime::session_runtime::RuntimeCommand::Input { data, accepted } = (tokio::select! {
+            command = control_rx.recv() => command.unwrap(),
+            response = &mut request => panic!("review request returned {:?} before reaching the PTY", response.unwrap()),
+        }) else {
+            panic!("expected terminal input");
+        };
         assert_eq!(data, "Please review the plan or specification at specs/plan.md. Delegate this review to a subagent if you can; otherwise review it yourself. Check for missing requirements, risky assumptions, and unclear steps, then report the findings.\r");
-        assert!(state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_events(id).is_empty());
+        assert!(state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_events(id)
+            .is_empty());
         accepted.unwrap().send(Ok(())).unwrap();
 
         assert_eq!(request.await.unwrap(), Ok(()));
-        let events = state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_events(id);
-        assert!(events.iter().any(|event| event.event_type == "plan_review_requested"));
+        let events = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_events(id);
+        assert!(events
+            .iter()
+            .any(|event| event.event_type == "plan_review_requested"));
     }
 
     #[tokio::test]
@@ -5299,33 +6109,98 @@ mod tests {
         let state = crate::test_support::test_app_state_with_workspace(root.path());
         let id = "plan-review-rejected";
         let mut metadata = crate::test_support::test_session_metadata(
-            id, "Plan review", &root.path().display().to_string(), "running", "now", "now",
+            id,
+            "Plan review",
+            &root.path().display().to_string(),
+            "running",
+            "now",
+            "now",
         );
         metadata.lifecycle_phase = "active".into();
         metadata.lifecycle = "alive".into();
-        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&metadata);
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
         let application = SessionApplication::new(state.clone());
 
-        assert_eq!(application.request_plan_review(id).await, Err(SessionError::Conflict));
+        assert_eq!(
+            application.request_plan_review(id).await,
+            Err(SessionError::Conflict)
+        );
 
         let plan = root.path().join("plan.md");
         std::fs::write(&plan, "# plan").unwrap();
-        let mut metadata = state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(id).unwrap();
+        let mut metadata = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
         metadata.plan_path = Some("plan.md".into());
         metadata.lifecycle = "ended".into();
-        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&metadata);
-        assert_eq!(application.request_plan_review(id).await, Err(SessionError::Conflict));
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
+        assert_eq!(
+            application.request_plan_review(id).await,
+            Err(SessionError::Conflict)
+        );
 
         metadata.lifecycle = "alive".into();
         metadata.plan_path = Some("missing.md".into());
-        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&metadata);
-        assert_eq!(application.request_plan_review(id).await, Err(SessionError::Conflict));
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
+        assert_eq!(
+            application.request_plan_review(id).await,
+            Err(SessionError::Conflict)
+        );
 
         metadata.plan_path = Some("plan.md".into());
-        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&metadata);
-        state.sessions.lock().unwrap().insert(id.into(), attention_test_handle(id, root.path()));
-        assert_eq!(application.request_plan_review(id).await, Err(SessionError::Conflict));
-        assert!(state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_events(id).is_empty());
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .insert(id.into(), attention_test_handle(id, root.path()));
+        assert_eq!(
+            application.request_plan_review(id).await,
+            Err(SessionError::Conflict)
+        );
+        assert!(state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_events(id)
+            .is_empty());
     }
 
     #[tokio::test]
@@ -5334,12 +6209,28 @@ mod tests {
         let state = crate::test_support::test_app_state_with_workspace(root.path());
         let id = "debug-attention-application";
         let mut metadata = crate::test_support::test_session_metadata(
-            id, "Debug attention", &root.path().display().to_string(), "running", "now", "now",
+            id,
+            "Debug attention",
+            &root.path().display().to_string(),
+            "running",
+            "now",
+            "now",
         );
         metadata.lifecycle_phase = "active".into();
         metadata.lifecycle = "alive".into();
-        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&metadata);
-        state.sessions.lock().unwrap().insert(id.into(), attention_test_handle(id, root.path()));
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .insert(id.into(), attention_test_handle(id, root.path()));
 
         let application = SessionApplication::new(state.clone());
         assert_eq!(
@@ -5355,12 +6246,32 @@ mod tests {
             Ok(metadata::AttentionMergeResult::Accepted)
         );
 
-        let persisted = state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(id).unwrap();
-        assert_eq!(persisted.observed_status.as_deref(), Some("waiting_for_input"));
+        let persisted = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
+        assert_eq!(
+            persisted.observed_status.as_deref(),
+            Some("waiting_for_input")
+        );
         assert_eq!(persisted.metadata_source, "debug");
         assert_eq!(persisted.metadata_confidence, 0.0);
-        assert_eq!(state.sessions.lock().unwrap()[id].info.observed_status.as_deref(), Some("waiting_for_input"));
-        assert_eq!(state.sessions.lock().unwrap()[id].info.summary.as_deref(), Some("Answer required"));
+        assert_eq!(
+            state.sessions.lock().unwrap()[id]
+                .info
+                .observed_status
+                .as_deref(),
+            Some("waiting_for_input")
+        );
+        assert_eq!(
+            state.sessions.lock().unwrap()[id].info.summary.as_deref(),
+            Some("Answer required")
+        );
     }
 
     #[tokio::test]
@@ -5443,24 +6354,57 @@ mod tests {
         let state = crate::test_support::test_app_state_with_workspace(root.path());
         let id = "reset-topic-application";
         let mut metadata = crate::test_support::test_session_metadata(
-            id, "Old topic", &root.path().display().to_string(), "running", "now", "now",
+            id,
+            "Old topic",
+            &root.path().display().to_string(),
+            "running",
+            "now",
+            "now",
         );
         metadata.label = "Old topic".into();
-        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&metadata);
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
         let mut handle = attention_test_handle(id, root.path());
         handle.info.label = "Old topic".into();
         state.sessions.lock().unwrap().insert(id.into(), handle);
-        state.peon.label_epochs.write().unwrap().insert(id.into(), 4);
-        state.peon.label_hint.write().unwrap().insert(id.into(), crate::LabelHint {
-            text: "stale topic".into(), epoch: 4,
-        });
+        state
+            .peon
+            .label_epochs
+            .write()
+            .unwrap()
+            .insert(id.into(), 4);
+        state.peon.label_hint.write().unwrap().insert(
+            id.into(),
+            crate::LabelHint {
+                text: "stale topic".into(),
+                epoch: 4,
+            },
+        );
         state.peon.label_pending.write().unwrap().insert(id.into());
 
         assert!(SessionApplication::new(state.clone()).reset_session_topic(id));
 
         let placeholder = crate::session_types::placeholder_label(id);
         assert_eq!(state.sessions.lock().unwrap()[id].info.label, placeholder);
-        assert_eq!(state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(id).unwrap().label, placeholder);
+        assert_eq!(
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(id)
+                .unwrap()
+                .label,
+            placeholder
+        );
         assert_eq!(state.peon.label_epochs.read().unwrap().get(id), Some(&5));
         assert!(state.peon.label_hint.read().unwrap().get(id).is_none());
         assert!(!state.peon.label_pending.read().unwrap().contains(id));
@@ -5480,26 +6424,59 @@ mod tests {
             "now",
         );
         metadata.label = "Old metadata topic".into();
-        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&metadata);
-        state.peon.label_epochs.write().unwrap().insert(metadata_only_id.into(), 2);
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
+        state
+            .peon
+            .label_epochs
+            .write()
+            .unwrap()
+            .insert(metadata_only_id.into(), 2);
         assert!(SessionApplication::new(state.clone()).reset_session_topic(metadata_only_id));
         assert_eq!(
-            state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(metadata_only_id).unwrap().label,
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(metadata_only_id)
+                .unwrap()
+                .label,
             crate::session_types::placeholder_label(metadata_only_id)
         );
 
         let live_only_id = "reset-topic-live-only";
         let mut handle = attention_test_handle(live_only_id, root.path());
         handle.info.label = "Old live topic".into();
-        state.sessions.lock().unwrap().insert(live_only_id.into(), handle);
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .insert(live_only_id.into(), handle);
         *state.workspace.lock().unwrap() = None;
-        state.peon.label_epochs.write().unwrap().insert(live_only_id.into(), 7);
+        state
+            .peon
+            .label_epochs
+            .write()
+            .unwrap()
+            .insert(live_only_id.into(), 7);
         assert!(SessionApplication::new(state.clone()).reset_session_topic(live_only_id));
         assert_eq!(
             state.sessions.lock().unwrap()[live_only_id].info.label,
             crate::session_types::placeholder_label(live_only_id)
         );
-        assert_eq!(state.peon.label_epochs.read().unwrap().get(live_only_id), Some(&8));
+        assert_eq!(
+            state.peon.label_epochs.read().unwrap().get(live_only_id),
+            Some(&8)
+        );
     }
 
     #[test]
@@ -5507,7 +6484,12 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let state = crate::test_support::test_app_state_with_workspace(root.path());
         let id = "clear-forgotten-application";
-        state.peon.label_epochs.write().unwrap().insert(id.into(), 4);
+        state
+            .peon
+            .label_epochs
+            .write()
+            .unwrap()
+            .insert(id.into(), 4);
         state.peon.label_hint.write().unwrap().insert(
             id.into(),
             crate::LabelHint {
@@ -5568,14 +6550,15 @@ mod tests {
             .write()
             .unwrap()
             .insert(id.into(), "/tmp/ended-session".into());
-        state
-            .session_pids
-            .lock()
-            .unwrap()
-            .insert(id.into(), 4242);
+        state.session_pids.lock().unwrap().insert(id.into(), 4242);
         crate::runtime::terminal_runtime::set_workflow_report_token(id, token.into());
 
-        state.peon.label_epochs.write().unwrap().insert(id.into(), 7);
+        state
+            .peon
+            .label_epochs
+            .write()
+            .unwrap()
+            .insert(id.into(), 7);
         state.peon.label_hint.write().unwrap().insert(
             id.into(),
             crate::LabelHint {
@@ -5610,16 +6593,46 @@ mod tests {
         let state = crate::test_support::test_app_state_with_workspace(root.path());
         let id = "persist-input-label-both";
         let metadata = crate::test_support::test_session_metadata(
-            id, "Old topic", &root.path().display().to_string(), "running", "now", "now",
+            id,
+            "Old topic",
+            &root.path().display().to_string(),
+            "running",
+            "now",
+            "now",
         );
-        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&metadata);
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
         let handle = attention_test_handle(id, root.path());
         state.sessions.lock().unwrap().insert(id.into(), handle);
-        state.peon.label_epochs.write().unwrap().insert(id.into(), 4);
+        state
+            .peon
+            .label_epochs
+            .write()
+            .unwrap()
+            .insert(id.into(), 4);
 
-        assert!(SessionApplication::new(state.clone()).persist_input_label(id, "New topic".into(), 4));
+        assert!(SessionApplication::new(state.clone()).persist_input_label(
+            id,
+            "New topic".into(),
+            4
+        ));
         assert_eq!(
-            state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(id).unwrap().label,
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(id)
+                .unwrap()
+                .label,
             "New topic"
         );
         assert_eq!(state.sessions.lock().unwrap()[id].info.label, "New topic");
@@ -5633,9 +6646,18 @@ mod tests {
         let handle = attention_test_handle(id, root.path());
         state.sessions.lock().unwrap().insert(id.into(), handle);
         *state.workspace.lock().unwrap() = None;
-        state.peon.label_epochs.write().unwrap().insert(id.into(), 2);
+        state
+            .peon
+            .label_epochs
+            .write()
+            .unwrap()
+            .insert(id.into(), 2);
 
-        assert!(SessionApplication::new(state.clone()).persist_input_label(id, "Live topic".into(), 2));
+        assert!(SessionApplication::new(state.clone()).persist_input_label(
+            id,
+            "Live topic".into(),
+            2
+        ));
         assert_eq!(state.sessions.lock().unwrap()[id].info.label, "Live topic");
     }
 
@@ -5645,14 +6667,44 @@ mod tests {
         let state = crate::test_support::test_app_state_with_workspace(root.path());
         let id = "persist-input-label-metadata-only";
         let metadata = crate::test_support::test_session_metadata(
-            id, "Old topic", &root.path().display().to_string(), "running", "now", "now",
+            id,
+            "Old topic",
+            &root.path().display().to_string(),
+            "running",
+            "now",
+            "now",
         );
-        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&metadata);
-        state.peon.label_epochs.write().unwrap().insert(id.into(), 7);
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
+        state
+            .peon
+            .label_epochs
+            .write()
+            .unwrap()
+            .insert(id.into(), 7);
 
-        assert!(SessionApplication::new(state.clone()).persist_input_label(id, "Metadata topic".into(), 7));
+        assert!(SessionApplication::new(state.clone()).persist_input_label(
+            id,
+            "Metadata topic".into(),
+            7
+        ));
         assert_eq!(
-            state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(id).unwrap().label,
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(id)
+                .unwrap()
+                .label,
             "Metadata topic"
         );
         assert!(!state.sessions.lock().unwrap().contains_key(id));
@@ -5664,20 +6716,53 @@ mod tests {
         let state = crate::test_support::test_app_state_with_workspace(root.path());
         let id = "persist-input-label-stale";
         let metadata = crate::test_support::test_session_metadata(
-            id, "Old topic", &root.path().display().to_string(), "running", "now", "now",
+            id,
+            "Old topic",
+            &root.path().display().to_string(),
+            "running",
+            "now",
+            "now",
         );
-        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&metadata);
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
         let mut handle = attention_test_handle(id, root.path());
         handle.info.label = "Live old topic".into();
         state.sessions.lock().unwrap().insert(id.into(), handle);
-        state.peon.label_epochs.write().unwrap().insert(id.into(), 5);
+        state
+            .peon
+            .label_epochs
+            .write()
+            .unwrap()
+            .insert(id.into(), 5);
 
-        assert!(!SessionApplication::new(state.clone()).persist_input_label(id, "Stale topic".into(), 4));
+        assert!(!SessionApplication::new(state.clone()).persist_input_label(
+            id,
+            "Stale topic".into(),
+            4
+        ));
         assert_eq!(
-            state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(id).unwrap().label,
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(id)
+                .unwrap()
+                .label,
             "Old topic"
         );
-        assert_eq!(state.sessions.lock().unwrap()[id].info.label, "Live old topic");
+        assert_eq!(
+            state.sessions.lock().unwrap()[id].info.label,
+            "Live old topic"
+        );
     }
 
     #[test]
@@ -5686,9 +6771,18 @@ mod tests {
         let state = crate::test_support::test_app_state_with_workspace(root.path());
         let id = "persist-input-label-noop";
         *state.workspace.lock().unwrap() = None;
-        state.peon.label_epochs.write().unwrap().insert(id.into(), 3);
+        state
+            .peon
+            .label_epochs
+            .write()
+            .unwrap()
+            .insert(id.into(), 3);
 
-        assert!(!SessionApplication::new(state.clone()).persist_input_label(id, "Unused topic".into(), 3));
+        assert!(!SessionApplication::new(state.clone()).persist_input_label(
+            id,
+            "Unused topic".into(),
+            3
+        ));
         assert!(!state.sessions.lock().unwrap().contains_key(id));
     }
 
@@ -5714,8 +6808,8 @@ mod tests {
             .metadata
             .write_session(&metadata);
 
-        let queued = SessionApplication::new(state.clone())
-            .record_user_input_topic(id, "follow up", false);
+        let queued =
+            SessionApplication::new(state.clone()).record_user_input_topic(id, "follow up", false);
 
         assert!(!queued);
         let stored = state
@@ -5759,11 +6853,13 @@ mod tests {
         handle.info.label = placeholder;
         state.sessions.lock().unwrap().insert(id.into(), handle);
 
-        assert!(SessionApplication::new(state.clone()).record_user_input_topic(
-            id,
-            "add retry logic",
-            true,
-        ));
+        assert!(
+            SessionApplication::new(state.clone()).record_user_input_topic(
+                id,
+                "add retry logic",
+                true,
+            )
+        );
         assert_eq!(
             state.sessions.lock().unwrap()[id].info.label,
             "add retry logic"
@@ -5845,7 +6941,10 @@ mod tests {
             .list()
             .unwrap();
         assert_eq!(proposals.len(), 1);
-        assert_eq!(proposals[0].source_session_ids, vec!["workflow-refresh-session"]);
+        assert_eq!(
+            proposals[0].source_session_ids,
+            vec!["workflow-refresh-session"]
+        );
     }
 
     #[test]
@@ -5907,11 +7006,11 @@ mod tests {
             .get(&recommendation_id)
             .unwrap()
             .unwrap();
-        assert_eq!(reloaded.status, crate::taskmaster::RecommendationStatus::Dismissed);
-        assert!(reloaded
-            .workflow_improvement
-            .dismissal_watermark
-            .is_some());
+        assert_eq!(
+            reloaded.status,
+            crate::taskmaster::RecommendationStatus::Dismissed
+        );
+        assert!(reloaded.workflow_improvement.dismissal_watermark.is_some());
     }
 
     #[test]
@@ -5946,7 +7045,10 @@ mod tests {
         let (recommendations, diagnostics) = application.list_recommendations().unwrap();
 
         assert_eq!(recommendations.len(), 1);
-        assert_eq!(recommendations[0].source_session_ids, ["workflow-query-session"]);
+        assert_eq!(
+            recommendations[0].source_session_ids,
+            ["workflow-query-session"]
+        );
         assert!(diagnostics.is_empty());
     }
 
@@ -6019,7 +7121,14 @@ mod tests {
         );
         metadata.lifecycle_phase = "active".into();
         metadata.lifecycle = "alive".into();
-        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&metadata);
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
 
         let inference = crate::peon::PeonInference {
             observed_status: Some("blocked".into()),
@@ -6057,10 +7166,21 @@ mod tests {
         assert!(result.inference_persisted);
         assert!(!result.permanent_hold);
         assert_eq!(
-            result.label_update.as_ref().map(|(label, _)| label.as_str()),
+            result
+                .label_update
+                .as_ref()
+                .map(|(label, _)| label.as_str()),
             Some("Need a decision")
         );
-        let stored = state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(id).unwrap();
+        let stored = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
         assert_eq!(stored.observed_status.as_deref(), Some("blocked"));
         assert_eq!(stored.summary.as_deref(), Some("Need a decision"));
         assert_eq!(stored.provider_id.as_deref(), Some("claude-code"));
@@ -6081,7 +7201,14 @@ mod tests {
             "now",
         );
         metadata.metadata_source = "user".into();
-        state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&metadata);
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
 
         let inference = crate::peon::PeonInference {
             observed_status: Some("blocked".into()),
@@ -6113,7 +7240,15 @@ mod tests {
         assert!(!result.inference_persisted);
         assert!(result.permanent_hold);
         assert!(result.label_update.is_none());
-        let stored = state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(id).unwrap();
+        let stored = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
         assert_eq!(stored.summary, None);
         assert_eq!(stored.metadata_source, "user");
     }

@@ -131,27 +131,71 @@ pub(crate) struct PlanReference {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum PlanSource { Legacy, UserSelected, HookReported, TerminalFallback }
+pub(crate) enum PlanSource {
+    Legacy,
+    UserSelected,
+    HookReported,
+    TerminalFallback,
+}
 
 impl<'de> Deserialize<'de> for PlanReference {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         #[derive(Deserialize)]
         #[serde(untagged)]
-        enum Stored { Legacy(String), Anchored { #[serde(rename = "worktreeRoot")] worktree_root: Option<String>, #[serde(rename = "relativePath")] relative_path: String, source: PlanSource } }
+        enum Stored {
+            Legacy(String),
+            Anchored {
+                #[serde(rename = "worktreeRoot")]
+                worktree_root: Option<String>,
+                #[serde(rename = "relativePath")]
+                relative_path: String,
+                source: PlanSource,
+            },
+        }
         Ok(match Stored::deserialize(deserializer)? {
-            Stored::Legacy(relative_path) => Self { worktree_root: None, relative_path, source: PlanSource::Legacy },
-            Stored::Anchored { worktree_root, relative_path, source } => Self { worktree_root, relative_path, source },
+            Stored::Legacy(relative_path) => Self {
+                worktree_root: None,
+                relative_path,
+                source: PlanSource::Legacy,
+            },
+            Stored::Anchored {
+                worktree_root,
+                relative_path,
+                source,
+            } => Self {
+                worktree_root,
+                relative_path,
+                source,
+            },
         })
     }
 }
 
 impl std::ops::Deref for PlanReference {
     type Target = str;
-    fn deref(&self) -> &Self::Target { &self.relative_path }
+    fn deref(&self) -> &Self::Target {
+        &self.relative_path
+    }
 }
-impl From<String> for PlanReference { fn from(relative_path: String) -> Self { Self { worktree_root: None, relative_path, source: PlanSource::Legacy } } }
-impl From<&str> for PlanReference { fn from(relative_path: &str) -> Self { relative_path.to_string().into() } }
-impl std::fmt::Display for PlanReference { fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { self.relative_path.fmt(f) } }
+impl From<String> for PlanReference {
+    fn from(relative_path: String) -> Self {
+        Self {
+            worktree_root: None,
+            relative_path,
+            source: PlanSource::Legacy,
+        }
+    }
+}
+impl From<&str> for PlanReference {
+    fn from(relative_path: &str) -> Self {
+        relative_path.to_string().into()
+    }
+}
+impl std::fmt::Display for PlanReference {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.relative_path.fmt(f)
+    }
+}
 
 impl<'de> Deserialize<'de> for PlanPathUpdate {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
@@ -2057,7 +2101,7 @@ mod tests {
             provider_state: None,
             created_at: "now".into(),
             last_activity: "now".into(),
-        last_output_at: None,
+            last_output_at: None,
             metadata_source: "process".into(),
             metadata_confidence: 1.0,
             repo_root: Some("/tmp".into()),
@@ -2233,7 +2277,12 @@ mod tests {
         store.write_session(&test_metadata(id));
 
         store
-            .merge_peon_inference(id, &peon_inference_with_summary(Some("Same"), 0.8), "t1", None)
+            .merge_peon_inference(
+                id,
+                &peon_inference_with_summary(Some("Same"), 0.8),
+                "t1",
+                None,
+            )
             .unwrap();
         let after_first = store.read_session(id).unwrap();
         assert_eq!(after_first.last_activity, "t1");
@@ -2242,7 +2291,12 @@ mod tests {
         // Peon reruns (e.g. on non-substantive TUI redraw output) and reaches
         // the same conclusion. This must not count as new activity.
         store
-            .merge_peon_inference(id, &peon_inference_with_summary(Some("Same"), 0.9), "t2", None)
+            .merge_peon_inference(
+                id,
+                &peon_inference_with_summary(Some("Same"), 0.9),
+                "t2",
+                None,
+            )
             .unwrap();
         let after_second = store.read_session(id).unwrap();
         assert_eq!(
@@ -2257,7 +2311,12 @@ mod tests {
 
         // A genuinely new conclusion still advances last_activity.
         store
-            .merge_peon_inference(id, &peon_inference_with_summary(Some("Different"), 0.9), "t3", None)
+            .merge_peon_inference(
+                id,
+                &peon_inference_with_summary(Some("Different"), 0.9),
+                "t3",
+                None,
+            )
             .unwrap();
         let after_third = store.read_session(id).unwrap();
         assert_eq!(after_third.last_activity, "t3");
@@ -2292,7 +2351,9 @@ mod tests {
             harness_session_id: None,
             workflow_observations: Vec::new(),
         };
-        store.merge_peon_inference_with_history(id, &inf, "t1", None, None).unwrap();
+        store
+            .merge_peon_inference_with_history(id, &inf, "t1", None, None)
+            .unwrap();
         assert_eq!(store.read_session(id).unwrap().last_activity, "t1");
 
         let inf2 = crate::peon::PeonInference {
@@ -2300,13 +2361,18 @@ mod tests {
             suggested_options: Some(vec!["C".into(), "D".into()]),
             ..inf
         };
-        store.merge_peon_inference_with_history(id, &inf2, "t2", None, None).unwrap();
+        store
+            .merge_peon_inference_with_history(id, &inf2, "t2", None, None)
+            .unwrap();
         let updated = store.read_session(id).unwrap();
         assert_eq!(
             updated.last_activity, "t2",
             "a new detected question is a real situation change even when status/summary repeat"
         );
-        assert_eq!(updated.detected_question.as_deref(), Some("Proceed with C or D?"));
+        assert_eq!(
+            updated.detected_question.as_deref(),
+            Some("Proceed with C or D?")
+        );
     }
 
     #[cfg(unix)]
@@ -2544,7 +2610,7 @@ mod tests {
             provider_state: None,
             created_at: "now".into(),
             last_activity: "now".into(),
-        last_output_at: None,
+            last_output_at: None,
             metadata_source: "process".into(),
             metadata_confidence: 1.0,
             repo_root: None,
@@ -2650,7 +2716,10 @@ mod tests {
         // Peon's turn-by-turn summary must never clobber the session label/topic
         // (ADR 0029) — summary is free to change while label stays put.
         assert_eq!(updated.label, "Session label12345");
-        assert_eq!(updated.summary.as_deref(), Some("Fixing the login redirect bug"));
+        assert_eq!(
+            updated.summary.as_deref(),
+            Some("Fixing the login redirect bug")
+        );
     }
 
     #[test]
@@ -2693,7 +2762,7 @@ mod tests {
             provider_state: None,
             created_at: "now".into(),
             last_activity: "now".into(),
-        last_output_at: None,
+            last_output_at: None,
             metadata_source: "process".into(),
             metadata_confidence: 1.0,
             repo_root: None,
@@ -3056,7 +3125,7 @@ mod tests {
             provider_state: None,
             created_at: "now".into(),
             last_activity: "now".into(),
-        last_output_at: None,
+            last_output_at: None,
             metadata_source: "process".into(),
             metadata_confidence: 1.0,
             repo_root: None,
@@ -3460,7 +3529,10 @@ mod tests {
             AttentionMergeResult::Accepted,
         );
         let updated = store.read_session("selected-plan-path").unwrap();
-        assert_eq!(updated.plan_path.unwrap().relative_path, "specs/selected.md");
+        assert_eq!(
+            updated.plan_path.unwrap().relative_path,
+            "specs/selected.md"
+        );
     }
 
     #[test]
@@ -3469,8 +3541,11 @@ mod tests {
         assert_eq!(legacy.relative_path, "specs/plan.md");
         assert_eq!(legacy.source, PlanSource::Legacy);
         let encoded = serde_json::to_value(PlanReference {
-            worktree_root: Some("/repo".into()), relative_path: "specs/plan.md".into(), source: PlanSource::UserSelected,
-        }).unwrap();
+            worktree_root: Some("/repo".into()),
+            relative_path: "specs/plan.md".into(),
+            source: PlanSource::UserSelected,
+        })
+        .unwrap();
         assert_eq!(encoded["worktreeRoot"], "/repo");
         assert_eq!(encoded["source"], "user_selected");
     }
@@ -3995,10 +4070,7 @@ mod tests {
     fn clear_terminal_size_removes_only_the_size_sidecar_and_is_idempotent() {
         let dir = tempfile::tempdir().unwrap();
         let store = MetadataStore::new(dir.path());
-        store.append_terminal_output_lines(
-            "clear-test",
-            &["line kept after size clear".into()],
-        );
+        store.append_terminal_output_lines("clear-test", &["line kept after size clear".into()]);
         store.write_terminal_size("clear-test", 120, 40);
         let terminal_path = store.terminal_output_path("clear-test");
         assert!(terminal_path.exists());

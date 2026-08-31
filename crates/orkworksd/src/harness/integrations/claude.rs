@@ -80,7 +80,9 @@ impl EventProfile {
     fn invocation(self, platform: ReporterPlatform, reporter: &Path) -> ReporterInvocation {
         match self {
             Self::Notification => attention_invocation_for_platform(platform, reporter, None),
-            Self::PreToolUse => attention_invocation_for_platform(platform, reporter, Some("working")),
+            Self::PreToolUse => {
+                attention_invocation_for_platform(platform, reporter, Some("working"))
+            }
             Self::PostToolUse => plan_path_invocation_for_platform(platform, reporter),
         }
     }
@@ -333,7 +335,10 @@ fn remove(document: &mut Map<String, Value>) -> Result<FragmentState, Integratio
         .and_then(Value::as_object_mut)
         .expect("validated hooks object");
     for profile in EVENTS {
-        if let Some(groups) = hooks.get_mut(profile.event_name()).and_then(Value::as_array_mut) {
+        if let Some(groups) = hooks
+            .get_mut(profile.event_name())
+            .and_then(Value::as_array_mut)
+        {
             groups.retain(|group| {
                 marker_state(group, None, None, AsyncSpec::Any) == FragmentState::Absent
             });
@@ -346,10 +351,10 @@ fn remove(document: &mut Map<String, Value>) -> Result<FragmentState, Integratio
 mod tests {
     use super::*;
     use crate::harness::definition::IntegrationBinding;
-    use crate::harness::integrations::handler;
     use crate::harness::integration::{
         IntegrationContext, IntegrationRegistration, ReporterAssetResolver,
     };
+    use crate::harness::integrations::handler;
     use crate::test_support::FakeHome;
 
     #[test]
@@ -369,8 +374,7 @@ mod tests {
         assert_eq!(pre_tool.len(), 1);
         assert_eq!(pre_tool[0]["matcher"], "*");
         assert_eq!(pre_tool[0]["hooks"][0]["async"], true);
-        let expected =
-            EventProfile::PreToolUse.invocation(ReporterPlatform::current(), reporter);
+        let expected = EventProfile::PreToolUse.invocation(ReporterPlatform::current(), reporter);
         assert_eq!(pre_tool[0]["hooks"][0]["args"], json!(expected.args));
     }
 
@@ -390,19 +394,19 @@ mod tests {
 
         merge(&mut document, reporter).unwrap();
 
-        let post_tool = document["hooks"]["PostToolUse"]
-            .as_array()
-            .unwrap();
+        let post_tool = document["hooks"]["PostToolUse"].as_array().unwrap();
         assert_eq!(post_tool.len(), 1, "exactly one OrkWorks PostToolUse group");
-        assert_eq!(post_tool[0]["matcher"], "Write|Edit", "matcher must restrict to Write|Edit");
+        assert_eq!(
+            post_tool[0]["matcher"], "Write|Edit",
+            "matcher must restrict to Write|Edit"
+        );
         let hook = &post_tool[0]["hooks"][0];
         let args = hook["args"].as_array().unwrap();
         assert!(
             hook.get("async").and_then(Value::as_bool).is_none(),
             "PostToolUse plan-path hook must be synchronous (no async: true); got: {hook}"
         );
-        let expected =
-            EventProfile::PostToolUse.invocation(ReporterPlatform::current(), reporter);
+        let expected = EventProfile::PostToolUse.invocation(ReporterPlatform::current(), reporter);
         assert_eq!(hook["command"], json!(expected.program));
         assert_eq!(
             args.iter()
@@ -427,15 +431,10 @@ mod tests {
         let reporter = Path::new("/tmp/report-harness-event.sh");
         let mut document = Map::new();
         merge(&mut document, reporter).unwrap();
-        let removed = document["hooks"]["PostToolUse"]
-            .as_array_mut()
-            .unwrap();
+        let removed = document["hooks"]["PostToolUse"].as_array_mut().unwrap();
         removed.clear();
 
-        assert_eq!(
-            probe(&document, reporter).unwrap(),
-            FragmentState::Drifted
-        );
+        assert_eq!(probe(&document, reporter).unwrap(), FragmentState::Drifted);
     }
 
     /// The conformance matrix checks probe/remove symmetry for every JSON
@@ -494,12 +493,13 @@ mod tests {
         let persisted: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&target).unwrap()).unwrap();
         assert_eq!(
-            persisted["hooks"]["PostToolUse"][0]["matcher"],
-            "Write|Edit",
+            persisted["hooks"]["PostToolUse"][0]["matcher"], "Write|Edit",
             "PostToolUse entry must land on disk"
         );
 
-        let removed = handler(&IntegrationBinding::Claude).uninstall(&ctx).unwrap();
+        let removed = handler(&IntegrationBinding::Claude)
+            .uninstall(&ctx)
+            .unwrap();
         assert_eq!(
             removed.registration,
             IntegrationRegistration::Absent,
@@ -524,8 +524,10 @@ mod tests {
 
     #[test]
     fn working_hook_uses_powershell_parameter_syntax_on_windows() {
-        let invocation =
-            EventProfile::PreToolUse.invocation(ReporterPlatform::WindowsPowerShell, Path::new("C:\\report-harness-event.ps1"));
+        let invocation = EventProfile::PreToolUse.invocation(
+            ReporterPlatform::WindowsPowerShell,
+            Path::new("C:\\report-harness-event.ps1"),
+        );
         assert!(invocation
             .args
             .windows(2)

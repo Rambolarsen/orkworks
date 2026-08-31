@@ -622,7 +622,10 @@ mod tests {
         use std::io::Write;
         use std::process::{Command, Stdio};
 
-        let script_path = concat!(env!("CARGO_MANIFEST_DIR"), "/scripts/report-harness-event.sh");
+        let script_path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/scripts/report-harness-event.sh"
+        );
         let mut command = Command::new("bash");
         command
             .arg("-x")
@@ -646,8 +649,13 @@ mod tests {
             .unwrap()
             .write_all(stdin_payload.as_bytes())
             .unwrap();
-        let output = child.wait_with_output().expect("script should run to completion");
-        assert!(output.status.success(), "script exited non-zero: {output:?}");
+        let output = child
+            .wait_with_output()
+            .expect("script should run to completion");
+        assert!(
+            output.status.success(),
+            "script exited non-zero: {output:?}"
+        );
         String::from_utf8_lossy(&output.stderr).into_owned()
     }
 
@@ -682,7 +690,9 @@ mod tests {
         let attention_payload_line = trace
             .lines()
             .find(|line| line.contains("attention_payload="))
-            .unwrap_or_else(|| panic!("expected an attention_payload= trace line; trace:\n{trace}"));
+            .unwrap_or_else(|| {
+                panic!("expected an attention_payload= trace line; trace:\n{trace}")
+            });
         assert!(
             !attention_payload_line.contains(r#""cwd""#),
             "attention payload should omit cwd entirely when none was reported; line:\n{attention_payload_line}"
@@ -698,7 +708,10 @@ mod tests {
         let trace = run_report_harness_event_sh_trace_with_args(
             "orkworks:harness-integration:v2:codex",
             r#"{"session_id":"thr_123","cwd":"/tmp/some/worktree","hook_event_name":"SessionStart","source":"startup"}"#,
-            &["--hook-fingerprint", "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"],
+            &[
+                "--hook-fingerprint",
+                "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+            ],
         );
         assert!(
             trace.contains(
@@ -962,11 +975,15 @@ mod tests {
             reporter_assets: &reporter,
         };
 
-        let codex_status = handler(&IntegrationBinding::Codex).status(&context).unwrap();
+        let codex_status = handler(&IntegrationBinding::Codex)
+            .status(&context)
+            .unwrap();
         let codex_confirmation = codex_status.confirmation.expect("codex confirmation");
         assert!(!codex_confirmation.executable_code_warning);
 
-        let claude_status = handler(&IntegrationBinding::Claude).status(&context).unwrap();
+        let claude_status = handler(&IntegrationBinding::Claude)
+            .status(&context)
+            .unwrap();
         let claude_confirmation = claude_status.confirmation.expect("claude confirmation");
         assert!(claude_confirmation.executable_code_warning);
     }
@@ -979,14 +996,21 @@ mod tests {
         fs::write(workspace.path().join(".gitignore"), ".codex/hooks.json\n").unwrap();
         let empty_excludes = workspace.path().join("empty-global-excludes");
         fs::write(&empty_excludes, "").unwrap();
-        repo.config().unwrap().set_str("core.excludesFile", empty_excludes.to_str().unwrap()).unwrap();
+        repo.config()
+            .unwrap()
+            .set_str("core.excludesFile", empty_excludes.to_str().unwrap())
+            .unwrap();
         fs::create_dir(workspace.path().join(".codex")).unwrap();
         fs::write(workspace.path().join(".codex/hooks.json"), "{}").unwrap();
 
         let home = tempfile::tempdir().unwrap();
         let _fake_home = FakeHome::set(home.path());
         let assets = tempfile::tempdir().unwrap();
-        fs::write(assets.path().join(ReporterPlatform::Posix.asset_name()), "#!/bin/sh\n").unwrap();
+        fs::write(
+            assets.path().join(ReporterPlatform::Posix.asset_name()),
+            "#!/bin/sh\n",
+        )
+        .unwrap();
         let reporter = ReporterAssetResolver {
             source_dir: assets.path().to_path_buf(),
             stable_dir: home.path().join(".orkworks/hook-scripts"),
@@ -1007,18 +1031,47 @@ mod tests {
             reporter_assets: &reporter,
         };
 
-        handler(&IntegrationBinding::Codex).install(&context).unwrap();
-        assert_eq!(handler(&IntegrationBinding::Codex).status(&context).unwrap().activation, IntegrationActivation::NeedsTrust);
+        handler(&IntegrationBinding::Codex)
+            .install(&context)
+            .unwrap();
+        assert_eq!(
+            handler(&IntegrationBinding::Codex)
+                .status(&context)
+                .unwrap()
+                .activation,
+            IntegrationActivation::NeedsTrust
+        );
         store.write_codex_hook_observation(&crate::metadata::CodexHookObservation {
-            fingerprint: crate::harness::integrations::codex::hook_fingerprint(&home.path().join(".orkworks/hook-scripts/report-harness-event.sh")).unwrap(),
+            fingerprint: crate::harness::integrations::codex::hook_fingerprint(
+                &home
+                    .path()
+                    .join(".orkworks/hook-scripts/report-harness-event.sh"),
+            )
+            .unwrap(),
             observed_at: "2026-08-27T12:00:00Z".into(),
         });
-        assert_eq!(handler(&IntegrationBinding::Codex).status(&context).unwrap().activation, IntegrationActivation::Active);
+        assert_eq!(
+            handler(&IntegrationBinding::Codex)
+                .status(&context)
+                .unwrap()
+                .activation,
+            IntegrationActivation::Active
+        );
         fs::remove_file(workspace.path().join(".codex/hooks.json")).unwrap();
-        handler(&IntegrationBinding::Codex).install(&context).unwrap();
-        assert_eq!(handler(&IntegrationBinding::Codex).status(&context).unwrap().activation, IntegrationActivation::NeedsTrust);
+        handler(&IntegrationBinding::Codex)
+            .install(&context)
+            .unwrap();
+        assert_eq!(
+            handler(&IntegrationBinding::Codex)
+                .status(&context)
+                .unwrap()
+                .activation,
+            IntegrationActivation::NeedsTrust
+        );
         assert_eq!(store.read_codex_hook_observation(), None);
-        handler(&IntegrationBinding::Codex).uninstall(&context).unwrap();
+        handler(&IntegrationBinding::Codex)
+            .uninstall(&context)
+            .unwrap();
         assert_eq!(store.read_codex_hook_observation(), None);
     }
 
@@ -1095,7 +1148,9 @@ mod tests {
             reporter_assets: &reporter,
         };
 
-        let status = handler(&IntegrationBinding::Codex).status(&context).unwrap();
+        let status = handler(&IntegrationBinding::Codex)
+            .status(&context)
+            .unwrap();
 
         assert_eq!(status.registration, IntegrationRegistration::Error);
         assert_eq!(status.diagnostics[0].code, "not_ignored_target");
@@ -1167,16 +1222,14 @@ mod tests {
         // ordinary solo-user path); it's tracked afterward to simulate
         // someone committing it despite the ignore rule, matching this
         // repo's own real .codex/.gitignore whitelist pattern.
-        fs::write(
-            workspace.path().join(".gitignore"),
-            ".codex/hooks.json\n",
-        )
-        .unwrap();
+        fs::write(workspace.path().join(".gitignore"), ".codex/hooks.json\n").unwrap();
 
         let alice_home = tempfile::tempdir().unwrap();
         let alice_assets = tempfile::tempdir().unwrap();
         fs::write(
-            alice_assets.path().join(ReporterPlatform::Posix.asset_name()),
+            alice_assets
+                .path()
+                .join(ReporterPlatform::Posix.asset_name()),
             "#!/bin/sh\n",
         )
         .unwrap();
@@ -1246,7 +1299,10 @@ mod tests {
         let status_after = handler(&IntegrationBinding::Codex)
             .install(&bob_context)
             .unwrap();
-        assert_eq!(status_after.registration, IntegrationRegistration::Installed);
+        assert_eq!(
+            status_after.registration,
+            IntegrationRegistration::Installed
+        );
         assert!(
             bob_reporter_script.exists(),
             "install() must reconcile Bob's local reporter script copy"
@@ -1776,8 +1832,7 @@ mod tests {
         fs::set_permissions(&script, perms).unwrap();
 
         let invocation =
-            portable_reporter_invocation(&script, "orkworks:harness-integration:v2:codex")
-                .unwrap();
+            portable_reporter_invocation(&script, "orkworks:harness-integration:v2:codex").unwrap();
         let status = std::process::Command::new("sh")
             .arg("-c")
             .arg(&invocation.shell_command)
@@ -2029,13 +2084,18 @@ mod tests {
             ".claude/settings.local.json\n",
         )
         .unwrap();
-        fs::create_dir_all(workspace.path().join(".claude"))
-            .unwrap();
+        fs::create_dir_all(workspace.path().join(".claude")).unwrap();
         fs::write(workspace.path().join(".claude/settings.local.json"), "{}").unwrap();
         let assets = tempfile::tempdir().unwrap();
-        fs::write(assets.path().join(ReporterPlatform::Posix.asset_name()), "#!/bin/sh\n").unwrap();
         fs::write(
-            assets.path().join(ReporterPlatform::WindowsPowerShell.asset_name()),
+            assets.path().join(ReporterPlatform::Posix.asset_name()),
+            "#!/bin/sh\n",
+        )
+        .unwrap();
+        fs::write(
+            assets
+                .path()
+                .join(ReporterPlatform::WindowsPowerShell.asset_name()),
             "# noop\n",
         )
         .unwrap();
@@ -2056,7 +2116,9 @@ mod tests {
         let claude = handler(&IntegrationBinding::Claude).status(&ctx).unwrap();
         let confirmation = claude.confirmation.expect("claude confirmation present");
         assert!(
-            confirmation.coverage_summary.contains("plan & spec reporting"),
+            confirmation
+                .coverage_summary
+                .contains("plan & spec reporting"),
             "expected plan & spec reporting in coverage summary; got: {coverage_summary:?}",
             coverage_summary = confirmation.coverage_summary
         );

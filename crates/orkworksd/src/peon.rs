@@ -473,7 +473,11 @@ fn command_outcome_summary(output: &[String]) -> Option<String> {
         }
 
         outcome = match command {
-            Some("test") if line.contains("test result: failed") || line.contains("tests failed") || line.contains("could not compile") => {
+            Some("test")
+                if line.contains("test result: failed")
+                    || line.contains("tests failed")
+                    || line.contains("could not compile") =>
+            {
                 command = None;
                 Some("Tests failed".into())
             }
@@ -481,7 +485,9 @@ fn command_outcome_summary(output: &[String]) -> Option<String> {
                 command = None;
                 Some("Tests passed".into())
             }
-            Some("build") if line.contains("could not compile") || line.contains("build failed") => {
+            Some("build")
+                if line.contains("could not compile") || line.contains("build failed") =>
+            {
                 command = None;
                 Some("Build failed".into())
             }
@@ -817,7 +823,12 @@ pub fn build_prompt(output: &[String]) -> String {
     };
 
     let required_pr_references = (!required_pr_references.is_empty())
-        .then(|| format!("\nRequired PR references: {}", required_pr_references.join(", ")))
+        .then(|| {
+            format!(
+                "\nRequired PR references: {}",
+                required_pr_references.join(", ")
+            )
+        })
         .unwrap_or_default();
 
     format!("{SYSTEM_PROMPT}\n\nTerminal output:\n```\n{truncated}\n```{required_pr_references}")
@@ -1497,7 +1508,10 @@ mod tests {
             "Reviewing PR #249 and PR #250",
             "review PR #249 and pull request #250",
         ));
-        assert!(is_usable_input_label("修复登录重定向", "fix the login redirect"));
+        assert!(is_usable_input_label(
+            "修复登录重定向",
+            "fix the login redirect"
+        ));
     }
 
     #[test]

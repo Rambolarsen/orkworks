@@ -9,9 +9,21 @@ Run these commands from the repository root:
 ```bash
 cargo build --manifest-path crates/orkworksd/Cargo.toml
 cargo test --manifest-path crates/orkworksd/Cargo.toml
+cargo fmt --manifest-path crates/orkworksd/Cargo.toml --check
 ```
 
 The desktop package can also build the sidecar with `cd apps/desktop && pnpm build:rust`.
+
+### Formatting footgun
+
+`cargo fmt -- <files>` run from the repository root forwards the arguments differently than expected and formats the **entire crate**, silently reformatting untouched files. To format specific files, either run from inside `crates/orkworksd/` or invoke rustfmt directly:
+
+```bash
+cd crates/orkworksd && cargo fmt -- src/foo.rs
+rustfmt --edition 2021 crates/orkworksd/src/foo.rs
+```
+
+PR CI runs `cargo fmt --check` as a blocking gate, so format before committing.
 
 ## Module layout
 

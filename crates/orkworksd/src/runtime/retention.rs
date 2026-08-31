@@ -97,9 +97,7 @@ pub(crate) async fn retention_cleanup_once(
         }
     };
 
-    let mut candidates: Vec<_> = all_sessions
-        .into_iter()
-        .collect();
+    let mut candidates: Vec<_> = all_sessions.into_iter().collect();
 
     if candidates.is_empty() {
         return;
@@ -160,7 +158,8 @@ pub(crate) async fn retention_cleanup_once(
                 })
                 .map(|(id, _)| id.clone())
                 .collect();
-            let eligible = select_count_candidates(&candidates, config.max_sessions, &protected_ids);
+            let eligible =
+                select_count_candidates(&candidates, config.max_sessions, &protected_ids);
             for id in eligible {
                 if sessions.get(&id).is_some_and(|h| {
                     h.info.status == "live"
@@ -317,11 +316,12 @@ mod tests {
                 .append_terminal_output_lines(id, &["terminal".into()]);
             record_test_observation(&ws.workflow_observations, id, id);
         }
-        ws.metadata.write_workspace_memory(&metadata::WorkspaceMemory {
-            last_active_session_id: Some("session-a".into()),
-            last_active_at: Some("2024-01-01T00:00:00Z".into()),
-            active_harness_ids: vec![],
-        });
+        ws.metadata
+            .write_workspace_memory(&metadata::WorkspaceMemory {
+                last_active_session_id: Some("session-a".into()),
+                last_active_at: Some("2024-01-01T00:00:00Z".into()),
+                active_harness_ids: vec![],
+            });
 
         delete_session_evidence(ws, "session-a", |_| Ok(())).unwrap();
 
@@ -341,10 +341,7 @@ mod tests {
         );
         record_test_observation(&ws.workflow_observations, "session-b", "after-delete");
         assert_eq!(
-            ws.workflow_observations
-                .workspace_observations()
-                .unwrap()[1]
-                .sequence,
+            ws.workflow_observations.workspace_observations().unwrap()[1].sequence,
             3
         );
     }
@@ -365,9 +362,8 @@ mod tests {
         ));
         record_test_observation(&ws.workflow_observations, "session-a", "session-a");
 
-        let result = delete_session_evidence(ws, "session-a", |_| {
-            Err("recommendations failed".into())
-        });
+        let result =
+            delete_session_evidence(ws, "session-a", |_| Err("recommendations failed".into()));
 
         assert_eq!(
             result.unwrap_err(),
@@ -451,8 +447,8 @@ mod tests {
                     crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
                     crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
                 ),
-            terminal_attached: false,
-            resume_in_progress: false,
+                terminal_attached: false,
+                resume_in_progress: false,
                 at_usage_limit_latched: false,
                 capacity_check_pending: false,
                 output_lines_seen: 0,
@@ -498,7 +494,7 @@ mod tests {
                     last_active_session_id: Some(session_id.clone()),
                     last_active_at: Some("2024-01-01T00:00:00Z".into()),
                     active_harness_ids: vec![],
-            });
+                });
         }
 
         state

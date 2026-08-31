@@ -194,7 +194,10 @@ mod tests {
     use super::*;
     use crate::harness::integration::{DetectedTool, ReporterAssetResolver};
 
-    fn context<'a>(workspace: &'a Path, resolver: &'a ReporterAssetResolver) -> IntegrationContext<'a> {
+    fn context<'a>(
+        workspace: &'a Path,
+        resolver: &'a ReporterAssetResolver,
+    ) -> IntegrationContext<'a> {
         IntegrationContext {
             workspace,
             workspace_metadata: None,
@@ -295,7 +298,10 @@ mod tests {
 
         // Idempotent: uninstalling an already-absent target succeeds.
         let uninstalled_again = HANDLER.uninstall(&ctx).unwrap();
-        assert_eq!(uninstalled_again.registration, IntegrationRegistration::Absent);
+        assert_eq!(
+            uninstalled_again.registration,
+            IntegrationRegistration::Absent
+        );
     }
 
     #[test]

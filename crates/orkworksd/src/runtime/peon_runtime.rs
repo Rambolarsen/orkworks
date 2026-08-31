@@ -59,9 +59,14 @@ fn runtime_identity_is_active(
     session_id: &str,
     identity: &RuntimeIdentity,
 ) -> bool {
-    state.sessions.lock().unwrap().get(session_id).is_some_and(|handle| {
-        handle.runtime.matches_identity(identity) && handle.info.lifecycle_phase == "active"
-    })
+    state
+        .sessions
+        .lock()
+        .unwrap()
+        .get(session_id)
+        .is_some_and(|handle| {
+            handle.runtime.matches_identity(identity) && handle.info.lifecycle_phase == "active"
+        })
 }
 
 fn diagnostic_attempt_is_active(
@@ -70,7 +75,9 @@ fn diagnostic_attempt_is_active(
     attempt: &PeonDiagnosticAttempt,
 ) -> bool {
     runtime_identity_is_active(state, session_id, &attempt.runtime_identity)
-        && state.peon.diagnostic_attempt_is_current(session_id, attempt)
+        && state
+            .peon
+            .diagnostic_attempt_is_current(session_id, attempt)
 }
 
 fn fail_attempt_if_active(
@@ -98,21 +105,13 @@ fn complete_attempt_if_active(
     state.peon.complete_attempt(session_id, attempt, result)
 }
 
-fn timeout_attempt_if_active(
-    state: &AppState,
-    session_id: &str,
-    attempt: &PeonDiagnosticAttempt,
-) {
+fn timeout_attempt_if_active(state: &AppState, session_id: &str, attempt: &PeonDiagnosticAttempt) {
     if diagnostic_attempt_is_active(state, session_id, attempt) {
         state.peon.timeout_attempt(session_id, attempt);
     }
 }
 
-fn finish_attempt_if_active(
-    state: &AppState,
-    session_id: &str,
-    attempt: &PeonDiagnosticAttempt,
-) {
+fn finish_attempt_if_active(state: &AppState, session_id: &str, attempt: &PeonDiagnosticAttempt) {
     if diagnostic_attempt_is_active(state, session_id, attempt) {
         state.peon.finish_attempt(session_id, attempt);
     }
@@ -149,10 +148,7 @@ impl crate::PeonState {
                 };
                 diagnostics.remove(&evictable_id);
             }
-            diagnostics.insert(
-                session_id.to_string(),
-                crate::PeonDiagnosticEntry::new(),
-            );
+            diagnostics.insert(session_id.to_string(), crate::PeonDiagnosticEntry::new());
         }
         diagnostics.get_mut(session_id)
     }
@@ -208,9 +204,7 @@ impl crate::PeonState {
         attempt: &PeonDiagnosticAttempt,
     ) -> bool {
         let leases = diagnostic_leases().lock().unwrap();
-        if leases.get(session_id)
-            != Some(&(attempt.generation, attempt.runtime_identity.clone()))
-        {
+        if leases.get(session_id) != Some(&(attempt.generation, attempt.runtime_identity.clone())) {
             return false;
         }
         let diagnostics = self.diagnostics.read().unwrap();
@@ -263,9 +257,7 @@ impl crate::PeonState {
             return false;
         }
         let leases = diagnostic_leases().lock().unwrap();
-        if leases.get(session_id)
-            != Some(&(attempt.generation, attempt.runtime_identity.clone()))
-        {
+        if leases.get(session_id) != Some(&(attempt.generation, attempt.runtime_identity.clone())) {
             return false;
         }
         let mut diagnostics = self.diagnostics.write().unwrap();
@@ -293,15 +285,12 @@ impl crate::PeonState {
             .or_else(|| {
                 successful_attempt.map(|attempt| bounded_diagnostic_text(&attempt.provider_id))
             });
-        entry.snapshot.provider_model = result
-            .observation
-            .as_ref()
-            .and_then(|observation| {
-                observation
-                    .provider_model
-                    .as_deref()
-                    .map(bounded_diagnostic_text)
-            });
+        entry.snapshot.provider_model = result.observation.as_ref().and_then(|observation| {
+            observation
+                .provider_model
+                .as_deref()
+                .map(bounded_diagnostic_text)
+        });
         entry.snapshot.fallback_step = successful_attempt.map(|attempt| attempt.step);
         entry.snapshot.error_summary = None;
         true
@@ -315,9 +304,7 @@ impl crate::PeonState {
         error: &str,
     ) -> bool {
         let leases = diagnostic_leases().lock().unwrap();
-        if leases.get(session_id)
-            != Some(&(attempt.generation, attempt.runtime_identity.clone()))
-        {
+        if leases.get(session_id) != Some(&(attempt.generation, attempt.runtime_identity.clone())) {
             return false;
         }
         let mut diagnostics = self.diagnostics.write().unwrap();
@@ -337,9 +324,7 @@ impl crate::PeonState {
 
     fn timeout_attempt(&self, session_id: &str, attempt: &PeonDiagnosticAttempt) {
         let leases = diagnostic_leases().lock().unwrap();
-        if leases.get(session_id)
-            != Some(&(attempt.generation, attempt.runtime_identity.clone()))
-        {
+        if leases.get(session_id) != Some(&(attempt.generation, attempt.runtime_identity.clone())) {
             return;
         }
         let mut diagnostics = self.diagnostics.write().unwrap();
@@ -347,8 +332,7 @@ impl crate::PeonState {
             return;
         };
         if entry.attempt_generation != attempt.generation
-            || entry.snapshot.scheduler_state
-                != crate::session_types::PeonSchedulerState::InFlight
+            || entry.snapshot.scheduler_state != crate::session_types::PeonSchedulerState::InFlight
         {
             return;
         }
@@ -360,9 +344,7 @@ impl crate::PeonState {
 
     fn finish_attempt(&self, session_id: &str, attempt: &PeonDiagnosticAttempt) {
         let mut leases = diagnostic_leases().lock().unwrap();
-        if leases.get(session_id)
-            != Some(&(attempt.generation, attempt.runtime_identity.clone()))
-        {
+        if leases.get(session_id) != Some(&(attempt.generation, attempt.runtime_identity.clone())) {
             return;
         }
         let mut diagnostics = self.diagnostics.write().unwrap();
@@ -378,9 +360,7 @@ impl crate::PeonState {
 
     fn cleanup_attempt(&self, session_id: &str, attempt: &PeonDiagnosticAttempt) {
         let mut leases = diagnostic_leases().lock().unwrap();
-        if leases.get(session_id)
-            != Some(&(attempt.generation, attempt.runtime_identity.clone()))
-        {
+        if leases.get(session_id) != Some(&(attempt.generation, attempt.runtime_identity.clone())) {
             return;
         }
         let mut diagnostics = self.diagnostics.write().unwrap();
@@ -391,8 +371,7 @@ impl crate::PeonState {
                 return;
             }
             Some(entry) if entry.attempt_generation == attempt.generation => {
-                entry.snapshot.scheduler_state
-                    == crate::session_types::PeonSchedulerState::InFlight
+                entry.snapshot.scheduler_state == crate::session_types::PeonSchedulerState::InFlight
             }
             Some(_) => return,
         };
@@ -422,9 +401,7 @@ impl crate::PeonState {
         count: Option<usize>,
     ) {
         let leases = diagnostic_leases().lock().unwrap();
-        if leases.get(session_id)
-            != Some(&(attempt.generation, attempt.runtime_identity.clone()))
-        {
+        if leases.get(session_id) != Some(&(attempt.generation, attempt.runtime_identity.clone())) {
             return;
         }
         let mut diagnostics = self.diagnostics.write().unwrap();
@@ -464,7 +441,10 @@ fn apply_output_label_update(
         return;
     }
     let mut sessions = state.sessions.lock().unwrap();
-    if state.peon.diagnostic_attempt_is_current(session_id, attempt) {
+    if state
+        .peon
+        .diagnostic_attempt_is_current(session_id, attempt)
+    {
         if let Some(handle) = sessions.get_mut(session_id).filter(|handle| {
             handle.runtime.matches_identity(&attempt.runtime_identity)
                 && handle.info.lifecycle_phase == "active"
@@ -494,10 +474,7 @@ async fn shutdown_inference_tasks(
 }
 
 #[cfg(test)]
-async fn peon_loop_for_test(
-    state: Arc<AppState>,
-    shutdown: tokio::sync::oneshot::Receiver<()>,
-) {
+async fn peon_loop_for_test(state: Arc<AppState>, shutdown: tokio::sync::oneshot::Receiver<()>) {
     peon_loop_until(state, async {
         let _ = shutdown.await;
     })
@@ -587,18 +564,17 @@ where
                 match sessions.get_mut(&session_id) {
                     Some(handle) => match mode {
                         InferenceMode::Output => {
-                            let capture_is_current = handle
-                                .runtime
-                                .peon_output_capture
-                                .as_ref()
-                                .is_some_and(|capture| {
-                                    output_inference_is_current(
-                                        capture.input_generation,
-                                        capture.min_revision,
-                                        handle.runtime.input_generation,
-                                        handle.runtime.min_peon_output_revision,
-                                    )
-                                });
+                            let capture_is_current =
+                                handle.runtime.peon_output_capture.as_ref().is_some_and(
+                                    |capture| {
+                                        output_inference_is_current(
+                                            capture.input_generation,
+                                            capture.min_revision,
+                                            handle.runtime.input_generation,
+                                            handle.runtime.min_peon_output_revision,
+                                        )
+                                    },
+                                );
                             if !capture_is_current {
                                 handle.runtime.peon_output_capture = None;
                             }
@@ -614,10 +590,17 @@ where
                                         min_revision: handle.runtime.min_peon_output_revision,
                                         first_revision: snapshot.first_revision,
                                         last_revision: snapshot.last_revision,
-                                        runtime_instance_id: handle.runtime.runtime_instance_id.clone(),
+                                        runtime_instance_id: handle
+                                            .runtime
+                                            .runtime_instance_id
+                                            .clone(),
                                     });
                             }
-                            handle.runtime.peon_output_capture.clone().map(|capture| {
+                            handle
+                                .runtime
+                                .peon_output_capture
+                                .clone()
+                                .map(|capture| {
                                     (
                                         capture.lines.clone(),
                                         Some((
@@ -625,9 +608,9 @@ where
                                             capture.min_revision,
                                             capture.first_revision,
                                             capture.last_revision,
-                                        capture.runtime_instance_id,
-                                        handle.runtime.run_generation(),
-                                    )),
+                                            capture.runtime_instance_id,
+                                            handle.runtime.run_generation(),
+                                        )),
                                     )
                                 })
                                 .unwrap_or((Vec::new(), None))
@@ -660,10 +643,12 @@ where
             let id = session_id.clone();
             let Some(runtime_identity) = output_boundary
                 .as_ref()
-                .map(|(_, _, _, _, runtime_instance_id, run_generation)| RuntimeIdentity {
-                    runtime_instance_id: runtime_instance_id.clone(),
-                    run_generation: *run_generation,
-                })
+                .map(
+                    |(_, _, _, _, runtime_instance_id, run_generation)| RuntimeIdentity {
+                        runtime_instance_id: runtime_instance_id.clone(),
+                        run_generation: *run_generation,
+                    },
+                )
                 .or_else(|| {
                     state
                         .sessions
@@ -688,306 +673,329 @@ where
             };
             let cancellation = cancellation.clone();
             inference_tasks.spawn(async move {
-            let _attempt_cleanup = attempt_cleanup;
-            let provider_state = state_clone.clone();
-            let cleanup_state = state_clone.clone();
-            let provider_output = output_snapshot.clone();
-            let mut provider_task = tokio::task::spawn_blocking(move || {
-                provider_state
-                    .providers
-                    .run_inference(providers::PeonScope::Session, &provider_output)
-            });
-            let provider_result = match tokio::time::timeout(
-                std::time::Duration::from_secs(120),
-                &mut provider_task,
-            )
-            .await
-            {
-                Ok(Ok(result)) => result,
-                Ok(Err(error)) => {
-                    tracing::warn!(session_id = %id, %error, "peon inference task failed");
-                    if fail_attempt_if_active(
-                        &cleanup_state,
-                        &id,
-                        &attempt,
-                        "provider_task_failed",
-                        &error.to_string(),
-                    ) {
-                        finish_attempt_if_active(&cleanup_state, &id, &attempt);
-                    }
-                    return;
-                }
-                Err(_) => {
-                    tracing::warn!(session_id = %id, "peon inference timed out");
-                    timeout_attempt_if_active(&cleanup_state, &id, &attempt);
-                    let _ = provider_task.await;
-                    finish_attempt_if_active(&cleanup_state, &id, &attempt);
-                    return;
-                }
-            };
-
-            if cancellation.load(Ordering::SeqCst) {
-                cleanup_state.peon.cleanup_attempt(&id, &attempt);
-                return;
-            }
-
-            if provider_result.inference.is_some() {
-                if !complete_attempt_if_active(&state_clone, &id, &attempt, &provider_result) {
-                    return;
-                }
-            } else {
-                if !diagnostic_attempt_is_active(&state_clone, &id, &attempt) {
-                    return;
-                }
-                fail_attempt_if_active(
-                    &state_clone,
-                    &id,
-                    &attempt,
-                    "provider_exhausted",
-                    &provider_error_summary(&provider_result),
-                );
-            }
-
-            // The blocking post-processing task may outlive this JoinSet task
-            // when shutdown has to abort its bounded drain. Keep the existing
-            // runtime/attempt identity guards in the persistence methods and
-            // also make the detached path cooperatively cancel before every
-            // side effect it can still reach.
-            let post_processing_cancellation = cancellation.clone();
-            let _ = tokio::task::spawn_blocking(move || {
-                if post_processing_cancellation.load(Ordering::SeqCst) {
-                    finish_attempt_if_active(&state_clone, &id, &attempt);
-                    return;
-                }
-                if matches!(mode, InferenceMode::InputLabel) {
-                    if let Some(inference) = provider_result.inference {
-                        if let Some(label) = inference
-                            .summary
-                            .map(|summary| summary.chars().take(100).collect::<String>())
-                        .filter(|label| !label.trim().is_empty())
-                        .filter(|label| {
-                            hint.as_ref()
-                                .is_some_and(|hint| peon::is_usable_input_label(label, &hint.text))
-                        })
-                    {
-                        if !post_processing_cancellation.load(Ordering::SeqCst) {
-                            if let Some(hint) = hint.as_ref() {
-                                crate::session_application::SessionApplication::new(
-                                    state_clone.clone(),
-                                )
-                                .persist_input_label_for_attempt(&id, &attempt, label, hint.epoch);
-                            }
-                        }
-                    }
-                    }
-                    finish_attempt_if_active(&state_clone, &id, &attempt);
-                    return;
-                }
-                if post_processing_cancellation.load(Ordering::SeqCst) {
-                    finish_attempt_if_active(&state_clone, &id, &attempt);
-                    return;
-                }
-                let active_work_hook = {
-                    let sessions = state_clone.sessions.lock().unwrap();
-                    sessions.get(&id).and_then(|handle| {
-                        let (generation, min_revision, _, _, runtime_instance_id, run_generation) =
-                            output_boundary.as_ref()?;
-                        (output_inference_is_current(
-                            *generation,
-                            *min_revision,
-                            handle.runtime.input_generation,
-                            handle.runtime.min_peon_output_revision,
-                        ) && handle.runtime.runtime_instance_id == *runtime_instance_id
-                            && handle.runtime.run_generation() == *run_generation)
-                            .then_some(handle.active_work_hook)
-                    })
-                };
-                let Some(active_work_hook) = active_work_hook else {
-                    finish_attempt_if_active(&state_clone, &id, &attempt);
-                    return;
-                };
-                if !diagnostic_attempt_is_active(&state_clone, &id, &attempt) {
-                    finish_attempt_if_active(&state_clone, &id, &attempt);
-                    return;
-                }
-                if post_processing_cancellation.load(Ordering::SeqCst) {
-                    finish_attempt_if_active(&state_clone, &id, &attempt);
-                    return;
-                }
-                let inference = provider_result.inference;
-                let now_iso = iso_now();
-
-                // Check terminal status before moving inference below
-                let reached_terminal = matches!(
-                    inference
-                        .as_ref()
-                        .and_then(|inf| inf.observed_status.as_deref()),
-                    Some("done" | "idle" | "stale")
-                );
-
-                let mut output_range_completed = false;
-                let mut accepted_observation = false;
-                let mut inference = inference;
-                if let Some(inf) = inference.as_mut() {
-                    // Active-hook sessions are hook-authoritative for the working
-                    // transition specifically: Peon may still persist summary/label/
-                    // etc, but must not be the one to flip observed_status to working
-                    // out from under the fail-closed hook contract (mirrors the
-                    // synchronous PTY-output fallback's own active_work_hook gate).
-                    if active_work_hook && inf.observed_status.as_deref() == Some("working") {
-                        inf.observed_status = None;
-                    }
-                }
-                let history_summary = inference
-                    .as_ref()
-                    .and_then(|inf| {
-                        peon::work_history_summary(&output_snapshot, inf.summary.as_deref())
-                    });
-                let persistence = crate::session_application::SessionApplication::new(
-                    state_clone.clone(),
+                let _attempt_cleanup = attempt_cleanup;
+                let provider_state = state_clone.clone();
+                let cleanup_state = state_clone.clone();
+                let provider_output = output_snapshot.clone();
+                let mut provider_task = tokio::task::spawn_blocking(move || {
+                    provider_state
+                        .providers
+                        .run_inference(providers::PeonScope::Session, &provider_output)
+                });
+                let provider_result = match tokio::time::timeout(
+                    std::time::Duration::from_secs(120),
+                    &mut provider_task,
                 )
-                .persist_peon_observation_for_attempt(
-                    &id,
-                    &attempt,
-                    inference.as_ref(),
-                    provider_result.observation.as_ref(),
-                    history_summary.as_deref(),
-                    &now_iso,
-                );
-                if post_processing_cancellation.load(Ordering::SeqCst) {
-                    finish_attempt_if_active(&state_clone, &id, &attempt);
-                    return;
-                }
-                let inference_persisted = persistence.inference_persisted;
-                let permanent_hold = persistence.permanent_hold;
-                let label_update = persistence.label_update;
-                let captured_workspace_path = persistence.workspace_path;
-                if let Some(inf) = inference.as_ref() {
-                    if let Some((_input_generation, _min_revision, first_revision, last_revision, runtime_instance_id, run_generation)) =
-                        output_boundary.as_ref()
-                    {
-                        if post_processing_cancellation.load(Ordering::SeqCst) {
-                            finish_attempt_if_active(&state_clone, &id, &attempt);
-                            return;
-                        }
-                        let result = crate::session_application::SessionApplication::new(
-                            state_clone.clone(),
-                        )
-                        .record_peon_workflow_observations_for_attempt(
+                .await
+                {
+                    Ok(Ok(result)) => result,
+                    Ok(Err(error)) => {
+                        tracing::warn!(session_id = %id, %error, "peon inference task failed");
+                        if fail_attempt_if_active(
+                            &cleanup_state,
                             &id,
-                            captured_workspace_path.as_deref(),
                             &attempt,
-                            &crate::session_application::PeonObservationOutputRange {
-                                runtime_instance_id: runtime_instance_id.clone(),
-                                run_generation: *run_generation,
-                                first_revision: *first_revision,
-                                last_revision: *last_revision,
-                            },
-                            &inf.workflow_observations,
-                        );
-                        accepted_observation = result.accepted_observation;
-                        output_range_completed = result.output_range_completed;
+                            "provider_task_failed",
+                            &error.to_string(),
+                        ) {
+                            finish_attempt_if_active(&cleanup_state, &id, &attempt);
+                        }
+                        return;
                     }
+                    Err(_) => {
+                        tracing::warn!(session_id = %id, "peon inference timed out");
+                        timeout_attempt_if_active(&cleanup_state, &id, &attempt);
+                        let _ = provider_task.await;
+                        finish_attempt_if_active(&cleanup_state, &id, &attempt);
+                        return;
+                    }
+                };
+
+                if cancellation.load(Ordering::SeqCst) {
+                    cleanup_state.peon.cleanup_attempt(&id, &attempt);
+                    return;
                 }
 
-                if accepted_observation
-                    && !post_processing_cancellation.load(Ordering::SeqCst)
-                {
-                    crate::taskmaster::evaluator::schedule_evaluation(state_clone.clone());
-                }
-                if post_processing_cancellation.load(Ordering::SeqCst) {
-                    finish_attempt_if_active(&state_clone, &id, &attempt);
-                    return;
-                }
-                if output_range_completed {
-                    if let Some((generation, min_revision, _, last_revision, runtime_instance_id, run_generation)) = output_boundary {
-                        if let Some(handle) = state_clone.sessions.lock().unwrap().get_mut(&id) {
-                            if output_inference_is_current(
-                                generation,
-                                min_revision,
-                                handle.runtime.input_generation,
-                                handle.runtime.min_peon_output_revision,
-                            ) && handle.runtime.runtime_instance_id == runtime_instance_id
-                                && handle.runtime.run_generation() == run_generation
-                                && handle.info.lifecycle_phase == "active"
-                            {
-                                handle.runtime.min_peon_output_revision = last_revision;
-                                handle.runtime.peon_output_capture = None;
-                            }
-                        }
+                if provider_result.inference.is_some() {
+                    if !complete_attempt_if_active(&state_clone, &id, &attempt, &provider_result) {
+                        return;
                     }
-                }
-                if output_range_completed {
-                    let observation_count = state_clone
-                        .workspace
-                        .lock()
-                        .unwrap()
-                        .as_ref()
-                        .and_then(|workspace| {
-                            workspace
-                                .workflow_observations
-                                .session_observation_count(&id)
-                                .ok()
-                        });
-                    refresh_observation_count_if_active(
+                } else {
+                    if !diagnostic_attempt_is_active(&state_clone, &id, &attempt) {
+                        return;
+                    }
+                    fail_attempt_if_active(
                         &state_clone,
                         &id,
                         &attempt,
-                        observation_count,
+                        "provider_exhausted",
+                        &provider_error_summary(&provider_result),
                     );
                 }
-                if let Some(label) = label_update {
+
+                // The blocking post-processing task may outlive this JoinSet task
+                // when shutdown has to abort its bounded drain. Keep the existing
+                // runtime/attempt identity guards in the persistence methods and
+                // also make the detached path cooperatively cancel before every
+                // side effect it can still reach.
+                let post_processing_cancellation = cancellation.clone();
+                let _ = tokio::task::spawn_blocking(move || {
                     if post_processing_cancellation.load(Ordering::SeqCst) {
                         finish_attempt_if_active(&state_clone, &id, &attempt);
                         return;
                     }
-                    apply_output_label_update(&state_clone, &id, &attempt, label);
-                }
+                    if matches!(mode, InferenceMode::InputLabel) {
+                        if let Some(inference) = provider_result.inference {
+                            if let Some(label) = inference
+                                .summary
+                                .map(|summary| summary.chars().take(100).collect::<String>())
+                                .filter(|label| !label.trim().is_empty())
+                                .filter(|label| {
+                                    hint.as_ref().is_some_and(|hint| {
+                                        peon::is_usable_input_label(label, &hint.text)
+                                    })
+                                })
+                            {
+                                if !post_processing_cancellation.load(Ordering::SeqCst) {
+                                    if let Some(hint) = hint.as_ref() {
+                                        crate::session_application::SessionApplication::new(
+                                            state_clone.clone(),
+                                        )
+                                        .persist_input_label_for_attempt(
+                                            &id, &attempt, label, hint.epoch,
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                        finish_attempt_if_active(&state_clone, &id, &attempt);
+                        return;
+                    }
+                    if post_processing_cancellation.load(Ordering::SeqCst) {
+                        finish_attempt_if_active(&state_clone, &id, &attempt);
+                        return;
+                    }
+                    let active_work_hook = {
+                        let sessions = state_clone.sessions.lock().unwrap();
+                        sessions.get(&id).and_then(|handle| {
+                            let (
+                                generation,
+                                min_revision,
+                                _,
+                                _,
+                                runtime_instance_id,
+                                run_generation,
+                            ) = output_boundary.as_ref()?;
+                            (output_inference_is_current(
+                                *generation,
+                                *min_revision,
+                                handle.runtime.input_generation,
+                                handle.runtime.min_peon_output_revision,
+                            ) && handle.runtime.runtime_instance_id == *runtime_instance_id
+                                && handle.runtime.run_generation() == *run_generation)
+                                .then_some(handle.active_work_hook)
+                        })
+                    };
+                    let Some(active_work_hook) = active_work_hook else {
+                        finish_attempt_if_active(&state_clone, &id, &attempt);
+                        return;
+                    };
+                    if !diagnostic_attempt_is_active(&state_clone, &id, &attempt) {
+                        finish_attempt_if_active(&state_clone, &id, &attempt);
+                        return;
+                    }
+                    if post_processing_cancellation.load(Ordering::SeqCst) {
+                        finish_attempt_if_active(&state_clone, &id, &attempt);
+                        return;
+                    }
+                    let inference = provider_result.inference;
+                    let now_iso = iso_now();
 
-                if post_processing_cancellation.load(Ordering::SeqCst) {
-                    finish_attempt_if_active(&state_clone, &id, &attempt);
-                    return;
-                }
-                let sessions = state_clone.sessions.lock().unwrap();
-                if !sessions.get(&id).is_some_and(|handle| {
-                    handle.runtime.matches_identity(&attempt.runtime_identity)
-                        && handle.info.lifecycle_phase == "active"
-                }) || !state_clone.peon.diagnostic_attempt_is_current(&id, &attempt) {
-                    drop(sessions);
-                    finish_attempt_if_active(&state_clone, &id, &attempt);
-                    return;
-                }
-                state_clone
-                    .peon
-                    .last_inference
-                    .write()
-                    .unwrap()
-                    .insert(id.clone(), now_iso);
+                    // Check terminal status before moving inference below
+                    let reached_terminal = matches!(
+                        inference
+                            .as_ref()
+                            .and_then(|inf| inf.observed_status.as_deref()),
+                        Some("done" | "idle" | "stale")
+                    );
 
-                // Three scheduling outcomes:
-                // 1. Persisted + terminal: don't update last_output; lifecycle change removes session.
-                // 2. Permanent hold (user source) + terminal: remove from pool entirely; new PTY
-                //    output via terminal_runtime re-adds when the session becomes active again.
-                // 3. A persisted non-terminal inference waits for new terminal output. A
-                //    failed write or transient hold remains eligible for retry.
-                if reached_terminal && inference_persisted {
-                    // outcome 1: leave last_output unchanged
-                } else if reached_terminal && permanent_hold {
-                    state_clone.peon.last_output.write().unwrap().remove(&id);
-                } else if inference_persisted {
-                    state_clone.peon.last_output.write().unwrap().remove(&id);
-                } else {
+                    let mut output_range_completed = false;
+                    let mut accepted_observation = false;
+                    let mut inference = inference;
+                    if let Some(inf) = inference.as_mut() {
+                        // Active-hook sessions are hook-authoritative for the working
+                        // transition specifically: Peon may still persist summary/label/
+                        // etc, but must not be the one to flip observed_status to working
+                        // out from under the fail-closed hook contract (mirrors the
+                        // synchronous PTY-output fallback's own active_work_hook gate).
+                        if active_work_hook && inf.observed_status.as_deref() == Some("working") {
+                            inf.observed_status = None;
+                        }
+                    }
+                    let history_summary = inference.as_ref().and_then(|inf| {
+                        peon::work_history_summary(&output_snapshot, inf.summary.as_deref())
+                    });
+                    let persistence =
+                        crate::session_application::SessionApplication::new(state_clone.clone())
+                            .persist_peon_observation_for_attempt(
+                                &id,
+                                &attempt,
+                                inference.as_ref(),
+                                provider_result.observation.as_ref(),
+                                history_summary.as_deref(),
+                                &now_iso,
+                            );
+                    if post_processing_cancellation.load(Ordering::SeqCst) {
+                        finish_attempt_if_active(&state_clone, &id, &attempt);
+                        return;
+                    }
+                    let inference_persisted = persistence.inference_persisted;
+                    let permanent_hold = persistence.permanent_hold;
+                    let label_update = persistence.label_update;
+                    let captured_workspace_path = persistence.workspace_path;
+                    if let Some(inf) = inference.as_ref() {
+                        if let Some((
+                            _input_generation,
+                            _min_revision,
+                            first_revision,
+                            last_revision,
+                            runtime_instance_id,
+                            run_generation,
+                        )) = output_boundary.as_ref()
+                        {
+                            if post_processing_cancellation.load(Ordering::SeqCst) {
+                                finish_attempt_if_active(&state_clone, &id, &attempt);
+                                return;
+                            }
+                            let result = crate::session_application::SessionApplication::new(
+                                state_clone.clone(),
+                            )
+                            .record_peon_workflow_observations_for_attempt(
+                                &id,
+                                captured_workspace_path.as_deref(),
+                                &attempt,
+                                &crate::session_application::PeonObservationOutputRange {
+                                    runtime_instance_id: runtime_instance_id.clone(),
+                                    run_generation: *run_generation,
+                                    first_revision: *first_revision,
+                                    last_revision: *last_revision,
+                                },
+                                &inf.workflow_observations,
+                            );
+                            accepted_observation = result.accepted_observation;
+                            output_range_completed = result.output_range_completed;
+                        }
+                    }
+
+                    if accepted_observation && !post_processing_cancellation.load(Ordering::SeqCst)
+                    {
+                        crate::taskmaster::evaluator::schedule_evaluation(state_clone.clone());
+                    }
+                    if post_processing_cancellation.load(Ordering::SeqCst) {
+                        finish_attempt_if_active(&state_clone, &id, &attempt);
+                        return;
+                    }
+                    if output_range_completed {
+                        if let Some((
+                            generation,
+                            min_revision,
+                            _,
+                            last_revision,
+                            runtime_instance_id,
+                            run_generation,
+                        )) = output_boundary
+                        {
+                            if let Some(handle) = state_clone.sessions.lock().unwrap().get_mut(&id)
+                            {
+                                if output_inference_is_current(
+                                    generation,
+                                    min_revision,
+                                    handle.runtime.input_generation,
+                                    handle.runtime.min_peon_output_revision,
+                                ) && handle.runtime.runtime_instance_id == runtime_instance_id
+                                    && handle.runtime.run_generation() == run_generation
+                                    && handle.info.lifecycle_phase == "active"
+                                {
+                                    handle.runtime.min_peon_output_revision = last_revision;
+                                    handle.runtime.peon_output_capture = None;
+                                }
+                            }
+                        }
+                    }
+                    if output_range_completed {
+                        let observation_count = state_clone
+                            .workspace
+                            .lock()
+                            .unwrap()
+                            .as_ref()
+                            .and_then(|workspace| {
+                                workspace
+                                    .workflow_observations
+                                    .session_observation_count(&id)
+                                    .ok()
+                            });
+                        refresh_observation_count_if_active(
+                            &state_clone,
+                            &id,
+                            &attempt,
+                            observation_count,
+                        );
+                    }
+                    if let Some(label) = label_update {
+                        if post_processing_cancellation.load(Ordering::SeqCst) {
+                            finish_attempt_if_active(&state_clone, &id, &attempt);
+                            return;
+                        }
+                        apply_output_label_update(&state_clone, &id, &attempt, label);
+                    }
+
+                    if post_processing_cancellation.load(Ordering::SeqCst) {
+                        finish_attempt_if_active(&state_clone, &id, &attempt);
+                        return;
+                    }
+                    let sessions = state_clone.sessions.lock().unwrap();
+                    if !sessions.get(&id).is_some_and(|handle| {
+                        handle.runtime.matches_identity(&attempt.runtime_identity)
+                            && handle.info.lifecycle_phase == "active"
+                    }) || !state_clone
+                        .peon
+                        .diagnostic_attempt_is_current(&id, &attempt)
+                    {
+                        drop(sessions);
+                        finish_attempt_if_active(&state_clone, &id, &attempt);
+                        return;
+                    }
                     state_clone
                         .peon
-                        .last_output
+                        .last_inference
                         .write()
                         .unwrap()
-                        .insert(id.clone(), tokio::time::Instant::now());
-                }
-                drop(sessions);
-                finish_attempt_if_active(&state_clone, &id, &attempt);
-            })
-            .await;
+                        .insert(id.clone(), now_iso);
+
+                    // Three scheduling outcomes:
+                    // 1. Persisted + terminal: don't update last_output; lifecycle change removes session.
+                    // 2. Permanent hold (user source) + terminal: remove from pool entirely; new PTY
+                    //    output via terminal_runtime re-adds when the session becomes active again.
+                    // 3. A persisted non-terminal inference waits for new terminal output. A
+                    //    failed write or transient hold remains eligible for retry.
+                    if reached_terminal && inference_persisted {
+                        // outcome 1: leave last_output unchanged
+                    } else if reached_terminal && permanent_hold {
+                        state_clone.peon.last_output.write().unwrap().remove(&id);
+                    } else if inference_persisted {
+                        state_clone.peon.last_output.write().unwrap().remove(&id);
+                    } else {
+                        state_clone
+                            .peon
+                            .last_output
+                            .write()
+                            .unwrap()
+                            .insert(id.clone(), tokio::time::Instant::now());
+                    }
+                    drop(sessions);
+                    finish_attempt_if_active(&state_clone, &id, &attempt);
+                })
+                .await;
             });
         }
 
@@ -1157,7 +1165,12 @@ mod tests {
                 "now",
                 "now",
             ));
-        state.peon.in_flight.write().unwrap().insert(session_id.into());
+        state
+            .peon
+            .in_flight
+            .write()
+            .unwrap()
+            .insert(session_id.into());
         state.peon.mark_candidate(session_id);
         let attempt = state
             .peon
@@ -1182,7 +1195,10 @@ mod tests {
         apply_output_label_update(&state, session_id, &attempt, label_update);
 
         let placeholder = crate::session_types::placeholder_label(session_id);
-        assert_eq!(state.sessions.lock().unwrap()[session_id].info.label, placeholder);
+        assert_eq!(
+            state.sessions.lock().unwrap()[session_id].info.label,
+            placeholder
+        );
         assert_eq!(
             state
                 .workspace
@@ -1212,10 +1228,7 @@ mod tests {
         tokio::sync::oneshot::Sender<()>,
     ) {
         let (shutdown, receiver) = tokio::sync::oneshot::channel();
-        (
-            tokio::spawn(peon_loop_for_test(state, receiver)),
-            shutdown,
-        )
+        (tokio::spawn(peon_loop_for_test(state, receiver)), shutdown)
     }
 
     async fn stop_test_peon_loop(
@@ -1276,7 +1289,9 @@ mod tests {
             .with_barriers(provider_entered.clone(), provider_release.clone());
         let state_mut = Arc::get_mut(&mut state).unwrap();
         state_mut.providers = providers::ProviderManager::for_tests(settings, vec![fake_provider]);
-        state_mut.providers.mark_applied_for_tests("ollama", Some("test-model"));
+        state_mut
+            .providers
+            .mark_applied_for_tests("ollama", Some("test-model"));
         state_mut.peon.config.interval_secs = 0;
 
         let session_id = "shutdown-blocking-inference";
@@ -1331,16 +1346,8 @@ mod tests {
             .unwrap();
         loop_task.await.unwrap();
 
-        assert!(!state
-            .peon
-            .in_flight
-            .read()
-            .unwrap()
-            .contains(session_id));
-        assert!(!diagnostic_leases()
-            .lock()
-            .unwrap()
-            .contains_key(session_id));
+        assert!(!state.peon.in_flight.read().unwrap().contains(session_id));
+        assert!(!diagnostic_leases().lock().unwrap().contains_key(session_id));
         assert!(!state
             .peon
             .diagnostics
@@ -1368,9 +1375,7 @@ mod tests {
             .peon
             .begin_attempt(session_id, runtime_identity.clone())
             .expect("first attempt should start");
-        state
-            .peon
-            .timeout_attempt(session_id, &first_attempt);
+        state.peon.timeout_attempt(session_id, &first_attempt);
 
         state
             .peon
@@ -1388,14 +1393,12 @@ mod tests {
         state.peon.finish_attempt(session_id, &first_attempt);
         assert_eq!(
             diagnostic_leases().lock().unwrap().get(session_id),
-            Some(&(second_attempt.generation, second_attempt.runtime_identity.clone()))
+            Some(&(
+                second_attempt.generation,
+                second_attempt.runtime_identity.clone()
+            ))
         );
-        assert!(state
-            .peon
-            .in_flight
-            .read()
-            .unwrap()
-            .contains(session_id));
+        assert!(state.peon.in_flight.read().unwrap().contains(session_id));
         assert_eq!(
             state
                 .peon
@@ -1410,12 +1413,7 @@ mod tests {
         );
 
         state.peon.finish_attempt(session_id, &second_attempt);
-        assert!(!state
-            .peon
-            .in_flight
-            .read()
-            .unwrap()
-            .contains(session_id));
+        assert!(!state.peon.in_flight.read().unwrap().contains(session_id));
     }
 
     #[test]
@@ -1469,7 +1467,12 @@ mod tests {
 
         crate::session_application::SessionApplication::new(state.clone())
             .clear_ended_session_tracking(session_id);
-        assert!(!state.peon.diagnostics.read().unwrap().contains_key(session_id));
+        assert!(!state
+            .peon
+            .diagnostics
+            .read()
+            .unwrap()
+            .contains_key(session_id));
 
         let new_runtime = crate::runtime::session_runtime::SessionRuntime::detached(24, 80);
         let new_identity = new_runtime.identity();
@@ -1505,19 +1508,20 @@ mod tests {
             attempts: Vec::new(),
             runtime: HashMap::new(),
         };
-        assert!(!diagnostic_attempt_is_active(&state, session_id, &old_attempt));
-        assert!(!state.peon.complete_attempt(session_id, &old_attempt, &result));
+        assert!(!diagnostic_attempt_is_active(
+            &state,
+            session_id,
+            &old_attempt
+        ));
+        assert!(!state
+            .peon
+            .complete_attempt(session_id, &old_attempt, &result));
         state.peon.finish_attempt(session_id, &old_attempt);
         assert_eq!(
             diagnostic_leases().lock().unwrap().get(session_id),
             Some(&(new_attempt.generation, new_attempt.runtime_identity.clone()))
         );
-        assert!(state
-            .peon
-            .in_flight
-            .read()
-            .unwrap()
-            .contains(session_id));
+        assert!(state.peon.in_flight.read().unwrap().contains(session_id));
         assert_eq!(
             state.peon.diagnostics.read().unwrap()[session_id]
                 .snapshot
@@ -1525,16 +1529,18 @@ mod tests {
             crate::session_types::PeonSchedulerState::InFlight
         );
         let application = crate::session_application::SessionApplication::new(state.clone());
-        assert!(!application
-            .persist_peon_observation_for_attempt(
-                session_id,
-                &old_attempt,
-                result.inference.as_ref(),
-                None,
-                None,
-                "later",
-            )
-            .inference_persisted);
+        assert!(
+            !application
+                .persist_peon_observation_for_attempt(
+                    session_id,
+                    &old_attempt,
+                    result.inference.as_ref(),
+                    None,
+                    None,
+                    "later",
+                )
+                .inference_persisted
+        );
         state
             .workspace
             .lock()
@@ -1617,7 +1623,12 @@ mod tests {
                 active_work_hook: false,
             },
         );
-        state.peon.in_flight.write().unwrap().insert(session_id.into());
+        state
+            .peon
+            .in_flight
+            .write()
+            .unwrap()
+            .insert(session_id.into());
         state.peon.mark_candidate(session_id);
         let attempt = state
             .peon
@@ -1632,12 +1643,22 @@ mod tests {
         assert!(state.peon.complete_attempt(session_id, &attempt, &result));
         state.peon.finish_attempt(session_id, &attempt);
         assert!(!diagnostic_leases().lock().unwrap().contains_key(session_id));
-        assert!(state.peon.diagnostics.read().unwrap().contains_key(session_id));
+        assert!(state
+            .peon
+            .diagnostics
+            .read()
+            .unwrap()
+            .contains_key(session_id));
 
         crate::session_application::SessionApplication::new(state.clone())
             .clear_ended_session_tracking_for_runtime(session_id, &identity);
 
-        assert!(!state.peon.diagnostics.read().unwrap().contains_key(session_id));
+        assert!(!state
+            .peon
+            .diagnostics
+            .read()
+            .unwrap()
+            .contains_key(session_id));
     }
 
     #[test]
@@ -1675,7 +1696,12 @@ mod tests {
                 active_work_hook: false,
             },
         );
-        state.peon.in_flight.write().unwrap().insert(session_id.into());
+        state
+            .peon
+            .in_flight
+            .write()
+            .unwrap()
+            .insert(session_id.into());
         state.peon.mark_candidate(session_id);
         let old_attempt = state
             .peon
@@ -1687,30 +1713,52 @@ mod tests {
             attempts: Vec::new(),
             runtime: HashMap::new(),
         };
-        assert!(state.peon.complete_attempt(session_id, &old_attempt, &result));
+        assert!(state
+            .peon
+            .complete_attempt(session_id, &old_attempt, &result));
         state.peon.finish_attempt(session_id, &old_attempt);
 
         let new_runtime = crate::runtime::session_runtime::SessionRuntime::detached(24, 80);
         let new_identity = new_runtime.identity();
         assert_ne!(old_identity, new_identity);
-        state.sessions.lock().unwrap().get_mut(session_id).unwrap().runtime = new_runtime;
-        state.peon.in_flight.write().unwrap().insert(session_id.into());
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .get_mut(session_id)
+            .unwrap()
+            .runtime = new_runtime;
+        state
+            .peon
+            .in_flight
+            .write()
+            .unwrap()
+            .insert(session_id.into());
         state.peon.mark_candidate(session_id);
         let new_attempt = state
             .peon
             .begin_attempt(session_id, new_identity)
             .expect("replacement attempt should start");
-        assert!(state.peon.complete_attempt(session_id, &new_attempt, &result));
+        assert!(state
+            .peon
+            .complete_attempt(session_id, &new_attempt, &result));
         state.peon.finish_attempt(session_id, &new_attempt);
-        state.peon.last_output.write().unwrap().insert(
-            session_id.into(),
-            tokio::time::Instant::now(),
-        );
+        state
+            .peon
+            .last_output
+            .write()
+            .unwrap()
+            .insert(session_id.into(), tokio::time::Instant::now());
 
         crate::session_application::SessionApplication::new(state.clone())
             .clear_ended_session_tracking_for_runtime(session_id, &old_identity);
 
-        assert!(state.peon.diagnostics.read().unwrap().contains_key(session_id));
+        assert!(state
+            .peon
+            .diagnostics
+            .read()
+            .unwrap()
+            .contains_key(session_id));
         assert!(state
             .peon
             .last_output
@@ -1736,7 +1784,10 @@ mod tests {
             state.peon.mark_candidate(&session_id);
             let attempt = state
                 .peon
-                .begin_attempt(&session_id, test_runtime_identity(&session_id, index as u64 + 1))
+                .begin_attempt(
+                    &session_id,
+                    test_runtime_identity(&session_id, index as u64 + 1),
+                )
                 .expect("in-flight diagnostic should start");
             if index == 0 {
                 state.peon.timeout_attempt(&session_id, &attempt);
@@ -1754,10 +1805,7 @@ mod tests {
             for index in 0..crate::MAX_PEON_DIAGNOSTIC_SESSIONS {
                 let session_id = format!("in-flight-{index}");
                 assert!(diagnostics.contains_key(&session_id));
-                assert_eq!(
-                    leases.get(&session_id).map(|lease| lease.0),
-                    Some(1)
-                );
+                assert_eq!(leases.get(&session_id).map(|lease| lease.0), Some(1));
                 if index == 0 {
                     assert!(!in_flight.contains(&session_id));
                 } else {
@@ -1786,16 +1834,14 @@ mod tests {
             .begin_attempt(session_id, test_runtime_identity(session_id, 1))
             .expect("provider exhaustion attempt should start");
 
-        state
-            .peon
-            .fail_attempt(session_id, &attempt, "provider_exhausted", "all providers failed");
+        state.peon.fail_attempt(
+            session_id,
+            &attempt,
+            "provider_exhausted",
+            "all providers failed",
+        );
 
-        assert!(state
-            .peon
-            .in_flight
-            .read()
-            .unwrap()
-            .contains(session_id));
+        assert!(state.peon.in_flight.read().unwrap().contains(session_id));
         assert_eq!(
             diagnostic_leases().lock().unwrap().get(session_id),
             Some(&(attempt.generation, attempt.runtime_identity.clone()))
@@ -1808,12 +1854,7 @@ mod tests {
         );
 
         state.peon.finish_attempt(session_id, &attempt);
-        assert!(!state
-            .peon
-            .in_flight
-            .read()
-            .unwrap()
-            .contains(session_id));
+        assert!(!state.peon.in_flight.read().unwrap().contains(session_id));
     }
 
     #[test]
@@ -1855,20 +1896,14 @@ mod tests {
         {
             let diagnostics = state.peon.diagnostics.read().unwrap();
             let diagnostic = &diagnostics[session_id].snapshot;
-            assert!(diagnostic
-                .provider_id
-                .as_ref()
-                .unwrap()
-                .chars()
-                .count()
-                <= MAX_DIAGNOSTIC_TEXT_CHARS);
-            assert!(diagnostic
-                .provider_model
-                .as_ref()
-                .unwrap()
-                .chars()
-                .count()
-                <= MAX_DIAGNOSTIC_TEXT_CHARS);
+            assert!(
+                diagnostic.provider_id.as_ref().unwrap().chars().count()
+                    <= MAX_DIAGNOSTIC_TEXT_CHARS
+            );
+            assert!(
+                diagnostic.provider_model.as_ref().unwrap().chars().count()
+                    <= MAX_DIAGNOSTIC_TEXT_CHARS
+            );
         }
 
         state.peon.finish_attempt(session_id, &attempt);
@@ -1883,7 +1918,9 @@ mod tests {
             .peon
             .begin_attempt(session_id, test_runtime_identity(session_id, 1))
             .expect("second diagnostic attempt should start");
-        state.peon.fail_attempt(session_id, &next_attempt, "provider_exhausted", &oversized);
+        state
+            .peon
+            .fail_attempt(session_id, &next_attempt, "provider_exhausted", &oversized);
         let error_summary = state.peon.diagnostics.read().unwrap()[session_id]
             .snapshot
             .error_summary
@@ -1973,9 +2010,9 @@ mod tests {
                     crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
                     crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
                 ),
-            terminal_attached: false,
-            resume_in_progress: false,
-            at_usage_limit_latched: false,
+                terminal_attached: false,
+                resume_in_progress: false,
+                at_usage_limit_latched: false,
                 capacity_check_pending: false,
                 output_lines_seen: 0,
                 scan_bytes_seen: 0,
@@ -1984,18 +2021,13 @@ mod tests {
                 active_work_hook: false,
             },
         );
-        state
-            .peon
-            .label_hint
-            .write()
-            .unwrap()
-            .insert(
-                id.clone(),
-                crate::LabelHint {
-                    text: "describe this task".into(),
-                    epoch: 0,
-                },
-            );
+        state.peon.label_hint.write().unwrap().insert(
+            id.clone(),
+            crate::LabelHint {
+                text: "describe this task".into(),
+                epoch: 0,
+            },
+        );
         state.peon.label_pending.write().unwrap().insert(id.clone());
 
         let (task, shutdown) = spawn_test_peon_loop(state.clone());
@@ -2103,18 +2135,13 @@ mod tests {
                 active_work_hook: false,
             },
         );
-        state
-            .peon
-            .label_hint
-            .write()
-            .unwrap()
-            .insert(
-                id.clone(),
-                crate::LabelHint {
-                    text: "describe this task".into(),
-                    epoch: 0,
-                },
-            );
+        state.peon.label_hint.write().unwrap().insert(
+            id.clone(),
+            crate::LabelHint {
+                text: "describe this task".into(),
+                epoch: 0,
+            },
+        );
         state.peon.label_pending.write().unwrap().insert(id.clone());
         // Simulate an Output-mode inference already in flight for this
         // session at the moment the InputLabel request arrives.
@@ -2273,18 +2300,13 @@ mod tests {
             meta.metadata_source = "process".into();
             ws.metadata.write_session(&meta);
         }
-        state
-            .peon
-            .label_hint
-            .write()
-            .unwrap()
-            .insert(
-                id.clone(),
-                crate::LabelHint {
-                    text: "describe this task".into(),
-                    epoch: 0,
-                },
-            );
+        state.peon.label_hint.write().unwrap().insert(
+            id.clone(),
+            crate::LabelHint {
+                text: "describe this task".into(),
+                epoch: 0,
+            },
+        );
         state.peon.label_pending.write().unwrap().insert(id.clone());
 
         let (task, shutdown) = spawn_test_peon_loop(state.clone());
@@ -2324,10 +2346,9 @@ mod tests {
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
-                workflow_observations: crate::workflow_observations::WorkflowObservationStore::open(
-                    orkworks.clone(),
-                )
-                .expect("open workflow observation store"),
+                workflow_observations:
+                    crate::workflow_observations::WorkflowObservationStore::open(orkworks.clone())
+                        .expect("open workflow observation store"),
                 recommendation_store: crate::taskmaster::store::RecommendationStore::open(
                     orkworks.clone(),
                 )
@@ -2427,18 +2448,13 @@ mod tests {
                 "now",
             ));
         }
-        state
-            .peon
-            .label_hint
-            .write()
-            .unwrap()
-            .insert(
-                id.clone(),
-                crate::LabelHint {
-                    text: "describe this task".into(),
-                    epoch: 0,
-                },
-            );
+        state.peon.label_hint.write().unwrap().insert(
+            id.clone(),
+            crate::LabelHint {
+                text: "describe this task".into(),
+                epoch: 0,
+            },
+        );
         state.peon.label_pending.write().unwrap().insert(id.clone());
 
         let (task, shutdown) = spawn_test_peon_loop(state.clone());
@@ -2471,10 +2487,7 @@ mod tests {
         let id = "label-pr-number-rejected".to_string();
         // PR #249 is beyond the display fallback. A number-dropping model
         // response must therefore leave the bounded fallback untouched.
-        let input_hint = format!(
-            "keep watching {}PR #249",
-            "important changes ".repeat(6)
-        );
+        let input_hint = format!("keep watching {}PR #249", "important changes ".repeat(6));
         let fallback_label: String = input_hint.chars().take(100).collect();
         let call_counter = Arc::new(AtomicUsize::new(0));
         let state = Arc::new(crate::AppState {
@@ -2590,18 +2603,13 @@ mod tests {
                 "now",
             ));
         }
-        state
-            .peon
-            .label_hint
-            .write()
-            .unwrap()
-            .insert(
-                id.clone(),
-                crate::LabelHint {
-                    text: input_hint,
-                    epoch: 0,
-                },
-            );
+        state.peon.label_hint.write().unwrap().insert(
+            id.clone(),
+            crate::LabelHint {
+                text: input_hint,
+                epoch: 0,
+            },
+        );
         state.peon.label_pending.write().unwrap().insert(id.clone());
 
         let (task, shutdown) = spawn_test_peon_loop(state.clone());
@@ -2658,10 +2666,9 @@ mod tests {
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
-                workflow_observations: crate::workflow_observations::WorkflowObservationStore::open(
-                    orkworks.clone(),
-                )
-                .expect("open workflow observation store"),
+                workflow_observations:
+                    crate::workflow_observations::WorkflowObservationStore::open(orkworks.clone())
+                        .expect("open workflow observation store"),
                 recommendation_store: crate::taskmaster::store::RecommendationStore::open(
                     orkworks.clone(),
                 )
@@ -2792,7 +2799,7 @@ mod tests {
                     provider_state: None,
                     created_at: "now".into(),
                     last_activity: "now".into(),
-        last_output_at: None,
+                    last_output_at: None,
                     metadata_source: "process".into(),
                     metadata_confidence: 1.0,
                     repo_root: None,
@@ -2873,10 +2880,9 @@ mod tests {
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
-                workflow_observations: crate::workflow_observations::WorkflowObservationStore::open(
-                    orkworks.clone(),
-                )
-                .expect("open workflow observation store"),
+                workflow_observations:
+                    crate::workflow_observations::WorkflowObservationStore::open(orkworks.clone())
+                        .expect("open workflow observation store"),
                 recommendation_store: crate::taskmaster::store::RecommendationStore::open(
                     orkworks.clone(),
                 )
@@ -3222,7 +3228,10 @@ mod tests {
             diagnostic.snapshot.scheduler_state,
             crate::session_types::PeonSchedulerState::Failed
         );
-        assert_eq!(diagnostic.snapshot.reason.as_deref(), Some("provider_exhausted"));
+        assert_eq!(
+            diagnostic.snapshot.reason.as_deref(),
+            Some("provider_exhausted")
+        );
         assert!(diagnostic.snapshot.error_summary.is_some());
         assert_eq!(diagnostic.snapshot.attempt_count, Some(1));
     }
@@ -3242,10 +3251,9 @@ mod tests {
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
-                workflow_observations: crate::workflow_observations::WorkflowObservationStore::open(
-                    orkworks.clone(),
-                )
-                .expect("open workflow observation store"),
+                workflow_observations:
+                    crate::workflow_observations::WorkflowObservationStore::open(orkworks.clone())
+                        .expect("open workflow observation store"),
                 recommendation_store: crate::taskmaster::store::RecommendationStore::open(
                     orkworks.clone(),
                 )
@@ -3369,7 +3377,7 @@ mod tests {
                     provider_state: None,
                     created_at: "now".into(),
                     last_activity: "now".into(),
-        last_output_at: None,
+                    last_output_at: None,
                     metadata_source: "process".into(),
                     metadata_confidence: 1.0,
                     repo_root: None,
@@ -3421,10 +3429,9 @@ mod tests {
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
-                workflow_observations: crate::workflow_observations::WorkflowObservationStore::open(
-                    orkworks.clone(),
-                )
-                .expect("open workflow observation store"),
+                workflow_observations:
+                    crate::workflow_observations::WorkflowObservationStore::open(orkworks.clone())
+                        .expect("open workflow observation store"),
                 recommendation_store: crate::taskmaster::store::RecommendationStore::open(
                     orkworks.clone(),
                 )
@@ -3539,7 +3546,7 @@ mod tests {
                     provider_state: None,
                     created_at: "now".into(),
                     last_activity: "now".into(),
-        last_output_at: None,
+                    last_output_at: None,
                     metadata_source: "peon".into(),
                     metadata_confidence: 0.85,
                     repo_root: None,
@@ -3612,10 +3619,9 @@ mod tests {
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
-                workflow_observations: crate::workflow_observations::WorkflowObservationStore::open(
-                    orkworks.clone(),
-                )
-                .expect("open workflow observation store"),
+                workflow_observations:
+                    crate::workflow_observations::WorkflowObservationStore::open(orkworks.clone())
+                        .expect("open workflow observation store"),
                 recommendation_store: crate::taskmaster::store::RecommendationStore::open(
                     orkworks.clone(),
                 )
@@ -3727,7 +3733,7 @@ mod tests {
                     provider_state: None,
                     created_at: "now".into(),
                     last_activity: "now".into(),
-        last_output_at: None,
+                    last_output_at: None,
                     metadata_source: "process".into(),
                     metadata_confidence: 1.0,
                     repo_root: None,
@@ -3785,10 +3791,9 @@ mod tests {
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
-                workflow_observations: crate::workflow_observations::WorkflowObservationStore::open(
-                    orkworks.clone(),
-                )
-                .expect("open workflow observation store"),
+                workflow_observations:
+                    crate::workflow_observations::WorkflowObservationStore::open(orkworks.clone())
+                        .expect("open workflow observation store"),
                 recommendation_store: crate::taskmaster::store::RecommendationStore::open(
                     orkworks.clone(),
                 )
@@ -3900,7 +3905,7 @@ mod tests {
                     provider_state: None,
                     created_at: "now".into(),
                     last_activity: "now".into(),
-        last_output_at: None,
+                    last_output_at: None,
                     metadata_source: "process".into(),
                     metadata_confidence: 1.0,
                     repo_root: None,
@@ -3956,10 +3961,9 @@ mod tests {
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
-                workflow_observations: crate::workflow_observations::WorkflowObservationStore::open(
-                    orkworks.clone(),
-                )
-                .expect("open workflow observation store"),
+                workflow_observations:
+                    crate::workflow_observations::WorkflowObservationStore::open(orkworks.clone())
+                        .expect("open workflow observation store"),
                 recommendation_store: crate::taskmaster::store::RecommendationStore::open(
                     orkworks.clone(),
                 )
@@ -4071,7 +4075,7 @@ mod tests {
                     provider_state: None,
                     created_at: "now".into(),
                     last_activity: "now".into(),
-        last_output_at: None,
+                    last_output_at: None,
                     metadata_source: "process".into(),
                     metadata_confidence: 1.0,
                     repo_root: None,
@@ -4132,10 +4136,9 @@ mod tests {
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
-                workflow_observations: crate::workflow_observations::WorkflowObservationStore::open(
-                    orkworks.clone(),
-                )
-                .expect("open workflow observation store"),
+                workflow_observations:
+                    crate::workflow_observations::WorkflowObservationStore::open(orkworks.clone())
+                        .expect("open workflow observation store"),
                 recommendation_store: crate::taskmaster::store::RecommendationStore::open(
                     orkworks.clone(),
                 )
@@ -4252,7 +4255,7 @@ mod tests {
                     provider_state: None,
                     created_at: "now".into(),
                     last_activity: "now".into(),
-        last_output_at: None,
+                    last_output_at: None,
                     metadata_source: "process".into(),
                     metadata_confidence: 1.0,
                     repo_root: None,
@@ -4307,10 +4310,9 @@ mod tests {
             workspace: Mutex::new(Some(crate::WorkspaceState {
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
-                workflow_observations: crate::workflow_observations::WorkflowObservationStore::open(
-                    orkworks.clone(),
-                )
-                .expect("open workflow observation store"),
+                workflow_observations:
+                    crate::workflow_observations::WorkflowObservationStore::open(orkworks.clone())
+                        .expect("open workflow observation store"),
                 recommendation_store: crate::taskmaster::store::RecommendationStore::open(
                     orkworks.clone(),
                 )
@@ -4441,7 +4443,7 @@ mod tests {
                     provider_state: None,
                     created_at: "now".into(),
                     last_activity: "now".into(),
-        last_output_at: None,
+                    last_output_at: None,
                     metadata_source: "process".into(),
                     metadata_confidence: 1.0,
                     repo_root: None,

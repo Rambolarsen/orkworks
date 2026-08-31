@@ -620,7 +620,7 @@ mod tests {
             provider_state: None,
             created_at: "2026-06-28T09:00:00Z".into(),
             last_activity: "2026-06-28T09:05:00Z".into(),
-        last_output_at: None,
+            last_output_at: None,
             metadata_source: "process".into(),
             metadata_confidence: 1.0,
             repo_root: Some("/tmp/project".into()),
@@ -824,10 +824,8 @@ mod tests {
             HashMap::from([("reported".to_string(), "/harness-reported".to_string())]);
         // "reported" also has a tracked pid that would resolve to a
         // different directory — the harness-reported value must win anyway.
-        let session_pids: HashMap<String, u32> = HashMap::from([
-            ("reported".to_string(), 1),
-            ("pid-only".to_string(), 2),
-        ]);
+        let session_pids: HashMap<String, u32> =
+            HashMap::from([("reported".to_string(), 1), ("pid-only".to_string(), 2)]);
 
         let resolved = resolve_effective_cwds(&sessions, &reported_cwds, &session_pids, |pids| {
             // Efficiency: "reported"'s pid (1) already has a higher-priority

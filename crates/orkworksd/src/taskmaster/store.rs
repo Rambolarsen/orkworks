@@ -16,7 +16,9 @@ impl std::fmt::Display for StoreError {
         match self {
             Self::Io(error) => write!(f, "{error}"),
             Self::Json(error) => write!(f, "{error}"),
-            Self::InvalidTransition => write!(f, "recommendation is not a proposed workflow improvement"),
+            Self::InvalidTransition => {
+                write!(f, "recommendation is not a proposed workflow improvement")
+            }
         }
     }
 }
@@ -57,7 +59,9 @@ impl RecommendationStore {
         }
         let path = self.path_for(id);
         match fs::read_to_string(path) {
-            Ok(json) => serde_json::from_str(&json).map(Some).map_err(StoreError::Json),
+            Ok(json) => serde_json::from_str(&json)
+                .map(Some)
+                .map_err(StoreError::Json),
             Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
             Err(error) => Err(StoreError::Io(error)),
         }
@@ -137,7 +141,12 @@ impl RecommendationStore {
             let mut referenced_session_ids = recommendation
                 .source_session_ids
                 .iter()
-                .chain(recommendation.workflow_improvement.affected_session_ids.iter())
+                .chain(
+                    recommendation
+                        .workflow_improvement
+                        .affected_session_ids
+                        .iter(),
+                )
                 .chain(
                     recommendation
                         .workflow_improvement
@@ -145,7 +154,12 @@ impl RecommendationStore {
                         .iter()
                         .flat_map(|watermark| watermark.affected_session_ids.iter()),
                 )
-                .chain(recommendation.evidence.iter().map(|evidence| &evidence.session_id));
+                .chain(
+                    recommendation
+                        .evidence
+                        .iter()
+                        .map(|evidence| &evidence.session_id),
+                );
             let orphaned = referenced_session_ids.any(|id| !retained_session_ids.contains(id));
             if orphaned {
                 fs::remove_file(self.path_for(&recommendation.id)).map_err(StoreError::Io)?;
@@ -172,8 +186,14 @@ fn valid_id(id: &str) -> bool {
 }
 
 fn references_session(recommendation: &Recommendation, session_id: &str) -> bool {
-    recommendation.source_session_ids.iter().any(|id| id == session_id)
-        || recommendation.evidence.iter().any(|evidence| evidence.session_id == session_id)
+    recommendation
+        .source_session_ids
+        .iter()
+        .any(|id| id == session_id)
+        || recommendation
+            .evidence
+            .iter()
+            .any(|evidence| evidence.session_id == session_id)
         || recommendation
             .workflow_improvement
             .affected_session_ids
@@ -183,7 +203,12 @@ fn references_session(recommendation: &Recommendation, session_id: &str) -> bool
             .workflow_improvement
             .dismissal_watermark
             .as_ref()
-            .is_some_and(|watermark| watermark.affected_session_ids.iter().any(|id| id == session_id))
+            .is_some_and(|watermark| {
+                watermark
+                    .affected_session_ids
+                    .iter()
+                    .any(|id| id == session_id)
+            })
 }
 
 #[cfg(test)]
@@ -261,17 +286,22 @@ mod tests {
         assert_eq!(json["type"], "improve_workflow");
         assert_eq!(json["requiresApproval"], false);
         assert!(json["targetSessionId"].is_null());
-        assert_eq!(RecommendationStore::open(dir.path().to_path_buf())
-            .unwrap()
-            .get("recommendation-1")
-            .unwrap(), Some(original));
+        assert_eq!(
+            RecommendationStore::open(dir.path().to_path_buf())
+                .unwrap()
+                .get("recommendation-1")
+                .unwrap(),
+            Some(original)
+        );
     }
 
     #[test]
     fn dismisses_in_place_with_immutable_evidence_and_watermark() {
         let dir = tempfile::tempdir().unwrap();
         let store = RecommendationStore::open(dir.path().to_path_buf()).unwrap();
-        store.put(&recommendation("recommendation-1", "session-1")).unwrap();
+        store
+            .put(&recommendation("recommendation-1", "session-1"))
+            .unwrap();
 
         let dismissed = store
             .dismiss("recommendation-1", "2026-08-21T12:00:00Z".into())
@@ -280,8 +310,15 @@ mod tests {
 
         assert_eq!(dismissed.status, RecommendationStatus::Dismissed);
         assert_eq!(dismissed.evidence[0].description, "A recurring obstacle");
-        assert_eq!(dismissed.workflow_improvement.dismissal_watermark
-            .as_ref().unwrap().dismissed_through_sequence, 4);
+        assert_eq!(
+            dismissed
+                .workflow_improvement
+                .dismissal_watermark
+                .as_ref()
+                .unwrap()
+                .dismissed_through_sequence,
+            4
+        );
     }
 
     #[test]
@@ -294,7 +331,9 @@ mod tests {
         assert!(store.get("delete").unwrap().is_none());
         assert!(store.get("keep").unwrap().is_some());
 
-        store.scrub_orphans(&HashSet::from(["session-1".to_string()])).unwrap();
+        store
+            .scrub_orphans(&HashSet::from(["session-1".to_string()]))
+            .unwrap();
         assert!(store.get("keep").unwrap().is_some());
     }
 }

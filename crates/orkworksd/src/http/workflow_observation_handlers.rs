@@ -25,11 +25,9 @@
 
 use crate::runtime::terminal_runtime::{record_report_attempt, verify_workflow_report_token};
 use crate::session_application::{SessionApplication, WorkflowObservationPersistenceError};
-use crate::taskmaster::evaluator::schedule_evaluation;
 use crate::session_types::MemoryState;
-use crate::workflow_observations::{
-    self, ObservationCandidate, RecordError, RecordOutcome,
-};
+use crate::taskmaster::evaluator::schedule_evaluation;
+use crate::workflow_observations::{self, ObservationCandidate, RecordError, RecordOutcome};
 use crate::AppState;
 use axum::{
     body::Bytes,
@@ -193,9 +191,7 @@ pub(crate) async fn report_workflow_observation(
         )) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
         Err(WorkflowObservationPersistenceError::Record(
             RecordError::Degraded | RecordError::PersistFailed,
-        )) => {
-            StatusCode::INTERNAL_SERVER_ERROR.into_response()
-        }
+        )) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
 }
 
@@ -227,7 +223,9 @@ mod tests {
     use crate::runtime::session_runtime::SessionRuntime;
     use crate::runtime::terminal_runtime::{set_workflow_report_token, WORKFLOW_REPORT_RATE_LIMIT};
     use crate::session_types::MemoryState;
-    use crate::test_support::{test_app_state_with_workspace, test_session_info, test_session_metadata};
+    use crate::test_support::{
+        test_app_state_with_workspace, test_session_info, test_session_metadata,
+    };
     use axum::http::header::AUTHORIZATION;
     use axum::http::HeaderValue;
     use serde_json::json;
