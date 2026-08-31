@@ -31,7 +31,7 @@ test("needsAttention recognizes only actionable alive attention", () => {
   assert.equal(needsAttention("capped"), false);
 });
 
-test("alive sessions use attention and dead sessions are neutral", () => {
+test("dead sessions ignore attention and stay neutral without a terminal outcome", () => {
   assert.equal(sessionAttentionStatus(session("working", "alive", "working")), "working");
   assert.equal(sessionAttentionStatus(session("idle", "alive")), "idle");
   assert.equal(sessionAttentionStatus(session("dead", "dead", "blocked")), "neutral");
