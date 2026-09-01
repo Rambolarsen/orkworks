@@ -1155,6 +1155,56 @@ impl ProviderManager {
         }
     }
 
+    /// Reconciles persisted settings with the current harness-projected provider
+    /// catalog. Entries with stable IDs retain their user-selected state; new
+    /// provider IDs are appended with the standard enabled/unknown defaults.
+    pub fn reconcile_harness_provider_settings(&self) {
+        let definitions = self.definitions();
+        let valid_ids: HashSet<&str> = definitions
+            .iter()
+            .map(|definition| definition.id.as_str())
+            .collect();
+        let mut settings = self.settings.write().unwrap();
+        let mut retained_ids = HashSet::new();
+        settings.providers.retain(|entry| {
+            valid_ids.contains(entry.id.as_str()) && retained_ids.insert(entry.id.clone())
+        });
+
+        let mut next_fallback_order = settings
+            .providers
+            .iter()
+            .map(|entry| entry.fallback_order)
+            .max()
+            .map_or(0, |order| order.saturating_add(1));
+        let mut existing_ids: HashSet<String> = settings
+            .providers
+            .iter()
+            .map(|entry| entry.id.clone())
+            .collect();
+        for definition in definitions {
+            if !existing_ids.insert(definition.id.clone()) {
+                continue;
+            }
+            settings.providers.push(ProviderSettingsEntry {
+                id: definition.id,
+                enabled: true,
+                fallback_order: next_fallback_order,
+                model: None,
+                default_state: ProviderCapacityState::Unknown,
+                override_state: None,
+            });
+            next_fallback_order = next_fallback_order.saturating_add(1);
+        }
+
+        let valid_ids: HashSet<String> = settings
+            .providers
+            .iter()
+            .map(|entry| entry.id.clone())
+            .collect();
+        settings.peon_selection =
+            normalize_peon_selection(settings.peon_selection.clone(), &valid_ids);
+    }
+
     fn accept_generation(&self, generation: u64) -> Result<(), ProviderOperationError> {
         if generation == 0 {
             return Err(ProviderOperationError {
@@ -2497,6 +2547,160 @@ mod tests {
             ollama_base_url: default_ollama_base_url(),
             providers: builders.into_iter().map(|b| b.build()).collect(),
         }
+    }
+
+    #[test]
+    fn reconcile_harness_provider_settings_preserves_independent_custom_provider_state() {
+        let settings = ProviderSettingsPayload {
+            peon_selection: Some(PeonSelection {
+                provider: "copilot-local".into(),
+                model: "local-model".into(),
+                ollama_base_url: None,
+            }),
+            providers: vec![
+                entry("copilot")
+                    .model(Some("cloud-model"))
+                    .override_state(Some(ProviderCapacityState::Degraded))
+                    .build(),
+                ProviderSettingsEntry {
+                    id: "copilot-local".into(),
+                    enabled: false,
+                    fallback_order: 7,
+                    model: Some("local-model".into()),
+                    default_state: ProviderCapacityState::Unknown,
+                    override_state: Some(ProviderCapacityState::Capped),
+                },
+                ProviderSettingsEntry {
+                    id: "removed-provider".into(),
+                    enabled: true,
+                    fallback_order: 8,
+                    model: Some("obsolete".into()),
+                    default_state: ProviderCapacityState::Healthy,
+                    override_state: None,
+                },
+            ],
+            ..ProviderSettingsPayload::default()
+        };
+        let manager = ProviderManager::for_tests_with_registry(
+            vec![
+                ProviderDefinition {
+                    id: "copilot".into(),
+                    label: "Copilot".into(),
+                    command: "copilot".into(),
+                    default_args: vec![],
+                    model_arg_template: Some("--model={model}".into()),
+                    supports_model: true,
+                    timeout_secs: 30,
+                    prompt_transport: PromptTransport::Argument,
+                    list_models_command: None,
+                    list_models_args: vec![],
+                    static_models: vec![],
+                    http_list_models: false,
+                },
+                ProviderDefinition {
+                    id: "copilot-local".into(),
+                    label: "Copilot Local".into(),
+                    command: "copilot-local".into(),
+                    default_args: vec![],
+                    model_arg_template: Some("--model={model}".into()),
+                    supports_model: true,
+                    timeout_secs: 30,
+                    prompt_transport: PromptTransport::Argument,
+                    list_models_command: None,
+                    list_models_args: vec![],
+                    static_models: vec![],
+                    http_list_models: false,
+                },
+                ProviderDefinition {
+                    id: "new-provider".into(),
+                    label: "New Provider".into(),
+                    command: "new-provider".into(),
+                    default_args: vec![],
+                    model_arg_template: None,
+                    supports_model: false,
+                    timeout_secs: 30,
+                    prompt_transport: PromptTransport::Stdin,
+                    list_models_command: None,
+                    list_models_args: vec![],
+                    static_models: vec![],
+                    http_list_models: false,
+                },
+            ],
+            settings,
+            vec![],
+        );
+
+        manager.reconcile_harness_provider_settings();
+        let settings = manager.settings.read().unwrap().clone();
+
+        assert_eq!(
+            settings
+                .providers
+                .iter()
+                .map(|entry| entry.id.as_str())
+                .collect::<Vec<_>>(),
+            ["copilot", "copilot-local", "new-provider"]
+        );
+        assert_eq!(settings.providers[0].model.as_deref(), Some("cloud-model"));
+        assert_eq!(settings.providers[0].fallback_order, 99);
+        assert_eq!(settings.providers[1].model.as_deref(), Some("local-model"));
+        assert!(!settings.providers[1].enabled);
+        assert_eq!(settings.providers[1].fallback_order, 7);
+        assert_eq!(
+            settings.providers[1].override_state,
+            Some(ProviderCapacityState::Capped)
+        );
+        assert!(settings.providers[2].enabled);
+        assert_eq!(settings.providers[2].fallback_order, 100);
+        assert_eq!(
+            settings.peon_selection.as_ref().unwrap().provider,
+            "copilot-local"
+        );
+    }
+
+    #[test]
+    fn reconcile_harness_provider_settings_clears_missing_peon_selection() {
+        let settings = ProviderSettingsPayload {
+            peon_selection: Some(PeonSelection {
+                provider: "copilot-local".into(),
+                model: "local-model".into(),
+                ollama_base_url: None,
+            }),
+            providers: vec![ProviderSettingsEntry {
+                id: "copilot-local".into(),
+                enabled: true,
+                fallback_order: 0,
+                model: Some("local-model".into()),
+                default_state: ProviderCapacityState::Healthy,
+                override_state: None,
+            }],
+            ..ProviderSettingsPayload::default()
+        };
+        let manager = ProviderManager::for_tests_with_registry(
+            vec![ProviderDefinition {
+                id: "copilot".into(),
+                label: "Copilot".into(),
+                command: "copilot".into(),
+                default_args: vec![],
+                model_arg_template: None,
+                supports_model: false,
+                timeout_secs: 30,
+                prompt_transport: PromptTransport::Stdin,
+                list_models_command: None,
+                list_models_args: vec![],
+                static_models: vec![],
+                http_list_models: false,
+            }],
+            settings,
+            vec![],
+        );
+
+        manager.reconcile_harness_provider_settings();
+        let settings = manager.settings.read().unwrap().clone();
+
+        assert_eq!(settings.providers.len(), 1);
+        assert_eq!(settings.providers[0].id, "copilot");
+        assert!(settings.peon_selection.is_none());
     }
 
     fn fake_provider(id: &'static str) -> FakeProvider {

@@ -3,6 +3,7 @@ use std::sync::{Arc, RwLock};
 
 use serde::Serialize;
 
+use super::compatibility::{derive_compatibility_metadata, CompatibilityMetadata};
 #[cfg(test)]
 use super::definition::PromptTransport;
 use super::definition::{
@@ -34,6 +35,7 @@ pub(crate) enum CapabilityName {
 pub(crate) struct ResolvedHarness {
     pub definition: HarnessDefinition,
     pub origin: DefinitionOrigin,
+    pub compatibility: CompatibilityMetadata,
     pub effective_capabilities: BTreeSet<CapabilityName>,
 }
 
@@ -287,6 +289,7 @@ pub(crate) fn resolve_document(
             Ok(()) => ordered.push(ResolvedHarness {
                 definition: builtin.clone(),
                 origin: DefinitionOrigin::Builtin,
+                compatibility: builtin_compatibility_metadata(builtin),
                 effective_capabilities: capability_names(builtin),
             }),
             Err(errors) => diagnostics.extend(errors),
@@ -307,6 +310,7 @@ pub(crate) fn resolve_document(
         match harness.definition.apply_patch(patch) {
             Ok(definition) => {
                 harness.effective_capabilities = capability_names(&definition);
+                harness.compatibility = builtin_compatibility_metadata(&definition);
                 harness.definition = definition;
                 harness.origin = DefinitionOrigin::Override;
             }
@@ -323,11 +327,19 @@ pub(crate) fn resolve_document(
             continue;
         }
         match custom.validate(DefinitionOrigin::Custom) {
-            Ok(()) => ordered.push(ResolvedHarness {
-                definition: custom.clone(),
-                origin: DefinitionOrigin::Custom,
-                effective_capabilities: capability_names(custom),
-            }),
+            Ok(()) => {
+                let compatibility =
+                    derive_compatibility_metadata(user.compatibility_profile(&custom.id));
+                let mut definition = custom.clone();
+                definition.session_signals = compatibility.session_signals.clone();
+                definition.integration = compatibility.integration.clone();
+                ordered.push(ResolvedHarness {
+                    effective_capabilities: capability_names(&definition),
+                    definition,
+                    origin: DefinitionOrigin::Custom,
+                    compatibility,
+                });
+            }
             Err(errors) => diagnostics.extend(errors),
         }
     }
@@ -345,6 +357,14 @@ pub(crate) fn resolve_document(
         diagnostics,
         providers,
     })
+}
+
+fn builtin_compatibility_metadata(definition: &HarnessDefinition) -> CompatibilityMetadata {
+    CompatibilityMetadata {
+        profile: None,
+        session_signals: definition.session_signals.clone(),
+        integration: definition.integration.clone(),
+    }
 }
 
 fn capability_names(definition: &HarnessDefinition) -> BTreeSet<CapabilityName> {
@@ -438,7 +458,32 @@ fn provider_from_harness(harness: &ResolvedHarness) -> Option<ProviderDefinition
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::harness::compatibility::CompatibilityProfile;
     use crate::harness::definition::{BuiltinDocument, HarnessPatch, EMBEDDED_BUILTINS};
+
+    fn custom_copilot_definition(builtins: &BuiltinDocument, id: &str) -> HarnessDefinition {
+        let mut custom = builtins
+            .builtins
+            .iter()
+            .find(|definition| definition.id == "copilot")
+            .expect("embedded Copilot definition")
+            .clone();
+        custom.id = id.into();
+        custom.name = "Copilot Local".into();
+        custom.session_signals = None;
+        custom.integration = None;
+        custom
+    }
+
+    fn test_document_with_profile(id: &str, profile: CompatibilityProfile) -> HarnessUserDocument {
+        let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
+        let mut document = HarnessUserDocument::default();
+        document
+            .custom
+            .push(custom_copilot_definition(&builtins, id));
+        document.set_compatibility_profile(id, profile).unwrap();
+        document
+    }
 
     fn test_reporter_assets() -> (
         tempfile::TempDir,
@@ -626,6 +671,83 @@ mod tests {
             .diagnostics()
             .iter()
             .all(|diagnostic| diagnostic.code == "custom_id_collision"));
+    }
+
+    #[test]
+    fn profiled_custom_harness_derives_copilot_bindings_only_at_runtime() {
+        let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
+        let document = test_document_with_profile("copilot-local", CompatibilityProfile::Copilot);
+
+        let resolved = resolve_document(&builtins, &document).unwrap();
+        let local = resolved.get("copilot-local").unwrap();
+
+        assert_eq!(
+            local.compatibility.profile,
+            Some(CompatibilityProfile::Copilot)
+        );
+        assert_eq!(
+            local.definition.integration,
+            Some(super::super::definition::IntegrationBinding::Copilot)
+        );
+        assert_eq!(
+            local.definition.session_signals,
+            Some(super::super::definition::SessionSignalBinding::Copilot)
+        );
+        assert_eq!(local.definition.id, "copilot-local");
+        assert!(resolved
+            .providers()
+            .iter()
+            .any(|provider| provider.id == "copilot-local"));
+
+        let stored = serde_json::to_value(&document).unwrap();
+        let custom = &stored["custom"][0];
+        assert!(custom["integration"].is_null());
+        assert!(custom["sessionSignals"].is_null());
+    }
+
+    #[test]
+    fn custom_harness_without_profile_has_no_derived_bindings() {
+        let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
+        let mut document = HarnessUserDocument::default();
+        document
+            .custom
+            .push(custom_copilot_definition(&builtins, "copilot-local"));
+
+        let resolved = resolve_document(&builtins, &document).unwrap();
+        let local = resolved.get("copilot-local").unwrap();
+
+        assert_eq!(local.compatibility.profile, None);
+        assert_eq!(local.definition.integration, None);
+        assert_eq!(local.definition.session_signals, None);
+    }
+
+    #[test]
+    fn copied_profile_and_command_edits_do_not_change_profile_identity() {
+        let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
+        let mut document =
+            test_document_with_profile("copilot-local", CompatibilityProfile::Copilot);
+        let mut duplicate = custom_copilot_definition(&builtins, "copilot-local-copy");
+        let LaunchCapability::CommandTemplate { command, .. } = &mut duplicate.launch else {
+            panic!("Copilot must use a command template");
+        };
+        *command = "copilot-local-copy-bin".into();
+        document.custom.push(duplicate);
+        document
+            .set_compatibility_profile("copilot-local-copy", CompatibilityProfile::Copilot)
+            .unwrap();
+
+        let resolved = resolve_document(&builtins, &document).unwrap();
+        let duplicate = resolved.get("copilot-local-copy").unwrap();
+
+        assert_eq!(
+            duplicate.compatibility.profile,
+            Some(CompatibilityProfile::Copilot)
+        );
+        assert_eq!(duplicate.launch_command(), "copilot-local-copy-bin");
+        assert_eq!(
+            duplicate.definition.integration,
+            Some(super::super::definition::IntegrationBinding::Copilot)
+        );
     }
 
     #[test]
@@ -959,6 +1081,7 @@ mod tests {
             model_prefix: None,
         };
         let harness = ResolvedHarness {
+            compatibility: builtin_compatibility_metadata(&definition),
             definition,
             origin: DefinitionOrigin::Builtin,
             effective_capabilities: BTreeSet::new(),
