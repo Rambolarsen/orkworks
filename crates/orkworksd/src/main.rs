@@ -40,7 +40,9 @@ use crate::http::harness_handlers::{
     update_harness,
 };
 use crate::http::integration_handlers::{
-    get_integration_status, install_integration, uninstall_integration,
+    get_grouped_integration_status, get_integration_status, get_workspace_integrations,
+    install_grouped_integration, install_integration, repair_grouped_integration,
+    uninstall_grouped_integration, uninstall_integration,
 };
 use crate::http::provider_handlers::{
     discover_provider_models, get_applied_peon_provider, get_providers, set_provider_settings,
@@ -317,6 +319,23 @@ pub(crate) fn build_router(state: Arc<AppState>) -> Router {
         .route(
             "/workspace/integrations/:harness_id/uninstall",
             post(uninstall_integration),
+        )
+        .route("/workspace/integrations", get(get_workspace_integrations))
+        .route(
+            "/workspace/integrations/:adapter_id/:target_id/status",
+            get(get_grouped_integration_status),
+        )
+        .route(
+            "/workspace/integrations/:adapter_id/:target_id/install",
+            post(install_grouped_integration),
+        )
+        .route(
+            "/workspace/integrations/:adapter_id/:target_id/repair",
+            post(repair_grouped_integration),
+        )
+        .route(
+            "/workspace/integrations/:adapter_id/:target_id/uninstall",
+            post(uninstall_grouped_integration),
         )
         .route("/sessions", post(create_session))
         .route("/sessions", get(list_sessions))

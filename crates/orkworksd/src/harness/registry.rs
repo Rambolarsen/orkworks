@@ -13,6 +13,15 @@ use super::definition::{CapacityCapability, LaunchCapability};
 use super::definition::{HarnessDefinition, ModelCapability, PeonCapability};
 use crate::providers::ProviderDefinition;
 
+use super::integration::{integration_key, IntegrationConsumer, IntegrationKey};
+
+#[derive(Clone, Debug)]
+pub(crate) struct ResolvedIntegrationGroup {
+    pub key: IntegrationKey,
+    pub consumers: Vec<IntegrationConsumer>,
+    pub representative: ResolvedHarness,
+}
+
 #[derive(Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum CapabilityName {
@@ -256,6 +265,88 @@ impl ResolvedHarnessRegistry {
     pub(crate) fn with_diagnostics(mut self, mut diagnostics: Vec<HarnessDiagnostic>) -> Self {
         self.diagnostics.append(&mut diagnostics);
         self
+    }
+
+    /// Groups the active, resolvable harnesses by the code-owned integration
+    /// adapter and target. Missing IDs are intentionally ignored here: the
+    /// workspace application normalizes them before active selections are
+    /// persisted, while cleanup must remain safe if it observes an older
+    /// workspace snapshot.
+    pub(crate) fn integration_groups(
+        &self,
+        active_ids: &[String],
+    ) -> Result<Vec<ResolvedIntegrationGroup>, crate::harness::integration::IntegrationError> {
+        let mut groups: std::collections::BTreeMap<IntegrationKey, ResolvedIntegrationGroup> =
+            std::collections::BTreeMap::new();
+        let mut seen = HashSet::new();
+        for requested_id in active_ids {
+            let Some(harness) = self.get(requested_id) else {
+                continue;
+            };
+            if harness.definition.retired {
+                continue;
+            }
+            if !seen.insert(harness.definition.id.clone()) {
+                continue;
+            }
+            let Some(binding) = harness.definition.integration.as_ref() else {
+                continue;
+            };
+            let key = integration_key(binding);
+            let group = groups
+                .entry(key.clone())
+                .or_insert_with(|| ResolvedIntegrationGroup {
+                    key,
+                    consumers: Vec::new(),
+                    representative: harness.clone(),
+                });
+            group.consumers.push(IntegrationConsumer {
+                harness_id: harness.definition.id.clone(),
+                harness_name: harness.definition.name.clone(),
+            });
+        }
+        Ok(groups.into_values().collect())
+    }
+
+    /// Resolves a code-owned adapter key to one representative harness. The
+    /// representative is chosen from the active consumers when possible so a
+    /// custom wrapper's command is probed; otherwise the first compiled
+    /// harness for the adapter is used for an inactive cleanup/status read.
+    pub(crate) fn integration_group_for_key(
+        &self,
+        key: &IntegrationKey,
+        active_ids: &[String],
+    ) -> Option<ResolvedIntegrationGroup> {
+        let active_group = self
+            .integration_groups(active_ids)
+            .ok()?
+            .into_iter()
+            .find(|group| group.key == *key);
+        if active_group.is_some() {
+            return active_group;
+        }
+        self.ordered.iter().find_map(|harness| {
+            if harness.definition.retired {
+                return None;
+            }
+            let binding = harness.definition.integration.as_ref()?;
+            (integration_key(binding) == *key).then(|| ResolvedIntegrationGroup {
+                key: key.clone(),
+                consumers: Vec::new(),
+                representative: harness.clone(),
+            })
+        })
+    }
+
+    pub(crate) fn integration_group_for_harness(
+        &self,
+        harness_id: &str,
+        active_ids: &[String],
+    ) -> Option<ResolvedIntegrationGroup> {
+        let harness = self.get(harness_id)?;
+        let binding = harness.definition.integration.as_ref()?;
+        let key = integration_key(binding);
+        self.integration_group_for_key(&key, active_ids)
     }
 }
 
@@ -719,6 +810,51 @@ mod tests {
         assert_eq!(local.compatibility.profile, None);
         assert_eq!(local.definition.integration, None);
         assert_eq!(local.definition.session_signals, None);
+    }
+
+    #[test]
+    fn active_harnesses_share_one_adapter_target_group_and_keep_consumer_identity() {
+        let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
+        let document = test_document_with_profile("copilot-local", CompatibilityProfile::Copilot);
+        let resolved = resolve_document(&builtins, &document).unwrap();
+
+        let groups = resolved
+            .integration_groups(&["copilot".into(), "copilot-local".into()])
+            .unwrap();
+
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].key.adapter_id, "copilot");
+        assert_eq!(groups[0].key.target_id, "workspace");
+        assert_eq!(
+            groups[0]
+                .consumers
+                .iter()
+                .map(|consumer| consumer.harness_id.as_str())
+                .collect::<Vec<_>>(),
+            ["copilot", "copilot-local"]
+        );
+        assert_eq!(
+            groups[0]
+                .consumers
+                .iter()
+                .map(|consumer| consumer.harness_name.as_str())
+                .collect::<Vec<_>>(),
+            ["GitHub Copilot CLI", "Copilot Local"]
+        );
+    }
+
+    #[test]
+    fn missing_active_harness_ids_are_not_projected_into_integration_groups() {
+        let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
+        let resolved = resolve_document(&builtins, &HarnessUserDocument::default()).unwrap();
+
+        let groups = resolved
+            .integration_groups(&["copilot".into(), "deleted-custom".into()])
+            .unwrap();
+
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].consumers.len(), 1);
+        assert_eq!(groups[0].consumers[0].harness_id, "copilot");
     }
 
     #[test]

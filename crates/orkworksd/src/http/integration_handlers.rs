@@ -1,4 +1,6 @@
-use crate::harness::integration::{IntegrationContext, IntegrationError, ReporterAssetResolver};
+use crate::harness::integration::{
+    binding_for_key, IntegrationContext, IntegrationError, IntegrationKey, ReporterAssetResolver,
+};
 use crate::harness::registry::ResolvedHarness;
 use crate::http::ErrorResponse;
 use crate::AppState;
@@ -8,6 +10,16 @@ use axum::response::IntoResponse;
 use axum::Json;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+
+use serde::Serialize;
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct GroupedIntegrationStatus {
+    pub key: IntegrationKey,
+    pub consumers: Vec<crate::harness::integration::IntegrationConsumer>,
+    pub status: crate::harness::integration::IntegrationStatus,
+}
 
 fn resolve_scripts_source_dir(exe_dir: Option<PathBuf>, manifest_dir: &Path) -> PathBuf {
     if let Some(dir) = exe_dir {
@@ -150,6 +162,27 @@ async fn run_integration_action(
         &IntegrationContext<'_>,
     ) -> Result<crate::harness::integration::IntegrationStatus, IntegrationError>,
 ) -> axum::response::Response {
+    let active_ids = {
+        let workspace = state.workspace.lock().unwrap();
+        workspace
+            .as_ref()
+            .and_then(|workspace| workspace.metadata.read_workspace_memory())
+            .map(|memory| memory.active_harness_ids)
+            .unwrap_or_default()
+    };
+    let grouped = {
+        let registry = state
+            .harness_catalog
+            .read()
+            .expect("harness catalog lock poisoned");
+        registry
+            .integration_group_for_harness(harness_id, &active_ids)
+            .map(|group| (group.key, group.representative))
+    };
+    if let Some((key, _)) = grouped {
+        return run_integration_key_action(state, &key, action).await;
+    }
+
     match with_revalidated_integration_target(state, harness_id, |harness, ws, detected_tool| {
         let reporter_assets = match reporter_assets() {
             Ok(resolver) => resolver,
@@ -194,6 +227,245 @@ async fn run_integration_action(
         Ok(response) => response,
         Err(response) => response,
     }
+}
+
+async fn with_revalidated_integration_key(
+    state: &Arc<AppState>,
+    key: &IntegrationKey,
+    action: impl FnOnce(
+        &ResolvedHarness,
+        &IntegrationContext<'_>,
+    ) -> Result<crate::harness::integration::IntegrationStatus, IntegrationError>,
+) -> Result<crate::harness::integration::IntegrationStatus, axum::response::Response> {
+    let workspace_path_at_start = {
+        let ws_guard = state.workspace.lock().unwrap();
+        let Some(ws) = ws_guard.as_ref() else {
+            return Err(integration_error_response(IntegrationError::NoWorkspace));
+        };
+        ws.path.clone()
+    };
+    if binding_for_key(key).is_none() {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: format!(
+                    "unknown integration key {}/{}",
+                    key.adapter_id, key.target_id
+                ),
+            }),
+        )
+            .into_response());
+    }
+
+    let (harness, enabled) = {
+        let active_ids = {
+            let workspace = state.workspace.lock().unwrap();
+            workspace
+                .as_ref()
+                .and_then(|workspace| workspace.metadata.read_workspace_memory())
+                .map(|memory| memory.active_harness_ids)
+                .unwrap_or_default()
+        };
+        let registry = state
+            .harness_catalog
+            .read()
+            .expect("harness catalog lock poisoned");
+        let Some(group) = registry.integration_group_for_key(key, &active_ids) else {
+            return Err((
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    error: format!(
+                        "unknown integration key {}/{}",
+                        key.adapter_id, key.target_id
+                    ),
+                }),
+            )
+                .into_response());
+        };
+        (group.representative, !group.consumers.is_empty())
+    };
+
+    let detected_tool = crate::harness::detect::resolve_tool_gate(
+        &state.integration_probe_cache,
+        &harness.definition.id,
+        &harness.launch_command(),
+        harness.definition.min_version.as_ref(),
+    )
+    .await;
+
+    {
+        let registry = state
+            .harness_catalog
+            .read()
+            .expect("harness catalog lock poisoned");
+        let active_ids = {
+            let workspace = state.workspace.lock().unwrap();
+            workspace
+                .as_ref()
+                .and_then(|workspace| workspace.metadata.read_workspace_memory())
+                .map(|memory| memory.active_harness_ids)
+                .unwrap_or_default()
+        };
+        match registry.integration_group_for_key(key, &active_ids) {
+            Some(current) if current.representative.definition == harness.definition => {}
+            _ => {
+                return Err((
+                    StatusCode::CONFLICT,
+                    Json(ErrorResponse {
+                        error: "harness definition changed during this request; retry".into(),
+                    }),
+                )
+                    .into_response());
+            }
+        }
+    }
+
+    let ws_guard = state.workspace.lock().unwrap();
+    let Some(ref ws) = *ws_guard else {
+        return Err(integration_error_response(IntegrationError::NoWorkspace));
+    };
+    if ws.path != workspace_path_at_start {
+        return Err((
+            StatusCode::CONFLICT,
+            Json(ErrorResponse {
+                error: "workspace changed during this request; retry".into(),
+            }),
+        )
+            .into_response());
+    }
+    let reporter_assets = reporter_assets().map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error }),
+        )
+            .into_response()
+    })?;
+    let orkworks_root = dirs::home_dir()
+        .map(|home| home.join(".orkworks"))
+        .ok_or_else(|| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "couldn't resolve home directory".into(),
+                }),
+            )
+                .into_response()
+        })?;
+    let ctx = IntegrationContext {
+        workspace: &ws.path,
+        workspace_metadata: Some(&ws.metadata),
+        orkworks_root: &orkworks_root,
+        enabled,
+        detected_tool: detected_tool.as_ref(),
+        reporter_assets: &reporter_assets,
+    };
+    let status = action(&harness, &ctx).map_err(integration_error_response)?;
+    Ok(status)
+}
+
+async fn run_integration_key_action(
+    state: &Arc<AppState>,
+    key: &IntegrationKey,
+    action: impl FnOnce(
+        &ResolvedHarness,
+        &IntegrationContext<'_>,
+    ) -> Result<crate::harness::integration::IntegrationStatus, IntegrationError>,
+) -> axum::response::Response {
+    match with_revalidated_integration_key(state, key, action).await {
+        Ok(status) => Json(status).into_response(),
+        Err(response) => response,
+    }
+}
+
+pub(crate) async fn get_workspace_integrations(
+    State(state): State<Arc<AppState>>,
+) -> axum::response::Response {
+    let active_ids = {
+        let workspace = state.workspace.lock().unwrap();
+        let Some(workspace) = workspace.as_ref() else {
+            return integration_error_response(IntegrationError::NoWorkspace);
+        };
+        workspace
+            .metadata
+            .read_workspace_memory()
+            .map(|memory| memory.active_harness_ids)
+            .unwrap_or_default()
+    };
+    let groups = {
+        let registry = state
+            .harness_catalog
+            .read()
+            .expect("harness catalog lock poisoned");
+        match registry.integration_groups(&active_ids) {
+            Ok(groups) => groups,
+            Err(error) => return integration_error_response(error),
+        }
+    };
+    let mut result = Vec::with_capacity(groups.len());
+    for group in groups {
+        let key = group.key.clone();
+        let consumers = group.consumers.clone();
+        let status = match with_revalidated_integration_key(&state, &key, |harness, ctx| {
+            harness.integration_status(ctx)
+        })
+        .await
+        {
+            Ok(status) => status,
+            Err(response) => return response,
+        };
+        result.push(GroupedIntegrationStatus {
+            key,
+            consumers,
+            status,
+        });
+    }
+    Json(result).into_response()
+}
+
+pub(crate) async fn get_grouped_integration_status(
+    State(state): State<Arc<AppState>>,
+    AxumPath((adapter_id, target_id)): AxumPath<(String, String)>,
+) -> axum::response::Response {
+    let key = IntegrationKey {
+        adapter_id,
+        target_id,
+    };
+    run_integration_key_action(&state, &key, |harness, ctx| harness.integration_status(ctx)).await
+}
+
+pub(crate) async fn install_grouped_integration(
+    State(state): State<Arc<AppState>>,
+    AxumPath((adapter_id, target_id)): AxumPath<(String, String)>,
+) -> axum::response::Response {
+    let key = IntegrationKey {
+        adapter_id,
+        target_id,
+    };
+    run_integration_key_action(&state, &key, |harness, ctx| {
+        harness.integration_install(ctx)
+    })
+    .await
+}
+
+pub(crate) async fn repair_grouped_integration(
+    State(state): State<Arc<AppState>>,
+    AxumPath((adapter_id, target_id)): AxumPath<(String, String)>,
+) -> axum::response::Response {
+    install_grouped_integration(State(state), AxumPath((adapter_id, target_id))).await
+}
+
+pub(crate) async fn uninstall_grouped_integration(
+    State(state): State<Arc<AppState>>,
+    AxumPath((adapter_id, target_id)): AxumPath<(String, String)>,
+) -> axum::response::Response {
+    let key = IntegrationKey {
+        adapter_id,
+        target_id,
+    };
+    run_integration_key_action(&state, &key, |harness, ctx| {
+        harness.integration_uninstall(ctx)
+    })
+    .await
 }
 
 pub(crate) async fn get_integration_status(
@@ -308,6 +580,91 @@ mod tests {
         let body: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(body["registration"], "absent");
         assert_eq!(body["enabled"], false);
+    }
+
+    #[tokio::test]
+    async fn grouped_status_projects_one_shared_copilot_target_to_both_consumers() {
+        let dir = tempfile::tempdir().unwrap();
+        init_git_workspace_with_copilot_settings_ignored(dir.path());
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        let state = test_app_state_with_workspace(dir.path());
+
+        state
+            .harness_store
+            .mutate(&state.harness_catalog, |document| {
+                let builtins = crate::harness::definition::BuiltinDocument::parse(
+                    crate::harness::definition::EMBEDDED_BUILTINS,
+                )
+                .unwrap();
+                let mut local = builtins
+                    .builtins
+                    .iter()
+                    .find(|definition| definition.id == "copilot")
+                    .unwrap()
+                    .clone();
+                local.id = "copilot-local".into();
+                local.name = "Copilot Local".into();
+                local.session_signals = None;
+                local.integration = None;
+                document.custom.push(local);
+                document
+                    .set_compatibility_profile(
+                        "copilot-local",
+                        crate::harness::compatibility::CompatibilityProfile::Copilot,
+                    )
+                    .unwrap();
+                Ok(())
+            })
+            .unwrap();
+        SessionApplication::new(state.clone())
+            .set_active_harnesses(vec!["copilot".into(), "copilot-local".into()])
+            .unwrap();
+
+        let response = get_workspace_integrations(State(state.clone()))
+            .await
+            .into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body.as_array().unwrap().len(), 1);
+        assert_eq!(body[0]["key"]["adapterId"], "copilot");
+        assert_eq!(body[0]["key"]["targetId"], "workspace");
+        assert_eq!(
+            body[0]["consumers"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|consumer| consumer["harnessId"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            ["copilot", "copilot-local"]
+        );
+
+        SessionApplication::new(state.clone())
+            .set_active_harnesses(vec!["copilot-local".into()])
+            .unwrap();
+        let response = get_workspace_integrations(State(state.clone()))
+            .await
+            .into_response();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body[0]["consumers"][0]["harnessId"], "copilot-local");
+
+        SessionApplication::new(state.clone())
+            .set_active_harnesses(vec![])
+            .unwrap();
+        let response = get_workspace_integrations(State(state))
+            .await
+            .into_response();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: Value = serde_json::from_slice(&bytes).unwrap();
+        assert!(body.as_array().unwrap().is_empty());
     }
 
     #[tokio::test]

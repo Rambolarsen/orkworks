@@ -434,6 +434,55 @@ use sha2::{Digest, Sha256};
 
 use super::definition::IntegrationBinding;
 
+/// The only target currently supported by the compiled integration adapters.
+/// The path is resolved by the adapter; it is never accepted from an HTTP
+/// request or user configuration.
+pub(crate) const WORKSPACE_TARGET_ID: &str = "workspace";
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct IntegrationKey {
+    pub adapter_id: String,
+    pub target_id: String,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct IntegrationConsumer {
+    pub harness_id: String,
+    pub harness_name: String,
+}
+
+pub(crate) fn integration_key(binding: &IntegrationBinding) -> IntegrationKey {
+    IntegrationKey {
+        adapter_id: match binding {
+            IntegrationBinding::Claude => "claude",
+            IntegrationBinding::Codex => "codex",
+            IntegrationBinding::OpenCode => "opencode",
+            IntegrationBinding::Gemini => "gemini",
+            IntegrationBinding::Copilot => "copilot",
+            IntegrationBinding::Aider => "aider",
+        }
+        .into(),
+        target_id: WORKSPACE_TARGET_ID.into(),
+    }
+}
+
+pub(crate) fn binding_for_key(key: &IntegrationKey) -> Option<IntegrationBinding> {
+    if key.target_id != WORKSPACE_TARGET_ID {
+        return None;
+    }
+    Some(match key.adapter_id.as_str() {
+        "claude" => IntegrationBinding::Claude,
+        "codex" => IntegrationBinding::Codex,
+        "opencode" => IntegrationBinding::OpenCode,
+        "gemini" => IntegrationBinding::Gemini,
+        "copilot" => IntegrationBinding::Copilot,
+        "aider" => IntegrationBinding::Aider,
+        _ => return None,
+    })
+}
+
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum IntegrationRegistration {
