@@ -2559,6 +2559,7 @@ mod tests {
             }),
             providers: vec![
                 entry("copilot")
+                    .default_state(ProviderCapacityState::Degraded)
                     .model(Some("cloud-model"))
                     .override_state(Some(ProviderCapacityState::Degraded))
                     .build(),
@@ -2642,6 +2643,10 @@ mod tests {
             ["copilot", "copilot-local", "new-provider"]
         );
         assert_eq!(settings.providers[0].model.as_deref(), Some("cloud-model"));
+        assert_eq!(
+            settings.providers[0].default_state,
+            ProviderCapacityState::Degraded
+        );
         assert_eq!(settings.providers[0].fallback_order, 99);
         assert_eq!(settings.providers[1].model.as_deref(), Some("local-model"));
         assert!(!settings.providers[1].enabled);
