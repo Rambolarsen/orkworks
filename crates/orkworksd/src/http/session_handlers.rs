@@ -244,6 +244,9 @@ pub(crate) async fn set_active_harnesses(
         Err(crate::session_application::SessionError::Conflict) => {
             active_harness_revision_conflict_response(&state)
         }
+        Err(crate::session_application::SessionError::BadRequest(message)) => {
+            (axum::http::StatusCode::BAD_REQUEST, message).into_response()
+        }
         Err(_) => axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
 }

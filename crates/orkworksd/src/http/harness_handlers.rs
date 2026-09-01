@@ -48,6 +48,12 @@ struct HarnessMutationResponse {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+struct HarnessDeleteResponse {
+    document_revision: HarnessDocumentRevision,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct DuplicateHarnessResponse {
     document_revision: Option<HarnessDocumentRevision>,
     definition: serde_json::Value,
@@ -295,19 +301,23 @@ async fn delete_harness_at(
         .registry
         .get(&id)
         .map(|harness| harness.definition.id.clone());
-    let active_harness_ids = state
-        .workspace
-        .lock()
-        .expect("workspace lock poisoned")
-        .as_ref()
-        .and_then(|workspace| workspace.metadata.read_workspace_memory())
-        .map(|memory| memory.active_harness_ids)
-        .unwrap_or_default();
-
     let store = state.harness_store.clone();
     let catalog = state.harness_catalog.clone();
     let requested_id = id.clone();
+    let mutation_state = state.clone();
     let result = tokio::task::spawn_blocking(move || {
+        let _projection = mutation_state
+            .projection_lock
+            .lock()
+            .expect("projection lock poisoned");
+        let active_harness_ids = mutation_state
+            .workspace
+            .lock()
+            .expect("workspace lock poisoned")
+            .as_ref()
+            .and_then(|workspace| workspace.metadata.read_workspace_memory())
+            .map(|memory| memory.active_harness_ids)
+            .unwrap_or_default();
         store.mutate_at(&catalog, expected_revision, |document| {
             let target_id = target_id.as_deref().unwrap_or(requested_id.as_str());
             let is_custom = document.custom.iter().any(|custom| custom.id == target_id);
@@ -319,9 +329,10 @@ async fn delete_harness_at(
                     "Harness was not found.",
                 ));
             }
-            if active_harness_ids
-                .iter()
-                .any(|active_id| active_id == target_id || active_id == &requested_id)
+            if is_custom
+                && active_harness_ids
+                    .iter()
+                    .any(|active_id| active_id == target_id || active_id == &requested_id)
             {
                 return Err(HarnessDiagnostic::for_id(
                     &requested_id,
@@ -344,10 +355,16 @@ async fn delete_harness_at(
     })
     .await;
     match result {
-        Ok(Ok(_)) => {
+        Ok(Ok(mutation)) => {
             state.bump_harness_probe_generation();
             state.providers.reconcile_harness_provider_settings();
-            StatusCode::NO_CONTENT.into_response()
+            (
+                StatusCode::OK,
+                Json(HarnessDeleteResponse {
+                    document_revision: mutation.document_revision,
+                }),
+            )
+                .into_response()
         }
         Ok(Err(error)) => store_error(error),
         Err(_) => internal_error("harness update task failed"),
@@ -1013,7 +1030,9 @@ mod tests {
         )
         .await;
         let inactive_delete_status = inactive_delete.status();
-        assert_eq!(inactive_delete_status, StatusCode::NO_CONTENT);
+        assert_eq!(inactive_delete_status, StatusCode::OK);
+        let inactive_delete = json_body(inactive_delete).await;
+        assert!(inactive_delete["documentRevision"].is_string());
         assert!(state
             .harness_store
             .snapshot()
@@ -1043,6 +1062,78 @@ mod tests {
         assert_eq!(
             stale_delete["diagnostics"][0]["code"],
             "harness_config_revision_changed"
+        );
+    }
+
+    #[tokio::test]
+    async fn deleting_an_active_builtin_override_restores_the_builtin() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let initial_revision =
+            json_body(list_harnesses(State(state.clone())).await.into_response()).await
+                ["documentRevision"]
+                .clone();
+        let updated = update_harness(
+            State(state.clone()),
+            Path("codex".into()),
+            Bytes::from(
+                serde_json::json!({
+                    "kind": "BuiltinPatch",
+                    "patch": {},
+                    "expectedRevision": initial_revision,
+                })
+                .to_string(),
+            ),
+        )
+        .await
+        .into_response();
+        assert_eq!(updated.status(), StatusCode::OK);
+        let updated = json_body(updated).await;
+
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_workspace_memory(&crate::metadata::WorkspaceMemory {
+                last_active_session_id: None,
+                last_active_at: None,
+                active_harness_ids: vec!["codex".into()],
+                active_harness_revision: 1,
+            });
+        let deleted = delete_harness(
+            State(state.clone()),
+            Path("codex".into()),
+            Bytes::from(
+                serde_json::json!({
+                    "expectedRevision": updated["documentRevision"],
+                })
+                .to_string(),
+            ),
+        )
+        .await
+        .into_response();
+        assert_eq!(deleted.status(), StatusCode::OK);
+        let deleted = json_body(deleted).await;
+        assert!(deleted["documentRevision"].is_string());
+        assert!(matches!(
+            state.harness_store.snapshot().unwrap().origins.get("codex"),
+            Some(DefinitionOrigin::Builtin)
+        ));
+        assert_eq!(
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_workspace_memory()
+                .unwrap()
+                .active_harness_ids,
+            vec!["codex"]
         );
     }
 

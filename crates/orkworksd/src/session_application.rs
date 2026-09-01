@@ -1474,8 +1474,17 @@ impl SessionApplication {
             .write()
             .expect("harness catalog lock poisoned") = harness_snapshot.registry.clone();
         let memory = store.read_workspace_memory();
-        let known_harness_ids: std::collections::HashSet<String> =
-            harness_snapshot.registry.ids().map(str::to_owned).collect();
+        let known_harness_ids: std::collections::HashSet<String> = harness_snapshot
+            .registry
+            .ids()
+            .filter(|id| {
+                harness_snapshot
+                    .registry
+                    .get(id)
+                    .is_some_and(|harness| !harness.definition.retired)
+            })
+            .map(str::to_owned)
+            .collect();
         let mut memory = memory.unwrap_or_default();
         let original_active_harness_ids = memory.active_harness_ids.clone();
         memory
@@ -2132,6 +2141,11 @@ impl SessionApplication {
         active_harness_ids: Vec<String>,
         expected_active_harness_revision: u64,
     ) -> Result<metadata::WorkspaceMemory, SessionError> {
+        let _projection = self
+            .state
+            .projection_lock
+            .lock()
+            .expect("projection lock poisoned");
         let workspace_guard = self.state.workspace.lock().unwrap();
         let workspace = workspace_guard.as_ref().ok_or(SessionError::Conflict)?;
         let existing = workspace
@@ -2141,18 +2155,24 @@ impl SessionApplication {
         if existing.active_harness_revision != expected_active_harness_revision {
             return Err(SessionError::Conflict);
         }
-        let known_harness_ids: std::collections::HashSet<String> = self
+        let registry = self
             .state
             .harness_catalog
             .read()
             .expect("harness catalog lock poisoned")
-            .ids()
-            .map(str::to_owned)
-            .collect();
-        let active_harness_ids = active_harness_ids
-            .into_iter()
-            .filter(|id| known_harness_ids.contains(id))
-            .collect();
+            .clone();
+        for id in &active_harness_ids {
+            let Some(harness) = registry.get(id) else {
+                return Err(SessionError::BadRequest(
+                    "The selected coding tool is no longer available.",
+                ));
+            };
+            if harness.definition.retired {
+                return Err(SessionError::BadRequest(
+                    "The selected coding tool is retired and cannot be enabled.",
+                ));
+            }
+        }
         let memory = metadata::WorkspaceMemory {
             last_active_session_id: existing.last_active_session_id,
             last_active_at: Some(iso_now()),
@@ -3855,7 +3875,7 @@ mod tests {
             .write_workspace_memory(&metadata::WorkspaceMemory {
                 last_active_session_id: None,
                 last_active_at: None,
-                active_harness_ids: vec!["retired-custom".into()],
+                active_harness_ids: vec!["retired-custom".into(), "gemini".into()],
                 active_harness_revision: 7,
             });
 
@@ -6105,7 +6125,7 @@ mod tests {
             });
 
         SessionApplication::new(state.clone())
-            .set_active_harnesses(vec!["aider".into(), "gemini".into()])
+            .set_active_harnesses(vec!["aider".into(), "claude-code".into()])
             .unwrap();
 
         let memory = state
@@ -6121,7 +6141,7 @@ mod tests {
             memory.last_active_session_id.as_deref(),
             Some("active-session")
         );
-        assert_eq!(memory.active_harness_ids, vec!["aider", "gemini"]);
+        assert_eq!(memory.active_harness_ids, vec!["aider", "claude-code"]);
         assert_ne!(memory.last_active_at.as_deref(), Some("before-time"));
         assert!(memory.last_active_at.is_some());
     }
@@ -6132,8 +6152,21 @@ mod tests {
         let state = crate::test_support::test_app_state_with_workspace(root.path());
         let application = SessionApplication::new(state.clone());
 
+        assert_eq!(
+            application.set_active_harnesses_at(vec!["codex".into(), "deleted-custom".into()], 0),
+            Err(SessionError::BadRequest(
+                "The selected coding tool is no longer available."
+            ))
+        );
+        assert_eq!(
+            application.set_active_harnesses_at(vec!["gemini".into()], 0),
+            Err(SessionError::BadRequest(
+                "The selected coding tool is retired and cannot be enabled."
+            ))
+        );
+
         let first = application
-            .set_active_harnesses_at(vec!["codex".into(), "deleted-custom".into()], 0)
+            .set_active_harnesses_at(vec!["codex".into()], 0)
             .unwrap();
         assert_eq!(first.active_harness_revision, 1);
         assert_eq!(first.active_harness_ids, vec!["codex"]);
