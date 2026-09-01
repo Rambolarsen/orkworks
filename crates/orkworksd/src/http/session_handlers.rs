@@ -100,6 +100,9 @@ pub(crate) struct WorkspaceResponse {
     pub(crate) active_harness_ids: Vec<String>,
     #[serde(rename = "activeHarnessRevision")]
     pub(crate) active_harness_revision: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) integration_cleanup:
+        Option<crate::http::integration_handlers::IntegrationCleanupResponse>,
 }
 
 #[derive(Serialize)]
@@ -189,25 +192,43 @@ pub(crate) async fn set_workspace(
     State(state): State<Arc<AppState>>,
     Json(req): Json<WorkspaceRequest>,
 ) -> impl IntoResponse {
-    let projection_state = state.clone();
-    let _projection = match projection_state.projection_lock.lock() {
-        Ok(guard) => guard,
-        Err(error) => {
-            tracing::error!(error = %error, "workspace update blocked by poisoned projection lock");
-            return axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
+    let open_result = {
+        let _projection = match state.projection_lock.lock() {
+            Ok(guard) => guard,
+            Err(error) => {
+                tracing::error!(error = %error, "workspace update blocked by poisoned projection lock");
+                return axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            }
+        };
+        SessionApplication::new(state.clone()).open_workspace(PathBuf::from(&req.path))
     };
-    match SessionApplication::new(state).open_workspace(PathBuf::from(&req.path)) {
-        Ok(snapshot) => Json(WorkspaceResponse {
-            path: snapshot.path,
-            repo_root: snapshot.repo_root,
-            branch: snapshot.branch,
-            dirty: snapshot.dirty,
-            last_active_session_id: snapshot.last_active_session_id,
-            active_harness_ids: snapshot.active_harness_ids,
-            active_harness_revision: snapshot.active_harness_revision,
-        })
-        .into_response(),
+    match open_result {
+        Ok(snapshot) => {
+            let cleanup_keys = snapshot.integration_cleanup_keys.clone();
+            let integration_cleanup = if cleanup_keys.is_empty() {
+                None
+            } else {
+                Some(
+                    crate::http::integration_handlers::reconcile_unreferenced_integrations(
+                        &state,
+                        cleanup_keys,
+                        Some(PathBuf::from(snapshot.path.clone())),
+                    )
+                    .await,
+                )
+            };
+            Json(WorkspaceResponse {
+                path: snapshot.path,
+                repo_root: snapshot.repo_root,
+                branch: snapshot.branch,
+                dirty: snapshot.dirty,
+                last_active_session_id: snapshot.last_active_session_id,
+                active_harness_ids: snapshot.active_harness_ids,
+                active_harness_revision: snapshot.active_harness_revision,
+                integration_cleanup,
+            })
+            .into_response()
+        }
         Err(crate::session_application::SessionError::BadRequest(message)) => {
             (axum::http::StatusCode::BAD_REQUEST, message).into_response()
         }
@@ -6088,6 +6109,7 @@ mod tests {
             last_active_session_id: Some("session-1".into()),
             active_harness_ids: vec![],
             active_harness_revision: 0,
+            integration_cleanup: None,
         };
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("\"path\":\"/tmp\""));
@@ -6107,6 +6129,7 @@ mod tests {
             last_active_session_id: None,
             active_harness_ids: vec![],
             active_harness_revision: 0,
+            integration_cleanup: None,
         };
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("\"path\":\"/tmp\""));

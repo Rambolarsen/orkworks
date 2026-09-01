@@ -305,13 +305,23 @@ impl ResolvedHarnessRegistry {
                 harness_name: harness.definition.name.clone(),
             });
         }
-        Ok(groups.into_values().collect())
+        let mut groups: Vec<_> = groups.into_values().collect();
+        for group in &mut groups {
+            // Detection and file ownership are adapter concerns, so a custom
+            // consumer must not make its launch command the representative
+            // for the shared integration.
+            if let Some(representative) = self.canonical_integration_harness(&group.key) {
+                group.representative = representative;
+            }
+        }
+        Ok(groups)
     }
 
     /// Resolves a code-owned adapter key to one representative harness. The
-    /// representative is chosen from the active consumers when possible so a
-    /// custom wrapper's command is probed; otherwise the first compiled
-    /// harness for the adapter is used for an inactive cleanup/status read.
+    /// representative is always the built-in/override definition when one is
+    /// available, so custom launch commands cannot change adapter detection
+    /// or file ownership. The active consumers remain attached to the group
+    /// for UI identity and enablement.
     pub(crate) fn integration_group_for_key(
         &self,
         key: &IntegrationKey,
@@ -322,31 +332,48 @@ impl ResolvedHarnessRegistry {
             .ok()?
             .into_iter()
             .find(|group| group.key == *key);
-        if active_group.is_some() {
-            return active_group;
-        }
-        self.ordered.iter().find_map(|harness| {
-            if harness.definition.retired {
-                return None;
+        if let Some(mut active_group) = active_group {
+            if let Some(representative) = self.canonical_integration_harness(key) {
+                active_group.representative = representative;
             }
-            let binding = harness.definition.integration.as_ref()?;
-            (integration_key(binding) == *key).then(|| ResolvedIntegrationGroup {
+            return Some(active_group);
+        }
+        self.canonical_integration_harness(key)
+            .or_else(|| {
+                self.ordered
+                    .iter()
+                    .find(|harness| {
+                        !harness.definition.retired
+                            && harness
+                                .definition
+                                .integration
+                                .as_ref()
+                                .is_some_and(|binding| integration_key(binding) == *key)
+                    })
+                    .cloned()
+            })
+            .map(|representative| ResolvedIntegrationGroup {
                 key: key.clone(),
                 consumers: Vec::new(),
-                representative: harness.clone(),
+                representative: representative.clone(),
             })
-        })
     }
 
-    pub(crate) fn integration_group_for_harness(
-        &self,
-        harness_id: &str,
-        active_ids: &[String],
-    ) -> Option<ResolvedIntegrationGroup> {
-        let harness = self.get(harness_id)?;
-        let binding = harness.definition.integration.as_ref()?;
-        let key = integration_key(binding);
-        self.integration_group_for_key(&key, active_ids)
+    fn canonical_integration_harness(&self, key: &IntegrationKey) -> Option<ResolvedHarness> {
+        self.ordered
+            .iter()
+            .find(|harness| {
+                matches!(
+                    harness.origin,
+                    DefinitionOrigin::Builtin | DefinitionOrigin::Override
+                ) && !harness.definition.retired
+                    && harness
+                        .definition
+                        .integration
+                        .as_ref()
+                        .is_some_and(|binding| integration_key(binding) == *key)
+            })
+            .cloned()
     }
 }
 
@@ -819,19 +846,20 @@ mod tests {
         let resolved = resolve_document(&builtins, &document).unwrap();
 
         let groups = resolved
-            .integration_groups(&["copilot".into(), "copilot-local".into()])
+            .integration_groups(&["copilot-local".into(), "copilot".into()])
             .unwrap();
 
         assert_eq!(groups.len(), 1);
         assert_eq!(groups[0].key.adapter_id, "copilot");
         assert_eq!(groups[0].key.target_id, "workspace");
+        assert_eq!(groups[0].representative.definition.id, "copilot");
         assert_eq!(
             groups[0]
                 .consumers
                 .iter()
                 .map(|consumer| consumer.harness_id.as_str())
                 .collect::<Vec<_>>(),
-            ["copilot", "copilot-local"]
+            ["copilot-local", "copilot"]
         );
         assert_eq!(
             groups[0]
@@ -839,7 +867,7 @@ mod tests {
                 .iter()
                 .map(|consumer| consumer.harness_name.as_str())
                 .collect::<Vec<_>>(),
-            ["GitHub Copilot CLI", "Copilot Local"]
+            ["Copilot Local", "GitHub Copilot CLI"]
         );
     }
 

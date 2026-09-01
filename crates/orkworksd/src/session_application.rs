@@ -51,6 +51,8 @@ pub(crate) struct WorkspaceSnapshot {
     pub(crate) last_active_session_id: Option<String>,
     pub(crate) active_harness_ids: Vec<String>,
     pub(crate) active_harness_revision: u64,
+    pub(crate) integration_cleanup_keys:
+        std::collections::BTreeSet<crate::harness::integration::IntegrationKey>,
 }
 
 pub(crate) struct SessionApplication {
@@ -1478,6 +1480,7 @@ impl SessionApplication {
         let original_active_harness_ids = memory.active_harness_ids.clone();
         let mut normalized_active_harness_ids = Vec::new();
         let mut seen_active_harness_ids = std::collections::HashSet::new();
+        let mut integration_cleanup_keys = std::collections::BTreeSet::new();
         for id in &original_active_harness_ids {
             let Some(harness) = harness_snapshot.registry.get(id) else {
                 continue;
@@ -1485,6 +1488,10 @@ impl SessionApplication {
             if harness.definition.retired
                 || !seen_active_harness_ids.insert(harness.definition.id.clone())
             {
+                if let Some(binding) = harness.definition.integration.as_ref() {
+                    integration_cleanup_keys
+                        .insert(crate::harness::integration::integration_key(binding));
+                }
                 continue;
             }
             normalized_active_harness_ids.push(harness.definition.id.clone());
@@ -1567,6 +1574,7 @@ impl SessionApplication {
             last_active_session_id,
             active_harness_ids,
             active_harness_revision,
+            integration_cleanup_keys,
         })
     }
 

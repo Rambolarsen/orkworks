@@ -3,6 +3,7 @@ use crate::harness::definition::{
     parse_custom_definition, parse_strict_json, DefinitionOrigin, HarnessDefinition,
     HarnessDiagnostic, HarnessPatch, IntegrationBinding, SessionSignalBinding,
 };
+use crate::harness::integration::{integration_key, IntegrationKey};
 use crate::harness::store::{HarnessDocumentRevision, HarnessSnapshot, HarnessStoreError};
 use crate::AppState;
 use axum::body::Bytes;
@@ -10,7 +11,7 @@ use axum::extract::{Path, State};
 use axum::response::IntoResponse;
 use axum::{http::StatusCode, Json};
 use serde::Serialize;
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::sync::Arc;
 
 #[derive(Debug)]
@@ -44,12 +45,16 @@ struct HarnessesResponse {
 struct HarnessMutationResponse {
     document_revision: HarnessDocumentRevision,
     harness: HarnessConfigEntry,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    integration_cleanup: Option<crate::http::integration_handlers::IntegrationCleanupResponse>,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct HarnessDeleteResponse {
     document_revision: HarnessDocumentRevision,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    integration_cleanup: Option<crate::http::integration_handlers::IntegrationCleanupResponse>,
 }
 
 #[derive(Serialize)]
@@ -123,7 +128,12 @@ pub(crate) async fn create_harness(
     let store = state.harness_store.clone();
     let catalog = state.harness_catalog.clone();
     let profile_target_id = id.clone();
+    let mutation_state = state.clone();
     let result = tokio::task::spawn_blocking(move || {
+        let _projection = mutation_state
+            .projection_lock
+            .lock()
+            .expect("projection lock poisoned");
         store.mutate_at(&catalog, request.expected_revision, |document| {
             if document
                 .custom
@@ -191,7 +201,12 @@ pub(crate) async fn update_harness(
     let store = state.harness_store.clone();
     let catalog = state.harness_catalog.clone();
     let requested_id = id.clone();
+    let mutation_state = state.clone();
     let result = tokio::task::spawn_blocking(move || {
+        let _projection = mutation_state
+            .projection_lock
+            .lock()
+            .expect("projection lock poisoned");
         store.mutate_at(&catalog, request.expected_revision, |document| {
             let target_id = target_id.as_deref().unwrap_or(requested_id.as_str());
             let is_custom = document.custom.iter().any(|custom| custom.id == target_id);
@@ -301,6 +316,12 @@ async fn delete_harness_at(
         .registry
         .get(&id)
         .map(|harness| harness.definition.id.clone());
+    let cleanup_workspace_path = state
+        .workspace
+        .lock()
+        .unwrap()
+        .as_ref()
+        .map(|workspace| workspace.path.clone());
     let store = state.harness_store.clone();
     let catalog = state.harness_catalog.clone();
     let requested_id = id.clone();
@@ -358,10 +379,24 @@ async fn delete_harness_at(
         Ok(Ok(mutation)) => {
             state.bump_harness_probe_generation();
             state.providers.reconcile_harness_provider_settings();
+            let cleanup_keys = integration_keys_for_harness(&snapshot, &id);
+            let cleanup = if cleanup_keys.is_empty() {
+                None
+            } else {
+                Some(
+                    crate::http::integration_handlers::reconcile_unreferenced_integrations(
+                        &state,
+                        cleanup_keys,
+                        cleanup_workspace_path.clone(),
+                    )
+                    .await,
+                )
+            };
             (
                 StatusCode::OK,
                 Json(HarnessDeleteResponse {
                     document_revision: mutation.document_revision,
+                    integration_cleanup: cleanup,
                 }),
             )
                 .into_response()
@@ -407,10 +442,26 @@ pub(crate) async fn remove_harness_profile(
         Ok(expected) => expected,
         Err(diagnostics) => return store_error(HarnessStoreError::Validation(diagnostics)),
     };
+    let snapshot = match state.harness_store.snapshot() {
+        Ok(snapshot) => snapshot,
+        Err(error) => return store_error(error),
+    };
+    let cleanup_keys = integration_keys_for_harness(&snapshot, &id);
+    let cleanup_workspace_path = state
+        .workspace
+        .lock()
+        .unwrap()
+        .as_ref()
+        .map(|workspace| workspace.path.clone());
     let store = state.harness_store.clone();
     let catalog = state.harness_catalog.clone();
     let requested_id = id.clone();
+    let mutation_state = state.clone();
     let result = tokio::task::spawn_blocking(move || {
+        let _projection = mutation_state
+            .projection_lock
+            .lock()
+            .expect("projection lock poisoned");
         store.mutate_at(&catalog, expected_revision, |document| {
             let Some(position) = document
                 .custom
@@ -441,7 +492,19 @@ pub(crate) async fn remove_harness_profile(
         Ok(Ok(mutation)) => {
             state.bump_harness_probe_generation();
             state.providers.reconcile_harness_provider_settings();
-            mutation_response(mutation, &id, StatusCode::OK)
+            let cleanup = if cleanup_keys.is_empty() {
+                None
+            } else {
+                Some(
+                    crate::http::integration_handlers::reconcile_unreferenced_integrations(
+                        &state,
+                        cleanup_keys,
+                        cleanup_workspace_path.clone(),
+                    )
+                    .await,
+                )
+            };
+            mutation_response_with_cleanup(mutation, &id, StatusCode::OK, cleanup)
         }
         Ok(Err(error)) => store_error(error),
         Err(_) => internal_error("harness update task failed"),
@@ -466,10 +529,29 @@ fn snapshot_entries(snapshot: &HarnessSnapshot) -> Vec<HarnessConfigEntry> {
         .collect()
 }
 
+fn integration_keys_for_harness(snapshot: &HarnessSnapshot, id: &str) -> BTreeSet<IntegrationKey> {
+    snapshot
+        .registry
+        .get(id)
+        .and_then(|harness| harness.definition.integration.as_ref())
+        .map(integration_key)
+        .into_iter()
+        .collect()
+}
+
 fn mutation_response(
     mutation: crate::harness::store::HarnessMutation,
     id: &str,
     status: StatusCode,
+) -> axum::response::Response {
+    mutation_response_with_cleanup(mutation, id, status, None)
+}
+
+fn mutation_response_with_cleanup(
+    mutation: crate::harness::store::HarnessMutation,
+    id: &str,
+    status: StatusCode,
+    integration_cleanup: Option<crate::http::integration_handlers::IntegrationCleanupResponse>,
 ) -> axum::response::Response {
     let Some(harness) = mutation.registry.get(id) else {
         return internal_error("updated harness was not resolved");
@@ -488,6 +570,7 @@ fn mutation_response(
                     integration: harness.compatibility.integration.clone(),
                 },
             },
+            integration_cleanup,
         }),
     )
         .into_response()
@@ -814,6 +897,8 @@ fn internal_error(message: &str) -> axum::response::Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::session_application::SessionApplication;
+    use serde_json::Value;
 
     async fn json_body(response: axum::response::Response) -> serde_json::Value {
         serde_json::from_slice(
@@ -1062,6 +1147,94 @@ mod tests {
         assert_eq!(
             stale_delete["diagnostics"][0]["code"],
             "harness_config_revision_changed"
+        );
+    }
+
+    #[tokio::test]
+    async fn removing_a_profile_keeps_selection_and_cleans_its_shared_integration() {
+        let root = tempfile::tempdir().unwrap();
+        git2::Repository::init(root.path()).unwrap();
+        std::fs::write(
+            root.path().join(".gitignore"),
+            ".github/copilot/settings.local.json\n",
+        )
+        .unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = crate::test_support::FakeHome::set(home.path());
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let initial = json_body(list_harnesses(State(state.clone())).await.into_response()).await;
+
+        let created = create_harness(
+            State(state.clone()),
+            Bytes::from(
+                serde_json::json!({
+                    "definition": custom_definition("copilot-local", "Copilot Local"),
+                    "duplicateSourceId": "copilot",
+                    "expectedRevision": initial["documentRevision"],
+                })
+                .to_string(),
+            ),
+        )
+        .await
+        .into_response();
+        assert_eq!(created.status(), StatusCode::CREATED);
+        let created = json_body(created).await;
+        SessionApplication::new(state.clone())
+            .set_active_harnesses(vec!["copilot-local".into()])
+            .unwrap();
+        let active_revision = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(|workspace| workspace.metadata.read_workspace_memory())
+            .unwrap()
+            .active_harness_revision;
+        let install = crate::http::integration_handlers::install_grouped_integration(
+            State(state.clone()),
+            axum::extract::Path(("copilot".into(), "workspace".into())),
+            Bytes::from(
+                serde_json::json!({
+                    "expectedDocumentRevision": created["documentRevision"],
+                    "expectedActiveHarnessRevision": active_revision,
+                })
+                .to_string(),
+            ),
+        )
+        .await
+        .into_response();
+        assert_eq!(install.status(), StatusCode::OK);
+
+        let removed = remove_harness_profile(
+            State(state.clone()),
+            Path("copilot-local".into()),
+            Bytes::from(
+                serde_json::json!({
+                    "expectedRevision": created["documentRevision"],
+                })
+                .to_string(),
+            ),
+        )
+        .await
+        .into_response();
+        assert_eq!(removed.status(), StatusCode::OK);
+        let removed = json_body(removed).await;
+        assert_eq!(removed["harness"]["compatibility"]["profile"], Value::Null);
+        assert_eq!(removed["integrationCleanup"]["status"], "complete");
+        assert_eq!(
+            removed["integrationCleanup"]["outcomes"][0]["status"]["registration"],
+            "absent"
+        );
+        assert_eq!(
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .and_then(|workspace| workspace.metadata.read_workspace_memory())
+                .unwrap()
+                .active_harness_ids,
+            ["copilot-local"]
         );
     }
 

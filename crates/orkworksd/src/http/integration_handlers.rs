@@ -1,13 +1,18 @@
+use crate::harness::definition::parse_strict_json;
 use crate::harness::integration::{
-    binding_for_key, IntegrationContext, IntegrationError, IntegrationKey, ReporterAssetResolver,
+    binding_for_key, IntegrationContext, IntegrationError, IntegrationKey, IntegrationOwnership,
+    IntegrationRegistration, ReporterAssetResolver,
 };
 use crate::harness::registry::ResolvedHarness;
+use crate::harness::store::HarnessDocumentRevision;
 use crate::http::ErrorResponse;
 use crate::AppState;
+use axum::body::Bytes;
 use axum::extract::{Path as AxumPath, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::Json;
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -19,6 +24,31 @@ pub(crate) struct GroupedIntegrationStatus {
     pub key: IntegrationKey,
     pub consumers: Vec<crate::harness::integration::IntegrationConsumer>,
     pub status: crate::harness::integration::IntegrationStatus,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct IntegrationCleanupResponse {
+    pub status: &'static str,
+    pub outcomes: Vec<GroupedIntegrationStatus>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub errors: Vec<String>,
+}
+
+#[derive(Clone, Debug)]
+struct IntegrationRevisionExpectation {
+    document_revision: Option<HarnessDocumentRevision>,
+    active_harness_revision: u64,
+    workspace_path: Option<PathBuf>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct IntegrationRevisionConflictResponse {
+    error: &'static str,
+    code: &'static str,
+    document_revision: Option<HarnessDocumentRevision>,
+    active_harness_revision: u64,
 }
 
 fn resolve_scripts_source_dir(exe_dir: Option<PathBuf>, manifest_dir: &Path) -> PathBuf {
@@ -92,7 +122,6 @@ async fn with_revalidated_integration_target<R>(
         };
         ws.path.clone()
     };
-
     let harness: ResolvedHarness = {
         let registry = state
             .harness_catalog
@@ -162,27 +191,6 @@ async fn run_integration_action(
         &IntegrationContext<'_>,
     ) -> Result<crate::harness::integration::IntegrationStatus, IntegrationError>,
 ) -> axum::response::Response {
-    let active_ids = {
-        let workspace = state.workspace.lock().unwrap();
-        workspace
-            .as_ref()
-            .and_then(|workspace| workspace.metadata.read_workspace_memory())
-            .map(|memory| memory.active_harness_ids)
-            .unwrap_or_default()
-    };
-    let grouped = {
-        let registry = state
-            .harness_catalog
-            .read()
-            .expect("harness catalog lock poisoned");
-        registry
-            .integration_group_for_harness(harness_id, &active_ids)
-            .map(|group| (group.key, group.representative))
-    };
-    if let Some((key, _)) = grouped {
-        return run_integration_key_action(state, &key, action).await;
-    }
-
     match with_revalidated_integration_target(state, harness_id, |harness, ws, detected_tool| {
         let reporter_assets = match reporter_assets() {
             Ok(resolver) => resolver,
@@ -229,14 +237,97 @@ async fn run_integration_action(
     }
 }
 
+fn active_workspace_snapshot(
+    state: &Arc<AppState>,
+) -> Result<(Vec<String>, u64), axum::response::Response> {
+    let workspace = state.workspace.lock().unwrap();
+    let Some(workspace) = workspace.as_ref() else {
+        return Err(integration_error_response(IntegrationError::NoWorkspace));
+    };
+    let memory = workspace
+        .metadata
+        .read_workspace_memory()
+        .unwrap_or_default();
+    Ok((memory.active_harness_ids, memory.active_harness_revision))
+}
+
+fn document_revision_snapshot(
+    state: &Arc<AppState>,
+) -> Result<Option<HarnessDocumentRevision>, axum::response::Response> {
+    state
+        .harness_store
+        .snapshot()
+        .map(|snapshot| snapshot.document_revision)
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "couldn't load harness configuration".into(),
+                }),
+            )
+                .into_response()
+        })
+}
+
+fn integration_revision_conflict(state: &Arc<AppState>) -> axum::response::Response {
+    let document_revision = document_revision_snapshot(state).unwrap_or(None);
+    let active_harness_revision = active_workspace_snapshot(state)
+        .map(|(_, revision)| revision)
+        .unwrap_or_default();
+    (
+        StatusCode::CONFLICT,
+        Json(IntegrationRevisionConflictResponse {
+            error: "Integration state changed; reload before retrying.",
+            code: "integration_revision_changed",
+            document_revision,
+            active_harness_revision,
+        }),
+    )
+        .into_response()
+}
+
+fn grouped_integration_error_status(
+    group: &crate::harness::registry::ResolvedIntegrationGroup,
+    error: &IntegrationError,
+    action: &'static str,
+) -> crate::harness::integration::IntegrationStatus {
+    let enabled = !group.consumers.is_empty();
+    crate::harness::integration::IntegrationStatus {
+        harness_id: group.representative.definition.id.clone(),
+        enabled,
+        tool_detected: false,
+        registration: crate::harness::integration::IntegrationRegistration::Error,
+        ownership: crate::harness::integration::IntegrationOwnership::None,
+        activation: if enabled {
+            crate::harness::integration::IntegrationActivation::Unknown
+        } else {
+            crate::harness::integration::IntegrationActivation::Disabled
+        },
+        coverage: crate::harness::integration::IntegrationCoverage::None,
+        diagnostics: vec![crate::harness::integration::IntegrationDiagnostic {
+            code: error.code().into(),
+            message: error.to_string(),
+            action: Some(action.into()),
+        }],
+        confirmation: None,
+    }
+}
+
 async fn with_revalidated_integration_key(
     state: &Arc<AppState>,
     key: &IntegrationKey,
+    expected: Option<&IntegrationRevisionExpectation>,
     action: impl FnOnce(
         &ResolvedHarness,
         &IntegrationContext<'_>,
     ) -> Result<crate::harness::integration::IntegrationStatus, IntegrationError>,
-) -> Result<crate::harness::integration::IntegrationStatus, axum::response::Response> {
+) -> Result<
+    (
+        crate::harness::registry::ResolvedIntegrationGroup,
+        Result<crate::harness::integration::IntegrationStatus, IntegrationError>,
+    ),
+    axum::response::Response,
+> {
     let workspace_path_at_start = {
         let ws_guard = state.workspace.lock().unwrap();
         let Some(ws) = ws_guard.as_ref() else {
@@ -244,6 +335,14 @@ async fn with_revalidated_integration_key(
         };
         ws.path.clone()
     };
+    if expected.is_some_and(|expected| {
+        expected
+            .workspace_path
+            .as_deref()
+            .is_some_and(|path| path != workspace_path_at_start.as_path())
+    }) {
+        return Err(integration_revision_conflict(state));
+    }
     if binding_for_key(key).is_none() {
         return Err((
             StatusCode::NOT_FOUND,
@@ -257,34 +356,37 @@ async fn with_revalidated_integration_key(
             .into_response());
     }
 
-    let (harness, enabled) = {
-        let active_ids = {
-            let workspace = state.workspace.lock().unwrap();
-            workspace
-                .as_ref()
-                .and_then(|workspace| workspace.metadata.read_workspace_memory())
-                .map(|memory| memory.active_harness_ids)
-                .unwrap_or_default()
-        };
+    let initial_document_revision = document_revision_snapshot(state)?;
+    let (initial_active_ids, initial_active_harness_revision) = active_workspace_snapshot(state)?;
+    if expected.is_some_and(|expected| {
+        expected.document_revision != initial_document_revision
+            || expected.active_harness_revision != initial_active_harness_revision
+    }) {
+        return Err(integration_revision_conflict(state));
+    }
+
+    let group = {
         let registry = state
             .harness_catalog
             .read()
             .expect("harness catalog lock poisoned");
-        let Some(group) = registry.integration_group_for_key(key, &active_ids) else {
-            return Err((
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse {
-                    error: format!(
-                        "unknown integration key {}/{}",
-                        key.adapter_id, key.target_id
-                    ),
-                }),
-            )
-                .into_response());
-        };
-        (group.representative, !group.consumers.is_empty())
+        registry
+            .integration_group_for_key(key, &initial_active_ids)
+            .ok_or_else(|| {
+                (
+                    StatusCode::NOT_FOUND,
+                    Json(ErrorResponse {
+                        error: format!(
+                            "unknown integration key {}/{}",
+                            key.adapter_id, key.target_id
+                        ),
+                    }),
+                )
+                    .into_response()
+            })?
     };
-
+    let harness = group.representative.clone();
+    let enabled = !group.consumers.is_empty();
     let detected_tool = crate::harness::detect::resolve_tool_gate(
         &state.integration_probe_cache,
         &harness.definition.id,
@@ -293,38 +395,47 @@ async fn with_revalidated_integration_key(
     )
     .await;
 
+    // Active-harness writes, workspace switches, and harness document
+    // mutations all take this projection lock. Acquire it before the final
+    // checks and hold it through the synchronous adapter action so the
+    // external file mutation is one coherent projection operation.
+    let _projection = state
+        .projection_lock
+        .lock()
+        .expect("projection lock poisoned");
+    let current_document_revision = document_revision_snapshot(state)?;
+    let (current_active_ids, current_active_harness_revision) = active_workspace_snapshot(state)?;
+    if current_document_revision != initial_document_revision
+        || current_active_harness_revision != initial_active_harness_revision
+        || expected.is_some_and(|expected| {
+            expected.document_revision != current_document_revision
+                || expected.active_harness_revision != current_active_harness_revision
+        })
     {
-        let registry = state
-            .harness_catalog
-            .read()
-            .expect("harness catalog lock poisoned");
-        let active_ids = {
-            let workspace = state.workspace.lock().unwrap();
-            workspace
-                .as_ref()
-                .and_then(|workspace| workspace.metadata.read_workspace_memory())
-                .map(|memory| memory.active_harness_ids)
-                .unwrap_or_default()
-        };
-        match registry.integration_group_for_key(key, &active_ids) {
-            Some(current) if current.representative.definition == harness.definition => {}
-            _ => {
-                return Err((
-                    StatusCode::CONFLICT,
-                    Json(ErrorResponse {
-                        error: "harness definition changed during this request; retry".into(),
-                    }),
-                )
-                    .into_response());
-            }
-        }
+        return Err(integration_revision_conflict(state));
     }
+    let registry = state
+        .harness_catalog
+        .read()
+        .expect("harness catalog lock poisoned");
+    match registry.integration_group_for_key(key, &current_active_ids) {
+        Some(current) if current.representative.definition == harness.definition => {}
+        _ => return Err(integration_revision_conflict(state)),
+    }
+    drop(registry);
 
     let ws_guard = state.workspace.lock().unwrap();
     let Some(ref ws) = *ws_guard else {
         return Err(integration_error_response(IntegrationError::NoWorkspace));
     };
-    if ws.path != workspace_path_at_start {
+    if ws.path != workspace_path_at_start
+        || expected.is_some_and(|expected| {
+            expected
+                .workspace_path
+                .as_deref()
+                .is_some_and(|path| path != ws.path.as_path())
+        })
+    {
         return Err((
             StatusCode::CONFLICT,
             Json(ErrorResponse {
@@ -359,22 +470,199 @@ async fn with_revalidated_integration_key(
         detected_tool: detected_tool.as_ref(),
         reporter_assets: &reporter_assets,
     };
-    let status = action(&harness, &ctx).map_err(integration_error_response)?;
-    Ok(status)
+    Ok((group, action(&harness, &ctx)))
 }
 
 async fn run_integration_key_action(
     state: &Arc<AppState>,
     key: &IntegrationKey,
+    expected: Option<IntegrationRevisionExpectation>,
+    failure_action: &'static str,
     action: impl FnOnce(
         &ResolvedHarness,
         &IntegrationContext<'_>,
     ) -> Result<crate::harness::integration::IntegrationStatus, IntegrationError>,
 ) -> axum::response::Response {
-    match with_revalidated_integration_key(state, key, action).await {
-        Ok(status) => Json(status).into_response(),
+    match with_revalidated_integration_key(state, key, expected.as_ref(), action).await {
+        Ok((group, Ok(status))) => Json(GroupedIntegrationStatus {
+            key: key.clone(),
+            consumers: group.consumers,
+            status,
+        })
+        .into_response(),
+        Ok((group, Err(error))) => {
+            let status = grouped_integration_error_status(&group, &error, failure_action);
+            Json(GroupedIntegrationStatus {
+                key: key.clone(),
+                consumers: group.consumers,
+                status,
+            })
+            .into_response()
+        }
         Err(response) => response,
     }
+}
+
+fn parse_integration_mutation_request(
+    body: &Bytes,
+) -> Result<IntegrationRevisionExpectation, axum::response::Response> {
+    let value = parse_strict_json::<serde_json::Value>(body, 64 * 1024)
+        .map_err(|diagnostic| invalid_integration_request(&diagnostic.message))?;
+    let object = value.as_object().ok_or_else(|| {
+        invalid_integration_request("Integration mutation request must be an object.")
+    })?;
+    for field in object.keys() {
+        if !matches!(
+            field.as_str(),
+            "expectedDocumentRevision" | "expectedActiveHarnessRevision"
+        ) {
+            return Err(invalid_integration_request(&format!(
+                "Unknown integration mutation field {field}."
+            )));
+        }
+    }
+    let document_revision = object
+        .get("expectedDocumentRevision")
+        .ok_or_else(|| {
+            invalid_integration_request("Integration mutation requires expectedDocumentRevision.")
+        })
+        .and_then(|value| {
+            serde_json::from_value(value.clone()).map_err(|error| {
+                invalid_integration_request(&format!(
+                    "expectedDocumentRevision must be a revision string or null: {error}"
+                ))
+            })
+        })?;
+    let active_harness_revision = object
+        .get("expectedActiveHarnessRevision")
+        .and_then(serde_json::Value::as_u64)
+        .ok_or_else(|| {
+            invalid_integration_request(
+                "Integration mutation requires an unsigned expectedActiveHarnessRevision.",
+            )
+        })?;
+    Ok(IntegrationRevisionExpectation {
+        document_revision,
+        active_harness_revision,
+        workspace_path: None,
+    })
+}
+
+fn invalid_integration_request(message: &str) -> axum::response::Response {
+    (
+        StatusCode::BAD_REQUEST,
+        Json(ErrorResponse {
+            error: message.into(),
+        }),
+    )
+        .into_response()
+}
+
+/// Reconciles adapter keys that may have lost their last active consumer.
+/// The caller has already committed the harness/workspace projection; this
+/// operation only removes OrkWorks-owned fragments from now-unreferenced
+/// adapter targets. A failed uninstall is represented in the mutation result
+/// as `cleanup-needed`, so the persisted user selection is never rolled back.
+pub(crate) async fn reconcile_unreferenced_integrations(
+    state: &Arc<AppState>,
+    keys: BTreeSet<IntegrationKey>,
+    expected_workspace_path: Option<PathBuf>,
+) -> IntegrationCleanupResponse {
+    let expected = match (
+        document_revision_snapshot(state),
+        active_workspace_snapshot(state),
+    ) {
+        (Ok(document_revision), Ok((_, active_harness_revision))) => {
+            Some(IntegrationRevisionExpectation {
+                document_revision,
+                active_harness_revision,
+                workspace_path: expected_workspace_path,
+            })
+        }
+        _ => None,
+    };
+    let mut outcomes = Vec::new();
+    let mut errors = Vec::new();
+    for key in keys {
+        match with_revalidated_integration_key(state, &key, expected.as_ref(), |harness, ctx| {
+            if ctx.enabled {
+                harness.integration_status(ctx)
+            } else {
+                let status = harness.integration_status(ctx)?;
+                if status.registration == IntegrationRegistration::Absent {
+                    Ok(status)
+                } else if status.registration == IntegrationRegistration::Error
+                    || status.ownership == IntegrationOwnership::Ambiguous
+                {
+                    Ok(cleanup_needed_status(status))
+                } else {
+                    harness.integration_uninstall(ctx)
+                }
+            }
+        })
+        .await
+        {
+            Ok((group, Ok(status))) => outcomes.push(GroupedIntegrationStatus {
+                key,
+                consumers: group.consumers,
+                status,
+            }),
+            Ok((group, Err(error))) => {
+                let action = if group.consumers.is_empty() {
+                    "cleanup-needed"
+                } else {
+                    "retry"
+                };
+                let status = grouped_integration_error_status(&group, &error, action);
+                outcomes.push(GroupedIntegrationStatus {
+                    key,
+                    consumers: group.consumers,
+                    status,
+                });
+            }
+            Err(_) => errors.push(format!(
+                "Could not reconcile integration {}/{}; retry cleanup.",
+                key.adapter_id, key.target_id
+            )),
+        }
+    }
+    let status = if !errors.is_empty()
+        || outcomes.iter().any(|outcome| {
+            outcome
+                .status
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.action.as_deref() == Some("cleanup-needed"))
+        }) {
+        "cleanup-needed"
+    } else {
+        "complete"
+    };
+    IntegrationCleanupResponse {
+        status,
+        outcomes,
+        errors,
+    }
+}
+
+fn cleanup_needed_status(
+    mut status: crate::harness::integration::IntegrationStatus,
+) -> crate::harness::integration::IntegrationStatus {
+    if status.diagnostics.is_empty() {
+        status
+            .diagnostics
+            .push(crate::harness::integration::IntegrationDiagnostic {
+                code: "cleanup_needed".into(),
+                message: "This integration needs manual cleanup before it can be reconciled."
+                    .into(),
+                action: Some("cleanup-needed".into()),
+            });
+    } else {
+        for diagnostic in &mut status.diagnostics {
+            diagnostic.action = Some("cleanup-needed".into());
+        }
+    }
+    status
 }
 
 pub(crate) async fn get_workspace_integrations(
@@ -404,18 +692,20 @@ pub(crate) async fn get_workspace_integrations(
     let mut result = Vec::with_capacity(groups.len());
     for group in groups {
         let key = group.key.clone();
-        let consumers = group.consumers.clone();
-        let status = match with_revalidated_integration_key(&state, &key, |harness, ctx| {
-            harness.integration_status(ctx)
-        })
-        .await
-        {
-            Ok(status) => status,
-            Err(response) => return response,
-        };
+        let (group, action_result) =
+            match with_revalidated_integration_key(&state, &key, None, |harness, ctx| {
+                harness.integration_status(ctx)
+            })
+            .await
+            {
+                Ok(result) => result,
+                Err(response) => return response,
+            };
+        let status = action_result
+            .unwrap_or_else(|error| grouped_integration_error_status(&group, &error, "retry"));
         result.push(GroupedIntegrationStatus {
             key,
-            consumers,
+            consumers: group.consumers,
             status,
         });
     }
@@ -430,41 +720,63 @@ pub(crate) async fn get_grouped_integration_status(
         adapter_id,
         target_id,
     };
-    run_integration_key_action(&state, &key, |harness, ctx| harness.integration_status(ctx)).await
+    run_integration_key_action(&state, &key, None, "retry", |harness, ctx| {
+        harness.integration_status(ctx)
+    })
+    .await
 }
 
 pub(crate) async fn install_grouped_integration(
     State(state): State<Arc<AppState>>,
     AxumPath((adapter_id, target_id)): AxumPath<(String, String)>,
+    body: Bytes,
 ) -> axum::response::Response {
+    let expected = match parse_integration_mutation_request(&body) {
+        Ok(expected) => expected,
+        Err(response) => return response,
+    };
     let key = IntegrationKey {
         adapter_id,
         target_id,
     };
-    run_integration_key_action(&state, &key, |harness, ctx| {
-        harness.integration_install(ctx)
-    })
+    run_integration_key_action(
+        &state,
+        &key,
+        Some(expected),
+        "action-needed",
+        |harness, ctx| harness.integration_install(ctx),
+    )
     .await
 }
 
 pub(crate) async fn repair_grouped_integration(
     State(state): State<Arc<AppState>>,
     AxumPath((adapter_id, target_id)): AxumPath<(String, String)>,
+    body: Bytes,
 ) -> axum::response::Response {
-    install_grouped_integration(State(state), AxumPath((adapter_id, target_id))).await
+    install_grouped_integration(State(state), AxumPath((adapter_id, target_id)), body).await
 }
 
 pub(crate) async fn uninstall_grouped_integration(
     State(state): State<Arc<AppState>>,
     AxumPath((adapter_id, target_id)): AxumPath<(String, String)>,
+    body: Bytes,
 ) -> axum::response::Response {
+    let expected = match parse_integration_mutation_request(&body) {
+        Ok(expected) => expected,
+        Err(response) => return response,
+    };
     let key = IntegrationKey {
         adapter_id,
         target_id,
     };
-    run_integration_key_action(&state, &key, |harness, ctx| {
-        harness.integration_uninstall(ctx)
-    })
+    run_integration_key_action(
+        &state,
+        &key,
+        Some(expected),
+        "cleanup-needed",
+        |harness, ctx| harness.integration_uninstall(ctx),
+    )
     .await
 }
 
@@ -533,6 +845,19 @@ mod tests {
     fn init_git_workspace_with_codex_hooks_ignored(workspace: &std::path::Path) {
         git2::Repository::init(workspace).unwrap();
         std::fs::write(workspace.join(".gitignore"), ".codex/hooks.json\n").unwrap();
+    }
+
+    #[test]
+    fn grouped_mutations_require_the_document_and_active_revisions() {
+        let missing = parse_integration_mutation_request(&Bytes::from_static(b"{}")).unwrap_err();
+        assert_eq!(missing.status(), StatusCode::BAD_REQUEST);
+
+        let expected = parse_integration_mutation_request(&Bytes::from_static(
+            br#"{"expectedDocumentRevision":null,"expectedActiveHarnessRevision":7}"#,
+        ))
+        .unwrap();
+        assert_eq!(expected.document_revision, None);
+        assert_eq!(expected.active_harness_revision, 7);
     }
 
     // Pins the packaged-vs-dev fallback that used to be covered by
@@ -665,6 +990,141 @@ mod tests {
             .unwrap();
         let body: Value = serde_json::from_slice(&bytes).unwrap();
         assert!(body.as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn grouped_copilot_mutations_return_shared_identity_and_cleanup() {
+        let dir = tempfile::tempdir().unwrap();
+        init_git_workspace_with_copilot_settings_ignored(dir.path());
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        let state = test_app_state_with_workspace(dir.path());
+        SessionApplication::new(state.clone())
+            .set_active_harnesses(vec!["copilot".into()])
+            .unwrap();
+
+        let snapshot = state.harness_store.snapshot().unwrap();
+        let active_revision = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(|workspace| workspace.metadata.read_workspace_memory())
+            .unwrap()
+            .active_harness_revision;
+        let body = || {
+            Bytes::from(
+                serde_json::json!({
+                    "expectedDocumentRevision": snapshot.document_revision,
+                    "expectedActiveHarnessRevision": active_revision,
+                })
+                .to_string(),
+            )
+        };
+
+        let install = install_grouped_integration(
+            State(state.clone()),
+            AxumPath(("copilot".into(), "workspace".into())),
+            body(),
+        )
+        .await
+        .into_response();
+        assert_eq!(install.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(install.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let installed: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(installed["key"]["adapterId"], "copilot");
+        assert_eq!(installed["key"]["targetId"], "workspace");
+        assert_eq!(installed["consumers"][0]["harnessId"], "copilot");
+        assert_eq!(installed["status"]["registration"], "installed");
+
+        let uninstall = uninstall_grouped_integration(
+            State(state),
+            AxumPath(("copilot".into(), "workspace".into())),
+            body(),
+        )
+        .await
+        .into_response();
+        assert_eq!(uninstall.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(uninstall.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let removed: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(removed["key"]["adapterId"], "copilot");
+        assert_eq!(removed["status"]["registration"], "absent");
+    }
+
+    #[tokio::test]
+    async fn grouped_cleanup_reports_manual_action_for_a_foreign_hook() {
+        let dir = tempfile::tempdir().unwrap();
+        init_git_workspace_with_copilot_settings_ignored(dir.path());
+        let settings = dir.path().join(".github/copilot/settings.local.json");
+        std::fs::create_dir_all(settings.parent().unwrap()).unwrap();
+        let foreign = serde_json::json!({
+            "version": 1,
+            "hooks": {
+                "notification": [{
+                    "type": "command",
+                    "bash": "foreign-reporter",
+                    "env": {"ORKWORKS_INTEGRATION_MARKER": "orkworks:harness-integration:v2:foreign"}
+                }]
+            }
+        });
+        let original = serde_json::to_vec_pretty(&foreign).unwrap();
+        std::fs::write(&settings, &original).unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        let state = test_app_state_with_workspace(dir.path());
+        let response = uninstall_grouped_integration(
+            State(state),
+            AxumPath(("copilot".into(), "workspace".into())),
+            Bytes::from(
+                serde_json::json!({
+                    "expectedDocumentRevision": null,
+                    "expectedActiveHarnessRevision": 0,
+                })
+                .to_string(),
+            ),
+        )
+        .await
+        .into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["status"]["diagnostics"][0]["action"], "cleanup-needed");
+        assert_eq!(std::fs::read(&settings).unwrap(), original);
+    }
+
+    #[tokio::test]
+    async fn grouped_mutation_rejects_a_stale_active_harness_revision_before_writing() {
+        let dir = tempfile::tempdir().unwrap();
+        init_git_workspace_with_copilot_settings_ignored(dir.path());
+        let response = install_grouped_integration(
+            State(test_app_state_with_workspace(dir.path())),
+            AxumPath(("copilot".into(), "workspace".into())),
+            Bytes::from(
+                serde_json::json!({
+                    "expectedDocumentRevision": null,
+                    "expectedActiveHarnessRevision": 1,
+                })
+                .to_string(),
+            ),
+        )
+        .await
+        .into_response();
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["code"], "integration_revision_changed");
+        assert!(!dir
+            .path()
+            .join(".github/copilot/settings.local.json")
+            .exists());
     }
 
     #[tokio::test]
