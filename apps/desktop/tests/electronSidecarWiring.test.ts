@@ -38,7 +38,7 @@ test("Electron main logs raw lifecycle failures but publishes only stable copy",
 test("a stale remembered workspace path degrades to no-workspace, not a backend failure", () => {
   assert.match(mainSource, /import \{ parseWorkspaceRestoreResponse \} from "\.\/workspaceRestore";/);
   assert.match(mainSource, /const workspace = await parseWorkspaceRestoreResponse\(response\);/);
-  assert.match(mainSource, /if \(workspace === null\) \{\s*console\.warn\(\s*`\[main\] remembered workspace path was rejected by the sidecar: \$\{workspacePath\}`\);/);
+  assert.match(mainSource, /if \(workspace === null\) \{\s*console\.warn\(\s*`\[main\] remembered workspace path was rejected by the sidecar: \$\{workspacePath\}`\);\s*forgetWorkspacePath\(app\.getPath\("userData"\), workspacePath\);/);
   assert.doesNotMatch(mainSource, /throw new Error\(`Workspace restoration failed: \$\{response\.status\}`\)/);
 });
 

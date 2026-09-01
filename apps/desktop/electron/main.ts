@@ -5,7 +5,7 @@ import { existsSync } from "fs";
 import * as path from "path";
 import { pathToFileURL } from "url";
 import { getDevRepoRoot, getDevSidecarPath, getPackagedSidecarPath } from "./paths";
-import { readWorkspaceMemory, rememberWorkspacePath } from "./workspaceMemory";
+import { readWorkspaceMemory, rememberWorkspacePath, forgetWorkspacePath } from "./workspaceMemory";
 import { readLayoutMemory, writeLayoutMemory } from "./layoutMemory";
 import type { AppSettings } from "./settingsMemory";
 import { DEFAULT_HOTKEYS, DEFAULT_RETENTION, loadSettingsForStartup, normalizeDebugSettings, normalizeProviderSettings, normalizeRetention, readSettings, settingsWithHotkeys, settingsWithPeonSelection, validateHotkeys, writeSettings } from "./settingsMemory";
@@ -233,6 +233,7 @@ app.whenReady().then(() => {
     signal.throwIfAborted();
     if (workspace === null) {
       console.warn(`[main] remembered workspace path was rejected by the sidecar: ${workspacePath}`);
+      forgetWorkspacePath(app.getPath("userData"), workspacePath);
       workspacePath = null;
     }
     return workspace;
