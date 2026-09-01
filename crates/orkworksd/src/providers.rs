@@ -12,9 +12,9 @@ use std::os::unix::process::CommandExt;
 use reqwest::Client as HttpClient;
 use serde::{Deserialize, Serialize};
 
-use crate::harness::definition::PromptTransport;
 #[cfg(test)]
 use crate::harness::definition::{BuiltinDocument, HarnessUserDocument, EMBEDDED_BUILTINS};
+use crate::harness::definition::{DefinitionOrigin, PromptTransport};
 #[cfg(test)]
 use crate::harness::registry::resolve_document;
 use crate::harness::registry::HarnessCatalog;
@@ -511,6 +511,9 @@ pub struct ProviderRunResult {
 pub struct ProviderEntry {
     pub id: String,
     pub label: String,
+    pub origin: String,
+    #[serde(rename = "harnessId", skip_serializing_if = "Option::is_none")]
+    pub harness_id: Option<String>,
     pub enabled: bool,
     #[serde(rename = "fallbackOrder")]
     pub fallback_order: usize,
@@ -1065,7 +1068,7 @@ impl ProviderManager {
     pub fn new_with_catalog(catalog: HarnessCatalog) -> Self {
         let settings = Arc::new(RwLock::new(ProviderSettingsPayload::default()));
         let runtime = Arc::new(RwLock::new(HashMap::new()));
-        Self {
+        let manager = Self {
             registry: builtin_provider_registry(),
             harness_catalog: Some(catalog),
             settings: settings.clone(),
@@ -1082,7 +1085,9 @@ impl ProviderManager {
             apply_lock: Arc::new(Mutex::new(())),
             #[cfg(test)]
             apply_parse_hook: None,
-        }
+        };
+        manager.reconcile_harness_provider_settings();
+        manager
     }
 
     fn definitions(&self) -> Vec<ProviderDefinition> {
@@ -1099,6 +1104,27 @@ impl ProviderManager {
             .unwrap_or_default();
         definitions.extend(self.registry.clone());
         definitions
+    }
+
+    fn provider_metadata(&self, provider_id: &str) -> (String, Option<String>) {
+        if provider_id == "ollama" {
+            return ("standalone".into(), None);
+        }
+        if let Some(catalog) = &self.harness_catalog {
+            if let Some(harness) = catalog
+                .read()
+                .expect("harness catalog lock poisoned")
+                .get(provider_id)
+            {
+                let origin = match harness.origin {
+                    DefinitionOrigin::Builtin => "builtin",
+                    DefinitionOrigin::Override => "override",
+                    DefinitionOrigin::Custom => "custom",
+                };
+                return (origin.into(), Some(harness.definition.id.clone()));
+            }
+        }
+        ("builtin".into(), Some(provider_id.into()))
     }
 
     /// Called by list_sessions after each peon scan cycle to keep provider
@@ -1148,6 +1174,7 @@ impl ProviderManager {
             let mut guard = self.applied_revision.write().unwrap();
             *guard = Some(revision);
         }
+        self.reconcile_harness_provider_settings();
         ProviderApplyStatus {
             applied_revision: Some(revision),
             applied_at: Some(chrono_now()),
@@ -1657,9 +1684,12 @@ impl ProviderManager {
                     rt.reset_hint = session_reset_hint.get(&entry.id).cloned();
                 }
 
+                let (origin, harness_id) = self.provider_metadata(&entry.id);
                 ProviderEntry {
                     id: entry.id.clone(),
                     label,
+                    origin,
+                    harness_id,
                     enabled: entry.enabled,
                     fallback_order: entry.fallback_order,
                     effective_state: effective_str.to_string(),
@@ -3411,14 +3441,14 @@ mod tests {
         mark_applied(&manager, "copilot", None);
 
         let response = manager.get_providers_response();
-        assert_eq!(
-            response
-                .providers
-                .iter()
-                .map(|provider| provider.id.as_str())
-                .collect::<Vec<_>>(),
-            vec!["copilot"]
-        );
+        let provider_ids = response
+            .providers
+            .iter()
+            .map(|provider| provider.id.as_str())
+            .collect::<Vec<_>>();
+        assert!(provider_ids.contains(&"copilot"));
+        assert!(!provider_ids.contains(&"gemini"));
+        assert!(!provider_ids.contains(&"antigravity"));
 
         let result = manager.run_inference(PeonScope::Session, &["terminal line".to_owned()]);
         assert_eq!(result.attempts.len(), 1);
@@ -3618,6 +3648,29 @@ mod tests {
             .find(|provider| provider.id == "claude-code")
             .unwrap();
         assert_eq!(claude.runtime.fallback_step, None);
+    }
+
+    #[test]
+    fn get_providers_response_includes_projected_provider_metadata() {
+        let manager = ProviderManager::new();
+        manager.reconcile_harness_provider_settings();
+
+        let response = manager.get_providers_response();
+        let copilot = response
+            .providers
+            .iter()
+            .find(|provider| provider.id == "copilot")
+            .expect("embedded Copilot should project as a provider");
+        assert_eq!(copilot.origin, "builtin");
+        assert_eq!(copilot.harness_id.as_deref(), Some("copilot"));
+
+        let ollama = response
+            .providers
+            .iter()
+            .find(|provider| provider.id == "ollama")
+            .expect("Ollama should remain available");
+        assert_eq!(ollama.origin, "standalone");
+        assert_eq!(ollama.harness_id, None);
     }
 
     #[test]

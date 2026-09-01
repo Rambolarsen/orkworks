@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { acceleratorFromKeyboardEvent } from "../hotkeyCapture";
 import type { AppSettings, DebugSettings, HotkeySettings, RetentionSettings } from "../appSettingsTypes";
-import type { ProviderId, ProviderSettings, PeonSelection, PeonAppliedState, PeonProviderVerificationResponse } from "../providerTypes";
+import { normalizeProviderSettings, type ProviderDefinition, type ProviderId, type ProviderSettings, type PeonSelection, type PeonAppliedState, type PeonProviderVerificationResponse } from "../providerTypes";
 import type { ProviderRuntimeResponse } from "../api";
 import type { HarnessConfig, IntegrationStatus, IntegrationStatusResult } from "../harnessTypes";
 import {
@@ -62,7 +62,7 @@ function integrationKeyForHarness(harness: HarnessConfig): IntegrationKey | null
     : null;
 }
 
-export default function SettingsModal({ initialSettings, harnesses, activeHarnessIds, onClose, onSaved, onSaveActiveHarnesses }: SettingsModalProps) {
+export default function SettingsModal({ initialSettings, harnesses, activeHarnessIds, providerRuntime, onClose, onSaved, onSaveActiveHarnesses }: SettingsModalProps) {
   const modalRef = useRef<HTMLElement>(null);
   const savedSettingsRef = useRef<AppSettings>(clone(initialSettings));
   const defaultHotkeys = initialSettings.defaultHotkeys;
@@ -99,6 +99,7 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
   const [peonLocallyApplied, setPeonLocallyApplied] = useState(false);
   const [peonBusy, setPeonBusy] = useState(false);
   const [peonError, setPeonError] = useState<string | null>(null);
+  const [unavailablePeonProvider, setUnavailablePeonProvider] = useState<string | null>(null);
   const [manualModelOverride, setManualModelOverride] = useState(false);
   const peonVerificationGeneration = useRef(0);
   const modalLifecycleGeneration = useRef(0);
@@ -228,6 +229,25 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
   }, []);
 
   useEffect(() => {
+    if (!providerRuntime || providerRuntime.providers.length === 0) return;
+    const definitions: ProviderDefinition[] = providerRuntime.providers.map((provider) => ({
+      id: provider.id,
+      label: provider.label,
+      ...(provider.harnessId ? { harnessId: provider.harnessId } : {}),
+      origin: provider.origin,
+    }));
+    setProviderDraft((current) => normalizeProviderSettings(current, definitions));
+    const selectedProvider = peonSelection.provider;
+    if (!definitions.some((definition) => definition.id === selectedProvider)) {
+      setUnavailablePeonProvider(selectedProvider);
+      setPeonVerification(null);
+      setPeonLocallyApplied(false);
+    } else {
+      setUnavailablePeonProvider(null);
+    }
+  }, [peonSelection.provider, providerRuntime]);
+
+  useEffect(() => {
     void verifyPeonSelection(initialPeonSelection);
     // The initial selection is intentionally verified once when the modal opens.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -281,7 +301,7 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
               },
             }
             : { ok: false, error: groupedStatus?.error ?? "Integration status unavailable." }] as const;
-        }));
+        })) as Record<string, IntegrationStatusResult>;
       setIntegrationStatuses(rowStatuses);
     }
 
@@ -473,8 +493,9 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
 
   const hotkeysDirty = !deepEqual(draft, savedHotkeys);
 
-  const ollamaEnabled = providerDraft.providers.find((entry) => entry.id === "ollama")?.enabled ?? true;
-  const peonProviders = providerDraft.providers.filter((entry) => entry.enabled).map((entry) => entry.id).concat(ollamaEnabled ? ["ollama"] : []).filter((id, index, all) => all.indexOf(id) === index);
+  const peonProviders = providerDraft.providers.filter((entry) => entry.enabled).map((entry) => entry.id).filter((id, index, all) => all.indexOf(id) === index);
+  const providerLabels = new Map<string, string>((providerRuntime?.providers ?? []).map((provider) => [provider.id, provider.label]));
+  const selectedProviderIsAvailable = peonProviders.includes(peonSelection.provider);
   const peonApplyMatches = peonApplied?.provider === peonSelection.provider
     && peonApplied.model === peonSelection.model
     && (peonSelection.provider !== "ollama" || peonApplied.ollamaBaseUrl === peonSelection.ollamaBaseUrl)
@@ -693,11 +714,18 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
                       const provider = event.target.value as ProviderId;
                       const next = { provider, model: "", ...(provider === "ollama" ? { ollamaBaseUrl: providerDraft.ollamaBaseUrl } : {}) };
                       setPeonSelection(next);
+                      setUnavailablePeonProvider(null);
                       setPeonLocallyApplied(false);
                       scheduleVerifyPeonSelection(next, true);
                     }}>
-                      {peonProviders.map((provider) => <option key={provider} value={provider}>{provider}</option>)}
+                      {!selectedProviderIsAvailable && <option value={peonSelection.provider} disabled>{peonSelection.provider} (unavailable)</option>}
+                      {peonProviders.map((provider) => <option key={provider} value={provider}>{providerLabels.get(provider) ?? provider}</option>)}
                     </select>
+                    {unavailablePeonProvider && (
+                      <div role="alert" className="provider-verify-status">
+                        The previously selected provider “{unavailablePeonProvider}” is no longer available. Choose another provider; OrkWorks will not switch automatically.
+                      </div>
+                    )}
                     {peonSelection.provider === "ollama" && <Input value={peonSelection.ollamaBaseUrl ?? ""} onChange={(event) => {
                       const next = { ...peonSelection, ollamaBaseUrl: event.target.value };
                       setPeonSelection(next);

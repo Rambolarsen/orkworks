@@ -290,6 +290,8 @@ export async function getSummaryLog(
 export interface ProviderRuntimeEntry {
   id: string;
   label: string;
+  origin: "builtin" | "override" | "custom" | "standalone";
+  harnessId?: string;
   enabled: boolean;
   fallbackOrder: number;
   effectiveState: ProviderEffectiveState;

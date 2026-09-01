@@ -29,6 +29,7 @@ function sampleRuntime(overrides: Partial<ProviderRuntimeResponse> = {}): Provid
       {
         id: "opencode",
         label: "OpenCode",
+        origin: "builtin",
         enabled: true,
         fallbackOrder: 0,
         effectiveState: "capped",
@@ -37,6 +38,7 @@ function sampleRuntime(overrides: Partial<ProviderRuntimeResponse> = {}): Provid
       {
         id: "claude-code",
         label: "Claude Code",
+        origin: "builtin",
         enabled: true,
         fallbackOrder: 1,
         effectiveState: "healthy",
@@ -92,6 +94,7 @@ test("buildProviderViewModel preserves runtime checking_capacity state", () => {
       {
         id: "opencode",
         label: "OpenCode",
+        origin: "builtin",
         enabled: true,
         fallbackOrder: 0,
         effectiveState: "checking_capacity",

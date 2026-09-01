@@ -48,6 +48,8 @@ export function isAppliedRevisionStale(settings: ProviderSettings, runtime: Prov
 export interface ProviderRow {
   id: string;
   label: string;
+  origin: "builtin" | "override" | "custom" | "standalone";
+  harnessId?: string;
   enabled: boolean;
   fallbackOrder: number;
   effectiveState: ProviderEffectiveState;
@@ -82,6 +84,8 @@ export function buildProviderViewModel(
     return {
       id: entry.id,
       label: rt?.label ?? entry.id,
+      origin: rt?.origin ?? (entry.id === "ollama" ? "standalone" : "builtin"),
+      ...(rt?.harnessId ? { harnessId: rt.harnessId } : {}),
       enabled: entry.enabled,
       fallbackOrder: entry.fallbackOrder,
       effectiveState: rt?.effectiveState ?? deriveEffectiveState(entry),

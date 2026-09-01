@@ -1475,6 +1475,7 @@ impl SessionApplication {
             .harness_catalog
             .write()
             .expect("harness catalog lock poisoned") = harness_snapshot.registry.clone();
+        self.state.providers.reconcile_harness_provider_settings();
         let memory = store.read_workspace_memory();
         let mut memory = memory.unwrap_or_default();
         let original_active_harness_ids = memory.active_harness_ids.clone();

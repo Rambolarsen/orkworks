@@ -8,9 +8,9 @@ import { getDevRepoRoot, getDevSidecarPath, getPackagedSidecarPath } from "./pat
 import { readWorkspaceMemory, rememberWorkspacePath } from "./workspaceMemory";
 import { readLayoutMemory, writeLayoutMemory } from "./layoutMemory";
 import type { AppSettings } from "./settingsMemory";
-import { DEFAULT_HOTKEYS, DEFAULT_RETENTION, loadSettingsForStartup, normalizeDebugSettings, normalizeProviderSettings, normalizeRetention, readSettings, settingsWithHotkeys, settingsWithPeonSelection, validateHotkeys, writeSettings } from "./settingsMemory";
+import { DEFAULT_HOTKEYS, DEFAULT_RETENTION, loadSettingsForStartup, normalizeDebugSettings, normalizeProviderSettings, normalizeRetention, providerDefinitionsForStoredSettings, readSettings, settingsWithHotkeys, settingsWithPeonSelection, validateHotkeys, writeSettings } from "./settingsMemory";
 import { providerSettingsSyncError, pushProviderSettings } from "./providerSettingsSync";
-import type { PeonAppliedState, PeonProviderVerificationResponse, PeonSelection, ProviderApplyStatus, ProviderId, ProviderSettings } from "./providerTypes";
+import type { PeonAppliedState, PeonProviderVerificationResponse, PeonSelection, ProviderApplyStatus, ProviderDefinition, ProviderId, ProviderSettings } from "./providerTypes";
 import { createPeonSelectionTransaction, normalizePeonSelectionInput, type PeonSelectionTransaction } from "./peonSelectionTransaction";
 import { buildMenuTemplate } from "./menuTemplate";
 import { getSessionPlanContent, requestSessionPlanReview, selectTerminalPlan } from "./planOpener";
@@ -371,10 +371,39 @@ app.whenReady().then(() => {
 
   async function syncSavedProviderSettings(port: number, signal: AbortSignal): Promise<void> {
     const settings = currentSettings ?? readSettings(app.getPath("userData"));
+    const providerResponse = await fetch(`http://127.0.0.1:${port}/providers`, { signal });
+    if (!providerResponse.ok) throw new Error(`provider catalog sync failed: ${providerResponse.status}`);
+    const providerBody = await providerResponse.json() as {
+      providers?: unknown;
+    };
+    if (!Array.isArray(providerBody.providers)) throw new Error("provider catalog sync returned malformed data");
+    const definitions: ProviderDefinition[] = providerBody.providers.map((entry) => {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+        throw new Error("provider catalog sync returned malformed entry");
+      }
+      const raw = entry as Record<string, unknown>;
+      if (typeof raw.id !== "string" || typeof raw.label !== "string") {
+        throw new Error("provider catalog sync returned malformed identity");
+      }
+      return {
+        id: raw.id,
+        label: raw.label,
+        ...(typeof raw.harnessId === "string" ? { harnessId: raw.harnessId } : {}),
+        ...(raw.origin === "builtin" || raw.origin === "override" || raw.origin === "custom" || raw.origin === "standalone"
+          ? { origin: raw.origin }
+          : {}),
+      };
+    });
+    const normalizedProviders = normalizeProviderSettings(settings.providers, definitions);
+    const nextSettings: AppSettings = { ...settings, providers: normalizedProviders };
+    if (JSON.stringify(settings.providers) !== JSON.stringify(normalizedProviders)) {
+      writeSettings(app.getPath("userData"), nextSettings);
+      currentSettings = nextSettings;
+    }
     const abortableFetch: typeof fetch = (input, init) => fetch(input, { ...init, signal });
     const result = await pushProviderSettings(
       `http://127.0.0.1:${port}`,
-      settings.providers,
+      normalizedProviders,
       abortableFetch,
     );
     signal.throwIfAborted();
@@ -628,7 +657,7 @@ app.whenReady().then(() => {
         providers: normalizeProviderSettings({
           ...providers,
           revision: Math.max(baseSettings.providers.revision + 1, providers.revision),
-        }),
+        }, providerDefinitionsForStoredSettings(providers)),
       };
       writeSettings(app.getPath("userData"), nextSettings);
       currentSettings = nextSettings;
