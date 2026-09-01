@@ -581,6 +581,23 @@ fn parse_custom_definition_value(
     Ok(definition)
 }
 
+fn parse_stored_custom_definition_value(
+    mut value: serde_json::Value,
+) -> Result<HarnessDefinition, Vec<HarnessDiagnostic>> {
+    // HarnessDefinition's broad serde representation emits optional compiled
+    // fields as null when HarnessUserDocument is persisted. Null means
+    // "unassigned" here; a non-null binding still goes through the editable
+    // schema guard and is rejected.
+    if let Some(object) = value.as_object_mut() {
+        for field in ["integration", "sessionSignals"] {
+            if object.get(field).is_some_and(serde_json::Value::is_null) {
+                object.remove(field);
+            }
+        }
+    }
+    parse_custom_definition_value(value)
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct UserDocumentWire {
@@ -625,7 +642,7 @@ pub(crate) fn parse_stored_user_document(
     })?;
     let mut custom = Vec::with_capacity(wire.custom.len());
     for (index, value) in wire.custom.into_iter().enumerate() {
-        match parse_custom_definition_value(value) {
+        match parse_stored_custom_definition_value(value) {
             Ok(definition) => custom.push(definition),
             Err(diagnostics) => {
                 return Err(diagnostics

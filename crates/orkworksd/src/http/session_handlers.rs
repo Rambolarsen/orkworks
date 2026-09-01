@@ -38,6 +38,8 @@ pub(crate) struct ActiveSessionRequest {
 pub(crate) struct ActiveHarnessesRequest {
     #[serde(rename = "activeHarnessIds", default)]
     pub(crate) active_harness_ids: Vec<String>,
+    #[serde(rename = "expectedActiveHarnessRevision")]
+    pub(crate) expected_active_harness_revision: u64,
 }
 
 #[derive(Deserialize)]
@@ -96,6 +98,15 @@ pub(crate) struct WorkspaceResponse {
     pub(crate) last_active_session_id: Option<String>,
     #[serde(rename = "activeHarnessIds", skip_serializing_if = "Vec::is_empty")]
     pub(crate) active_harness_ids: Vec<String>,
+    #[serde(rename = "activeHarnessRevision")]
+    pub(crate) active_harness_revision: u64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ActiveHarnessesResponse {
+    pub(crate) active_harness_ids: Vec<String>,
+    pub(crate) active_harness_revision: u64,
 }
 
 #[derive(Serialize)]
@@ -186,6 +197,7 @@ pub(crate) async fn set_workspace(
             dirty: snapshot.dirty,
             last_active_session_id: snapshot.last_active_session_id,
             active_harness_ids: snapshot.active_harness_ids,
+            active_harness_revision: snapshot.active_harness_revision,
         })
         .into_response(),
         Err(crate::session_application::SessionError::BadRequest(message)) => {
@@ -213,10 +225,18 @@ pub(crate) async fn set_active_harnesses(
     State(state): State<Arc<AppState>>,
     Json(req): Json<ActiveHarnessesRequest>,
 ) -> impl IntoResponse {
-    match SessionApplication::new(state).set_active_harnesses(req.active_harness_ids) {
-        Ok(()) => axum::http::StatusCode::OK,
-        Err(crate::session_application::SessionError::Conflict) => axum::http::StatusCode::CONFLICT,
-        Err(_) => axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+    match SessionApplication::new(state)
+        .set_active_harnesses_at(req.active_harness_ids, req.expected_active_harness_revision)
+    {
+        Ok(memory) => Json(ActiveHarnessesResponse {
+            active_harness_ids: memory.active_harness_ids,
+            active_harness_revision: memory.active_harness_revision,
+        })
+        .into_response(),
+        Err(crate::session_application::SessionError::Conflict) => {
+            axum::http::StatusCode::CONFLICT.into_response()
+        }
+        Err(_) => axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
 }
 
@@ -6033,6 +6053,7 @@ mod tests {
             dirty: Some(false),
             last_active_session_id: Some("session-1".into()),
             active_harness_ids: vec![],
+            active_harness_revision: 0,
         };
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("\"path\":\"/tmp\""));
@@ -6051,6 +6072,7 @@ mod tests {
             dirty: None,
             last_active_session_id: None,
             active_harness_ids: vec![],
+            active_harness_revision: 0,
         };
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("\"path\":\"/tmp\""));

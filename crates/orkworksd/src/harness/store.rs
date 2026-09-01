@@ -9,6 +9,7 @@
 //! Task 4. They must land atomically with runtime/provider migration so this
 //! persistence core does not create an interim dual registry.
 
+use std::collections::BTreeMap;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -18,12 +19,46 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use super::definition::{
-    parse_strict_json, BuiltinDocument, HarnessDefinition, HarnessDiagnostic, HarnessPatch,
-    HarnessUserDocument, LaunchCapability, ModelCapability, PeonCapability, PeonPatch,
-    VoiceCapability, VoicePatch,
+    parse_strict_json, BuiltinDocument, DefinitionOrigin, HarnessDefinition, HarnessDiagnostic,
+    HarnessPatch, HarnessUserDocument, LaunchCapability, ModelCapability, PeonCapability,
+    PeonPatch, VoiceCapability, VoicePatch,
 };
 use super::integration::atomic_replace;
 use super::registry::{resolve_document, HarnessCatalog, ResolvedHarnessRegistry};
+
+/// Opaque SHA-256 revision of the exact persisted harness document bytes.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub(crate) struct HarnessDocumentRevision(String);
+
+impl HarnessDocumentRevision {
+    fn from_bytes(bytes: &[u8]) -> Self {
+        Self(hex::encode(hash_bytes(bytes)))
+    }
+}
+
+pub(crate) struct HarnessSnapshot {
+    pub registry: Arc<ResolvedHarnessRegistry>,
+    pub document_revision: Option<HarnessDocumentRevision>,
+    pub origins: BTreeMap<String, DefinitionOrigin>,
+    pub stored_patches: BTreeMap<String, HarnessPatch>,
+    pub compatibility_profiles: BTreeMap<String, super::compatibility::CompatibilityProfile>,
+}
+
+pub(crate) struct HarnessMutation {
+    pub registry: Arc<ResolvedHarnessRegistry>,
+    pub document_revision: HarnessDocumentRevision,
+    pub stored_patches: BTreeMap<String, HarnessPatch>,
+}
+
+impl std::fmt::Debug for HarnessMutation {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("HarnessMutation")
+            .field("document_revision", &self.document_revision)
+            .finish_non_exhaustive()
+    }
+}
 
 pub(crate) struct HarnessStore {
     path: PathBuf,
@@ -52,7 +87,9 @@ pub(crate) trait AtomicWriter: Send + Sync {
 pub(crate) enum HarnessStoreError {
     Io(std::io::Error),
     Parse(serde_json::Error),
-    RevisionChanged,
+    RevisionChanged {
+        current: Option<HarnessDocumentRevision>,
+    },
     Validation(Vec<HarnessDiagnostic>),
     Mutation(HarnessDiagnostic),
 }
@@ -131,8 +168,54 @@ impl HarnessStore {
     where
         F: FnOnce(&mut HarnessUserDocument) -> Result<(), HarnessDiagnostic>,
     {
+        let expected_revision = self.snapshot()?.document_revision;
+        self.mutate_at(catalog, expected_revision, change)
+            .map(|mutation| mutation.registry)
+    }
+
+    pub(crate) fn snapshot(&self) -> Result<HarnessSnapshot, HarnessStoreError> {
+        let loaded = self.load()?;
+        let compatibility_profiles = loaded.document.compatibility_profiles().clone();
+        let origins = loaded
+            .registry
+            .ids()
+            .filter_map(|id| {
+                loaded
+                    .registry
+                    .get(id)
+                    .map(|harness| (id.to_owned(), harness.origin))
+            })
+            .collect();
+        Ok(HarnessSnapshot {
+            registry: loaded.registry,
+            document_revision: loaded
+                .source_revision
+                .map(|revision| HarnessDocumentRevision(hex::encode(revision))),
+            origins,
+            stored_patches: loaded.document.overrides,
+            compatibility_profiles,
+        })
+    }
+
+    pub(crate) fn mutate_at<F>(
+        &self,
+        catalog: &HarnessCatalog,
+        expected_revision: Option<HarnessDocumentRevision>,
+        change: F,
+    ) -> Result<HarnessMutation, HarnessStoreError>
+    where
+        F: FnOnce(&mut HarnessUserDocument) -> Result<(), HarnessDiagnostic>,
+    {
         let _guard = self.write_lock.lock().expect("harness store lock poisoned");
         let loaded = self.load()?;
+        let current_revision = loaded
+            .source_revision
+            .map(|revision| HarnessDocumentRevision(hex::encode(revision)));
+        if expected_revision != current_revision {
+            return Err(HarnessStoreError::RevisionChanged {
+                current: current_revision,
+            });
+        }
         let mut document = loaded.document;
         change(&mut document).map_err(HarnessStoreError::Mutation)?;
         let registry = Arc::new(
@@ -141,10 +224,33 @@ impl HarnessStore {
                 .with_diagnostics(loaded.migration_diagnostics),
         );
         let serialized = serde_json::to_vec_pretty(&document)?;
-        self.writer
-            .replace_if_revision(&self.path, loaded.source_revision, &serialized)?;
+        if let Err(error) =
+            self.writer
+                .replace_if_revision(&self.path, loaded.source_revision, &serialized)
+        {
+            return match error {
+                HarnessStoreError::RevisionChanged { .. } => {
+                    Err(HarnessStoreError::RevisionChanged {
+                        current: self.current_revision()?,
+                    })
+                }
+                error => Err(error),
+            };
+        }
         *catalog.write().expect("harness catalog lock poisoned") = registry.clone();
-        Ok(registry)
+        Ok(HarnessMutation {
+            registry,
+            document_revision: HarnessDocumentRevision::from_bytes(&serialized),
+            stored_patches: document.overrides,
+        })
+    }
+
+    fn current_revision(&self) -> Result<Option<HarnessDocumentRevision>, HarnessStoreError> {
+        match fs::read(&self.path) {
+            Ok(bytes) => Ok(Some(HarnessDocumentRevision::from_bytes(&bytes))),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error.into()),
+        }
     }
 }
 
@@ -163,7 +269,9 @@ impl AtomicWriter for FileAtomicWriter {
             Err(error) => return Err(error.into()),
         };
         if actual != expected_revision {
-            return Err(HarnessStoreError::RevisionChanged);
+            return Err(HarnessStoreError::RevisionChanged {
+                current: actual.map(|revision| HarnessDocumentRevision(hex::encode(revision))),
+            });
         }
         let parent = target.parent().ok_or_else(|| {
             HarnessStoreError::Io(std::io::Error::new(
@@ -203,7 +311,9 @@ impl AtomicWriter for FileAtomicWriter {
         };
         if actual != expected_revision {
             let _ = fs::remove_file(&temporary);
-            return Err(HarnessStoreError::RevisionChanged);
+            return Err(HarnessStoreError::RevisionChanged {
+                current: actual.map(|revision| HarnessDocumentRevision(hex::encode(revision))),
+            });
         }
         match atomic_replace(&temporary, target, expected_revision.is_some()) {
             Ok(()) => Ok(()),
@@ -641,7 +751,7 @@ mod tests {
             contents: &[u8],
         ) -> Result<(), HarnessStoreError> {
             if self.fail.swap(false, Ordering::SeqCst) {
-                return Err(HarnessStoreError::RevisionChanged);
+                return Err(HarnessStoreError::RevisionChanged { current: None });
             }
             FileAtomicWriter.replace_if_revision(target, expected, contents)
         }
@@ -728,6 +838,69 @@ mod tests {
                 .and_then(|patch| patch.name.as_deref()),
             Some("Second")
         );
+    }
+
+    #[test]
+    fn mutate_at_rejects_a_stale_snapshot_without_overwriting_the_first_change() {
+        let fixture = StoreFixture::v2();
+        let first_snapshot = fixture.store.snapshot().unwrap();
+        let second_snapshot = fixture.store.snapshot().unwrap();
+
+        let first_mutation = fixture
+            .store
+            .mutate_at(
+                &fixture.catalog,
+                first_snapshot.document_revision.clone(),
+                |document| {
+                    document.overrides.entry("codex".into()).or_default().name =
+                        Some("First".into());
+                    Ok(())
+                },
+            )
+            .unwrap();
+        let stale_error = fixture
+            .store
+            .mutate_at(
+                &fixture.catalog,
+                second_snapshot.document_revision,
+                |document| {
+                    document.overrides.entry("codex".into()).or_default().name =
+                        Some("Stale".into());
+                    Ok(())
+                },
+            )
+            .expect_err("a stale revision must not replace the first change");
+
+        assert!(matches!(
+            stale_error,
+            HarnessStoreError::RevisionChanged { current: Some(current) } if current == first_mutation.document_revision
+        ));
+        assert_eq!(
+            fixture
+                .read_document()
+                .overrides
+                .get("codex")
+                .and_then(|patch| patch.name.as_deref()),
+            Some("First")
+        );
+    }
+
+    #[test]
+    fn mutate_at_persists_a_v2_document_as_version_three() {
+        let fixture = StoreFixture::v2();
+        fs::write(
+            &fixture.path,
+            br#"{"version":2,"overrides":{"codex":{"name":"Configured Codex"}},"custom":[]}"#,
+        )
+        .unwrap();
+        let revision = fixture.store.snapshot().unwrap().document_revision;
+
+        fixture
+            .store
+            .mutate_at(&fixture.catalog, revision, |_| Ok(()))
+            .unwrap();
+
+        assert_eq!(fixture.read_document().version, 3);
     }
 
     #[test]

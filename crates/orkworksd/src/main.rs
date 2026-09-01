@@ -36,7 +36,8 @@ use crate::harness::probe_cache::VersionProbeCache;
 use crate::harness::registry::HarnessCatalog;
 use crate::harness::store::{global_harnesses_path, HarnessStore};
 use crate::http::harness_handlers::{
-    create_harness, delete_harness, list_harnesses, update_harness,
+    create_harness, delete_harness, duplicate_harness, list_harnesses, remove_harness_profile,
+    update_harness,
 };
 use crate::http::integration_handlers::{
     get_integration_status, install_integration, uninstall_integration,
@@ -346,6 +347,11 @@ pub(crate) fn build_router(state: Arc<AppState>) -> Router {
             post(dismiss_recommendation),
         )
         .route("/harnesses", get(list_harnesses).post(create_harness))
+        .route("/harnesses/:source_id/duplicate", post(duplicate_harness))
+        .route(
+            "/harnesses/:id/remove-profile",
+            post(remove_harness_profile),
+        )
         .route("/harnesses/:id", put(update_harness).delete(delete_harness))
         .route("/sessions/:id/terminal", get(session_terminal_handler))
         .route("/sessions/:id/terminal-output", get(get_terminal_output))
@@ -912,9 +918,11 @@ mod tests {
         let state = test_app_state_with_workspace(dir.path());
         let (base_url, server) = test_server_base_url(state).await;
         let client = reqwest::Client::new();
+        let revision = serde_json::json!({"expectedRevision": null});
 
         let missing = client
             .delete(format!("{}/harnesses/not-a-real-harness", base_url))
+            .json(&revision)
             .send()
             .await
             .unwrap();
@@ -922,6 +930,7 @@ mod tests {
 
         let builtin = client
             .delete(format!("{}/harnesses/codex", base_url))
+            .json(&revision)
             .send()
             .await
             .unwrap();

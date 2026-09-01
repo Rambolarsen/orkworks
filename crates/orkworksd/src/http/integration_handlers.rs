@@ -766,7 +766,6 @@ mod tests {
     #[tokio::test]
     async fn harness_edit_forces_a_fresh_version_probe() {
         use crate::harness::definition::{HarnessPatch, VersionRequirement};
-        use crate::http::harness_handlers::UpdateHarnessRequest;
         use crate::test_support::{make_test_executable, FakeHome, FakePath};
         use std::fs;
 
@@ -813,6 +812,8 @@ mod tests {
             .await
             .into_response();
 
+        let expected_revision = state.harness_store.snapshot().unwrap().document_revision;
+
         let update_response = crate::http::harness_handlers::update_harness(
             State(state.clone()),
             AxumPath("copilot".into()),
@@ -821,7 +822,8 @@ mod tests {
                     "kind": "BuiltinPatch",
                     "patch": {
                         "minVersion": { "min": [0, 0, 2] }
-                    }
+                    },
+                    "expectedRevision": expected_revision
                 }))
                 .unwrap(),
             ),
