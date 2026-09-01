@@ -1,12 +1,50 @@
 import { contextBridge, ipcRenderer } from "electron";
 import { subscribeBackendLifecycle, type BackendLifecycleEvent } from "./backendLifecycleEvent";
 
+type IntegrationKey = {
+  adapterId: string;
+  targetId: string;
+};
+
+type IntegrationConsumer = {
+  harnessId: string;
+  harnessName: string;
+};
+
+type GroupedIntegrationStatus = {
+  key: IntegrationKey;
+  consumers: IntegrationConsumer[];
+  status: {
+    harnessId: string;
+    enabled: boolean;
+    toolDetected: boolean;
+    registration: "unsupported" | "absent" | "installed" | "drifted" | "error";
+    ownership: "none" | "ork_works" | "ambiguous";
+    activation: "active" | "needs_trust" | "disabled" | "unknown" | "not_applicable";
+    coverage: "full" | "limited" | "none";
+    diagnostics: Array<{ code: string; message: string; action?: string }>;
+    confirmation: {
+      toolName: string;
+      workspaceLabel: string;
+      coverageSummary: string;
+      relativePaths: string[];
+      executableCodeWarning: boolean;
+    } | null;
+  };
+};
+
+type GroupedIntegrationStatusResult =
+  | { ok: true; group: GroupedIntegrationStatus }
+  | { ok: false; error: string; code?: string };
+
 type ActiveHarnessSaveResult = {
   activeHarnesses: {
     outcome: "persisted" | "failed" | "stale_workspace";
     message?: string;
   };
   integrations: Record<string, {
+    key: IntegrationKey;
+    consumerHarnessIds: string[];
     operation: "install" | "repair" | "uninstall" | "skipped";
     outcome: "succeeded" | "failed" | "unsupported" | "stale_workspace";
     registration: "unsupported" | "absent" | "installed" | "drifted" | "error";
@@ -55,6 +93,8 @@ contextBridge.exposeInMainWorld("orkworks", {
     ipcRenderer.invoke("save-active-harnesses-with-integrations", ids),
   getHarnessIntegrationStatus: (harnessId: string): Promise<unknown> =>
     ipcRenderer.invoke("get-harness-integration-status", harnessId),
+  getGroupedHarnessIntegrationStatus: (adapterId: string, targetId: string): Promise<GroupedIntegrationStatusResult> =>
+    ipcRenderer.invoke("get-grouped-harness-integration-status", adapterId, targetId),
   setHarnessCommandOverride: (harnessId: string, commandPath: string): Promise<unknown> =>
     ipcRenderer.invoke("set-harness-command-override", harnessId, commandPath),
   clearHarnessCommandOverride: (harnessId: string): Promise<unknown> =>

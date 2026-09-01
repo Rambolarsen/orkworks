@@ -10,6 +10,7 @@ export interface BackendLifecycleWorkspace {
   dirty: boolean | null;
   lastActiveSessionId: string | null;
   activeHarnessIds: string[];
+  activeHarnessRevision: number;
 }
 
 function hasExactKeys(value: object, expected: readonly string[]): boolean {
@@ -26,6 +27,7 @@ function canonicalizeWorkspace(value: unknown): BackendLifecycleWorkspace | null
     "dirty",
     "lastActiveSessionId",
     "activeHarnessIds",
+    "activeHarnessRevision",
   ])) return null;
 
   const workspace = value as Record<string, unknown>;
@@ -36,6 +38,9 @@ function canonicalizeWorkspace(value: unknown): BackendLifecycleWorkspace | null
     && (typeof workspace.lastActiveSessionId === "string" || workspace.lastActiveSessionId === null)
     && Array.isArray(workspace.activeHarnessIds)
     && workspace.activeHarnessIds.every((id) => typeof id === "string")
+    && typeof workspace.activeHarnessRevision === "number"
+    && Number.isSafeInteger(workspace.activeHarnessRevision)
+    && workspace.activeHarnessRevision >= 0
     ? {
       path: workspace.path,
       repo_root: workspace.repo_root,
@@ -43,6 +48,7 @@ function canonicalizeWorkspace(value: unknown): BackendLifecycleWorkspace | null
       dirty: workspace.dirty,
       lastActiveSessionId: workspace.lastActiveSessionId,
       activeHarnessIds: [...workspace.activeHarnessIds],
+      activeHarnessRevision: workspace.activeHarnessRevision,
     }
     : null;
 }

@@ -123,7 +123,7 @@ test("SettingsModal mounts a per-harness command path control for command-templa
 
 test("SettingsModal keeps integration participation capability-derived without gating command-path controls on hook support", () => {
   const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
-  assert.match(source, /h\.integration !== null/);
+  assert.match(source, /integrationKeyForHarness/);
   assert.doesNotMatch(source, /h\.id === "codex"|h\.id === "aider"|h\.id === "claude-code"/);
   assert.doesNotMatch(source, /h\.integration !== null[\s\S]{0,160}<HarnessCommandPathControl/);
 });
@@ -137,7 +137,7 @@ test("HarnessDetectionStatus supports parent-triggered refresh and accessible st
 
 test("combined coding-tool saves can invalidate both header detection and the per-harness integration status map", () => {
   const settingsSource = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
-  assert.match(settingsSource, /Object\.keys\(result\.integrations\)/);
+  assert.match(settingsSource, /Object\.values\(result\.integrations\)/);
   assert.match(settingsSource, /setIntegrationStatusGeneration\(\(current\) => current \+ 1\)/);
 });
 
@@ -157,7 +157,7 @@ test("SettingsModal derives active coding tool toggle presentation from per-tool
   const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
 
   assert.match(source, /deriveIntegrationDisplayState/);
-  assert.match(source, /getHarnessIntegrationStatus/);
+  assert.match(source, /getGroupedHarnessIntegrationStatus/);
   assert.match(source, /statusDescription=/);
   assert.match(source, /statusGlyph=/);
   assert.match(source, /tooltip=/);
@@ -167,7 +167,7 @@ test("SettingsModal derives active coding tool toggle presentation from per-tool
 test("SettingsModal uses a stable integration status effect dependency instead of the integration harness array identity", () => {
   const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /const integrationHarnessStatusKey = toolHarnesses[\s\S]*?filter\(\(h\) => h\.integration !== null\)[\s\S]*?map\(\(h\) => h\.id\)[\s\S]*?join\("\\0"\)/);
+  assert.match(source, /const integrationHarnessStatusKey = toolHarnesses[\s\S]*?integrationKeyForHarness[\s\S]*?join\("\\0"\)/);
   assert.match(source, /\[\s*integrationHarnessStatusKey,\s*integrationStatusGeneration\s*\]/);
   assert.doesNotMatch(source, /\[\s*integrationHarnesses,\s*integrationStatusGeneration\s*\]/);
 });
@@ -248,4 +248,13 @@ test("preload and orkworksWindow keep the combined active-harness save contract 
 
   assert.equal(normalizeType(preloadType[0]), normalizeType(windowType[0]));
   assert.match(windowSource, /saveActiveHarnessesWithIntegrations: \(ids: string\[\]\) => Promise<ActiveHarnessSaveResult>/);
+});
+
+test("grouped integration status has an explicit preload and renderer contract", () => {
+  const preloadSource = readFileSync(new URL("../electron/preload.ts", import.meta.url), "utf8");
+  const rendererTypes = readFileSync(new URL("../src/orkworksWindow.d.ts", import.meta.url), "utf8");
+  assert.match(preloadSource, /getGroupedHarnessIntegrationStatus: \(adapterId: string, targetId: string\)/);
+  assert.match(preloadSource, /get-grouped-harness-integration-status/);
+  assert.match(rendererTypes, /getGroupedHarnessIntegrationStatus: \(adapterId: string, targetId: string\)/);
+  assert.match(rendererTypes, /export type GroupedIntegrationStatus/);
 });

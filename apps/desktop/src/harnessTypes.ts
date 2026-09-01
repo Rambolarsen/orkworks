@@ -61,6 +61,8 @@ export interface IntegrationStatus {
   coverage: IntegrationCoverage;
   diagnostics: IntegrationDiagnostic[];
   confirmation: IntegrationConfirmation | null;
+  /** Number of active harness rows currently consuming this shared adapter. */
+  activeConsumerCount?: number;
 }
 
 export type IntegrationStatusResult =

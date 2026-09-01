@@ -1,3 +1,15 @@
+export type HarnessOrigin = "builtin" | "override" | "custom";
+
+export interface IntegrationKey {
+  adapterId: string;
+  targetId: string;
+}
+
+export interface IntegrationConsumer {
+  harnessId: string;
+  harnessName: string;
+}
+
 export interface ElectronHarnessConfig {
   id: string;
   name: string;
@@ -5,7 +17,21 @@ export interface ElectronHarnessConfig {
   launch:
     | { kind: "command-template"; command: string; args: string[]; modelPrefix: string | null }
     | { kind: "platform-shell"; login: boolean };
+  defaultModel?: string | null;
+  resume?: unknown;
+  models?: unknown;
+  peon?: unknown;
+  capacity?: unknown;
+  sessionSignals?: unknown;
   integration: unknown;
+  voice?: unknown;
+  origin: HarnessOrigin;
+  profile?: string | null;
+}
+
+export interface HarnessSnapshot {
+  documentRevision: string | null;
+  harnesses: ElectronHarnessConfig[];
 }
 
 export type IntegrationRegistration = "unsupported" | "absent" | "installed" | "drifted" | "error";
@@ -39,11 +65,28 @@ export interface IntegrationStatus {
   confirmation: IntegrationConfirmation | null;
 }
 
+export interface GroupedIntegrationStatus {
+  key: IntegrationKey;
+  consumers: IntegrationConsumer[];
+  status: IntegrationStatus;
+}
+
 export type IntegrationStatusResult =
   | { ok: true; status: IntegrationStatus }
-  | { ok: false; error: string };
+  | { ok: false; error: string; code?: string };
+
+export type GroupedIntegrationStatusResult =
+  | { ok: true; group: GroupedIntegrationStatus }
+  | { ok: false; error: string; code?: string };
+
+export interface IntegrationRevisionExpectation {
+  expectedDocumentRevision: string | null;
+  expectedActiveHarnessRevision: number;
+}
 
 export interface ActiveHarnessIntegrationResult {
+  key: IntegrationKey;
+  consumerHarnessIds: string[];
   operation: "install" | "repair" | "uninstall" | "skipped";
   outcome: "succeeded" | "failed" | "unsupported" | "stale_workspace";
   registration: IntegrationRegistration;
@@ -64,22 +107,40 @@ export interface ActiveHarnessSaveResult {
 export interface WorkspaceGuardSnapshot {
   workspacePath: string | null;
   generation: number;
+  activeHarnessRevision: number;
 }
 
 export interface PlannedIntegrationMutation {
-  harnessId: string;
-  harnessName: string;
+  key: IntegrationKey;
+  consumerHarnessIds: string[];
+  consumerHarnessNames: string[];
   operation: ActiveHarnessIntegrationResult["operation"];
   confirmation: IntegrationConfirmation | null;
 }
 
 export interface ActiveHarnessIntegrationDeps {
   captureWorkspaceGuard(): WorkspaceGuardSnapshot;
-  persistActiveHarnesses(ids: string[]): Promise<{ ok: true } | { ok: false; error: string }>;
-  listHarnesses(): Promise<ElectronHarnessConfig[]>;
-  getIntegrationStatus(harnessId: string): Promise<IntegrationStatusResult>;
-  installIntegration(harnessId: string): Promise<IntegrationStatusResult>;
-  uninstallIntegration(harnessId: string): Promise<IntegrationStatusResult>;
+  persistActiveHarnesses(
+    ids: string[],
+    expectedActiveHarnessRevision: number,
+  ): Promise<
+    | { ok: true; activeHarnessRevision: number }
+    | { ok: false; error: string; code?: string }
+  >;
+  listHarnesses(): Promise<HarnessSnapshot>;
+  getGroupedIntegrationStatus(key: IntegrationKey): Promise<GroupedIntegrationStatusResult>;
+  installGroupedIntegration(
+    key: IntegrationKey,
+    expected: IntegrationRevisionExpectation,
+  ): Promise<GroupedIntegrationStatusResult>;
+  uninstallGroupedIntegration(
+    key: IntegrationKey,
+    expected: IntegrationRevisionExpectation,
+  ): Promise<GroupedIntegrationStatusResult>;
+  repairGroupedIntegration(
+    key: IntegrationKey,
+    expected: IntegrationRevisionExpectation,
+  ): Promise<GroupedIntegrationStatusResult>;
   /**
    * Electron-main confirmation, required by specs/orkworks-mvp.md before any
    * install/repair/uninstall mutation. Called at most once per save, with
@@ -88,6 +149,7 @@ export interface ActiveHarnessIntegrationDeps {
   confirmMutations(planned: PlannedIntegrationMutation[]): Promise<boolean>;
 }
 
+const WORKSPACE_TARGET_ID = "workspace";
 const STALE_WORKSPACE_MESSAGE = "Workspace changed while saving coding tools. Reload the current workspace and retry.";
 const STATUS_UNAVAILABLE_CODE = "status_unavailable";
 const MUTATION_FAILED_CODE = "mutation_failed";
@@ -101,11 +163,42 @@ interface PlannedMutation {
   mutate: boolean;
 }
 
+interface IntegrationGroup {
+  key: IntegrationKey;
+  consumers: IntegrationConsumer[];
+}
+
+export function integrationKeyId(key: IntegrationKey): string {
+  return `${key.adapterId}/${key.targetId}`;
+}
+
+function integrationKeyForHarness(harness: ElectronHarnessConfig): IntegrationKey | null {
+  if (!harness.integration || typeof harness.integration !== "object") return null;
+  const kind = (harness.integration as { kind?: unknown }).kind;
+  return typeof kind === "string" && kind.length > 0
+    ? { adapterId: kind, targetId: WORKSPACE_TARGET_ID }
+    : null;
+}
+
 function selectableHarnesses(harnesses: ElectronHarnessConfig[]): ElectronHarnessConfig[] {
   return harnesses.filter((harness) => !harness.retired);
 }
 
-function integrationResultFromStatus(
+function groupHarnesses(harnesses: ElectronHarnessConfig[]): IntegrationGroup[] {
+  const groups = new Map<string, IntegrationGroup>();
+  for (const harness of selectableHarnesses(harnesses)) {
+    const key = integrationKeyForHarness(harness);
+    if (!key) continue;
+    const id = integrationKeyId(key);
+    const group = groups.get(id) ?? { key, consumers: [] };
+    group.consumers.push({ harnessId: harness.id, harnessName: harness.name });
+    groups.set(id, group);
+  }
+  return [...groups.values()];
+}
+
+function resultForGroup(
+  group: IntegrationGroup,
   operation: ActiveHarnessIntegrationResult["operation"],
   outcome: ActiveHarnessIntegrationResult["outcome"],
   status: IntegrationStatus,
@@ -115,6 +208,8 @@ function integrationResultFromStatus(
   const diagnosticCode = overrides.diagnosticCode ?? firstDiagnostic?.code;
   const message = overrides.message ?? firstDiagnostic?.message;
   return {
+    key: group.key,
+    consumerHarnessIds: group.consumers.map((consumer) => consumer.harnessId),
     operation,
     outcome,
     registration: status.registration,
@@ -126,12 +221,15 @@ function integrationResultFromStatus(
 }
 
 function fallbackIntegrationResult(
+  group: IntegrationGroup,
   operation: ActiveHarnessIntegrationResult["operation"],
   outcome: ActiveHarnessIntegrationResult["outcome"],
   message: string,
   diagnosticCode: string,
 ): ActiveHarnessIntegrationResult {
   return {
+    key: group.key,
+    consumerHarnessIds: group.consumers.map((consumer) => consumer.harnessId),
     operation,
     outcome,
     registration: "error",
@@ -143,15 +241,16 @@ function fallbackIntegrationResult(
 }
 
 function failedMutationResult(
+  group: IntegrationGroup,
   operation: ActiveHarnessIntegrationResult["operation"],
-  statusResult: IntegrationStatusResult,
+  statusResult: GroupedIntegrationStatusResult,
   message: string,
   diagnosticCode = MUTATION_FAILED_CODE,
 ): ActiveHarnessIntegrationResult {
   if (!statusResult.ok) {
-    return fallbackIntegrationResult(operation, "failed", message, diagnosticCode);
+    return fallbackIntegrationResult(group, operation, "failed", message, diagnosticCode);
   }
-  return integrationResultFromStatus(operation, "failed", statusResult.status, {
+  return resultForGroup(group, operation, "failed", statusResult.group.status, {
     diagnosticCode,
     message,
   });
@@ -169,10 +268,10 @@ function shouldRepair(status: IntegrationStatus): boolean {
   );
 }
 
-function planMutation(enabled: boolean, statusResult: IntegrationStatusResult): PlannedMutation {
+function planMutation(enabled: boolean, statusResult: GroupedIntegrationStatusResult): PlannedMutation {
   if (!statusResult.ok) return { operation: "skipped", mutate: false };
 
-  const status = statusResult.status;
+  const status = statusResult.group.status;
   if (status.registration === "unsupported") return { operation: "skipped", mutate: false };
 
   if (enabled) {
@@ -193,25 +292,26 @@ function planMutation(enabled: boolean, statusResult: IntegrationStatusResult): 
 }
 
 function noMutationResult(
-  statusResult: IntegrationStatusResult,
+  group: IntegrationGroup,
+  statusResult: GroupedIntegrationStatusResult,
 ): ActiveHarnessIntegrationResult {
   if (!statusResult.ok) {
-    return fallbackIntegrationResult("skipped", "failed", statusResult.error, STATUS_UNAVAILABLE_CODE);
+    return fallbackIntegrationResult(group, "skipped", "failed", statusResult.error, STATUS_UNAVAILABLE_CODE);
   }
 
-  const status = statusResult.status;
+  const status = statusResult.group.status;
   if (status.registration === "unsupported") {
-    return integrationResultFromStatus("skipped", "unsupported", status);
+    return resultForGroup(group, "skipped", "unsupported", status);
   }
   if (status.ownership === "ambiguous") {
-    return integrationResultFromStatus("skipped", "failed", status, {
+    return resultForGroup(group, "skipped", "failed", status, {
       diagnosticCode: OWNERSHIP_AMBIGUOUS_CODE,
       message: status.diagnostics[0]?.message
         ?? "OrkWorks cannot safely change the existing integration in this workspace.",
     });
   }
 
-  return integrationResultFromStatus("skipped", "succeeded", status);
+  return resultForGroup(group, "skipped", "succeeded", status);
 }
 
 export function isStale(initial: WorkspaceGuardSnapshot, current: WorkspaceGuardSnapshot): boolean {
@@ -219,17 +319,18 @@ export function isStale(initial: WorkspaceGuardSnapshot, current: WorkspaceGuard
 }
 
 function staleWorkspaceResult(
-  harnessIds: readonly string[],
+  groups: readonly IntegrationGroup[],
   results: Record<string, ActiveHarnessIntegrationResult>,
   planned: ReadonlyMap<string, ActiveHarnessIntegrationResult["operation"]>,
   latestStatus: ReadonlyMap<string, IntegrationStatus>,
 ): ActiveHarnessSaveResult {
   const integrations: Record<string, ActiveHarnessIntegrationResult> = {};
 
-  for (const harnessId of harnessIds) {
-    const existing = results[harnessId];
+  for (const group of groups) {
+    const id = integrationKeyId(group.key);
+    const existing = results[id];
     if (existing) {
-      integrations[harnessId] = {
+      integrations[id] = {
         ...existing,
         outcome: "stale_workspace",
         diagnosticCode: STALE_WORKSPACE_CODE,
@@ -238,14 +339,14 @@ function staleWorkspaceResult(
       continue;
     }
 
-    const status = latestStatus.get(harnessId);
-    const operation = planned.get(harnessId) ?? "skipped";
-    integrations[harnessId] = status
-      ? integrationResultFromStatus(operation, "stale_workspace", status, {
+    const status = latestStatus.get(id);
+    const operation = planned.get(id) ?? "skipped";
+    integrations[id] = status
+      ? resultForGroup(group, operation, "stale_workspace", status, {
         diagnosticCode: STALE_WORKSPACE_CODE,
         message: STALE_WORKSPACE_MESSAGE,
       })
-      : fallbackIntegrationResult(operation, "stale_workspace", STALE_WORKSPACE_MESSAGE, STALE_WORKSPACE_CODE);
+      : fallbackIntegrationResult(group, operation, "stale_workspace", STALE_WORKSPACE_MESSAGE, STALE_WORKSPACE_CODE);
   }
 
   return {
@@ -257,13 +358,23 @@ function staleWorkspaceResult(
   };
 }
 
+function activeSelectionStaleResult(): ActiveHarnessSaveResult {
+  return {
+    activeHarnesses: {
+      outcome: "stale_workspace",
+      message: "The active coding tools changed while saving. Reload the current workspace and retry.",
+    },
+    integrations: {},
+  };
+}
+
 export async function saveActiveHarnessesWithIntegrations(
   ids: string[],
   deps: ActiveHarnessIntegrationDeps,
 ): Promise<ActiveHarnessSaveResult> {
   const initialGuard = deps.captureWorkspaceGuard();
   const activeIds = new Set(ids);
-  const persisted = await deps.persistActiveHarnesses(ids);
+  const persisted = await deps.persistActiveHarnesses(ids, initialGuard.activeHarnessRevision);
 
   if (isStale(initialGuard, deps.captureWorkspaceGuard())) {
     return {
@@ -276,83 +387,100 @@ export async function saveActiveHarnessesWithIntegrations(
   }
 
   if (!persisted.ok) {
+    return persisted.code === "active_harness_revision_changed"
+      ? activeSelectionStaleResult()
+      : {
+        activeHarnesses: {
+          outcome: "failed",
+          message: persisted.error,
+        },
+        integrations: {},
+      };
+  }
+
+  let snapshot: HarnessSnapshot;
+  try {
+    snapshot = await deps.listHarnesses();
+  } catch {
+    // The active selection is durable even when status reconciliation cannot
+    // begin. Keep the result explicit; the next Save can retry the groups.
     return {
-      activeHarnesses: {
-        outcome: "failed",
-        message: persisted.error,
-      },
+      activeHarnesses: { outcome: "persisted" },
       integrations: {},
     };
   }
 
-  let harnesses: ElectronHarnessConfig[];
-  try {
-    harnesses = selectableHarnesses(await deps.listHarnesses());
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Couldn't load coding tool definitions.";
-    const integrations: Record<string, ActiveHarnessIntegrationResult> = {};
-    for (const id of activeIds) {
-      integrations[id] = fallbackIntegrationResult("skipped", "failed", message, STATUS_UNAVAILABLE_CODE);
-    }
-    return {
-      activeHarnesses: { outcome: "persisted" },
-      integrations,
-    };
-  }
-  const harnessIds = harnesses.map((harness) => harness.id);
-
+  const groups = groupHarnesses(snapshot.harnesses);
   if (isStale(initialGuard, deps.captureWorkspaceGuard())) {
-    return staleWorkspaceResult(harnessIds, {}, new Map(), new Map());
+    return staleWorkspaceResult(groups, {}, new Map(), new Map());
   }
 
   const results: Record<string, ActiveHarnessIntegrationResult> = {};
   const latestStatus = new Map<string, IntegrationStatus>();
   const plannedOperations = new Map<string, ActiveHarnessIntegrationResult["operation"]>();
-  const statusByHarness = new Map<string, IntegrationStatusResult>();
-  const toMutate: { harness: ElectronHarnessConfig; operation: ActiveHarnessIntegrationResult["operation"] }[] = [];
+  const statusByGroup = new Map<string, GroupedIntegrationStatusResult>();
+  const toMutate: { group: IntegrationGroup; operation: ActiveHarnessIntegrationResult["operation"] }[] = [];
 
-  for (const harness of harnesses) {
-    const statusResult = await deps.getIntegrationStatus(harness.id);
-    if (statusResult.ok) latestStatus.set(harness.id, statusResult.status);
-    statusByHarness.set(harness.id, statusResult);
+  for (const group of groups) {
+    const id = integrationKeyId(group.key);
+    let statusResult: GroupedIntegrationStatusResult;
+    try {
+      statusResult = await deps.getGroupedIntegrationStatus(group.key);
+    } catch (error) {
+      statusResult = {
+        ok: false,
+        error: error instanceof Error ? error.message : "Couldn't read integration status.",
+      };
+    }
+    if (statusResult.ok) latestStatus.set(id, statusResult.group.status);
+    statusByGroup.set(id, statusResult);
 
-    const plan = planMutation(activeIds.has(harness.id), statusResult);
-    plannedOperations.set(harness.id, plan.operation);
+    const enabled = group.consumers.some((consumer) => activeIds.has(consumer.harnessId));
+    const plan = planMutation(enabled, statusResult);
+    plannedOperations.set(id, plan.operation);
 
     if (!plan.mutate) {
-      results[harness.id] = noMutationResult(statusResult);
+      results[id] = noMutationResult(group, statusResult);
       continue;
     }
 
     if (isStale(initialGuard, deps.captureWorkspaceGuard())) {
-      return staleWorkspaceResult(harnessIds, results, plannedOperations, latestStatus);
+      return staleWorkspaceResult(groups, results, plannedOperations, latestStatus);
     }
 
-    toMutate.push({ harness, operation: plan.operation });
+    toMutate.push({ group, operation: plan.operation });
   }
+
+  const expected: IntegrationRevisionExpectation = {
+    expectedDocumentRevision: snapshot.documentRevision,
+    expectedActiveHarnessRevision: persisted.activeHarnessRevision,
+  };
 
   if (toMutate.length > 0) {
     const confirmed = await deps.confirmMutations(
-      toMutate.map(({ harness, operation }) => {
-        const statusResult = statusByHarness.get(harness.id);
+      toMutate.map(({ group, operation }) => {
+        const statusResult = statusByGroup.get(integrationKeyId(group.key));
         return {
-          harnessId: harness.id,
-          harnessName: harness.name,
+          key: group.key,
+          consumerHarnessIds: group.consumers.map((consumer) => consumer.harnessId),
+          consumerHarnessNames: group.consumers.map((consumer) => consumer.harnessName),
           operation,
-          confirmation: statusResult?.ok ? statusResult.status.confirmation : null,
+          confirmation: statusResult?.ok ? statusResult.group.status.confirmation : null,
         };
       }),
     );
 
     if (isStale(initialGuard, deps.captureWorkspaceGuard())) {
-      return staleWorkspaceResult(harnessIds, results, plannedOperations, latestStatus);
+      return staleWorkspaceResult(groups, results, plannedOperations, latestStatus);
     }
 
     if (!confirmed) {
-      for (const { harness, operation } of toMutate) {
-        results[harness.id] = failedMutationResult(
+      for (const { group, operation } of toMutate) {
+        const id = integrationKeyId(group.key);
+        results[id] = failedMutationResult(
+          group,
           operation,
-          statusByHarness.get(harness.id)!,
+          statusByGroup.get(id)!,
           CONFIRMATION_DECLINED_MESSAGE,
           CONFIRMATION_DECLINED_CODE,
         );
@@ -363,35 +491,50 @@ export async function saveActiveHarnessesWithIntegrations(
       };
     }
 
-    for (const { harness, operation } of toMutate) {
+    for (const { group, operation } of toMutate) {
+      const id = integrationKeyId(group.key);
       if (isStale(initialGuard, deps.captureWorkspaceGuard())) {
-        return staleWorkspaceResult(harnessIds, results, plannedOperations, latestStatus);
+        return staleWorkspaceResult(groups, results, plannedOperations, latestStatus);
       }
 
-      const mutationResult = operation === "uninstall"
-        ? await deps.uninstallIntegration(harness.id)
-        : await deps.installIntegration(harness.id);
+      let mutationResult: GroupedIntegrationStatusResult;
+      try {
+        mutationResult = operation === "uninstall"
+          ? await deps.uninstallGroupedIntegration(group.key, expected)
+          : operation === "repair"
+            ? await deps.repairGroupedIntegration(group.key, expected)
+            : await deps.installGroupedIntegration(group.key, expected);
+      } catch (error) {
+        mutationResult = {
+          ok: false,
+          error: error instanceof Error ? error.message : "Couldn't update the integration.",
+        };
+      }
 
       if (isStale(initialGuard, deps.captureWorkspaceGuard())) {
-        return staleWorkspaceResult(harnessIds, results, plannedOperations, latestStatus);
+        return staleWorkspaceResult(groups, results, plannedOperations, latestStatus);
       }
 
       if (!mutationResult.ok) {
-        results[harness.id] = failedMutationResult(operation, statusByHarness.get(harness.id)!, mutationResult.error);
+        if (mutationResult.code === "integration_revision_changed") {
+          return staleWorkspaceResult(groups, results, plannedOperations, latestStatus);
+        }
+        results[id] = failedMutationResult(group, operation, statusByGroup.get(id)!, mutationResult.error);
         continue;
       }
 
-      latestStatus.set(harness.id, mutationResult.status);
-      results[harness.id] = integrationResultFromStatus(
+      latestStatus.set(id, mutationResult.group.status);
+      results[id] = resultForGroup(
+        group,
         operation,
-        mutationResult.status.registration === "unsupported" ? "unsupported" : "succeeded",
-        mutationResult.status,
+        mutationResult.group.status.registration === "unsupported" ? "unsupported" : "succeeded",
+        mutationResult.group.status,
       );
     }
   }
 
   if (isStale(initialGuard, deps.captureWorkspaceGuard())) {
-    return staleWorkspaceResult(harnessIds, results, plannedOperations, latestStatus);
+    return staleWorkspaceResult(groups, results, plannedOperations, latestStatus);
   }
 
   return {

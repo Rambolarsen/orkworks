@@ -118,12 +118,56 @@ export async function createSession(
   return resp.json();
 }
 
-export async function listHarnesses(baseUrl: string): Promise<HarnessConfig[]> {
+export interface HarnessConfigEntry extends HarnessConfig {
+  origin: "builtin" | "override" | "custom";
+  profile: string | null;
+  compatibility: {
+    profile: string | null;
+    sessionSignals: unknown;
+    integration: unknown;
+  };
+  storedOverride?: unknown;
+}
+
+export interface HarnessListResponse {
+  documentRevision: string | null;
+  harnesses: HarnessConfigEntry[];
+}
+
+export async function listHarnesses(baseUrl: string): Promise<HarnessListResponse> {
   const resp = await fetch(`${baseUrl}/harnesses`);
   if (!resp.ok) throw new Error(`list harnesses failed: ${resp.status}`);
-  const body = await resp.json();
+  const body = await resp.json() as {
+    documentRevision?: unknown;
+    harnesses?: Array<{
+      definition?: HarnessConfig;
+      origin?: HarnessConfigEntry["origin"];
+      storedOverride?: unknown;
+      compatibility?: HarnessConfigEntry["compatibility"];
+    }>;
+  };
   if (!Array.isArray(body?.harnesses)) throw new Error("list harnesses failed: malformed response");
-  return body.harnesses;
+  if (body.documentRevision !== null && typeof body.documentRevision !== "string" && body.documentRevision !== undefined) {
+    throw new Error("list harnesses failed: malformed revision");
+  }
+  const harnesses = body.harnesses.map((entry) => {
+    if (!entry.definition || !entry.origin || !entry.compatibility) {
+      throw new Error("list harnesses failed: malformed response");
+    }
+    return {
+      ...entry.definition,
+      origin: entry.origin,
+      profile: entry.compatibility.profile,
+      compatibility: entry.compatibility,
+      ...(entry.storedOverride === undefined ? {} : { storedOverride: entry.storedOverride }),
+      sessionSignals: entry.compatibility.sessionSignals ?? entry.definition.sessionSignals,
+      integration: entry.compatibility.integration ?? entry.definition.integration,
+    };
+  });
+  return {
+    documentRevision: body.documentRevision === undefined ? null : body.documentRevision,
+    harnesses,
+  };
 }
 
 export async function listSessions(
@@ -161,6 +205,7 @@ export interface WorkspaceInfo {
   dirty: boolean | null;
   lastActiveSessionId?: string | null;
   activeHarnessIds: string[];
+  activeHarnessRevision: number;
 }
 
 export async function setWorkspace(
@@ -266,13 +311,18 @@ export async function getProviders(baseUrl: string): Promise<ProviderRuntimeResp
   return resp.json();
 }
 
-export async function saveActiveHarnesses(baseUrl: string, activeHarnessIds: string[]): Promise<void> {
+export async function saveActiveHarnesses(
+  baseUrl: string,
+  activeHarnessIds: string[],
+  expectedActiveHarnessRevision: number,
+): Promise<{ activeHarnessIds: string[]; activeHarnessRevision: number }> {
   const resp = await fetch(`${baseUrl}/workspace/active-harnesses`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ activeHarnessIds }),
+    body: JSON.stringify({ activeHarnessIds, expectedActiveHarnessRevision }),
   });
   if (!resp.ok) throw new Error(`save active harnesses failed: ${resp.status}`);
+  return resp.json();
 }
 
 export type Impact = "low" | "medium" | "high";

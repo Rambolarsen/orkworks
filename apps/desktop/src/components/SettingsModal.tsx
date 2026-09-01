@@ -3,9 +3,10 @@ import { acceleratorFromKeyboardEvent } from "../hotkeyCapture";
 import type { AppSettings, DebugSettings, HotkeySettings, RetentionSettings } from "../appSettingsTypes";
 import type { ProviderId, ProviderSettings, PeonSelection, PeonAppliedState, PeonProviderVerificationResponse } from "../providerTypes";
 import type { ProviderRuntimeResponse } from "../api";
-import type { HarnessConfig, IntegrationStatusResult } from "../harnessTypes";
+import type { HarnessConfig, IntegrationStatus, IntegrationStatusResult } from "../harnessTypes";
 import {
   deriveIntegrationDisplayState,
+  type IntegrationKey,
   type ActiveHarnessIntegrationResult,
   type ActiveHarnessSaveResult,
   type IntegrationDisplayState,
@@ -53,6 +54,14 @@ const hotkeyRows: Array<{ action: HotkeyAction; label: string; optional?: boolea
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
+function integrationKeyForHarness(harness: HarnessConfig): IntegrationKey | null {
+  if (!harness.integration || typeof harness.integration !== "object") return null;
+  const kind = (harness.integration as { kind?: unknown }).kind;
+  return typeof kind === "string" && kind.length > 0
+    ? { adapterId: kind, targetId: "workspace" }
+    : null;
+}
+
 export default function SettingsModal({ initialSettings, harnesses, activeHarnessIds, onClose, onSaved, onSaveActiveHarnesses }: SettingsModalProps) {
   const modalRef = useRef<HTMLElement>(null);
   const savedSettingsRef = useRef<AppSettings>(clone(initialSettings));
@@ -61,8 +70,11 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
     .filter((h) => h.id !== "generic-shell")
     .sort((a, b) => a.name.localeCompare(b.name));
   const integrationHarnessStatusKey = toolHarnesses
-    .filter((h) => h.integration !== null)
-    .map((h) => h.id)
+    .map((h) => integrationKeyForHarness(h))
+    .filter((key): key is IntegrationKey => key !== null)
+    .map((key) => `${key.adapterId}/${key.targetId}`)
+    .filter(Boolean)
+    .filter((key, index, all) => all.indexOf(key) === index)
     .join("\0");
   const [activeSection, setActiveSection] = useState<SettingsSection>("tools");
   const [draft, setDraft] = useState<HotkeySettings>(initialSettings.hotkeys);
@@ -225,30 +237,52 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
     let cancelled = false;
     const lifecycleGeneration = modalLifecycleGeneration.current;
     const requestGeneration = ++integrationStatusRequestGeneration.current;
-    const integrationHarnessIds = integrationHarnessStatusKey === ""
+    const integrationGroupKeys = integrationHarnessStatusKey === ""
       ? []
       : integrationHarnessStatusKey.split("\0");
 
     async function loadIntegrationStatuses() {
-      if (integrationHarnessIds.length === 0) {
+      if (integrationGroupKeys.length === 0) {
         if (cancelled || requestGeneration !== integrationStatusRequestGeneration.current || lifecycleGeneration !== modalLifecycleGeneration.current) return;
         setIntegrationStatuses({});
         return;
       }
       const entries = await Promise.all(
-        integrationHarnessIds.map(async (harnessId) => {
+        integrationGroupKeys.map(async (groupKey) => {
+          const [adapterId, targetId] = groupKey.split("/");
           try {
-            return [harnessId, await window.orkworks.getHarnessIntegrationStatus(harnessId)] as const;
+            return [groupKey, await window.orkworks.getGroupedHarnessIntegrationStatus(adapterId, targetId)] as const;
           } catch (error) {
             return [
-              harnessId,
+              groupKey,
               { ok: false, error: error instanceof Error ? error.message : "Integration status unavailable." },
             ] as const;
           }
         }),
       );
       if (cancelled || requestGeneration !== integrationStatusRequestGeneration.current || lifecycleGeneration !== modalLifecycleGeneration.current) return;
-      setIntegrationStatuses(Object.fromEntries(entries));
+      const groupedStatuses = Object.fromEntries(entries);
+      const rowStatuses = Object.fromEntries(toolHarnesses
+        .map((harness) => [harness, integrationKeyForHarness(harness)] as const)
+        .filter((entry): entry is [HarnessConfig, IntegrationKey] => entry[1] !== null)
+        .map((harness) => {
+          const [harnessConfig, key] = harness;
+          const groupKey = `${key.adapterId}/${key.targetId}`;
+          const groupedStatus = groupedStatuses[groupKey] as {
+            ok: true;
+            group: { status: IntegrationStatus; consumers: Array<{ harnessId: string; harnessName: string }> };
+          } | { ok: false; error: string; code?: string } | undefined;
+          return [harnessConfig.id, groupedStatus?.ok
+            ? {
+              ok: true,
+              status: {
+                ...groupedStatus.group.status,
+                activeConsumerCount: groupedStatus.group.consumers.length,
+              },
+            }
+            : { ok: false, error: groupedStatus?.error ?? "Integration status unavailable." }] as const;
+        }));
+      setIntegrationStatuses(rowStatuses);
     }
 
     void loadIntegrationStatuses();
@@ -341,7 +375,9 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
       if (requestGeneration !== toolsSaveGeneration.current || lifecycleGeneration !== modalLifecycleGeneration.current) return;
       if (result.activeHarnesses.outcome === "persisted") {
         updateIntegrationFailures(result.integrations);
-        refreshDetections(Object.keys(result.integrations));
+        refreshDetections([
+          ...new Set(Object.values(result.integrations).flatMap((operation) => operation.consumerHarnessIds)),
+        ]);
         setActiveDraft(normalizedActiveDraft);
         return;
       }
@@ -576,6 +612,7 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
                                 coupled through refreshGeneration-driven
                                 reloads and the shared refreshDetection path. */}
                             <HarnessDetectionStatus harnessId={h.id}
+                              integrationKey={integrationKeyForHarness(h) ?? undefined}
                               refreshGeneration={detectionGenerations[h.id] ?? 0}
                             />
                           </div>

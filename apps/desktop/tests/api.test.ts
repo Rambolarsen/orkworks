@@ -200,6 +200,7 @@ test("WorkspaceInfo type has expected shape", () => {
     dirty: false,
     lastActiveSessionId: "session-1",
     activeHarnessIds: [],
+    activeHarnessRevision: 0,
   };
   assert.equal(ws.path, "/tmp/project");
   assert.equal(ws.branch, "main");
@@ -242,14 +243,25 @@ const V2_HARNESS_FIXTURE = {
   voice: null,
 };
 
-test("listHarnesses unwraps the {harnesses} envelope into an array", async () => {
+const HARNESS_ENTRY_FIXTURE = {
+  definition: V2_HARNESS_FIXTURE,
+  origin: "builtin",
+  compatibility: {
+    profile: null,
+    sessionSignals: null,
+    integration: null,
+  },
+};
+
+test("listHarnesses unwraps effective harness entries and preserves the revision", async () => {
   const origFetch = globalThis.fetch;
   globalThis.fetch = (_url: string | URL | Request, _init?: RequestInit) =>
-    Promise.resolve(new Response(JSON.stringify({ harnesses: [V2_HARNESS_FIXTURE] }), { status: 200 }));
+    Promise.resolve(new Response(JSON.stringify({ documentRevision: "doc-1", harnesses: [HARNESS_ENTRY_FIXTURE] }), { status: 200 }));
   try {
-    const harnesses = await listHarnesses("http://localhost:0");
-    assert.equal(Array.isArray(harnesses), true);
-    assert.equal(harnesses[0].id, "generic-shell");
+    const result = await listHarnesses("http://localhost:0");
+    assert.equal(result.documentRevision, "doc-1");
+    assert.equal(result.harnesses[0].id, "generic-shell");
+    assert.equal(result.harnesses[0].origin, "builtin");
   } finally {
     globalThis.fetch = origFetch;
   }
@@ -258,7 +270,7 @@ test("listHarnesses unwraps the {harnesses} envelope into an array", async () =>
 test("listHarnesses throws on a malformed envelope missing harnesses", async () => {
   const origFetch = globalThis.fetch;
   globalThis.fetch = (_url: string | URL | Request, _init?: RequestInit) =>
-    Promise.resolve(new Response(JSON.stringify({ notHarnesses: [] }), { status: 200 }));
+    Promise.resolve(new Response(JSON.stringify({ documentRevision: null, notHarnesses: [] }), { status: 200 }));
   try {
     await assert.rejects(() => listHarnesses("http://localhost:0"), /malformed response/);
   } finally {

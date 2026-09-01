@@ -2,38 +2,56 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  integrationKeyId,
   saveActiveHarnessesWithIntegrations,
   type ActiveHarnessIntegrationDeps,
   type ElectronHarnessConfig,
+  type GroupedIntegrationStatusResult,
+  type IntegrationKey,
   type IntegrationStatus,
-  type IntegrationStatusResult,
   type PlannedIntegrationMutation,
 } from "../electron/activeHarnessIntegration.ts";
 
-function harness(id: string): ElectronHarnessConfig {
+function harness(id: string, integration: string | null = "copilot"): ElectronHarnessConfig {
   return {
     id,
     name: id,
     retired: false,
     launch: { kind: "command-template", command: id, args: [], modelPrefix: null },
-    integration: null,
+    integration: integration ? { kind: integration } : null,
+    origin: "builtin",
   };
 }
 
-function status(overrides: Partial<IntegrationStatus> = {}): IntegrationStatusResult {
+function status(overrides: Partial<IntegrationStatus> = {}): IntegrationStatus {
+  return {
+    harnessId: "copilot",
+    enabled: true,
+    toolDetected: true,
+    registration: "installed",
+    ownership: "ork_works",
+    activation: "active",
+    coverage: "full",
+    diagnostics: [],
+    confirmation: null,
+    ...overrides,
+  };
+}
+
+function grouped(
+  key: IntegrationKey,
+  consumers: Array<{ harnessId: string; harnessName?: string }>,
+  overrides: Partial<IntegrationStatus> = {},
+): GroupedIntegrationStatusResult {
   return {
     ok: true,
-    status: {
-      harnessId: "codex",
-      enabled: true,
-      toolDetected: true,
-      registration: "installed",
-      ownership: "ork_works",
-      activation: "active",
-      coverage: "full",
-      diagnostics: [],
-      confirmation: null,
-      ...overrides,
+    group: {
+      key,
+      consumers: consumers.map((consumer) => ({
+        harnessId: consumer.harnessId,
+        harnessName: consumer.harnessName ?? consumer.harnessId,
+      })),
+      status: status({ harnessId: key.adapterId, ...overrides }),
     },
   };
 }
@@ -42,10 +60,11 @@ function createDeps(
   overrides: Partial<ActiveHarnessIntegrationDeps> = {},
 ): ActiveHarnessIntegrationDeps & {
   calls: string[];
-  setGuard: (next: { workspacePath: string | null; generation: number }) => void;
+  setGuard: (next: { workspacePath: string | null; generation: number; activeHarnessRevision: number }) => void;
 } {
   const calls: string[] = [];
-  let guard = { workspacePath: "/repo", generation: 1 };
+  let guard = { workspacePath: "/repo", generation: 1, activeHarnessRevision: 7 };
+  const defaultKey: IntegrationKey = { adapterId: "copilot", targetId: "workspace" };
 
   return {
     calls,
@@ -53,411 +72,72 @@ function createDeps(
       guard = next;
     },
     captureWorkspaceGuard: () => guard,
-    persistActiveHarnesses: async () => {
-      calls.push("persist");
-      return { ok: true };
+    persistActiveHarnesses: async (_ids, expectedActiveHarnessRevision) => {
+      calls.push(`persist:${expectedActiveHarnessRevision}`);
+      return { ok: true, activeHarnessRevision: expectedActiveHarnessRevision + 1 };
     },
     listHarnesses: async () => {
       calls.push("list");
-      return [];
+      return { documentRevision: "doc-1", harnesses: [] };
     },
-    getIntegrationStatus: async (harnessId) => {
-      calls.push(`status:${harnessId}`);
-      return status({ harnessId });
+    getGroupedIntegrationStatus: async (key) => {
+      calls.push(`status:${integrationKeyId(key)}`);
+      return grouped(key, []);
     },
-    installIntegration: async (harnessId) => {
-      calls.push(`install:${harnessId}`);
-      return status({ harnessId });
+    installGroupedIntegration: async (key, expected) => {
+      calls.push(`install:${integrationKeyId(key)}:${expected.expectedDocumentRevision}:${expected.expectedActiveHarnessRevision}`);
+      return grouped(key, []);
     },
-    uninstallIntegration: async (harnessId) => {
-      calls.push(`uninstall:${harnessId}`);
-      return status({
-        harnessId,
-        registration: "absent",
-        ownership: "none",
-        activation: "disabled",
-      });
+    repairGroupedIntegration: async (key, expected) => {
+      calls.push(`repair:${integrationKeyId(key)}:${expected.expectedDocumentRevision}:${expected.expectedActiveHarnessRevision}`);
+      return grouped(key, []);
+    },
+    uninstallGroupedIntegration: async (key, expected) => {
+      calls.push(`uninstall:${integrationKeyId(key)}:${expected.expectedDocumentRevision}:${expected.expectedActiveHarnessRevision}`);
+      return grouped(key, [], { registration: "absent", ownership: "none", activation: "disabled" });
     },
     confirmMutations: async () => true,
     ...overrides,
   };
 }
 
-test("active persistence failure prevents every integration mutation", async () => {
+test("active selection persistence sends and returns the active revision", async () => {
   const deps = createDeps({
-    persistActiveHarnesses: async () => {
-      deps.calls.push("persist");
-      return { ok: false, error: "disk full" };
-    },
-    listHarnesses: async () => {
-      deps.calls.push("list");
-      return [harness("claude-code")];
+    persistActiveHarnesses: async (_ids, revision) => {
+      deps.calls.push(`persist:${revision}`);
+      return { ok: true, activeHarnessRevision: 19 };
     },
   });
 
-  const result = await saveActiveHarnessesWithIntegrations(["claude-code"], deps);
+  const result = await saveActiveHarnessesWithIntegrations(["copilot"], deps);
 
-  assert.deepEqual(result, {
-    activeHarnesses: { outcome: "failed", message: "disk full" },
-    integrations: {},
-  });
-  assert.deepEqual(deps.calls, ["persist"]);
-});
-
-test("orchestrates per-tool install, repair, uninstall, unsupported skip, and isolated failures", async () => {
-  const deps = createDeps({
-    listHarnesses: async () => {
-      deps.calls.push("list");
-      return [
-        harness("claude-code"),
-        harness("codex"),
-        harness("copilot"),
-        harness("antigravity"),
-        harness("opencode"),
-        harness("generic-shell"),
-      ];
-    },
-    getIntegrationStatus: async (harnessId) => {
-      deps.calls.push(`status:${harnessId}`);
-      switch (harnessId) {
-        case "claude-code":
-          return status({
-            harnessId,
-            registration: "absent",
-            ownership: "none",
-            activation: "unknown",
-          });
-        case "codex":
-          return status({
-            harnessId,
-            registration: "installed",
-            activation: "active",
-            diagnostics: [{ code: "needs_repair", message: "Repair the hook." }],
-          });
-        case "copilot":
-          return status({
-            harnessId,
-            registration: "installed",
-            ownership: "ork_works",
-            activation: "disabled",
-          });
-        case "antigravity":
-          return status({
-            harnessId,
-            registration: "unsupported",
-            ownership: "none",
-            activation: "not_applicable",
-            coverage: "none",
-          });
-        case "opencode":
-          return status({
-            harnessId,
-            registration: "absent",
-            ownership: "none",
-            activation: "unknown",
-          });
-        case "generic-shell":
-          return status({
-            harnessId,
-            registration: "unsupported",
-            ownership: "none",
-            activation: "not_applicable",
-            coverage: "none",
-          });
-        default:
-          throw new Error(`unexpected harness ${harnessId}`);
-      }
-    },
-    installIntegration: async (harnessId) => {
-      deps.calls.push(`install:${harnessId}`);
-      if (harnessId === "claude-code") {
-        return status({ harnessId, registration: "installed", activation: "active" });
-      }
-      if (harnessId === "codex") {
-        return status({
-          harnessId,
-          registration: "installed",
-          activation: "needs_trust",
-          diagnostics: [{ code: "needs_trust", message: "Approve the hook in Codex." }],
-        });
-      }
-      return { ok: false, error: "permission denied" };
-    },
-    uninstallIntegration: async (harnessId) => {
-      deps.calls.push(`uninstall:${harnessId}`);
-      return status({
-        harnessId,
-        registration: "absent",
-        ownership: "none",
-        activation: "disabled",
-      });
-    },
-  });
-
-  const result = await saveActiveHarnessesWithIntegrations(
-    ["claude-code", "codex", "antigravity", "opencode"],
-    deps,
-  );
-
-  assert.deepEqual(deps.calls, [
-    "persist",
-    "list",
-    "status:claude-code",
-    "status:codex",
-    "status:copilot",
-    "status:antigravity",
-    "status:opencode",
-    "status:generic-shell",
-    "install:claude-code",
-    "install:codex",
-    "uninstall:copilot",
-    "install:opencode",
-  ]);
   assert.deepEqual(result.activeHarnesses, { outcome: "persisted" });
-  assert.deepEqual(result.integrations["claude-code"], {
-    operation: "install",
-    outcome: "succeeded",
-    registration: "installed",
-    activation: "active",
-    coverage: "full",
-  });
-  assert.deepEqual(result.integrations.codex, {
-    operation: "repair",
-    outcome: "succeeded",
-    registration: "installed",
-    activation: "needs_trust",
-    coverage: "full",
-    diagnosticCode: "needs_trust",
-    message: "Approve the hook in Codex.",
-  });
-  assert.deepEqual(result.integrations.copilot, {
-    operation: "uninstall",
-    outcome: "succeeded",
-    registration: "absent",
-    activation: "disabled",
-    coverage: "full",
-  });
-  assert.deepEqual(result.integrations.antigravity, {
-    operation: "skipped",
-    outcome: "unsupported",
-    registration: "unsupported",
-    activation: "not_applicable",
-    coverage: "none",
-  });
-  assert.deepEqual(result.integrations.opencode, {
-    operation: "install",
-    outcome: "failed",
-    registration: "absent",
-    activation: "unknown",
-    coverage: "full",
-    diagnosticCode: "mutation_failed",
-    message: "permission denied",
-  });
-  assert.deepEqual(result.integrations["generic-shell"], {
-    operation: "skipped",
-    outcome: "unsupported",
-    registration: "unsupported",
-    activation: "not_applicable",
-    coverage: "none",
-  });
+  assert.deepEqual(deps.calls, ["persist:7", "list"]);
 });
 
-test("workspace switches abort the batch and erase old-workspace successes", async () => {
-  const deps = createDeps({
-    listHarnesses: async () => {
-      deps.calls.push("list");
-      return [harness("claude-code"), harness("copilot")];
-    },
-    getIntegrationStatus: async (harnessId) => {
-      deps.calls.push(`status:${harnessId}`);
-      if (harnessId === "claude-code") {
-        return status({
-          harnessId,
-          registration: "absent",
-          ownership: "none",
-          activation: "unknown",
-        });
-      }
-      return status({
-        harnessId,
-        registration: "installed",
-        ownership: "ork_works",
-        activation: "disabled",
-      });
-    },
-    installIntegration: async (harnessId) => {
-      deps.calls.push(`install:${harnessId}`);
-      deps.setGuard({ workspacePath: "/other", generation: 2 });
-      return status({ harnessId, registration: "installed", activation: "active" });
-    },
-    uninstallIntegration: async (harnessId) => {
-      deps.calls.push(`uninstall:${harnessId}`);
-      return status({
-        harnessId,
-        registration: "absent",
-        ownership: "none",
-        activation: "disabled",
-      });
-    },
-  });
-
-  const result = await saveActiveHarnessesWithIntegrations(["claude-code"], deps);
-
-  assert.equal(result.activeHarnesses.outcome, "stale_workspace");
-  assert.equal(result.integrations["claude-code"]?.outcome, "stale_workspace");
-  assert.equal(result.integrations.copilot?.outcome, "stale_workspace");
-  assert.deepEqual(deps.calls, [
-    "persist",
-    "list",
-    "status:claude-code",
-    "status:copilot",
-    "install:claude-code",
-  ]);
-});
-
-test("retired Gemini is excluded from reconciliation and keeps its owned workspace entry untouched", async () => {
-  const deps = createDeps({
-    listHarnesses: async () => {
-      deps.calls.push("list");
-      return [
-        { ...harness("gemini"), retired: true },
-        harness("antigravity"),
-        harness("generic-shell"),
-      ];
-    },
-    getIntegrationStatus: async (harnessId) => {
-      deps.calls.push(`status:${harnessId}`);
-      if (harnessId === "gemini") throw new Error("retired Gemini must not be reconciled");
-      if (harnessId === "antigravity" || harnessId === "generic-shell") {
-        return status({
-          harnessId,
-          registration: "unsupported",
-          ownership: "none",
-          activation: "not_applicable",
-          coverage: "none",
-        });
-      }
-      throw new Error(`unexpected harness ${harnessId}`);
-    },
-    uninstallIntegration: async (harnessId) => {
-      deps.calls.push(`uninstall:${harnessId}`);
-      throw new Error(`unexpected uninstall:${harnessId}`);
-    },
-  });
-
-  const result = await saveActiveHarnessesWithIntegrations(["antigravity"], deps);
-
-  assert.deepEqual(deps.calls, [
-    "persist",
-    "list",
-    "status:antigravity",
-    "status:generic-shell",
-  ]);
-  assert.equal("gemini" in result.integrations, false);
-  assert.deepEqual(result.integrations.antigravity, {
-    operation: "skipped",
-    outcome: "unsupported",
-    registration: "unsupported",
-    activation: "not_applicable",
-    coverage: "none",
-  });
-  assert.deepEqual(result.integrations["generic-shell"], {
-    operation: "skipped",
-    outcome: "unsupported",
-    registration: "unsupported",
-    activation: "not_applicable",
-    coverage: "none",
-  });
-});
-
-test("an installed integration with only a version-mismatch diagnostic is not repaired", async () => {
-  const deps = createDeps({
-    listHarnesses: async () => {
-      deps.calls.push("list");
-      return [harness("opencode")];
-    },
-    getIntegrationStatus: async (harnessId) => {
-      deps.calls.push(`status:${harnessId}`);
-      return status({
-        harnessId,
-        registration: "installed",
-        ownership: "ork_works",
-        activation: "unknown",
-        diagnostics: [{ code: "unsupported_tool_version", message: "The detected OpenCode version is not eligible for this integration." }],
-      });
-    },
-    installIntegration: async (harnessId) => {
-      deps.calls.push(`install:${harnessId}`);
-      throw new Error(`unexpected install:${harnessId}`);
-    },
-    uninstallIntegration: async (harnessId) => {
-      deps.calls.push(`uninstall:${harnessId}`);
-      throw new Error(`unexpected uninstall:${harnessId}`);
-    },
-  });
-
-  const result = await saveActiveHarnessesWithIntegrations(["opencode"], deps);
-
-  assert.deepEqual(deps.calls, ["persist", "list", "status:opencode"]);
-  assert.deepEqual(result.integrations.opencode, {
-    operation: "skipped",
-    outcome: "succeeded",
-    registration: "installed",
-    activation: "unknown",
-    coverage: "full",
-    diagnosticCode: "unsupported_tool_version",
-    message: "The detected OpenCode version is not eligible for this integration.",
-  });
-});
-
-test("a harness-listing failure after a successful persist still reports persisted, not a rejected save", async () => {
-  const deps = createDeps({
-    listHarnesses: async () => {
-      deps.calls.push("list");
-      throw new Error("backend unreachable");
-    },
-  });
-
-  const result = await saveActiveHarnessesWithIntegrations(["claude-code", "codex"], deps);
-
-  assert.deepEqual(deps.calls, ["persist", "list"]);
-  assert.deepEqual(result.activeHarnesses, { outcome: "persisted" });
-  assert.equal(result.integrations["claude-code"]?.outcome, "failed");
-  assert.equal(result.integrations["claude-code"]?.diagnosticCode, "status_unavailable");
-  assert.equal(result.integrations.codex?.outcome, "failed");
-  assert.equal(result.integrations.codex?.diagnosticCode, "status_unavailable");
-});
-
-test("planned mutations are confirmed once, batched, before any install or uninstall runs", async () => {
+test("two Copilot-compatible consumers share one status read, confirmation, and install", async () => {
   const confirmations: PlannedIntegrationMutation[][] = [];
   const deps = createDeps({
     listHarnesses: async () => {
       deps.calls.push("list");
-      return [harness("claude-code"), harness("copilot")];
+      return {
+        documentRevision: "doc-42",
+        harnesses: [harness("copilot"), { ...harness("copilot-local"), origin: "custom" }],
+      };
     },
-    getIntegrationStatus: async (harnessId) => {
-      deps.calls.push(`status:${harnessId}`);
-      if (harnessId === "claude-code") {
-        return status({
-          harnessId,
-          registration: "absent",
-          ownership: "none",
-          activation: "unknown",
-          confirmation: {
-            toolName: "Claude Code",
-            workspaceLabel: "workspace",
-            coverageSummary: "full coverage",
-            relativePaths: [".claude/settings.json"],
-            executableCodeWarning: true,
-          },
-        });
-      }
-      return status({
-        harnessId,
-        registration: "installed",
-        ownership: "ork_works",
-        activation: "disabled",
-      });
+    getGroupedIntegrationStatus: async (key) => {
+      deps.calls.push(`status:${integrationKeyId(key)}`);
+      return grouped(key, [
+        { harnessId: "copilot", harnessName: "Copilot" },
+        { harnessId: "copilot-local", harnessName: "Copilot Local" },
+      ], { registration: "absent", ownership: "none", activation: "unknown" });
+    },
+    installGroupedIntegration: async (key, expected) => {
+      deps.calls.push(`install:${integrationKeyId(key)}:${expected.expectedDocumentRevision}:${expected.expectedActiveHarnessRevision}`);
+      return grouped(key, [
+        { harnessId: "copilot", harnessName: "Copilot" },
+        { harnessId: "copilot-local", harnessName: "Copilot Local" },
+      ]);
     },
     confirmMutations: async (planned) => {
       deps.calls.push("confirm");
@@ -466,207 +146,146 @@ test("planned mutations are confirmed once, batched, before any install or unins
     },
   });
 
-  const result = await saveActiveHarnessesWithIntegrations(["claude-code"], deps);
+  const result = await saveActiveHarnessesWithIntegrations(["copilot-local"], deps);
+  const key = "copilot/workspace";
 
   assert.deepEqual(deps.calls, [
-    "persist",
+    "persist:7",
     "list",
-    "status:claude-code",
-    "status:copilot",
+    "status:copilot/workspace",
     "confirm",
-    "install:claude-code",
-    "uninstall:copilot",
+    "install:copilot/workspace:doc-42:8",
   ]);
-  assert.equal(confirmations.length, 1);
-  assert.deepEqual(confirmations[0], [
-    {
-      harnessId: "claude-code",
-      harnessName: "claude-code",
-      operation: "install",
-      confirmation: {
-        toolName: "Claude Code",
-        workspaceLabel: "workspace",
-        coverageSummary: "full coverage",
-        relativePaths: [".claude/settings.json"],
-        executableCodeWarning: true,
-      },
-    },
-    {
-      harnessId: "copilot",
-      harnessName: "copilot",
-      operation: "uninstall",
-      confirmation: null,
-    },
-  ]);
-  assert.equal(result.activeHarnesses.outcome, "persisted");
-});
-
-test("declining the confirmation prompt persists active selection but skips every planned mutation", async () => {
-  const deps = createDeps({
-    listHarnesses: async () => {
-      deps.calls.push("list");
-      return [harness("claude-code")];
-    },
-    getIntegrationStatus: async (harnessId) => {
-      deps.calls.push(`status:${harnessId}`);
-      return status({
-        harnessId,
-        registration: "absent",
-        ownership: "none",
-        activation: "unknown",
-      });
-    },
-    installIntegration: async (harnessId) => {
-      deps.calls.push(`install:${harnessId}`);
-      throw new Error(`unexpected install:${harnessId}`);
-    },
-    confirmMutations: async () => {
-      deps.calls.push("confirm");
-      return false;
-    },
-  });
-
-  const result = await saveActiveHarnessesWithIntegrations(["claude-code"], deps);
-
-  assert.deepEqual(deps.calls, ["persist", "list", "status:claude-code", "confirm"]);
-  assert.equal(result.activeHarnesses.outcome, "persisted");
-  assert.deepEqual(result.integrations["claude-code"], {
+  assert.deepEqual(confirmations[0], [{
+    key: { adapterId: "copilot", targetId: "workspace" },
+    consumerHarnessIds: ["copilot", "copilot-local"],
+    consumerHarnessNames: ["copilot", "copilot-local"],
     operation: "install",
-    outcome: "failed",
-    registration: "absent",
-    activation: "unknown",
-    coverage: "full",
-    diagnosticCode: "confirmation_declined",
-    message: "Declined the confirmation prompt.",
-  });
-});
-
-test("no confirmation prompt is shown when nothing needs to mutate", async () => {
-  const deps = createDeps({
-    listHarnesses: async () => {
-      deps.calls.push("list");
-      return [harness("claude-code")];
-    },
-    getIntegrationStatus: async (harnessId) => {
-      deps.calls.push(`status:${harnessId}`);
-      return status({ harnessId, registration: "installed", ownership: "ork_works", activation: "active" });
-    },
-    confirmMutations: async () => {
-      deps.calls.push("confirm");
-      return true;
-    },
-  });
-
-  await saveActiveHarnessesWithIntegrations(["claude-code"], deps);
-
-  assert.deepEqual(deps.calls, ["persist", "list", "status:claude-code"]);
-});
-
-test("a workspace switch while the confirmation prompt is open aborts every planned mutation", async () => {
-  const deps = createDeps({
-    listHarnesses: async () => {
-      deps.calls.push("list");
-      return [harness("claude-code")];
-    },
-    getIntegrationStatus: async (harnessId) => {
-      deps.calls.push(`status:${harnessId}`);
-      return status({
-        harnessId,
-        registration: "absent",
-        ownership: "none",
-        activation: "unknown",
-      });
-    },
-    installIntegration: async (harnessId) => {
-      deps.calls.push(`install:${harnessId}`);
-      throw new Error(`unexpected install:${harnessId}`);
-    },
-    confirmMutations: async () => {
-      deps.calls.push("confirm");
-      deps.setGuard({ workspacePath: "/other", generation: 2 });
-      return true;
-    },
-  });
-
-  const result = await saveActiveHarnessesWithIntegrations(["claude-code"], deps);
-
-  assert.deepEqual(deps.calls, ["persist", "list", "status:claude-code", "confirm"]);
-  assert.equal(result.activeHarnesses.outcome, "stale_workspace");
-  assert.equal(result.integrations["claude-code"]?.outcome, "stale_workspace");
-});
-
-test("ambiguous ownership returns structured failure without mutating either enable or disable flows", async () => {
-  const deps = createDeps({
-    listHarnesses: async () => {
-      deps.calls.push("list");
-      return [harness("claude-code"), harness("copilot"), harness("generic-shell")];
-    },
-    getIntegrationStatus: async (harnessId) => {
-      deps.calls.push(`status:${harnessId}`);
-      if (harnessId === "claude-code") {
-        return status({
-          harnessId,
-          registration: "installed",
-          ownership: "ambiguous",
-          activation: "active",
-          diagnostics: [{ code: "ownership_unclear", message: "Resolve the existing hook manually." }],
-        });
-      }
-      if (harnessId === "copilot") {
-        return status({
-          harnessId,
-          registration: "installed",
-          ownership: "ambiguous",
-          activation: "disabled",
-          diagnostics: [{ code: "ownership_unclear", message: "Resolve the existing hook manually." }],
-        });
-      }
-      if (harnessId === "generic-shell") {
-        return status({
-          harnessId,
-          registration: "unsupported",
-          ownership: "none",
-          activation: "not_applicable",
-          coverage: "none",
-        });
-      }
-      throw new Error(`unexpected harness ${harnessId}`);
-    },
-    installIntegration: async (harnessId) => {
-      deps.calls.push(`install:${harnessId}`);
-      throw new Error(`unexpected install:${harnessId}`);
-    },
-    uninstallIntegration: async (harnessId) => {
-      deps.calls.push(`uninstall:${harnessId}`);
-      throw new Error(`unexpected uninstall:${harnessId}`);
-    },
-  });
-
-  const result = await saveActiveHarnessesWithIntegrations(["claude-code"], deps);
-
-  assert.deepEqual(deps.calls, [
-    "persist",
-    "list",
-    "status:claude-code",
-    "status:copilot",
-    "status:generic-shell",
-  ]);
-  assert.deepEqual(result.integrations["claude-code"], {
-    operation: "skipped",
-    outcome: "failed",
+    confirmation: null,
+  }]);
+  assert.deepEqual(result.integrations[key], {
+    key: { adapterId: "copilot", targetId: "workspace" },
+    consumerHarnessIds: ["copilot", "copilot-local"],
+    operation: "install",
+    outcome: "succeeded",
     registration: "installed",
     activation: "active",
     coverage: "full",
-    diagnosticCode: "ownership_ambiguous",
-    message: "Resolve the existing hook manually.",
   });
-  assert.deepEqual(result.integrations.copilot, {
-    operation: "skipped",
-    outcome: "failed",
-    registration: "installed",
-    activation: "disabled",
-    coverage: "full",
-    diagnosticCode: "ownership_ambiguous",
-    message: "Resolve the existing hook manually.",
+});
+
+test("disabling one shared consumer does not uninstall the adapter, but disabling both does", async () => {
+  let activeIds = ["copilot"];
+  const deps = createDeps({
+    listHarnesses: async () => ({
+      documentRevision: "doc-1",
+      harnesses: [harness("copilot"), { ...harness("copilot-local"), origin: "custom" }],
+    }),
+    getGroupedIntegrationStatus: async (key) => grouped(key, [
+      { harnessId: "copilot", harnessName: "Copilot" },
+      { harnessId: "copilot-local", harnessName: "Copilot Local" },
+    ]),
+    uninstallGroupedIntegration: async (key, expected) => {
+      deps.calls.push(`uninstall:${integrationKeyId(key)}:${expected.expectedActiveHarnessRevision}`);
+      return grouped(key, [], { registration: "absent", ownership: "none", activation: "disabled" });
+    },
   });
+
+  await saveActiveHarnessesWithIntegrations(activeIds, deps);
+  assert.equal(deps.calls.includes("uninstall:copilot/workspace:8"), false);
+
+  deps.calls.length = 0;
+  activeIds = [];
+  await saveActiveHarnessesWithIntegrations(activeIds, deps);
+  assert.equal(deps.calls.includes("uninstall:copilot/workspace:8"), true);
+  assert.equal(deps.calls.filter((call) => call.startsWith("uninstall:")).length, 1);
+});
+
+test("a failed grouped mutation is isolated and reports all consumers", async () => {
+  const deps = createDeps({
+    listHarnesses: async () => ({
+      documentRevision: "doc-1",
+      harnesses: [harness("copilot"), harness("codex", "codex")],
+    }),
+    getGroupedIntegrationStatus: async (key) => grouped(key, [{ harnessId: key.adapterId, harnessName: key.adapterId }], {
+      registration: "absent",
+      ownership: "none",
+      activation: "unknown",
+    }),
+    installGroupedIntegration: async (key) => {
+      deps.calls.push(`install:${integrationKeyId(key)}`);
+      return key.adapterId === "copilot"
+        ? grouped(key, [{ harnessId: "copilot", harnessName: "copilot" }])
+        : { ok: false, error: "permission denied" };
+    },
+  });
+
+  const result = await saveActiveHarnessesWithIntegrations(["copilot", "codex"], deps);
+
+  assert.equal(result.activeHarnesses.outcome, "persisted");
+  assert.equal(result.integrations["copilot/workspace"]?.outcome, "succeeded");
+  assert.equal(result.integrations["codex/workspace"]?.outcome, "failed");
+  assert.equal(result.integrations["codex/workspace"]?.message, "permission denied");
+});
+
+test("a workspace switch while mutation is in flight marks every grouped result stale", async () => {
+  const deps = createDeps({
+    listHarnesses: async () => ({
+      documentRevision: "doc-1",
+      harnesses: [harness("copilot"), { ...harness("copilot-local"), origin: "custom" }],
+    }),
+    getGroupedIntegrationStatus: async (key) => grouped(key, [
+      { harnessId: "copilot", harnessName: "Copilot" },
+      { harnessId: "copilot-local", harnessName: "Copilot Local" },
+    ], { registration: "absent", ownership: "none", activation: "unknown" }),
+    installGroupedIntegration: async (key) => {
+      deps.calls.push(`install:${integrationKeyId(key)}`);
+      deps.setGuard({ workspacePath: "/other", generation: 2, activeHarnessRevision: 1 });
+      return grouped(key, [
+        { harnessId: "copilot", harnessName: "Copilot" },
+        { harnessId: "copilot-local", harnessName: "Copilot Local" },
+      ]);
+    },
+  });
+
+  const result = await saveActiveHarnessesWithIntegrations(["copilot-local"], deps);
+
+  assert.equal(result.activeHarnesses.outcome, "stale_workspace");
+  assert.equal(result.integrations["copilot/workspace"]?.outcome, "stale_workspace");
+  assert.deepEqual(result.integrations["copilot/workspace"]?.consumerHarnessIds, ["copilot", "copilot-local"]);
+});
+
+test("stale active-selection revision prevents listing or integration mutation", async () => {
+  const deps = createDeps({
+    persistActiveHarnesses: async (_ids, revision) => {
+      deps.calls.push(`persist:${revision}`);
+      return { ok: false, code: "active_harness_revision_changed", error: "selection changed" };
+    },
+  });
+
+  const result = await saveActiveHarnessesWithIntegrations(["copilot"], deps);
+
+  assert.equal(result.activeHarnesses.outcome, "stale_workspace");
+  assert.deepEqual(deps.calls, ["persist:7"]);
+});
+
+test("unsupported grouped integrations remain visible without prompting", async () => {
+  const deps = createDeps({
+    listHarnesses: async () => ({ documentRevision: null, harnesses: [harness("generic", "generic")] }),
+    getGroupedIntegrationStatus: async (key) => grouped(key, [{ harnessId: "generic", harnessName: "Generic" }], {
+      registration: "unsupported",
+      ownership: "none",
+      activation: "not_applicable",
+      coverage: "none",
+    }),
+    confirmMutations: async () => {
+      deps.calls.push("confirm");
+      return true;
+    },
+  });
+
+  const result = await saveActiveHarnessesWithIntegrations(["generic"], deps);
+
+  assert.equal(result.integrations["generic/workspace"]?.outcome, "unsupported");
+  assert.equal(deps.calls.includes("confirm"), false);
 });
