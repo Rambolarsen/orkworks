@@ -10,6 +10,7 @@ use axum::extract::{Path, State};
 use axum::response::IntoResponse;
 use axum::{http::StatusCode, Json};
 use serde::Serialize;
+use std::collections::HashSet;
 use std::sync::Arc;
 
 #[derive(Debug)]
@@ -77,7 +78,6 @@ struct CompatibilityResponse {
 struct HarnessErrorResponse {
     error: String,
     diagnostics: Vec<HarnessDiagnostic>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     document_revision: Option<HarnessDocumentRevision>,
 }
 
@@ -163,9 +163,21 @@ pub(crate) async fn update_harness(
         Ok(snapshot) => snapshot,
         Err(error) => return store_error(error),
     };
-    if snapshot.registry.get(&id).is_none() {
-        return not_found(&id);
-    }
+    let builtin_ids: HashSet<String> = snapshot
+        .origins
+        .iter()
+        .filter(|(_, origin)| {
+            matches!(
+                origin,
+                DefinitionOrigin::Builtin | DefinitionOrigin::Override
+            )
+        })
+        .map(|(id, _)| id.clone())
+        .collect();
+    let target_id = snapshot
+        .registry
+        .get(&id)
+        .map(|harness| harness.definition.id.clone());
     let request = match parse_update_request(&body) {
         Ok(request) => request,
         Err(diagnostics) => return store_error(HarnessStoreError::Validation(diagnostics)),
@@ -174,23 +186,27 @@ pub(crate) async fn update_harness(
     let catalog = state.harness_catalog.clone();
     let requested_id = id.clone();
     let result = tokio::task::spawn_blocking(move || {
-        store.mutate_at(
-            &catalog,
-            request.expected_revision,
-            |document| match request.change {
+        store.mutate_at(&catalog, request.expected_revision, |document| {
+            let target_id = target_id.as_deref().unwrap_or(requested_id.as_str());
+            let is_custom = document.custom.iter().any(|custom| custom.id == target_id);
+            let is_builtin = builtin_ids.contains(target_id);
+            match request.change {
                 UpdateHarnessChange::BuiltinPatch { patch } => {
-                    if document
-                        .custom
-                        .iter()
-                        .any(|custom| custom.id == requested_id)
-                    {
+                    if !is_custom && !is_builtin {
+                        return Err(HarnessDiagnostic::for_id(
+                            &requested_id,
+                            "harness_not_found",
+                            "Harness was not found.",
+                        ));
+                    }
+                    if is_custom {
                         return Err(HarnessDiagnostic::for_id(
                             &requested_id,
                             "custom_requires_replacement",
                             "Custom harnesses require a complete replacement.",
                         ));
                     }
-                    document.overrides.insert(requested_id.clone(), patch);
+                    document.overrides.insert(target_id.to_owned(), patch);
                     Ok(())
                 }
                 UpdateHarnessChange::CustomReplace { mut definition } => {
@@ -204,20 +220,28 @@ pub(crate) async fn update_harness(
                     let Some(position) = document
                         .custom
                         .iter()
-                        .position(|custom| custom.id == requested_id)
+                        .position(|custom| custom.id == target_id)
                     else {
                         return Err(HarnessDiagnostic::for_id(
                             &requested_id,
-                            "custom_not_found",
-                            "Custom harness was not found.",
+                            if is_builtin {
+                                "custom_not_found"
+                            } else {
+                                "harness_not_found"
+                            },
+                            if is_builtin {
+                                "Custom harness was not found."
+                            } else {
+                                "Harness was not found."
+                            },
                         ));
                     };
                     definition.id = requested_id.clone();
                     document.custom[position] = definition;
                     Ok(())
                 }
-            },
-        )
+            }
+        })
     })
     .await;
     match result {
@@ -256,42 +280,59 @@ async fn delete_harness_at(
         Ok(snapshot) => snapshot,
         Err(error) => return store_error(error),
     };
-    if snapshot.registry.get(&id).is_none() {
-        return not_found(&id);
-    }
-
-    if state
+    let builtin_ids: HashSet<String> = snapshot
+        .origins
+        .iter()
+        .filter(|(_, origin)| {
+            matches!(
+                origin,
+                DefinitionOrigin::Builtin | DefinitionOrigin::Override
+            )
+        })
+        .map(|(id, _)| id.clone())
+        .collect();
+    let target_id = snapshot
+        .registry
+        .get(&id)
+        .map(|harness| harness.definition.id.clone());
+    let active_harness_ids = state
         .workspace
         .lock()
         .expect("workspace lock poisoned")
         .as_ref()
-        .is_some_and(|workspace| {
-            workspace
-                .metadata
-                .read_workspace_memory()
-                .is_some_and(|memory| {
-                    memory
-                        .active_harness_ids
-                        .iter()
-                        .any(|active_id| active_id == &id)
-                })
-        })
-    {
-        return store_error(HarnessStoreError::Mutation(HarnessDiagnostic::for_id(
-            &id,
-            "active_harness_delete_forbidden",
-            "Disable this coding tool in the current workspace before deleting it.",
-        )));
-    }
+        .and_then(|workspace| workspace.metadata.read_workspace_memory())
+        .map(|memory| memory.active_harness_ids)
+        .unwrap_or_default();
+
     let store = state.harness_store.clone();
     let catalog = state.harness_catalog.clone();
     let requested_id = id.clone();
     let result = tokio::task::spawn_blocking(move || {
         store.mutate_at(&catalog, expected_revision, |document| {
-            if document.remove_custom_definition(&requested_id) {
+            let target_id = target_id.as_deref().unwrap_or(requested_id.as_str());
+            let is_custom = document.custom.iter().any(|custom| custom.id == target_id);
+            let is_builtin = builtin_ids.contains(target_id);
+            if !is_custom && !is_builtin {
+                return Err(HarnessDiagnostic::for_id(
+                    &requested_id,
+                    "harness_not_found",
+                    "Harness was not found.",
+                ));
+            }
+            if active_harness_ids
+                .iter()
+                .any(|active_id| active_id == target_id || active_id == &requested_id)
+            {
+                return Err(HarnessDiagnostic::for_id(
+                    &requested_id,
+                    "active_harness_delete_forbidden",
+                    "Disable this coding tool in the current workspace before deleting it.",
+                ));
+            }
+            if is_custom && document.remove_custom_definition(target_id) {
                 return Ok(());
             }
-            if document.overrides.remove(&requested_id).is_some() {
+            if document.overrides.remove(target_id).is_some() {
                 return Ok(());
             }
             Err(HarnessDiagnostic::for_id(
@@ -508,7 +549,7 @@ fn parse_create_request(bytes: &[u8]) -> Result<CreateHarnessRequest, Vec<Harnes
         &["definition", "expectedRevision", "duplicateSourceId"],
     )?;
     let definition = parse_request_definition(&object, "definition")?;
-    let expected_revision = parse_optional_revision(&object)?;
+    let expected_revision = parse_required_revision(&object)?;
     let duplicate_source_id = match object.get("duplicateSourceId") {
         Some(serde_json::Value::String(id)) => Some(id.clone()),
         Some(serde_json::Value::Null) | None => None,
@@ -532,7 +573,7 @@ fn parse_expected_revision(
 ) -> Result<Option<HarnessDocumentRevision>, Vec<HarnessDiagnostic>> {
     let object = strict_request_object(bytes, "Harness revision request")?;
     reject_unknown_fields(&object, &["expectedRevision"])?;
-    parse_optional_revision(&object)
+    parse_required_revision(&object)
 }
 
 fn not_found(id: &str) -> axum::response::Response {
@@ -554,6 +595,9 @@ fn not_found(id: &str) -> axum::response::Response {
 fn store_error(error: HarnessStoreError) -> axum::response::Response {
     let (status, diagnostics, document_revision) = match error {
         HarnessStoreError::Validation(diagnostics) => (StatusCode::BAD_REQUEST, diagnostics, None),
+        HarnessStoreError::Mutation(diagnostic) if diagnostic.code == "harness_not_found" => {
+            (StatusCode::NOT_FOUND, vec![diagnostic], None)
+        }
         HarnessStoreError::Mutation(diagnostic) => (StatusCode::CONFLICT, vec![diagnostic], None),
         HarnessStoreError::RevisionChanged { current } => (
             StatusCode::CONFLICT,
@@ -624,7 +668,7 @@ fn parse_update_request(bytes: &[u8]) -> Result<UpdateHarnessRequest, Vec<Harnes
         }
     };
     reject_unknown_fields(&object, allowed)?;
-    let expected_revision = parse_optional_revision(&object)?;
+    let expected_revision = parse_required_revision(&object)?;
     match kind {
         "BuiltinPatch" => {
             let patch = object.get("patch").cloned().ok_or_else(|| {
@@ -723,6 +767,19 @@ fn parse_optional_revision(
         }),
         None => Ok(None),
     }
+}
+
+fn parse_required_revision(
+    object: &serde_json::Map<String, serde_json::Value>,
+) -> Result<Option<HarnessDocumentRevision>, Vec<HarnessDiagnostic>> {
+    if !object.contains_key("expectedRevision") {
+        return Err(vec![HarnessDiagnostic::document(
+            "missing_field",
+            "Harness mutation requires expectedRevision.",
+            Some("$.expectedRevision"),
+        )]);
+    }
+    parse_optional_revision(object)
 }
 
 fn internal_error(message: &str) -> axum::response::Response {
@@ -970,6 +1027,23 @@ mod tests {
             .providers
             .iter()
             .any(|provider| provider.id == "copilot-local"));
+
+        let stale_delete = delete_harness(
+            State(state.clone()),
+            Path("copilot-local".into()),
+            Bytes::from(
+                serde_json::json!({ "expectedRevision": created["documentRevision"] }).to_string(),
+            ),
+        )
+        .await
+        .into_response();
+        let stale_delete_status = stale_delete.status();
+        let stale_delete = json_body(stale_delete).await;
+        assert_eq!(stale_delete_status, StatusCode::CONFLICT, "{stale_delete}");
+        assert_eq!(
+            stale_delete["diagnostics"][0]["code"],
+            "harness_config_revision_changed"
+        );
     }
 
     #[test]
@@ -983,7 +1057,7 @@ mod tests {
     #[test]
     fn update_parser_uses_the_restricted_custom_schema() {
         let diagnostics = parse_update_request(
-            br#"{"kind":"CustomReplace","definition":{"id":"local","name":"Local","launch":{"kind":"command-template","command":"local","args":[],"integration":{"kind":"copilot"}}}}"#,
+            br#"{"kind":"CustomReplace","definition":{"id":"local","name":"Local","launch":{"kind":"command-template","command":"local","args":[],"integration":{"kind":"copilot"}}},"expectedRevision":null}"#,
         )
         .expect_err("custom replacement must reject compiled fields");
         assert!(diagnostics.iter().any(|diagnostic| {
@@ -1000,5 +1074,13 @@ mod tests {
         assert!(diagnostics.iter().any(|diagnostic| {
             diagnostic.code == "unknown_field" && diagnostic.path.as_deref() == Some("$.unexpected")
         }));
+    }
+
+    #[test]
+    fn mutation_parsers_require_an_explicit_expected_revision() {
+        let diagnostics = parse_update_request(br#"{"kind":"BuiltinPatch","patch":{}}"#)
+            .expect_err("mutation requests must carry an expected revision");
+        assert_eq!(diagnostics[0].code, "missing_field");
+        assert_eq!(diagnostics[0].path.as_deref(), Some("$.expectedRevision"));
     }
 }

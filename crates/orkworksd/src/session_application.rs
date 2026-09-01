@@ -1461,21 +1461,28 @@ impl SessionApplication {
 
         let store = metadata::MetadataStore::new(&global_dir);
         migration::migrate_if_needed(&path, &global_dir);
-        let memory = store.read_workspace_memory();
-        let known_harness_ids: std::collections::HashSet<String> = self
+        let harness_snapshot = self.state.harness_store.snapshot().map_err(|error| {
+            tracing::error!(
+                ?error,
+                "failed to load harness configuration while opening workspace"
+            );
+            SessionError::Internal("failed to load harness configuration")
+        })?;
+        *self
             .state
             .harness_catalog
-            .read()
-            .expect("harness catalog lock poisoned")
-            .ids()
-            .map(str::to_owned)
-            .collect();
+            .write()
+            .expect("harness catalog lock poisoned") = harness_snapshot.registry.clone();
+        let memory = store.read_workspace_memory();
+        let known_harness_ids: std::collections::HashSet<String> =
+            harness_snapshot.registry.ids().map(str::to_owned).collect();
         let mut memory = memory.unwrap_or_default();
         let original_active_harness_ids = memory.active_harness_ids.clone();
         memory
             .active_harness_ids
             .retain(|id| known_harness_ids.contains(id));
         if memory.active_harness_ids != original_active_harness_ids {
+            memory.active_harness_revision = memory.active_harness_revision.saturating_add(1);
             store.write_workspace_memory(&memory);
         }
         let last_active_session_id = memory.last_active_session_id.clone();
@@ -3827,6 +3834,48 @@ mod tests {
             .unwrap();
 
         assert_eq!(snapshot.path, root.path().to_string_lossy());
+    }
+
+    #[test]
+    fn opening_a_workspace_publishes_a_new_revision_when_pruning_stale_harnesses() {
+        let home = tempfile::tempdir().unwrap();
+        let _home = crate::test_support::FakeHome::set(home.path());
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        SessionApplication::new(state.clone())
+            .open_workspace(root.path().to_path_buf())
+            .unwrap();
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_workspace_memory(&metadata::WorkspaceMemory {
+                last_active_session_id: None,
+                last_active_at: None,
+                active_harness_ids: vec!["retired-custom".into()],
+                active_harness_revision: 7,
+            });
+
+        let snapshot = SessionApplication::new(state.clone())
+            .open_workspace(root.path().to_path_buf())
+            .unwrap();
+
+        assert!(snapshot.active_harness_ids.is_empty());
+        assert_eq!(snapshot.active_harness_revision, 8);
+        let memory = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_workspace_memory()
+            .unwrap();
+        assert!(memory.active_harness_ids.is_empty());
+        assert_eq!(memory.active_harness_revision, 8);
     }
 
     #[test]

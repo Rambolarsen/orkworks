@@ -110,6 +110,14 @@ pub(crate) struct ActiveHarnessesResponse {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ActiveHarnessesConflictResponse {
+    error: &'static str,
+    diagnostics: Vec<harness::definition::HarnessDiagnostic>,
+    active_harness_revision: u64,
+}
+
+#[derive(Serialize)]
 pub(crate) struct PlanContentResponse {
     pub(crate) content: String,
 }
@@ -225,7 +233,7 @@ pub(crate) async fn set_active_harnesses(
     State(state): State<Arc<AppState>>,
     Json(req): Json<ActiveHarnessesRequest>,
 ) -> impl IntoResponse {
-    match SessionApplication::new(state)
+    match SessionApplication::new(state.clone())
         .set_active_harnesses_at(req.active_harness_ids, req.expected_active_harness_revision)
     {
         Ok(memory) => Json(ActiveHarnessesResponse {
@@ -234,10 +242,33 @@ pub(crate) async fn set_active_harnesses(
         })
         .into_response(),
         Err(crate::session_application::SessionError::Conflict) => {
-            axum::http::StatusCode::CONFLICT.into_response()
+            active_harness_revision_conflict_response(&state)
         }
         Err(_) => axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
+}
+
+fn active_harness_revision_conflict_response(state: &Arc<AppState>) -> axum::response::Response {
+    let active_harness_revision = state
+        .workspace
+        .lock()
+        .expect("workspace lock poisoned")
+        .as_ref()
+        .and_then(|workspace| workspace.metadata.read_workspace_memory())
+        .map_or(0, |memory| memory.active_harness_revision);
+    (
+        axum::http::StatusCode::CONFLICT,
+        Json(ActiveHarnessesConflictResponse {
+            error: "Active coding tools changed; retry the request.",
+            diagnostics: vec![harness::definition::HarnessDiagnostic::document(
+                "active_harness_revision_changed",
+                "Active coding tools changed; reload the workspace before retrying.",
+                Some("$.expectedActiveHarnessRevision"),
+            )],
+            active_harness_revision,
+        }),
+    )
+        .into_response()
 }
 
 pub(crate) async fn create_session(
@@ -6581,5 +6612,42 @@ mod tests {
         assert!(events
             .iter()
             .any(|event| event.event_type == "plan_review_requested"));
+    }
+
+    #[tokio::test]
+    async fn active_harness_revision_conflict_explains_how_to_retry() {
+        let workspace = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(workspace.path());
+
+        let first = set_active_harnesses(
+            State(state.clone()),
+            Json(ActiveHarnessesRequest {
+                active_harness_ids: vec!["codex".into()],
+                expected_active_harness_revision: 0,
+            }),
+        )
+        .await
+        .into_response();
+        assert_eq!(first.status(), axum::http::StatusCode::OK);
+
+        let stale = set_active_harnesses(
+            State(state),
+            Json(ActiveHarnessesRequest {
+                active_harness_ids: vec!["claude-code".into()],
+                expected_active_harness_revision: 0,
+            }),
+        )
+        .await
+        .into_response();
+        assert_eq!(stale.status(), axum::http::StatusCode::CONFLICT);
+        let body = axum::body::to_bytes(stale.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            body["diagnostics"][0]["code"],
+            "active_harness_revision_changed"
+        );
+        assert_eq!(body["activeHarnessRevision"], 1);
     }
 }

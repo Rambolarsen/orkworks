@@ -15,7 +15,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use serde::{Deserialize, Serialize};
+use serde::{de::Error as _, Deserialize, Deserializer, Serialize};
 use sha2::{Digest, Sha256};
 
 use super::definition::{
@@ -27,9 +27,24 @@ use super::integration::atomic_replace;
 use super::registry::{resolve_document, HarnessCatalog, ResolvedHarnessRegistry};
 
 /// Opaque SHA-256 revision of the exact persisted harness document bytes.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(transparent)]
 pub(crate) struct HarnessDocumentRevision(String);
+
+impl<'de> Deserialize<'de> for HarnessDocumentRevision {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        if value.len() != 64 || hex::decode(&value).is_err() {
+            return Err(D::Error::custom(
+                "revision must be a 64-character hexadecimal SHA-256 digest",
+            ));
+        }
+        Ok(Self(value))
+    }
+}
 
 impl HarnessDocumentRevision {
     fn from_bytes(bytes: &[u8]) -> Self {
@@ -1257,5 +1272,15 @@ mod tests {
         assert!(!serde_json::to_string(&loaded.document)
             .unwrap()
             .contains("invalid_legacy_entry"));
+    }
+
+    #[test]
+    fn document_revision_deserialization_rejects_malformed_values() {
+        assert!(serde_json::from_str::<HarnessDocumentRevision>(r#""short""#).is_err());
+        assert!(serde_json::from_str::<HarnessDocumentRevision>(&format!(
+            "\"{}\"",
+            "z".repeat(64)
+        ))
+        .is_err());
     }
 }
