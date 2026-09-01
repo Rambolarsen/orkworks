@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import type { HarnessConfig } from "../harnessTypes";
+import { saveHarnessConfiguration, stripDerivedHarnessFields } from "../api";
+import type { HarnessConfigEntry } from "../harnessTypes";
 
 // Mirrors the sole direct-reference condition in the backend probe
 // (crates/orkworksd/src/harness/detect.rs::probe_installed_tool): POSIX
@@ -12,7 +13,8 @@ function looksAbsolute(command: string): boolean {
 interface HarnessCommandPathControlProps {
   harnessId: string;
   harnessName: string;
-  harness: HarnessConfig | undefined;
+  harness: HarnessConfigEntry | undefined;
+  documentRevision?: string | null;
   disabled?: boolean;
   onChanged?: (harnessId: string) => void;
 }
@@ -21,6 +23,7 @@ export default function HarnessCommandPathControl({
   harnessId,
   harnessName,
   harness,
+  documentRevision,
   disabled = false,
   onChanged,
 }: HarnessCommandPathControlProps) {
@@ -30,6 +33,7 @@ export default function HarnessCommandPathControl({
   const launch = harness?.launch.kind === "command-template" ? harness.launch : undefined;
   const launchCommand = launch?.command;
   const hasCustomPath = launchCommand !== undefined && looksAbsolute(launchCommand);
+  const isCustom = harness?.origin === "custom";
   const [customPathDraft, setCustomPathDraft] = useState<string>(() => (hasCustomPath ? launchCommand ?? "" : ""));
   // Locally owned rather than derived from `hasCustomPath` on every render:
   // the `harness` prop only refreshes when Settings is reopened, so a
@@ -54,7 +58,21 @@ export default function HarnessCommandPathControl({
     setCustomPathBusy(true);
     setCustomPathError(null);
     try {
-      const result = await window.orkworks.setHarnessCommandOverride(harnessId, customPathDraft.trim());
+      const result = isCustom && harness && launch
+        ? await (async () => {
+          const baseUrl = await window.orkworks.getBackendUrl();
+          const definition = stripDerivedHarnessFields({
+            ...harness,
+            launch: { ...launch, command: customPathDraft.trim() },
+          });
+          return { ok: true as const, harness: (await saveHarnessConfiguration(baseUrl, {
+            mode: "custom",
+            harnessId,
+            definition,
+            expectedRevision: documentRevision ?? harness.documentRevision ?? null,
+          })).harness };
+        })()
+        : await window.orkworks.setHarnessCommandOverride(harnessId, customPathDraft.trim());
       if (!result.ok) {
         setCustomPathError(result.error);
         return;
@@ -70,6 +88,7 @@ export default function HarnessCommandPathControl({
   }
 
   async function clearCustomPathHandler() {
+    if (isCustom) return;
     setCustomPathBusy(true);
     setCustomPathError(null);
     try {
@@ -115,7 +134,7 @@ export default function HarnessCommandPathControl({
         >
           {customPathBusy ? "Saving…" : "Save"}
         </button>
-        {customPathActive && (
+        {customPathActive && !isCustom && (
           <button type="button" onClick={clearCustomPathHandler} disabled={disabled || customPathBusy}>
             Clear
           </button>

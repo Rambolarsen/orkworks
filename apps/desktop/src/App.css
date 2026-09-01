@@ -460,6 +460,49 @@ html, body, #root {
   flex-wrap: nowrap;
 }
 
+.settings-config-item-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.settings-config-item-header-actions > button {
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: 5px 9px;
+  color: var(--text-secondary);
+  background: var(--surface-2);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.settings-config-item-header-actions > button:hover {
+  background: var(--surface-3);
+}
+
+.harness-origin-badge {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border-default);
+  border-radius: 999px;
+  padding: 2px 6px;
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+
+.harness-origin-badge--custom {
+  color: var(--accent);
+}
+
+.harness-origin-badge--override {
+  color: var(--state-warn);
+}
+
 .settings-config-item {
   min-width: 0;
   display: inline-flex;
@@ -644,6 +687,133 @@ html, body, #root {
 
 .provider-verify-status--error {
   color: var(--state-error);
+}
+
+.harness-config-editor {
+  min-width: 0;
+}
+
+.harness-config-editor-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 12px;
+}
+
+.harness-config-editor-header h3 {
+  margin: 10px 0 0;
+  color: var(--text-primary);
+}
+
+.harness-config-editor-back {
+  border: 0;
+  padding: 0;
+  color: var(--accent);
+  background: transparent;
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.harness-config-editor-notice,
+.harness-config-editor-readonly {
+  margin: 10px 0;
+  padding: 10px 12px;
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  background: var(--surface-2);
+  font-size: var(--text-sm);
+}
+
+.harness-config-editor-readonly span {
+  color: var(--text-faint);
+}
+
+.harness-config-editor-readonly div {
+  margin-top: 4px;
+  color: var(--text-muted);
+}
+
+.harness-config-editor-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.harness-config-editor-pane {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.harness-config-editor-pane-title {
+  display: flex;
+  justify-content: space-between;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.harness-config-editor-pane-title em {
+  color: var(--state-ok);
+  font-size: var(--text-xs);
+  font-style: normal;
+  font-weight: 500;
+}
+
+.harness-config-editor-pane-title em.harness-config-editor-invalid {
+  color: var(--state-error);
+}
+
+.harness-config-editor-pane textarea,
+.harness-config-editor-pane pre {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 280px;
+  margin: 0;
+  padding: 10px;
+  overflow: auto;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  background: var(--surface-0);
+  font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  resize: vertical;
+}
+
+.harness-config-editor-pane textarea:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.harness-config-editor-diagnostics,
+.harness-config-editor-error {
+  color: var(--state-error);
+  font-size: var(--text-sm);
+}
+
+.harness-config-editor-diagnostics {
+  white-space: pre-wrap;
+}
+
+.harness-config-editor-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 720px) {
+  .harness-config-editor-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .ollama-candidate-list {

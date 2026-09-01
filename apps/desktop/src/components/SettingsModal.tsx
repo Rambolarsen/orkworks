@@ -3,7 +3,9 @@ import { acceleratorFromKeyboardEvent } from "../hotkeyCapture";
 import type { AppSettings, DebugSettings, HotkeySettings, RetentionSettings } from "../appSettingsTypes";
 import { normalizeProviderSettings, type ProviderDefinition, type ProviderId, type ProviderSettings, type PeonSelection, type PeonAppliedState, type PeonProviderVerificationResponse } from "../providerTypes";
 import type { ProviderRuntimeResponse } from "../api";
-import type { HarnessConfig, IntegrationStatus, IntegrationStatusResult } from "../harnessTypes";
+import { duplicateHarness, stripDerivedHarnessFields, type HarnessConfigEntry, type HarnessEditorMode, type HarnessListResponse, type HarnessMutationResponse } from "../api";
+import HarnessConfigEditor from "./HarnessConfigEditor";
+import type { HarnessConfig, HarnessEditorMetadata, IntegrationStatus, IntegrationStatusResult } from "../harnessTypes";
 import {
   deriveIntegrationDisplayState,
   type IntegrationKey,
@@ -34,7 +36,9 @@ const NAV_ITEMS: Array<{ key: SettingsSection; label: string }> = [
 
 interface SettingsModalProps {
   initialSettings: AppSettings;
-  harnesses: HarnessConfig[];
+  harnesses: HarnessConfigEntry[];
+  documentRevision: string | null;
+  onRefreshHarnesses: () => Promise<HarnessListResponse>;
   activeHarnessIds: string[];
   providerRuntime: ProviderRuntimeResponse | null;
   onClose: () => void;
@@ -62,7 +66,31 @@ function integrationKeyForHarness(harness: HarnessConfig): IntegrationKey | null
     : null;
 }
 
-export default function SettingsModal({ initialSettings, harnesses, activeHarnessIds, providerRuntime, onClose, onSaved, onSaveActiveHarnesses }: SettingsModalProps) {
+function jsonText(value: unknown): string {
+  return `${JSON.stringify(value ?? {}, null, 2)}\n`;
+}
+
+function customHarnessStarter(): Record<string, unknown> {
+  return {
+    id: "my-tool",
+    name: "My coding tool",
+    launch: { kind: "command-template", command: "my-tool", args: [], modelPrefix: null },
+    defaultModel: null,
+    resume: null,
+    models: null,
+    peon: null,
+    capacity: null,
+    voice: null,
+    minVersion: null,
+    labelResetCommands: [],
+  };
+}
+
+function editableHarnessDefinition(harness: HarnessConfigEntry): unknown {
+  return stripDerivedHarnessFields(harness);
+}
+
+export default function SettingsModal({ initialSettings, harnesses, documentRevision, onRefreshHarnesses, activeHarnessIds, providerRuntime, onClose, onSaved, onSaveActiveHarnesses }: SettingsModalProps) {
   const modalRef = useRef<HTMLElement>(null);
   const savedSettingsRef = useRef<AppSettings>(clone(initialSettings));
   const defaultHotkeys = initialSettings.defaultHotkeys;
@@ -114,6 +142,12 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
   const [integrationStatuses, setIntegrationStatuses] = useState<Record<string, IntegrationStatusResult>>({});
   const [integrationOperationFailures, setIntegrationOperationFailures] = useState<Record<string, ActiveHarnessIntegrationResult>>({});
   const [integrationStatusGeneration, setIntegrationStatusGeneration] = useState(0);
+  const [harnessEditor, setHarnessEditor] = useState<{
+    mode: HarnessEditorMode;
+    draftText: string;
+    metadata: HarnessEditorMetadata;
+  } | null>(null);
+  const [harnessActionStatus, setHarnessActionStatus] = useState<string | null>(null);
   const verificationTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function invalidateAsyncState() {
@@ -133,6 +167,7 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
       [harnessId]: (current[harnessId] ?? 0) + 1,
     }));
     setIntegrationStatusGeneration((current) => current + 1);
+    void onRefreshHarnesses().catch(() => undefined);
   }
 
   function refreshDetections(harnessIds: readonly string[]) {
@@ -284,7 +319,7 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
       const groupedStatuses = Object.fromEntries(entries);
       const rowStatuses = Object.fromEntries(toolHarnesses
         .map((harness) => [harness, integrationKeyForHarness(harness)] as const)
-        .filter((entry): entry is [HarnessConfig, IntegrationKey] => entry[1] !== null)
+        .filter((entry): entry is [HarnessConfigEntry, IntegrationKey] => entry[1] !== null)
         .map((harness) => {
           const [harnessConfig, key] = harness;
           const groupKey = `${key.adapterId}/${key.targetId}`;
@@ -578,6 +613,96 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
     }
   }
 
+  function openHarnessEditor(entry: HarnessConfigEntry) {
+    const mode: HarnessEditorMode = entry.origin === "custom" ? "custom" : "override";
+    setHarnessActionStatus(null);
+    setHarnessEditor({
+      mode,
+      draftText: jsonText(mode === "override" ? entry.storedOverride : editableHarnessDefinition(entry)),
+      metadata: { entry, documentRevision: documentRevision ?? entry.documentRevision ?? null },
+    });
+  }
+
+  function openNewHarnessEditor() {
+    setHarnessActionStatus(null);
+    setHarnessEditor({
+      mode: "create",
+      draftText: jsonText(customHarnessStarter()),
+      metadata: { documentRevision },
+    });
+  }
+
+  async function duplicateHarnessForEditor(entry: HarnessConfigEntry) {
+    setHarnessActionStatus("Preparing an independent copy…");
+    try {
+      const baseUrl = await window.orkworks.getBackendUrl();
+      const result = await duplicateHarness(baseUrl, entry.id);
+      const duplicateEntry: HarnessConfigEntry = {
+        ...entry,
+        ...(result.definition as Partial<HarnessConfigEntry>),
+        id: result.proposedId,
+        name: result.proposedName,
+        origin: "custom",
+        documentRevision: result.documentRevision,
+      };
+      setHarnessEditor({
+        mode: "create",
+        draftText: jsonText(result.definition),
+        metadata: {
+          entry: duplicateEntry,
+          documentRevision: result.documentRevision,
+          duplicateSourceId: entry.id,
+        },
+      });
+      setHarnessActionStatus(null);
+    } catch (error) {
+      setHarnessActionStatus(error instanceof Error ? error.message : "Couldn't duplicate coding tool.");
+    }
+  }
+
+  async function handleHarnessSaved(result: HarnessMutationResponse) {
+    try {
+      await onRefreshHarnesses();
+      setHarnessEditor(null);
+      setHarnessActionStatus("Configuration saved.");
+    } catch {
+      setHarnessActionStatus("Configuration saved, but the coding tool list could not be refreshed.");
+    }
+    if (result.harness.origin === "custom") setActiveSection("tools");
+  }
+
+  async function handleHarnessDeleted() {
+    try {
+      await onRefreshHarnesses();
+      setHarnessEditor(null);
+      setHarnessActionStatus("Coding tool deleted.");
+    } catch {
+      setHarnessActionStatus("Coding tool deleted, but the coding tool list could not be refreshed.");
+    }
+  }
+
+  async function handleHarnessRevisionConflict() {
+    try {
+      const refreshed = await onRefreshHarnesses();
+      setHarnessEditor((current) => {
+        if (!current) return current;
+        const id = current.metadata.entry?.id;
+        const entry = id ? refreshed.harnesses.find((candidate) => candidate.id === id) : undefined;
+        return {
+          ...current,
+          metadata: {
+            ...current.metadata,
+            documentRevision: refreshed.documentRevision,
+            ...(entry ? { entry } : {}),
+          },
+        };
+      });
+      setHarnessActionStatus("The latest configuration is loaded for comparison. Your draft is still here.");
+    } catch {
+      setHarnessActionStatus("The configuration changed elsewhere. Your draft is still here; refresh and retry.");
+    }
+  }
+
   return (
     <div className="settings-backdrop" role="presentation">
       <section className="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title" ref={modalRef}>
@@ -614,64 +739,96 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
           <div className="settings-content">
             {activeSection === "tools" && (
               <div className="settings-section">
-                <h3>Active coding tools</h3>
-                <p className="settings-section-copy">
-                  Select which coding tools are available in this workspace. Shell is always available.
-                </p>
+                {harnessEditor ? (
+                  <HarnessConfigEditor
+                    mode={harnessEditor.mode}
+                    draftText={harnessEditor.draftText}
+                    metadata={harnessEditor.metadata}
+                    onCancel={() => setHarnessEditor(null)}
+                    onSaved={handleHarnessSaved}
+                    onDeleted={handleHarnessDeleted}
+                    onRevisionConflict={handleHarnessRevisionConflict}
+                  />
+                ) : (<>
+                  <h3>Active coding tools</h3>
+                  <p className="settings-section-copy">
+                    Select which coding tools are available in this workspace. Shell is always available.
+                  </p>
 
-                <div className="settings-config-list">
-                  {toolHarnesses.map((h) => {
-                    const display = toolDisplayState(h);
+                  <div className="settings-config-list">
+                    {toolHarnesses.map((h) => {
+                      const display = toolDisplayState(h);
 
-                    return (
-                      <div key={h.id} className="settings-config-item-row">
-                        <div className="settings-config-item-header">
-                          <div className="settings-config-item">
-                            <HarnessIcon tool={h.name} size={16} />
-                            <span>{h.name}</span>
-                            {/* onDetectionChanged=refreshDetection stays
-                                coupled through refreshGeneration-driven
-                                reloads and the shared refreshDetection path. */}
-                            <HarnessDetectionStatus harnessId={h.id}
-                              integrationKey={integrationKeyForHarness(h) ?? undefined}
-                              refreshGeneration={detectionGenerations[h.id] ?? 0}
-                            />
+                      return (
+                        <div key={h.id} className="settings-config-item-row">
+                          <div className="settings-config-item-header">
+                            <div className="settings-config-item">
+                              <HarnessIcon tool={h.name} size={16} />
+                              <span>{h.name}</span>
+                              <span className={`harness-origin-badge harness-origin-badge--${h.origin}`}>{h.origin}</span>
+                              {/* onDetectionChanged=refreshDetection stays
+                                  coupled through refreshGeneration-driven
+                                  reloads and the shared refreshDetection path. */}
+                              <HarnessDetectionStatus harnessId={h.id}
+                                integrationKey={integrationKeyForHarness(h) ?? undefined}
+                                refreshGeneration={detectionGenerations[h.id] ?? 0}
+                              />
+                            </div>
+                            <div className="settings-config-item-header-actions">
+                              {h.origin !== "builtin" || h.id !== "generic-shell" ? (
+                                <button type="button" onClick={() => openHarnessEditor(h)}>
+                                  {h.origin === "override" ? "Edit override" : "View config"}
+                                </button>
+                              ) : null}
+                              {h.id !== "generic-shell" && (
+                                <button type="button" onClick={() => void duplicateHarnessForEditor(h)}>
+                                  Duplicate
+                                </button>
+                              )}
+                              <Toggle
+                                checked={activeDraft.includes(h.id)}
+                                onChange={() => toggleHarness(h.id)}
+                                ariaLabel={h.name}
+                                disabled={toolsSaveInProgress}
+                                visualState={display.appearance}
+                                statusDescription={display.description}
+                                statusGlyph={display.glyph}
+                                tooltip={display.tooltip}
+                              />
+                            </div>
                           </div>
-                          <Toggle
-                            checked={activeDraft.includes(h.id)}
-                            onChange={() => toggleHarness(h.id)}
-                            ariaLabel={h.name}
-                            disabled={toolsSaveInProgress}
-                            visualState={display.appearance}
-                            statusDescription={display.description}
-                            statusGlyph={display.glyph}
-                            tooltip={display.tooltip}
-                          />
+                          {h.launch.kind === "command-template" && (
+                            <HarnessCommandPathControl
+                              harnessId={h.id}
+                              harnessName={h.name}
+                              harness={h}
+                              disabled={toolsSaveInProgress}
+                              documentRevision={documentRevision}
+                              onChanged={refreshDetection}
+                            />
+                          )}
                         </div>
-                        {h.launch.kind === "command-template" && (
-                          <HarnessCommandPathControl
-                            harnessId={h.id}
-                            harnessName={h.name}
-                            harness={h}
-                            disabled={toolsSaveInProgress}
-                            onChanged={refreshDetection}
-                          />
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
+                      );
+                    })}
+                  </div>
 
-                <div className="settings-config-footer">
-                  <Button variant="secondary" size="sm" onClick={saveActiveHarnessesHandler} disabled={toolsSaveInProgress}>
-                    {toolsSaveInProgress ? "Saving..." : "Save"}
-                  </Button>
-                  {activeSaveStatus && (
-                    <span className="settings-config-status">
-                      {activeSaveStatus}
-                    </span>
-                  )}
-                </div>
+                  <div className="settings-config-footer">
+                    <Button variant="secondary" size="sm" onClick={saveActiveHarnessesHandler} disabled={toolsSaveInProgress}>
+                      {toolsSaveInProgress ? "Saving..." : "Save"}
+                    </Button>
+                    <Button variant="primary" size="sm" onClick={openNewHarnessEditor}>
+                      Add custom coding tool
+                    </Button>
+                    {activeSaveStatus && (
+                      <span className="settings-config-status">
+                        {activeSaveStatus}
+                      </span>
+                    )}
+                    {harnessActionStatus && (
+                      <span className="settings-config-status">{harnessActionStatus}</span>
+                    )}
+                  </div>
+                </>)}
               </div>
             )}
 
