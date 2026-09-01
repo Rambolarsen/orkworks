@@ -17,6 +17,7 @@ import { getSessionPlanContent, requestSessionPlanReview, selectTerminalPlan } f
 import { configureExternalLinks, openExternalLink } from "./externalLinks";
 import { createSidecarLifecycle, type SidecarLifecycle, type SidecarProcess, type SidecarState } from "./sidecarLifecycle";
 import { createBackendRestorationCoordinator, switchWorkspaceBackend, type BackendRestorationCoordinator } from "./backendRestoration";
+import { parseWorkspaceRestoreResponse } from "./workspaceRestore";
 import type { BackendLifecycleEvent, BackendLifecycleWorkspace } from "./backendLifecycleEvent";
 import { sanitizeBackendLifecycleFailure } from "./backendLifecycleFailure";
 import { rendererConsoleDiagnostic, rendererConsoleLevel, rendererOrigin, sanitizeRendererDiagnosticMessage } from "./rendererDiagnostic";
@@ -228,19 +229,13 @@ app.whenReady().then(() => {
       body: JSON.stringify({ path: workspacePath }),
       signal,
     });
-    if (!response.ok) {
-      throw new Error(`Workspace restoration failed: ${response.status}`);
-    }
-    const rawWorkspace = await response.json() as Partial<BackendLifecycleWorkspace>;
+    const workspace = await parseWorkspaceRestoreResponse(response);
     signal.throwIfAborted();
-    return {
-      path: rawWorkspace.path ?? "",
-      repo_root: rawWorkspace.repo_root ?? null,
-      branch: rawWorkspace.branch ?? null,
-      dirty: rawWorkspace.dirty ?? null,
-      lastActiveSessionId: rawWorkspace.lastActiveSessionId ?? null,
-      activeHarnessIds: rawWorkspace.activeHarnessIds ?? [],
-    };
+    if (workspace === null) {
+      console.warn(`[main] remembered workspace path was rejected by the sidecar: ${workspacePath}`);
+      workspacePath = null;
+    }
+    return workspace;
   }
 
   async function applyRetentionSettings(port: number, signal: AbortSignal): Promise<void> {
