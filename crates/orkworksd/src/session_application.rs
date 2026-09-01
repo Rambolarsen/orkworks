@@ -1474,22 +1474,22 @@ impl SessionApplication {
             .write()
             .expect("harness catalog lock poisoned") = harness_snapshot.registry.clone();
         let memory = store.read_workspace_memory();
-        let known_harness_ids: std::collections::HashSet<String> = harness_snapshot
-            .registry
-            .ids()
-            .filter(|id| {
-                harness_snapshot
-                    .registry
-                    .get(id)
-                    .is_some_and(|harness| !harness.definition.retired)
-            })
-            .map(str::to_owned)
-            .collect();
         let mut memory = memory.unwrap_or_default();
         let original_active_harness_ids = memory.active_harness_ids.clone();
-        memory
-            .active_harness_ids
-            .retain(|id| known_harness_ids.contains(id));
+        let mut normalized_active_harness_ids = Vec::new();
+        let mut seen_active_harness_ids = std::collections::HashSet::new();
+        for id in &original_active_harness_ids {
+            let Some(harness) = harness_snapshot.registry.get(id) else {
+                continue;
+            };
+            if harness.definition.retired
+                || !seen_active_harness_ids.insert(harness.definition.id.clone())
+            {
+                continue;
+            }
+            normalized_active_harness_ids.push(harness.definition.id.clone());
+        }
+        memory.active_harness_ids = normalized_active_harness_ids;
         if memory.active_harness_ids != original_active_harness_ids {
             memory.active_harness_revision = memory.active_harness_revision.saturating_add(1);
             store.write_workspace_memory(&memory);
@@ -3877,7 +3877,11 @@ mod tests {
             .write_workspace_memory(&metadata::WorkspaceMemory {
                 last_active_session_id: None,
                 last_active_at: None,
-                active_harness_ids: vec!["retired-custom".into(), "gemini".into()],
+                active_harness_ids: vec![
+                    "retired-custom".into(),
+                    "gemini".into(),
+                    "gh-copilot".into(),
+                ],
                 active_harness_revision: 7,
             });
 
@@ -3885,7 +3889,7 @@ mod tests {
             .open_workspace(root.path().to_path_buf())
             .unwrap();
 
-        assert!(snapshot.active_harness_ids.is_empty());
+        assert_eq!(snapshot.active_harness_ids, vec!["copilot"]);
         assert_eq!(snapshot.active_harness_revision, 8);
         let memory = state
             .workspace
@@ -3896,7 +3900,7 @@ mod tests {
             .metadata
             .read_workspace_memory()
             .unwrap();
-        assert!(memory.active_harness_ids.is_empty());
+        assert_eq!(memory.active_harness_ids, vec!["copilot"]);
         assert_eq!(memory.active_harness_revision, 8);
     }
 
