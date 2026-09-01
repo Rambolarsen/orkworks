@@ -3054,7 +3054,15 @@ mod tests {
             },
         ));
 
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        // The resize must be absorbed by capture_startup_runtime_state as the
+        // initial PTY size, so it is queued before the runtime task is ever
+        // polled: #[tokio::test] runs on the current-thread scheduler and the
+        // send below completes without a yield point, so the command is
+        // already in the control buffer when the task's startup grace recv
+        // first runs. A timed sleep cannot establish this ordering — under CI
+        // load its deadline can fire after INITIAL_RESIZE_GRACE expires, the
+        // PTY spawns at the default size, and the child's `stty` beats the
+        // post-spawn resize (observed flake in Main CI run 33470801718).
         control_tx
             .send(RuntimeCommand::Resize {
                 rows: 40,
