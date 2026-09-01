@@ -35,6 +35,13 @@ test("Electron main logs raw lifecycle failures but publishes only stable copy",
   assert.doesNotMatch(mainSource, /publishBackendLifecycle\(\{ state: "failed", message: error\.message \}\)/);
 });
 
+test("a stale remembered workspace path degrades to no-workspace, not a backend failure", () => {
+  assert.match(mainSource, /import \{ parseWorkspaceRestoreResponse \} from "\.\/workspaceRestore";/);
+  assert.match(mainSource, /const workspace = await parseWorkspaceRestoreResponse\(response\);/);
+  assert.match(mainSource, /if \(workspace === null\) \{\s*console\.warn\(\s*`\[main\] remembered workspace path was rejected by the sidecar: \$\{workspacePath\}`\);\s*forgetWorkspacePath\(app\.getPath\("userData"\), workspacePath\);/);
+  assert.doesNotMatch(mainSource, /throw new Error\(`Workspace restoration failed: \$\{response\.status\}`\)/);
+});
+
 test("backend readiness and retry use the lifecycle controller", () => {
   assert.match(mainSource, /ipcMain\.handle\("get-backend-url", async \(\) => \{\s*const port = await restoration\.getReadiness\(\)/);
   assert.match(mainSource, /ipcMain\.handle\("retry-backend", async \(\) => \{[\s\S]*sidecarLifecycle\.retry\(\)/);
