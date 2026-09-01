@@ -1331,6 +1331,18 @@ mod tests {
     }
 
     #[test]
+    fn custom_parser_rejects_a_known_compiled_integration_binding() {
+        let diagnostics = parse_update_request(
+            br#"{"kind":"CustomReplace","definition":{"id":"local","name":"Local","launch":{"kind":"command-template","command":"local","args":[]},"integration":{"kind":"copilot"}},"expectedRevision":null}"#,
+        )
+        .expect_err("custom definitions must not select compiled integration bindings");
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == "custom_authority_binding"
+                && diagnostic.path.as_deref() == Some("$.integration")
+        }));
+    }
+
+    #[test]
     fn update_parser_rejects_unknown_envelope_fields() {
         let diagnostics =
             parse_update_request(br#"{"kind":"BuiltinPatch","patch":{},"unexpected":true}"#)

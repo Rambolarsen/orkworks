@@ -142,21 +142,7 @@ export async function listHarnesses(baseUrl: string): Promise<HarnessListRespons
     throw new Error("list harnesses failed: malformed revision");
   }
   const documentRevision = typeof body.documentRevision === "string" ? body.documentRevision : null;
-  const harnesses = body.harnesses.map((entry) => {
-    if (!entry.definition || !entry.origin || !entry.compatibility) {
-      throw new Error("list harnesses failed: malformed response");
-    }
-    return {
-      ...entry.definition,
-      origin: entry.origin,
-      profile: entry.compatibility.profile,
-      compatibility: entry.compatibility,
-      documentRevision,
-      ...(entry.storedOverride === undefined ? {} : { storedOverride: entry.storedOverride }),
-      sessionSignals: entry.compatibility.sessionSignals ?? entry.definition.sessionSignals,
-      integration: entry.compatibility.integration ?? entry.definition.integration,
-    };
-  });
+  const harnesses = body.harnesses.map((entry) => mapHarnessEntry(entry, documentRevision, "list harnesses"));
   return {
     documentRevision,
     harnesses,
@@ -336,11 +322,41 @@ async function throwHarnessApiError(resp: Response, fallback: string): Promise<n
 function parseHarnessMutationResponse(value: unknown): HarnessMutationResponse {
   if (!value || typeof value !== "object") throw new Error("harness mutation failed: malformed response");
   const body = value as Partial<HarnessMutationResponse>;
-  const harness = body.harness;
-  if (typeof body.documentRevision !== "string" || !harness || typeof harness !== "object") {
+  if (typeof body.documentRevision !== "string" || !body.harness || typeof body.harness !== "object") {
     throw new Error("harness mutation failed: malformed response");
   }
-  return body as HarnessMutationResponse;
+  return {
+    ...body,
+    documentRevision: body.documentRevision,
+    harness: mapHarnessEntry(body.harness, body.documentRevision, "harness mutation"),
+  } as HarnessMutationResponse;
+}
+
+function mapHarnessEntry(
+  value: unknown,
+  documentRevision: string | null,
+  context: string,
+): HarnessConfigEntry {
+  if (!value || typeof value !== "object") throw new Error(`${context} failed: malformed response`);
+  const entry = value as {
+    definition?: HarnessConfig;
+    origin?: HarnessConfigEntry["origin"];
+    storedOverride?: unknown;
+    compatibility?: HarnessConfigEntry["compatibility"];
+  };
+  if (!entry.definition || !entry.origin || !entry.compatibility) {
+    throw new Error(`${context} failed: malformed response`);
+  }
+  return {
+    ...entry.definition,
+    origin: entry.origin,
+    profile: entry.compatibility.profile,
+    compatibility: entry.compatibility,
+    documentRevision,
+    ...(entry.storedOverride === undefined ? {} : { storedOverride: entry.storedOverride }),
+    sessionSignals: entry.compatibility.sessionSignals ?? entry.definition.sessionSignals,
+    integration: entry.compatibility.integration ?? entry.definition.integration,
+  };
 }
 
 export async function listSessions(
