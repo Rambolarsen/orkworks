@@ -2161,6 +2161,7 @@ impl SessionApplication {
             .read()
             .expect("harness catalog lock poisoned")
             .clone();
+        let mut canonical_active_harness_ids = Vec::with_capacity(active_harness_ids.len());
         for id in &active_harness_ids {
             let Some(harness) = registry.get(id) else {
                 return Err(SessionError::BadRequest(
@@ -2172,11 +2173,12 @@ impl SessionApplication {
                     "The selected coding tool is retired and cannot be enabled.",
                 ));
             }
+            canonical_active_harness_ids.push(harness.definition.id.clone());
         }
         let memory = metadata::WorkspaceMemory {
             last_active_session_id: existing.last_active_session_id,
             last_active_at: Some(iso_now()),
-            active_harness_ids,
+            active_harness_ids: canonical_active_harness_ids,
             active_harness_revision: existing.active_harness_revision.saturating_add(1),
         };
         workspace.metadata.write_workspace_memory(&memory);
@@ -6171,6 +6173,12 @@ mod tests {
         assert_eq!(first.active_harness_revision, 1);
         assert_eq!(first.active_harness_ids, vec!["codex"]);
 
+        let alias = application
+            .set_active_harnesses_at(vec!["gh-copilot".into()], 1)
+            .unwrap();
+        assert_eq!(alias.active_harness_revision, 2);
+        assert_eq!(alias.active_harness_ids, vec!["copilot"]);
+
         assert_eq!(
             application.set_active_harnesses_at(vec!["claude-code".into()], 0),
             Err(SessionError::Conflict)
@@ -6184,8 +6192,8 @@ mod tests {
             .metadata
             .read_workspace_memory()
             .unwrap();
-        assert_eq!(memory.active_harness_ids, vec!["codex"]);
-        assert_eq!(memory.active_harness_revision, 1);
+        assert_eq!(memory.active_harness_ids, vec!["copilot"]);
+        assert_eq!(memory.active_harness_revision, 2);
     }
 
     #[test]
