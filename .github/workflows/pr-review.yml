@@ -137,15 +137,15 @@ jobs:
         run: |
           set -euo pipefail
 
-          marker_sha="$(gh api --paginate --slurp \
-            "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100" \
-            --jq 'add // []
+          comments_json="$(gh api --paginate --slurp \
+            "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100")"
+          marker_sha="$(jq -r 'add // []
               | sort_by(.created_at)
               | map(select(.user.login == "github-actions[bot]"
                 and (.body | test("^### Automated code review\\r?\\n<!-- orkworks-automated-review: sha=[0-9a-f]{40} -->"))))
               | if length == 0 then ""
                 else (.[-1].body | capture("<!-- orkworks-automated-review: sha=(?<sha>[0-9a-f]{40}) -->").sha)
-                end')"
+                end' <<<"$comments_json")"
 
           review_base="$BASE_SHA"
           if [[ "$marker_sha" =~ ^[0-9a-f]{40}$ ]] \
