@@ -26,7 +26,7 @@ const CONTROL_CHANNEL_CAPACITY: usize = 64;
 pub(crate) const STARTUP_PENDING_INPUT_BYTES: usize = 64 * 1024;
 const MAX_PARTIAL_PERSIST_BYTES: usize = 64 * 1024;
 const INITIAL_RESIZE_GRACE: std::time::Duration = std::time::Duration::from_millis(150);
-const STARTUP_ATTENTION_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
+pub(crate) const STARTUP_ATTENTION_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
 const WORK_SIGNAL_WINDOW: std::time::Duration = std::time::Duration::from_secs(10);
 const OUTPUT_RECENCY_PERSIST_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
 
@@ -97,15 +97,34 @@ async fn wait_at_startup_ending_check(id: &str) {
 pub(crate) struct PendingWorkSignal {
     remaining_echo: String,
     expires_at: tokio::time::Instant,
+    banner_grace_ends_at: tokio::time::Instant,
 }
 
 pub(crate) fn arm_pending_work_signal(
     submitted_line: &str,
     now: tokio::time::Instant,
+    banner_grace: std::time::Duration,
 ) -> PendingWorkSignal {
     PendingWorkSignal {
         remaining_echo: submitted_line.to_string(),
         expires_at: now + WORK_SIGNAL_WINDOW,
+        banner_grace_ends_at: now + banner_grace,
+    }
+}
+
+/// Re-bases an armed signal's banner grace onto the runtime's post-spawn
+/// startup horizon. The signal is armed pre-spawn in
+/// `create_session_workflow`, but no output can be consumed before this
+/// runtime's PTY reader starts, so the deadline that matters is the
+/// `startup_grace_ends_at` computed after spawn: aligning the two restores
+/// the invariant that banner tolerance covers the whole promotion-block
+/// window regardless of how long spawn setup took (PR #396 review).
+pub(crate) fn align_banner_grace_with_startup(
+    slot: &mut Option<PendingWorkSignal>,
+    startup_grace_ends_at: tokio::time::Instant,
+) {
+    if let Some(signal) = slot.as_mut() {
+        signal.banner_grace_ends_at = startup_grace_ends_at;
     }
 }
 
@@ -144,6 +163,15 @@ pub(crate) fn consume_pending_work_signal(
         .unwrap_or(&output);
     if signal.remaining_echo.starts_with(output) {
         signal.remaining_echo.drain(..output.len());
+        return false;
+    }
+    // Post-arming banner grace (issue #390): an initial prompt armed at
+    // session creation on a shell-wrapped custom harness sees login-shell
+    // profile output before the harness's own first render. Visible non-echo
+    // output inside the grace passes through without consuming the signal so
+    // promotion fires on the harness's real output instead; echo trimming
+    // above stays live throughout.
+    if now < signal.banner_grace_ends_at {
         return false;
     }
 
@@ -882,6 +910,17 @@ pub(crate) async fn start_session_runtime(
             return Err(error.to_string());
         }
     };
+    // Placed after the startup gates above (tests park there while possibly
+    // holding the sessions lock) and before the reader below starts: no
+    // output can have been consumed yet, so re-basing the armed signal's
+    // banner grace onto the post-spawn horizon loses nothing and keeps
+    // banner tolerance covering the full promotion-block window.
+    {
+        let mut sessions = state.sessions.lock().unwrap();
+        if let Some(handle) = sessions.get_mut(&id) {
+            align_banner_grace_with_startup(&mut handle.pending_work_signal, startup_grace_ends_at);
+        }
+    }
     let writer = match pair.master.take_writer() {
         Ok(writer) => writer,
         Err(error) => {
@@ -1616,7 +1655,11 @@ mod tests {
     #[test]
     fn split_echo_does_not_qualify_until_new_visible_output_arrives() {
         let now = tokio::time::Instant::now();
-        let mut signal = Some(arm_pending_work_signal("fix status", now));
+        let mut signal = Some(arm_pending_work_signal(
+            "fix status",
+            now,
+            std::time::Duration::ZERO,
+        ));
         assert!(!consume_pending_work_signal(&mut signal, "fix ", now));
         assert!(!consume_pending_work_signal(&mut signal, "status\r\n", now));
         assert!(consume_pending_work_signal(&mut signal, "Thinking…", now));
@@ -1626,7 +1669,11 @@ mod tests {
     fn one_leading_line_ending_is_ignored_when_matching_echo() {
         let now = tokio::time::Instant::now();
         for leading in ['\r', '\n'] {
-            let mut signal = Some(arm_pending_work_signal("fix", now));
+            let mut signal = Some(arm_pending_work_signal(
+                "fix",
+                now,
+                std::time::Duration::ZERO,
+            ));
 
             assert!(!consume_pending_work_signal(
                 &mut signal,
@@ -1640,7 +1687,11 @@ mod tests {
     #[test]
     fn ansi_only_output_and_expired_submission_do_not_qualify() {
         let now = tokio::time::Instant::now();
-        let mut signal = Some(arm_pending_work_signal("fix", now));
+        let mut signal = Some(arm_pending_work_signal(
+            "fix",
+            now,
+            std::time::Duration::ZERO,
+        ));
         assert!(!consume_pending_work_signal(&mut signal, "\x1b[2K\r", now));
         assert!(!consume_pending_work_signal(
             &mut signal,
@@ -1656,7 +1707,11 @@ mod tests {
     #[test]
     fn ansi_only_output_preserves_pending_echo_for_following_output() {
         let now = tokio::time::Instant::now();
-        let mut signal = Some(arm_pending_work_signal("fix", now));
+        let mut signal = Some(arm_pending_work_signal(
+            "fix",
+            now,
+            std::time::Duration::ZERO,
+        ));
 
         assert!(!consume_pending_work_signal(&mut signal, "\x1b[2K\r", now));
         assert!(!consume_pending_work_signal(&mut signal, "fix\r\n", now));
@@ -1666,12 +1721,126 @@ mod tests {
     #[test]
     fn control_only_output_does_not_qualify_as_visible() {
         let now = tokio::time::Instant::now();
-        let mut signal = Some(arm_pending_work_signal("fix", now));
+        let mut signal = Some(arm_pending_work_signal(
+            "fix",
+            now,
+            std::time::Duration::ZERO,
+        ));
         assert!(!consume_pending_work_signal(&mut signal, "fix\r\n", now));
         // A bare BEL (or other C0 control byte) surviving ANSI-stripping must
         // not be mistaken for genuine model output.
         assert!(!consume_pending_work_signal(&mut signal, "\x07", now));
         assert!(consume_pending_work_signal(&mut signal, "Thinking…", now));
+    }
+
+    #[test]
+    fn banner_output_during_banner_grace_does_not_consume_initial_prompt_signal() {
+        let now = tokio::time::Instant::now();
+        let mut signal = Some(arm_pending_work_signal(
+            "fix status",
+            now,
+            STARTUP_ATTENTION_GRACE,
+        ));
+        assert!(!consume_pending_work_signal(
+            &mut signal,
+            "\r\nnvm is not compatible with the npm config\r\n",
+            now,
+        ));
+        assert!(
+            signal.is_some(),
+            "banner output during the grace must leave the signal armed"
+        );
+        let after_grace = now + STARTUP_ATTENTION_GRACE + std::time::Duration::from_millis(100);
+        assert!(consume_pending_work_signal(
+            &mut signal,
+            "Thinking…",
+            after_grace
+        ));
+        assert!(signal.is_none());
+    }
+
+    #[test]
+    fn visible_output_after_banner_grace_consumes_signal_as_before() {
+        let now = tokio::time::Instant::now();
+        let mut signal = Some(arm_pending_work_signal("fix", now, STARTUP_ATTENTION_GRACE));
+        let after_grace = now + STARTUP_ATTENTION_GRACE + std::time::Duration::from_millis(100);
+        assert!(consume_pending_work_signal(
+            &mut signal,
+            "profile banner",
+            after_grace
+        ));
+        assert!(signal.is_none());
+    }
+
+    #[test]
+    fn banner_tail_straddling_grace_boundary_consumes_on_post_grace_chunk() {
+        let now = tokio::time::Instant::now();
+        let mut signal = Some(arm_pending_work_signal("fix", now, STARTUP_ATTENTION_GRACE));
+        // Known limitation, pinned deliberately: a banner slow enough to
+        // straddle the grace boundary burns the signal on its post-grace
+        // tail. The grace bounds promotion delay; it cannot classify a
+        // boundary-spanning chunk as banner vs harness output.
+        assert!(!consume_pending_work_signal(
+            &mut signal,
+            "\r\nnvm is not compatible",
+            now + STARTUP_ATTENTION_GRACE - std::time::Duration::from_millis(100),
+        ));
+        assert!(consume_pending_work_signal(
+            &mut signal,
+            " with the npm config\r\n",
+            now + STARTUP_ATTENTION_GRACE + std::time::Duration::from_millis(100),
+        ));
+        assert!(signal.is_none());
+    }
+
+    #[test]
+    fn banner_grace_extends_to_post_spawn_startup_horizon() {
+        let now = tokio::time::Instant::now();
+        let mut signal = Some(arm_pending_work_signal(
+            "fix",
+            now,
+            std::time::Duration::ZERO,
+        ));
+        // Spawn setup consumed wall-clock time between arming and the
+        // runtime computing its startup horizon; the grace deadline must
+        // move with it or output landing in the gap consumes the signal
+        // while promotion is still blocked.
+        let spawn_delay = std::time::Duration::from_millis(150);
+        let startup_grace_ends_at = now + spawn_delay + STARTUP_ATTENTION_GRACE;
+        align_banner_grace_with_startup(&mut signal, startup_grace_ends_at);
+        assert!(!consume_pending_work_signal(
+            &mut signal,
+            "banner",
+            startup_grace_ends_at - std::time::Duration::from_millis(100),
+        ));
+        assert!(
+            signal.is_some(),
+            "output inside the post-spawn startup grace must not consume the signal"
+        );
+        assert!(consume_pending_work_signal(
+            &mut signal,
+            "Thinking…",
+            startup_grace_ends_at + std::time::Duration::from_millis(100),
+        ));
+        assert!(signal.is_none());
+    }
+
+    #[test]
+    fn prompt_echo_still_trims_during_banner_grace() {
+        let now = tokio::time::Instant::now();
+        let mut signal = Some(arm_pending_work_signal(
+            "fix status",
+            now,
+            STARTUP_ATTENTION_GRACE,
+        ));
+        assert!(!consume_pending_work_signal(&mut signal, "fix ", now));
+        assert!(!consume_pending_work_signal(&mut signal, "banner", now));
+        let after_grace = now + STARTUP_ATTENTION_GRACE + std::time::Duration::from_millis(100);
+        assert!(consume_pending_work_signal(
+            &mut signal,
+            "Thinking…",
+            after_grace
+        ));
     }
 
     #[test]
@@ -2281,6 +2450,7 @@ mod tests {
             handle.pending_work_signal = Some(arm_pending_work_signal(
                 "submitted command",
                 tokio::time::Instant::now(),
+                std::time::Duration::ZERO,
             ));
         }
 
@@ -2334,7 +2504,11 @@ mod tests {
             .any(|line| line.contains("startup-grace-output")));
         assert_ne!(session.info.attention.as_deref(), Some("working"));
         assert_ne!(session.info.observed_status.as_deref(), Some("working"));
-        assert!(session.pending_work_signal.is_none());
+        assert!(
+            session.pending_work_signal.is_some(),
+            "output inside the startup grace must not consume the armed signal; \
+             promotion stays possible for post-grace output (issue #390)"
+        );
         drop(handle);
 
         kill_tx.send(true).unwrap();
@@ -2880,7 +3054,15 @@ mod tests {
             },
         ));
 
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        // The resize must be absorbed by capture_startup_runtime_state as the
+        // initial PTY size, so it is queued before the runtime task is ever
+        // polled: #[tokio::test] runs on the current-thread scheduler and the
+        // send below completes without a yield point, so the command is
+        // already in the control buffer when the task's startup grace recv
+        // first runs. A timed sleep cannot establish this ordering — under CI
+        // load its deadline can fire after INITIAL_RESIZE_GRACE expires, the
+        // PTY spawns at the default size, and the child's `stty` beats the
+        // post-spawn resize (observed flake in Main CI run 33470801718).
         control_tx
             .send(RuntimeCommand::Resize {
                 rows: 40,

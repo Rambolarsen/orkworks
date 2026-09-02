@@ -82,6 +82,7 @@ export function attentionTone(status: string): AttentionTone {
     case "waiting_for_input":
       return "needs-you";
     case "failed":
+    case "error":
       return "failed";
     case "checking_capacity":
     case "capped":

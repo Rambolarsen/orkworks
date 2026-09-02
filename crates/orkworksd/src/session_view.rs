@@ -909,4 +909,93 @@ mod tests {
         assert_eq!(memory_state, MemoryState::Live);
         assert_eq!(strategy, harness::ResumeStrategy::None);
     }
+
+    fn recommendation_ctx(dirty: bool, branch: Option<&str>, is_worktree: bool) -> git::GitContext {
+        git::GitContext {
+            repo_root: Some("/repo".into()),
+            branch: branch.map(Into::into),
+            dirty,
+            changed_files: 3,
+            is_worktree,
+        }
+    }
+
+    #[test]
+    fn session_recommendation_pins_each_branch_message_and_none_fallthrough() {
+        assert_eq!(
+            session_recommendation(&recommendation_ctx(false, Some("feature"), true), 1).as_deref(),
+            Some("Running in a separate worktree. Good isolation."),
+        );
+        assert_eq!(
+            session_recommendation(&recommendation_ctx(true, Some("feature"), false), 2).as_deref(),
+            Some("Multiple sessions in the same dirty workspace. Consider separate worktrees."),
+        );
+        assert_eq!(
+            session_recommendation(&recommendation_ctx(true, Some("feature"), false), 1).as_deref(),
+            Some("Working outside main in a dirty workspace. A worktree may be safer."),
+        );
+        assert_eq!(
+            session_recommendation(&recommendation_ctx(false, Some("main"), false), 1),
+            None
+        );
+        assert_eq!(
+            session_recommendation(&recommendation_ctx(true, Some("main"), false), 1),
+            None
+        );
+    }
+
+    #[test]
+    fn session_recommendation_prefers_worktree_over_dirty_workspace_branches() {
+        // Worktree + dirty + 2 sessions sharing the cwd would match the
+        // multi-session-dirty branch if the is_worktree short-circuit were
+        // demoted below it.
+        assert_eq!(
+            session_recommendation(&recommendation_ctx(true, Some("feature"), true), 2).as_deref(),
+            Some("Running in a separate worktree. Good isolation."),
+        );
+    }
+
+    #[test]
+    fn session_recommendation_prefers_multi_session_dirty_over_outside_main() {
+        // Non-worktree, dirty, side branch, 2+ sessions: the multi-session
+        // message wins over the outside-main message.
+        assert_eq!(
+            session_recommendation(&recommendation_ctx(true, Some("feature"), false), 3).as_deref(),
+            Some("Multiple sessions in the same dirty workspace. Consider separate worktrees."),
+        );
+    }
+
+    #[test]
+    fn merge_live_session_info_extracts_only_the_snapshot_value() {
+        // The API-facing `final_observed_status` must take only the snapshot's
+        // `value`, never its source/confidence/observedAt bookkeeping (issue
+        // #394): a populated snapshot with non-default provenance pins the
+        // extraction against a future refactor that serializes the whole
+        // snapshot. Every other fixture in the suite leaves `value: None`.
+        let info = test_session_info(
+            "snap-value",
+            "Snap Value",
+            "/tmp/project",
+            "error",
+            "2026-06-28T09:00:00Z",
+        );
+        let mut meta = crate::test_support::test_session_metadata(
+            "snap-value",
+            "Snap Value",
+            "/tmp/project",
+            "error",
+            "2026-06-28T09:00:00Z",
+            "2026-06-28T09:05:00Z",
+        );
+        meta.final_observed_status_snapshot = Some(metadata::ObservedStatusSnapshotMetadata {
+            value: Some("done".into()),
+            source: "peon".into(),
+            confidence: Some(0.9),
+            observed_at: Some("2026-06-28T09:01:00Z".into()),
+        });
+
+        let merged = merge_live_session_info(info, Some(&meta), None, None);
+
+        assert_eq!(merged.final_observed_status.as_deref(), Some("done"));
+    }
 }

@@ -5,7 +5,7 @@ import { existsSync } from "fs";
 import * as path from "path";
 import { pathToFileURL } from "url";
 import { getDevRepoRoot, getDevSidecarPath, getPackagedSidecarPath } from "./paths";
-import { readWorkspaceMemory, rememberWorkspacePath } from "./workspaceMemory";
+import { readWorkspaceMemory, rememberWorkspacePath, forgetWorkspacePath } from "./workspaceMemory";
 import { readLayoutMemory, writeLayoutMemory } from "./layoutMemory";
 import type { AppSettings } from "./settingsMemory";
 import { DEFAULT_HOTKEYS, DEFAULT_RETENTION, loadSettingsForStartup, normalizeDebugSettings, normalizeProviderSettings, normalizeRetention, providerDefinitionsForStoredSettings, readSettings, settingsWithHotkeys, settingsWithPeonSelection, validateHotkeys, writeSettings } from "./settingsMemory";
@@ -17,6 +17,7 @@ import { getSessionPlanContent, requestSessionPlanReview, selectTerminalPlan } f
 import { configureExternalLinks, openExternalLink } from "./externalLinks";
 import { createSidecarLifecycle, type SidecarLifecycle, type SidecarProcess, type SidecarState } from "./sidecarLifecycle";
 import { createBackendRestorationCoordinator, switchWorkspaceBackend, type BackendRestorationCoordinator } from "./backendRestoration";
+import { parseWorkspaceRestoreResponse } from "./workspaceRestore";
 import type { BackendLifecycleEvent, BackendLifecycleWorkspace } from "./backendLifecycleEvent";
 import { sanitizeBackendLifecycleFailure } from "./backendLifecycleFailure";
 import { rendererConsoleDiagnostic, rendererConsoleLevel, rendererOrigin, sanitizeRendererDiagnosticMessage } from "./rendererDiagnostic";
@@ -233,28 +234,14 @@ app.whenReady().then(() => {
       body: JSON.stringify({ path: workspacePath }),
       signal,
     });
-    if (!response.ok) {
-      throw new Error(`Workspace restoration failed: ${response.status}`);
-    }
-    const rawWorkspace = await response.json() as Partial<BackendLifecycleWorkspace>;
+    const workspace = await parseWorkspaceRestoreResponse(response);
     signal.throwIfAborted();
-    const restoredActiveHarnessRevision = rawWorkspace.activeHarnessRevision;
-    if (
-      typeof restoredActiveHarnessRevision !== "number" ||
-      !Number.isInteger(restoredActiveHarnessRevision) ||
-      restoredActiveHarnessRevision < 0
-    ) {
-      throw new Error("Workspace restoration returned an invalid active harness revision.");
+    if (workspace === null) {
+      console.warn(`[main] remembered workspace path was rejected by the sidecar: ${workspacePath}`);
+      forgetWorkspacePath(app.getPath("userData"), workspacePath);
+      workspacePath = null;
     }
-    return {
-      path: rawWorkspace.path ?? "",
-      repo_root: rawWorkspace.repo_root ?? null,
-      branch: rawWorkspace.branch ?? null,
-      dirty: rawWorkspace.dirty ?? null,
-      lastActiveSessionId: rawWorkspace.lastActiveSessionId ?? null,
-      activeHarnessIds: rawWorkspace.activeHarnessIds ?? [],
-      activeHarnessRevision: restoredActiveHarnessRevision,
-    };
+    return workspace;
   }
 
   async function applyRetentionSettings(port: number, signal: AbortSignal): Promise<void> {

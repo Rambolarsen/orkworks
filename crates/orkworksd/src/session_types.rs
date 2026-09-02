@@ -344,8 +344,12 @@ mod tests {
     }
 
     #[test]
-    fn session_info_json_always_includes_final_observed_status_and_excludes_internal_snapshot_fields(
-    ) {
+    fn session_info_json_pins_public_key_shape_without_snapshot_and_terminal_bookkeeping_keys() {
+        // Pins SessionInfo's static serde shape only (issue #394): the public
+        // finalObservedStatus key exists and the internal snapshot/terminal
+        // bookkeeping keys on SessionMetadata are not part of this struct's
+        // output. The snapshot->value extraction behavior is pinned separately
+        // by session_view's merge_live_session_info_extracts_only_the_snapshot_value.
         let info = test_session_info("s7", "Label", "/tmp", "ended", "now");
         let json = serde_json::to_string(&info).unwrap();
         assert!(json.contains("\"finalObservedStatus\":null"));

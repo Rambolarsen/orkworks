@@ -15,7 +15,7 @@ corepack prepare pnpm@11.9.0 --activate
 # Install dependencies
 pnpm install
 
-# Run Vite + Electron; this auto-launches the Rust sidecar
+# Run Vite + Electron; this builds and auto-launches the Rust sidecar
 pnpm dev
 
 # Build Electron and package a host-architecture release artifact

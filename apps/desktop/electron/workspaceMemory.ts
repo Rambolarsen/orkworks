@@ -45,3 +45,11 @@ export function rememberWorkspacePath(userDataPath: string, workspacePath: strin
   writeWorkspaceMemory(userDataPath, next);
   return next;
 }
+
+export function forgetWorkspacePath(userDataPath: string, workspacePath: string): AppWorkspaceMemory {
+  const current = readWorkspaceMemory(userDataPath);
+  if (current.lastWorkspacePath !== workspacePath) return current;
+  const next = { ...current, lastWorkspacePath: null };
+  writeWorkspaceMemory(userDataPath, next);
+  return next;
+}

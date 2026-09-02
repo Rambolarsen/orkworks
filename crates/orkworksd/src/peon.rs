@@ -602,6 +602,8 @@ Available fields:
 
 If a line starting with '[User input]:' is present, it is what the user just typed to the AI coding tool. Use it to derive a short, direct, present-tense summary of what the user is doing — like a commit-message subject line. NEVER start the summary with \"User\", \"User is\", \"User wants\", \"User asked\", \"User requested\", or \"User typed\". Examples: \"Fixing peon model detection\" not \"User is fixing peon model detection\". \"Reviewing PR feedback\" not \"User wants to review PR feedback\". Keep it under 8 words. The summary must name the concrete task topic, never a generic instruction or control narration such as \"instructing the agent\" or \"continuing current task execution\". Preserve every explicit PR number from the user input (for example, \"PR #249\" or \"pull request #249\").";
 
+const MAX_WORKFLOW_CANDIDATES: usize = 5;
+
 const VALID_STATUSES: &[&str] = &[
     "waiting_for_input",
     "blocked",
@@ -652,8 +654,38 @@ pub struct PeonInference {
     pub detected_model: Option<String>,
     #[serde(rename = "harnessSessionId", default)]
     pub harness_session_id: Option<String>,
-    #[serde(rename = "workflowObservations", default)]
+    #[serde(
+        rename = "workflowObservations",
+        default,
+        deserialize_with = "deserialize_workflow_candidates"
+    )]
     pub workflow_observations: Vec<PeonWorkflowObservation>,
+}
+
+/// Best-effort per-candidate extraction: malformed candidates are dropped and
+/// the list is capped, so a quirk in the optional workflow-observation output
+/// never discards the core session-situation inference (issue #342).
+fn deserialize_workflow_candidates<'de, D>(
+    deserializer: D,
+) -> Result<Vec<PeonWorkflowObservation>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let raw = serde_json::Value::deserialize(deserializer)?;
+    let mut candidates = Vec::new();
+    if let serde_json::Value::Array(items) = raw {
+        for item in items {
+            if candidates.len() == MAX_WORKFLOW_CANDIDATES {
+                break;
+            }
+            if let Ok(candidate) = serde_json::from_value::<PeonWorkflowObservation>(item) {
+                if (0.0..=1.0).contains(&candidate.confidence) {
+                    candidates.push(candidate);
+                }
+            }
+        }
+    }
+    Ok(candidates)
 }
 
 pub fn extract_json(raw: &str) -> Option<String> {
@@ -703,8 +735,10 @@ pub fn validate_inference(inf: &PeonInference) -> Result<(), String> {
         }
     }
 
-    if inf.workflow_observations.len() > 5 {
-        return Err("workflow observation candidates exceed the maximum of five".to_string());
+    if inf.workflow_observations.len() > MAX_WORKFLOW_CANDIDATES {
+        return Err(format!(
+            "workflow observation candidates exceed the maximum of {MAX_WORKFLOW_CANDIDATES}"
+        ));
     }
     for candidate in &inf.workflow_observations {
         if !(0.0..=1.0).contains(&candidate.confidence) {
@@ -1099,8 +1133,10 @@ mod tests {
     }
 
     #[test]
-    fn peon_rejects_observation_candidate_confidence_out_of_range() {
+    fn peon_drops_out_of_range_observation_candidates_but_keeps_inference() {
         let raw = r#"{
+            "observedStatus": "blocked",
+            "summary": "Fixing the failing test",
             "confidence": 0.8,
             "workflowObservations": [{
                 "kind": "obstacle",
@@ -1108,10 +1144,64 @@ mod tests {
                 "evidence": "The command returned permission denied",
                 "reportedImpact": "high",
                 "confidence": 1.1
+            }, {
+                "kind": "repetition",
+                "description": "The same fixture had to be rebuilt manually",
+                "evidence": "The rebuild step ran three times",
+                "reportedImpact": "low",
+                "confidence": 0.6
             }]
         }"#;
 
-        assert!(parse_inference(raw).is_none());
+        let inference =
+            parse_inference(raw).expect("core inference must survive an invalid candidate");
+        assert_eq!(inference.observed_status, Some("blocked".into()));
+        assert_eq!(inference.summary, Some("Fixing the failing test".into()));
+        assert_eq!(inference.workflow_observations.len(), 1);
+        assert_eq!(
+            inference.workflow_observations[0].kind,
+            crate::workflow_observations::ObservationKind::Repetition
+        );
+    }
+
+    #[test]
+    fn peon_drops_malformed_observation_candidates_and_keeps_inference() {
+        let raw = r#"{
+            "observedStatus": "working",
+            "summary": "Refactoring the parser",
+            "confidence": 0.8,
+            "workflowObservations": [
+                {"kind": "not_a_real_kind", "description": "x", "evidence": "e", "reportedImpact": "low", "confidence": 0.5},
+                "just a string, not a candidate",
+                {"kind": "workaround", "description": "A manual step stood in for automation", "evidence": "e", "reportedImpact": "medium", "confidence": 0.7}
+            ]
+        }"#;
+
+        let inference =
+            parse_inference(raw).expect("core inference must survive malformed candidates");
+        assert_eq!(inference.observed_status, Some("working".into()));
+        assert_eq!(inference.summary, Some("Refactoring the parser".into()));
+        assert_eq!(inference.workflow_observations.len(), 1);
+        assert_eq!(
+            inference.workflow_observations[0].kind,
+            crate::workflow_observations::ObservationKind::Workaround
+        );
+    }
+
+    #[test]
+    fn peon_drops_non_array_workflow_observations_but_keeps_inference() {
+        let raw = r#"{
+            "observedStatus": "working",
+            "summary": "Refactoring the parser",
+            "confidence": 0.8,
+            "workflowObservations": "oops"
+        }"#;
+
+        let inference = parse_inference(raw)
+            .expect("core inference must survive an unparseable candidate list");
+        assert_eq!(inference.observed_status, Some("working".into()));
+        assert_eq!(inference.summary, Some("Refactoring the parser".into()));
+        assert!(inference.workflow_observations.is_empty());
     }
 
     #[test]
@@ -1128,7 +1218,16 @@ mod tests {
             ]
         }"#;
 
-        assert!(parse_inference(raw).is_none());
+        let inference =
+            parse_inference(raw).expect("core inference must survive candidate overflow");
+        assert_eq!(inference.workflow_observations.len(), 5);
+        assert_eq!(inference.workflow_observations[0].description, "one");
+    }
+
+    #[test]
+    fn parse_inference_returns_none_for_malformed_top_level_json() {
+        assert!(parse_inference("{not json").is_none());
+        assert!(parse_inference(r#"{"confidence": 0.5, "observedStatus": 42}"#).is_none());
     }
 
     #[test]

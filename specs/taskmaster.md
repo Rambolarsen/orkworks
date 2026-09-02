@@ -446,7 +446,7 @@ workflowImprovement
 
 Each canonical `evidence` entry embeds an immutable snapshot of a cited observation (ID, sequence, session ID, kind, description, evidence text, impact, source, confidence, observed time), so ordinary observation-segment trimming cannot invalidate an existing proposed or dismissed card. A recommendation cannot claim more recurrences or sessions than its evidence contains. A proposed recommendation may be updated with later qualifying evidence while retaining its identity and lifecycle history.
 
-For this passive variant, only `proposed`, `dismissed`, and `superseded` are reachable in the first version; the remaining canonical statuses stay valid for shared deserialization but are never produced by this evaluator.
+For this passive variant, only `proposed` and `dismissed` are reachable in the first version; the remaining canonical statuses, including `superseded`, stay valid for shared deserialization but are never produced by this evaluator. A dismissed record remains immutable history even when its evidence later qualifies for a resurfaced successor — the successor's `supersedesRecommendationId` records the lineage, and the predecessor's status is never rewritten.
 
 ### Deduplication and dismissal watermark
 
@@ -876,7 +876,7 @@ The action overview continues to answer what needs attention now. Taskmaster rec
 - [ ] Capacity changes can supersede or rerank a proposed recommendation.
 - [ ] Taskmaster never writes terminal input, modifies source files, or performs Git workflow actions directly.
 - [ ] Two sessions that each produce a matching workflow observation (same fingerprint, confidence ≥ `0.6`) can produce one evidence-backed `improve_workflow` recommendation citing both.
-- [ ] `improve_workflow` recommendations expose no accept/execute action and only ever reach `proposed`, `dismissed`, or `superseded` status.
+- [ ] `improve_workflow` recommendations expose no accept/execute action and only ever reach `proposed` or `dismissed` status.
 - [ ] Dismissing an `improve_workflow` recommendation persists an evidence watermark and does not resurface it from unchanged evidence.
 
 ## Non-goals reaffirmed

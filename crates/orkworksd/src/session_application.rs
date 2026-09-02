@@ -2929,6 +2929,9 @@ async fn create_session_workflow(
     // prompt (written straight to the PTY in `start_session_runtime`) must arm
     // the same fallback a typed-and-submitted command would, or the session's
     // first turn never promotes past creating/idle while Peon is disabled.
+    // The banner grace is zero here on purpose: `start_session_runtime`
+    // re-bases the deadline onto its post-spawn `startup_grace_ends_at`
+    // before any output can be consumed (issue #390).
     let pending_work_signal = initial_prompt
         .as_deref()
         .filter(|prompt| !prompt.is_empty() && !resolved_launch.active_work_hook)
@@ -2936,6 +2939,7 @@ async fn create_session_workflow(
             crate::runtime::session_runtime::arm_pending_work_signal(
                 prompt,
                 tokio::time::Instant::now(),
+                std::time::Duration::ZERO,
             )
         });
     // The initial prompt is written straight to the PTY (bypassing the
@@ -5255,6 +5259,7 @@ mod tests {
             Some(crate::runtime::session_runtime::arm_pending_work_signal(
                 "y",
                 tokio::time::Instant::now(),
+                std::time::Duration::ZERO,
             ));
         state.sessions.lock().unwrap().insert(id.into(), handle);
 
@@ -5396,6 +5401,7 @@ mod tests {
             Some(crate::runtime::session_runtime::arm_pending_work_signal(
                 "y",
                 tokio::time::Instant::now(),
+                std::time::Duration::ZERO,
             ));
         state.sessions.lock().unwrap().insert(id.into(), handle);
 

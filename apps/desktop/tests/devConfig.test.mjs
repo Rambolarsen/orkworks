@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 
 import { createViteServerOptions, electronSpawnConfig } from "../scripts/devConfig.mjs";
@@ -32,4 +33,11 @@ test("dev script launches Electron through pnpm instead of npx", () => {
     assert.deepEqual(config.args, ["exec", "electron", "."]);
     assert.equal(config.options.shell, false);
   }
+});
+
+test("desktop dev command rebuilds the Rust sidecar before launching", async () => {
+  const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+
+  assert.match(packageJson.scripts.dev, /build:rust/);
+  assert.match(packageJson.scripts.dev, /build:rust.*tsc/);
 });

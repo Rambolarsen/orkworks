@@ -31,10 +31,32 @@ test("needsAttention recognizes only actionable alive attention", () => {
   assert.equal(needsAttention("capped"), false);
 });
 
-test("alive sessions use attention and dead sessions are neutral", () => {
+test("dead sessions ignore attention and stay neutral without a terminal outcome", () => {
   assert.equal(sessionAttentionStatus(session("working", "alive", "working")), "working");
   assert.equal(sessionAttentionStatus(session("idle", "alive")), "idle");
   assert.equal(sessionAttentionStatus(session("dead", "dead", "blocked")), "neutral");
+});
+
+test("dead sessions surface their terminal outcome instead of erasing it", () => {
+  assert.equal(sessionAttentionStatus({ ...session("dead-error", "dead"), terminalOutcome: "error" }), "error");
+  assert.equal(sessionAttentionStatus({ ...session("dead-killed", "dead"), terminalOutcome: "killed" }), "killed");
+  assert.equal(sessionAttentionStatus({ ...session("dead-ended", "dead"), terminalOutcome: "ended" }), "ended");
+});
+
+test("dead sessions without a recorded terminal outcome stay neutral", () => {
+  assert.equal(sessionAttentionStatus(session("dead-legacy", "dead")), "neutral");
+});
+
+test("remembered rows never render loud treatment, even with a failed tone", () => {
+  const source = readFileSync(
+    new URL("../src/components/SessionListPanel.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(
+    source,
+    /isLoudTone\(tone\) && !remembered/,
+    "a dead error session gets tone \"failed\"; loud treatment must stay suppressed for remembered rows",
+  );
 });
 
 test("a session spawning or tearing down its PTY reads working", () => {
