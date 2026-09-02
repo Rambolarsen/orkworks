@@ -388,7 +388,10 @@ fn capability_names(definition: &HarnessDefinition) -> BTreeSet<CapabilityName> 
             super::definition::SessionSignalBinding::Aider => {
                 names.insert(CapabilityName::Attention);
             }
-            super::definition::SessionSignalBinding::OpenCode => {}
+            super::definition::SessionSignalBinding::OpenCode => {
+                names.insert(CapabilityName::NativeSessionId);
+                names.insert(CapabilityName::Attention);
+            }
         }
     }
     if definition.integration.is_some() {
@@ -756,6 +759,10 @@ mod tests {
         let aider = &registry.get("aider").unwrap().effective_capabilities;
         assert!(aider.contains(&CapabilityName::Attention));
         assert!(!aider.contains(&CapabilityName::NativeSessionId));
+        let opencode = &registry.get("opencode").unwrap().effective_capabilities;
+        assert!(opencode.contains(&CapabilityName::NativeSessionId));
+        assert!(opencode.contains(&CapabilityName::Attention));
+        assert!(!opencode.contains(&CapabilityName::Lifecycle));
         let claude = &registry.get("claude-code").unwrap().effective_capabilities;
         assert!(claude.contains(&CapabilityName::NativeSessionId));
         assert!(!claude.contains(&CapabilityName::Attention));
