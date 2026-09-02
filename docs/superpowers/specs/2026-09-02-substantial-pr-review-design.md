@@ -71,7 +71,9 @@ and external-head PRs are never sent to Claude.
    so it can rerun a head that already has a marker while still rejecting a
    documentation-only PR. Claude returns a structured report; a separate
    publish job with write permission, not Claude, prepends the current full SHA
-   marker and posts the single comment deterministically.
+   marker and posts the single comment deterministically. The publisher rejects
+   reports that are explicitly progress/placeholder text and edits an existing
+   same-head bot comment on a manual force rerun instead of creating a duplicate.
 7. Revalidate the live PR head immediately before Claude and after it returns.
    Claude reviews the checked-out, SHA-pinned local diff rather than a live PR
    diff. After Claude returns successfully, verify that a bot-authored comment
@@ -102,6 +104,8 @@ idempotency. The workflow never mutates repository code or merges a PR.
 - Claude runs with read-only GitHub permission and does not receive permission
   to post comments; a separate publish job publishes its structured report
   with the exact marker after revalidating the head.
+- The publisher rejects an empty or explicit progress/placeholder report, so a
+  successful Claude action cannot advance the baseline with an unfinished review.
 - Claude runs with a bounded turn budget so a large PR cannot consume an
   unbounded review budget; the current workflow cap is 40 turns.
 - The cheap eligibility job may run for every update; the Claude action may

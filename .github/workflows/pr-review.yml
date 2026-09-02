@@ -276,6 +276,11 @@ jobs:
             this run and do not post to GitHub directly. Return the final report
             in the required structured `report` field; the workflow will add
             the machine-readable marker and publish exactly one comment.
+            You are the only reviewer for this bounded pass: do not spawn,
+            delegate to, or wait for subagents. Do not return progress updates,
+            placeholders, or statements that analysis is still in progress.
+            The report must contain actual findings or a plainly stated no-
+            findings result before you return.
 
             Otherwise:
 
@@ -333,13 +338,32 @@ jobs:
           test "$live_head_sha" = "$HEAD_SHA"
           report="$(jq -r '.report' <<<"$REVIEW_JSON")"
           test -n "$report"
+          if grep -Eiq 'placeholder|review in progress|background (subagents?|work)' <<<"$report"; then
+            echo "Claude returned a progress or placeholder report instead of a completed review" >&2
+            exit 1
+          fi
           comment_file="$RUNNER_TEMP/orkworks-pr-review-comment.md"
           {
             printf '%s\n' '### Automated code review'
             printf '%s\n\n' "<!-- orkworks-automated-review: sha=$HEAD_SHA -->"
             printf '%s\n' "$report"
           } > "$comment_file"
-          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file "$comment_file"
+          comments_json="$(gh api --paginate --slurp \
+            "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100")"
+          comment_id="$(jq --arg sha "$HEAD_SHA" -r '
+            add // []
+            | sort_by(.created_at)
+            | map(select(.user.login == "github-actions[bot]"
+              and (.body | test("^### Automated code review\\r?\\n<!-- orkworks-automated-review: sha=" + $sha + " -->"))))
+            | if length == 0 then "" else (.[-1].id | tostring) end
+          ' <<<"$comments_json")"
+          if [ -n "$comment_id" ]; then
+            gh api --method PATCH \
+              "repos/$GITHUB_REPOSITORY/issues/comments/$comment_id" \
+              -F "body=@$comment_file"
+          else
+            gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file "$comment_file"
+          fi
 
           live_head_sha="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq '.head.sha')"
           test "$live_head_sha" = "$HEAD_SHA"
