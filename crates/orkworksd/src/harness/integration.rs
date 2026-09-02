@@ -8,8 +8,9 @@ mod tests {
     use std::path::Path;
 
     use super::{
-        json_ownership, parse_json_object, ConfigFileTransaction, IntegrationError,
-        IntegrationOwnership, ValidatedWorkspaceTarget,
+        binding_for_key, integration_key, json_ownership, parse_json_object, ConfigFileTransaction,
+        IntegrationBinding, IntegrationError, IntegrationKey, IntegrationOwnership,
+        ValidatedWorkspaceTarget, WORKSPACE_TARGET_ID,
     };
 
     #[test]
@@ -417,6 +418,43 @@ mod tests {
             .unwrap_err();
         assert_eq!(error.code(), "workspace_escape");
     }
+
+    #[test]
+    fn integration_keys_round_trip_through_binding_for_key() {
+        // The key string must equal the binding's kebab-case `kind` in the
+        // harness definitions: the Electron main process and the renderer
+        // both derive the grouped integration key from
+        // `harness.integration.kind`, so a key that only `integration_key`
+        // produces (with no matching `binding_for_key` arm) makes the
+        // grouped routes 404 for that adapter — Settings then reports
+        // "integration status unavailable" and can never reconcile it.
+        for binding in [
+            IntegrationBinding::Claude,
+            IntegrationBinding::Codex,
+            IntegrationBinding::OpenCode,
+            IntegrationBinding::Gemini,
+            IntegrationBinding::Copilot,
+            IntegrationBinding::Aider,
+        ] {
+            let key = integration_key(&binding);
+            assert_eq!(
+                binding_for_key(&key),
+                Some(binding.clone()),
+                "key {}/{} does not round-trip",
+                key.adapter_id,
+                key.target_id
+            );
+        }
+    }
+
+    #[test]
+    fn binding_for_key_accepts_the_kebab_case_open_code_kind() {
+        let key = IntegrationKey {
+            adapter_id: "open-code".into(),
+            target_id: WORKSPACE_TARGET_ID.into(),
+        };
+        assert_eq!(binding_for_key(&key), Some(IntegrationBinding::OpenCode));
+    }
 }
 // Shared safety boundaries for workspace-scoped harness integrations.
 // Tool handlers may only mutate a [`ValidatedWorkspaceTarget`] through a
@@ -458,7 +496,12 @@ pub(crate) fn integration_key(binding: &IntegrationBinding) -> IntegrationKey {
         adapter_id: match binding {
             IntegrationBinding::Claude => "claude",
             IntegrationBinding::Codex => "codex",
-            IntegrationBinding::OpenCode => "opencode",
+            // Must match the binding's kebab-case serde `kind` in the harness
+            // definitions: both Electron main and the renderer derive the
+            // grouped integration key from `harness.integration.kind`, so an
+            // adapter-id spelling that differs from the definition kind makes
+            // the grouped routes 404 for that adapter.
+            IntegrationBinding::OpenCode => "open-code",
             IntegrationBinding::Gemini => "gemini",
             IntegrationBinding::Copilot => "copilot",
             IntegrationBinding::Aider => "aider",
@@ -475,7 +518,9 @@ pub(crate) fn binding_for_key(key: &IntegrationKey) -> Option<IntegrationBinding
     Some(match key.adapter_id.as_str() {
         "claude" => IntegrationBinding::Claude,
         "codex" => IntegrationBinding::Codex,
-        "opencode" => IntegrationBinding::OpenCode,
+        // "opencode" is the pre-fix spelling integration_key used to emit;
+        // accept it so a cached older client key still resolves.
+        "open-code" | "opencode" => IntegrationBinding::OpenCode,
         "gemini" => IntegrationBinding::Gemini,
         "copilot" => IntegrationBinding::Copilot,
         "aider" => IntegrationBinding::Aider,
