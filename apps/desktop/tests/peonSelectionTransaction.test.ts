@@ -76,6 +76,43 @@ test("verify surfaces the error when the retry is also rejected", async () => {
   assert.equal(requestedGenerations.length, 2);
 });
 
+test("verify does not resync or retry when superseded by a newer local verification", async () => {
+  let releaseFirst!: () => void;
+  const gate = new Promise<void>((resolve) => { releaseFirst = resolve; });
+  const requestedGenerations: number[] = [];
+  const transaction = createPeonSelectionTransaction(
+    transportWithVerify(async (request) => {
+      requestedGenerations.push(request.generation);
+      if (request.generation === 1) {
+        await gate;
+        throw new StaleGenerationError("stale", 5);
+      }
+      return verificationResponse(request.generation);
+    }),
+  );
+
+  const first = transaction.verify("opencode");
+  const second = await transaction.verify("opencode");
+  releaseFirst();
+
+  await assert.rejects(() => first, /stale/);
+  assert.equal(second.generation, 2);
+  assert.deepEqual(requestedGenerations, [1, 2]);
+});
+
+test("verify does not retry a stale error without a usable remote generation", async () => {
+  const requestedGenerations: number[] = [];
+  const transaction = createPeonSelectionTransaction(
+    transportWithVerify(async (request) => {
+      requestedGenerations.push(request.generation);
+      throw new StaleGenerationError("stale", null);
+    }),
+  );
+
+  await assert.rejects(() => transaction.verify("opencode"), /stale/);
+  assert.deepEqual(requestedGenerations, [1]);
+});
+
 test("peonErrorFromBody builds a StaleGenerationError from a stale sidecar error body", () => {
   const error = peonErrorFromBody(
     { error: { code: "stale_generation", message: "boom" }, currentGeneration: 999001 },
@@ -100,4 +137,14 @@ test("peonErrorFromBody builds a plain error for non-stale bodies", () => {
 test("peonErrorFromBody handles string errors and missing fields", () => {
   assert.equal(peonErrorFromBody({ error: "plain" }, "fallback").message, "plain");
   assert.equal(peonErrorFromBody({}, "fallback").message, "fallback");
+});
+
+test("peonErrorFromBody treats an unsafe-integer currentGeneration as absent", () => {
+  const error = peonErrorFromBody(
+    { error: { code: "stale_generation", message: "boom" }, currentGeneration: 99999999999999999999 },
+    "fallback",
+  );
+
+  assert.ok(error instanceof StaleGenerationError);
+  assert.equal((error as StaleGenerationError).currentGeneration, null);
 });

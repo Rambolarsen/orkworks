@@ -83,8 +83,11 @@ export function peonErrorFromBody(body: unknown, fallback: string): Error {
     ? errorField
     : typeof errorRecord?.message === "string" ? errorRecord.message : undefined;
   if (errorRecord?.code === "stale_generation") {
+    // The sidecar field is an unrestricted u64; values above
+    // Number.MAX_SAFE_INTEGER round in JS and a rounded counter could never
+    // clear the sidecar's mark, so treat them as absent (no retry) instead.
     const currentGeneration = typeof candidate?.currentGeneration === "number"
-      && Number.isInteger(candidate.currentGeneration)
+      && Number.isSafeInteger(candidate.currentGeneration)
       && candidate.currentGeneration > 0
       ? candidate.currentGeneration
       : null;
@@ -135,7 +138,11 @@ export function createPeonSelectionTransaction(transport: PeonSelectionTransport
     try {
       result = await transport.verify({ provider, ollamaBaseUrl, generation: requestGeneration, readyPort, signal });
     } catch (error) {
-      if (!resyncToRemoteGeneration(error)) throw error;
+      // A verification that was already superseded locally (the user picked a
+      // different provider while this one was in flight) must not resync or
+      // retry: retrying would burn a full provider probe on an obsolete
+      // selection and install its verification over the newer one's.
+      if (requestGeneration !== generation || !resyncToRemoteGeneration(error)) throw error;
       requestGeneration = nextGeneration();
       result = await transport.verify({ provider, ollamaBaseUrl, generation: requestGeneration, readyPort, signal });
     }
