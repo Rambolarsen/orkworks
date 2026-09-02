@@ -96,6 +96,31 @@ fn provider_error_response(error: providers::ProviderOperationError) -> axum::re
         .into_response()
 }
 
+/// Stale-generation rejections tell the desktop client which generation the
+/// sidecar is actually on so it can resync its local counter and retry
+/// instead of staying permanently locked out.
+fn stale_generation_response(
+    error: providers::ProviderOperationError,
+    current_generation: u64,
+) -> axum::response::Response {
+    let body = serde_json::json!({
+        "error": error,
+        "currentGeneration": current_generation,
+    });
+    (axum::http::StatusCode::CONFLICT, axum::Json(body)).into_response()
+}
+
+fn provider_operation_error_response(
+    error: providers::ProviderOperationError,
+    current_generation: u64,
+) -> axum::response::Response {
+    if error.code == providers::ProviderOperationErrorCode::StaleGeneration {
+        stale_generation_response(error, current_generation)
+    } else {
+        provider_error_response(error)
+    }
+}
+
 pub(crate) async fn verify_peon_provider(
     State(state): State<Arc<AppState>>,
     payload: Result<axum::Json<providers::PeonProviderVerifyRequest>, JsonRejection>,
@@ -112,7 +137,9 @@ pub(crate) async fn verify_peon_provider(
     let provider_manager = state.providers.clone();
     match tokio::task::spawn_blocking(move || provider_manager.verify_provider(payload)).await {
         Ok(Ok(response)) => axum::Json(response).into_response(),
-        Ok(Err(error)) => provider_error_response(error),
+        Ok(Err(error)) => {
+            provider_operation_error_response(error, state.providers.latest_generation())
+        }
         Err(_) => provider_error_response(providers::ProviderOperationError {
             code: providers::ProviderOperationErrorCode::ProviderFailure,
             message: "provider verification task failed".into(),
@@ -136,7 +163,9 @@ pub(crate) async fn test_and_apply_peon_provider(
     let provider_manager = state.providers.clone();
     match tokio::task::spawn_blocking(move || provider_manager.test_and_apply(payload)).await {
         Ok(Ok(response)) => axum::Json(response).into_response(),
-        Ok(Err(error)) => provider_error_response(error),
+        Ok(Err(error)) => {
+            provider_operation_error_response(error, state.providers.latest_generation())
+        }
         Err(_) => provider_error_response(providers::ProviderOperationError {
             code: providers::ProviderOperationErrorCode::ProviderFailure,
             message: "provider Apply task failed".into(),
@@ -170,6 +199,33 @@ mod tests {
         .into_response();
 
         assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn stale_verify_response_includes_current_generation() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let request = |generation: u64| {
+            axum::Json(providers::PeonProviderVerifyRequest {
+                provider: "opencode".into(),
+                generation,
+                ollama_base_url: None,
+            })
+        };
+        verify_peon_provider(State(state.clone()), Ok(request(5)))
+            .await
+            .into_response();
+        let stale = verify_peon_provider(State(state.clone()), Ok(request(4)))
+            .await
+            .into_response();
+
+        assert_eq!(stale.status(), axum::http::StatusCode::CONFLICT);
+        let bytes = axum::body::to_bytes(stale.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["error"]["code"], serde_json::json!("stale_generation"));
+        assert_eq!(body["currentGeneration"], serde_json::json!(5));
     }
 
     #[test]

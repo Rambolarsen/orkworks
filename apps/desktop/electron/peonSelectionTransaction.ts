@@ -56,6 +56,43 @@ interface AppliedSelection {
   state: PeonAppliedState;
 }
 
+export class StaleGenerationError extends Error {
+  readonly currentGeneration: number | null;
+
+  constructor(message: string, currentGeneration: number | null) {
+    super(message);
+    this.name = "StaleGenerationError";
+    this.currentGeneration = currentGeneration;
+  }
+}
+
+// The sidecar rejects operations whose generation is below its high-water
+// mark. External callers (or a sidecar that outlived the app's counter) can
+// push that mark beyond anything this process will ever generate, so the
+// error body carries the sidecar's current generation and the transaction
+// resyncs to it and retries once instead of staying locked out.
+export function peonErrorFromBody(body: unknown, fallback: string): Error {
+  const candidate = body && typeof body === "object" && !Array.isArray(body)
+    ? body as Record<string, unknown>
+    : undefined;
+  const errorField = candidate?.error;
+  const errorRecord = errorField && typeof errorField === "object" && !Array.isArray(errorField)
+    ? errorField as Record<string, unknown>
+    : undefined;
+  const message = typeof errorField === "string"
+    ? errorField
+    : typeof errorRecord?.message === "string" ? errorRecord.message : undefined;
+  if (errorRecord?.code === "stale_generation") {
+    const currentGeneration = typeof candidate?.currentGeneration === "number"
+      && Number.isInteger(candidate.currentGeneration)
+      && candidate.currentGeneration > 0
+      ? candidate.currentGeneration
+      : null;
+    return new StaleGenerationError(message ?? fallback, currentGeneration);
+  }
+  return new Error(message ?? fallback);
+}
+
 export function createPeonSelectionTransaction(transport: PeonSelectionTransport) {
   let generation = 0;
   let verified: VerifiedSelection | null = null;
@@ -81,14 +118,27 @@ export function createPeonSelectionTransaction(transport: PeonSelectionTransport
       && (selection.provider !== "ollama" || candidate.ollamaBaseUrl === selection.ollamaBaseUrl);
   }
 
+  function resyncToRemoteGeneration(error: unknown): boolean {
+    if (!(error instanceof StaleGenerationError) || error.currentGeneration === null) return false;
+    generation = Math.max(generation, error.currentGeneration);
+    return true;
+  }
+
   async function verify(
     provider: ProviderId,
     ollamaBaseUrl?: string,
     signal?: AbortSignal,
     readyPort?: number,
   ): Promise<PeonProviderVerificationResponse> {
-    const requestGeneration = nextGeneration();
-    const result = await transport.verify({ provider, ollamaBaseUrl, generation: requestGeneration, readyPort, signal });
+    let requestGeneration = nextGeneration();
+    let result: PeonProviderVerificationResponse;
+    try {
+      result = await transport.verify({ provider, ollamaBaseUrl, generation: requestGeneration, readyPort, signal });
+    } catch (error) {
+      if (!resyncToRemoteGeneration(error)) throw error;
+      requestGeneration = nextGeneration();
+      result = await transport.verify({ provider, ollamaBaseUrl, generation: requestGeneration, readyPort, signal });
+    }
     if (requestGeneration !== generation || result.generation !== requestGeneration) {
       throw new Error("Peon provider verification was superseded.");
     }
