@@ -102,6 +102,8 @@ idempotency. The workflow never mutates repository code or merges a PR.
 - Claude runs with read-only GitHub permission and does not receive permission
   to post comments; a separate publish job publishes its structured report
   with the exact marker after revalidating the head.
+- Claude runs with a bounded turn budget so a large PR cannot consume an
+  unbounded review budget; the current workflow cap is 20 turns.
 - The cheap eligibility job may run for every update; the Claude action may
   run automatically only when the cumulative threshold is reached. An
   explicit manual dispatch may invoke it below the threshold.
