@@ -56,6 +56,23 @@ assert_review_decision() {
   }
 }
 
+assert_review_base() {
+  expected="$1"
+  marker="$2"
+  base="$3"
+  head="$4"
+  actual="$base"
+  if [[ "$marker" =~ ^[0-9a-f]{40}$ ]] \
+    && git cat-file -e "${marker}^{commit}" 2>/dev/null \
+    && git merge-base --is-ancestor "$marker" "$head"; then
+    actual="$marker"
+  fi
+  [ "$actual" = "$expected" ] || {
+    echo "expected review base '$expected', got '$actual'" >&2
+    exit 1
+  }
+}
+
 assert_delta "8 500" "$baseline" "$eight_files"
 assert_review_decision false 8 500 false
 
@@ -75,6 +92,18 @@ git commit -qm "documentation only"
 docs_only="$(git rev-parse HEAD)"
 assert_delta "0 0" "$nine_files" "$docs_only"
 assert_review_decision false 0 0 true
+assert_review_base "$docs_only" "$docs_only" "$baseline" "$docs_only"
+assert_review_base "$baseline" "" "$baseline" "$docs_only"
+
+git switch -q -c non-ancestor-marker "$baseline"
+printf 'unrelated marker commit\n' > apps/desktop/non-ancestor.txt
+git add .
+git commit -qm "unrelated marker commit"
+non_ancestor_marker="$(git rev-parse HEAD)"
+git switch -q -
+assert_review_base "$baseline" "$non_ancestor_marker" "$baseline" "$docs_only"
+assert_delta "9 501" "$baseline" "$docs_only"
+assert_review_decision true 9 501 true
 
 printf 'workflow\n' > docs/irrelevant.txt
 git add .

@@ -39,7 +39,9 @@ Manual workflow dispatch remains available with a PR number input for an
 intentional review when the threshold has not been reached. Manual dispatch
 sets an explicit force flag, but still requires an open, non-draft PR targeting
 `main` with at least one changed file under `apps/desktop/` or
-`crates/orkworksd/`; documentation-only PRs are never sent to Claude.
+`crates/orkworksd/`, and the PR head must be in the same repository so the
+workflow has the required review secret and write permission. Documentation-only
+and external-head PRs are never sent to Claude.
 
 ## Workflow contract
 
@@ -49,29 +51,38 @@ sets an explicit force flag, but still requires an open, non-draft PR targeting
    `workflow_dispatch` with a required PR number.
 2. Resolve one normalized PR context for both trigger types. For pull-request
    events use the event payload; for manual dispatch query the PR API and reject
-   closed, draft, non-`main` PRs or a head SHA that does not match the checked
-   out ref. The prompt uses this normalized PR number and head SHA rather than
-   assuming `github.event.pull_request` exists.
+   closed, draft, non-`main`, or external-head PRs, or a head SHA that does not
+   match the checked out ref. The prompt uses this normalized PR number and
+   head SHA rather than assuming `github.event.pull_request` exists.
 3. Check out the resolved PR head with full history.
 4. Read all paginated PR issue comments and select the newest comment by
    `github-actions[bot]` containing the exact marker and a full lowercase SHA.
    A missing, malformed, or non-ancestor marker falls back to the PR base.
 5. Count changed non-`.md` files and additions plus deletions between the
    marker (or base) and the current head, restricted to `apps/desktop/` and
-   `crates/orkworksd/`. The calculation handles binary files and renames
-   without treating their `-` numstat values as line counts.
+   `crates/orkworksd/`. Keep this small calculation inline in the workflow so
+   PR-controlled scripts are never executed in the token-bearing eligibility
+   job. The calculation handles binary files and renames without treating their
+   `-` numstat values as line counts; the standalone helper remains covered by
+   fixture tests for the same contract.
 6. Run Claude automatically only when the file or line threshold is exceeded;
    a manual dispatch may bypass that threshold but not the relevant-code and
-   PR-state checks. The prompt includes the current full SHA in the marker and
-   skips only an exact current-head marker.
-7. After Claude returns successfully, verify that a bot-authored comment for
-   the current head contains the exact marker. A missing marker fails the job
-   so a later update cannot mistake an unmarked result for a completed review.
+   PR-state checks. Manual-force relevance is calculated from PR base to head,
+   so it can rerun a head that already has a marker while still rejecting a
+   documentation-only PR. Claude returns a structured report; a separate
+   publish job with write permission, not Claude, prepends the current full SHA
+   marker and posts the single comment deterministically.
+7. Revalidate the live PR head immediately before Claude and after it returns.
+   Claude reviews the checked-out, SHA-pinned local diff rather than a live PR
+   diff. After Claude returns successfully, verify that a bot-authored comment
+   for the unchanged current head contains the exact marker. A missing marker
+   or a changed head fails the job so a later update cannot mistake an
+   unmarked or stale result for a completed review.
 
 The existing review prompt, permissions, secret, and Claude action remain in
-place. The prompt's idempotency check changes from “any automated review
-comment” to “a marker for this exact head”. The workflow never mutates
-repository code or merges a PR.
+place. The prompt is responsible for producing the review report against the
+captured local diff; the workflow owns comment publication and marker
+idempotency. The workflow never mutates repository code or merges a PR.
 
 ## Failure behavior and safety
 
@@ -84,6 +95,13 @@ repository code or merges a PR.
   comments do not create a second review baseline.
 - A stale or non-ancestor marker falls back to the PR base.
 - Documentation-only changes never invoke Claude.
+- External-head PRs never invoke Claude because fork/Dependabot runs do not have
+  the repository secret or write permission required to post the marker.
+- The eligibility job does not execute PR-controlled scripts while it holds the
+  GitHub token; both checkouts disable persisted Git credentials.
+- Claude runs with read-only GitHub permission and does not receive permission
+  to post comments; a separate publish job publishes its structured report
+  with the exact marker after revalidating the head.
 - The cheap eligibility job may run for every update; the Claude action may
   run automatically only when the cumulative threshold is reached. An
   explicit manual dispatch may invoke it below the threshold.
@@ -102,6 +120,7 @@ Keep the numstat/counting logic in a small testable helper at
 - 9 files and 501 changed lines (automatic review);
 - documentation-only changes;
 - a valid marker baseline, a missing marker, and a non-ancestor marker;
+- manual force when the current head already has a valid marker;
 - binary and renamed files; and
 - manual force below the threshold while still rejecting docs-only PRs.
 

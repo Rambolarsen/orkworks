@@ -57,7 +57,7 @@ git commit -m "test: add PR review delta helper"
 - Modify: `.github/workflows/pr-review.yml`
 - Modify: `scripts/pr-review-delta.test.sh`
 
-**Interfaces:** The `changes` job outputs `pr_number`, `base_sha`, `head_sha`, `review_base`, `relevant_code_changed`, `over_review_threshold`, `force_review`, and `should_review`; the `review` job runs only when `should_review == 'true'`.
+**Interfaces:** The `changes` job outputs `pr_number`, `base_sha`, `head_sha`, `review_base`, `review_diff_base`, `relevant_code_changed`, `over_review_threshold`, `force_review`, and `should_review`; the `review` job runs only when `should_review == 'true'`.
 
 - [ ] **Step 1: Add eligibility truth-table coverage.**
 
@@ -69,7 +69,12 @@ Add `workflow_dispatch` with required `pr_number`, the four PR event types, and 
 
 Read paginated issue comments with `gh api --paginate --slurp`, sort by creation time, and select the newest `github-actions[bot]` comment containing the exact marker. Validate SHA format, commit existence, and ancestry; otherwise use the PR base. Call the helper and set `should_review` to automatic threshold or manual force, after requiring relevant code.
 
-Update the Claude prompt so an old marker does not suppress a new head; a manual force may bypass the current-head idempotency check. Require the exact marker/header in the posted comment and add a post-action API check that fails if the current-head marker is absent.
+Update the Claude prompt so it reviews the SHA-pinned local diff and returns a
+structured report. Run Claude with read-only GitHub permission; have a
+separate publish job prepend the exact marker/header and post the report, then
+add a post-action API check that fails if the current-head marker is absent.
+Manual force uses the PR base for relevance so it can rerun an already-marked
+head.
 
 - [ ] **Step 3: Validate and commit.**
 
