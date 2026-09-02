@@ -1,6 +1,6 @@
 # improve_workflow recommendation lifecycle statuses
 
-- Status: proposed
+- Status: accepted
 - Deciders: Rambolarsen
 - Date: 2026-08-31
 

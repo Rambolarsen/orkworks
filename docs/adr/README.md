@@ -52,4 +52,4 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 | [0042](./0042-workflow-observations-replace-summary-checkpoints.md) | Workflow observations replace summary checkpoints | accepted |
 | [0043](./0043-local-harness-hook-configuration.md) | Harness hook configuration is local; doc checks use a committed shared source | accepted |
 | [0044](./0044-peon-provider-first-selection.md) | Peon provider-first selection | proposed |
-| [0045](./0045-improve-workflow-lifecycle-statuses.md) | improve_workflow reaches only proposed/dismissed; superseded is deserialization-only | proposed |
+| [0045](./0045-improve-workflow-lifecycle-statuses.md) | improve_workflow reaches only proposed/dismissed; superseded is deserialization-only | accepted |
