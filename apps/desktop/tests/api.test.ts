@@ -4,10 +4,14 @@ import { readFileSync } from "node:fs";
 
 import type { PeonDiagnostics, SessionInfo, WorkspaceInfo } from "../src/api.ts";
 import {
+  deleteHarness,
   dismissTaskmasterRecommendation,
+  duplicateHarness,
   forgetSession,
   getTaskmasterRecommendations,
   listHarnesses,
+  removeHarnessProfile,
+  saveHarnessConfiguration,
 } from "../src/api.ts";
 
 test("SessionInfo type accepts metadata fields", () => {
@@ -200,6 +204,7 @@ test("WorkspaceInfo type has expected shape", () => {
     dirty: false,
     lastActiveSessionId: "session-1",
     activeHarnessIds: [],
+    activeHarnessRevision: 0,
   };
   assert.equal(ws.path, "/tmp/project");
   assert.equal(ws.branch, "main");
@@ -242,14 +247,25 @@ const V2_HARNESS_FIXTURE = {
   voice: null,
 };
 
-test("listHarnesses unwraps the {harnesses} envelope into an array", async () => {
+const HARNESS_ENTRY_FIXTURE = {
+  definition: V2_HARNESS_FIXTURE,
+  origin: "builtin",
+  compatibility: {
+    profile: null,
+    sessionSignals: null,
+    integration: null,
+  },
+};
+
+test("listHarnesses unwraps effective harness entries and preserves the revision", async () => {
   const origFetch = globalThis.fetch;
   globalThis.fetch = (_url: string | URL | Request, _init?: RequestInit) =>
-    Promise.resolve(new Response(JSON.stringify({ harnesses: [V2_HARNESS_FIXTURE] }), { status: 200 }));
+    Promise.resolve(new Response(JSON.stringify({ documentRevision: "doc-1", harnesses: [HARNESS_ENTRY_FIXTURE] }), { status: 200 }));
   try {
-    const harnesses = await listHarnesses("http://localhost:0");
-    assert.equal(Array.isArray(harnesses), true);
-    assert.equal(harnesses[0].id, "generic-shell");
+    const result = await listHarnesses("http://localhost:0");
+    assert.equal(result.documentRevision, "doc-1");
+    assert.equal(result.harnesses[0].id, "generic-shell");
+    assert.equal(result.harnesses[0].origin, "builtin");
   } finally {
     globalThis.fetch = origFetch;
   }
@@ -258,12 +274,85 @@ test("listHarnesses unwraps the {harnesses} envelope into an array", async () =>
 test("listHarnesses throws on a malformed envelope missing harnesses", async () => {
   const origFetch = globalThis.fetch;
   globalThis.fetch = (_url: string | URL | Request, _init?: RequestInit) =>
-    Promise.resolve(new Response(JSON.stringify({ notHarnesses: [] }), { status: 200 }));
+    Promise.resolve(new Response(JSON.stringify({ documentRevision: null, notHarnesses: [] }), { status: 200 }));
   try {
     await assert.rejects(() => listHarnesses("http://localhost:0"), /malformed response/);
   } finally {
     globalThis.fetch = origFetch;
   }
+});
+
+test("harness mutation wrappers normalize wire entries and preserve the revision contract", async () => {
+  const origFetch = globalThis.fetch;
+  const requests: Array<{ url: string; init?: RequestInit }> = [];
+  globalThis.fetch = (url: string | URL | Request, init?: RequestInit) => {
+    requests.push({ url: String(url), init });
+    const response = requests.length === 1
+      ? { documentRevision: "doc-2", definition: { id: "copilot-local", name: "Copilot Local", launch: { kind: "command-template", command: "copilot-local", args: [], modelPrefix: null } }, proposedId: "copilot-local", proposedName: "Copilot Local" }
+      : { documentRevision: "doc-3", harness: { definition: { ...V2_HARNESS_FIXTURE, id: "copilot-local", name: "Copilot Local" }, origin: "custom", compatibility: { profile: "copilot", sessionSignals: { kind: "copilot" }, integration: { kind: "copilot" } } } };
+    return Promise.resolve(new Response(JSON.stringify(response), { status: 200 }));
+  };
+  try {
+    const duplicate = await duplicateHarness("http://localhost:0", "copilot");
+    assert.equal(duplicate.proposedId, "copilot-local");
+    assert.equal(requests[0].init?.method, "POST");
+    assert.match(requests[0].url, /\/harnesses\/copilot\/duplicate$/);
+
+    const mutation = await saveHarnessConfiguration("http://localhost:0", {
+      mode: "custom",
+      harnessId: "copilot-local",
+      expectedRevision: "doc-2",
+      definition: { id: "copilot-local", name: "Copilot Local", integration: { kind: "copilot" }, launch: { kind: "command-template", command: "copilot-local", args: [], modelPrefix: null } },
+    });
+    const payload = JSON.parse(String(requests[1].init?.body)) as Record<string, unknown>;
+    assert.equal(requests[1].init?.method, "PUT");
+    assert.deepEqual(payload, {
+      kind: "CustomReplace",
+      definition: { id: "copilot-local", name: "Copilot Local", launch: { kind: "command-template", command: "copilot-local", args: [], modelPrefix: null } },
+      expectedRevision: "doc-2",
+    });
+    assert.equal(mutation.documentRevision, "doc-3");
+    assert.equal(mutation.harness.id, "copilot-local");
+    assert.equal(mutation.harness.profile, "copilot");
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+});
+
+test("profile removal and deletion send explicit expected revisions", async () => {
+  const origFetch = globalThis.fetch;
+  const requests: Array<{ url: string; init?: RequestInit }> = [];
+  globalThis.fetch = (url: string | URL | Request, init?: RequestInit) => {
+    requests.push({ url: String(url), init });
+    const response = requests.length === 1
+      ? { documentRevision: "doc-4", harness: HARNESS_ENTRY_FIXTURE }
+      : { documentRevision: "doc-5" };
+    return Promise.resolve(new Response(JSON.stringify(response), { status: 200 }));
+  };
+  try {
+    await removeHarnessProfile("http://localhost:0", "copilot-local", "doc-3");
+    await deleteHarness("http://localhost:0", "copilot-local", "doc-4");
+    assert.equal(requests[0].init?.method, "POST");
+    assert.equal(requests[0].init?.body, JSON.stringify({ expectedRevision: "doc-3" }));
+    assert.equal(requests[1].init?.method, "DELETE");
+    assert.equal(requests[1].init?.body, JSON.stringify({ expectedRevision: "doc-4" }));
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+});
+
+test("harness contracts keep the renderer, preload, and Electron-main boundaries explicit", () => {
+  const rendererApi = readFileSync(new URL("../src/api.ts", import.meta.url), "utf8");
+  const mainContract = readFileSync(new URL("../electron/activeHarnessIntegration.ts", import.meta.url), "utf8");
+  const preload = readFileSync(new URL("../electron/preload.ts", import.meta.url), "utf8");
+
+  assert.match(rendererApi, /mapHarnessEntry/);
+  assert.match(rendererApi, /stripDerivedHarnessFields/);
+  assert.match(mainContract, /export interface ElectronHarnessConfig/);
+  assert.match(mainContract, /origin: HarnessOrigin/);
+  assert.match(mainContract, /documentRevision: string \| null/);
+  assert.match(preload, /saveActiveHarnessesWithIntegrations/);
+  assert.doesNotMatch(rendererApi, /from ["']\.\.\/electron\//);
 });
 
 test("Taskmaster API reads the recommendations envelope and encodes recommendation ids", async () => {

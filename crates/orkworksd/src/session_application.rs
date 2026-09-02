@@ -50,6 +50,9 @@ pub(crate) struct WorkspaceSnapshot {
     pub(crate) dirty: Option<bool>,
     pub(crate) last_active_session_id: Option<String>,
     pub(crate) active_harness_ids: Vec<String>,
+    pub(crate) active_harness_revision: u64,
+    pub(crate) integration_cleanup_keys:
+        std::collections::BTreeSet<crate::harness::integration::IntegrationKey>,
 }
 
 pub(crate) struct SessionApplication {
@@ -1460,13 +1463,48 @@ impl SessionApplication {
 
         let store = metadata::MetadataStore::new(&global_dir);
         migration::migrate_if_needed(&path, &global_dir);
+        let harness_snapshot = self.state.harness_store.snapshot().map_err(|error| {
+            tracing::error!(
+                ?error,
+                "failed to load harness configuration while opening workspace"
+            );
+            SessionError::Internal("failed to load harness configuration")
+        })?;
+        *self
+            .state
+            .harness_catalog
+            .write()
+            .expect("harness catalog lock poisoned") = harness_snapshot.registry.clone();
+        self.state.providers.reconcile_harness_provider_settings();
         let memory = store.read_workspace_memory();
-        let last_active_session_id = memory
-            .as_ref()
-            .and_then(|memory| memory.last_active_session_id.clone());
-        let active_harness_ids = memory
-            .map(|memory| memory.active_harness_ids)
-            .unwrap_or_default();
+        let mut memory = memory.unwrap_or_default();
+        let original_active_harness_ids = memory.active_harness_ids.clone();
+        let mut normalized_active_harness_ids = Vec::new();
+        let mut seen_active_harness_ids = std::collections::HashSet::new();
+        let mut integration_cleanup_keys = std::collections::BTreeSet::new();
+        for id in &original_active_harness_ids {
+            let Some(harness) = harness_snapshot.registry.get(id) else {
+                continue;
+            };
+            if harness.definition.retired
+                || !seen_active_harness_ids.insert(harness.definition.id.clone())
+            {
+                if let Some(binding) = harness.definition.integration.as_ref() {
+                    integration_cleanup_keys
+                        .insert(crate::harness::integration::integration_key(binding));
+                }
+                continue;
+            }
+            normalized_active_harness_ids.push(harness.definition.id.clone());
+        }
+        memory.active_harness_ids = normalized_active_harness_ids;
+        if memory.active_harness_ids != original_active_harness_ids {
+            memory.active_harness_revision = memory.active_harness_revision.saturating_add(1);
+            store.write_workspace_memory(&memory);
+        }
+        let last_active_session_id = memory.last_active_session_id.clone();
+        let active_harness_ids = memory.active_harness_ids;
+        let active_harness_revision = memory.active_harness_revision;
         let watcher = watcher::MetadataWatcher::start(&global_dir.join("sessions"));
 
         let mut workspace = self.state.workspace.lock().unwrap();
@@ -1536,6 +1574,8 @@ impl SessionApplication {
             dirty: Some(git_context.dirty),
             last_active_session_id,
             active_harness_ids,
+            active_harness_revision,
+            integration_cleanup_keys,
         })
     }
 
@@ -2076,8 +2116,12 @@ impl SessionApplication {
                 last_active_session_id: Some(session_id.to_string()),
                 last_active_at: Some(iso_now()),
                 active_harness_ids: existing
-                    .map(|memory| memory.active_harness_ids)
+                    .as_ref()
+                    .map(|memory| memory.active_harness_ids.clone())
                     .unwrap_or_default(),
+                active_harness_revision: existing
+                    .as_ref()
+                    .map_or(0, |memory| memory.active_harness_revision),
             });
         Ok(())
     }
@@ -2086,19 +2130,68 @@ impl SessionApplication {
         &self,
         active_harness_ids: Vec<String>,
     ) -> Result<(), SessionError> {
+        let expected_active_harness_revision = self
+            .state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .ok_or(SessionError::Conflict)?
+            .metadata
+            .read_workspace_memory()
+            .unwrap_or_default()
+            .active_harness_revision;
+        self.set_active_harnesses_at(active_harness_ids, expected_active_harness_revision)
+            .map(|_| ())
+    }
+
+    pub(crate) fn set_active_harnesses_at(
+        &self,
+        active_harness_ids: Vec<String>,
+        expected_active_harness_revision: u64,
+    ) -> Result<metadata::WorkspaceMemory, SessionError> {
+        let _projection = self
+            .state
+            .projection_lock
+            .lock()
+            .expect("projection lock poisoned");
         let workspace_guard = self.state.workspace.lock().unwrap();
         let workspace = workspace_guard.as_ref().ok_or(SessionError::Conflict)?;
-        let existing = workspace.metadata.read_workspace_memory();
-        workspace
+        let existing = workspace
             .metadata
-            .write_workspace_memory(&metadata::WorkspaceMemory {
-                last_active_session_id: existing
-                    .as_ref()
-                    .and_then(|memory| memory.last_active_session_id.clone()),
-                last_active_at: Some(iso_now()),
-                active_harness_ids,
-            });
-        Ok(())
+            .read_workspace_memory()
+            .unwrap_or_default();
+        if existing.active_harness_revision != expected_active_harness_revision {
+            return Err(SessionError::Conflict);
+        }
+        let registry = self
+            .state
+            .harness_catalog
+            .read()
+            .expect("harness catalog lock poisoned")
+            .clone();
+        let mut canonical_active_harness_ids = Vec::with_capacity(active_harness_ids.len());
+        for id in &active_harness_ids {
+            let Some(harness) = registry.get(id) else {
+                return Err(SessionError::BadRequest(
+                    "The selected coding tool is no longer available.",
+                ));
+            };
+            if harness.definition.retired {
+                return Err(SessionError::BadRequest(
+                    "The selected coding tool is retired and cannot be enabled.",
+                ));
+            }
+            canonical_active_harness_ids.push(harness.definition.id.clone());
+        }
+        let memory = metadata::WorkspaceMemory {
+            last_active_session_id: existing.last_active_session_id,
+            last_active_at: Some(iso_now()),
+            active_harness_ids: canonical_active_harness_ids,
+            active_harness_revision: existing.active_harness_revision.saturating_add(1),
+        };
+        workspace.metadata.write_workspace_memory(&memory);
+        Ok(memory)
     }
 
     pub(crate) async fn delete_session(&self, id: &str) -> Result<(), SessionError> {
@@ -3776,6 +3869,52 @@ mod tests {
             .unwrap();
 
         assert_eq!(snapshot.path, root.path().to_string_lossy());
+    }
+
+    #[test]
+    fn opening_a_workspace_publishes_a_new_revision_when_pruning_stale_harnesses() {
+        let home = tempfile::tempdir().unwrap();
+        let _home = crate::test_support::FakeHome::set(home.path());
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        SessionApplication::new(state.clone())
+            .open_workspace(root.path().to_path_buf())
+            .unwrap();
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_workspace_memory(&metadata::WorkspaceMemory {
+                last_active_session_id: None,
+                last_active_at: None,
+                active_harness_ids: vec![
+                    "retired-custom".into(),
+                    "gemini".into(),
+                    "gh-copilot".into(),
+                ],
+                active_harness_revision: 7,
+            });
+
+        let snapshot = SessionApplication::new(state.clone())
+            .open_workspace(root.path().to_path_buf())
+            .unwrap();
+
+        assert_eq!(snapshot.active_harness_ids, vec!["copilot"]);
+        assert_eq!(snapshot.active_harness_revision, 8);
+        let memory = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_workspace_memory()
+            .unwrap();
+        assert_eq!(memory.active_harness_ids, vec!["copilot"]);
+        assert_eq!(memory.active_harness_revision, 8);
     }
 
     #[test]
@@ -5896,6 +6035,7 @@ mod tests {
                 last_active_session_id: Some(id.into()),
                 last_active_at: Some("now".into()),
                 active_harness_ids: vec![],
+                active_harness_revision: 0,
             });
         }
 
@@ -5962,6 +6102,7 @@ mod tests {
                 last_active_session_id: Some("before-session".into()),
                 last_active_at: Some("before-time".into()),
                 active_harness_ids: vec!["codex".into(), "claude".into()],
+                active_harness_revision: 0,
             });
 
         SessionApplication::new(state.clone())
@@ -6001,10 +6142,11 @@ mod tests {
                 last_active_session_id: Some("active-session".into()),
                 last_active_at: Some("before-time".into()),
                 active_harness_ids: vec!["before".into()],
+                active_harness_revision: 0,
             });
 
         SessionApplication::new(state.clone())
-            .set_active_harnesses(vec!["aider".into(), "gemini".into()])
+            .set_active_harnesses(vec!["aider".into(), "claude-code".into()])
             .unwrap();
 
         let memory = state
@@ -6020,9 +6162,57 @@ mod tests {
             memory.last_active_session_id.as_deref(),
             Some("active-session")
         );
-        assert_eq!(memory.active_harness_ids, vec!["aider", "gemini"]);
+        assert_eq!(memory.active_harness_ids, vec!["aider", "claude-code"]);
         assert_ne!(memory.last_active_at.as_deref(), Some("before-time"));
         assert!(memory.last_active_at.is_some());
+    }
+
+    #[test]
+    fn active_harness_writes_require_the_current_revision_and_normalize_missing_ids() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let application = SessionApplication::new(state.clone());
+
+        assert_eq!(
+            application.set_active_harnesses_at(vec!["codex".into(), "deleted-custom".into()], 0),
+            Err(SessionError::BadRequest(
+                "The selected coding tool is no longer available."
+            ))
+        );
+        assert_eq!(
+            application.set_active_harnesses_at(vec!["gemini".into()], 0),
+            Err(SessionError::BadRequest(
+                "The selected coding tool is retired and cannot be enabled."
+            ))
+        );
+
+        let first = application
+            .set_active_harnesses_at(vec!["codex".into()], 0)
+            .unwrap();
+        assert_eq!(first.active_harness_revision, 1);
+        assert_eq!(first.active_harness_ids, vec!["codex"]);
+
+        let alias = application
+            .set_active_harnesses_at(vec!["gh-copilot".into()], 1)
+            .unwrap();
+        assert_eq!(alias.active_harness_revision, 2);
+        assert_eq!(alias.active_harness_ids, vec!["copilot"]);
+
+        assert_eq!(
+            application.set_active_harnesses_at(vec!["claude-code".into()], 0),
+            Err(SessionError::Conflict)
+        );
+        let memory = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_workspace_memory()
+            .unwrap();
+        assert_eq!(memory.active_harness_ids, vec!["copilot"]);
+        assert_eq!(memory.active_harness_revision, 2);
     }
 
     #[test]

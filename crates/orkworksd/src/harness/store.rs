@@ -1,4 +1,4 @@
-//! Durable v2 harness-document storage.
+//! Durable versioned harness-document storage.
 //!
 //! Legacy recognition is intentionally limited to the immediate pre-v2 main
 //! baseline, `pre-v2-main@f13f460`. Its canonical serde JSON is hashed before
@@ -9,20 +9,71 @@
 //! Task 4. They must land atomically with runtime/provider migration so this
 //! persistence core does not create an interim dual registry.
 
+use std::collections::BTreeMap;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use serde::{Deserialize, Serialize};
+use serde::{de::Error as _, Deserialize, Deserializer, Serialize};
 use sha2::{Digest, Sha256};
 
 use super::definition::{
-    BuiltinDocument, HarnessDefinition, HarnessDiagnostic, HarnessPatch, HarnessUserDocument,
-    LaunchCapability, ModelCapability, PeonCapability, PeonPatch, VoiceCapability, VoicePatch,
+    parse_strict_json, BuiltinDocument, DefinitionOrigin, HarnessDefinition, HarnessDiagnostic,
+    HarnessPatch, HarnessUserDocument, LaunchCapability, ModelCapability, PeonCapability,
+    PeonPatch, VoiceCapability, VoicePatch,
 };
 use super::integration::atomic_replace;
 use super::registry::{resolve_document, HarnessCatalog, ResolvedHarnessRegistry};
+
+/// Opaque SHA-256 revision of the exact persisted harness document bytes.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(transparent)]
+pub(crate) struct HarnessDocumentRevision(String);
+
+impl<'de> Deserialize<'de> for HarnessDocumentRevision {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        if value.len() != 64 || hex::decode(&value).is_err() {
+            return Err(D::Error::custom(
+                "revision must be a 64-character hexadecimal SHA-256 digest",
+            ));
+        }
+        Ok(Self(value))
+    }
+}
+
+impl HarnessDocumentRevision {
+    fn from_bytes(bytes: &[u8]) -> Self {
+        Self(hex::encode(hash_bytes(bytes)))
+    }
+}
+
+pub(crate) struct HarnessSnapshot {
+    pub registry: Arc<ResolvedHarnessRegistry>,
+    pub document_revision: Option<HarnessDocumentRevision>,
+    pub origins: BTreeMap<String, DefinitionOrigin>,
+    pub stored_patches: BTreeMap<String, HarnessPatch>,
+    pub compatibility_profiles: BTreeMap<String, super::compatibility::CompatibilityProfile>,
+}
+
+pub(crate) struct HarnessMutation {
+    pub registry: Arc<ResolvedHarnessRegistry>,
+    pub document_revision: HarnessDocumentRevision,
+    pub stored_patches: BTreeMap<String, HarnessPatch>,
+}
+
+impl std::fmt::Debug for HarnessMutation {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("HarnessMutation")
+            .field("document_revision", &self.document_revision)
+            .finish_non_exhaustive()
+    }
+}
 
 pub(crate) struct HarnessStore {
     path: PathBuf,
@@ -51,7 +102,9 @@ pub(crate) trait AtomicWriter: Send + Sync {
 pub(crate) enum HarnessStoreError {
     Io(std::io::Error),
     Parse(serde_json::Error),
-    RevisionChanged,
+    RevisionChanged {
+        current: Option<HarnessDocumentRevision>,
+    },
     Validation(Vec<HarnessDiagnostic>),
     Mutation(HarnessDiagnostic),
 }
@@ -130,8 +183,54 @@ impl HarnessStore {
     where
         F: FnOnce(&mut HarnessUserDocument) -> Result<(), HarnessDiagnostic>,
     {
+        let expected_revision = self.snapshot()?.document_revision;
+        self.mutate_at(catalog, expected_revision, change)
+            .map(|mutation| mutation.registry)
+    }
+
+    pub(crate) fn snapshot(&self) -> Result<HarnessSnapshot, HarnessStoreError> {
+        let loaded = self.load()?;
+        let compatibility_profiles = loaded.document.compatibility_profiles().clone();
+        let origins = loaded
+            .registry
+            .ids()
+            .filter_map(|id| {
+                loaded
+                    .registry
+                    .get(id)
+                    .map(|harness| (id.to_owned(), harness.origin))
+            })
+            .collect();
+        Ok(HarnessSnapshot {
+            registry: loaded.registry,
+            document_revision: loaded
+                .source_revision
+                .map(|revision| HarnessDocumentRevision(hex::encode(revision))),
+            origins,
+            stored_patches: loaded.document.overrides,
+            compatibility_profiles,
+        })
+    }
+
+    pub(crate) fn mutate_at<F>(
+        &self,
+        catalog: &HarnessCatalog,
+        expected_revision: Option<HarnessDocumentRevision>,
+        change: F,
+    ) -> Result<HarnessMutation, HarnessStoreError>
+    where
+        F: FnOnce(&mut HarnessUserDocument) -> Result<(), HarnessDiagnostic>,
+    {
         let _guard = self.write_lock.lock().expect("harness store lock poisoned");
         let loaded = self.load()?;
+        let current_revision = loaded
+            .source_revision
+            .map(|revision| HarnessDocumentRevision(hex::encode(revision)));
+        if expected_revision != current_revision {
+            return Err(HarnessStoreError::RevisionChanged {
+                current: current_revision,
+            });
+        }
         let mut document = loaded.document;
         change(&mut document).map_err(HarnessStoreError::Mutation)?;
         let registry = Arc::new(
@@ -140,10 +239,33 @@ impl HarnessStore {
                 .with_diagnostics(loaded.migration_diagnostics),
         );
         let serialized = serde_json::to_vec_pretty(&document)?;
-        self.writer
-            .replace_if_revision(&self.path, loaded.source_revision, &serialized)?;
+        if let Err(error) =
+            self.writer
+                .replace_if_revision(&self.path, loaded.source_revision, &serialized)
+        {
+            return match error {
+                HarnessStoreError::RevisionChanged { .. } => {
+                    Err(HarnessStoreError::RevisionChanged {
+                        current: self.current_revision()?,
+                    })
+                }
+                error => Err(error),
+            };
+        }
         *catalog.write().expect("harness catalog lock poisoned") = registry.clone();
-        Ok(registry)
+        Ok(HarnessMutation {
+            registry,
+            document_revision: HarnessDocumentRevision::from_bytes(&serialized),
+            stored_patches: document.overrides,
+        })
+    }
+
+    fn current_revision(&self) -> Result<Option<HarnessDocumentRevision>, HarnessStoreError> {
+        match fs::read(&self.path) {
+            Ok(bytes) => Ok(Some(HarnessDocumentRevision::from_bytes(&bytes))),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error.into()),
+        }
     }
 }
 
@@ -162,7 +284,9 @@ impl AtomicWriter for FileAtomicWriter {
             Err(error) => return Err(error.into()),
         };
         if actual != expected_revision {
-            return Err(HarnessStoreError::RevisionChanged);
+            return Err(HarnessStoreError::RevisionChanged {
+                current: actual.map(|revision| HarnessDocumentRevision(hex::encode(revision))),
+            });
         }
         let parent = target.parent().ok_or_else(|| {
             HarnessStoreError::Io(std::io::Error::new(
@@ -202,7 +326,9 @@ impl AtomicWriter for FileAtomicWriter {
         };
         if actual != expected_revision {
             let _ = fs::remove_file(&temporary);
-            return Err(HarnessStoreError::RevisionChanged);
+            return Err(HarnessStoreError::RevisionChanged {
+                current: actual.map(|revision| HarnessDocumentRevision(hex::encode(revision))),
+            });
         }
         match atomic_replace(&temporary, target, expected_revision.is_some()) {
             Ok(()) => Ok(()),
@@ -218,14 +344,22 @@ fn parse_document(
     bytes: &[u8],
     builtins: &BuiltinDocument,
 ) -> Result<(HarnessUserDocument, Vec<HarnessDiagnostic>, bool), HarnessStoreError> {
-    match serde_json::from_slice::<serde_json::Value>(bytes)? {
+    match parse_strict_json::<serde_json::Value>(bytes, 256 * 1024)
+        .map_err(|diagnostic| HarnessStoreError::Validation(vec![diagnostic]))?
+    {
         serde_json::Value::Array(legacy) => {
             let (document, diagnostics) = migrate_v1(legacy, builtins);
             Ok((document, diagnostics, true))
         }
         value => {
-            let document = serde_json::from_value::<HarnessUserDocument>(value)?;
-            Ok((document, Vec::new(), false))
+            let mut document = super::definition::parse_stored_user_document(value)
+                .map_err(HarnessStoreError::Validation)?;
+            let migrated_from_v2 = document.version == 2;
+            if migrated_from_v2 {
+                document.version = 3;
+                document.clear_compatibility_profiles();
+            }
+            Ok((document, Vec::new(), migrated_from_v2))
         }
     }
 }
@@ -245,6 +379,7 @@ fn migrate_v1(
                     harness_id: None,
                     code: "invalid_legacy_entry".into(),
                     message: format!("Legacy harness entry {index} was skipped: {error}"),
+                    path: Some(format!("$[{index}]")),
                 });
                 continue;
             }
@@ -631,7 +766,7 @@ mod tests {
             contents: &[u8],
         ) -> Result<(), HarnessStoreError> {
             if self.fail.swap(false, Ordering::SeqCst) {
-                return Err(HarnessStoreError::RevisionChanged);
+                return Err(HarnessStoreError::RevisionChanged { current: None });
             }
             FileAtomicWriter.replace_if_revision(target, expected, contents)
         }
@@ -661,10 +796,11 @@ mod tests {
             }
         }
         fn read_document(&self) -> HarnessUserDocument {
-            serde_json::from_slice(
-                &fs::read(&self.path).unwrap_or_else(|_| {
+            super::super::definition::parse_stored_user_document(
+                serde_json::from_slice(&fs::read(&self.path).unwrap_or_else(|_| {
                     serde_json::to_vec(&HarnessUserDocument::default()).unwrap()
-                }),
+                }))
+                .unwrap(),
             )
             .unwrap()
         }
@@ -720,11 +856,181 @@ mod tests {
     }
 
     #[test]
+    fn mutate_at_rejects_a_stale_snapshot_without_overwriting_the_first_change() {
+        let fixture = StoreFixture::v2();
+        let first_snapshot = fixture.store.snapshot().unwrap();
+        let second_snapshot = fixture.store.snapshot().unwrap();
+
+        let first_mutation = fixture
+            .store
+            .mutate_at(
+                &fixture.catalog,
+                first_snapshot.document_revision.clone(),
+                |document| {
+                    document.overrides.entry("codex".into()).or_default().name =
+                        Some("First".into());
+                    Ok(())
+                },
+            )
+            .unwrap();
+        let stale_error = fixture
+            .store
+            .mutate_at(
+                &fixture.catalog,
+                second_snapshot.document_revision,
+                |document| {
+                    document.overrides.entry("codex".into()).or_default().name =
+                        Some("Stale".into());
+                    Ok(())
+                },
+            )
+            .expect_err("a stale revision must not replace the first change");
+
+        assert!(matches!(
+            stale_error,
+            HarnessStoreError::RevisionChanged { current: Some(current) } if current == first_mutation.document_revision
+        ));
+        assert_eq!(
+            fixture
+                .read_document()
+                .overrides
+                .get("codex")
+                .and_then(|patch| patch.name.as_deref()),
+            Some("First")
+        );
+    }
+
+    #[test]
+    fn mutate_at_persists_a_v2_document_as_version_three() {
+        let fixture = StoreFixture::v2();
+        fs::write(
+            &fixture.path,
+            br#"{"version":2,"overrides":{"codex":{"name":"Configured Codex"}},"custom":[]}"#,
+        )
+        .unwrap();
+        let revision = fixture.store.snapshot().unwrap().document_revision;
+
+        fixture
+            .store
+            .mutate_at(&fixture.catalog, revision, |_| Ok(()))
+            .unwrap();
+
+        assert_eq!(fixture.read_document().version, 3);
+    }
+
+    #[test]
     fn missing_file_loads_an_empty_v2_document() {
         let fixture = StoreFixture::v2();
         let loaded = fixture.store.load().unwrap();
         assert!(!loaded.migrated_from_v1);
-        assert_eq!(loaded.document.version, 2);
+        assert_eq!(loaded.document.version, 3);
+        assert!(loaded.document.compatibility_profiles().is_empty());
+    }
+
+    #[test]
+    fn strict_json_rejects_duplicate_keys_and_oversized_documents() {
+        let duplicate = parse_strict_json::<serde_json::Value>(br#"{"id":1,"id":2}"#, 256 * 1024)
+            .expect_err("duplicate object keys must be rejected");
+        assert_eq!(duplicate.code, "duplicate_key");
+
+        let trailing = parse_strict_json::<serde_json::Value>(br#"{} {}"#, 256 * 1024)
+            .expect_err("trailing JSON values must be rejected");
+        assert_eq!(trailing.code, "invalid_json");
+
+        let oversized = vec![b' '; 256 * 1024 + 1];
+        let error = parse_strict_json::<serde_json::Value>(&oversized, 256 * 1024)
+            .expect_err("oversized documents must be rejected");
+        assert_eq!(error.code, "document_too_large");
+    }
+
+    #[test]
+    fn v2_documents_migrate_to_v3_with_an_empty_profile_map() {
+        let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
+        let (document, diagnostics, migrated) = parse_document(
+            br#"{"version":2,"overrides":{"codex":{"name":"Configured Codex"}},"custom":[]}"#,
+            &builtins,
+        )
+        .expect("v2 document migrates");
+
+        assert!(diagnostics.is_empty());
+        assert!(migrated);
+        assert_eq!(document.version, 3);
+        assert_eq!(
+            document
+                .overrides
+                .get("codex")
+                .and_then(|patch| patch.name.as_deref()),
+            Some("Configured Codex")
+        );
+        assert!(document.compatibility_profiles().is_empty());
+    }
+
+    #[test]
+    fn v2_migration_ignores_any_profile_map_from_the_old_document() {
+        let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
+        let (document, diagnostics, migrated) = parse_document(
+            br#"{"version":2,"overrides":{},"custom":[],"compatibilityProfiles":{"missing":"copilot"}}"#,
+            &builtins,
+        )
+        .expect("v2 migration must discard profile metadata");
+
+        assert!(diagnostics.is_empty());
+        assert!(migrated);
+        assert!(document.compatibility_profiles().is_empty());
+    }
+
+    #[test]
+    fn v3_documents_reject_code_owned_custom_bindings_at_the_document_boundary() {
+        let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
+        let error = parse_document(
+            br#"{"version":3,"overrides":{},"custom":[{"id":"copilot-local","name":"Copilot Local","launch":{"kind":"command-template","command":"copilot-local","args":[],"modelPrefix":null},"integration":{"kind":"copilot"}}],"compatibilityProfiles":{}}"#,
+            &builtins,
+        )
+        .expect_err("v3 custom definitions must not select compiled bindings");
+
+        let HarnessStoreError::Validation(diagnostics) = error else {
+            panic!("expected custom-definition validation diagnostics");
+        };
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == "custom_authority_binding"
+                && diagnostic.path.as_deref() == Some("$.custom[0].integration")
+        }));
+    }
+
+    #[test]
+    fn v3_documents_reject_unknown_custom_fields_at_the_document_boundary() {
+        let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
+        let error = parse_document(
+            br#"{"version":3,"overrides":{},"custom":[{"id":"copilot-local","name":"Copilot Local","launch":{"kind":"command-template","command":"copilot-local","args":[],"modelPrefix":null},"reporterCommand":"untrusted"}],"compatibilityProfiles":{}}"#,
+            &builtins,
+        )
+        .expect_err("v3 custom definitions must reject unknown fields");
+
+        let HarnessStoreError::Validation(diagnostics) = error else {
+            panic!("expected custom-definition validation diagnostics");
+        };
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == "unknown_field"
+                && diagnostic.path.as_deref() == Some("$.custom[0].reporterCommand")
+        }));
+    }
+
+    #[test]
+    fn v3_documents_reject_profiles_without_a_custom_target() {
+        let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
+        let error = parse_document(
+            br#"{"version":3,"overrides":{},"custom":[],"compatibilityProfiles":{"missing":"copilot"}}"#,
+            &builtins,
+        )
+        .expect_err("profiles must target custom harness IDs");
+
+        let HarnessStoreError::Validation(diagnostics) = error else {
+            panic!("expected profile-target validation diagnostics");
+        };
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == "unknown_compatibility_profile_target"
+                && diagnostic.path.as_deref() == Some("$.compatibilityProfiles.missing")
+        }));
     }
 
     #[test]
@@ -962,9 +1268,19 @@ mod tests {
             .diagnostics()
             .iter()
             .any(|diagnostic| { diagnostic.code == "invalid_legacy_entry" }));
-        assert_eq!(loaded.document.version, 2);
+        assert_eq!(loaded.document.version, 3);
         assert!(!serde_json::to_string(&loaded.document)
             .unwrap()
             .contains("invalid_legacy_entry"));
+    }
+
+    #[test]
+    fn document_revision_deserialization_rejects_malformed_values() {
+        assert!(serde_json::from_str::<HarnessDocumentRevision>(r#""short""#).is_err());
+        assert!(serde_json::from_str::<HarnessDocumentRevision>(&format!(
+            "\"{}\"",
+            "z".repeat(64)
+        ))
+        .is_err());
     }
 }

@@ -38,6 +38,8 @@ pub(crate) struct ActiveSessionRequest {
 pub(crate) struct ActiveHarnessesRequest {
     #[serde(rename = "activeHarnessIds", default)]
     pub(crate) active_harness_ids: Vec<String>,
+    #[serde(rename = "expectedActiveHarnessRevision")]
+    pub(crate) expected_active_harness_revision: u64,
 }
 
 #[derive(Deserialize)]
@@ -96,6 +98,26 @@ pub(crate) struct WorkspaceResponse {
     pub(crate) last_active_session_id: Option<String>,
     #[serde(rename = "activeHarnessIds", skip_serializing_if = "Vec::is_empty")]
     pub(crate) active_harness_ids: Vec<String>,
+    #[serde(rename = "activeHarnessRevision")]
+    pub(crate) active_harness_revision: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) integration_cleanup:
+        Option<crate::http::integration_handlers::IntegrationCleanupResponse>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ActiveHarnessesResponse {
+    pub(crate) active_harness_ids: Vec<String>,
+    pub(crate) active_harness_revision: u64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ActiveHarnessesConflictResponse {
+    error: &'static str,
+    diagnostics: Vec<harness::definition::HarnessDiagnostic>,
+    active_harness_revision: u64,
 }
 
 #[derive(Serialize)]
@@ -170,24 +192,43 @@ pub(crate) async fn set_workspace(
     State(state): State<Arc<AppState>>,
     Json(req): Json<WorkspaceRequest>,
 ) -> impl IntoResponse {
-    let projection_state = state.clone();
-    let _projection = match projection_state.projection_lock.lock() {
-        Ok(guard) => guard,
-        Err(error) => {
-            tracing::error!(error = %error, "workspace update blocked by poisoned projection lock");
-            return axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
+    let open_result = {
+        let _projection = match state.projection_lock.lock() {
+            Ok(guard) => guard,
+            Err(error) => {
+                tracing::error!(error = %error, "workspace update blocked by poisoned projection lock");
+                return axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            }
+        };
+        SessionApplication::new(state.clone()).open_workspace(PathBuf::from(&req.path))
     };
-    match SessionApplication::new(state).open_workspace(PathBuf::from(&req.path)) {
-        Ok(snapshot) => Json(WorkspaceResponse {
-            path: snapshot.path,
-            repo_root: snapshot.repo_root,
-            branch: snapshot.branch,
-            dirty: snapshot.dirty,
-            last_active_session_id: snapshot.last_active_session_id,
-            active_harness_ids: snapshot.active_harness_ids,
-        })
-        .into_response(),
+    match open_result {
+        Ok(snapshot) => {
+            let cleanup_keys = snapshot.integration_cleanup_keys.clone();
+            let integration_cleanup = if cleanup_keys.is_empty() {
+                None
+            } else {
+                Some(
+                    crate::http::integration_handlers::reconcile_unreferenced_integrations(
+                        &state,
+                        cleanup_keys,
+                        Some(PathBuf::from(snapshot.path.clone())),
+                    )
+                    .await,
+                )
+            };
+            Json(WorkspaceResponse {
+                path: snapshot.path,
+                repo_root: snapshot.repo_root,
+                branch: snapshot.branch,
+                dirty: snapshot.dirty,
+                last_active_session_id: snapshot.last_active_session_id,
+                active_harness_ids: snapshot.active_harness_ids,
+                active_harness_revision: snapshot.active_harness_revision,
+                integration_cleanup,
+            })
+            .into_response()
+        }
         Err(crate::session_application::SessionError::BadRequest(message)) => {
             (axum::http::StatusCode::BAD_REQUEST, message).into_response()
         }
@@ -213,11 +254,45 @@ pub(crate) async fn set_active_harnesses(
     State(state): State<Arc<AppState>>,
     Json(req): Json<ActiveHarnessesRequest>,
 ) -> impl IntoResponse {
-    match SessionApplication::new(state).set_active_harnesses(req.active_harness_ids) {
-        Ok(()) => axum::http::StatusCode::OK,
-        Err(crate::session_application::SessionError::Conflict) => axum::http::StatusCode::CONFLICT,
-        Err(_) => axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+    match SessionApplication::new(state.clone())
+        .set_active_harnesses_at(req.active_harness_ids, req.expected_active_harness_revision)
+    {
+        Ok(memory) => Json(ActiveHarnessesResponse {
+            active_harness_ids: memory.active_harness_ids,
+            active_harness_revision: memory.active_harness_revision,
+        })
+        .into_response(),
+        Err(crate::session_application::SessionError::Conflict) => {
+            active_harness_revision_conflict_response(&state)
+        }
+        Err(crate::session_application::SessionError::BadRequest(message)) => {
+            (axum::http::StatusCode::BAD_REQUEST, message).into_response()
+        }
+        Err(_) => axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
+}
+
+fn active_harness_revision_conflict_response(state: &Arc<AppState>) -> axum::response::Response {
+    let active_harness_revision = state
+        .workspace
+        .lock()
+        .expect("workspace lock poisoned")
+        .as_ref()
+        .and_then(|workspace| workspace.metadata.read_workspace_memory())
+        .map_or(0, |memory| memory.active_harness_revision);
+    (
+        axum::http::StatusCode::CONFLICT,
+        Json(ActiveHarnessesConflictResponse {
+            error: "Active coding tools changed; retry the request.",
+            diagnostics: vec![harness::definition::HarnessDiagnostic::document(
+                "active_harness_revision_changed",
+                "Active coding tools changed; reload the workspace before retrying.",
+                Some("$.expectedActiveHarnessRevision"),
+            )],
+            active_harness_revision,
+        }),
+    )
+        .into_response()
 }
 
 pub(crate) async fn create_session(
@@ -6033,6 +6108,8 @@ mod tests {
             dirty: Some(false),
             last_active_session_id: Some("session-1".into()),
             active_harness_ids: vec![],
+            active_harness_revision: 0,
+            integration_cleanup: None,
         };
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("\"path\":\"/tmp\""));
@@ -6051,6 +6128,8 @@ mod tests {
             dirty: None,
             last_active_session_id: None,
             active_harness_ids: vec![],
+            active_harness_revision: 0,
+            integration_cleanup: None,
         };
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("\"path\":\"/tmp\""));
@@ -6559,5 +6638,42 @@ mod tests {
         assert!(events
             .iter()
             .any(|event| event.event_type == "plan_review_requested"));
+    }
+
+    #[tokio::test]
+    async fn active_harness_revision_conflict_explains_how_to_retry() {
+        let workspace = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(workspace.path());
+
+        let first = set_active_harnesses(
+            State(state.clone()),
+            Json(ActiveHarnessesRequest {
+                active_harness_ids: vec!["codex".into()],
+                expected_active_harness_revision: 0,
+            }),
+        )
+        .await
+        .into_response();
+        assert_eq!(first.status(), axum::http::StatusCode::OK);
+
+        let stale = set_active_harnesses(
+            State(state),
+            Json(ActiveHarnessesRequest {
+                active_harness_ids: vec!["claude-code".into()],
+                expected_active_harness_revision: 0,
+            }),
+        )
+        .await
+        .into_response();
+        assert_eq!(stale.status(), axum::http::StatusCode::CONFLICT);
+        let body = axum::body::to_bytes(stale.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            body["diagnostics"][0]["code"],
+            "active_harness_revision_changed"
+        );
+        assert_eq!(body["activeHarnessRevision"], 1);
     }
 }

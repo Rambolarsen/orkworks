@@ -8,9 +8,9 @@ import { getDevRepoRoot, getDevSidecarPath, getPackagedSidecarPath } from "./pat
 import { readWorkspaceMemory, rememberWorkspacePath, forgetWorkspacePath } from "./workspaceMemory";
 import { readLayoutMemory, writeLayoutMemory } from "./layoutMemory";
 import type { AppSettings } from "./settingsMemory";
-import { DEFAULT_HOTKEYS, DEFAULT_RETENTION, loadSettingsForStartup, normalizeDebugSettings, normalizeProviderSettings, normalizeRetention, readSettings, settingsWithHotkeys, settingsWithPeonSelection, validateHotkeys, writeSettings } from "./settingsMemory";
+import { DEFAULT_HOTKEYS, DEFAULT_RETENTION, loadSettingsForStartup, normalizeDebugSettings, normalizeProviderSettings, normalizeRetention, providerDefinitionsForStoredSettings, readSettings, settingsWithHotkeys, settingsWithPeonSelection, validateHotkeys, writeSettings } from "./settingsMemory";
 import { providerSettingsSyncError, pushProviderSettings } from "./providerSettingsSync";
-import type { PeonAppliedState, PeonProviderVerificationResponse, PeonSelection, ProviderApplyStatus, ProviderId, ProviderSettings } from "./providerTypes";
+import type { PeonAppliedState, PeonProviderVerificationResponse, PeonSelection, ProviderApplyStatus, ProviderDefinition, ProviderId, ProviderSettings } from "./providerTypes";
 import { createPeonSelectionTransaction, normalizePeonSelectionInput, peonErrorFromBody, type PeonSelectionTransaction } from "./peonSelectionTransaction";
 import { buildMenuTemplate } from "./menuTemplate";
 import { getSessionPlanContent, requestSessionPlanReview, selectTerminalPlan } from "./planOpener";
@@ -28,6 +28,10 @@ import {
   saveActiveHarnessesWithIntegrations,
   type ActiveHarnessSaveResult,
   type ElectronHarnessConfig,
+  type GroupedIntegrationStatus,
+  type GroupedIntegrationStatusResult,
+  type IntegrationKey,
+  type IntegrationRevisionExpectation,
   type IntegrationStatus,
   type IntegrationStatusResult,
   type PlannedIntegrationMutation,
@@ -214,6 +218,7 @@ app.whenReady().then(() => {
   let lastBackendFailure = "The OrkWorks sidecar is unavailable.";
   let appliedPeonState: PeonAppliedState | null = null;
   let backendGeneration = 0;
+  let activeHarnessRevision = 0;
 
   function publishBackendLifecycle(event: BackendLifecycleEvent): void {
     latestBackendLifecycle = event;
@@ -263,34 +268,84 @@ app.whenReady().then(() => {
     return peonErrorFromBody(body, fallback);
   }
 
-  async function persistActiveHarnesses(ids: string[]): Promise<{ ok: true } | { ok: false; error: string }> {
-    const guard = { workspacePath, generation: backendGeneration };
+  async function persistActiveHarnesses(
+    ids: string[],
+    expectedActiveHarnessRevision: number,
+  ): Promise<
+    | { ok: true; activeHarnessRevision: number }
+    | { ok: false; error: string; code?: string }
+  > {
+    const guard = { workspacePath, generation: backendGeneration, activeHarnessRevision };
     const port = await restoration.getReadiness();
-    if (isStale(guard, { workspacePath, generation: backendGeneration })) {
+    if (isStale(guard, { workspacePath, generation: backendGeneration, activeHarnessRevision })) {
       // Workspace switched mid-await: readiness now resolves to a different
       // sidecar than the one this save started against. Skip the write
       // rather than persisting the old workspace's selection into the new
       // one's backend; saveActiveHarnessesWithIntegrations independently
       // re-checks the guard right after this resolves and reports
       // stale_workspace, so this result is discarded either way.
-      return { ok: true };
+      return { ok: true, activeHarnessRevision: expectedActiveHarnessRevision };
     }
     const response = await fetch(`http://127.0.0.1:${port}/workspace/active-harnesses`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ activeHarnessIds: ids }),
+      body: JSON.stringify({ activeHarnessIds: ids, expectedActiveHarnessRevision }),
     });
-    if (response.ok) return { ok: true };
-    return { ok: false, error: await parseErrorBody(response, "Couldn't save active coding tools.") };
+    if (response.ok) {
+      const body = await response.json() as { activeHarnessRevision?: unknown };
+      const savedActiveHarnessRevision = body.activeHarnessRevision;
+      if (
+        typeof savedActiveHarnessRevision !== "number" ||
+        !Number.isInteger(savedActiveHarnessRevision) ||
+        savedActiveHarnessRevision < 0
+      ) {
+        return { ok: false, error: "The sidecar returned an invalid active harness revision." };
+      }
+      activeHarnessRevision = savedActiveHarnessRevision;
+      return { ok: true, activeHarnessRevision: savedActiveHarnessRevision };
+    }
+    const body = await response.json().catch(() => ({ error: undefined, code: undefined })) as {
+      error?: string;
+      code?: string;
+    };
+    return {
+      ok: false,
+      error: body.error ?? "Couldn't save active coding tools.",
+      ...(body.code ? { code: body.code } : {}),
+    };
   }
 
-  async function fetchHarnessesForSave(): Promise<ElectronHarnessConfig[]> {
+  async function fetchHarnessesForSave(): Promise<{ documentRevision: string | null; harnesses: ElectronHarnessConfig[] }> {
     const port = await restoration.getReadiness();
     const response = await fetch(`http://127.0.0.1:${port}/harnesses`);
     if (!response.ok) throw new Error(await parseErrorBody(response, "Couldn't load coding tool definitions."));
-    const data = await response.json() as { harnesses?: ElectronHarnessConfig[] };
+    const data = await response.json() as {
+      documentRevision?: unknown;
+      harnesses?: Array<{
+        definition?: ElectronHarnessConfig;
+        origin?: ElectronHarnessConfig["origin"];
+        compatibility?: {
+          profile?: string | null;
+          sessionSignals?: unknown;
+          integration?: unknown;
+        };
+      }>;
+    };
     if (!Array.isArray(data.harnesses)) throw new Error("Malformed harness list response.");
-    return data.harnesses;
+    if (data.documentRevision !== null && typeof data.documentRevision !== "string" && data.documentRevision !== undefined) {
+      throw new Error("Malformed harness list revision.");
+    }
+    const harnesses = data.harnesses.map((entry) => {
+      if (!entry.definition || !entry.origin) throw new Error("Malformed harness list entry.");
+      return {
+        ...entry.definition,
+        origin: entry.origin,
+        profile: entry.compatibility?.profile ?? null,
+        sessionSignals: entry.compatibility?.sessionSignals ?? entry.definition.sessionSignals,
+        integration: entry.compatibility?.integration ?? entry.definition.integration,
+      };
+    });
+    return { documentRevision: data.documentRevision === undefined ? null : data.documentRevision, harnesses };
   }
 
   function persistedOllamaBaseUrl(): string | undefined {
@@ -300,10 +355,39 @@ app.whenReady().then(() => {
 
   async function syncSavedProviderSettings(port: number, signal: AbortSignal): Promise<void> {
     const settings = currentSettings ?? readSettings(app.getPath("userData"));
+    const providerResponse = await fetch(`http://127.0.0.1:${port}/providers`, { signal });
+    if (!providerResponse.ok) throw new Error(`provider catalog sync failed: ${providerResponse.status}`);
+    const providerBody = await providerResponse.json() as {
+      providers?: unknown;
+    };
+    if (!Array.isArray(providerBody.providers)) throw new Error("provider catalog sync returned malformed data");
+    const definitions: ProviderDefinition[] = providerBody.providers.map((entry) => {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+        throw new Error("provider catalog sync returned malformed entry");
+      }
+      const raw = entry as Record<string, unknown>;
+      if (typeof raw.id !== "string" || typeof raw.label !== "string") {
+        throw new Error("provider catalog sync returned malformed identity");
+      }
+      return {
+        id: raw.id,
+        label: raw.label,
+        ...(typeof raw.harnessId === "string" ? { harnessId: raw.harnessId } : {}),
+        ...(raw.origin === "builtin" || raw.origin === "override" || raw.origin === "custom" || raw.origin === "standalone"
+          ? { origin: raw.origin }
+          : {}),
+      };
+    });
+    const normalizedProviders = normalizeProviderSettings(settings.providers, definitions);
+    const nextSettings: AppSettings = { ...settings, providers: normalizedProviders };
+    if (JSON.stringify(settings.providers) !== JSON.stringify(normalizedProviders)) {
+      writeSettings(app.getPath("userData"), nextSettings);
+      currentSettings = nextSettings;
+    }
     const abortableFetch: typeof fetch = (input, init) => fetch(input, { ...init, signal });
     const result = await pushProviderSettings(
       `http://127.0.0.1:${port}`,
-      settings.providers,
+      normalizedProviders,
       abortableFetch,
     );
     signal.throwIfAborted();
@@ -369,6 +453,7 @@ app.whenReady().then(() => {
     setTimeout: (callback, delayMs) => setTimeout(callback, delayMs),
     clearTimeout: (timer) => clearTimeout(timer as NodeJS.Timeout),
     onReady: (port, workspace) => {
+      activeHarnessRevision = workspace?.activeHarnessRevision ?? 0;
       publishBackendLifecycle({ state: "ready", port, workspace });
       restorePersistedPeonSelection(port);
     },
@@ -556,7 +641,7 @@ app.whenReady().then(() => {
         providers: normalizeProviderSettings({
           ...providers,
           revision: Math.max(baseSettings.providers.revision + 1, providers.revision),
-        }),
+        }, providerDefinitionsForStoredSettings(providers)),
       };
       writeSettings(app.getPath("userData"), nextSettings);
       currentSettings = nextSettings;
@@ -691,9 +776,10 @@ app.whenReady().then(() => {
     await selectTerminalPlan(`http://127.0.0.1:${port}`, sessionId, printedPath, openPlanToken, fetch);
   });
 
-  const integrationActionLabels: Record<"status" | "install" | "uninstall", string> = {
+  const integrationActionLabels: Record<"status" | "install" | "repair" | "uninstall", string> = {
     status: "check the integration status",
     install: "install the integration",
+    repair: "repair the integration",
     uninstall: "uninstall the integration",
   };
 
@@ -712,10 +798,10 @@ app.whenReady().then(() => {
     // in — the wrong workspace. The save orchestrator independently
     // re-checks staleness after this resolves and reports stale_workspace,
     // so this failure result is superseded there either way.
-    const guard = { workspacePath, generation: backendGeneration };
+    const guard = { workspacePath, generation: backendGeneration, activeHarnessRevision };
     try {
       const port = await restoration.getReadiness();
-      if (isStale(guard, { workspacePath, generation: backendGeneration })) {
+      if (isStale(guard, { workspacePath, generation: backendGeneration, activeHarnessRevision })) {
         return { ok: false, error: STALE_WORKSPACE_FALLBACK_MESSAGE };
       }
       const method = action === "status" ? "GET" : "POST";
@@ -733,6 +819,49 @@ app.whenReady().then(() => {
     }
   }
 
+  async function callGroupedIntegrationRoute(
+    key: IntegrationKey,
+    action: "status" | "install" | "repair" | "uninstall",
+    expected?: IntegrationRevisionExpectation,
+  ): Promise<
+    | { ok: true; group: GroupedIntegrationStatus }
+    | { ok: false; error: string; code?: string }
+  > {
+    if (!key.adapterId || !key.targetId) throw new Error("Invalid integration key.");
+    const guard = { workspacePath, generation: backendGeneration, activeHarnessRevision };
+    try {
+      const port = await restoration.getReadiness();
+      if (isStale(guard, { workspacePath, generation: backendGeneration, activeHarnessRevision })) {
+        return { ok: false, error: STALE_WORKSPACE_FALLBACK_MESSAGE, code: "workspace_changed" };
+      }
+      const mutation = action !== "status";
+      const resp = await fetch(
+        `http://127.0.0.1:${port}/workspace/integrations/${encodeURIComponent(key.adapterId)}/${encodeURIComponent(key.targetId)}/${action}`,
+        mutation
+          ? {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(expected),
+          }
+          : { method: "GET" },
+      );
+      if (resp.ok) {
+        return { ok: true, group: await resp.json() as GroupedIntegrationStatus };
+      }
+      const body = await resp.json().catch(() => ({ error: undefined, code: undefined })) as {
+        error?: string;
+        code?: string;
+      };
+      return {
+        ok: false,
+        error: body.error ?? `Couldn't ${integrationActionLabels[action]}.`,
+        ...(body.code ? { code: body.code } : {}),
+      };
+    } catch {
+      return { ok: false, error: "Couldn't reach the OrkWorks sidecar." };
+    }
+  }
+
   function toIntegrationStatusResult(
     response: Awaited<ReturnType<typeof callIntegrationRoute>>,
   ): IntegrationStatusResult {
@@ -741,8 +870,29 @@ app.whenReady().then(() => {
       : { ok: false, error: response.error };
   }
 
+  function toGroupedIntegrationStatusResult(
+    response: Awaited<ReturnType<typeof callGroupedIntegrationRoute>>,
+  ): GroupedIntegrationStatusResult {
+    return response.ok
+      ? response
+      : { ok: false, error: response.error, ...(response.code ? { code: response.code } : {}) };
+  }
+
   ipcMain.handle("get-harness-integration-status", async (_event, harnessId: unknown) =>
     callIntegrationRoute(harnessId, "status"));
+
+  ipcMain.handle(
+    "get-grouped-harness-integration-status",
+    async (_event, adapterId: unknown, targetId: unknown): Promise<GroupedIntegrationStatusResult> => {
+      if (typeof adapterId !== "string" || !adapterId || typeof targetId !== "string" || !targetId) {
+        throw new Error("Invalid integration key.");
+      }
+      return toGroupedIntegrationStatusResult(await callGroupedIntegrationRoute(
+        { adapterId, targetId },
+        "status",
+      ));
+    },
+  );
 
   // install/uninstall intentionally have no direct IPC channel: hook-mutating
   // routes are reachable only through the confirmed batched save orchestrator
@@ -754,9 +904,10 @@ app.whenReady().then(() => {
     const hasExecutableCodeWarning = planned.some((entry) => entry.confirmation?.executableCodeWarning);
     const lines = planned.map((entry) => {
       const label = entry.operation === "uninstall" ? "Remove" : entry.operation === "repair" ? "Repair" : "Install";
-      const toolName = entry.confirmation?.toolName ?? entry.harnessName;
+      const consumerNames = entry.consumerHarnessNames.join(", ");
+      const toolName = entry.confirmation?.toolName ?? consumerNames;
       const paths = entry.confirmation?.relativePaths.length ? ` (${entry.confirmation.relativePaths.join(", ")})` : "";
-      return `• ${label} ${toolName}${paths}`;
+      return `• ${label} ${toolName} [${consumerNames}]${paths}`;
     });
     const detail = [
       lines.join("\n"),
@@ -784,13 +935,18 @@ app.whenReady().then(() => {
     }
 
     return saveActiveHarnessesWithIntegrations(ids, {
-      captureWorkspaceGuard: () => ({ workspacePath, generation: backendGeneration }),
+      captureWorkspaceGuard: () => ({ workspacePath, generation: backendGeneration, activeHarnessRevision }),
       persistActiveHarnesses,
       listHarnesses: fetchHarnessesForSave,
-      getIntegrationStatus: async (harnessId) => toIntegrationStatusResult(await callIntegrationRoute(harnessId, "status")),
-      installIntegration: async (harnessId) => toIntegrationStatusResult(await callIntegrationRoute(harnessId, "install")),
+      getGroupedIntegrationStatus: async (key) =>
+        toGroupedIntegrationStatusResult(await callGroupedIntegrationRoute(key, "status")),
+      installGroupedIntegration: async (key, expected) =>
+        toGroupedIntegrationStatusResult(await callGroupedIntegrationRoute(key, "install", expected)),
+      repairGroupedIntegration: async (key, expected) =>
+        toGroupedIntegrationStatusResult(await callGroupedIntegrationRoute(key, "repair", expected)),
       confirmMutations,
-      uninstallIntegration: async (harnessId) => toIntegrationStatusResult(await callIntegrationRoute(harnessId, "uninstall")),
+      uninstallGroupedIntegration: async (key, expected) =>
+        toGroupedIntegrationStatusResult(await callGroupedIntegrationRoute(key, "uninstall", expected)),
     });
   });
 
@@ -799,28 +955,61 @@ app.whenReady().then(() => {
     return (body as { error?: string }).error ?? fallback;
   }
 
+  function editableCustomDefinition(harness: ElectronHarnessConfig): Record<string, unknown> {
+    const {
+      origin: _origin,
+      profile: _profile,
+      sessionSignals: _sessionSignals,
+      integration: _integration,
+      ...definition
+    } = harness as ElectronHarnessConfig & Record<string, unknown>;
+    return definition;
+  }
+
+  function effectiveHarnessFromMutationResponse(body: unknown): ElectronHarnessConfig | null {
+    if (!body || typeof body !== "object") return null;
+    const entry = (body as { harness?: unknown }).harness;
+    if (!entry || typeof entry !== "object") return null;
+    const definition = (entry as { definition?: unknown }).definition;
+    return (definition && typeof definition === "object" ? definition : entry) as ElectronHarnessConfig;
+  }
+
   // PUT/DELETE /harnesses/:id (crates/orkworksd/src/http/harness_handlers.rs)
-  // replace or remove the harness's *entire* stored override document, not
-  // just the launch.command field these two functions touch. Harmless today
-  // since nothing else writes a claude-code override, but if a future
-  // feature adds another per-field override for this harness, Save/Clear
-  // here will silently clobber it too — that endpoint would need to become
-  // field-scoped (merge-on-write) before this could safely coexist with one.
+  // Both controls read the current revision first. Built-ins send a narrow
+  // BuiltinPatch; custom harnesses send a complete editable definition while
+  // deliberately omitting derived compatibility bindings.
   async function setHarnessCommandOverride(harnessId: unknown, commandPath: unknown) {
     if (typeof harnessId !== "string" || !harnessId) throw new Error("Invalid harness ID.");
     if (typeof commandPath !== "string" || !commandPath.trim()) throw new Error("Invalid command path.");
     try {
+      const guard = { workspacePath, generation: backendGeneration, activeHarnessRevision };
       const port = await restoration.getReadiness();
+      const snapshot = await fetchHarnessesForSave();
+      if (isStale(guard, { workspacePath, generation: backendGeneration, activeHarnessRevision })) {
+        return { ok: false, error: STALE_WORKSPACE_FALLBACK_MESSAGE };
+      }
+      const harness = snapshot.harnesses.find((candidate) => candidate.id === harnessId);
+      if (!harness) return { ok: false, error: "Coding tool was not found." };
+      if (!snapshot.documentRevision) return { ok: false, error: "Coding tool configuration has no revision." };
+      const isCustom = harness.origin === "custom";
+      const definition = isCustom ? editableCustomDefinition(harness) : undefined;
+      if (definition && typeof definition.launch === "object" && definition.launch !== null) {
+        (definition.launch as { command?: string }).command = commandPath.trim();
+      }
       const resp = await fetch(`http://127.0.0.1:${port}/harnesses/${encodeURIComponent(harnessId)}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          kind: "BuiltinPatch",
-          patch: { launch: { command: commandPath } },
+          kind: isCustom ? "CustomReplace" : "BuiltinPatch",
+          ...(isCustom
+            ? { definition }
+            : { patch: { launch: { command: commandPath.trim() } } }),
+          expectedRevision: snapshot.documentRevision,
         }),
       });
       if (resp.ok) {
-        return { ok: true, harness: await resp.json() };
+        const updated = effectiveHarnessFromMutationResponse(await resp.json());
+        return updated ? { ok: true, harness: updated } : { ok: false, error: "Malformed harness update response." };
       }
       return { ok: false, error: await parseErrorBody(resp, "Couldn't set the custom path.") };
     } catch {
@@ -831,9 +1020,21 @@ app.whenReady().then(() => {
   async function clearHarnessCommandOverride(harnessId: unknown) {
     if (typeof harnessId !== "string" || !harnessId) throw new Error("Invalid harness ID.");
     try {
+      const guard = { workspacePath, generation: backendGeneration, activeHarnessRevision };
       const port = await restoration.getReadiness();
+      const snapshot = await fetchHarnessesForSave();
+      if (isStale(guard, { workspacePath, generation: backendGeneration, activeHarnessRevision })) {
+        return { ok: false, error: STALE_WORKSPACE_FALLBACK_MESSAGE };
+      }
+      const harness = snapshot.harnesses.find((candidate) => candidate.id === harnessId);
+      if (!harness) return { ok: false, error: "Coding tool was not found." };
+      if (harness.origin === "custom") {
+        return { ok: false, error: "Custom harness commands are edited in the configuration JSON." };
+      }
       const resp = await fetch(`http://127.0.0.1:${port}/harnesses/${encodeURIComponent(harnessId)}`, {
         method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ expectedRevision: snapshot.documentRevision }),
       });
       if (resp.ok) {
         return { ok: true };

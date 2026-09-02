@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
+import { normalizeProviderSettings } from "../electron/settingsMemory.ts";
 import { providerSettingsSyncError, pushProviderSettings } from "../electron/providerSettingsSync.ts";
 import type { ProviderEffectiveState } from "../electron/providerTypes.ts";
 import type { ProviderSettings } from "../src/providerTypes.ts";
@@ -60,4 +61,35 @@ test("provider settings sync errors are fatal to restoration readiness", () => {
     appliedAt: "2026-06-21T10:00:00Z",
     lastApplyError: null,
   }), null);
+});
+
+test("normalizeProviderSettings adds projected providers and preserves stable custom state", () => {
+  const normalized = normalizeProviderSettings({
+    ...sampleProviderSettings(9),
+    peonSelection: { provider: "copilot-local", model: "local-model" },
+    providers: [
+      { id: "copilot", enabled: false, fallbackOrder: 4, defaultState: "degraded", overrideState: "capped", model: "cloud-model" },
+    ],
+  }, [
+    { id: "copilot", label: "Copilot", harnessId: "copilot", origin: "builtin" },
+    { id: "copilot-local", label: "Copilot Local", harnessId: "copilot-local", origin: "custom" },
+  ]);
+
+  assert.deepEqual(normalized.providers.map((entry) => entry.id), ["copilot", "copilot-local"]);
+  assert.equal(normalized.providers[0]?.enabled, false);
+  assert.equal(normalized.providers[0]?.model, "cloud-model");
+  assert.equal(normalized.providers[1]?.enabled, true);
+  assert.equal(normalized.providers[1]?.fallbackOrder, 1);
+  assert.deepEqual(normalized.peonSelection, { provider: "copilot-local", model: "local-model" });
+});
+
+test("normalizeProviderSettings clears a selection whose projected provider disappeared", () => {
+  const normalized = normalizeProviderSettings({
+    ...sampleProviderSettings(9),
+    peonSelection: { provider: "copilot-local", model: "local-model" },
+    providers: [{ id: "copilot-local", enabled: true, fallbackOrder: 0, defaultState: "healthy", overrideState: null, model: "local-model" }],
+  }, [{ id: "copilot", label: "Copilot", harnessId: "copilot", origin: "builtin" }]);
+
+  assert.equal(normalized.peonSelection, null);
+  assert.deepEqual(normalized.providers.map((entry) => entry.id), ["copilot"]);
 });

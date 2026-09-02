@@ -1,6 +1,13 @@
-export type ProviderId = "opencode" | "claude-code" | "codex" | "aider" | "copilot" | "ollama";
+export type ProviderId = string;
 export type ProviderCapacityState = "healthy" | "degraded" | "capped" | "unknown";
 export type ProviderEffectiveState = ProviderCapacityState | "disabled" | "checking_capacity";
+
+export interface ProviderDefinition {
+  id: ProviderId;
+  label: string;
+  harnessId?: string;
+  origin?: "builtin" | "override" | "custom" | "standalone";
+}
 
 export interface PeonSelection {
   provider: ProviderId;
@@ -46,6 +53,8 @@ export function peonSelectionMatchesAppliedState(
 
 export interface ProviderSettingsEntry {
   id: ProviderId;
+  harnessId?: string;
+  origin?: "builtin" | "override" | "custom" | "standalone";
   model: string | null;
   enabled: boolean;
   fallbackOrder: number;

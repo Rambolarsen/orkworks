@@ -8,12 +8,50 @@ export type BackendLifecycleEvent =
   | { state: "ready"; port: number; workspace: WorkspaceInfo | null }
   | { state: "failed" | "exhausted"; message: string };
 
+export type IntegrationKey = {
+  adapterId: string;
+  targetId: string;
+};
+
+export type IntegrationConsumer = {
+  harnessId: string;
+  harnessName: string;
+};
+
+export type GroupedIntegrationStatus = {
+  key: IntegrationKey;
+  consumers: IntegrationConsumer[];
+  status: {
+    harnessId: string;
+    enabled: boolean;
+    toolDetected: boolean;
+    registration: "unsupported" | "absent" | "installed" | "drifted" | "error";
+    ownership: "none" | "ork_works" | "ambiguous";
+    activation: "active" | "needs_trust" | "disabled" | "unknown" | "not_applicable";
+    coverage: "full" | "limited" | "none";
+    diagnostics: Array<{ code: string; message: string; action?: string }>;
+    confirmation: {
+      toolName: string;
+      workspaceLabel: string;
+      coverageSummary: string;
+      relativePaths: string[];
+      executableCodeWarning: boolean;
+    } | null;
+  };
+};
+
+export type GroupedIntegrationStatusResult =
+  | { ok: true; group: GroupedIntegrationStatus }
+  | { ok: false; error: string; code?: string };
+
 export type ActiveHarnessSaveResult = {
   activeHarnesses: {
     outcome: "persisted" | "failed" | "stale_workspace";
     message?: string;
   };
   integrations: Record<string, {
+    key: IntegrationKey;
+    consumerHarnessIds: string[];
     operation: "install" | "repair" | "uninstall" | "skipped";
     outcome: "succeeded" | "failed" | "unsupported" | "stale_workspace";
     registration: "unsupported" | "absent" | "installed" | "drifted" | "error";
@@ -49,6 +87,7 @@ declare global {
       getProviderLabels: () => Promise<ProviderLabelsResponse>;
       saveActiveHarnessesWithIntegrations: (ids: string[]) => Promise<ActiveHarnessSaveResult>;
       getHarnessIntegrationStatus: (harnessId: string) => Promise<IntegrationStatusResult>;
+      getGroupedHarnessIntegrationStatus: (adapterId: string, targetId: string) => Promise<GroupedIntegrationStatusResult>;
       setHarnessCommandOverride: (
         harnessId: string,
         commandPath: string,

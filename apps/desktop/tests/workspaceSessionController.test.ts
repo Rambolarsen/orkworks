@@ -30,6 +30,7 @@ function workspace(path: string, lastActiveSessionId: string | null = null): Wor
     dirty: false,
     lastActiveSessionId,
     activeHarnessIds: [],
+    activeHarnessRevision: 0,
   };
 }
 

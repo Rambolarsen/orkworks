@@ -13,6 +13,14 @@ export async function parseWorkspaceRestoreResponse(
     throw new Error(`Workspace restoration failed: ${response.status}`);
   }
   const rawWorkspace = await response.json() as Partial<BackendLifecycleWorkspace>;
+  const restoredActiveHarnessRevision = rawWorkspace.activeHarnessRevision;
+  if (
+    typeof restoredActiveHarnessRevision !== "number" ||
+    !Number.isSafeInteger(restoredActiveHarnessRevision) ||
+    restoredActiveHarnessRevision < 0
+  ) {
+    throw new Error("Workspace restoration returned an invalid active harness revision.");
+  }
   return {
     path: rawWorkspace.path ?? "",
     repo_root: rawWorkspace.repo_root ?? null,
@@ -20,5 +28,6 @@ export async function parseWorkspaceRestoreResponse(
     dirty: rawWorkspace.dirty ?? null,
     lastActiveSessionId: rawWorkspace.lastActiveSessionId ?? null,
     activeHarnessIds: rawWorkspace.activeHarnessIds ?? [],
+    activeHarnessRevision: restoredActiveHarnessRevision,
   };
 }

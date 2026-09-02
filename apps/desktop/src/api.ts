@@ -1,5 +1,12 @@
-import type { HarnessConfig } from "./harnessTypes.ts";
+import type {
+  HarnessConfig,
+  HarnessConfigEntry,
+  HarnessEditorMode,
+  HarnessListResponse,
+} from "./harnessTypes.ts";
 import type { ProviderEffectiveState } from "./providerTypes.ts";
+
+export type { HarnessConfigEntry, HarnessEditorMode, HarnessListResponse } from "./harnessTypes.ts";
 
 export type MemoryState = "live" | "remembered" | "resumable" | "unsupported";
 export type ResumeStrategy = "exact" | "latest_cwd" | "latest_repo" | "none";
@@ -118,12 +125,238 @@ export async function createSession(
   return resp.json();
 }
 
-export async function listHarnesses(baseUrl: string): Promise<HarnessConfig[]> {
+export async function listHarnesses(baseUrl: string): Promise<HarnessListResponse> {
   const resp = await fetch(`${baseUrl}/harnesses`);
   if (!resp.ok) throw new Error(`list harnesses failed: ${resp.status}`);
-  const body = await resp.json();
+  const body = await resp.json() as {
+    documentRevision?: unknown;
+    harnesses?: Array<{
+      definition?: HarnessConfig;
+      origin?: HarnessConfigEntry["origin"];
+      storedOverride?: unknown;
+      compatibility?: HarnessConfigEntry["compatibility"];
+    }>;
+  };
   if (!Array.isArray(body?.harnesses)) throw new Error("list harnesses failed: malformed response");
-  return body.harnesses;
+  if (body.documentRevision !== null && typeof body.documentRevision !== "string" && body.documentRevision !== undefined) {
+    throw new Error("list harnesses failed: malformed revision");
+  }
+  const documentRevision = typeof body.documentRevision === "string" ? body.documentRevision : null;
+  const harnesses = body.harnesses.map((entry) => mapHarnessEntry(entry, documentRevision, "list harnesses"));
+  return {
+    documentRevision,
+    harnesses,
+  };
+}
+
+export interface HarnessApiDiagnostic {
+  code?: string;
+  message?: string;
+  path?: string;
+  line?: number;
+  column?: number;
+}
+
+export const HARNESS_ACTIVE_DELETE_FORBIDDEN_CODE = "active_harness_delete_forbidden";
+export const HARNESS_REVISION_CONFLICT_CODE = "harness_config_revision_changed";
+
+export class HarnessApiError extends Error {
+  readonly status: number;
+  readonly code: string | null;
+  readonly diagnostics: HarnessApiDiagnostic[];
+  readonly documentRevision: string | null;
+
+  constructor(
+    message: string,
+    details: {
+      status: number;
+      code?: string | null;
+      diagnostics?: HarnessApiDiagnostic[];
+      documentRevision?: string | null;
+    },
+  ) {
+    super(message);
+    this.name = "HarnessApiError";
+    this.status = details.status;
+    this.code = details.code ?? null;
+    this.diagnostics = details.diagnostics ?? [];
+    this.documentRevision = details.documentRevision ?? null;
+  }
+}
+
+export interface DuplicateHarnessResponse {
+  documentRevision: string | null;
+  definition: Record<string, unknown>;
+  proposedId: string;
+  proposedName: string;
+}
+
+export interface HarnessMutationResponse {
+  documentRevision: string;
+  harness: HarnessConfigEntry;
+  integrationCleanup?: unknown;
+}
+
+export interface HarnessDeleteResponse {
+  documentRevision: string;
+  integrationCleanup?: unknown;
+}
+
+export interface SaveHarnessConfigurationRequest {
+  mode: HarnessEditorMode;
+  harnessId?: string;
+  definition: unknown;
+  expectedRevision: string | null;
+  duplicateSourceId?: string;
+}
+
+export async function duplicateHarness(
+  baseUrl: string,
+  sourceId: string,
+): Promise<DuplicateHarnessResponse> {
+  const resp = await fetch(`${baseUrl}/harnesses/${encodeURIComponent(sourceId)}/duplicate`, { method: "POST" });
+  if (!resp.ok) await throwHarnessApiError(resp, "duplicate harness failed");
+  const body = await resp.json() as Partial<DuplicateHarnessResponse>;
+  if (
+    (typeof body.documentRevision !== "string" && body.documentRevision !== null && body.documentRevision !== undefined)
+    || !body.definition || typeof body.definition !== "object"
+    || typeof body.proposedId !== "string" || typeof body.proposedName !== "string"
+  ) {
+    throw new Error("duplicate harness failed: malformed response");
+  }
+  return {
+    documentRevision: body.documentRevision === undefined ? null : body.documentRevision,
+    definition: body.definition as Record<string, unknown>,
+    proposedId: body.proposedId,
+    proposedName: body.proposedName,
+  };
+}
+
+export async function saveHarnessConfiguration(
+  baseUrl: string,
+  request: SaveHarnessConfigurationRequest,
+): Promise<HarnessMutationResponse> {
+  const editable = stripDerivedHarnessFields(request.definition);
+  let url = `${baseUrl}/harnesses`;
+  let method = "POST";
+  let body: Record<string, unknown> = {
+    definition: editable,
+    expectedRevision: request.expectedRevision,
+    ...(request.duplicateSourceId ? { duplicateSourceId: request.duplicateSourceId } : {}),
+  };
+  if (request.mode !== "create") {
+    if (!request.harnessId) throw new Error("Harness ID is required for an update.");
+    url = `${baseUrl}/harnesses/${encodeURIComponent(request.harnessId)}`;
+    method = "PUT";
+    body = request.mode === "custom"
+      ? { kind: "CustomReplace", definition: editable, expectedRevision: request.expectedRevision }
+      : { kind: "BuiltinPatch", patch: editable, expectedRevision: request.expectedRevision };
+  }
+  const resp = await fetch(url, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok) await throwHarnessApiError(resp, "save harness configuration failed");
+  return parseHarnessMutationResponse(await resp.json());
+}
+
+export async function removeHarnessProfile(
+  baseUrl: string,
+  harnessId: string,
+  expectedRevision: string | null,
+): Promise<HarnessMutationResponse> {
+  const resp = await fetch(`${baseUrl}/harnesses/${encodeURIComponent(harnessId)}/remove-profile`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ expectedRevision }),
+  });
+  if (!resp.ok) await throwHarnessApiError(resp, "remove harness profile failed");
+  return parseHarnessMutationResponse(await resp.json());
+}
+
+export async function deleteHarness(
+  baseUrl: string,
+  harnessId: string,
+  expectedRevision: string | null,
+): Promise<HarnessDeleteResponse> {
+  const resp = await fetch(`${baseUrl}/harnesses/${encodeURIComponent(harnessId)}`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ expectedRevision }),
+  });
+  if (!resp.ok) await throwHarnessApiError(resp, "delete harness failed");
+  const body = await resp.json() as Partial<HarnessDeleteResponse>;
+  if (typeof body.documentRevision !== "string") throw new Error("delete harness failed: malformed response");
+  return body as HarnessDeleteResponse;
+}
+
+export function stripDerivedHarnessFields(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const editable = { ...(value as Record<string, unknown>) };
+  for (const field of ["integration", "sessionSignals", "compatibilityProfile", "compatibilityProfiles", "profile", "compatibility", "origin", "storedOverride", "documentRevision"]) {
+    delete editable[field];
+  }
+  return editable;
+}
+
+async function throwHarnessApiError(resp: Response, fallback: string): Promise<never> {
+  const body = await resp.json().catch(() => null) as {
+    error?: unknown;
+    diagnostics?: unknown;
+    documentRevision?: unknown;
+  } | null;
+  const diagnostics = Array.isArray(body?.diagnostics)
+    ? body.diagnostics.filter((diagnostic): diagnostic is HarnessApiDiagnostic => !!diagnostic && typeof diagnostic === "object")
+    : [];
+  const firstCode = typeof diagnostics[0]?.code === "string" ? diagnostics[0].code : null;
+  const message = typeof body?.error === "string" ? body.error : fallback;
+  throw new HarnessApiError(message, {
+    status: resp.status,
+    code: firstCode ?? (resp.status === 409 ? HARNESS_REVISION_CONFLICT_CODE : null),
+    diagnostics,
+    documentRevision: typeof body?.documentRevision === "string" ? body.documentRevision : null,
+  });
+}
+
+function parseHarnessMutationResponse(value: unknown): HarnessMutationResponse {
+  if (!value || typeof value !== "object") throw new Error("harness mutation failed: malformed response");
+  const body = value as Partial<HarnessMutationResponse>;
+  if (typeof body.documentRevision !== "string" || !body.harness || typeof body.harness !== "object") {
+    throw new Error("harness mutation failed: malformed response");
+  }
+  return {
+    ...body,
+    documentRevision: body.documentRevision,
+    harness: mapHarnessEntry(body.harness, body.documentRevision, "harness mutation"),
+  } as HarnessMutationResponse;
+}
+
+function mapHarnessEntry(
+  value: unknown,
+  documentRevision: string | null,
+  context: string,
+): HarnessConfigEntry {
+  if (!value || typeof value !== "object") throw new Error(`${context} failed: malformed response`);
+  const entry = value as {
+    definition?: HarnessConfig;
+    origin?: HarnessConfigEntry["origin"];
+    storedOverride?: unknown;
+    compatibility?: HarnessConfigEntry["compatibility"];
+  };
+  if (!entry.definition || !entry.origin || !entry.compatibility) {
+    throw new Error(`${context} failed: malformed response`);
+  }
+  return {
+    ...entry.definition,
+    origin: entry.origin,
+    profile: entry.compatibility.profile,
+    compatibility: entry.compatibility,
+    documentRevision,
+    ...(entry.storedOverride === undefined ? {} : { storedOverride: entry.storedOverride }),
+    sessionSignals: entry.compatibility.sessionSignals ?? entry.definition.sessionSignals,
+    integration: entry.compatibility.integration ?? entry.definition.integration,
+  };
 }
 
 export async function listSessions(
@@ -161,6 +394,7 @@ export interface WorkspaceInfo {
   dirty: boolean | null;
   lastActiveSessionId?: string | null;
   activeHarnessIds: string[];
+  activeHarnessRevision: number;
 }
 
 export async function setWorkspace(
@@ -245,6 +479,8 @@ export async function getSummaryLog(
 export interface ProviderRuntimeEntry {
   id: string;
   label: string;
+  origin: "builtin" | "override" | "custom" | "standalone";
+  harnessId?: string;
   enabled: boolean;
   fallbackOrder: number;
   effectiveState: ProviderEffectiveState;
@@ -266,13 +502,18 @@ export async function getProviders(baseUrl: string): Promise<ProviderRuntimeResp
   return resp.json();
 }
 
-export async function saveActiveHarnesses(baseUrl: string, activeHarnessIds: string[]): Promise<void> {
+export async function saveActiveHarnesses(
+  baseUrl: string,
+  activeHarnessIds: string[],
+  expectedActiveHarnessRevision: number,
+): Promise<{ activeHarnessIds: string[]; activeHarnessRevision: number }> {
   const resp = await fetch(`${baseUrl}/workspace/active-harnesses`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ activeHarnessIds }),
+    body: JSON.stringify({ activeHarnessIds, expectedActiveHarnessRevision }),
   });
   if (!resp.ok) throw new Error(`save active harnesses failed: ${resp.status}`);
+  return resp.json();
 }
 
 export type Impact = "low" | "medium" | "high";

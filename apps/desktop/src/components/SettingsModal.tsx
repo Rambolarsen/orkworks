@@ -1,11 +1,14 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { acceleratorFromKeyboardEvent } from "../hotkeyCapture";
 import type { AppSettings, DebugSettings, HotkeySettings, RetentionSettings } from "../appSettingsTypes";
-import type { ProviderId, ProviderSettings, PeonSelection, PeonAppliedState, PeonProviderVerificationResponse } from "../providerTypes";
+import { normalizeProviderSettings, type ProviderDefinition, type ProviderId, type ProviderSettings, type PeonSelection, type PeonAppliedState, type PeonProviderVerificationResponse } from "../providerTypes";
 import type { ProviderRuntimeResponse } from "../api";
-import type { HarnessConfig, IntegrationStatusResult } from "../harnessTypes";
+import { duplicateHarness, stripDerivedHarnessFields, type HarnessConfigEntry, type HarnessEditorMode, type HarnessListResponse, type HarnessMutationResponse } from "../api";
+import HarnessConfigEditor from "./HarnessConfigEditor";
+import type { HarnessConfig, HarnessEditorMetadata, IntegrationStatus, IntegrationStatusResult } from "../harnessTypes";
 import {
   deriveIntegrationDisplayState,
+  type IntegrationKey,
   type ActiveHarnessIntegrationResult,
   type ActiveHarnessSaveResult,
   type IntegrationDisplayState,
@@ -33,7 +36,9 @@ const NAV_ITEMS: Array<{ key: SettingsSection; label: string }> = [
 
 interface SettingsModalProps {
   initialSettings: AppSettings;
-  harnesses: HarnessConfig[];
+  harnesses: HarnessConfigEntry[];
+  documentRevision: string | null;
+  onRefreshHarnesses: () => Promise<HarnessListResponse>;
   activeHarnessIds: string[];
   providerRuntime: ProviderRuntimeResponse | null;
   onClose: () => void;
@@ -53,7 +58,39 @@ const hotkeyRows: Array<{ action: HotkeyAction; label: string; optional?: boolea
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-export default function SettingsModal({ initialSettings, harnesses, activeHarnessIds, onClose, onSaved, onSaveActiveHarnesses }: SettingsModalProps) {
+function integrationKeyForHarness(harness: HarnessConfig): IntegrationKey | null {
+  if (!harness.integration || typeof harness.integration !== "object") return null;
+  const kind = (harness.integration as { kind?: unknown }).kind;
+  return typeof kind === "string" && kind.length > 0
+    ? { adapterId: kind, targetId: "workspace" }
+    : null;
+}
+
+function jsonText(value: unknown): string {
+  return `${JSON.stringify(value ?? {}, null, 2)}\n`;
+}
+
+function customHarnessStarter(): Record<string, unknown> {
+  return {
+    id: "my-tool",
+    name: "My coding tool",
+    launch: { kind: "command-template", command: "my-tool", args: [], modelPrefix: null },
+    defaultModel: null,
+    resume: null,
+    models: null,
+    peon: null,
+    capacity: null,
+    voice: null,
+    minVersion: null,
+    labelResetCommands: [],
+  };
+}
+
+function editableHarnessDefinition(harness: HarnessConfigEntry): unknown {
+  return stripDerivedHarnessFields(harness);
+}
+
+export default function SettingsModal({ initialSettings, harnesses, documentRevision, onRefreshHarnesses, activeHarnessIds, providerRuntime, onClose, onSaved, onSaveActiveHarnesses }: SettingsModalProps) {
   const modalRef = useRef<HTMLElement>(null);
   const savedSettingsRef = useRef<AppSettings>(clone(initialSettings));
   const defaultHotkeys = initialSettings.defaultHotkeys;
@@ -61,8 +98,11 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
     .filter((h) => h.id !== "generic-shell")
     .sort((a, b) => a.name.localeCompare(b.name));
   const integrationHarnessStatusKey = toolHarnesses
-    .filter((h) => h.integration !== null)
-    .map((h) => h.id)
+    .map((h) => integrationKeyForHarness(h))
+    .filter((key): key is IntegrationKey => key !== null)
+    .map((key) => `${key.adapterId}/${key.targetId}`)
+    .filter(Boolean)
+    .filter((key, index, all) => all.indexOf(key) === index)
     .join("\0");
   const [activeSection, setActiveSection] = useState<SettingsSection>("tools");
   const [draft, setDraft] = useState<HotkeySettings>(initialSettings.hotkeys);
@@ -88,6 +128,7 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
   const [peonBusy, setPeonBusy] = useState(false);
   const [peonBusyElapsedSeconds, setPeonBusyElapsedSeconds] = useState(0);
   const [peonError, setPeonError] = useState<string | null>(null);
+  const [unavailablePeonProvider, setUnavailablePeonProvider] = useState<string | null>(null);
   const [manualModelOverride, setManualModelOverride] = useState(false);
   const peonVerificationGeneration = useRef(0);
   const modalLifecycleGeneration = useRef(0);
@@ -102,6 +143,12 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
   const [integrationStatuses, setIntegrationStatuses] = useState<Record<string, IntegrationStatusResult>>({});
   const [integrationOperationFailures, setIntegrationOperationFailures] = useState<Record<string, ActiveHarnessIntegrationResult>>({});
   const [integrationStatusGeneration, setIntegrationStatusGeneration] = useState(0);
+  const [harnessEditor, setHarnessEditor] = useState<{
+    mode: HarnessEditorMode;
+    draftText: string;
+    metadata: HarnessEditorMetadata;
+  } | null>(null);
+  const [harnessActionStatus, setHarnessActionStatus] = useState<string | null>(null);
   const verificationTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function invalidateAsyncState() {
@@ -121,6 +168,7 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
       [harnessId]: (current[harnessId] ?? 0) + 1,
     }));
     setIntegrationStatusGeneration((current) => current + 1);
+    void onRefreshHarnesses().catch(() => undefined);
   }
 
   function refreshDetections(harnessIds: readonly string[]) {
@@ -229,6 +277,25 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
   }, []);
 
   useEffect(() => {
+    if (!providerRuntime || providerRuntime.providers.length === 0) return;
+    const definitions: ProviderDefinition[] = providerRuntime.providers.map((provider) => ({
+      id: provider.id,
+      label: provider.label,
+      ...(provider.harnessId ? { harnessId: provider.harnessId } : {}),
+      origin: provider.origin,
+    }));
+    setProviderDraft((current) => normalizeProviderSettings(current, definitions));
+    const selectedProvider = peonSelection.provider;
+    if (!definitions.some((definition) => definition.id === selectedProvider)) {
+      setUnavailablePeonProvider(selectedProvider);
+      setPeonVerification(null);
+      setPeonLocallyApplied(false);
+    } else {
+      setUnavailablePeonProvider(null);
+    }
+  }, [peonSelection.provider, providerRuntime]);
+
+  useEffect(() => {
     void verifyPeonSelection(initialPeonSelection);
     // The initial selection is intentionally verified once when the modal opens.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -238,30 +305,52 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
     let cancelled = false;
     const lifecycleGeneration = modalLifecycleGeneration.current;
     const requestGeneration = ++integrationStatusRequestGeneration.current;
-    const integrationHarnessIds = integrationHarnessStatusKey === ""
+    const integrationGroupKeys = integrationHarnessStatusKey === ""
       ? []
       : integrationHarnessStatusKey.split("\0");
 
     async function loadIntegrationStatuses() {
-      if (integrationHarnessIds.length === 0) {
+      if (integrationGroupKeys.length === 0) {
         if (cancelled || requestGeneration !== integrationStatusRequestGeneration.current || lifecycleGeneration !== modalLifecycleGeneration.current) return;
         setIntegrationStatuses({});
         return;
       }
       const entries = await Promise.all(
-        integrationHarnessIds.map(async (harnessId) => {
+        integrationGroupKeys.map(async (groupKey) => {
+          const [adapterId, targetId] = groupKey.split("/");
           try {
-            return [harnessId, await window.orkworks.getHarnessIntegrationStatus(harnessId)] as const;
+            return [groupKey, await window.orkworks.getGroupedHarnessIntegrationStatus(adapterId, targetId)] as const;
           } catch (error) {
             return [
-              harnessId,
+              groupKey,
               { ok: false, error: error instanceof Error ? error.message : "Integration status unavailable." },
             ] as const;
           }
         }),
       );
       if (cancelled || requestGeneration !== integrationStatusRequestGeneration.current || lifecycleGeneration !== modalLifecycleGeneration.current) return;
-      setIntegrationStatuses(Object.fromEntries(entries));
+      const groupedStatuses = Object.fromEntries(entries);
+      const rowStatuses = Object.fromEntries(toolHarnesses
+        .map((harness) => [harness, integrationKeyForHarness(harness)] as const)
+        .filter((entry): entry is [HarnessConfigEntry, IntegrationKey] => entry[1] !== null)
+        .map((harness) => {
+          const [harnessConfig, key] = harness;
+          const groupKey = `${key.adapterId}/${key.targetId}`;
+          const groupedStatus = groupedStatuses[groupKey] as {
+            ok: true;
+            group: { status: IntegrationStatus; consumers: Array<{ harnessId: string; harnessName: string }> };
+          } | { ok: false; error: string; code?: string } | undefined;
+          return [harnessConfig.id, groupedStatus?.ok
+            ? {
+              ok: true,
+              status: {
+                ...groupedStatus.group.status,
+                activeConsumerCount: groupedStatus.group.consumers.length,
+              },
+            }
+            : { ok: false, error: groupedStatus?.error ?? "Integration status unavailable." }] as const;
+        })) as Record<string, IntegrationStatusResult>;
+      setIntegrationStatuses(rowStatuses);
     }
 
     void loadIntegrationStatuses();
@@ -354,7 +443,9 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
       if (requestGeneration !== toolsSaveGeneration.current || lifecycleGeneration !== modalLifecycleGeneration.current) return;
       if (result.activeHarnesses.outcome === "persisted") {
         updateIntegrationFailures(result.integrations);
-        refreshDetections(Object.keys(result.integrations));
+        refreshDetections([
+          ...new Set(Object.values(result.integrations).flatMap((operation) => operation.consumerHarnessIds)),
+        ]);
         setActiveDraft(normalizedActiveDraft);
         return;
       }
@@ -450,8 +541,9 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
 
   const hotkeysDirty = !deepEqual(draft, savedHotkeys);
 
-  const ollamaEnabled = providerDraft.providers.find((entry) => entry.id === "ollama")?.enabled ?? true;
-  const peonProviders = providerDraft.providers.filter((entry) => entry.enabled).map((entry) => entry.id).concat(ollamaEnabled ? ["ollama"] : []).filter((id, index, all) => all.indexOf(id) === index);
+  const peonProviders = providerDraft.providers.filter((entry) => entry.enabled).map((entry) => entry.id).filter((id, index, all) => all.indexOf(id) === index);
+  const providerLabels = new Map<string, string>((providerRuntime?.providers ?? []).map((provider) => [provider.id, provider.label]));
+  const selectedProviderIsAvailable = peonProviders.includes(peonSelection.provider);
   const peonApplyMatches = peonApplied?.provider === peonSelection.provider
     && peonApplied.model === peonSelection.model
     && (peonSelection.provider !== "ollama" || peonApplied.ollamaBaseUrl === peonSelection.ollamaBaseUrl)
@@ -534,6 +626,96 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
     }
   }
 
+  function openHarnessEditor(entry: HarnessConfigEntry) {
+    const mode: HarnessEditorMode = entry.origin === "custom" ? "custom" : "override";
+    setHarnessActionStatus(null);
+    setHarnessEditor({
+      mode,
+      draftText: jsonText(mode === "override" ? entry.storedOverride : editableHarnessDefinition(entry)),
+      metadata: { entry, documentRevision: documentRevision ?? entry.documentRevision ?? null },
+    });
+  }
+
+  function openNewHarnessEditor() {
+    setHarnessActionStatus(null);
+    setHarnessEditor({
+      mode: "create",
+      draftText: jsonText(customHarnessStarter()),
+      metadata: { documentRevision },
+    });
+  }
+
+  async function duplicateHarnessForEditor(entry: HarnessConfigEntry) {
+    setHarnessActionStatus("Preparing an independent copy…");
+    try {
+      const baseUrl = await window.orkworks.getBackendUrl();
+      const result = await duplicateHarness(baseUrl, entry.id);
+      const duplicateEntry: HarnessConfigEntry = {
+        ...entry,
+        ...(result.definition as Partial<HarnessConfigEntry>),
+        id: result.proposedId,
+        name: result.proposedName,
+        origin: "custom",
+        documentRevision: result.documentRevision,
+      };
+      setHarnessEditor({
+        mode: "create",
+        draftText: jsonText(result.definition),
+        metadata: {
+          entry: duplicateEntry,
+          documentRevision: result.documentRevision,
+          duplicateSourceId: entry.id,
+        },
+      });
+      setHarnessActionStatus(null);
+    } catch (error) {
+      setHarnessActionStatus(error instanceof Error ? error.message : "Couldn't duplicate coding tool.");
+    }
+  }
+
+  async function handleHarnessSaved(result: HarnessMutationResponse) {
+    try {
+      await onRefreshHarnesses();
+      setHarnessEditor(null);
+      setHarnessActionStatus("Configuration saved.");
+    } catch {
+      setHarnessActionStatus("Configuration saved, but the coding tool list could not be refreshed.");
+    }
+    if (result.harness.origin === "custom") setActiveSection("tools");
+  }
+
+  async function handleHarnessDeleted() {
+    try {
+      await onRefreshHarnesses();
+      setHarnessEditor(null);
+      setHarnessActionStatus("Coding tool deleted.");
+    } catch {
+      setHarnessActionStatus("Coding tool deleted, but the coding tool list could not be refreshed.");
+    }
+  }
+
+  async function handleHarnessRevisionConflict() {
+    try {
+      const refreshed = await onRefreshHarnesses();
+      setHarnessEditor((current) => {
+        if (!current) return current;
+        const id = current.metadata.entry?.id;
+        const entry = id ? refreshed.harnesses.find((candidate) => candidate.id === id) : undefined;
+        return {
+          ...current,
+          metadata: {
+            ...current.metadata,
+            documentRevision: refreshed.documentRevision,
+            ...(entry ? { entry } : {}),
+          },
+        };
+      });
+      setHarnessActionStatus("The latest configuration is loaded for comparison. Your draft is still here.");
+    } catch {
+      setHarnessActionStatus("The configuration changed elsewhere. Your draft is still here; refresh and retry.");
+    }
+  }
+
   return (
     <div className="settings-backdrop" role="presentation">
       <section className="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title" ref={modalRef}>
@@ -570,63 +752,96 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
           <div className="settings-content">
             {activeSection === "tools" && (
               <div className="settings-section">
-                <h3>Active coding tools</h3>
-                <p className="settings-section-copy">
-                  Select which coding tools are available in this workspace. Shell is always available.
-                </p>
+                {harnessEditor ? (
+                  <HarnessConfigEditor
+                    mode={harnessEditor.mode}
+                    draftText={harnessEditor.draftText}
+                    metadata={harnessEditor.metadata}
+                    onCancel={() => setHarnessEditor(null)}
+                    onSaved={handleHarnessSaved}
+                    onDeleted={handleHarnessDeleted}
+                    onRevisionConflict={handleHarnessRevisionConflict}
+                  />
+                ) : (<>
+                  <h3>Active coding tools</h3>
+                  <p className="settings-section-copy">
+                    Select which coding tools are available in this workspace. Shell is always available.
+                  </p>
 
-                <div className="settings-config-list">
-                  {toolHarnesses.map((h) => {
-                    const display = toolDisplayState(h);
+                  <div className="settings-config-list">
+                    {toolHarnesses.map((h) => {
+                      const display = toolDisplayState(h);
 
-                    return (
-                      <div key={h.id} className="settings-config-item-row">
-                        <div className="settings-config-item-header">
-                          <div className="settings-config-item">
-                            <HarnessIcon tool={h.name} size={16} />
-                            <span>{h.name}</span>
-                            {/* onDetectionChanged=refreshDetection stays
-                                coupled through refreshGeneration-driven
-                                reloads and the shared refreshDetection path. */}
-                            <HarnessDetectionStatus harnessId={h.id}
-                              refreshGeneration={detectionGenerations[h.id] ?? 0}
-                            />
+                      return (
+                        <div key={h.id} className="settings-config-item-row">
+                          <div className="settings-config-item-header">
+                            <div className="settings-config-item">
+                              <HarnessIcon tool={h.name} size={16} />
+                              <span>{h.name}</span>
+                              <span className={`harness-origin-badge harness-origin-badge--${h.origin}`}>{h.origin}</span>
+                              {/* onDetectionChanged=refreshDetection stays
+                                  coupled through refreshGeneration-driven
+                                  reloads and the shared refreshDetection path. */}
+                              <HarnessDetectionStatus harnessId={h.id}
+                                integrationKey={integrationKeyForHarness(h) ?? undefined}
+                                refreshGeneration={detectionGenerations[h.id] ?? 0}
+                              />
+                            </div>
+                            <div className="settings-config-item-header-actions">
+                              {h.origin !== "builtin" || h.id !== "generic-shell" ? (
+                                <button type="button" onClick={() => openHarnessEditor(h)}>
+                                  {h.origin === "override" ? "Edit override" : "View config"}
+                                </button>
+                              ) : null}
+                              {h.id !== "generic-shell" && (
+                                <button type="button" onClick={() => void duplicateHarnessForEditor(h)}>
+                                  Duplicate
+                                </button>
+                              )}
+                              <Toggle
+                                checked={activeDraft.includes(h.id)}
+                                onChange={() => toggleHarness(h.id)}
+                                ariaLabel={h.name}
+                                disabled={toolsSaveInProgress}
+                                visualState={display.appearance}
+                                statusDescription={display.description}
+                                statusGlyph={display.glyph}
+                                tooltip={display.tooltip}
+                              />
+                            </div>
                           </div>
-                          <Toggle
-                            checked={activeDraft.includes(h.id)}
-                            onChange={() => toggleHarness(h.id)}
-                            ariaLabel={h.name}
-                            disabled={toolsSaveInProgress}
-                            visualState={display.appearance}
-                            statusDescription={display.description}
-                            statusGlyph={display.glyph}
-                            tooltip={display.tooltip}
-                          />
+                          {h.launch.kind === "command-template" && (
+                            <HarnessCommandPathControl
+                              harnessId={h.id}
+                              harnessName={h.name}
+                              harness={h}
+                              disabled={toolsSaveInProgress}
+                              documentRevision={documentRevision}
+                              onChanged={refreshDetection}
+                            />
+                          )}
                         </div>
-                        {h.launch.kind === "command-template" && (
-                          <HarnessCommandPathControl
-                            harnessId={h.id}
-                            harnessName={h.name}
-                            harness={h}
-                            disabled={toolsSaveInProgress}
-                            onChanged={refreshDetection}
-                          />
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
+                      );
+                    })}
+                  </div>
 
-                <div className="settings-config-footer">
-                  <Button variant="secondary" size="sm" onClick={saveActiveHarnessesHandler} disabled={toolsSaveInProgress}>
-                    {toolsSaveInProgress ? "Saving..." : "Save"}
-                  </Button>
-                  {activeSaveStatus && (
-                    <span className="settings-config-status">
-                      {activeSaveStatus}
-                    </span>
-                  )}
-                </div>
+                  <div className="settings-config-footer">
+                    <Button variant="secondary" size="sm" onClick={saveActiveHarnessesHandler} disabled={toolsSaveInProgress}>
+                      {toolsSaveInProgress ? "Saving..." : "Save"}
+                    </Button>
+                    <Button variant="primary" size="sm" onClick={openNewHarnessEditor}>
+                      Add custom coding tool
+                    </Button>
+                    {activeSaveStatus && (
+                      <span className="settings-config-status">
+                        {activeSaveStatus}
+                      </span>
+                    )}
+                    {harnessActionStatus && (
+                      <span className="settings-config-status">{harnessActionStatus}</span>
+                    )}
+                  </div>
+                </>)}
               </div>
             )}
 
@@ -669,11 +884,18 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
                       const provider = event.target.value as ProviderId;
                       const next = { provider, model: "", ...(provider === "ollama" ? { ollamaBaseUrl: providerDraft.ollamaBaseUrl } : {}) };
                       setPeonSelection(next);
+                      setUnavailablePeonProvider(null);
                       setPeonLocallyApplied(false);
                       scheduleVerifyPeonSelection(next, true);
                     }}>
-                      {peonProviders.map((provider) => <option key={provider} value={provider}>{provider}</option>)}
+                      {!selectedProviderIsAvailable && <option value={peonSelection.provider} disabled>{peonSelection.provider} (unavailable)</option>}
+                      {peonProviders.map((provider) => <option key={provider} value={provider}>{providerLabels.get(provider) ?? provider}</option>)}
                     </select>
+                    {unavailablePeonProvider && (
+                      <div role="alert" className="provider-verify-status">
+                        The previously selected provider “{unavailablePeonProvider}” is no longer available. Choose another provider; OrkWorks will not switch automatically.
+                      </div>
+                    )}
                     {peonSelection.provider === "ollama" && <Input value={peonSelection.ollamaBaseUrl ?? ""} onChange={(event) => {
                       const next = { ...peonSelection, ollamaBaseUrl: event.target.value };
                       setPeonSelection(next);

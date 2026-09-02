@@ -193,15 +193,21 @@ resume, models, Peon, capacity, native signals, voice projection, and workspace
 integration status all read that one snapshot. A definition expresses support
 by the presence of a closed capability binding; it does not use independent
 "supports" booleans. User overrides preserve omitted built-in fields, while
-complete custom definitions cannot select compiled signal handlers, reporters,
-or authority-bearing paths.
+complete custom definitions cannot directly select compiled signal handlers,
+reporters, or authority-bearing paths. An explicitly supported duplicate
+operation may attach a sidecar-owned, allowlisted compatibility profile stored
+outside the editable custom definition; the profile derives an existing closed
+binding and cannot contain user-supplied code, paths, or handler selection.
 
-The user document is `{ "version": 2, "overrides": { ... }, "custom": [ ... ] }`.
-An override is keyed by the immutable built-in ID. Arrays replace, nested
-objects merge, tagged-kind changes replace the complete capability, and `null`
-removes only an optional capability. Legacy v1 arrays remain readable and are
-migrated in memory; only a later successful save writes v2. A failed write
-never publishes an unpersisted registry.
+The version-3 user document contains `version`, `overrides`, `custom`, and a
+sidecar-owned `compatibilityProfiles` map. An override is keyed by the
+immutable built-in ID. Arrays replace, nested objects merge, tagged-kind
+changes replace the complete capability, and `null` removes only an optional
+capability.
+Legacy v1 arrays and version-2 documents remain readable and are migrated in
+memory; only a later successful save writes v3. A failed write never publishes
+an unpersisted registry. Compatibility profiles are sidecar-owned, keyed by
+immutable custom harness ID, and validated against a compiled allowlist.
 
 Each harness has read-only, independent integration axes: `enabled`, tool
 detection, registration (`unsupported`, `absent`, `installed`, `drifted`, or

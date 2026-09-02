@@ -412,6 +412,8 @@ pub struct WorkspaceMemory {
         skip_serializing_if = "Vec::is_empty"
     )]
     pub active_harness_ids: Vec<String>,
+    #[serde(rename = "activeHarnessRevision", default)]
+    pub active_harness_revision: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -3152,6 +3154,7 @@ mod tests {
             last_active_session_id: Some("session-1".into()),
             last_active_at: Some("2026-06-17T12:00:00Z".into()),
             active_harness_ids: vec![],
+            active_harness_revision: 0,
         });
 
         let memory = store.read_workspace_memory().unwrap();

@@ -321,6 +321,7 @@ mod tests {
                 last_active_session_id: Some("session-a".into()),
                 last_active_at: Some("2024-01-01T00:00:00Z".into()),
                 active_harness_ids: vec![],
+                active_harness_revision: 0,
             });
 
         delete_session_evidence(ws, "session-a", |_| Ok(())).unwrap();
@@ -494,6 +495,7 @@ mod tests {
                     last_active_session_id: Some(session_id.clone()),
                     last_active_at: Some("2024-01-01T00:00:00Z".into()),
                     active_harness_ids: vec![],
+                    active_harness_revision: 0,
                 });
         }
 

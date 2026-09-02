@@ -18,6 +18,7 @@ test("a successful /workspace response maps into the lifecycle workspace shape",
     dirty: false,
     lastActiveSessionId: "s1",
     activeHarnessIds: ["claude"],
+    activeHarnessRevision: 7,
   }));
 
   assert.deepEqual(workspace, {
@@ -27,20 +28,24 @@ test("a successful /workspace response maps into the lifecycle workspace shape",
     dirty: false,
     lastActiveSessionId: "s1",
     activeHarnessIds: ["claude"],
+    activeHarnessRevision: 7,
   });
 });
 
-test("missing fields in a successful response fall back to the lifecycle defaults", async () => {
-  const workspace = await parseWorkspaceRestoreResponse(jsonResponse(200, { path: "/repo" }));
+test("a missing active harness revision is rejected", async () => {
+  await assert.rejects(
+    parseWorkspaceRestoreResponse(jsonResponse(200, { path: "/repo" })),
+    /Workspace restoration returned an invalid active harness revision\./,
+  );
+});
 
-  assert.deepEqual(workspace, {
-    path: "/repo",
-    repo_root: null,
-    branch: null,
-    dirty: null,
-    lastActiveSessionId: null,
-    activeHarnessIds: [],
-  });
+test("an invalid active harness revision is rejected", async () => {
+  for (const activeHarnessRevision of [-1, 1.5, Number.MAX_SAFE_INTEGER + 1, "7", null]) {
+    await assert.rejects(
+      parseWorkspaceRestoreResponse(jsonResponse(200, { path: "/repo", activeHarnessRevision })),
+      /Workspace restoration returned an invalid active harness revision\./,
+    );
+  }
 });
 
 test("a client error from a healthy sidecar means no workspace, not a backend failure", async () => {

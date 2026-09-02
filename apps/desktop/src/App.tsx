@@ -14,6 +14,8 @@ import {
   type SessionAttention,
   type WorkspaceInfo,
   type ProviderRuntimeResponse,
+  type HarnessConfigEntry,
+  type HarnessListResponse,
   listHarnesses,
   applyDebugAttention,
   setActiveWorkspaceSession,
@@ -22,7 +24,7 @@ import {
 import { disposeTerminal, getTerminal, pruneTerminals, getLiveTerminalCount, getLiveTerminalIds } from "./terminalStore";
 import { captureRendererHealth, type RendererHealthSample } from "./rendererHealthProbe";
 import type { AppSettings } from "./appSettingsTypes";
-import type { HarnessConfig, CreateSessionOptions } from "./harnessTypes";
+import type { CreateSessionOptions } from "./harnessTypes";
 import type { ActiveHarnessSaveResult, BackendLifecycleEvent } from "./orkworksWindow";
 import { shouldEnableSessionPolling, type BackendStatus } from "./backendPollingGate";
 import { createWorkspaceSessionController } from "./workspaceSessionController";
@@ -40,7 +42,8 @@ function App() {
   const [noProvidersPrompt, setNoProvidersPrompt] = useState(false);
   const [resumeTick, setResumeTick] = useState(0);
   const [reviewTick, setReviewTick] = useState(0);
-  const [harnesses, setHarnesses] = useState<HarnessConfig[]>([]);
+  const [harnesses, setHarnesses] = useState<HarnessConfigEntry[]>([]);
+  const [harnessDocumentRevision, setHarnessDocumentRevision] = useState<string | null>(null);
   const [activeHarnessIds, setActiveHarnessIds] = useState<string[]>([]);
   const [newSessionDialogOpen, setNewSessionDialogOpen] = useState(false);
   const dockviewApiRef = useRef<DockviewApi | null>(null);
@@ -160,19 +163,20 @@ function App() {
 
   const refreshSessions = useCallback(() => workspaceSessionController.refreshSessions(), [workspaceSessionController]);
 
+  const refreshHarnesses = useCallback(async (): Promise<HarnessListResponse> => {
+    const baseUrl = await window.orkworks.getBackendUrl();
+    const list = await listHarnesses(baseUrl);
+    setHarnesses(list.harnesses);
+    setHarnessDocumentRevision(list.documentRevision);
+    return list;
+  }, []);
+
   useEffect(() => {
     if (backendStatus !== "connected") return;
-    async function loadHarnesses() {
-      try {
-        const baseUrl = await window.orkworks.getBackendUrl();
-        const list = await listHarnesses(baseUrl);
-        setHarnesses(list);
-      } catch {
-        // Non-fatal: dialog will show empty list, user can still create bare sessions
-      }
-    }
-    loadHarnesses();
-  }, [backendStatus]);
+    void refreshHarnesses().catch(() => {
+      // Non-fatal: dialog will show empty list, user can still create bare sessions
+    });
+  }, [backendStatus, refreshHarnesses]);
 
   const filteredHarnesses = activeNewSessionHarnesses(harnesses, activeHarnessIds);
 
@@ -563,6 +567,8 @@ function App() {
         <SettingsModal
           initialSettings={settings}
           harnesses={harnesses}
+          documentRevision={harnessDocumentRevision}
+          onRefreshHarnesses={refreshHarnesses}
           activeHarnessIds={activeHarnessIds}
           providerRuntime={providerRuntime}
           onClose={() => setSettingsOpen(false)}

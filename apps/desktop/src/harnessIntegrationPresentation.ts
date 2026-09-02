@@ -2,6 +2,7 @@ import type {
   IntegrationActivation,
   IntegrationCoverage,
   IntegrationRegistration,
+  IntegrationStatus,
   IntegrationStatusResult,
 } from "./harnessTypes.ts";
 
@@ -35,6 +36,8 @@ export interface IntegrationDisplayState {
 }
 
 export interface ActiveHarnessIntegrationResult {
+  key: IntegrationKey;
+  consumerHarnessIds: string[];
   operation: "install" | "repair" | "uninstall" | "skipped";
   outcome: "succeeded" | "failed" | "unsupported" | "stale_workspace";
   registration: IntegrationRegistration;
@@ -44,12 +47,36 @@ export interface ActiveHarnessIntegrationResult {
   message?: string;
 }
 
+export interface IntegrationKey {
+  adapterId: string;
+  targetId: string;
+}
+
+export interface IntegrationConsumer {
+  harnessId: string;
+  harnessName: string;
+}
+
+export interface GroupedIntegrationStatus {
+  key: IntegrationKey;
+  consumers: IntegrationConsumer[];
+  status: IntegrationStatus;
+}
+
 export interface ActiveHarnessSaveResult {
   activeHarnesses: {
     outcome: "persisted" | "failed" | "stale_workspace";
     message?: string;
   };
   integrations: Record<string, ActiveHarnessIntegrationResult>;
+}
+
+/** Projects one grouped save outcome onto the row that consumes its adapter. */
+export function integrationOperationForHarness(
+  results: Record<string, ActiveHarnessIntegrationResult>,
+  harnessId: string,
+): ActiveHarnessIntegrationResult | undefined {
+  return Object.values(results).find((result) => result.consumerHarnessIds.includes(harnessId));
 }
 
 interface DeriveIntegrationDisplayStateInput {
@@ -135,6 +162,10 @@ export function deriveIntegrationDisplayState({
   }
 
   if (!enabled) {
+    if ((current.activeConsumerCount ?? 0) > 0) {
+      const message = `${harnessName} is disabled; the shared integration is still in use by another coding tool.`;
+      return displayState("off", "off", message, message, "neutral");
+    }
     if (current.ownership === "ork_works" && current.registration !== "absent") {
       const message = `${harnessName} is disabled, but OrkWorks-owned integration cleanup is still needed.`;
       return displayState("needs-you", "cleanup needed", message, message, "warning");
