@@ -436,6 +436,16 @@ mod tests {
             IntegrationBinding::Copilot,
             IntegrationBinding::Aider,
         ] {
+            // Pin the key spelling to the binding's actual serde `kind`,
+            // not just to binding_for_key's own acceptance — the original
+            // bug was integration_key and binding_for_key agreeing on a
+            // spelling the definitions never use.
+            let serialized = serde_json::to_value(&binding).unwrap();
+            let kind = serialized
+                .get("kind")
+                .and_then(|kind| kind.as_str())
+                .expect("binding serializes as a kind-tagged enum");
+            assert_eq!(integration_key(&binding).adapter_id, kind);
             let key = integration_key(&binding);
             assert_eq!(
                 binding_for_key(&key),
