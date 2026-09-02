@@ -681,6 +681,22 @@ html, body, #root {
   font-size: var(--text-sm);
 }
 
+.provider-verify-spinner {
+  display: inline-block;
+  width: 0.75em;
+  height: 0.75em;
+  margin-right: 0.45em;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  vertical-align: -0.05em;
+  animation: provider-verify-spin 0.8s linear infinite;
+}
+
+@keyframes provider-verify-spin {
+  to { transform: rotate(360deg); }
+}
+
 .provider-verify-status--ok {
   color: var(--state-ok);
 }

@@ -1232,6 +1232,10 @@ impl ProviderManager {
             normalize_peon_selection(settings.peon_selection.clone(), &valid_ids);
     }
 
+    pub(crate) fn latest_generation(&self) -> u64 {
+        self.operation_state.lock().unwrap().latest_generation
+    }
+
     fn accept_generation(&self, generation: u64) -> Result<(), ProviderOperationError> {
         if generation == 0 {
             return Err(ProviderOperationError {

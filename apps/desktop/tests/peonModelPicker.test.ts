@@ -81,6 +81,13 @@ test("SettingsModal renders verify affordance and status region for Ollama", () 
   assert.match(source, /window\.orkworks\.verifyOllama/);
 });
 
+test("SettingsModal shows a spinner and elapsed time while verifying", () => {
+  const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
+  assert.match(source, /provider-verify-spinner/);
+  assert.match(source, /peonBusyElapsedSeconds/);
+  assert.match(source, /can take up to a minute/);
+});
+
 test("updateProviderModel trims and updates only the selected provider override", () => {
   const settings = baseSettings("global-model");
   const next = updateProviderModel(settings, "ollama", "  llama3  ");
