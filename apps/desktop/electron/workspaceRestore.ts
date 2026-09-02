@@ -15,6 +15,7 @@ export async function parseWorkspaceRestoreResponse(
   const rawWorkspace = await response.json() as Partial<BackendLifecycleWorkspace>;
   const restoredActiveHarnessRevision = rawWorkspace.activeHarnessRevision;
   if (
+    typeof restoredActiveHarnessRevision !== "number" ||
     !Number.isSafeInteger(restoredActiveHarnessRevision) ||
     restoredActiveHarnessRevision < 0
   ) {
