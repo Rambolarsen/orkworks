@@ -149,7 +149,7 @@ fn status_from_bytes(ctx: &IntegrationContext<'_>, bytes: &[u8]) -> IntegrationS
         IntegrationConfirmation::new(
             "OpenCode",
             ctx.workspace,
-            "Native session ID capture",
+            "Session ID capture and attention signals",
             &[Path::new(RELATIVE_PATH)],
             false,
         )
@@ -387,5 +387,25 @@ mod tests {
         assert!(PLUGIN_SOURCE.contains("/sessions/${orkworksSessionId}/harness-session"));
         assert!(PLUGIN_SOURCE.contains("source: \"opencode_hook\""));
         assert!(PLUGIN_SOURCE.starts_with(MARKER_LINE));
+    }
+
+    #[test]
+    fn plugin_source_reports_attention_events_to_the_attention_endpoint() {
+        // Turn boundary: the agent finished and is waiting on the user's
+        // next prompt — mapped to plain "idle" (unread state carries the
+        // attention display), not waiting_for_input (issue #104 decision).
+        assert!(PLUGIN_SOURCE.contains("session.idle"));
+        assert!(PLUGIN_SOURCE.contains("status: \"idle\""));
+        // Permission prompt: the genuine "needs you" signal.
+        assert!(PLUGIN_SOURCE.contains("permission.asked"));
+        assert!(PLUGIN_SOURCE.contains("status: \"waiting_for_input\""));
+        // Replying to the permission resumes the active turn, and a busy
+        // session.status clears a stale waiting/idle state.
+        assert!(PLUGIN_SOURCE.contains("permission.replied"));
+        assert!(PLUGIN_SOURCE.contains("\"busy\""));
+        assert!(PLUGIN_SOURCE.contains("status: \"working\""));
+        assert!(PLUGIN_SOURCE.contains("/sessions/${orkworksSessionId}/attention"));
+        // Attention events must only apply to the captured session.
+        assert!(PLUGIN_SOURCE.contains("sessionID !== openCodeSessionId"));
     }
 }
