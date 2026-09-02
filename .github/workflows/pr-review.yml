@@ -308,7 +308,7 @@ jobs:
             the report with a line stating this was an automated first pass
             and does not replace the project's manual /code-review review gate.
           claude_args: |
-            --max-turns 20
+            --max-turns 30
             --allowedTools "Bash(git diff:*),Read,Grep,Glob"
             --json-schema '{"type":"object","properties":{"report":{"type":"string"}},"required":["report"],"additionalProperties":false}'
 
