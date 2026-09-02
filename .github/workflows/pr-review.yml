@@ -1,8 +1,8 @@
-# Automated first-pass code review on PR open — fourth workflow class
+# Automated first-pass code review on PR open and substantial updates — fourth workflow class
 # alongside release.yml (tag-driven packaging), pr-ci.yml (PR validation),
 # and quality-audit.yml (scheduled audits).
 #
-# Posts one informational review comment on newly opened PRs that touch
+# Posts one informational review comment on opened PRs or substantial updates that touch
 # apps/desktop/ or crates/orkworksd/ AND exceed the review gate's escalation
 # threshold (roughly more than 8 non-docs code files or 500 non-docs changed
 # lines — the same heuristic AGENTS.md's /code-review gate uses). Small,
@@ -23,9 +23,19 @@ name: PR review
 
 on:
   pull_request:
-    types: [opened]
+    types: [opened, reopened, ready_for_review, synchronize]
     branches:
       - main
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "Pull request number to review"
+        required: true
+        type: number
+
+concurrency:
+  group: pr-review-${{ github.event.pull_request.number || inputs.pr_number }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -36,79 +46,204 @@ jobs:
     name: Detect changed surfaces
     runs-on: ubuntu-latest
     outputs:
-      relevant_code_changed: ${{ steps.filter.outputs.desktop == 'true' || steps.filter.outputs.rust == 'true' }}
-      over_review_threshold: ${{ steps.size.outputs.over_threshold }}
+      pr_number: ${{ steps.context.outputs.pr_number }}
+      base_sha: ${{ steps.context.outputs.base_sha }}
+      head_sha: ${{ steps.context.outputs.head_sha }}
+      review_base: ${{ steps.delta.outputs.review_base }}
+      relevant_code_changed: ${{ steps.delta.outputs.relevant_code_changed }}
+      over_review_threshold: ${{ steps.delta.outputs.over_review_threshold }}
+      force_review: ${{ steps.context.outputs.force_review }}
+      should_review: ${{ steps.delta.outputs.should_review }}
     steps:
-      - uses: actions/checkout@v4
-
-      - id: filter
-        uses: dorny/paths-filter@v3
-        with:
-          filters: |
-            desktop:
-              - 'apps/desktop/**'
-            rust:
-              - 'crates/orkworksd/**'
-
-      - id: size
-        name: Compare diff size against the review gate's escalation threshold
-        if: steps.filter.outputs.desktop == 'true' || steps.filter.outputs.rust == 'true'
+      - id: context
+        name: Resolve pull request context
         env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_PR_NUMBER: ${{ github.event.pull_request.number }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          INPUT_PR_NUMBER: ${{ inputs.pr_number }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          read -r files lines <<< "$(gh api \
-            "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files?per_page=100" \
-            --jq '[.[] | select((.filename | endswith(".md")) | not)] |
-                  (length | tostring) + " " + ([.[] | .additions + .deletions] | add // 0 | tostring)')"
-          files="${files:-0}"
-          lines="${lines:-0}"
-          echo "non-docs files: ${files}, changed lines: ${lines}"
-          if [ "${files}" -gt 8 ] || [ "${lines}" -gt 500 ]; then
-            echo "over_threshold=true" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            test -n "$INPUT_PR_NUMBER"
+            pr_json="$(gh pr view "$INPUT_PR_NUMBER" --repo "$GITHUB_REPOSITORY" \
+              --json number,state,isDraft,baseRefName,baseRefOid,headRefOid)"
+            pr_number="$(jq -r '.number' <<<"$pr_json")"
+            state="$(jq -r '.state' <<<"$pr_json" | tr '[:lower:]' '[:upper:]')"
+            draft="$(jq -r '.isDraft' <<<"$pr_json")"
+            base_ref="$(jq -r '.baseRefName' <<<"$pr_json")"
+            base_sha="$(jq -r '.baseRefOid' <<<"$pr_json")"
+            head_sha="$(jq -r '.headRefOid' <<<"$pr_json")"
           else
-            echo "over_threshold=false" >> "$GITHUB_OUTPUT"
+            pr_number="$EVENT_PR_NUMBER"
+            state="$(jq -r '.pull_request.state' "$GITHUB_EVENT_PATH" | tr '[:lower:]' '[:upper:]')"
+            draft="$(jq -r '.pull_request.draft // false' "$GITHUB_EVENT_PATH")"
+            base_ref="$EVENT_BASE_REF"
+            base_sha="$EVENT_BASE_SHA"
+            head_sha="$EVENT_HEAD_SHA"
           fi
+
+          eligible=true
+          if [ "$state" != "OPEN" ] || [ "$draft" != "false" ] \
+            || [ "$base_ref" != "main" ] || [ -z "$pr_number" ] \
+            || [ -z "$base_sha" ] || [ -z "$head_sha" ]; then
+            eligible=false
+          fi
+
+          {
+            echo "pr_number=$pr_number"
+            echo "base_sha=$base_sha"
+            echo "head_sha=$head_sha"
+            echo "eligible=$eligible"
+            if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+              echo "force_review=true"
+            else
+              echo "force_review=false"
+            fi
+          } >> "$GITHUB_OUTPUT"
+
+          if [ "$eligible" = false ]; then
+            echo "Skipping: PR must be open, non-draft, target main, and have valid SHAs"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.context.outputs.eligible == 'true'
+        with:
+          ref: ${{ steps.context.outputs.head_sha }}
+          fetch-depth: 0
+
+      - name: Verify checked out head
+        if: steps.context.outputs.eligible == 'true'
+        env:
+          EXPECTED_HEAD_SHA: ${{ steps.context.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          actual_head_sha="$(git rev-parse HEAD)"
+          test "$actual_head_sha" = "$EXPECTED_HEAD_SHA"
+
+      - id: delta
+        name: Compare cumulative changes against the review gate
+        if: steps.context.outputs.eligible == 'true'
+        env:
+          BASE_SHA: ${{ steps.context.outputs.base_sha }}
+          HEAD_SHA: ${{ steps.context.outputs.head_sha }}
+          FORCE_REVIEW: ${{ steps.context.outputs.force_review }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ steps.context.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+
+          marker_sha="$(gh api --paginate --slurp \
+            "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100" \
+            --jq 'add // []
+              | sort_by(.created_at)
+              | map(select(.user.login == "github-actions[bot]"
+                and (.body | test("^### Automated code review\\r?\\n<!-- orkworks-automated-review: sha=[0-9a-f]{40} -->"))))
+              | if length == 0 then ""
+                else (.[-1].body | capture("<!-- orkworks-automated-review: sha=(?<sha>[0-9a-f]{40}) -->").sha)
+                end')"
+
+          review_base="$BASE_SHA"
+          if [[ "$marker_sha" =~ ^[0-9a-f]{40}$ ]] \
+            && git cat-file -e "${marker_sha}^{commit}" 2>/dev/null \
+            && git merge-base --is-ancestor "$marker_sha" "$HEAD_SHA"; then
+            review_base="$marker_sha"
+          fi
+
+          read -r files lines < <(
+            "$GITHUB_WORKSPACE/scripts/pr-review-delta.sh" "$review_base" "$HEAD_SHA"
+          )
+          relevant_code_changed=false
+          over_review_threshold=false
+          should_review=false
+          if [ "$files" -gt 0 ]; then
+            relevant_code_changed=true
+          fi
+          if [ "$files" -gt 8 ] || [ "$lines" -gt 500 ]; then
+            over_review_threshold=true
+          fi
+          if [ "$relevant_code_changed" = true ] \
+            && { [ "$over_review_threshold" = true ] || [ "$FORCE_REVIEW" = true ]; }; then
+            should_review=true
+          fi
+
+          echo "review baseline: $review_base"
+          echo "head: $HEAD_SHA"
+          echo "non-docs code files: $files, changed lines: $lines"
+          echo "automatic threshold: $over_review_threshold"
+          echo "manual force: $FORCE_REVIEW"
+          echo "should review: $should_review"
+          {
+            echo "review_base=$review_base"
+            echo "relevant_code_changed=$relevant_code_changed"
+            echo "over_review_threshold=$over_review_threshold"
+            echo "should_review=$should_review"
+          } >> "$GITHUB_OUTPUT"
 
   review:
     name: Automated review
     needs: changes
-    if: needs.changes.outputs.relevant_code_changed == 'true' && needs.changes.outputs.over_review_threshold == 'true'
+    if: needs.changes.outputs.should_review == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ needs.changes.outputs.head_sha }}
           fetch-depth: 0
+
+      - name: Verify checked out head
+        env:
+          EXPECTED_HEAD_SHA: ${{ needs.changes.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          actual_head_sha="$(git rev-parse HEAD)"
+          test "$actual_head_sha" = "$EXPECTED_HEAD_SHA"
 
       - name: Run review
         uses: anthropics/claude-code-action@v1
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ needs.changes.outputs.pr_number }}
+          HEAD_SHA: ${{ needs.changes.outputs.head_sha }}
+          FORCE_REVIEW: ${{ needs.changes.outputs.force_review }}
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
           prompt: |
-            Review pull request #${{ github.event.pull_request.number }} in
-            this repository (Rambolarsen/orkworks) and post one comment with
-            your findings. This is an automated first pass, not the
-            project's real review gate — the PR author still runs a manual
-            /code-review per AGENTS.md, especially for bigger or riskier
-            changes. Say so plainly at the end of your comment so nobody
-            mistakes this for that review.
+            Review pull request #${{ needs.changes.outputs.pr_number }} at
+            head commit ${{ needs.changes.outputs.head_sha }} in this
+            repository (Rambolarsen/orkworks) and post one comment with your
+            findings. This is an automated first pass, not the project's real
+            review gate — the PR author still runs a manual /code-review per
+            AGENTS.md, especially for bigger or riskier changes. Say so plainly
+            at the end of your comment so nobody mistakes this for that review.
 
-            Eligibility: if the PR is a draft, is closed, is an automated
-            dependency-bump PR, or you have already posted a comment on it
-            starting with "### Automated code review" (check with
-            `gh pr view ${{ github.event.pull_request.number }} --json comments`),
-            stop and post nothing.
+            The workflow has already checked that this is an open, non-draft PR
+            targeting main with relevant code changes. If this is not a manual
+            force run and a github-actions[bot] comment contains the exact
+            current-head marker below, stop and post nothing. An older marker
+            never suppresses a review of this head. For a manual force run,
+            review and post even if the current-head marker already exists.
+            Manual force run: ${{ needs.changes.outputs.force_review }}.
+
+            The comment you post must begin with these two lines, using the
+            exact full lowercase SHA shown here:
+
+            ### Automated code review
+            <!-- orkworks-automated-review: sha=${{ needs.changes.outputs.head_sha }} -->
 
             Otherwise:
 
             1. Read the root AGENTS.md, plus apps/desktop/AGENTS.md and/or
                crates/orkworksd/AGENTS.md depending on which paths the PR
-               touches (`gh pr diff ${{ github.event.pull_request.number }} --name-only`).
+               touches (`gh pr diff ${{ needs.changes.outputs.pr_number }} --name-only`).
             2. Read the full diff with
-               `gh pr diff ${{ github.event.pull_request.number }}`.
+               `gh pr diff ${{ needs.changes.outputs.pr_number }}`.
             3. Look for real correctness bugs and clear violations of the
                AGENTS.md files you read — not style nitpicks. Do not flag:
                anything a linter/typechecker/compiler/test run would catch
@@ -116,24 +251,43 @@ jobs:
                general code-quality opinions not required by AGENTS.md;
                pre-existing issues outside the diff; issues on lines the PR
                didn't touch; changes that are clearly intentional.
-            4. This workflow only runs for PRs past the review gate's size
-                threshold, so treat the diff as higher-risk by AGENTS.md's
-                review-gate heuristic (cross-cutting architecture/runtime
-                work, concurrency or lifecycle changes, protocol/schema/
-                migration changes, security-sensitive work) and look hard at
-                those areas specifically.
+            4. This workflow normally runs for PRs past the review gate's size
+               threshold, so treat the diff as higher-risk by AGENTS.md's
+               review-gate heuristic (cross-cutting architecture/runtime work,
+               concurrency or lifecycle changes, protocol/schema/migration
+               changes, security-sensitive work) and look hard at those areas.
             5. Do not attempt to build, typecheck, or run tests yourself —
                pr-ci.yml already does that.
 
             Post exactly one comment via
-            `gh pr comment ${{ github.event.pull_request.number }} --body "..."`.
+            `gh pr comment ${{ needs.changes.outputs.pr_number }} --body "..."`.
             Keep it brief, no emojis except the sign-off. Cite file and line
             with a full-commit-SHA GitHub permalink for each finding (e.g.
-            https://github.com/Rambolarsen/orkworks/blob/<full-sha>/path/to/file#L10-L15,
-            with 1 line of context before/after the cited lines). If you
-            found no issues, say so plainly instead of inventing filler.
-            Always end the comment with a line stating this was an automated
-            first pass and does not replace the project's manual
-            /code-review review gate.
+            https://github.com/Rambolarsen/orkworks/blob/${{ needs.changes.outputs.head_sha }}/path/to/file#L10-L15,
+            with 1 line of context before/after the cited lines. If you found
+            no issues, say so plainly instead of inventing filler. Always end
+            the comment with a line stating this was an automated first pass
+            and does not replace the project's manual /code-review review gate.
           claude_args: |
             --allowedTools "Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr comment:*),Bash(gh pr list:*),Read,Grep,Glob"
+
+      - name: Verify current-head review marker
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ needs.changes.outputs.head_sha }}
+          PR_NUMBER: ${{ needs.changes.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+          comments_json="$(gh api --paginate --slurp \
+            "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100")"
+          found="$(jq --arg sha "$HEAD_SHA" '
+            add // []
+            | any(.[];
+              .user.login == "github-actions[bot]"
+              and (.body | test("^### Automated code review\\r?\\n<!-- orkworks-automated-review: sha=" + $sha + " -->")))
+          ' <<<"$comments_json")"
+          if [ "$found" != true ]; then
+            echo "Claude completed without posting the required current-head marker" >&2
+            exit 1
+          fi
+          echo "Verified current-head review marker for $HEAD_SHA"

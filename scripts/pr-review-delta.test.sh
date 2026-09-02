@@ -40,19 +40,41 @@ assert_delta() {
   }
 }
 
+assert_review_decision() {
+  expected="$1"
+  files="$2"
+  lines="$3"
+  force="$4"
+  actual=false
+  if [ "$files" -gt 0 ] \
+    && { [ "$files" -gt 8 ] || [ "$lines" -gt 500 ] || [ "$force" = true ]; }; then
+    actual=true
+  fi
+  [ "$actual" = "$expected" ] || {
+    echo "expected review decision '$expected' for ${files} files, ${lines} lines, force=${force}; got '$actual'" >&2
+    exit 1
+  }
+}
+
 assert_delta "8 500" "$baseline" "$eight_files"
+assert_review_decision false 8 500 false
 
 printf 'line 1\n' > apps/desktop/change-9.txt
 git add .
 git commit -qm "nine files and five hundred one lines"
 nine_files="$(git rev-parse HEAD)"
 assert_delta "9 501" "$baseline" "$nine_files"
+assert_review_decision true 9 501 false
+assert_review_decision true 9 1 false
+assert_review_decision true 1 501 false
+assert_review_decision true 1 1 true
 
 printf 'documentation\n' > apps/desktop/README.md
 git add .
 git commit -qm "documentation only"
 docs_only="$(git rev-parse HEAD)"
 assert_delta "0 0" "$nine_files" "$docs_only"
+assert_review_decision false 0 0 true
 
 printf 'workflow\n' > docs/irrelevant.txt
 git add .
