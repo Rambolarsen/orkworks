@@ -457,7 +457,7 @@ html, body, #root {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
 }
 
 .settings-config-item-header-actions {
@@ -465,6 +465,8 @@ html, body, #root {
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
+  max-width: 100%;
+  flex-wrap: wrap;
 }
 
 .settings-config-item-header-actions > button {
@@ -504,6 +506,7 @@ html, body, #root {
 }
 
 .settings-config-item {
+  flex: 1 1 220px;
   min-width: 0;
   display: inline-flex;
   align-items: center;
@@ -579,8 +582,9 @@ html, body, #root {
   align-items: center;
   gap: 6px;
   margin-left: 4px;
-  flex-shrink: 0;
-  white-space: nowrap;
+  min-width: 0;
+  flex-shrink: 1;
+  white-space: normal;
 }
 
 .harness-detection-dot {
