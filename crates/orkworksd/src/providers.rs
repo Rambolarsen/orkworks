@@ -1155,6 +1155,10 @@ impl ProviderManager {
         }
     }
 
+    pub(crate) fn latest_generation(&self) -> u64 {
+        self.operation_state.lock().unwrap().latest_generation
+    }
+
     fn accept_generation(&self, generation: u64) -> Result<(), ProviderOperationError> {
         if generation == 0 {
             return Err(ProviderOperationError {

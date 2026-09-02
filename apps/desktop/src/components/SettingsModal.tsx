@@ -86,6 +86,7 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
   const [peonApplied, setPeonApplied] = useState<PeonAppliedState | null>(null);
   const [peonLocallyApplied, setPeonLocallyApplied] = useState(false);
   const [peonBusy, setPeonBusy] = useState(false);
+  const [peonBusyElapsedSeconds, setPeonBusyElapsedSeconds] = useState(0);
   const [peonError, setPeonError] = useState<string | null>(null);
   const [manualModelOverride, setManualModelOverride] = useState(false);
   const peonVerificationGeneration = useRef(0);
@@ -204,6 +205,18 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
       invalidateAsyncState();
     };
   }, []);
+
+  useEffect(() => {
+    if (!peonBusy) {
+      setPeonBusyElapsedSeconds(0);
+      return;
+    }
+    const startedAt = Date.now();
+    const timer = setInterval(() => {
+      setPeonBusyElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000));
+    }, 500);
+    return () => clearInterval(timer);
+  }, [peonBusy]);
 
   useEffect(() => {
     let mounted = true;
@@ -669,7 +682,7 @@ export default function SettingsModal({ initialSettings, harnesses, activeHarnes
                       setPeonError(null);
                       scheduleVerifyPeonSelection(next);
                     }} placeholder="http://127.0.0.1:11434" />}
-                    <div role="status" aria-live="polite" className="provider-verify-status">{peonBusy ? "Verifying provider…" : peonVerification?.ok ? "Provider verified." : peonError ?? "Choose a provider to verify it."}</div>
+                    <div role="status" aria-live="polite" className="provider-verify-status">{peonBusy ? <><span className="provider-verify-spinner" aria-hidden="true" />Verifying provider…<span aria-hidden="true">{peonBusyElapsedSeconds > 0 ? ` ${peonBusyElapsedSeconds}s elapsed` : ""}{peonBusyElapsedSeconds >= 15 ? " — can take up to a minute" : ""}</span></> : peonVerification?.ok ? "Provider verified." : peonError ?? "Choose a provider to verify it."}</div>
                     <div className="provider-label">Peon model</div>
                     <select className="provider-model-select" disabled={manualModelOverride || !peonVerification?.ok} value={manualModelOverride ? "" : peonSelection.model} onChange={(event) => { setPeonSelection({ ...peonSelection, model: event.target.value }); setPeonLocallyApplied(false); }}>
                       <option value="">Select a verified model</option>

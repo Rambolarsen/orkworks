@@ -11,7 +11,7 @@ import type { AppSettings } from "./settingsMemory";
 import { DEFAULT_HOTKEYS, DEFAULT_RETENTION, loadSettingsForStartup, normalizeDebugSettings, normalizeProviderSettings, normalizeRetention, readSettings, settingsWithHotkeys, settingsWithPeonSelection, validateHotkeys, writeSettings } from "./settingsMemory";
 import { providerSettingsSyncError, pushProviderSettings } from "./providerSettingsSync";
 import type { PeonAppliedState, PeonProviderVerificationResponse, PeonSelection, ProviderApplyStatus, ProviderId, ProviderSettings } from "./providerTypes";
-import { createPeonSelectionTransaction, normalizePeonSelectionInput, type PeonSelectionTransaction } from "./peonSelectionTransaction";
+import { createPeonSelectionTransaction, normalizePeonSelectionInput, peonErrorFromBody, type PeonSelectionTransaction } from "./peonSelectionTransaction";
 import { buildMenuTemplate } from "./menuTemplate";
 import { getSessionPlanContent, requestSessionPlanReview, selectTerminalPlan } from "./planOpener";
 import { configureExternalLinks, openExternalLink } from "./externalLinks";
@@ -259,11 +259,8 @@ app.whenReady().then(() => {
   }
 
   async function parsePeonError(response: Response, fallback: string): Promise<Error> {
-    const body = await response.json().catch(() => ({ error: undefined })) as {
-      error?: string | { message?: string };
-    };
-    const message = typeof body.error === "string" ? body.error : body.error?.message;
-    return new Error(message ?? fallback);
+    const body = await response.json().catch(() => ({ error: undefined })) as unknown;
+    return peonErrorFromBody(body, fallback);
   }
 
   async function persistActiveHarnesses(ids: string[]): Promise<{ ok: true } | { ok: false; error: string }> {
