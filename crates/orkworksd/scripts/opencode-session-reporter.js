@@ -34,7 +34,11 @@ export const OrkWorksSessionReporter = async () => {
       if (event.type === "session.created") {
         const port = process.env.ORKWORKS_PORT;
         const orkworksSessionId = process.env.ORKWORKS_SESSION_ID;
-        openCodeSessionId = event.properties?.info?.id;
+        // Only overwrite the captured ID when the event actually carries
+        // one — a malformed session.created must not disable attention
+        // reporting for the rest of the process.
+        const capturedId = event.properties?.info?.id;
+        if (capturedId) openCodeSessionId = capturedId;
         if (!port || !orkworksSessionId || !openCodeSessionId) return;
         await fetch(`http://127.0.0.1:${port}/sessions/${orkworksSessionId}/harness-session`, {
           method: "POST",
