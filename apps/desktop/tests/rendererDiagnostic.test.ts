@@ -67,6 +67,16 @@ test("redacts file paths and bounds diagnostic messages", () => {
   assert.doesNotMatch(message, /workspace\/project|opt\/secrets|Volumes\/private/);
 });
 
+test("redacts single-segment absolute paths the same way as multi-segment ones", () => {
+  const message = sanitizeRendererDiagnosticMessage(
+    "failed to read /etc /root /tmp and /etc/hosts config",
+  );
+
+  assert.doesNotMatch(message, /\/etc|\/root|\/tmp/);
+  assert.match(message, /\[path\]/);
+  assert.match(message, /config/);
+});
+
 test("extracts only an origin from a renderer URL", () => {
   assert.equal(rendererOrigin("http://127.0.0.1:5173/?token=secret"), "http://127.0.0.1:5173");
   assert.equal(rendererOrigin("not a URL"), "unknown");
