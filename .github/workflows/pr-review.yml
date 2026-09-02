@@ -339,7 +339,7 @@ jobs:
             printf '%s\n\n' "<!-- orkworks-automated-review: sha=$HEAD_SHA -->"
             printf '%s\n' "$report"
           } > "$comment_file"
-          gh pr comment "$PR_NUMBER" --body-file "$comment_file"
+          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file "$comment_file"
 
           live_head_sha="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq '.head.sha')"
           test "$live_head_sha" = "$HEAD_SHA"
