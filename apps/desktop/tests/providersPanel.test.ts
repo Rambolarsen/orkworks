@@ -119,7 +119,7 @@ test("SettingsModal renders a Model providers section", () => {
 
 test("SettingsModal mounts a per-harness command path control for command-template tools", () => {
   const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
-  assert.match(source, /import HarnessCommandPathControl from "\.\/HarnessCommandPathControl"/);
+  assert.match(source, /import HarnessCommandPathControl, \{ looksAbsolute \} from "\.\/HarnessCommandPathControl"/);
   assert.match(source, /h\.launch\.kind === "command-template"/);
   assert.match(source, /<HarnessCommandPathControl/);
 });
@@ -187,6 +187,27 @@ test("SettingsModal disables mounted command-path controls while the tools batch
   const settingsSource = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
   assert.match(settingsSource, /<HarnessCommandPathControl[\s\S]*?disabled=\{toolsSaveInProgress\}/);
   assert.doesNotMatch(settingsSource, /<HarnessIntegrationSection/);
+});
+
+test("SettingsModal keeps the custom-path control collapsed behind a per-tool disclosure by default", () => {
+  const settingsSource = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
+  assert.match(settingsSource, /useState<Record<string,\s*boolean>>\(\{\}\)/);
+  assert.match(settingsSource, /isCommandTemplate && \([\s\S]{0,400}<div hidden=\{!expandedCommandPaths\[h\.id\]\}>[\s\S]{0,200}<HarnessCommandPathControl/);
+});
+
+test("SettingsModal keeps the command-path control mounted while collapsed instead of unmounting its draft state", () => {
+  const settingsSource = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(settingsSource, /\{expandedCommandPaths\[h\.id\] && \(\s*<HarnessCommandPathControl/);
+  assert.match(settingsSource, /hidden=\{!expandedCommandPaths\[h\.id\]\}/);
+});
+
+test("SettingsModal surfaces a custom-path tell on collapsed rows via the exported looksAbsolute check", () => {
+  const settingsSource = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
+  assert.match(settingsSource, /import HarnessCommandPathControl, \{ looksAbsolute \} from "\.\/HarnessCommandPathControl"/);
+  assert.match(settingsSource, /settings-config-custom-path-tell/);
+
+  const controlSource = readFileSync(new URL("../src/components/HarnessCommandPathControl.tsx", import.meta.url), "utf8");
+  assert.match(controlSource, /export function looksAbsolute/);
 });
 
 test("SettingsModal removes the modal-wide save footer and generic saveError path", () => {

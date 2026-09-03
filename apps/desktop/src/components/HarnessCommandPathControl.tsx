@@ -6,7 +6,7 @@ import type { HarnessConfigEntry } from "../harnessTypes";
 // (crates/orkworksd/src/harness/detect.rs::probe_installed_tool): POSIX
 // absolute (`/...`), Windows drive-letter (`C:\...` / `C:/...`), or UNC
 // (`\\server\...`).
-function looksAbsolute(command: string): boolean {
+export function looksAbsolute(command: string): boolean {
   return command.startsWith("/") || /^[a-zA-Z]:[\\/]/.test(command) || command.startsWith("\\\\");
 }
 

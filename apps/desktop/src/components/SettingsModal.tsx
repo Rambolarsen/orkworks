@@ -15,7 +15,7 @@ import {
 } from "../harnessIntegrationPresentation";
 import { normalizeActiveHarnessIds, selectableHarnesses } from "../newSessionDialogState";
 import { mergeIntegrationOperationFailures } from "../settingsController";
-import HarnessCommandPathControl from "./HarnessCommandPathControl";
+import HarnessCommandPathControl, { looksAbsolute } from "./HarnessCommandPathControl";
 import HarnessDetectionStatus from "./HarnessDetectionStatus";
 import HarnessIcon from "./HarnessIcon";
 import Toggle from "./Toggle";
@@ -149,7 +149,12 @@ export default function SettingsModal({ initialSettings, harnesses, documentRevi
     metadata: HarnessEditorMetadata;
   } | null>(null);
   const [harnessActionStatus, setHarnessActionStatus] = useState<string | null>(null);
+  const [expandedCommandPaths, setExpandedCommandPaths] = useState<Record<string, boolean>>({});
   const verificationTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function toggleCommandPathExpanded(harnessId: string) {
+    setExpandedCommandPaths((current) => ({ ...current, [harnessId]: !current[harnessId] }));
+  }
 
   function invalidateAsyncState() {
     modalLifecycleGeneration.current += 1;
@@ -771,6 +776,9 @@ export default function SettingsModal({ initialSettings, harnesses, documentRevi
                   <div className="settings-config-list">
                     {toolHarnesses.map((h) => {
                       const display = toolDisplayState(h);
+                      const launch = h.launch.kind === "command-template" ? h.launch : undefined;
+                      const isCommandTemplate = launch !== undefined;
+                      const hasCustomPath = launch !== undefined && looksAbsolute(launch.command);
 
                       return (
                         <div key={h.id} className="settings-config-item-row">
@@ -779,6 +787,11 @@ export default function SettingsModal({ initialSettings, harnesses, documentRevi
                               <HarnessIcon tool={h.name} size={16} />
                               <span>{h.name}</span>
                               <span className={`harness-origin-badge harness-origin-badge--${h.origin}`}>{h.origin}</span>
+                              {hasCustomPath && (
+                                <span className="settings-config-custom-path-tell" title="This coding tool launches from a custom path.">
+                                  custom path
+                                </span>
+                              )}
                               {/* onDetectionChanged=refreshDetection stays
                                   coupled through refreshGeneration-driven
                                   reloads and the shared refreshDetection path. */}
@@ -798,6 +811,15 @@ export default function SettingsModal({ initialSettings, harnesses, documentRevi
                                   Duplicate
                                 </button>
                               )}
+                              {isCommandTemplate && (
+                                <button
+                                  type="button"
+                                  onClick={() => toggleCommandPathExpanded(h.id)}
+                                  aria-expanded={Boolean(expandedCommandPaths[h.id])}
+                                >
+                                  {expandedCommandPaths[h.id] ? "Hide path ▾" : "Path ▸"}
+                                </button>
+                              )}
                               <Toggle
                                 checked={activeDraft.includes(h.id)}
                                 onChange={() => toggleHarness(h.id)}
@@ -810,15 +832,20 @@ export default function SettingsModal({ initialSettings, harnesses, documentRevi
                               />
                             </div>
                           </div>
-                          {h.launch.kind === "command-template" && (
-                            <HarnessCommandPathControl
-                              harnessId={h.id}
-                              harnessName={h.name}
-                              harness={h}
-                              disabled={toolsSaveInProgress}
-                              documentRevision={documentRevision}
-                              onChanged={refreshDetection}
-                            />
+                          {isCommandTemplate && (
+                            // Stays mounted while hidden (native `hidden` attribute, not
+                            // conditional rendering) so an in-progress, unsaved path edit
+                            // survives collapsing the disclosure instead of being discarded.
+                            <div hidden={!expandedCommandPaths[h.id]}>
+                              <HarnessCommandPathControl
+                                harnessId={h.id}
+                                harnessName={h.name}
+                                harness={h}
+                                disabled={toolsSaveInProgress}
+                                documentRevision={documentRevision}
+                                onChanged={refreshDetection}
+                              />
+                            </div>
                           )}
                         </div>
                       );
