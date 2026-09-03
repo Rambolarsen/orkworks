@@ -3,6 +3,7 @@ use std::sync::{Arc, RwLock};
 
 use serde::Serialize;
 
+use super::compatibility::{derive_compatibility_metadata, CompatibilityMetadata};
 #[cfg(test)]
 use super::definition::PromptTransport;
 use super::definition::{
@@ -11,6 +12,15 @@ use super::definition::{
 use super::definition::{CapacityCapability, LaunchCapability};
 use super::definition::{HarnessDefinition, ModelCapability, PeonCapability};
 use crate::providers::ProviderDefinition;
+
+use super::integration::{integration_key, IntegrationConsumer, IntegrationKey};
+
+#[derive(Clone, Debug)]
+pub(crate) struct ResolvedIntegrationGroup {
+    pub key: IntegrationKey,
+    pub consumers: Vec<IntegrationConsumer>,
+    pub representative: ResolvedHarness,
+}
 
 #[derive(Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -34,6 +44,7 @@ pub(crate) enum CapabilityName {
 pub(crate) struct ResolvedHarness {
     pub definition: HarnessDefinition,
     pub origin: DefinitionOrigin,
+    pub compatibility: CompatibilityMetadata,
     pub effective_capabilities: BTreeSet<CapabilityName>,
 }
 
@@ -255,6 +266,115 @@ impl ResolvedHarnessRegistry {
         self.diagnostics.append(&mut diagnostics);
         self
     }
+
+    /// Groups the active, resolvable harnesses by the code-owned integration
+    /// adapter and target. Missing IDs are intentionally ignored here: the
+    /// workspace application normalizes them before active selections are
+    /// persisted, while cleanup must remain safe if it observes an older
+    /// workspace snapshot.
+    pub(crate) fn integration_groups(
+        &self,
+        active_ids: &[String],
+    ) -> Result<Vec<ResolvedIntegrationGroup>, crate::harness::integration::IntegrationError> {
+        let mut groups: std::collections::BTreeMap<IntegrationKey, ResolvedIntegrationGroup> =
+            std::collections::BTreeMap::new();
+        let mut seen = HashSet::new();
+        for requested_id in active_ids {
+            let Some(harness) = self.get(requested_id) else {
+                continue;
+            };
+            if harness.definition.retired {
+                continue;
+            }
+            if !seen.insert(harness.definition.id.clone()) {
+                continue;
+            }
+            let Some(binding) = harness.definition.integration.as_ref() else {
+                continue;
+            };
+            let key = integration_key(binding);
+            let group = groups
+                .entry(key.clone())
+                .or_insert_with(|| ResolvedIntegrationGroup {
+                    key,
+                    consumers: Vec::new(),
+                    representative: harness.clone(),
+                });
+            group.consumers.push(IntegrationConsumer {
+                harness_id: harness.definition.id.clone(),
+                harness_name: harness.definition.name.clone(),
+            });
+        }
+        let mut groups: Vec<_> = groups.into_values().collect();
+        for group in &mut groups {
+            // Detection and file ownership are adapter concerns, so a custom
+            // consumer must not make its launch command the representative
+            // for the shared integration.
+            if let Some(representative) = self.canonical_integration_harness(&group.key) {
+                group.representative = representative;
+            }
+        }
+        Ok(groups)
+    }
+
+    /// Resolves a code-owned adapter key to one representative harness. The
+    /// representative is always the built-in/override definition when one is
+    /// available, so custom launch commands cannot change adapter detection
+    /// or file ownership. The active consumers remain attached to the group
+    /// for UI identity and enablement.
+    pub(crate) fn integration_group_for_key(
+        &self,
+        key: &IntegrationKey,
+        active_ids: &[String],
+    ) -> Option<ResolvedIntegrationGroup> {
+        let active_group = self
+            .integration_groups(active_ids)
+            .ok()?
+            .into_iter()
+            .find(|group| group.key == *key);
+        if let Some(mut active_group) = active_group {
+            if let Some(representative) = self.canonical_integration_harness(key) {
+                active_group.representative = representative;
+            }
+            return Some(active_group);
+        }
+        self.canonical_integration_harness(key)
+            .or_else(|| {
+                self.ordered
+                    .iter()
+                    .find(|harness| {
+                        !harness.definition.retired
+                            && harness
+                                .definition
+                                .integration
+                                .as_ref()
+                                .is_some_and(|binding| integration_key(binding) == *key)
+                    })
+                    .cloned()
+            })
+            .map(|representative| ResolvedIntegrationGroup {
+                key: key.clone(),
+                consumers: Vec::new(),
+                representative: representative.clone(),
+            })
+    }
+
+    fn canonical_integration_harness(&self, key: &IntegrationKey) -> Option<ResolvedHarness> {
+        self.ordered
+            .iter()
+            .find(|harness| {
+                matches!(
+                    harness.origin,
+                    DefinitionOrigin::Builtin | DefinitionOrigin::Override
+                ) && !harness.definition.retired
+                    && harness
+                        .definition
+                        .integration
+                        .as_ref()
+                        .is_some_and(|binding| integration_key(binding) == *key)
+            })
+            .cloned()
+    }
 }
 
 pub(crate) type HarnessCatalog = Arc<RwLock<Arc<ResolvedHarnessRegistry>>>;
@@ -263,11 +383,12 @@ pub(crate) fn resolve_document(
     builtins: &BuiltinDocument,
     user: &HarnessUserDocument,
 ) -> Result<ResolvedHarnessRegistry, Vec<HarnessDiagnostic>> {
-    if builtins.version != 2 || user.version != 2 {
+    if builtins.version != 2 || !matches!(user.version, 2 | 3) {
         return Err(vec![HarnessDiagnostic {
             harness_id: None,
             code: "unsupported_document_version".into(),
-            message: "Harness documents must use version 2.".into(),
+            message: "Harness documents must use version 2 or 3.".into(),
+            path: None,
         }]);
     }
     let mut diagnostics = Vec::new();
@@ -286,6 +407,7 @@ pub(crate) fn resolve_document(
             Ok(()) => ordered.push(ResolvedHarness {
                 definition: builtin.clone(),
                 origin: DefinitionOrigin::Builtin,
+                compatibility: builtin_compatibility_metadata(builtin),
                 effective_capabilities: capability_names(builtin),
             }),
             Err(errors) => diagnostics.extend(errors),
@@ -306,6 +428,7 @@ pub(crate) fn resolve_document(
         match harness.definition.apply_patch(patch) {
             Ok(definition) => {
                 harness.effective_capabilities = capability_names(&definition);
+                harness.compatibility = builtin_compatibility_metadata(&definition);
                 harness.definition = definition;
                 harness.origin = DefinitionOrigin::Override;
             }
@@ -322,11 +445,19 @@ pub(crate) fn resolve_document(
             continue;
         }
         match custom.validate(DefinitionOrigin::Custom) {
-            Ok(()) => ordered.push(ResolvedHarness {
-                definition: custom.clone(),
-                origin: DefinitionOrigin::Custom,
-                effective_capabilities: capability_names(custom),
-            }),
+            Ok(()) => {
+                let compatibility =
+                    derive_compatibility_metadata(user.compatibility_profile(&custom.id));
+                let mut definition = custom.clone();
+                definition.session_signals = compatibility.session_signals.clone();
+                definition.integration = compatibility.integration.clone();
+                ordered.push(ResolvedHarness {
+                    effective_capabilities: capability_names(&definition),
+                    definition,
+                    origin: DefinitionOrigin::Custom,
+                    compatibility,
+                });
+            }
             Err(errors) => diagnostics.extend(errors),
         }
     }
@@ -344,6 +475,14 @@ pub(crate) fn resolve_document(
         diagnostics,
         providers,
     })
+}
+
+fn builtin_compatibility_metadata(definition: &HarnessDefinition) -> CompatibilityMetadata {
+    CompatibilityMetadata {
+        profile: None,
+        session_signals: definition.session_signals.clone(),
+        integration: definition.integration.clone(),
+    }
 }
 
 fn capability_names(definition: &HarnessDefinition) -> BTreeSet<CapabilityName> {
@@ -388,7 +527,10 @@ fn capability_names(definition: &HarnessDefinition) -> BTreeSet<CapabilityName> 
             super::definition::SessionSignalBinding::Aider => {
                 names.insert(CapabilityName::Attention);
             }
-            super::definition::SessionSignalBinding::OpenCode => {}
+            super::definition::SessionSignalBinding::OpenCode => {
+                names.insert(CapabilityName::NativeSessionId);
+                names.insert(CapabilityName::Attention);
+            }
         }
     }
     if definition.integration.is_some() {
@@ -437,7 +579,32 @@ fn provider_from_harness(harness: &ResolvedHarness) -> Option<ProviderDefinition
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::harness::compatibility::CompatibilityProfile;
     use crate::harness::definition::{BuiltinDocument, HarnessPatch, EMBEDDED_BUILTINS};
+
+    fn custom_copilot_definition(builtins: &BuiltinDocument, id: &str) -> HarnessDefinition {
+        let mut custom = builtins
+            .builtins
+            .iter()
+            .find(|definition| definition.id == "copilot")
+            .expect("embedded Copilot definition")
+            .clone();
+        custom.id = id.into();
+        custom.name = "Copilot Local".into();
+        custom.session_signals = None;
+        custom.integration = None;
+        custom
+    }
+
+    fn test_document_with_profile(id: &str, profile: CompatibilityProfile) -> HarnessUserDocument {
+        let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
+        let mut document = HarnessUserDocument::default();
+        document
+            .custom
+            .push(custom_copilot_definition(&builtins, id));
+        document.set_compatibility_profile(id, profile).unwrap();
+        document
+    }
 
     fn test_reporter_assets() -> (
         tempfile::TempDir,
@@ -628,6 +795,129 @@ mod tests {
     }
 
     #[test]
+    fn profiled_custom_harness_derives_copilot_bindings_only_at_runtime() {
+        let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
+        let document = test_document_with_profile("copilot-local", CompatibilityProfile::Copilot);
+
+        let resolved = resolve_document(&builtins, &document).unwrap();
+        let local = resolved.get("copilot-local").unwrap();
+
+        assert_eq!(
+            local.compatibility.profile,
+            Some(CompatibilityProfile::Copilot)
+        );
+        assert_eq!(
+            local.definition.integration,
+            Some(super::super::definition::IntegrationBinding::Copilot)
+        );
+        assert_eq!(
+            local.definition.session_signals,
+            Some(super::super::definition::SessionSignalBinding::Copilot)
+        );
+        assert_eq!(local.definition.id, "copilot-local");
+        assert!(resolved
+            .providers()
+            .iter()
+            .any(|provider| provider.id == "copilot-local"));
+
+        let stored = serde_json::to_value(&document).unwrap();
+        let custom = &stored["custom"][0];
+        assert!(custom["integration"].is_null());
+        assert!(custom["sessionSignals"].is_null());
+    }
+
+    #[test]
+    fn custom_harness_without_profile_has_no_derived_bindings() {
+        let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
+        let mut document = HarnessUserDocument::default();
+        document
+            .custom
+            .push(custom_copilot_definition(&builtins, "copilot-local"));
+
+        let resolved = resolve_document(&builtins, &document).unwrap();
+        let local = resolved.get("copilot-local").unwrap();
+
+        assert_eq!(local.compatibility.profile, None);
+        assert_eq!(local.definition.integration, None);
+        assert_eq!(local.definition.session_signals, None);
+    }
+
+    #[test]
+    fn active_harnesses_share_one_adapter_target_group_and_keep_consumer_identity() {
+        let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
+        let document = test_document_with_profile("copilot-local", CompatibilityProfile::Copilot);
+        let resolved = resolve_document(&builtins, &document).unwrap();
+
+        let groups = resolved
+            .integration_groups(&["copilot-local".into(), "copilot".into()])
+            .unwrap();
+
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].key.adapter_id, "copilot");
+        assert_eq!(groups[0].key.target_id, "workspace");
+        assert_eq!(groups[0].representative.definition.id, "copilot");
+        assert_eq!(
+            groups[0]
+                .consumers
+                .iter()
+                .map(|consumer| consumer.harness_id.as_str())
+                .collect::<Vec<_>>(),
+            ["copilot-local", "copilot"]
+        );
+        assert_eq!(
+            groups[0]
+                .consumers
+                .iter()
+                .map(|consumer| consumer.harness_name.as_str())
+                .collect::<Vec<_>>(),
+            ["Copilot Local", "GitHub Copilot CLI"]
+        );
+    }
+
+    #[test]
+    fn missing_active_harness_ids_are_not_projected_into_integration_groups() {
+        let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
+        let resolved = resolve_document(&builtins, &HarnessUserDocument::default()).unwrap();
+
+        let groups = resolved
+            .integration_groups(&["copilot".into(), "deleted-custom".into()])
+            .unwrap();
+
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].consumers.len(), 1);
+        assert_eq!(groups[0].consumers[0].harness_id, "copilot");
+    }
+
+    #[test]
+    fn copied_profile_and_command_edits_do_not_change_profile_identity() {
+        let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
+        let mut document =
+            test_document_with_profile("copilot-local", CompatibilityProfile::Copilot);
+        let mut duplicate = custom_copilot_definition(&builtins, "copilot-local-copy");
+        let LaunchCapability::CommandTemplate { command, .. } = &mut duplicate.launch else {
+            panic!("Copilot must use a command template");
+        };
+        *command = "copilot-local-copy-bin".into();
+        document.custom.push(duplicate);
+        document
+            .set_compatibility_profile("copilot-local-copy", CompatibilityProfile::Copilot)
+            .unwrap();
+
+        let resolved = resolve_document(&builtins, &document).unwrap();
+        let duplicate = resolved.get("copilot-local-copy").unwrap();
+
+        assert_eq!(
+            duplicate.compatibility.profile,
+            Some(CompatibilityProfile::Copilot)
+        );
+        assert_eq!(duplicate.launch_command(), "copilot-local-copy-bin");
+        assert_eq!(
+            duplicate.definition.integration,
+            Some(super::super::definition::IntegrationBinding::Copilot)
+        );
+    }
+
+    #[test]
     fn canonical_copilot_has_a_no_tool_argument_prompt_provider() {
         let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
         let registry = resolve_document(&builtins, &HarnessUserDocument::default()).unwrap();
@@ -756,6 +1046,10 @@ mod tests {
         let aider = &registry.get("aider").unwrap().effective_capabilities;
         assert!(aider.contains(&CapabilityName::Attention));
         assert!(!aider.contains(&CapabilityName::NativeSessionId));
+        let opencode = &registry.get("opencode").unwrap().effective_capabilities;
+        assert!(opencode.contains(&CapabilityName::NativeSessionId));
+        assert!(opencode.contains(&CapabilityName::Attention));
+        assert!(!opencode.contains(&CapabilityName::Lifecycle));
         let claude = &registry.get("claude-code").unwrap().effective_capabilities;
         assert!(claude.contains(&CapabilityName::NativeSessionId));
         assert!(!claude.contains(&CapabilityName::Attention));
@@ -958,6 +1252,7 @@ mod tests {
             model_prefix: None,
         };
         let harness = ResolvedHarness {
+            compatibility: builtin_compatibility_metadata(&definition),
             definition,
             origin: DefinitionOrigin::Builtin,
             effective_capabilities: BTreeSet::new(),

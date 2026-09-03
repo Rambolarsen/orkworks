@@ -37,7 +37,7 @@ orkworks/
 - Resumed PTY runtimes carry an internal generation so delayed callbacks from a retired runtime cannot alter its replacement (see [ADR 0041](docs/adr/0041-session-runtime-generation-ownership.md))
 - Raw terminal replay is bounded to the newest 1,000 lines and 1 MiB; dead sessions display that saved output read-only, while accepted session summaries are retained as durable checkpoints (see [ADR 0024](docs/adr/0024-bounded-terminal-replay-durable-summary-checkpoints.md)). (design, not yet implemented — see issue #313) A current-summary snapshot (`summary`/`summarySource`/`summaryConfidence`/`summaryObservedAt`) is planned to replace that checkpoint log, with durable workflow-friction evidence recorded separately as `WorkflowObservation`s for Taskmaster (see [ADR 0042](docs/adr/0042-workflow-observations-replace-summary-checkpoints.md))
 - Session plans/specs appear in a reusable Review tab; the renderer receives availability and document content, never a filesystem path. The sole terminal-input exception is a user-clicked, fixed review prompt that asks the active agent to delegate to a subagent when possible (see [ADR 0025](docs/adr/0025-authenticated-session-plan-handoff.md), [ADR 0034](docs/adr/0034-user-approved-session-review-prompt.md))
-- Harness capabilities and workspace integration status resolve from one immutable registry; mutations require Electron-main confirmation and never expose mutation authority to the renderer or child processes (see [ADR 0026](docs/adr/0026-resolved-harness-capability-registry.md))
+- Harness capabilities and workspace integration status resolve from one immutable registry; custom JSON controls declarative capabilities while a sidecar-owned allowlisted compatibility profile may preserve an existing compiled binding during duplication; Settings exposes revision-aware custom/override editing without exposing hook or profile authority to editable JSON, and the existing Electron-main confirmation boundary still owns integration mutations (see [ADR 0026](docs/adr/0026-resolved-harness-capability-registry.md))
 - Harness version-probe results use bounded TTL caching with generation-aware invalidation; integration actions still revalidate identity after a probe (see [ADR 0028](docs/adr/0028-generation-aware-harness-version-probe-cache.md))
 - Codex sessions capture their native session ID via a generated/local `SessionStart` hook, enabling exact resume; because that event isn't a "needs input" signal like every other integrated harness's hooked event, it does not post the generic attention update (see [ADR 0035](docs/adr/0035-codex-session-start-hook-not-attention-signal.md))
 - Harness hook configuration is machine-local and gitignored. OrkWorks installs its reporter entries into each coding tool's workspace-local configuration, while the shared `scripts/doc-check.sh` source remains committed and harness-neutral.
@@ -63,7 +63,7 @@ All metadata lives under `~/.orkworks/` (see [ADR 0018](docs/adr/0018-global-met
 - `~/.orkworks/workspaces/<hash>/workspace.json` — workspace memory, including the last active session
 - `~/.orkworks/workspaces/<hash>/codex-hook-observation.json` — last observed Codex hook fingerprint; the Settings status becomes active only when it matches the installed hook definition
 - `~/.orkworks/workspaces/<hash>/integrations/aider.json` — versioned OrkWorks-owned Aider notification-command preference
-- `~/.orkworks/harnesses.json` — global harness definitions
+- `~/.orkworks/harnesses.json` — version-3 global harness definitions, sparse overrides, and sidecar-owned compatibility-profile assignments; harness mutations use an opaque document revision for optimistic concurrency
 - `~/.orkworks/hook-scripts/` — stable copies of harness reporter scripts, so installed hooks survive app updates and packaging path changes
 - Priority: user > agent > peon > backend_inference > process > unknown > debug (see [ADR 0005](docs/adr/0005-metadata-source-priority.md))
 - Current session records expose the canonical `creating → alive → stopping → dead` lifecycle. Only alive sessions have attention: `working`, `idle`, `needs_you`, `blocked`, `failed`, or `capped`.
@@ -71,6 +71,33 @@ All metadata lives under `~/.orkworks/` (see [ADR 0018](docs/adr/0018-global-met
 - Harnesses can write deterministic attention signals at `agent` priority via `POST /sessions/:id/attention`; generic workspace integration installation is explicit and user-confirmed only ([ADR 0026](docs/adr/0026-resolved-harness-capability-registry.md))
 - `GET /sessions/:id/summary-log` returns checkpoints in append order as `{entries: [{timestamp, summary, source, confidence}]}`; `confidence` is nullable and missing data returns `{entries: []}`. Rendered in the session detail panel as "Task history" — distinct from the session's `label` (title), which is a stable, one-shot Peon-authored topic rather than this turn-by-turn activity log (see [ADR 0029](docs/adr/0029-session-label-topic-vs-activity-summary.md))
 - Taskmaster proposes cross-session transitions; every v1 transition requires explicit user approval. (design, not yet implemented — see issue #313) A current-summary snapshot (`summary`, `summarySource`, `summaryConfidence`, `summaryObservedAt`) is planned to become the selected session's live situation headline, replacing the "Task history" checkpoint list and its `summary-log` route, alongside a passive, dismiss-only `improve_workflow` Taskmaster recommendation correlated from `WorkflowObservation` evidence (see [ADR 0042](docs/adr/0042-workflow-observations-replace-summary-checkpoints.md))
+
+## Harness configuration
+
+Settings keeps the existing Coding tools list, enable/disable controls,
+detection, command-path editing, grouped integration status, confirmation, and
+active-tool Save action. Its in-place editor adds three flows: a sparse JSON
+override for a built-in, a complete JSON definition for a custom tool, and a
+server-backed duplicate preview that does not persist or install anything until
+the user saves. Compatibility profiles, native session signals, integrations,
+hook paths, and reporter commands are read-only derived state.
+
+The sidecar validates the editable document authoritatively. The renderer also
+rejects oversized, duplicate-key, unknown-field, invalid-capability, and
+unsupported-placeholder drafts locally with field paths and line/column parse
+diagnostics. Saves, profile removal, reset, and deletion include
+`expectedRevision`; a concurrent edit returns `409` and leaves the user's draft
+in place. A custom command-path change uses the complete-definition update so
+unrelated custom settings are preserved. Deleting an active custom tool is
+rejected until it is disabled and the active Coding tools selection is saved.
+
+The configuration API is `GET/POST /harnesses`, `POST
+/harnesses/:id/duplicate`, `POST /harnesses/:id/remove-profile`, and
+`PUT/DELETE /harnesses/:id`. Shared integration operations remain grouped by
+adapter/target and continue through Electron main, so a shared Copilot hook is
+kept while any active compatible Coding tool still consumes it. Harness-backed
+model providers are projected from the resolved registry and retain independent
+settings for custom tools.
 
 ## Setup
 

@@ -2,15 +2,17 @@ import type {
   IntegrationActivation,
   IntegrationCoverage,
   IntegrationRegistration,
+  IntegrationStatus,
   IntegrationStatusResult,
 } from "./harnessTypes.ts";
 
 // TODO(#271): derive this from a backend-declared event-semantics field on
 // the integration status instead of a per-harness special case here — Codex
-// and OpenCode are the only integrations today whose hook doesn't mean
-// "needs input" (both report a session ID only; see issue #110).
+// is the only integration today whose hook doesn't mean "needs input" (it
+// reports a session ID only; see issue #110). OpenCode's plugin gained
+// attention reporting (idle/permission/busy events) in issue #104.
 export function isAttentionSignal(harnessId: string): boolean {
-  return harnessId !== "codex" && harnessId !== "opencode";
+  return harnessId !== "codex";
 }
 
 export function shouldShowInstalledConfirmation(
@@ -34,6 +36,8 @@ export interface IntegrationDisplayState {
 }
 
 export interface ActiveHarnessIntegrationResult {
+  key: IntegrationKey;
+  consumerHarnessIds: string[];
   operation: "install" | "repair" | "uninstall" | "skipped";
   outcome: "succeeded" | "failed" | "unsupported" | "stale_workspace";
   registration: IntegrationRegistration;
@@ -43,12 +47,36 @@ export interface ActiveHarnessIntegrationResult {
   message?: string;
 }
 
+export interface IntegrationKey {
+  adapterId: string;
+  targetId: string;
+}
+
+export interface IntegrationConsumer {
+  harnessId: string;
+  harnessName: string;
+}
+
+export interface GroupedIntegrationStatus {
+  key: IntegrationKey;
+  consumers: IntegrationConsumer[];
+  status: IntegrationStatus;
+}
+
 export interface ActiveHarnessSaveResult {
   activeHarnesses: {
     outcome: "persisted" | "failed" | "stale_workspace";
     message?: string;
   };
   integrations: Record<string, ActiveHarnessIntegrationResult>;
+}
+
+/** Projects one grouped save outcome onto the row that consumes its adapter. */
+export function integrationOperationForHarness(
+  results: Record<string, ActiveHarnessIntegrationResult>,
+  harnessId: string,
+): ActiveHarnessIntegrationResult | undefined {
+  return Object.values(results).find((result) => result.consumerHarnessIds.includes(harnessId));
 }
 
 interface DeriveIntegrationDisplayStateInput {
@@ -134,6 +162,10 @@ export function deriveIntegrationDisplayState({
   }
 
   if (!enabled) {
+    if ((current.activeConsumerCount ?? 0) > 0) {
+      const message = `${harnessName} is disabled; the shared integration is still in use by another coding tool.`;
+      return displayState("off", "off", message, message, "neutral");
+    }
     if (current.ownership === "ork_works" && current.registration !== "absent") {
       const message = `${harnessName} is disabled, but OrkWorks-owned integration cleanup is still needed.`;
       return displayState("needs-you", "cleanup needed", message, message, "warning");

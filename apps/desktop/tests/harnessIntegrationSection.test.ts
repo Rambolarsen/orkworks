@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   deriveIntegrationDisplayState,
+  integrationOperationForHarness,
   isAttentionSignal,
   shouldShowInstalledConfirmation,
 } from "../src/harnessIntegrationPresentation.ts";
@@ -15,8 +16,8 @@ test("isAttentionSignal is false for codex, whose hook only reports a session ID
   assert.equal(isAttentionSignal("codex"), false);
 });
 
-test("isAttentionSignal is false for opencode, whose session.created hook only reports a session ID (issue #110)", () => {
-  assert.equal(isAttentionSignal("opencode"), false);
+test("isAttentionSignal is true for opencode, whose plugin reports idle/permission/busy attention events (issue #104)", () => {
+  assert.equal(isAttentionSignal("opencode"), true);
 });
 
 test("isAttentionSignal is true for harnesses whose hook reports needs-input attention", () => {
@@ -57,6 +58,8 @@ function integrationOperation(
   overrides: Partial<ActiveHarnessIntegrationResult> = {},
 ): ActiveHarnessIntegrationResult {
   return {
+    key: { adapterId: "copilot", targetId: "workspace" },
+    consumerHarnessIds: ["copilot", "copilot-local"],
     operation: "install",
     outcome: "succeeded",
     registration: "installed",
@@ -65,6 +68,15 @@ function integrationOperation(
     ...overrides,
   };
 }
+
+test("grouped operation results project the same outcome to every consuming row", () => {
+  const operation = integrationOperation({ outcome: "failed", message: "permission denied" });
+  const results = { "copilot/workspace": operation };
+
+  assert.equal(integrationOperationForHarness(results, "copilot"), operation);
+  assert.equal(integrationOperationForHarness(results, "copilot-local"), operation);
+  assert.equal(integrationOperationForHarness(results, "codex"), undefined);
+});
 
 test("deriveIntegrationDisplayState returns healthy for enabled installed full coverage", () => {
   const display = deriveIntegrationDisplayState({
@@ -127,6 +139,21 @@ test("deriveIntegrationDisplayState returns needs-you for disabled tools with ow
   assert.equal(display.appearance, "needs-you");
   assert.equal(display.glyph, "warning");
   assert.match(display.description, /cleanup/i);
+});
+
+test("deriveIntegrationDisplayState does not call a disabled shared consumer cleanup-needed while another consumer is active", () => {
+  const display = deriveIntegrationDisplayState({
+    harnessName: "Copilot",
+    enabled: false,
+    status: integrationStatus({
+      harnessId: "copilot",
+      activeConsumerCount: 1,
+    }),
+  });
+
+  assert.equal(display.appearance, "off");
+  assert.equal(display.label, "off");
+  assert.match(display.description, /shared integration is still in use/);
 });
 
 test("deriveIntegrationDisplayState returns neutral for enabled unsupported integrations even with the backend's always-present diagnostic", () => {

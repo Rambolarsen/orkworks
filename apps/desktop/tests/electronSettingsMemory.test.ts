@@ -947,3 +947,38 @@ test("settings memory preserves provider revisions and canonical fallback order 
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("settings memory preserves projected custom providers across write and read", () => {
+  const dir = mkdtempSync(join(tmpdir(), "orkworks-settings-"));
+  try {
+    const settings = readSettings(dir);
+    settings.providers.providers.push({
+      id: "copilot-local",
+      harnessId: "copilot-local",
+      origin: "custom",
+      model: "local-model",
+      enabled: false,
+      fallbackOrder: 0,
+      defaultState: "degraded",
+      overrideState: "capped",
+    });
+
+    writeSettings(dir, settings);
+    const reloaded = readSettings(dir);
+    assert.deepEqual(
+      reloaded.providers.providers.find((entry) => entry.id === "copilot-local"),
+      {
+        id: "copilot-local",
+        harnessId: "copilot-local",
+        origin: "custom",
+        model: "local-model",
+        enabled: false,
+        fallbackOrder: 0,
+        defaultState: "degraded",
+        overrideState: "capped",
+      },
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+pub(crate) mod compatibility;
 pub(crate) mod definition;
 pub(crate) mod detect;
 pub(crate) mod integration;

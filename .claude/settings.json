@@ -18,35 +18,11 @@
     ],
     "SessionStart": [
       {
-        "matcher": "startup|resume|clear|compact",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node",
-            "args": [".claude/hooks/ponytail/hooks/ponytail-activate.js"],
-            "timeout": 5,
-            "statusMessage": "Loading ponytail mode..."
-          }
-        ]
-      },
-      {
-        "matcher": "startup|resume|clear|compact",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node",
-            "args": [".claude/hooks/ponytail/hooks/ponytail-activate.js"],
-            "timeout": 5,
-            "statusMessage": "Loading ponytail mode..."
-          }
-        ]
-      },
-      {
         "matcher": "*",
         "hooks": [
           {
             "type": "command",
-            "command": "SCRIPT=\".claude/hooks/agent-skills/hooks/session-start.sh\"; [ -f \"$SCRIPT\" ] || SCRIPT=\"${CLAUDE_PROJECT_DIR}/.claude/hooks/session-start.sh\"; [ -f \"$SCRIPT\" ]&& bash \"$SCRIPT\" || true",
+            "command": "SCRIPT=\"${CLAUDE_PROJECT_DIR}/.claude/hooks/agent-skills/hooks/session-start.sh\"; [ -f \"$SCRIPT\" ] || SCRIPT=\"${CLAUDE_PROJECT_DIR}/.claude/hooks/session-start.sh\"; [ -f \"$SCRIPT\" ]&& bash \"$SCRIPT\" || true",
             "shell": "bash"
           }
         ]
@@ -56,33 +32,9 @@
         "hooks": [
           {
             "type": "command",
+            "shell": "bash",
             "async": false,
-            "command": "\".claude/hooks/superpowers/hooks/run-hook.cmd\" session-start",
-            "shell": "bash"
-          }
-        ]
-      }
-    ],
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node",
-            "args": [".claude/hooks/ponytail/hooks/ponytail-mode-tracker.js"],
-            "timeout": 5,
-            "statusMessage": "Tracking ponytail mode..."
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node",
-            "args": [".claude/hooks/ponytail/hooks/ponytail-mode-tracker.js"],
-            "timeout": 5,
-            "statusMessage": "Tracking ponytail mode..."
+            "command": "\"${CLAUDE_PROJECT_DIR}/.claude/hooks/superpowers/hooks/run-hook.cmd\" session-start"
           }
         ]
       }

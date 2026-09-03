@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import type { IntegrationStatusResult } from "../harnessTypes";
+import type { IntegrationKey } from "../harnessIntegrationPresentation";
 
 interface HarnessDetectionStatusProps {
   harnessId: string;
+  integrationKey?: IntegrationKey;
   refreshGeneration?: number;
 }
 
@@ -13,19 +15,25 @@ type DetectionState = "loading" | "detected" | "not-detected" | "unknown";
  * Independent of whether the tool is enabled. The row header shows this
  * regardless so the list is scannable at a glance, matching the design handoff.
  */
-export default function HarnessDetectionStatus({ harnessId, refreshGeneration = 0 }: HarnessDetectionStatusProps) {
+export default function HarnessDetectionStatus({ harnessId, integrationKey, refreshGeneration = 0 }: HarnessDetectionStatusProps) {
   const [result, setResult] = useState<IntegrationStatusResult | null>(null);
+  const integrationAdapterId = integrationKey?.adapterId;
+  const integrationTargetId = integrationKey?.targetId;
 
   useEffect(() => {
     let cancelled = false;
     setResult(null);
-    window.orkworks.getHarnessIntegrationStatus(harnessId).then((r) => {
+    const request = integrationAdapterId && integrationTargetId
+      ? window.orkworks.getGroupedHarnessIntegrationStatus(integrationAdapterId, integrationTargetId).then((r) =>
+        r.ok ? { ok: true as const, status: r.group.status } : r)
+      : window.orkworks.getHarnessIntegrationStatus(harnessId);
+    request.then((r) => {
       if (!cancelled) setResult(r);
     });
     return () => {
       cancelled = true;
     };
-  }, [harnessId, refreshGeneration]);
+  }, [harnessId, integrationAdapterId, integrationTargetId, refreshGeneration]);
 
   const state: DetectionState =
     result === null

@@ -624,13 +624,17 @@ test("SettingsModal keeps detection status in every Coding tools row", () => {
   assert.doesNotMatch(source, /activeDraft\.includes\(h\.id\).*HarnessDetectionStatus/);
 });
 
-test("Coding tool headers keep detection status and toggle on one top row", () => {
+test("Coding tool headers wrap actions instead of overlapping detection status", () => {
   const css = readFileSync(new URL("../src/App.css", import.meta.url), "utf8");
   const header = css.match(/\.settings-config-item-header\s*\{([^}]*)\}/)?.[1] ?? "";
+  const item = css.match(/\.settings-config-item\s*\{([^}]*)\}/)?.[1] ?? "";
+  const detection = css.match(/\.harness-detection-status\s*\{([^}]*)\}/)?.[1] ?? "";
   assert.match(header, /display:\s*flex/);
   assert.match(header, /align-items:\s*center/);
   assert.match(header, /justify-content:\s*space-between/);
-  assert.match(header, /flex-wrap:\s*nowrap/);
+  assert.match(header, /flex-wrap:\s*wrap/);
+  assert.match(item, /flex:\s*1\s+1/);
+  assert.match(detection, /white-space:\s*normal/);
 });
 
 test("TerminalPanel no longer renders internal session tabs or duplicate kill controls", () => {

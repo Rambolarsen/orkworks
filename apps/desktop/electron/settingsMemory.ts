@@ -108,7 +108,21 @@ export const DEFAULT_DEBUG_SETTINGS: DebugSettings = {
   rendererHealthLogMs: 0,
 };
 
-const VALID_PROVIDER_IDS = new Set<ProviderId>(["opencode", "claude-code", "codex", "aider", "copilot", "ollama"]);
+export interface ProviderDefinition {
+  id: ProviderId;
+  label: string;
+  harnessId?: string;
+  origin?: "builtin" | "override" | "custom" | "standalone";
+}
+
+const BUILTIN_PROVIDER_DEFINITIONS: ProviderDefinition[] = [
+  { id: "opencode", label: "OpenCode", origin: "builtin" },
+  { id: "claude-code", label: "Claude Code", origin: "builtin" },
+  { id: "codex", label: "Codex", origin: "builtin" },
+  { id: "aider", label: "Aider", origin: "builtin" },
+  { id: "copilot", label: "Copilot", harnessId: "copilot", origin: "builtin" },
+  { id: "ollama", label: "Ollama", origin: "standalone" },
+];
 const VALID_CAPACITY_STATES = new Set<ProviderCapacityState>(["healthy", "degraded", "capped", "unknown"]);
 
 export const DEFAULT_PROVIDER_SETTINGS: ProviderSettings = {
@@ -211,6 +225,13 @@ export function settingsPath(userDataPath: string): string {
 }
 
 export function normalizeSettings(value: unknown): AppSettings {
+  return normalizeSettingsWithDefinitions(value);
+}
+
+function normalizeSettingsWithDefinitions(
+  value: unknown,
+  definitions?: readonly ProviderDefinition[],
+): AppSettings {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return defaultSettings();
   }
@@ -221,8 +242,32 @@ export function normalizeSettings(value: unknown): AppSettings {
     hotkeys: normalizeHotkeys(parsed.hotkeys),
     retention: normalizeRetention(parsed.retention),
     debug: normalizeDebugSettings(parsed.debug),
-    providers: normalizeProviderSettings(parsed.providers),
+    providers: normalizeProviderSettings(parsed.providers, definitions),
   };
+}
+
+export function providerDefinitionsForStoredSettings(value: unknown): ProviderDefinition[] {
+  const raw = value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+  const entries = Array.isArray(raw.providers) ? raw.providers : [];
+  const knownIds = new Set(BUILTIN_PROVIDER_DEFINITIONS.map((definition) => definition.id));
+  const stored = entries.flatMap((entry): ProviderDefinition[] => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return [];
+    const id = (entry as Record<string, unknown>).id;
+    const rawEntry = entry as Record<string, unknown>;
+    if (!isProviderId(id) || knownIds.has(id) || typeof rawEntry.harnessId !== "string") return [];
+    knownIds.add(id);
+    return [{
+      id,
+      label: id,
+      harnessId: rawEntry.harnessId,
+      ...(rawEntry.origin === "builtin" || rawEntry.origin === "override" || rawEntry.origin === "custom" || rawEntry.origin === "standalone"
+        ? { origin: rawEntry.origin }
+        : {}),
+    }];
+  });
+  return [...BUILTIN_PROVIDER_DEFINITIONS, ...stored];
 }
 
 export function normalizeDebugSettings(value: unknown): DebugSettings {
@@ -241,19 +286,41 @@ export function normalizeDebugSettings(value: unknown): DebugSettings {
   return { showSessionIds, rendererHealthLogMs };
 }
 
-export function normalizeProviderSettings(value: unknown): ProviderSettings {
+export function normalizeProviderSettings(
+  value: unknown,
+  definitions?: readonly ProviderDefinition[],
+): ProviderSettings {
   const raw = value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
   const entries = Array.isArray(raw.providers) ? raw.providers : [];
+  const definitionList = definitions ?? BUILTIN_PROVIDER_DEFINITIONS;
+  const definitionsById = new Map<ProviderId, ProviderDefinition>(
+    definitionList.filter((definition) => isProviderId(definition.id)).map((definition) => [definition.id, definition]),
+  );
+  const defaultEntriesById = new Map(DEFAULT_PROVIDER_SETTINGS.providers.map((entry) => [entry.id, entry]));
   const normalizedById = new Map<ProviderId, ProviderSettingsEntry>();
 
   for (const entry of entries) {
     if (!entry || typeof entry !== "object") continue;
-    const candidate = normalizeProviderEntry(entry as Record<string, unknown>);
+    const candidate = normalizeProviderEntry(entry as Record<string, unknown>, definitionsById, defaultEntriesById);
     if (candidate) normalizedById.set(candidate.id, candidate);
   }
 
-  for (const defaultEntry of DEFAULT_PROVIDER_SETTINGS.providers) {
-    if (!normalizedById.has(defaultEntry.id)) normalizedById.set(defaultEntry.id, { ...defaultEntry });
+  let nextFallbackOrder = Array.from(normalizedById.values())
+    .map((entry) => entry.fallbackOrder)
+    .reduce((max, order) => Math.max(max, order), -1) + 1;
+  for (const definition of definitionsById.values()) {
+    if (normalizedById.has(definition.id)) continue;
+    const defaultEntry = defaultEntriesById.get(definition.id);
+    normalizedById.set(definition.id, {
+      id: definition.id,
+      ...(defaultEntry === undefined && definition.harnessId ? { harnessId: definition.harnessId } : {}),
+      ...(defaultEntry === undefined && definition.origin ? { origin: definition.origin } : {}),
+      model: null,
+      enabled: defaultEntry?.enabled ?? true,
+      fallbackOrder: defaultEntry?.fallbackOrder ?? nextFallbackOrder++,
+      defaultState: defaultEntry?.defaultState ?? "unknown",
+      overrideState: null,
+    });
   }
 
   const providers = Array.from(normalizedById.values())
@@ -280,6 +347,7 @@ function normalizePeonSelection(
   const candidate = raw.peonSelection;
   if (candidate && typeof candidate === "object" && !Array.isArray(candidate)) {
     const selection = candidate as Record<string, unknown>;
+    if (!isProviderId(selection.provider) || !entries.has(selection.provider)) return null;
     return normalizedSelection(selection.provider, selection.model, selection.ollamaBaseUrl);
   }
 
@@ -292,7 +360,7 @@ function normalizePeonSelection(
 }
 
 function normalizedSelection(provider: unknown, model: unknown, ollamaBaseUrl: unknown): PeonSelection | null {
-  if (!VALID_PROVIDER_IDS.has(provider as ProviderId) || typeof model !== "string") return null;
+  if (!isProviderId(provider) || typeof model !== "string") return null;
   const normalizedModel = model.trim();
   if (!normalizedModel) return null;
   if (provider !== "ollama") return { provider: provider as ProviderId, model: normalizedModel };
@@ -342,16 +410,22 @@ function normalizePeonModel(raw: Record<string, unknown>): string | null {
   return null;
 }
 
-function normalizeProviderEntry(raw: Record<string, unknown>): ProviderSettingsEntry | null {
+function normalizeProviderEntry(
+  raw: Record<string, unknown>,
+  definitionsById: Map<ProviderId, ProviderDefinition>,
+  defaultEntriesById: Map<ProviderId, ProviderSettingsEntry>,
+): ProviderSettingsEntry | null {
   const id = raw.id;
-  if (!VALID_PROVIDER_IDS.has(id as ProviderId)) return null;
-  const defaultEntry = DEFAULT_PROVIDER_SETTINGS.providers.find((p) => p.id === id)!;
+  if (!isProviderId(id) || !definitionsById.has(id)) return null;
+  const defaultEntry = defaultEntriesById.get(id);
   const model = typeof raw.model === "string" ? raw.model.trim() || null : null;
   return {
-    id: id as ProviderId,
+    id,
+    ...(definitionsById.get(id)?.harnessId && !defaultEntriesById.has(id) ? { harnessId: definitionsById.get(id)!.harnessId } : {}),
+    ...(definitionsById.get(id)?.origin && !defaultEntriesById.has(id) ? { origin: definitionsById.get(id)!.origin } : {}),
     model,
-    enabled: typeof raw.enabled === "boolean" ? raw.enabled : defaultEntry.enabled,
-    fallbackOrder: clampInt(raw.fallbackOrder, 0, Number.MAX_SAFE_INTEGER, defaultEntry.fallbackOrder),
+    enabled: typeof raw.enabled === "boolean" ? raw.enabled : defaultEntry?.enabled ?? true,
+    fallbackOrder: clampInt(raw.fallbackOrder, 0, Number.MAX_SAFE_INTEGER, defaultEntry?.fallbackOrder ?? Number.MAX_SAFE_INTEGER),
     defaultState: VALID_CAPACITY_STATES.has(raw.defaultState as ProviderCapacityState)
       ? (raw.defaultState as ProviderCapacityState)
       : "unknown",
@@ -360,6 +434,10 @@ function normalizeProviderEntry(raw: Record<string, unknown>): ProviderSettingsE
         ? (raw.overrideState as ProviderCapacityState)
         : null,
   };
+}
+
+function isProviderId(value: unknown): value is ProviderId {
+  return typeof value === "string" && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value);
 }
 
 export function normalizeRetention(value: unknown): RetentionSettings {
@@ -425,7 +503,13 @@ export function readSettingsWithMigration(userDataPath: string): { settings: App
   try {
     const raw = JSON.parse(readFileSync(path, "utf8"));
     const migrated = migrateRawProviderSettings(raw);
-    const settings = normalizeSettings(migrated.value);
+    const rawProviderSettings = migrated.value && typeof migrated.value === "object" && !Array.isArray(migrated.value)
+      ? (migrated.value as Record<string, unknown>).providers
+      : undefined;
+    const settings = normalizeSettingsWithDefinitions(
+      migrated.value,
+      providerDefinitionsForStoredSettings(rawProviderSettings),
+    );
     const rawProviders = migrated.value && typeof migrated.value === "object" && !Array.isArray(migrated.value)
       ? (migrated.value as Record<string, unknown>).providers
       : undefined;
@@ -464,7 +548,13 @@ export function writeSettings(userDataPath: string, settings: AppSettings): void
   const temporaryDirectory = mkdtempSync(join(userDataPath, ".settings-"));
   const temporary = join(temporaryDirectory, fileName);
   try {
-    writeFileSync(temporary, `${JSON.stringify(normalizeSettings(settings), null, 2)}\n`);
+    writeFileSync(
+      temporary,
+      `${JSON.stringify(normalizeSettingsWithDefinitions(
+        settings,
+        providerDefinitionsForStoredSettings(settings.providers),
+      ), null, 2)}\n`,
+    );
     try {
       renameSync(temporary, target);
     } catch (error) {
@@ -490,7 +580,7 @@ export function settingsWithPeonSelection(baseSettings: AppSettings, selection: 
     version: 2,
     revision: baseSettings.providers.revision + 1,
     peonSelection: selection,
-  });
+  }, providerDefinitionsForStoredSettings(baseSettings.providers));
   if (!providers.peonSelection) throw new Error("Invalid Peon provider selection.");
   return { ...baseSettings, version: 1, providers };
 }
@@ -543,7 +633,7 @@ function migrateRawProviderSettings(value: unknown): { value: unknown; migrated:
   if (providerSettings.version !== 2 && !nextProviderSettings.peonSelection) {
     const modeled = providers
       .map((entry) => (entry && typeof entry === "object" && !Array.isArray(entry) ? entry as Record<string, unknown> : null))
-      .filter((entry): entry is Record<string, unknown> => entry !== null && VALID_PROVIDER_IDS.has(entry.id as ProviderId) && typeof entry.model === "string" && entry.model.trim().length > 0);
+      .filter((entry): entry is Record<string, unknown> => entry !== null && isProviderId(entry.id) && typeof entry.model === "string" && entry.model.trim().length > 0);
     if (modeled.length === 1) {
       const entry = modeled[0];
       nextProviderSettings.peonSelection = {

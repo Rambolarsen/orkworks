@@ -36,10 +36,13 @@ use crate::harness::probe_cache::VersionProbeCache;
 use crate::harness::registry::HarnessCatalog;
 use crate::harness::store::{global_harnesses_path, HarnessStore};
 use crate::http::harness_handlers::{
-    create_harness, delete_harness, list_harnesses, update_harness,
+    create_harness, delete_harness, duplicate_harness, list_harnesses, remove_harness_profile,
+    update_harness,
 };
 use crate::http::integration_handlers::{
-    get_integration_status, install_integration, uninstall_integration,
+    get_grouped_integration_status, get_integration_status, get_workspace_integrations,
+    install_grouped_integration, install_integration, repair_grouped_integration,
+    uninstall_grouped_integration, uninstall_integration,
 };
 use crate::http::provider_handlers::{
     discover_provider_models, get_applied_peon_provider, get_providers, set_provider_settings,
@@ -317,6 +320,23 @@ pub(crate) fn build_router(state: Arc<AppState>) -> Router {
             "/workspace/integrations/:harness_id/uninstall",
             post(uninstall_integration),
         )
+        .route("/workspace/integrations", get(get_workspace_integrations))
+        .route(
+            "/workspace/integrations/:adapter_id/:target_id/status",
+            get(get_grouped_integration_status),
+        )
+        .route(
+            "/workspace/integrations/:adapter_id/:target_id/install",
+            post(install_grouped_integration),
+        )
+        .route(
+            "/workspace/integrations/:adapter_id/:target_id/repair",
+            post(repair_grouped_integration),
+        )
+        .route(
+            "/workspace/integrations/:adapter_id/:target_id/uninstall",
+            post(uninstall_grouped_integration),
+        )
         .route("/sessions", post(create_session))
         .route("/sessions", get(list_sessions))
         .route("/sessions/:id", delete(delete_session))
@@ -346,6 +366,11 @@ pub(crate) fn build_router(state: Arc<AppState>) -> Router {
             post(dismiss_recommendation),
         )
         .route("/harnesses", get(list_harnesses).post(create_harness))
+        .route("/harnesses/:source_id/duplicate", post(duplicate_harness))
+        .route(
+            "/harnesses/:id/remove-profile",
+            post(remove_harness_profile),
+        )
         .route("/harnesses/:id", put(update_harness).delete(delete_harness))
         .route("/sessions/:id/terminal", get(session_terminal_handler))
         .route("/sessions/:id/terminal-output", get(get_terminal_output))
@@ -912,9 +937,11 @@ mod tests {
         let state = test_app_state_with_workspace(dir.path());
         let (base_url, server) = test_server_base_url(state).await;
         let client = reqwest::Client::new();
+        let revision = serde_json::json!({"expectedRevision": null});
 
         let missing = client
             .delete(format!("{}/harnesses/not-a-real-harness", base_url))
+            .json(&revision)
             .send()
             .await
             .unwrap();
@@ -922,6 +949,7 @@ mod tests {
 
         let builtin = client
             .delete(format!("{}/harnesses/codex", base_url))
+            .json(&revision)
             .send()
             .await
             .unwrap();

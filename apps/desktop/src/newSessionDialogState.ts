@@ -5,7 +5,7 @@ export interface NewSessionDraft {
   model: string;
 }
 
-export function selectableHarnesses(harnesses: HarnessConfig[]): HarnessConfig[] {
+export function selectableHarnesses<T extends HarnessConfig>(harnesses: T[]): T[] {
   return harnesses.filter((harness) => !harness.retired);
 }
 

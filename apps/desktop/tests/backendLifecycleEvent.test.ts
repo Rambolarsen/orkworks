@@ -16,6 +16,7 @@ test("canonicalizes valid lifecycle payloads into new trusted objects", () => {
       dirty: false,
       lastActiveSessionId: null,
       activeHarnessIds: [],
+      activeHarnessRevision: 3,
     },
   };
   const event = canonicalizeBackendLifecycleEvent(input);
@@ -41,8 +42,8 @@ test("rejects extra properties and invalid ready ports", () => {
   assert.equal(canonicalizeBackendLifecycleEvent({ state: "failed", message: "offline", extra: true }), null);
 
   for (const workspace of [
-    { path: "/workspace", repo_root: null, branch: null, dirty: null, lastActiveSessionId: null, activeHarnessIds: "nope" },
-    { path: "/workspace", repo_root: null, branch: null, dirty: null, lastActiveSessionId: null, activeHarnessIds: [], extra: true },
+    { path: "/workspace", repo_root: null, branch: null, dirty: null, lastActiveSessionId: null, activeHarnessIds: "nope", activeHarnessRevision: 0 },
+    { path: "/workspace", repo_root: null, branch: null, dirty: null, lastActiveSessionId: null, activeHarnessIds: [], activeHarnessRevision: 0, extra: true },
   ]) {
     assert.equal(canonicalizeBackendLifecycleEvent({ state: "ready", port: 4444, workspace }), null);
   }
@@ -58,6 +59,7 @@ test("rejects extra properties and invalid ready ports", () => {
         dirty: null,
         lastActiveSessionId: null,
         activeHarnessIds: [],
+        activeHarnessRevision: 0,
       },
     }), null);
   }
@@ -130,6 +132,7 @@ test("a late-subscriber snapshot reaches only that subscriber and loses to newer
       dirty: null,
       lastActiveSessionId: null,
       activeHarnessIds: [],
+      activeHarnessRevision: 0,
     },
   };
   for (const listener of listeners) listener(ready);
