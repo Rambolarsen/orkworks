@@ -26,10 +26,13 @@ const TERMINAL_OUTPUT_FILE_MARKER: &str = "\u{001e}orkworks-terminal-v1";
 ///
 /// The MVP spec defines the ladder as
 /// `user > agent > peon > backend_inference > process > unknown > debug`.
-/// Every merge entry point in this module routes its overwrite decision
+/// Every metadata-source merge entry point routes its overwrite decision
 /// through [`source_priority::can_overwrite`], so "can source X overwrite
 /// source Y" is answerable from this one file instead of being re-derived
-/// per write path.
+/// per write path. The harness session-ID merge
+/// ([`MetadataStore::merge_harness_session_report`]) is deliberately a
+/// separate mechanism: it gates resume-memory writes on captured
+/// confidence rather than on this ladder.
 ///
 /// Two deliberate decisions are encoded here:
 ///
@@ -59,9 +62,8 @@ pub mod source_priority {
             "peon" => 5,
             "backend_inference" => 4,
             "process" => 3,
-            // Absent and unrecognized sources sit with `unknown`.
-            "unknown" | "" => 2,
             "debug" => 1,
+            // Absent and unrecognized sources sit with `unknown`.
             _ => 2,
         }
     }
