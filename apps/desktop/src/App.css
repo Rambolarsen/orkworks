@@ -505,6 +505,16 @@ html, body, #root {
   color: var(--state-warn);
 }
 
+.settings-config-custom-path-tell {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 2px 6px;
+  color: var(--text-faint);
+  background: var(--surface-2);
+  font-size: var(--text-xs);
+}
+
 .settings-config-item {
   flex: 1 1 220px;
   min-width: 0;
