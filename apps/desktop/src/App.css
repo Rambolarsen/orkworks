@@ -1744,6 +1744,37 @@ html, body, #root {
   line-height: 1.4;
 }
 
+.peon-timeout-warning {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+  background: var(--state-warn-bg);
+  border: 1px solid var(--state-warn);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-xs);
+  color: var(--state-warn);
+  line-height: 1.4;
+}
+
+.peon-timeout-warning button {
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: 5px 8px;
+  background: var(--state-warn);
+  color: var(--surface-0);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+
+.peon-timeout-warning button:hover {
+  filter: brightness(1.1);
+}
+
 /* Surface 2 — action zone: at most one move, the one the terminal can't offer. */
 .detail-actions {
   padding: var(--space-4) var(--space-5);

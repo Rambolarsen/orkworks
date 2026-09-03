@@ -469,6 +469,8 @@ pub fn builtin_provider_registry() -> Vec<ProviderDefinition> {
 pub struct ProviderRuntimeEntry {
     #[serde(rename = "fallbackStep")]
     pub fallback_step: Option<usize>,
+    #[serde(skip)]
+    pub provider_model: Option<String>,
     #[serde(rename = "lastErrorSummary")]
     pub last_error_summary: Option<String>,
     #[serde(rename = "resetHint")]
@@ -1930,7 +1932,7 @@ impl ProviderManager {
     }
 
     pub fn run_inference(&self, _scope: PeonScope, output: &[String]) -> ProviderRunResult {
-        self.run_inference_with_timeout(_scope, output, None)
+        self.run_inference_with_applied(_scope, output, self.get_applied())
     }
 
     pub fn run_inference_with_timeout(
@@ -1939,9 +1941,32 @@ impl ProviderManager {
         output: &[String],
         timeout_secs_override: Option<u64>,
     ) -> ProviderRunResult {
+        self.run_inference_with_applied_timeout(
+            _scope,
+            output,
+            timeout_secs_override,
+            self.get_applied(),
+        )
+    }
+
+    pub(crate) fn run_inference_with_applied(
+        &self,
+        _scope: PeonScope,
+        output: &[String],
+        applied: PeonAppliedState,
+    ) -> ProviderRunResult {
+        self.run_inference_with_applied_timeout(_scope, output, None, applied)
+    }
+
+    fn run_inference_with_applied_timeout(
+        &self,
+        _scope: PeonScope,
+        output: &[String],
+        timeout_secs_override: Option<u64>,
+        applied: PeonAppliedState,
+    ) -> ProviderRunResult {
         let settings = self.settings.read().unwrap().clone();
         let prompt = peon::build_prompt(output);
-        let applied = self.operation_state.lock().unwrap().applied.clone();
 
         let mut attempts = Vec::new();
         let mut runtime: HashMap<String, ProviderRuntimeEntry> = HashMap::new();
@@ -2066,8 +2091,14 @@ impl ProviderManager {
 
             if result.success {
                 if let Some(inference) = peon::parse_inference(&result.stdout) {
+                    let provider_model = if definition.supports_model || entry.id == "ollama" {
+                        resolved_model.clone()
+                    } else {
+                        None
+                    };
                     let rt_entry = ProviderRuntimeEntry {
                         fallback_step: Some(step),
+                        provider_model: provider_model.clone(),
                         ..Default::default()
                     };
                     attempts.push(AttemptRecord {
@@ -2088,11 +2119,7 @@ impl ProviderManager {
                     let observation = ProviderObservation {
                         provider_id: entry.id.clone(),
                         provider_label: definition.label.clone(),
-                        provider_model: if definition.supports_model || entry.id == "ollama" {
-                            resolved_model
-                        } else {
-                            None
-                        },
+                        provider_model,
                         provider_state: state_str.to_string(),
                     };
                     return ProviderRunResult {
@@ -2109,12 +2136,14 @@ impl ProviderManager {
                 let (summary, hint) = parse_error_hint(&stderr);
                 ProviderRuntimeEntry {
                     fallback_step: Some(step),
+                    provider_model: resolved_model.clone(),
                     last_error_summary: Some(summary),
                     reset_hint: hint,
                 }
             } else {
                 ProviderRuntimeEntry {
                     fallback_step: Some(step),
+                    provider_model: resolved_model.clone(),
                     last_error_summary: Some(format!("provider {} failed", entry.id)),
                     ..Default::default()
                 }
@@ -3094,6 +3123,26 @@ mod tests {
         assert_eq!(
             invocations.lock().unwrap()[0].0,
             vec!["--model=entry-model"]
+        );
+    }
+
+    #[test]
+    fn failed_provider_runtime_retains_resolved_model_for_diagnostics() {
+        let manager = ProviderManager::for_tests_with_registry(
+            vec![custom_provider_definition()],
+            sample_settings(vec![entry("custom-ai").model(Some("timeout-model"))]),
+            vec![fake_provider("custom-ai")
+                .stderr("request timed out")
+                .exit_code(1)],
+        );
+        mark_applied(&manager, "custom-ai", Some("timeout-model"));
+
+        let result = manager.run_inference(PeonScope::Session, &["terminal line".to_string()]);
+
+        assert!(result.inference.is_none());
+        assert_eq!(
+            result.runtime["custom-ai"].provider_model.as_deref(),
+            Some("timeout-model")
         );
     }
 

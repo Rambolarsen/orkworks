@@ -262,6 +262,42 @@ export function situationTail(session: SessionInfo, tone: AttentionTone): string
   return undefined;
 }
 
+export interface PeonTimeoutNotice {
+  providerLabel: string;
+  model: string | null;
+  message: string;
+}
+
+function providerLabel(providerId: string): string {
+  switch (providerId) {
+    case "ollama": return "Ollama";
+    case "opencode": return "OpenCode";
+    case "claude-code": return "Claude Code";
+    case "codex": return "Codex";
+    case "copilot": return "GitHub Copilot CLI";
+    case "aider": return "Aider";
+    default: return providerId;
+  }
+}
+
+/** A user-facing recovery cue for the latest Peon provider timeout. */
+export function peonTimeoutNotice(session: SessionInfo): PeonTimeoutNotice | null {
+  const diagnostics = session.peonDiagnostics;
+  const errorSummary = diagnostics?.errorSummary?.toLowerCase() ?? "";
+  if (diagnostics?.schedulerState !== "failed" || !/\b(?:timed out|timeout)\b/.test(errorSummary)) {
+    return null;
+  }
+
+  const label = providerLabel(diagnostics.providerId ?? "configured provider");
+  const model = diagnostics.providerModel;
+  const target = model ? `${label} / ${model}` : label;
+  return {
+    providerLabel: label,
+    model,
+    message: `Peon couldn't analyze this session because ${target} timed out. Check the provider or choose another model in Settings.`,
+  };
+}
+
 /**
  * One row in the Detail panel's resume chooser. Deliberately has no `strategy`
  * field yet — the resume API only takes a session id, not a strategy, so every

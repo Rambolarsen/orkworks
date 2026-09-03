@@ -3,6 +3,7 @@ import type { DockviewApi } from "dockview-react";
 import DockviewApp from "./components/DockviewApp";
 import NewSessionDialog from "./components/NewSessionDialog";
 import SettingsModal from "./components/SettingsModal";
+import type { SettingsSection } from "./components/SettingsModal";
 import ToastRack from "./components/ToastRack";
 import { EMPTY_UNREAD_STATE, clearUnread, trackUnread, type UnreadState } from "./sessionUnread";
 import { PANEL_DEFAULTS, buildDefaultLayout } from "./components/DockviewApp";
@@ -38,6 +39,7 @@ function App() {
   const [isSwitchingWorkspace, setIsSwitchingWorkspace] = useState(false);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>("tools");
   const [providerRuntime, setProviderRuntime] = useState<ProviderRuntimeResponse | null>(null);
   const [noProvidersPrompt, setNoProvidersPrompt] = useState(false);
   const [resumeTick, setResumeTick] = useState(0);
@@ -217,7 +219,8 @@ function App() {
     });
   }, []);
 
-  const openSettings = useCallback(async () => {
+  const openSettings = useCallback(async (section: SettingsSection = "tools") => {
+    setSettingsSection(section);
     try {
       const loaded = await window.orkworks.getSettings();
       setSettings(loaded);
@@ -534,6 +537,7 @@ function App() {
         onRefreshReview={() => setReviewTick((tick) => tick + 1)}
         onApplyDebugAttention={handleApplyDebugAttention}
         onFocusTerminal={handleFocusTerminal}
+        onOpenSettings={() => openSettings("providers")}
         onOpenWorkspace={handleOpenWorkspace}
         onReviewPlan={handleReviewPlan}
             onBackendUnavailable={handleBackendUnavailable}
@@ -565,6 +569,7 @@ function App() {
       )}
       {settingsOpen && settings && (
         <SettingsModal
+          initialSection={settingsSection}
           initialSettings={settings}
           harnesses={harnesses}
           documentRevision={harnessDocumentRevision}
