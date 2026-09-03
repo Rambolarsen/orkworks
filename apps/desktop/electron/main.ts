@@ -309,6 +309,17 @@ app.whenReady().then(() => {
       ) {
         return { ok: false, error: "The sidecar returned an invalid active harness revision." };
       }
+      // The workspace can switch while this PUT is in flight; the pre-fetch
+      // guard check cannot catch that. If the response arrives against a
+      // switched workspace, discard it the same way as the pre-fetch
+      // stale-skip above — saveActiveHarnessesWithIntegrations re-checks the
+      // guard and reports stale_workspace, so this result is discarded —
+      // without letting the old workspace's selection or revision clobber
+      // the state the new workspace's onReady seeded (and that per-row
+      // integration reconcile reads back).
+      if (isStale(guard, { workspacePath, generation: backendGeneration, activeHarnessRevision })) {
+        return { ok: true, activeHarnessRevision: expectedActiveHarnessRevision };
+      }
       activeHarnessRevision = savedActiveHarnessRevision;
       persistedActiveHarnessIds = ids;
       return { ok: true, activeHarnessRevision: savedActiveHarnessRevision };
