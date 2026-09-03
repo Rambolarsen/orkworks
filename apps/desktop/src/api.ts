@@ -502,20 +502,6 @@ export async function getProviders(baseUrl: string): Promise<ProviderRuntimeResp
   return resp.json();
 }
 
-export async function saveActiveHarnesses(
-  baseUrl: string,
-  activeHarnessIds: string[],
-  expectedActiveHarnessRevision: number,
-): Promise<{ activeHarnessIds: string[]; activeHarnessRevision: number }> {
-  const resp = await fetch(`${baseUrl}/workspace/active-harnesses`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ activeHarnessIds, expectedActiveHarnessRevision }),
-  });
-  if (!resp.ok) throw new Error(`save active harnesses failed: ${resp.status}`);
-  return resp.json();
-}
-
 export type Impact = "low" | "medium" | "high";
 export type RecommendationConfidence = "low" | "medium" | "high";
 export type RecommendationStatus =

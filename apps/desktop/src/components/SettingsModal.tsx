@@ -8,6 +8,7 @@ import HarnessConfigEditor from "./HarnessConfigEditor";
 import type { HarnessConfig, HarnessEditorMetadata, IntegrationStatus, IntegrationStatusResult } from "../harnessTypes";
 import {
   deriveIntegrationDisplayState,
+  isReconcileActionable,
   type IntegrationKey,
   type ActiveHarnessIntegrationResult,
   type ActiveHarnessSaveResult,
@@ -133,6 +134,7 @@ export default function SettingsModal({ initialSettings, harnesses, documentRevi
   const peonVerificationGeneration = useRef(0);
   const modalLifecycleGeneration = useRef(0);
   const toolsSaveGeneration = useRef(0);
+  const reconcileGeneration = useRef(0);
   const integrationStatusRequestGeneration = useRef(0);
   const [activeDraft, setActiveDraft] = useState<string[]>(() =>
     normalizeActiveHarnessIds(harnesses, activeHarnessIds),
@@ -142,6 +144,7 @@ export default function SettingsModal({ initialSettings, harnesses, documentRevi
   const [detectionGenerations, setDetectionGenerations] = useState<Record<string, number>>({});
   const [integrationStatuses, setIntegrationStatuses] = useState<Record<string, IntegrationStatusResult>>({});
   const [integrationOperationFailures, setIntegrationOperationFailures] = useState<Record<string, ActiveHarnessIntegrationResult>>({});
+  const [reconcileInProgressKey, setReconcileInProgressKey] = useState<string | null>(null);
   const [integrationStatusGeneration, setIntegrationStatusGeneration] = useState(0);
   const [harnessEditor, setHarnessEditor] = useState<{
     mode: HarnessEditorMode;
@@ -159,8 +162,10 @@ export default function SettingsModal({ initialSettings, harnesses, documentRevi
   function invalidateAsyncState() {
     modalLifecycleGeneration.current += 1;
     toolsSaveGeneration.current += 1;
+    reconcileGeneration.current += 1;
     integrationStatusRequestGeneration.current += 1;
     peonVerificationGeneration.current += 1;
+    setReconcileInProgressKey(null);
     if (verificationTimer.current) {
       clearTimeout(verificationTimer.current);
       verificationTimer.current = null;
@@ -464,6 +469,33 @@ export default function SettingsModal({ initialSettings, harnesses, documentRevi
     }
   }
 
+  async function reconcileIntegrationHandler(key: IntegrationKey) {
+    const keyId = `${key.adapterId}/${key.targetId}`;
+    const lifecycleGeneration = modalLifecycleGeneration.current;
+    const requestGeneration = ++reconcileGeneration.current;
+    setActiveSaveStatus(null);
+    setReconcileInProgressKey(keyId);
+    try {
+      const result = await window.orkworks.reconcileHarnessIntegration(key.adapterId, key.targetId);
+      if (requestGeneration !== reconcileGeneration.current || lifecycleGeneration !== modalLifecycleGeneration.current) return;
+      // mergeIntegrationOperationFailures neither keeps nor clears
+      // stale_workspace results, so the workspace switch is surfaced as an
+      // explicit status message instead of a silent no-op.
+      if (result.outcome === "stale_workspace") {
+        setActiveSaveStatus(result.message ?? "Workspace changed while reconciling. Reload the current workspace and retry.");
+        return;
+      }
+      updateIntegrationFailures({ [keyId]: result });
+      refreshDetections(result.consumerHarnessIds);
+    } catch {
+      if (requestGeneration !== reconcileGeneration.current || lifecycleGeneration !== modalLifecycleGeneration.current) return;
+      setActiveSaveStatus("Couldn't reconcile the integration.");
+    } finally {
+      if (requestGeneration !== reconcileGeneration.current || lifecycleGeneration !== modalLifecycleGeneration.current) return;
+      setReconcileInProgressKey(null);
+    }
+  }
+
   async function saveHotkeysHandler() {
     setHotkeySaveStatus(null);
     setErrors({});
@@ -535,12 +567,14 @@ export default function SettingsModal({ initialSettings, harnesses, documentRevi
       };
     }
 
+    const rowKey = integrationKeyForHarness(harness);
     return deriveIntegrationDisplayState({
       harnessName: harness.name,
       enabled,
       status,
       operation: integrationOperationFailures[harness.id],
-      inProgress: toolsSaveInProgress,
+      inProgress: toolsSaveInProgress
+        || (rowKey !== null && reconcileInProgressKey === `${rowKey.adapterId}/${rowKey.targetId}`),
     });
   }
 
@@ -779,6 +813,16 @@ export default function SettingsModal({ initialSettings, harnesses, documentRevi
                       const launch = h.launch.kind === "command-template" ? h.launch : undefined;
                       const isCommandTemplate = launch !== undefined;
                       const hasCustomPath = launch !== undefined && looksAbsolute(launch.command);
+                      const rowKey = integrationKeyForHarness(h);
+                      const rowStatus = integrationStatuses[h.id];
+                      const rowKeyId = rowKey ? `${rowKey.adapterId}/${rowKey.targetId}` : null;
+                      const draftDiverged = activeDraft.includes(h.id) !== activeHarnessIds.includes(h.id);
+                      // Actionability is computed from the persisted selection
+                      // (what reconcile will execute against), not the draft.
+                      const reconcileActionable = h.integration !== null
+                        && rowKeyId !== null
+                        && rowStatus !== undefined
+                        && isReconcileActionable(activeHarnessIds.includes(h.id), rowStatus);
 
                       return (
                         <div key={h.id} className="settings-config-item-row">
@@ -801,6 +845,16 @@ export default function SettingsModal({ initialSettings, harnesses, documentRevi
                               />
                             </div>
                             <div className="settings-config-item-header-actions">
+                              {reconcileActionable && rowKey && (
+                                <button
+                                  type="button"
+                                  onClick={() => void reconcileIntegrationHandler(rowKey)}
+                                  disabled={toolsSaveInProgress || reconcileInProgressKey !== null || draftDiverged}
+                                  title={draftDiverged ? "Save coding tool changes first." : undefined}
+                                >
+                                  {reconcileInProgressKey === rowKeyId ? "Reconciling..." : "Reconcile"}
+                                </button>
+                              )}
                               {h.origin !== "builtin" || h.id !== "generic-shell" ? (
                                 <button type="button" onClick={() => openHarnessEditor(h)}>
                                   {h.origin === "override" ? "Edit override" : "View config"}
@@ -853,7 +907,12 @@ export default function SettingsModal({ initialSettings, harnesses, documentRevi
                   </div>
 
                   <div className="settings-config-footer">
-                    <Button variant="secondary" size="sm" onClick={saveActiveHarnessesHandler} disabled={toolsSaveInProgress}>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={saveActiveHarnessesHandler}
+                      disabled={toolsSaveInProgress || reconcileInProgressKey !== null}
+                    >
                       {toolsSaveInProgress ? "Saving..." : "Save"}
                     </Button>
                     <Button variant="primary" size="sm" onClick={openNewHarnessEditor}>

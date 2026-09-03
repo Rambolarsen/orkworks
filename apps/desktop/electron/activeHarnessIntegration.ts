@@ -318,6 +318,135 @@ export function isStale(initial: WorkspaceGuardSnapshot, current: WorkspaceGuard
   return initial.workspacePath !== current.workspacePath || initial.generation !== current.generation;
 }
 
+/**
+ * Reconciles a single integration group without touching the persisted
+ * active-selection: the same planMutation/confirm/mutate pipeline as
+ * saveActiveHarnessesWithIntegrations, scoped to one key. `activeHarnessIds`
+ * is the persisted selection (main tracks it); it only decides whether the
+ * group plans install/repair or uninstall.
+ */
+export async function reconcileGroupedIntegration(
+  key: IntegrationKey,
+  activeHarnessIds: ReadonlySet<string>,
+  deps: ActiveHarnessIntegrationDeps,
+): Promise<ActiveHarnessIntegrationResult> {
+  const initialGuard = deps.captureWorkspaceGuard();
+
+  let snapshot: HarnessSnapshot;
+  try {
+    snapshot = await deps.listHarnesses();
+  } catch (error) {
+    return {
+      key,
+      consumerHarnessIds: [],
+      operation: "skipped",
+      outcome: "failed",
+      registration: "error",
+      activation: "unknown",
+      coverage: "none",
+      diagnosticCode: MUTATION_FAILED_CODE,
+      message: error instanceof Error ? error.message : "Couldn't load coding tool definitions.",
+    };
+  }
+
+  const group = groupHarnesses(snapshot.harnesses)
+    .find((candidate) => candidate.key.adapterId === key.adapterId && candidate.key.targetId === key.targetId);
+  if (!group) {
+    return {
+      key,
+      consumerHarnessIds: [],
+      operation: "skipped",
+      outcome: "failed",
+      registration: "error",
+      activation: "unknown",
+      coverage: "none",
+      diagnosticCode: MUTATION_FAILED_CODE,
+      message: "The integration is no longer configured for this workspace.",
+    };
+  }
+
+  const stale = (latestStatus: ReadonlyMap<string, IntegrationStatus>, planned: ReadonlyMap<string, ActiveHarnessIntegrationResult["operation"]>): ActiveHarnessIntegrationResult =>
+    staleWorkspaceResult([group], {}, planned, latestStatus).integrations[integrationKeyId(group.key)];
+
+  let statusResult: GroupedIntegrationStatusResult;
+  try {
+    statusResult = await deps.getGroupedIntegrationStatus(group.key);
+  } catch (error) {
+    statusResult = {
+      ok: false,
+      error: error instanceof Error ? error.message : "Couldn't read integration status.",
+    };
+  }
+  const latestStatus = new Map<string, IntegrationStatus>();
+  if (statusResult.ok) latestStatus.set(integrationKeyId(group.key), statusResult.group.status);
+  const plannedOperations = new Map<string, ActiveHarnessIntegrationResult["operation"]>();
+
+  const enabled = group.consumers.some((consumer) => activeHarnessIds.has(consumer.harnessId));
+  const plan = planMutation(enabled, statusResult);
+  plannedOperations.set(integrationKeyId(group.key), plan.operation);
+
+  if (!plan.mutate) return noMutationResult(group, statusResult);
+
+  if (isStale(initialGuard, deps.captureWorkspaceGuard())) return stale(latestStatus, plannedOperations);
+
+  const confirmed = await deps.confirmMutations([
+    {
+      key: group.key,
+      consumerHarnessIds: group.consumers.map((consumer) => consumer.harnessId),
+      consumerHarnessNames: group.consumers.map((consumer) => consumer.harnessName),
+      operation: plan.operation,
+      confirmation: statusResult.ok ? statusResult.group.status.confirmation : null,
+    },
+  ]);
+
+  if (isStale(initialGuard, deps.captureWorkspaceGuard())) return stale(latestStatus, plannedOperations);
+
+  if (!confirmed) {
+    return failedMutationResult(
+      group,
+      plan.operation,
+      statusResult,
+      CONFIRMATION_DECLINED_MESSAGE,
+      CONFIRMATION_DECLINED_CODE,
+    );
+  }
+
+  const expected: IntegrationRevisionExpectation = {
+    expectedDocumentRevision: snapshot.documentRevision,
+    expectedActiveHarnessRevision: initialGuard.activeHarnessRevision,
+  };
+
+  let mutationResult: GroupedIntegrationStatusResult;
+  try {
+    mutationResult = plan.operation === "uninstall"
+      ? await deps.uninstallGroupedIntegration(group.key, expected)
+      : plan.operation === "repair"
+        ? await deps.repairGroupedIntegration(group.key, expected)
+        : await deps.installGroupedIntegration(group.key, expected);
+  } catch (error) {
+    mutationResult = {
+      ok: false,
+      error: error instanceof Error ? error.message : "Couldn't update the integration.",
+    };
+  }
+
+  if (isStale(initialGuard, deps.captureWorkspaceGuard())) return stale(latestStatus, plannedOperations);
+
+  if (!mutationResult.ok) {
+    if (mutationResult.code === "integration_revision_changed") {
+      return stale(latestStatus, plannedOperations);
+    }
+    return failedMutationResult(group, plan.operation, statusResult, mutationResult.error);
+  }
+
+  return resultForGroup(
+    group,
+    plan.operation,
+    mutationResult.group.status.registration === "unsupported" ? "unsupported" : "succeeded",
+    mutationResult.group.status,
+  );
+}
+
 function staleWorkspaceResult(
   groups: readonly IntegrationGroup[],
   results: Record<string, ActiveHarnessIntegrationResult>,
