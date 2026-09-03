@@ -22,7 +22,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "SCRIPT=\".claude/hooks/agent-skills/hooks/session-start.sh\"; [ -f \"$SCRIPT\" ] || SCRIPT=\"${CLAUDE_PROJECT_DIR}/.claude/hooks/session-start.sh\"; [ -f \"$SCRIPT\" ]&& bash \"$SCRIPT\" || true",
+            "command": "SCRIPT=\"${CLAUDE_PROJECT_DIR}/.claude/hooks/agent-skills/hooks/session-start.sh\"; [ -f \"$SCRIPT\" ] || SCRIPT=\"${CLAUDE_PROJECT_DIR}/.claude/hooks/session-start.sh\"; [ -f \"$SCRIPT\" ]&& bash \"$SCRIPT\" || true",
             "shell": "bash"
           }
         ]
@@ -32,9 +32,9 @@
         "hooks": [
           {
             "type": "command",
+            "shell": "bash",
             "async": false,
-            "command": "\".claude/hooks/superpowers/hooks/run-hook.cmd\" session-start",
-            "shell": "bash"
+            "command": "\"${CLAUDE_PROJECT_DIR}/.claude/hooks/superpowers/hooks/run-hook.cmd\" session-start"
           }
         ]
       }

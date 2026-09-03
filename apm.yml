@@ -12,17 +12,17 @@ targets:
   - opencode
 dependencies:
   apm:
-    - obra/superpowers#d884ae04edebef577e82ff7c4e143debd0bbec99
-    - git: DietrichGebert/ponytail#687c1b339872289d70f65c5eaabce850b1663867
+    - obra/superpowers#b36e0829c6d0140e93cfef2ca599b1b07d4a7797 # v6.3.0
+    - git: DietrichGebert/ponytail#24b0b98e16f5c66de296654f2cb480c22ea8debc # v4.2.0
       targets: [copilot]
-    - thedotmack/claude-mem#b7479f818b09d5e871126027868036d4b6a212a7
+    - thedotmack/claude-mem#89ca057a464fd7fb127c9d17dd02f77ef907a13c # v13.23.1
     - leonardomso/rust-skills#fd2a861ab0406a4ac536a55274d14ea6fd1ca9c9
-    - git: mattpocock/skills#ed37663cc5fbef691ddfecd080dff42f7e7e350d
+    - git: mattpocock/skills#6acc160e4e0cd062dbbbd7a1b26ae92855edf07e # v1.2.3
       skills:
         - codebase-design
         - grilling
         - improve-codebase-architecture
-    - git: addyosmani/agent-skills#f03b4a84b08b76608bbab3133e56e49e361f230b
+    - git: addyosmani/agent-skills#d2c37ef6225dd8726cdd369a8030307f48592d26 # 0.6.8
       skills:
         - context-engineering
         - doubt-driven-development
