@@ -356,26 +356,8 @@ impl SessionApplication {
             };
         };
 
-        let (should_write, is_permanent) = workspace
-            .metadata
-            .read_session(session_id)
-            .map(|metadata| {
-                let age = workspace.metadata.session_modified_secs_ago(session_id);
-                let overwrite = peon::peon_should_overwrite(&metadata.metadata_source, age);
-                (overwrite, metadata.metadata_source == "user")
-            })
-            .unwrap_or((true, false));
-
-        if !should_write {
-            tracing::debug!(session_id, "peon: skipping, higher-priority source exists");
-            return PeonInferencePersistenceResult {
-                inference_persisted: false,
-                permanent_hold: is_permanent,
-                label_update: None,
-                workspace_path,
-            };
-        }
-
+        // The merge enforces the source-priority ladder itself (issue #400);
+        // its outcome is the only gate.
         match workspace.metadata.merge_peon_inference_with_history(
             session_id,
             inference,
@@ -383,13 +365,22 @@ impl SessionApplication {
             provider_observation,
             history_summary,
         ) {
-            Ok(()) => PeonInferencePersistenceResult {
+            Ok(metadata::PeonMergeOutcome::Applied) => PeonInferencePersistenceResult {
                 inference_persisted: true,
                 permanent_hold: false,
                 label_update: history_summary
                     .map(|summary| (summary.chars().take(100).collect(), captured_label_epoch)),
                 workspace_path,
             },
+            Ok(metadata::PeonMergeOutcome::SkippedHigherPriority { permanent_hold }) => {
+                tracing::debug!(session_id, "peon: skipping, higher-priority source exists");
+                PeonInferencePersistenceResult {
+                    inference_persisted: false,
+                    permanent_hold,
+                    label_update: None,
+                    workspace_path,
+                }
+            }
             Err(error) => {
                 tracing::warn!(session_id, %error, "peon: inference not persisted");
                 PeonInferencePersistenceResult {
