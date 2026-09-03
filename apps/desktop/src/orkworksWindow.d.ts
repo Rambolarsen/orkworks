@@ -44,22 +44,24 @@ export type GroupedIntegrationStatusResult =
   | { ok: true; group: GroupedIntegrationStatus }
   | { ok: false; error: string; code?: string };
 
+export type ActiveHarnessIntegrationResult = {
+  key: IntegrationKey;
+  consumerHarnessIds: string[];
+  operation: "install" | "repair" | "uninstall" | "skipped";
+  outcome: "succeeded" | "failed" | "unsupported" | "stale_workspace";
+  registration: "unsupported" | "absent" | "installed" | "drifted" | "error";
+  activation: "active" | "needs_trust" | "disabled" | "unknown" | "not_applicable";
+  coverage: "full" | "limited" | "none";
+  diagnosticCode?: string;
+  message?: string;
+};
+
 export type ActiveHarnessSaveResult = {
   activeHarnesses: {
     outcome: "persisted" | "failed" | "stale_workspace";
     message?: string;
   };
-  integrations: Record<string, {
-    key: IntegrationKey;
-    consumerHarnessIds: string[];
-    operation: "install" | "repair" | "uninstall" | "skipped";
-    outcome: "succeeded" | "failed" | "unsupported" | "stale_workspace";
-    registration: "unsupported" | "absent" | "installed" | "drifted" | "error";
-    activation: "active" | "needs_trust" | "disabled" | "unknown" | "not_applicable";
-    coverage: "full" | "limited" | "none";
-    diagnosticCode?: string;
-    message?: string;
-  }>;
+  integrations: Record<string, ActiveHarnessIntegrationResult>;
 };
 
 declare global {
@@ -86,6 +88,7 @@ declare global {
       getProviderModels: (providerId: string) => Promise<ProviderModelsResponse>;
       getProviderLabels: () => Promise<ProviderLabelsResponse>;
       saveActiveHarnessesWithIntegrations: (ids: string[]) => Promise<ActiveHarnessSaveResult>;
+      reconcileHarnessIntegration: (adapterId: string, targetId: string) => Promise<ActiveHarnessIntegrationResult>;
       getHarnessIntegrationStatus: (harnessId: string) => Promise<IntegrationStatusResult>;
       getGroupedHarnessIntegrationStatus: (adapterId: string, targetId: string) => Promise<GroupedIntegrationStatusResult>;
       setHarnessCommandOverride: (

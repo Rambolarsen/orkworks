@@ -25,7 +25,9 @@ import { recoveryDocumentUrl } from "./rendererRecoveryDocument";
 import { createRecoveryDocumentGuard } from "./rendererRecoveryState";
 import {
   isStale,
+  reconcileGroupedIntegration,
   saveActiveHarnessesWithIntegrations,
+  type ActiveHarnessIntegrationResult,
   type ActiveHarnessSaveResult,
   type ElectronHarnessConfig,
   type GroupedIntegrationStatus,
@@ -219,6 +221,12 @@ app.whenReady().then(() => {
   let appliedPeonState: PeonAppliedState | null = null;
   let backendGeneration = 0;
   let activeHarnessRevision = 0;
+  // Main's copy of the persisted active-harness selection, kept in sync with
+  // the sidecar: seeded from workspace restoration and updated only after a
+  // confirmed PUT succeeds (never in the stale-skip branch below, which
+  // returns without writing). Per-row integration reconcile reads this to
+  // decide install/repair vs uninstall without trusting renderer state.
+  let persistedActiveHarnessIds: string[] = [];
 
   function publishBackendLifecycle(event: BackendLifecycleEvent): void {
     latestBackendLifecycle = event;
@@ -301,7 +309,19 @@ app.whenReady().then(() => {
       ) {
         return { ok: false, error: "The sidecar returned an invalid active harness revision." };
       }
+      // The workspace can switch while this PUT is in flight; the pre-fetch
+      // guard check cannot catch that. If the response arrives against a
+      // switched workspace, discard it the same way as the pre-fetch
+      // stale-skip above — saveActiveHarnessesWithIntegrations re-checks the
+      // guard and reports stale_workspace, so this result is discarded —
+      // without letting the old workspace's selection or revision clobber
+      // the state the new workspace's onReady seeded (and that per-row
+      // integration reconcile reads back).
+      if (isStale(guard, { workspacePath, generation: backendGeneration, activeHarnessRevision })) {
+        return { ok: true, activeHarnessRevision: expectedActiveHarnessRevision };
+      }
       activeHarnessRevision = savedActiveHarnessRevision;
+      persistedActiveHarnessIds = ids;
       return { ok: true, activeHarnessRevision: savedActiveHarnessRevision };
     }
     const body = await response.json().catch(() => ({ error: undefined, code: undefined })) as {
@@ -454,6 +474,7 @@ app.whenReady().then(() => {
     clearTimeout: (timer) => clearTimeout(timer as NodeJS.Timeout),
     onReady: (port, workspace) => {
       activeHarnessRevision = workspace?.activeHarnessRevision ?? 0;
+      persistedActiveHarnessIds = workspace?.activeHarnessIds ?? [];
       publishBackendLifecycle({ state: "ready", port, workspace });
       restorePersistedPeonSelection(port);
     },
@@ -895,8 +916,10 @@ app.whenReady().then(() => {
   );
 
   // install/uninstall intentionally have no direct IPC channel: hook-mutating
-  // routes are reachable only through the confirmed batched save orchestrator
-  // ("save-active-harnesses-with-integrations"), never from the renderer alone.
+  // routes are reachable only through a confirmed orchestrator — the batched
+  // save ("save-active-harnesses-with-integrations") or the per-row reconcile
+  // ("reconcile-harness-integration", which runs the same plan/confirm/mutate
+  // pipeline for one integration key) — never from the renderer alone.
 
   async function confirmMutations(planned: PlannedIntegrationMutation[]): Promise<boolean> {
     if (!mainWindow) return false;
@@ -949,6 +972,33 @@ app.whenReady().then(() => {
         toGroupedIntegrationStatusResult(await callGroupedIntegrationRoute(key, "uninstall", expected)),
     });
   });
+
+  ipcMain.handle(
+    "reconcile-harness-integration",
+    async (_event, adapterId: unknown, targetId: unknown): Promise<ActiveHarnessIntegrationResult> => {
+      if (typeof adapterId !== "string" || !adapterId || typeof targetId !== "string" || !targetId) {
+        throw new Error("Invalid integration key.");
+      }
+
+      return reconcileGroupedIntegration(
+        { adapterId, targetId },
+        new Set(persistedActiveHarnessIds),
+        {
+          captureWorkspaceGuard: () => ({ workspacePath, generation: backendGeneration, activeHarnessRevision }),
+          listHarnesses: fetchHarnessesForSave,
+          getGroupedIntegrationStatus: async (key) =>
+            toGroupedIntegrationStatusResult(await callGroupedIntegrationRoute(key, "status")),
+          installGroupedIntegration: async (key, expected) =>
+            toGroupedIntegrationStatusResult(await callGroupedIntegrationRoute(key, "install", expected)),
+          repairGroupedIntegration: async (key, expected) =>
+            toGroupedIntegrationStatusResult(await callGroupedIntegrationRoute(key, "repair", expected)),
+          uninstallGroupedIntegration: async (key, expected) =>
+            toGroupedIntegrationStatusResult(await callGroupedIntegrationRoute(key, "uninstall", expected)),
+          confirmMutations,
+        },
+      );
+    },
+  );
 
   async function parseErrorBody(resp: Response, fallback: string): Promise<string> {
     const body = await resp.json().catch(() => ({ error: undefined }));

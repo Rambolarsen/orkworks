@@ -79,6 +79,40 @@ export function integrationOperationForHarness(
   return Object.values(results).find((result) => result.consumerHarnessIds.includes(harnessId));
 }
 
+// Renderer-side mirror of the main process's planMutation mutate conditions
+// (electron/activeHarnessIntegration.ts): the per-row Reconcile affordance is
+// offered exactly when a reconcile would actually plan a mutation. Duplication
+// across the electron/src boundary is intentional (see apps/desktop/AGENTS.md).
+// `enabled` must be the group-level persisted selection (any consumer harness
+// active), matching reconcileGroupedIntegration's own computation — not the
+// modal's draft and not a single row's toggle.
+export function isReconcileActionable(
+  enabled: boolean,
+  status: IntegrationStatusResult,
+): boolean {
+  if (!status.ok) return false;
+  const current = status.status;
+  if (current.registration === "unsupported") return false;
+
+  if (enabled) {
+    if (current.ownership === "ambiguous") return false;
+    if (current.activation === "needs_trust") return false;
+    if (current.registration === "absent") return true;
+    if (current.registration === "drifted" || current.registration === "error") return true;
+    if (current.registration === "installed") {
+      return current.diagnostics.some(
+        (diagnostic) =>
+          diagnostic.code !== "tool_not_detected"
+          && diagnostic.code !== "needs_trust"
+          && diagnostic.code !== "unsupported_tool_version",
+      );
+    }
+    return false;
+  }
+
+  return current.ownership === "ork_works" && current.registration !== "absent";
+}
+
 interface DeriveIntegrationDisplayStateInput {
   harnessName: string;
   enabled: boolean;

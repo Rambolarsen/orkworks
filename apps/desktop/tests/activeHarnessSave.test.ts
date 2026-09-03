@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   integrationKeyId,
+  reconcileGroupedIntegration,
   saveActiveHarnessesWithIntegrations,
   type ActiveHarnessIntegrationDeps,
   type ElectronHarnessConfig,
@@ -288,4 +289,244 @@ test("unsupported grouped integrations remain visible without prompting", async 
 
   assert.equal(result.integrations["generic/workspace"]?.outcome, "unsupported");
   assert.equal(deps.calls.includes("confirm"), false);
+});
+
+test("reconcile repairs a drifted enabled integration without persisting the selection", async () => {
+  const deps = createDeps({
+    listHarnesses: async () => {
+      deps.calls.push("list");
+      return { documentRevision: "doc-9", harnesses: [harness("copilot")] };
+    },
+    getGroupedIntegrationStatus: async (key) => {
+      deps.calls.push(`status:${integrationKeyId(key)}`);
+      return grouped(key, [{ harnessId: "copilot", harnessName: "copilot" }], { registration: "drifted" });
+    },
+    confirmMutations: async () => {
+      deps.calls.push("confirm");
+      return true;
+    },
+  });
+
+  const result = await reconcileGroupedIntegration(
+    { adapterId: "copilot", targetId: "workspace" },
+    new Set(["copilot"]),
+    deps,
+  );
+
+  // The revision expectation comes from the captured guard (7), not a PUT
+  // response — reconcile never persists the active selection.
+  assert.deepEqual(deps.calls, [
+    "list",
+    "status:copilot/workspace",
+    "confirm",
+    "repair:copilot/workspace:doc-9:7",
+  ]);
+  assert.equal(result.operation, "repair");
+  assert.equal(result.outcome, "succeeded");
+  assert.deepEqual(result.consumerHarnessIds, ["copilot"]);
+});
+
+test("reconcile installs an absent integration for an enabled group", async () => {
+  const deps = createDeps({
+    listHarnesses: async () => ({ documentRevision: "doc-1", harnesses: [harness("copilot")] }),
+    getGroupedIntegrationStatus: async (key) => grouped(key, [{ harnessId: "copilot", harnessName: "copilot" }], {
+      registration: "absent",
+      ownership: "none",
+      activation: "unknown",
+    }),
+  });
+
+  const result = await reconcileGroupedIntegration(
+    { adapterId: "copilot", targetId: "workspace" },
+    new Set(["copilot"]),
+    deps,
+  );
+
+  assert.equal(deps.calls.includes("install:copilot/workspace:doc-1:7"), true);
+  assert.equal(result.operation, "install");
+  assert.equal(result.outcome, "succeeded");
+});
+
+test("reconcile uninstalls an OrkWorks-owned integration when no consumer is active", async () => {
+  const deps = createDeps({
+    listHarnesses: async () => ({ documentRevision: "doc-1", harnesses: [harness("copilot")] }),
+    getGroupedIntegrationStatus: async (key) => grouped(key, [{ harnessId: "copilot", harnessName: "copilot" }]),
+  });
+
+  const result = await reconcileGroupedIntegration(
+    { adapterId: "copilot", targetId: "workspace" },
+    new Set<string>(),
+    deps,
+  );
+
+  assert.equal(deps.calls.includes("uninstall:copilot/workspace:doc-1:7"), true);
+  assert.equal(result.operation, "uninstall");
+  assert.equal(result.outcome, "succeeded");
+});
+
+test("reconcile treats a shared group as enabled when any consumer is active", async () => {
+  const deps = createDeps({
+    listHarnesses: async () => ({
+      documentRevision: "doc-1",
+      harnesses: [harness("copilot"), { ...harness("copilot-local"), origin: "custom" }],
+    }),
+    getGroupedIntegrationStatus: async (key) => {
+      deps.calls.push(`status:${integrationKeyId(key)}`);
+      return grouped(key, [
+        { harnessId: "copilot", harnessName: "Copilot" },
+        { harnessId: "copilot-local", harnessName: "Copilot Local" },
+      ], { registration: "drifted" });
+    },
+  });
+
+  await reconcileGroupedIntegration(
+    { adapterId: "copilot", targetId: "workspace" },
+    new Set(["copilot-local"]),
+    deps,
+  );
+
+  assert.equal(deps.calls.includes("repair:copilot/workspace:doc-1:7"), true);
+});
+
+test("reconcile reports status unavailability as a failed row instead of silently skipping", async () => {
+  const deps = createDeps({
+    listHarnesses: async () => {
+      deps.calls.push("list");
+      return { documentRevision: "doc-1", harnesses: [harness("copilot")] };
+    },
+    getGroupedIntegrationStatus: async (key) => {
+      deps.calls.push(`status:${integrationKeyId(key)}`);
+      return { ok: false, error: "route missing" };
+    },
+  });
+
+  const result = await reconcileGroupedIntegration(
+    { adapterId: "copilot", targetId: "workspace" },
+    new Set(["copilot"]),
+    deps,
+  );
+
+  assert.deepEqual(deps.calls, ["list", "status:copilot/workspace"]);
+  assert.equal(result.outcome, "failed");
+  assert.equal(result.operation, "skipped");
+  assert.equal(result.diagnosticCode, "status_unavailable");
+  assert.equal(result.message, "route missing");
+});
+
+test("reconcile reports a group that no longer exists instead of throwing", async () => {
+  const deps = createDeps({
+    listHarnesses: async () => {
+      deps.calls.push("list");
+      return { documentRevision: "doc-1", harnesses: [] };
+    },
+  });
+
+  const result = await reconcileGroupedIntegration(
+    { adapterId: "copilot", targetId: "workspace" },
+    new Set(["copilot"]),
+    deps,
+  );
+
+  assert.deepEqual(deps.calls, ["list"]);
+  assert.equal(result.outcome, "failed");
+  assert.equal(result.message, "The integration is no longer configured for this workspace.");
+});
+
+test("reconcile reports a stale workspace when the workspace switches mid-flow", async () => {
+  const deps = createDeps({
+    listHarnesses: async () => ({ documentRevision: "doc-1", harnesses: [harness("copilot")] }),
+    getGroupedIntegrationStatus: async (key) => {
+      deps.setGuard({ workspacePath: "/other", generation: 2, activeHarnessRevision: 1 });
+      return grouped(key, [{ harnessId: "copilot", harnessName: "copilot" }], { registration: "drifted" });
+    },
+  });
+
+  const result = await reconcileGroupedIntegration(
+    { adapterId: "copilot", targetId: "workspace" },
+    new Set(["copilot"]),
+    deps,
+  );
+
+  assert.equal(result.outcome, "stale_workspace");
+  assert.equal(deps.calls.includes("confirm"), false);
+  assert.equal(deps.calls.some((call) => call.startsWith("repair:")), false);
+});
+
+test("reconcile reports a declined confirmation without mutating", async () => {
+  const deps = createDeps({
+    listHarnesses: async () => ({ documentRevision: "doc-1", harnesses: [harness("copilot")] }),
+    getGroupedIntegrationStatus: async (key) => grouped(key, [{ harnessId: "copilot", harnessName: "copilot" }], {
+      registration: "drifted",
+    }),
+    confirmMutations: async () => false,
+  });
+
+  const result = await reconcileGroupedIntegration(
+    { adapterId: "copilot", targetId: "workspace" },
+    new Set(["copilot"]),
+    deps,
+  );
+
+  assert.equal(result.outcome, "failed");
+  assert.equal(result.operation, "repair");
+  assert.equal(result.diagnosticCode, "confirmation_declined");
+  assert.equal(deps.calls.some((call) => call.startsWith("repair:")), false);
+});
+
+test("reconcile skips healthy integrations without prompting", async () => {
+  const deps = createDeps({
+    listHarnesses: async () => ({ documentRevision: "doc-1", harnesses: [harness("copilot")] }),
+    getGroupedIntegrationStatus: async (key) => grouped(key, [{ harnessId: "copilot", harnessName: "copilot" }]),
+    confirmMutations: async () => {
+      deps.calls.push("confirm");
+      return true;
+    },
+  });
+
+  const result = await reconcileGroupedIntegration(
+    { adapterId: "copilot", targetId: "workspace" },
+    new Set(["copilot"]),
+    deps,
+  );
+
+  assert.equal(result.outcome, "succeeded");
+  assert.equal(result.operation, "skipped");
+  assert.equal(deps.calls.includes("confirm"), false);
+});
+
+test("reconcile reports a failed mutation with the route's error message", async () => {
+  const deps = createDeps({
+    listHarnesses: async () => ({ documentRevision: "doc-1", harnesses: [harness("copilot")] }),
+    getGroupedIntegrationStatus: async (key) => grouped(key, [{ harnessId: "copilot", harnessName: "copilot" }], {
+      registration: "drifted",
+    }),
+    repairGroupedIntegration: async () => ({ ok: false, error: "permission denied" }),
+  });
+
+  const result = await reconcileGroupedIntegration(
+    { adapterId: "copilot", targetId: "workspace" },
+    new Set(["copilot"]),
+    deps,
+  );
+
+  assert.equal(result.outcome, "failed");
+  assert.equal(result.operation, "repair");
+  assert.equal(result.message, "permission denied");
+});
+
+test("a status-unavailable group during save surfaces a failed row, not silent success", async () => {
+  const deps = createDeps({
+    listHarnesses: async () => ({ documentRevision: "doc-1", harnesses: [harness("copilot")] }),
+    getGroupedIntegrationStatus: async (key) => {
+      deps.calls.push(`status:${integrationKeyId(key)}`);
+      return { ok: false, error: "grouped status route missing" };
+    },
+  });
+
+  const result = await saveActiveHarnessesWithIntegrations(["copilot"], deps);
+
+  assert.equal(result.activeHarnesses.outcome, "persisted");
+  assert.equal(result.integrations["copilot/workspace"]?.outcome, "failed");
+  assert.equal(result.integrations["copilot/workspace"]?.diagnosticCode, "status_unavailable");
+  assert.equal(result.integrations["copilot/workspace"]?.message, "grouped status route missing");
 });

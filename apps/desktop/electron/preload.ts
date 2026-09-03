@@ -37,22 +37,24 @@ type GroupedIntegrationStatusResult =
   | { ok: true; group: GroupedIntegrationStatus }
   | { ok: false; error: string; code?: string };
 
+type ActiveHarnessIntegrationResult = {
+  key: IntegrationKey;
+  consumerHarnessIds: string[];
+  operation: "install" | "repair" | "uninstall" | "skipped";
+  outcome: "succeeded" | "failed" | "unsupported" | "stale_workspace";
+  registration: "unsupported" | "absent" | "installed" | "drifted" | "error";
+  activation: "active" | "needs_trust" | "disabled" | "unknown" | "not_applicable";
+  coverage: "full" | "limited" | "none";
+  diagnosticCode?: string;
+  message?: string;
+};
+
 type ActiveHarnessSaveResult = {
   activeHarnesses: {
     outcome: "persisted" | "failed" | "stale_workspace";
     message?: string;
   };
-  integrations: Record<string, {
-    key: IntegrationKey;
-    consumerHarnessIds: string[];
-    operation: "install" | "repair" | "uninstall" | "skipped";
-    outcome: "succeeded" | "failed" | "unsupported" | "stale_workspace";
-    registration: "unsupported" | "absent" | "installed" | "drifted" | "error";
-    activation: "active" | "needs_trust" | "disabled" | "unknown" | "not_applicable";
-    coverage: "full" | "limited" | "none";
-    diagnosticCode?: string;
-    message?: string;
-  }>;
+  integrations: Record<string, ActiveHarnessIntegrationResult>;
 };
 
 contextBridge.exposeInMainWorld("orkworks", {
@@ -91,6 +93,8 @@ contextBridge.exposeInMainWorld("orkworks", {
   getProviderLabels: (): Promise<unknown> => ipcRenderer.invoke("get-provider-labels"),
   saveActiveHarnessesWithIntegrations: (ids: string[]): Promise<ActiveHarnessSaveResult> =>
     ipcRenderer.invoke("save-active-harnesses-with-integrations", ids),
+  reconcileHarnessIntegration: (adapterId: string, targetId: string): Promise<ActiveHarnessIntegrationResult> =>
+    ipcRenderer.invoke("reconcile-harness-integration", adapterId, targetId),
   getHarnessIntegrationStatus: (harnessId: string): Promise<unknown> =>
     ipcRenderer.invoke("get-harness-integration-status", harnessId),
   getGroupedHarnessIntegrationStatus: (adapterId: string, targetId: string): Promise<GroupedIntegrationStatusResult> =>
