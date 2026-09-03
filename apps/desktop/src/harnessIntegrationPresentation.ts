@@ -83,7 +83,9 @@ export function integrationOperationForHarness(
 // (electron/activeHarnessIntegration.ts): the per-row Reconcile affordance is
 // offered exactly when a reconcile would actually plan a mutation. Duplication
 // across the electron/src boundary is intentional (see apps/desktop/AGENTS.md).
-// `enabled` must be the persisted selection, not the modal's draft.
+// `enabled` must be the group-level persisted selection (any consumer harness
+// active), matching reconcileGroupedIntegration's own computation — not the
+// modal's draft and not a single row's toggle.
 export function isReconcileActionable(
   enabled: boolean,
   status: IntegrationStatusResult,

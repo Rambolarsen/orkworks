@@ -323,12 +323,13 @@ export function isStale(initial: WorkspaceGuardSnapshot, current: WorkspaceGuard
  * active-selection: the same planMutation/confirm/mutate pipeline as
  * saveActiveHarnessesWithIntegrations, scoped to one key. `activeHarnessIds`
  * is the persisted selection (main tracks it); it only decides whether the
- * group plans install/repair or uninstall.
+ * group plans install/repair or uninstall. The deps type omits
+ * `persistActiveHarnesses` so the no-persist invariant is structural.
  */
 export async function reconcileGroupedIntegration(
   key: IntegrationKey,
   activeHarnessIds: ReadonlySet<string>,
-  deps: ActiveHarnessIntegrationDeps,
+  deps: Omit<ActiveHarnessIntegrationDeps, "persistActiveHarnesses">,
 ): Promise<ActiveHarnessIntegrationResult> {
   const initialGuard = deps.captureWorkspaceGuard();
 

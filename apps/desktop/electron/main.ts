@@ -974,7 +974,6 @@ app.whenReady().then(() => {
         new Set(persistedActiveHarnessIds),
         {
           captureWorkspaceGuard: () => ({ workspacePath, generation: backendGeneration, activeHarnessRevision }),
-          persistActiveHarnesses,
           listHarnesses: fetchHarnessesForSave,
           getGroupedIntegrationStatus: async (key) =>
             toGroupedIntegrationStatusResult(await callGroupedIntegrationRoute(key, "status")),

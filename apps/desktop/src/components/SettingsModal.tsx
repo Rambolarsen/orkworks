@@ -480,9 +480,11 @@ export default function SettingsModal({ initialSettings, harnesses, documentRevi
       if (requestGeneration !== reconcileGeneration.current || lifecycleGeneration !== modalLifecycleGeneration.current) return;
       // mergeIntegrationOperationFailures neither keeps nor clears
       // stale_workspace results, so the workspace switch is surfaced as an
-      // explicit status message instead of a silent no-op.
+      // explicit status message instead of a silent no-op. The result's own
+      // message is worded for the save flow ("while saving"), so reconcile
+      // states its own.
       if (result.outcome === "stale_workspace") {
-        setActiveSaveStatus(result.message ?? "Workspace changed while reconciling. Reload the current workspace and retry.");
+        setActiveSaveStatus("Workspace changed while reconciling. Reload the current workspace and retry.");
         return;
       }
       updateIntegrationFailures({ [keyId]: result });
@@ -817,12 +819,20 @@ export default function SettingsModal({ initialSettings, harnesses, documentRevi
                       const rowStatus = integrationStatuses[h.id];
                       const rowKeyId = rowKey ? `${rowKey.adapterId}/${rowKey.targetId}` : null;
                       const draftDiverged = activeDraft.includes(h.id) !== activeHarnessIds.includes(h.id);
-                      // Actionability is computed from the persisted selection
-                      // (what reconcile will execute against), not the draft.
+                      // Actionability mirrors what reconcile will actually
+                      // plan: the group-level enabled flag (any persisted
+                      // consumer active), not this row's own toggle.
+                      const groupEnabled = rowKey !== null && toolHarnesses.some((x) => {
+                        const xKey = integrationKeyForHarness(x);
+                        return xKey !== null
+                          && xKey.adapterId === rowKey.adapterId
+                          && xKey.targetId === rowKey.targetId
+                          && activeHarnessIds.includes(x.id);
+                      });
                       const reconcileActionable = h.integration !== null
                         && rowKeyId !== null
                         && rowStatus !== undefined
-                        && isReconcileActionable(activeHarnessIds.includes(h.id), rowStatus);
+                        && isReconcileActionable(groupEnabled, rowStatus);
 
                       return (
                         <div key={h.id} className="settings-config-item-row">
