@@ -832,15 +832,20 @@ export default function SettingsModal({ initialSettings, harnesses, documentRevi
                               />
                             </div>
                           </div>
-                          {isCommandTemplate && expandedCommandPaths[h.id] && (
-                            <HarnessCommandPathControl
-                              harnessId={h.id}
-                              harnessName={h.name}
-                              harness={h}
-                              disabled={toolsSaveInProgress}
-                              documentRevision={documentRevision}
-                              onChanged={refreshDetection}
-                            />
+                          {isCommandTemplate && (
+                            // Stays mounted while hidden (native `hidden` attribute, not
+                            // conditional rendering) so an in-progress, unsaved path edit
+                            // survives collapsing the disclosure instead of being discarded.
+                            <div hidden={!expandedCommandPaths[h.id]}>
+                              <HarnessCommandPathControl
+                                harnessId={h.id}
+                                harnessName={h.name}
+                                harness={h}
+                                disabled={toolsSaveInProgress}
+                                documentRevision={documentRevision}
+                                onChanged={refreshDetection}
+                              />
+                            </div>
                           )}
                         </div>
                       );

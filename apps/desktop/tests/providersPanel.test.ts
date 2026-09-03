@@ -192,7 +192,13 @@ test("SettingsModal disables mounted command-path controls while the tools batch
 test("SettingsModal keeps the custom-path control collapsed behind a per-tool disclosure by default", () => {
   const settingsSource = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
   assert.match(settingsSource, /useState<Record<string,\s*boolean>>\(\{\}\)/);
-  assert.match(settingsSource, /isCommandTemplate && expandedCommandPaths\[h\.id\][\s\S]{0,200}<HarnessCommandPathControl/);
+  assert.match(settingsSource, /isCommandTemplate && \([\s\S]{0,400}<div hidden=\{!expandedCommandPaths\[h\.id\]\}>[\s\S]{0,200}<HarnessCommandPathControl/);
+});
+
+test("SettingsModal keeps the command-path control mounted while collapsed instead of unmounting its draft state", () => {
+  const settingsSource = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(settingsSource, /\{expandedCommandPaths\[h\.id\] && \(\s*<HarnessCommandPathControl/);
+  assert.match(settingsSource, /hidden=\{!expandedCommandPaths\[h\.id\]\}/);
 });
 
 test("SettingsModal surfaces a custom-path tell on collapsed rows via the exported looksAbsolute check", () => {
