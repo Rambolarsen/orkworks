@@ -408,4 +408,17 @@ mod tests {
         // Attention events must only apply to the captured session.
         assert!(PLUGIN_SOURCE.contains("sessionID !== openCodeSessionId"));
     }
+
+    #[test]
+    fn plugin_source_pads_observed_at_to_microsecond_precision() {
+        // The attention route parses `observedAt` with
+        // `parse_hook_observed_at`, which requires exactly six fractional
+        // digits (microseconds) — but `new Date().toISOString()` emits
+        // three (milliseconds). The plugin swallows its own fetch
+        // failures, so a 3-digit timestamp made every attention report
+        // fail with a 400 and drop silently. Pin the millisecond-to-
+        // microsecond padding.
+        assert!(PLUGIN_SOURCE.contains(r#".replace(/\.(\d{3})Z$/, ".$1000Z")"#));
+        assert!(!PLUGIN_SOURCE.contains("observedAt: new Date().toISOString()"));
+    }
 }
