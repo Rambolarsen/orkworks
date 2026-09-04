@@ -79,40 +79,6 @@ export function integrationOperationForHarness(
   return Object.values(results).find((result) => result.consumerHarnessIds.includes(harnessId));
 }
 
-// Renderer-side mirror of the main process's planMutation mutate conditions
-// (electron/activeHarnessIntegration.ts): the per-row Reconcile affordance is
-// offered exactly when a reconcile would actually plan a mutation. Duplication
-// across the electron/src boundary is intentional (see apps/desktop/AGENTS.md).
-// `enabled` must be the group-level persisted selection (any consumer harness
-// active), matching reconcileGroupedIntegration's own computation — not the
-// modal's draft and not a single row's toggle.
-export function isReconcileActionable(
-  enabled: boolean,
-  status: IntegrationStatusResult,
-): boolean {
-  if (!status.ok) return false;
-  const current = status.status;
-  if (current.registration === "unsupported") return false;
-
-  if (enabled) {
-    if (current.ownership === "ambiguous") return false;
-    if (current.activation === "needs_trust") return false;
-    if (current.registration === "absent") return true;
-    if (current.registration === "drifted" || current.registration === "error") return true;
-    if (current.registration === "installed") {
-      return current.diagnostics.some(
-        (diagnostic) =>
-          diagnostic.code !== "tool_not_detected"
-          && diagnostic.code !== "needs_trust"
-          && diagnostic.code !== "unsupported_tool_version",
-      );
-    }
-    return false;
-  }
-
-  return current.ownership === "ork_works" && current.registration !== "absent";
-}
-
 interface DeriveIntegrationDisplayStateInput {
   harnessName: string;
   enabled: boolean;
@@ -169,7 +135,11 @@ export function deriveIntegrationDisplayState({
 
   if (operation?.outcome === "failed") {
     const message = operation.message ?? "The last integration operation needs attention.";
-    return displayState("needs-you", "action required", message, message, "warning");
+    const retryHint = enabled
+      ? "Toggle this coding tool off, then on again to retry."
+      : "Save your coding tool changes to retry.";
+    const full = `${message} ${retryHint}`;
+    return displayState("needs-you", "action required", full, full, "warning");
   }
 
   if (!status.ok) {
@@ -201,7 +171,7 @@ export function deriveIntegrationDisplayState({
       return displayState("off", "off", message, message, "neutral");
     }
     if (current.ownership === "ork_works" && current.registration !== "absent") {
-      const message = `${harnessName} is disabled, but OrkWorks-owned integration cleanup is still needed.`;
+      const message = `${harnessName} is disabled, but OrkWorks-owned integration cleanup is still needed. Save your coding tool changes to retry cleanup.`;
       return displayState("needs-you", "cleanup needed", message, message, "warning");
     }
     return unsupportedState(harnessName, false);
@@ -231,8 +201,8 @@ export function deriveIntegrationDisplayState({
     return displayState(
       "needs-you",
       "install needed",
-      "Enabled, but the integration needs installation.",
-      `${harnessName} is enabled, but its OrkWorks integration needs installation.`,
+      "Enabled, but the integration needs installation. Toggle off, then on to install.",
+      `${harnessName} is enabled, but its OrkWorks integration needs installation. Toggle it off, then on again to install.`,
       "warning",
     );
   }
@@ -241,8 +211,8 @@ export function deriveIntegrationDisplayState({
     return displayState(
       "needs-you",
       "repair needed",
-      "Enabled, but the integration needs repair.",
-      `${harnessName} is enabled, but its OrkWorks integration needs repair.`,
+      "Enabled, but the integration needs repair. Toggle off, then on to repair.",
+      `${harnessName} is enabled, but its OrkWorks integration needs repair. Toggle it off, then on again to repair.`,
       "warning",
     );
   }

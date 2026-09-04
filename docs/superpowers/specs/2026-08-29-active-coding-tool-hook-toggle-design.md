@@ -17,33 +17,59 @@ tool configuration and remove only entries it owns.
 The active coding-tool toggle is the single user-facing control for both tool
 availability and OrkWorks hook integration.
 
-The Tools subsection's Save action remains the commit boundary for active
-coding-tool changes. The renderer uses a new typed Electron-main operation
-for those changes rather than calling the active-harness sidecar route and
-hook IPC methods separately.
+The Tools subsection's Save action remains the commit boundary for
+*disabling* a tool and for any other pending draft changes. The renderer
+uses a new typed Electron-main operation for those changes rather than
+calling the active-harness sidecar route and hook IPC methods separately.
 Electron main owns the orchestration and returns one result containing the
 active-tool persistence result plus a per-tool integration result.
 
+**Revision (2026-09-04):** a dedicated per-row Reconcile button was added and
+then removed again within the same week (see `docs/adr/README.md` history —
+no ADR was warranted for either change, but this file records the
+rationale). Turning a tool's toggle from off to on now takes over the
+Reconcile button's job directly: it immediately persists a merged
+active-tool selection (the current persisted set plus the newly-enabled
+tool) and reconciles only that one tool's integration group, through a new
+`enableHarnessIntegrationImmediate` Electron-main operation
+(`enableHarnessImmediate` in `electron/activeHarnessIntegration.ts`) that
+composes the existing `persistActiveHarnesses` step with the existing
+single-group `reconcileGroupedIntegration` pipeline — unlike a full Save, it
+never re-checks or mutates any other tool's integration. Turning a toggle
+from on to off remains a draft-only change with no immediate side effect;
+its cleanup mutation still waits for Save, which is also its retry action.
+Because this reuses the existing electron-main confirmation-dialog step
+(`confirmMutations`), flipping a tool on can immediately show that native
+confirmation dialog rather than deferring it to a later Save click — this is
+intentional, not a regression.
+
 The Tools Save operation follows this order:
 
-- Toggling a tool changes the draft state.
-- Save persists the requested active-tool set through the existing sidecar
-  workspace route. If that persistence fails, no hook mutation is attempted
-  and the draft remains unsaved.
+- Toggling a tool off changes the draft state only; no immediate mutation.
+- Toggling a tool on immediately persists a merged selection and reconciles
+  that tool's own integration group via `enableHarnessIntegrationImmediate`,
+  independent of Save and without touching any other tool's group.
+- Save persists the full requested active-tool set through the existing
+  sidecar workspace route. If that persistence fails, no hook mutation is
+  attempted and the draft remains unsaved.
 - After active-tool persistence succeeds, Save reconciles every
   integration-capable tool: enabled tools are installed or repaired, and
   disabled tools with an OrkWorks-owned registration are uninstalled.
 - Reconciliation runs even when a tool's active state did not change, so Save
-  is also the retry/repair action for an already-enabled needs-you tool.
+  is also the retry/repair action for an already-enabled needs-you tool and
+  for disable-time cleanup that failed earlier.
 - The requested tool-state transition remains durable even if its hook
   mutation fails; the failed integration is represented by the needs-you toggle
-  state and its tooltip so the user can retry.
+  state and its tooltip so the user can retry — by toggling the tool off then
+  on again for an enabled tool, or by clicking Save for a disabled tool's
+  cleanup.
 - The result reports partial failures per tool. If any integration mutation
   fails, Settings remains open and does not show an inline save error; the
   affected toggles show their warning state. A fully successful Save may close
   the modal as it does today.
-- Existing separate inline install, reinstall, and uninstall actions are
-  removed.
+- Existing separate inline install, reinstall, uninstall, and per-row
+  Reconcile actions are removed; their retry affordance is the toggle itself
+  (enabled tools) or Save (disabled tools).
 
 The Settings modal has no overall footer-level Save, Cancel, or Restore
 defaults section. Each subsection owns its own persistence and draft
@@ -147,8 +173,12 @@ conflated with hook health.
 When an enable-time hook mutation fails, the tool remains enabled because the
 user explicitly enabled it. The UI keeps the failed integration visible
 through the needs-you toggle state and tooltip; it does not render a separate
-inline save error or integration section. Save remains open so the warning is
-visible and can be retried.
+inline save error or integration section. The tooltip and status text name
+the retry action explicitly and it differs by whether the tool is currently
+enabled: an enabled tool's needs-you state says to toggle it off then on
+again (which re-runs `enableHarnessIntegrationImmediate` for that tool
+alone); a disabled tool's needs-you cleanup state says to use Save, since
+disable-time mutations have no immediate per-toggle retry path.
 
 When a disable-time mutation succeeds, only OrkWorks-owned entries are
 removed. Foreign entries and unrelated configuration remain unchanged. If
@@ -249,3 +279,19 @@ Desktop tests should cover:
 
 Existing sidecar integration tests should remain authoritative for preserving
 foreign configuration and removing only OrkWorks-owned entries.
+
+Additional coverage for the 2026-09-04 toggle-takes-over-Reconcile revision:
+
+- `enableHarnessIntegrationImmediate` persists a merged selection and
+  installs/repairs only the newly-enabled tool's own group in one call,
+  without reading or mutating any other group;
+- it reports `failed` (not stale) when the plain active-selection persist
+  fails, and `stale_workspace` when the revision changed or the workspace
+  switched mid-reconcile;
+- the needs-you tooltip/description differ by enabled state: "toggle off,
+  then on again" for an enabled tool, "Save to retry" for a disabled tool's
+  cleanup;
+- the card's per-tool subsection (status line, View config, Duplicate, the
+  custom-path control) stays collapsed by default and is disclosed by a
+  single row-level control, independent of the removed per-row Reconcile
+  affordance.

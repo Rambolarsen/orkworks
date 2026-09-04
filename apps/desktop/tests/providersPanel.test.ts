@@ -161,10 +161,9 @@ test("SettingsModal derives active coding tool toggle presentation from per-tool
 
   assert.match(source, /deriveIntegrationDisplayState/);
   assert.match(source, /getGroupedHarnessIntegrationStatus/);
-  assert.match(source, /statusDescription=/);
-  assert.match(source, /statusGlyph=/);
-  assert.match(source, /tooltip=/);
-  assert.match(source, /visualState=/);
+  assert.match(source, /tooltip=\{display\.tooltip\}/);
+  assert.match(source, /visualState=\{display\.appearance\}/);
+  assert.match(source, /<ToggleStatusText[^>]*description=\{display\.description\}[^>]*glyph=\{display\.glyph\}/);
 });
 
 test("SettingsModal uses a stable integration status effect dependency instead of the integration harness array identity", () => {
@@ -189,16 +188,16 @@ test("SettingsModal disables mounted command-path controls while the tools batch
   assert.doesNotMatch(settingsSource, /<HarnessIntegrationSection/);
 });
 
-test("SettingsModal keeps the custom-path control collapsed behind a per-tool disclosure by default", () => {
+test("SettingsModal keeps each tool's subsection (status, actions, custom-path control) collapsed behind a per-row disclosure by default", () => {
   const settingsSource = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
   assert.match(settingsSource, /useState<Record<string,\s*boolean>>\(\{\}\)/);
-  assert.match(settingsSource, /isCommandTemplate && \([\s\S]{0,400}<div hidden=\{!expandedCommandPaths\[h\.id\]\}>[\s\S]{0,200}<HarnessCommandPathControl/);
+  assert.match(settingsSource, /<div className="settings-config-item-subsection" hidden=\{!expanded\}>[\s\S]{0,1200}isCommandTemplate && \([\s\S]{0,200}<HarnessCommandPathControl/);
 });
 
-test("SettingsModal keeps the command-path control mounted while collapsed instead of unmounting its draft state", () => {
+test("SettingsModal keeps the command-path control mounted while its subsection is collapsed instead of unmounting its draft state", () => {
   const settingsSource = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
-  assert.doesNotMatch(settingsSource, /\{expandedCommandPaths\[h\.id\] && \(\s*<HarnessCommandPathControl/);
-  assert.match(settingsSource, /hidden=\{!expandedCommandPaths\[h\.id\]\}/);
+  assert.doesNotMatch(settingsSource, /\{expanded && \(\s*<HarnessCommandPathControl/);
+  assert.match(settingsSource, /hidden=\{!expanded\}/);
 });
 
 test("SettingsModal surfaces a custom-path tell on collapsed rows via the exported looksAbsolute check", () => {

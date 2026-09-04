@@ -448,6 +448,56 @@ export async function reconcileGroupedIntegration(
   );
 }
 
+/**
+ * Persists a merged active-tool selection and immediately reconciles the one
+ * integration group the newly-enabled harness belongs to — the toggle's
+ * off-to-on transition takes over the job the removed per-row Reconcile
+ * button used to do. Unlike saveActiveHarnessesWithIntegrations, this never
+ * touches any other group's install/repair/uninstall state; a workspace
+ * change detected during either the persist or the reconcile step marks the
+ * whole result stale so a caller never applies it to the wrong workspace.
+ */
+export async function enableHarnessImmediate(
+  ids: string[],
+  key: IntegrationKey,
+  deps: ActiveHarnessIntegrationDeps,
+): Promise<ActiveHarnessSaveResult> {
+  const initialGuard = deps.captureWorkspaceGuard();
+  const persisted = await deps.persistActiveHarnesses(ids, initialGuard.activeHarnessRevision);
+
+  if (isStale(initialGuard, deps.captureWorkspaceGuard())) {
+    return {
+      activeHarnesses: { outcome: "stale_workspace", message: STALE_WORKSPACE_MESSAGE },
+      integrations: {},
+    };
+  }
+
+  if (!persisted.ok) {
+    return persisted.code === "active_harness_revision_changed"
+      ? activeSelectionStaleResult()
+      : {
+        activeHarnesses: { outcome: "failed", message: persisted.error },
+        integrations: {},
+      };
+  }
+
+  const { persistActiveHarnesses: _persistActiveHarnesses, ...reconcileDeps } = deps;
+  const result = await reconcileGroupedIntegration(key, new Set(ids), reconcileDeps);
+  const id = integrationKeyId(key);
+
+  if (result.outcome === "stale_workspace") {
+    return {
+      activeHarnesses: { outcome: "stale_workspace", message: STALE_WORKSPACE_MESSAGE },
+      integrations: { [id]: result },
+    };
+  }
+
+  return {
+    activeHarnesses: { outcome: "persisted" },
+    integrations: { [id]: result },
+  };
+}
+
 function staleWorkspaceResult(
   groups: readonly IntegrationGroup[],
   results: Record<string, ActiveHarnessIntegrationResult>,

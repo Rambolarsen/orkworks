@@ -24,10 +24,9 @@ import { rendererConsoleDiagnostic, rendererConsoleLevel, rendererOrigin, saniti
 import { recoveryDocumentUrl } from "./rendererRecoveryDocument";
 import { createRecoveryDocumentGuard } from "./rendererRecoveryState";
 import {
+  enableHarnessImmediate,
   isStale,
-  reconcileGroupedIntegration,
   saveActiveHarnessesWithIntegrations,
-  type ActiveHarnessIntegrationResult,
   type ActiveHarnessSaveResult,
   type ElectronHarnessConfig,
   type GroupedIntegrationStatus,
@@ -974,29 +973,29 @@ app.whenReady().then(() => {
   });
 
   ipcMain.handle(
-    "reconcile-harness-integration",
-    async (_event, adapterId: unknown, targetId: unknown): Promise<ActiveHarnessIntegrationResult> => {
+    "enable-harness-integration-immediate",
+    async (_event, ids: unknown, adapterId: unknown, targetId: unknown): Promise<ActiveHarnessSaveResult> => {
+      if (!Array.isArray(ids) || ids.some((id) => typeof id !== "string" || !id)) {
+        throw new Error("Invalid active harness IDs.");
+      }
       if (typeof adapterId !== "string" || !adapterId || typeof targetId !== "string" || !targetId) {
         throw new Error("Invalid integration key.");
       }
 
-      return reconcileGroupedIntegration(
-        { adapterId, targetId },
-        new Set(persistedActiveHarnessIds),
-        {
-          captureWorkspaceGuard: () => ({ workspacePath, generation: backendGeneration, activeHarnessRevision }),
-          listHarnesses: fetchHarnessesForSave,
-          getGroupedIntegrationStatus: async (key) =>
-            toGroupedIntegrationStatusResult(await callGroupedIntegrationRoute(key, "status")),
-          installGroupedIntegration: async (key, expected) =>
-            toGroupedIntegrationStatusResult(await callGroupedIntegrationRoute(key, "install", expected)),
-          repairGroupedIntegration: async (key, expected) =>
-            toGroupedIntegrationStatusResult(await callGroupedIntegrationRoute(key, "repair", expected)),
-          uninstallGroupedIntegration: async (key, expected) =>
-            toGroupedIntegrationStatusResult(await callGroupedIntegrationRoute(key, "uninstall", expected)),
-          confirmMutations,
-        },
-      );
+      return enableHarnessImmediate(ids, { adapterId, targetId }, {
+        captureWorkspaceGuard: () => ({ workspacePath, generation: backendGeneration, activeHarnessRevision }),
+        persistActiveHarnesses,
+        listHarnesses: fetchHarnessesForSave,
+        getGroupedIntegrationStatus: async (key) =>
+          toGroupedIntegrationStatusResult(await callGroupedIntegrationRoute(key, "status")),
+        installGroupedIntegration: async (key, expected) =>
+          toGroupedIntegrationStatusResult(await callGroupedIntegrationRoute(key, "install", expected)),
+        repairGroupedIntegration: async (key, expected) =>
+          toGroupedIntegrationStatusResult(await callGroupedIntegrationRoute(key, "repair", expected)),
+        uninstallGroupedIntegration: async (key, expected) =>
+          toGroupedIntegrationStatusResult(await callGroupedIntegrationRoute(key, "uninstall", expected)),
+        confirmMutations,
+      });
     },
   );
 

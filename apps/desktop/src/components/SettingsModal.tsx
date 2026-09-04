@@ -8,7 +8,6 @@ import HarnessConfigEditor from "./HarnessConfigEditor";
 import type { HarnessConfig, HarnessEditorMetadata, IntegrationStatus, IntegrationStatusResult } from "../harnessTypes";
 import {
   deriveIntegrationDisplayState,
-  isReconcileActionable,
   type IntegrationKey,
   type ActiveHarnessIntegrationResult,
   type ActiveHarnessSaveResult,
@@ -19,7 +18,7 @@ import { mergeIntegrationOperationFailures } from "../settingsController";
 import HarnessCommandPathControl, { looksAbsolute } from "./HarnessCommandPathControl";
 import HarnessDetectionStatus from "./HarnessDetectionStatus";
 import HarnessIcon from "./HarnessIcon";
-import Toggle from "./Toggle";
+import Toggle, { ToggleStatusText } from "./Toggle";
 import Button from "./Button";
 import Input from "./Input";
 
@@ -44,7 +43,7 @@ interface SettingsModalProps {
   providerRuntime: ProviderRuntimeResponse | null;
   onClose: () => void;
   onSaved: (settings: AppSettings) => void;
-  onSaveActiveHarnesses: (ids: string[]) => Promise<ActiveHarnessSaveResult>;
+  onSaveActiveHarnesses: (ids: string[], scope?: IntegrationKey) => Promise<ActiveHarnessSaveResult>;
 }
 
 const hotkeyRows: Array<{ action: HotkeyAction; label: string; optional?: boolean }> = [
@@ -134,7 +133,6 @@ export default function SettingsModal({ initialSettings, harnesses, documentRevi
   const peonVerificationGeneration = useRef(0);
   const modalLifecycleGeneration = useRef(0);
   const toolsSaveGeneration = useRef(0);
-  const reconcileGeneration = useRef(0);
   const integrationStatusRequestGeneration = useRef(0);
   const [activeDraft, setActiveDraft] = useState<string[]>(() =>
     normalizeActiveHarnessIds(harnesses, activeHarnessIds),
@@ -144,7 +142,6 @@ export default function SettingsModal({ initialSettings, harnesses, documentRevi
   const [detectionGenerations, setDetectionGenerations] = useState<Record<string, number>>({});
   const [integrationStatuses, setIntegrationStatuses] = useState<Record<string, IntegrationStatusResult>>({});
   const [integrationOperationFailures, setIntegrationOperationFailures] = useState<Record<string, ActiveHarnessIntegrationResult>>({});
-  const [reconcileInProgressKey, setReconcileInProgressKey] = useState<string | null>(null);
   const [integrationStatusGeneration, setIntegrationStatusGeneration] = useState(0);
   const [harnessEditor, setHarnessEditor] = useState<{
     mode: HarnessEditorMode;
@@ -152,20 +149,24 @@ export default function SettingsModal({ initialSettings, harnesses, documentRevi
     metadata: HarnessEditorMetadata;
   } | null>(null);
   const [harnessActionStatus, setHarnessActionStatus] = useState<string | null>(null);
-  const [expandedCommandPaths, setExpandedCommandPaths] = useState<Record<string, boolean>>({});
+  const [expandedTools, setExpandedTools] = useState<Record<string, boolean>>({});
   const verificationTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  function toggleCommandPathExpanded(harnessId: string) {
-    setExpandedCommandPaths((current) => ({ ...current, [harnessId]: !current[harnessId] }));
+  function toggleToolExpanded(harnessId: string) {
+    setExpandedTools((current) => ({ ...current, [harnessId]: !current[harnessId] }));
+  }
+
+  function handleToolRowKeyDown(event: React.KeyboardEvent<HTMLDivElement>, harnessId: string) {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    toggleToolExpanded(harnessId);
   }
 
   function invalidateAsyncState() {
     modalLifecycleGeneration.current += 1;
     toolsSaveGeneration.current += 1;
-    reconcileGeneration.current += 1;
     integrationStatusRequestGeneration.current += 1;
     peonVerificationGeneration.current += 1;
-    setReconcileInProgressKey(null);
     if (verificationTimer.current) {
       clearTimeout(verificationTimer.current);
       verificationTimer.current = null;
@@ -438,6 +439,18 @@ export default function SettingsModal({ initialSettings, harnesses, documentRevi
     );
   }
 
+  // Turning a tool on takes over the job the removed per-row Reconcile
+  // button used to do: it immediately persists and installs/repairs, rather
+  // than waiting for the modal-wide Save. Turning a tool off stays a draft
+  // change only — disable-time cleanup remains a Save-time retry action.
+  function handleToolToggle(h: HarnessConfig) {
+    const turningOn = !activeDraft.includes(h.id);
+    toggleHarness(h.id);
+    if (!turningOn) return;
+    const key = integrationKeyForHarness(h);
+    if (key) void enableToolImmediate(h.id, key);
+  }
+
   function updateIntegrationFailures(results: Record<string, ActiveHarnessIntegrationResult>) {
     setIntegrationOperationFailures((current) => mergeIntegrationOperationFailures(current, results));
   }
@@ -469,32 +482,29 @@ export default function SettingsModal({ initialSettings, harnesses, documentRevi
     }
   }
 
-  async function reconcileIntegrationHandler(key: IntegrationKey) {
-    const keyId = `${key.adapterId}/${key.targetId}`;
+  async function enableToolImmediate(harnessId: string, key: IntegrationKey) {
     const lifecycleGeneration = modalLifecycleGeneration.current;
-    const requestGeneration = ++reconcileGeneration.current;
+    const requestGeneration = ++toolsSaveGeneration.current;
     setActiveSaveStatus(null);
-    setReconcileInProgressKey(keyId);
+    setToolsSaveInProgress(true);
     try {
-      const result = await window.orkworks.reconcileHarnessIntegration(key.adapterId, key.targetId);
-      if (requestGeneration !== reconcileGeneration.current || lifecycleGeneration !== modalLifecycleGeneration.current) return;
-      // mergeIntegrationOperationFailures neither keeps nor clears
-      // stale_workspace results, so the workspace switch is surfaced as an
-      // explicit status message instead of a silent no-op. The result's own
-      // message is worded for the save flow ("while saving"), so reconcile
-      // states its own.
-      if (result.outcome === "stale_workspace") {
-        setActiveSaveStatus("Workspace changed while reconciling. Reload the current workspace and retry.");
+      const mergedIds = activeHarnessIds.includes(harnessId) ? activeHarnessIds : [...activeHarnessIds, harnessId];
+      const result = await onSaveActiveHarnesses(mergedIds, key);
+      if (requestGeneration !== toolsSaveGeneration.current || lifecycleGeneration !== modalLifecycleGeneration.current) return;
+      if (result.activeHarnesses.outcome === "persisted") {
+        updateIntegrationFailures(result.integrations);
+        refreshDetections([
+          ...new Set(Object.values(result.integrations).flatMap((operation) => operation.consumerHarnessIds)),
+        ]);
         return;
       }
-      updateIntegrationFailures({ [keyId]: result });
-      refreshDetections(result.consumerHarnessIds);
+      setActiveSaveStatus(result.activeHarnesses.message ?? "Couldn't enable this coding tool.");
     } catch {
-      if (requestGeneration !== reconcileGeneration.current || lifecycleGeneration !== modalLifecycleGeneration.current) return;
-      setActiveSaveStatus("Couldn't reconcile the integration.");
+      if (requestGeneration !== toolsSaveGeneration.current || lifecycleGeneration !== modalLifecycleGeneration.current) return;
+      setActiveSaveStatus("Couldn't enable this coding tool.");
     } finally {
-      if (requestGeneration !== reconcileGeneration.current || lifecycleGeneration !== modalLifecycleGeneration.current) return;
-      setReconcileInProgressKey(null);
+      if (requestGeneration !== toolsSaveGeneration.current || lifecycleGeneration !== modalLifecycleGeneration.current) return;
+      setToolsSaveInProgress(false);
     }
   }
 
@@ -569,14 +579,12 @@ export default function SettingsModal({ initialSettings, harnesses, documentRevi
       };
     }
 
-    const rowKey = integrationKeyForHarness(harness);
     return deriveIntegrationDisplayState({
       harnessName: harness.name,
       enabled,
       status,
       operation: integrationOperationFailures[harness.id],
-      inProgress: toolsSaveInProgress
-        || (rowKey !== null && reconcileInProgressKey === `${rowKey.adapterId}/${rowKey.targetId}`),
+      inProgress: toolsSaveInProgress,
     });
   }
 
@@ -815,28 +823,19 @@ export default function SettingsModal({ initialSettings, harnesses, documentRevi
                       const launch = h.launch.kind === "command-template" ? h.launch : undefined;
                       const isCommandTemplate = launch !== undefined;
                       const hasCustomPath = launch !== undefined && looksAbsolute(launch.command);
-                      const rowKey = integrationKeyForHarness(h);
-                      const rowStatus = integrationStatuses[h.id];
-                      const rowKeyId = rowKey ? `${rowKey.adapterId}/${rowKey.targetId}` : null;
-                      const draftDiverged = activeDraft.includes(h.id) !== activeHarnessIds.includes(h.id);
-                      // Actionability mirrors what reconcile will actually
-                      // plan: the group-level enabled flag (any persisted
-                      // consumer active), not this row's own toggle.
-                      const groupEnabled = rowKey !== null && toolHarnesses.some((x) => {
-                        const xKey = integrationKeyForHarness(x);
-                        return xKey !== null
-                          && xKey.adapterId === rowKey.adapterId
-                          && xKey.targetId === rowKey.targetId
-                          && activeHarnessIds.includes(x.id);
-                      });
-                      const reconcileActionable = h.integration !== null
-                        && rowKeyId !== null
-                        && rowStatus !== undefined
-                        && isReconcileActionable(groupEnabled, rowStatus);
+                      const expanded = Boolean(expandedTools[h.id]);
+                      const statusId = `${h.id}-tool-status`;
 
                       return (
                         <div key={h.id} className="settings-config-item-row">
-                          <div className="settings-config-item-header">
+                          <div
+                            className="settings-config-item-header"
+                            role="button"
+                            tabIndex={0}
+                            aria-expanded={expanded}
+                            onClick={() => toggleToolExpanded(h.id)}
+                            onKeyDown={(event) => handleToolRowKeyDown(event, h.id)}
+                          >
                             <div className="settings-config-item">
                               <HarnessIcon tool={h.name} size={16} />
                               <span>{h.name}</span>
@@ -854,17 +853,25 @@ export default function SettingsModal({ initialSettings, harnesses, documentRevi
                                 refreshGeneration={detectionGenerations[h.id] ?? 0}
                               />
                             </div>
-                            <div className="settings-config-item-header-actions">
-                              {reconcileActionable && rowKey && (
-                                <button
-                                  type="button"
-                                  onClick={() => void reconcileIntegrationHandler(rowKey)}
-                                  disabled={toolsSaveInProgress || reconcileInProgressKey !== null || draftDiverged}
-                                  title={draftDiverged ? "Save coding tool changes first." : undefined}
-                                >
-                                  {reconcileInProgressKey === rowKeyId ? "Reconciling..." : "Reconcile"}
-                                </button>
-                              )}
+                            <div className="settings-config-item-header-actions" onClick={(event) => event.stopPropagation()}>
+                              <Toggle
+                                checked={activeDraft.includes(h.id)}
+                                onChange={() => handleToolToggle(h)}
+                                ariaLabel={h.name}
+                                disabled={toolsSaveInProgress}
+                                visualState={display.appearance}
+                                describedById={statusId}
+                                tooltip={display.tooltip}
+                              />
+                            </div>
+                            <span className="settings-config-item-chevron" aria-hidden="true">{expanded ? "▾" : "▸"}</span>
+                          </div>
+                          {/* Stays mounted while hidden (native `hidden` attribute, not
+                              conditional rendering) so an in-progress, unsaved path edit
+                              survives collapsing the disclosure instead of being discarded. */}
+                          <div className="settings-config-item-subsection" hidden={!expanded}>
+                            <ToggleStatusText id={statusId} description={display.description} glyph={display.glyph} />
+                            <div className="settings-config-item-subsection-actions">
                               {h.origin !== "builtin" || h.id !== "generic-shell" ? (
                                 <button type="button" onClick={() => openHarnessEditor(h)}>
                                   {h.origin === "override" ? "Edit override" : "View config"}
@@ -875,32 +882,8 @@ export default function SettingsModal({ initialSettings, harnesses, documentRevi
                                   Duplicate
                                 </button>
                               )}
-                              {isCommandTemplate && (
-                                <button
-                                  type="button"
-                                  onClick={() => toggleCommandPathExpanded(h.id)}
-                                  aria-expanded={Boolean(expandedCommandPaths[h.id])}
-                                >
-                                  {expandedCommandPaths[h.id] ? "Hide path ▾" : "Path ▸"}
-                                </button>
-                              )}
-                              <Toggle
-                                checked={activeDraft.includes(h.id)}
-                                onChange={() => toggleHarness(h.id)}
-                                ariaLabel={h.name}
-                                disabled={toolsSaveInProgress}
-                                visualState={display.appearance}
-                                statusDescription={display.description}
-                                statusGlyph={display.glyph}
-                                tooltip={display.tooltip}
-                              />
                             </div>
-                          </div>
-                          {isCommandTemplate && (
-                            // Stays mounted while hidden (native `hidden` attribute, not
-                            // conditional rendering) so an in-progress, unsaved path edit
-                            // survives collapsing the disclosure instead of being discarded.
-                            <div hidden={!expandedCommandPaths[h.id]}>
+                            {isCommandTemplate && (
                               <HarnessCommandPathControl
                                 harnessId={h.id}
                                 harnessName={h.name}
@@ -909,8 +892,8 @@ export default function SettingsModal({ initialSettings, harnesses, documentRevi
                                 documentRevision={documentRevision}
                                 onChanged={refreshDetection}
                               />
-                            </div>
-                          )}
+                            )}
+                          </div>
                         </div>
                       );
                     })}
@@ -921,7 +904,7 @@ export default function SettingsModal({ initialSettings, harnesses, documentRevi
                       variant="secondary"
                       size="sm"
                       onClick={saveActiveHarnessesHandler}
-                      disabled={toolsSaveInProgress || reconcileInProgressKey !== null}
+                      disabled={toolsSaveInProgress}
                     >
                       {toolsSaveInProgress ? "Saving..." : "Save"}
                     </Button>
