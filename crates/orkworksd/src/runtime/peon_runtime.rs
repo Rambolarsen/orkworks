@@ -40,6 +40,30 @@ fn provider_error_summary(result: &providers::ProviderRunResult) -> String {
         .unwrap_or_else(|| "all configured providers failed".to_string())
 }
 
+#[derive(Default)]
+struct ProviderFailureContext {
+    provider_id: Option<String>,
+    provider_model: Option<String>,
+    fallback_step: Option<usize>,
+}
+
+fn provider_failure_context(result: &providers::ProviderRunResult) -> ProviderFailureContext {
+    result
+        .attempts
+        .iter()
+        .rev()
+        .find(|attempt| matches!(attempt.outcome, providers::AttemptOutcome::Failed))
+        .map(|attempt| ProviderFailureContext {
+            provider_id: Some(attempt.provider_id.clone()),
+            provider_model: result
+                .runtime
+                .get(&attempt.provider_id)
+                .and_then(|runtime| runtime.provider_model.clone()),
+            fallback_step: Some(attempt.step),
+        })
+        .unwrap_or_default()
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct PeonDiagnosticAttempt {
     pub(crate) generation: u64,
@@ -86,11 +110,20 @@ fn fail_attempt_if_active(
     attempt: &PeonDiagnosticAttempt,
     reason: &str,
     error: &str,
+    provider_failure: Option<&ProviderFailureContext>,
 ) -> bool {
     if !diagnostic_attempt_is_active(state, session_id, attempt) {
         return false;
     }
-    state.peon.fail_attempt(session_id, attempt, reason, error)
+    state.peon.fail_attempt(
+        session_id,
+        attempt,
+        reason,
+        error,
+        provider_failure.and_then(|failure| failure.provider_id.as_deref()),
+        provider_failure.and_then(|failure| failure.provider_model.as_deref()),
+        provider_failure.and_then(|failure| failure.fallback_step),
+    )
 }
 
 fn complete_attempt_if_active(
@@ -108,6 +141,19 @@ fn complete_attempt_if_active(
 fn timeout_attempt_if_active(state: &AppState, session_id: &str, attempt: &PeonDiagnosticAttempt) {
     if diagnostic_attempt_is_active(state, session_id, attempt) {
         state.peon.timeout_attempt(session_id, attempt);
+    }
+}
+
+fn timeout_attempt_if_active_with_context(
+    state: &AppState,
+    session_id: &str,
+    attempt: &PeonDiagnosticAttempt,
+    provider_failure: Option<&ProviderFailureContext>,
+) {
+    if diagnostic_attempt_is_active(state, session_id, attempt) {
+        state
+            .peon
+            .timeout_attempt_with_context(session_id, attempt, provider_failure);
     }
 }
 
@@ -186,6 +232,9 @@ impl crate::PeonState {
                 .unwrap_or_default()
                 .saturating_add(1),
         );
+        entry.snapshot.provider_id = None;
+        entry.snapshot.provider_model = None;
+        entry.snapshot.fallback_step = None;
         entry.snapshot.error_summary = None;
         let attempt = PeonDiagnosticAttempt {
             generation: entry.attempt_generation,
@@ -302,6 +351,9 @@ impl crate::PeonState {
         attempt: &PeonDiagnosticAttempt,
         reason: &str,
         error: &str,
+        provider_id: Option<&str>,
+        provider_model: Option<&str>,
+        fallback_step: Option<usize>,
     ) -> bool {
         let leases = diagnostic_leases().lock().unwrap();
         if leases.get(session_id) != Some(&(attempt.generation, attempt.runtime_identity.clone())) {
@@ -319,10 +371,22 @@ impl crate::PeonState {
         entry.snapshot.scheduler_state = crate::session_types::PeonSchedulerState::Failed;
         entry.snapshot.reason = Some(bounded_diagnostic_text(reason));
         entry.snapshot.error_summary = Some(bounded_error_summary(error));
+        entry.snapshot.provider_id = provider_id.map(bounded_diagnostic_text);
+        entry.snapshot.provider_model = provider_model.map(bounded_diagnostic_text);
+        entry.snapshot.fallback_step = fallback_step;
         true
     }
 
     fn timeout_attempt(&self, session_id: &str, attempt: &PeonDiagnosticAttempt) {
+        self.timeout_attempt_with_context(session_id, attempt, None);
+    }
+
+    fn timeout_attempt_with_context(
+        &self,
+        session_id: &str,
+        attempt: &PeonDiagnosticAttempt,
+        provider_failure: Option<&ProviderFailureContext>,
+    ) {
         let leases = diagnostic_leases().lock().unwrap();
         if leases.get(session_id) != Some(&(attempt.generation, attempt.runtime_identity.clone())) {
             return;
@@ -339,6 +403,13 @@ impl crate::PeonState {
         entry.snapshot.scheduler_state = crate::session_types::PeonSchedulerState::Failed;
         entry.snapshot.reason = Some("timeout".to_string());
         entry.snapshot.error_summary = Some("provider inference timed out".to_string());
+        entry.snapshot.provider_id = provider_failure
+            .and_then(|failure| failure.provider_id.as_deref())
+            .map(bounded_diagnostic_text);
+        entry.snapshot.provider_model = provider_failure
+            .and_then(|failure| failure.provider_model.as_deref())
+            .map(bounded_diagnostic_text);
+        entry.snapshot.fallback_step = provider_failure.and_then(|failure| failure.fallback_step);
         self.in_flight.write().unwrap().remove(session_id);
     }
 
@@ -677,10 +748,18 @@ where
                 let provider_state = state_clone.clone();
                 let cleanup_state = state_clone.clone();
                 let provider_output = output_snapshot.clone();
+                let applied_provider = provider_state.providers.get_applied();
+                let provider_failure = ProviderFailureContext {
+                    provider_id: applied_provider.provider.clone(),
+                    provider_model: applied_provider.model.clone(),
+                    fallback_step: Some(1),
+                };
                 let mut provider_task = tokio::task::spawn_blocking(move || {
-                    provider_state
-                        .providers
-                        .run_inference(providers::PeonScope::Session, &provider_output)
+                    provider_state.providers.run_inference_with_applied(
+                        providers::PeonScope::Session,
+                        &provider_output,
+                        applied_provider,
+                    )
                 });
                 let provider_result = match tokio::time::timeout(
                     std::time::Duration::from_secs(120),
@@ -697,6 +776,7 @@ where
                             &attempt,
                             "provider_task_failed",
                             &error.to_string(),
+                            None,
                         ) {
                             finish_attempt_if_active(&cleanup_state, &id, &attempt);
                         }
@@ -704,7 +784,12 @@ where
                     }
                     Err(_) => {
                         tracing::warn!(session_id = %id, "peon inference timed out");
-                        timeout_attempt_if_active(&cleanup_state, &id, &attempt);
+                        timeout_attempt_if_active_with_context(
+                            &cleanup_state,
+                            &id,
+                            &attempt,
+                            Some(&provider_failure),
+                        );
                         let _ = provider_task.await;
                         finish_attempt_if_active(&cleanup_state, &id, &attempt);
                         return;
@@ -730,6 +815,7 @@ where
                         &attempt,
                         "provider_exhausted",
                         &provider_error_summary(&provider_result),
+                        Some(&provider_failure_context(&provider_result)),
                     );
                 }
 
@@ -1839,6 +1925,9 @@ mod tests {
             &attempt,
             "provider_exhausted",
             "all providers failed",
+            Some("ollama"),
+            Some("gemma4:latest"),
+            Some(1),
         );
 
         assert!(state.peon.in_flight.read().unwrap().contains(session_id));
@@ -1852,6 +1941,12 @@ mod tests {
                 .scheduler_state,
             crate::session_types::PeonSchedulerState::Failed
         );
+        let snapshot = state.peon.diagnostics.read().unwrap()[session_id]
+            .snapshot
+            .clone();
+        assert_eq!(snapshot.provider_id.as_deref(), Some("ollama"));
+        assert_eq!(snapshot.provider_model.as_deref(), Some("gemma4:latest"));
+        assert_eq!(snapshot.fallback_step, Some(1));
 
         state.peon.finish_attempt(session_id, &attempt);
         assert!(!state.peon.in_flight.read().unwrap().contains(session_id));
@@ -1918,16 +2013,64 @@ mod tests {
             .peon
             .begin_attempt(session_id, test_runtime_identity(session_id, 1))
             .expect("second diagnostic attempt should start");
-        state
-            .peon
-            .fail_attempt(session_id, &next_attempt, "provider_exhausted", &oversized);
+        state.peon.fail_attempt(
+            session_id,
+            &next_attempt,
+            "provider_exhausted",
+            &oversized,
+            None,
+            None,
+            None,
+        );
         let error_summary = state.peon.diagnostics.read().unwrap()[session_id]
             .snapshot
             .error_summary
             .clone()
             .unwrap();
         assert!(error_summary.chars().count() <= MAX_DIAGNOSTIC_TEXT_CHARS);
+        let snapshot = state.peon.diagnostics.read().unwrap()[session_id]
+            .snapshot
+            .clone();
+        assert_eq!(snapshot.provider_id, None);
+        assert_eq!(snapshot.provider_model, None);
+        assert_eq!(snapshot.fallback_step, None);
         state.peon.finish_attempt(session_id, &next_attempt);
+    }
+
+    #[test]
+    fn timeout_attempt_preserves_provider_context() {
+        let _lease_guard = diagnostic_test_guard();
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(dir.path());
+        let session_id = "timeout-provider-context";
+
+        state
+            .peon
+            .in_flight
+            .write()
+            .unwrap()
+            .insert(session_id.to_string());
+        state.peon.mark_candidate(session_id);
+        let attempt = state
+            .peon
+            .begin_attempt(session_id, test_runtime_identity(session_id, 1))
+            .expect("diagnostic attempt should start");
+        let provider_failure = ProviderFailureContext {
+            provider_id: Some("aider".into()),
+            provider_model: Some("sonnet".into()),
+            fallback_step: Some(1),
+        };
+
+        state
+            .peon
+            .timeout_attempt_with_context(session_id, &attempt, Some(&provider_failure));
+
+        let snapshot = state.peon.diagnostics.read().unwrap()[session_id]
+            .snapshot
+            .clone();
+        assert_eq!(snapshot.provider_id.as_deref(), Some("aider"));
+        assert_eq!(snapshot.provider_model.as_deref(), Some("sonnet"));
+        assert_eq!(snapshot.fallback_step, Some(1));
     }
 
     #[tokio::test]

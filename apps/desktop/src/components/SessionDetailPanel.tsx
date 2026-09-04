@@ -15,6 +15,7 @@ import {
   memoryStateLabel,
   minDelay,
   nextRelativeTimeRefreshMs,
+  peonTimeoutNotice,
   relativeTime,
   situationHeadline,
   situationTail,
@@ -38,11 +39,12 @@ interface SessionDetailPanelProps {
   harnesses: HarnessConfig[];
   onResumeSession: (id: string) => void;
   onApplyDebugAttention: (id: string, attention: SessionAttention, message?: string) => void;
+  onOpenSettings: () => void;
   onReviewPlan: () => void;
   showDebugMetadata: boolean;
 }
 
-function SessionDetailPanel({ sessions, activeSessionId, harnesses, onResumeSession, onApplyDebugAttention, showDebugMetadata, onReviewPlan }: SessionDetailPanelProps) {
+function SessionDetailPanel({ sessions, activeSessionId, harnesses, onResumeSession, onApplyDebugAttention, onOpenSettings, showDebugMetadata, onReviewPlan }: SessionDetailPanelProps) {
   const [debugAttention, setDebugAttention] = useState<SessionAttention>("working");
   const [debugMessage, setDebugMessage] = useState("");
   const [reviewingSessionId, setReviewingSessionId] = useState<string | null>(null);
@@ -90,6 +92,7 @@ function SessionDetailPanel({ sessions, activeSessionId, harnesses, onResumeSess
   const folder = active.cwd.split("/").pop() || active.cwd;
   const headline = situationHeadline(active);
   const tail = situationTail(active, tone);
+  const timeoutNotice = peonTimeoutNotice(active);
   const actionZone = detailActionZone(active, tone);
   const badgeText =
     attn === "capped" && active.usageLimitResetHint
@@ -137,6 +140,12 @@ function SessionDetailPanel({ sessions, activeSessionId, harnesses, onResumeSess
         )}
         {active.conflictWarning && (
           <div className="conflict-warning">&#x26A0; {active.conflictWarning}</div>
+        )}
+        {timeoutNotice && (
+          <div className="peon-timeout-warning" role="alert">
+            <div>{timeoutNotice.message}</div>
+            <button type="button" onClick={onOpenSettings}>Open provider settings</button>
+          </div>
         )}
       </div>
 

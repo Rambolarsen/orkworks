@@ -24,7 +24,7 @@ import Input from "./Input";
 
 type HotkeyAction = keyof HotkeySettings;
 
-type SettingsSection = "tools" | "providers" | "hotkeys" | "retention" | "debug";
+export type SettingsSection = "tools" | "providers" | "hotkeys" | "retention" | "debug";
 
 const NAV_ITEMS: Array<{ key: SettingsSection; label: string }> = [
   { key: "tools", label: "Coding tools" },
@@ -35,6 +35,7 @@ const NAV_ITEMS: Array<{ key: SettingsSection; label: string }> = [
 ];
 
 interface SettingsModalProps {
+  initialSection?: SettingsSection;
   initialSettings: AppSettings;
   harnesses: HarnessConfigEntry[];
   documentRevision: string | null;
@@ -90,7 +91,7 @@ function editableHarnessDefinition(harness: HarnessConfigEntry): unknown {
   return stripDerivedHarnessFields(harness);
 }
 
-export default function SettingsModal({ initialSettings, harnesses, documentRevision, onRefreshHarnesses, activeHarnessIds, providerRuntime, onClose, onSaved, onSaveActiveHarnesses }: SettingsModalProps) {
+export default function SettingsModal({ initialSection = "tools", initialSettings, harnesses, documentRevision, onRefreshHarnesses, activeHarnessIds, providerRuntime, onClose, onSaved, onSaveActiveHarnesses }: SettingsModalProps) {
   const modalRef = useRef<HTMLElement>(null);
   const savedSettingsRef = useRef<AppSettings>(clone(initialSettings));
   const defaultHotkeys = initialSettings.defaultHotkeys;
@@ -104,7 +105,7 @@ export default function SettingsModal({ initialSettings, harnesses, documentRevi
     .filter(Boolean)
     .filter((key, index, all) => all.indexOf(key) === index)
     .join("\0");
-  const [activeSection, setActiveSection] = useState<SettingsSection>("tools");
+  const [activeSection, setActiveSection] = useState<SettingsSection>(initialSection);
   const [draft, setDraft] = useState<HotkeySettings>(initialSettings.hotkeys);
   const [savedHotkeys, setSavedHotkeys] = useState<HotkeySettings>(initialSettings.hotkeys);
   const [capturing, setCapturing] = useState<HotkeyAction | null>(null);

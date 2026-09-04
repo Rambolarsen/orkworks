@@ -288,6 +288,31 @@ test("SessionDetailPanel groups content into situation/actions/facts/provenance 
   assert.match(source, /sourceWithConfidence/);
 });
 
+test("SessionDetailPanel surfaces provider timeout recovery outside debug metadata", () => {
+  const source = readFileSync(new URL("../src/components/SessionDetailPanel.tsx", import.meta.url), "utf8");
+
+  const noticeIndex = source.indexOf("peonTimeoutNotice");
+  const alertIndex = source.indexOf('className="peon-timeout-warning"');
+  const debugIndex = source.indexOf("{showDebugMetadata && (");
+
+  assert.ok(noticeIndex >= 0, "expected the timeout notice helper");
+  assert.ok(alertIndex >= 0, "expected the visible timeout warning");
+  assert.ok(debugIndex >= 0, "expected the existing debug metadata gate");
+  assert.ok(alertIndex < debugIndex, "the recovery warning must be visible without debug metadata");
+  assert.match(source, /role="alert"/);
+  assert.match(source, /Open provider settings/);
+  assert.match(source, /onOpenSettings/);
+});
+
+test("timeout recovery opens the provider settings section", () => {
+  const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+  const settings = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
+
+  assert.match(app, /onOpenSettings=\{\(\) => openSettings\("providers"\)\}/);
+  assert.match(settings, /initialSection\?: SettingsSection/);
+  assert.match(settings, /useState<SettingsSection>\(initialSection\)/);
+});
+
 test("SessionDetailPanel fetches and renders the summary-log checkpoint history", () => {
   const source = readFileSync(new URL("../src/components/SessionDetailPanel.tsx", import.meta.url), "utf8");
 

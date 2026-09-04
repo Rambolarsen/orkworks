@@ -15,6 +15,7 @@ import {
   relativeTime,
   resumeActionLabel,
   resumeChoices,
+  peonTimeoutNotice,
   situationHeadline,
   situationTail,
   sourceLabel,
@@ -35,6 +36,85 @@ function baseSession(overrides: Partial<SessionInfo> = {}): SessionInfo {
     ...overrides,
   };
 }
+
+test("peonTimeoutNotice explains which provider and model need attention", () => {
+  const notice = peonTimeoutNotice(baseSession({
+    peonDiagnostics: {
+      schedulerState: "failed",
+      reason: "provider_exhausted",
+      lastAttemptAt: "2026-09-03T16:58:04Z",
+      lastSuccessfulInferenceAt: null,
+      providerId: "ollama",
+      providerModel: "gemma4:latest",
+      fallbackStep: 1,
+      attemptCount: 3,
+      errorSummary: "Ollama generate request timed out",
+      observationCount: 0,
+    },
+  }));
+
+  assert.deepEqual(notice, {
+    providerLabel: "Ollama",
+    model: "gemma4:latest",
+    message: "Peon couldn't analyze this session because Ollama / gemma4:latest timed out. Check the provider or choose another model in Settings.",
+  });
+});
+
+test("peonTimeoutNotice stays quiet for successful or non-timeout diagnostics", () => {
+  assert.equal(peonTimeoutNotice(baseSession()), null);
+  assert.equal(peonTimeoutNotice(baseSession({
+    peonDiagnostics: {
+      schedulerState: "failed",
+      reason: "provider_exhausted",
+      lastAttemptAt: null,
+      lastSuccessfulInferenceAt: null,
+      providerId: "ollama",
+      providerModel: "gemma4:latest",
+      fallbackStep: 1,
+      attemptCount: 1,
+      errorSummary: "model returned invalid JSON",
+      observationCount: 0,
+    },
+  })), null);
+});
+
+test("peonTimeoutNotice uses the built-in Aider display label", () => {
+  const notice = peonTimeoutNotice(baseSession({
+    peonDiagnostics: {
+      schedulerState: "failed",
+      reason: "provider_exhausted",
+      lastAttemptAt: null,
+      lastSuccessfulInferenceAt: null,
+      providerId: "aider",
+      providerModel: null,
+      fallbackStep: 1,
+      attemptCount: 1,
+      errorSummary: "request timed out",
+      observationCount: 0,
+    },
+  }));
+
+  assert.equal(notice?.message, "Peon couldn't analyze this session because Aider timed out. Check the provider or choose another model in Settings.");
+});
+
+test("peonTimeoutNotice uses the built-in Codex display label", () => {
+  const notice = peonTimeoutNotice(baseSession({
+    peonDiagnostics: {
+      schedulerState: "failed",
+      reason: "timeout",
+      lastAttemptAt: null,
+      lastSuccessfulInferenceAt: null,
+      providerId: "codex",
+      providerModel: "gpt-5",
+      fallbackStep: 1,
+      attemptCount: 1,
+      errorSummary: "provider inference timed out",
+      observationCount: 0,
+    },
+  }));
+
+  assert.equal(notice?.message, "Peon couldn't analyze this session because Codex / gpt-5 timed out. Check the provider or choose another model in Settings.");
+});
 
 test("VOCAB uses 'Workspace' consistently (no 'Folder' drift)", () => {
   assert.equal(VOCAB.workspace, "Workspace");
