@@ -76,6 +76,7 @@ The `skills/` directory contains repo-level agent skills committed with the proj
 | `grooming-the-board` | Board/code/spec consistency sweep: duplicates, done-but-open issues, stranded branches, doc drift |
 | `auditing-signal-vs-noise` | UI truthfulness audit of the situational-awareness surfaces against their metadata sources |
 | `consulting-the-brain` | Routes agent-readiness analysis/verification/improvement work through the owner's external "brain" knowledge repo (`Rambolarsen/brain`) instead of re-deriving it |
+| `orchestrating-task-graphs` | Multi-agent task-graph orchestration: fake-edge test before fan-out, separate diverse verifiers, one owned merge |
 
 The five audit skills (`surfacing-blind-spots` plus the four above) share the guardrail filter and issue format defined in `skills/surfacing-blind-spots/` and rotate weekly via `.github/workflows/quality-audit.yml`.
 
