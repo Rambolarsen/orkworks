@@ -200,6 +200,14 @@ test("SettingsModal keeps the command-path control mounted while its subsection 
   assert.match(settingsSource, /hidden=\{!expanded\}/);
 });
 
+test("SettingsModal stops both click and keydown propagation from the toggle so activating it cannot also expand or collapse the row", () => {
+  const settingsSource = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
+  assert.match(
+    settingsSource,
+    /className="settings-config-item-header-actions"\s*\n\s*onClick=\{\(event\) => event\.stopPropagation\(\)\}\s*\n\s*onKeyDown=\{\(event\) => event\.stopPropagation\(\)\}/,
+  );
+});
+
 test("SettingsModal surfaces a custom-path tell on collapsed rows via the exported looksAbsolute check", () => {
   const settingsSource = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
   assert.match(settingsSource, /import HarnessCommandPathControl, \{ looksAbsolute \} from "\.\/HarnessCommandPathControl"/);

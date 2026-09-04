@@ -853,7 +853,11 @@ export default function SettingsModal({ initialSettings, harnesses, documentRevi
                                 refreshGeneration={detectionGenerations[h.id] ?? 0}
                               />
                             </div>
-                            <div className="settings-config-item-header-actions" onClick={(event) => event.stopPropagation()}>
+                            <div
+                              className="settings-config-item-header-actions"
+                              onClick={(event) => event.stopPropagation()}
+                              onKeyDown={(event) => event.stopPropagation()}
+                            >
                               <Toggle
                                 checked={activeDraft.includes(h.id)}
                                 onChange={() => handleToolToggle(h)}
