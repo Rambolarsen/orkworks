@@ -260,6 +260,11 @@ pub struct PeonProviderVerificationResponse {
 pub struct PeonTestAndApplyRequest {
     pub selection: PeonSelection,
     pub generation: u64,
+    /// Restoring a persisted selection must not depend on the model's
+    /// nondeterministic inference output (issue #444): the selection was
+    /// smoke-tested when the user saved it. Only the restore path sets this.
+    #[serde(rename = "skipTest", default)]
+    pub skip_test: bool,
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -1590,28 +1595,30 @@ impl ProviderManager {
         }
         let fingerprint = Self::selection_fingerprint(&selection);
         self.require_matching_verification(request.generation, &fingerprint)?;
-        let result = self.invoke_provider(
-            &definition,
-            Some(&selection.model),
-            selection.ollama_base_url.as_deref(),
-        );
-        if !result.success {
+        if !request.skip_test {
+            let result = self.invoke_provider(
+                &definition,
+                Some(&selection.model),
+                selection.ollama_base_url.as_deref(),
+            );
+            if !result.success {
+                self.ensure_current_generation(request.generation)?;
+                return Err(invocation_operation_error(&result.stderr));
+            }
             self.ensure_current_generation(request.generation)?;
-            return Err(invocation_operation_error(&result.stderr));
-        }
-        self.ensure_current_generation(request.generation)?;
-        #[cfg(test)]
-        if let Some(hook) = &self.apply_parse_hook {
-            hook();
-        }
-        if peon::parse_inference(&result.stdout).is_none() {
+            #[cfg(test)]
+            if let Some(hook) = &self.apply_parse_hook {
+                hook();
+            }
+            if peon::parse_inference(&result.stdout).is_none() {
+                self.ensure_current_generation(request.generation)?;
+                return Err(ProviderOperationError {
+                    code: ProviderOperationErrorCode::ModelFailure,
+                    message: "provider returned invalid Peon inference JSON".into(),
+                });
+            }
             self.ensure_current_generation(request.generation)?;
-            return Err(ProviderOperationError {
-                code: ProviderOperationErrorCode::ModelFailure,
-                message: "provider returned invalid Peon inference JSON".into(),
-            });
         }
-        self.ensure_current_generation(request.generation)?;
 
         let applied_at = chrono_now();
         let mut state = self.operation_state.lock().unwrap();
@@ -4295,6 +4302,7 @@ mod tests {
             .test_and_apply(PeonTestAndApplyRequest {
                 selection: staged_selection("custom-ai", "manual-model"),
                 generation: 2,
+                skip_test: false,
             })
             .expect("manual model should be applyable");
 
@@ -4306,6 +4314,61 @@ mod tests {
             models.lock().unwrap().as_slice(),
             &[None, Some("manual-model".into())]
         );
+    }
+
+    #[test]
+    fn test_and_apply_with_skip_test_applies_without_invoking_provider() {
+        let models = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let manager = ProviderManager::for_tests_with_registry(
+            vec![custom_provider_definition()],
+            ProviderSettingsPayload::default(),
+            vec![fake_provider("custom-ai")
+                .stdout("this output is not json")
+                .with_models(models.clone())],
+        );
+
+        manager
+            .verify_provider(PeonProviderVerifyRequest {
+                provider: "custom-ai".into(),
+                ollama_base_url: None,
+                generation: 1,
+            })
+            .expect("verification only requires a successful invocation");
+
+        let applied = manager
+            .test_and_apply(PeonTestAndApplyRequest {
+                selection: staged_selection("custom-ai", "manual-model"),
+                generation: 1,
+                skip_test: true,
+            })
+            .expect("restore apply must not depend on the model's inference output");
+
+        assert_eq!(applied.provider.as_deref(), Some("custom-ai"));
+        assert_eq!(applied.model.as_deref(), Some("manual-model"));
+        assert_eq!(
+            models.lock().unwrap().as_slice(),
+            &[None],
+            "skip_test must not run a provider inference for Apply"
+        );
+    }
+
+    #[test]
+    fn test_and_apply_with_skip_test_still_requires_matching_verification() {
+        let manager = ProviderManager::for_tests_with_registry(
+            vec![custom_provider_definition()],
+            ProviderSettingsPayload::default(),
+            vec![fake_provider("custom-ai").stdout("this output is not json")],
+        );
+
+        let error = manager
+            .test_and_apply(PeonTestAndApplyRequest {
+                selection: staged_selection("custom-ai", "manual-model"),
+                generation: 1,
+                skip_test: true,
+            })
+            .expect_err("skip_test must not bypass the verification requirement");
+
+        assert_eq!(error.code, ProviderOperationErrorCode::VerificationRequired);
     }
 
     #[cfg(unix)]
@@ -4341,6 +4404,7 @@ mod tests {
             .test_and_apply(PeonTestAndApplyRequest {
                 selection: staged_selection("custom-ai", "manual-model"),
                 generation: 1,
+                skip_test: false,
             })
             .expect("the real provider process should apply");
 
@@ -4363,6 +4427,7 @@ mod tests {
             .test_and_apply(PeonTestAndApplyRequest {
                 selection: staged_selection("custom-ai", "manual-model"),
                 generation: 1,
+                skip_test: false,
             })
             .expect_err("Apply without successful verification must be rejected");
 
@@ -4398,6 +4463,7 @@ mod tests {
             .test_and_apply(PeonTestAndApplyRequest {
                 selection: staged_selection("other-ai", "other-model"),
                 generation: 1,
+                skip_test: false,
             })
             .expect_err("verification for another provider must not authorize Apply");
 
@@ -4432,6 +4498,7 @@ mod tests {
             .test_and_apply(PeonTestAndApplyRequest {
                 selection: staged_selection("custom-ai", "manual-model"),
                 generation: 1,
+                skip_test: false,
             })
             .expect_err("explicit Apply must reject missing model delivery");
 
@@ -4499,6 +4566,7 @@ mod tests {
             .test_and_apply(PeonTestAndApplyRequest {
                 selection: staged_selection("other-ai", "other-model"),
                 generation: 2,
+                skip_test: false,
             })
             .unwrap();
         assert_eq!(applied.provider.as_deref(), Some("other-ai"));
@@ -4544,6 +4612,7 @@ mod tests {
             .test_and_apply(PeonTestAndApplyRequest {
                 selection: staged_selection("other-ai", "other-model"),
                 generation: 2,
+                skip_test: false,
             })
             .unwrap();
         assert_eq!(applied.provider.as_deref(), Some("other-ai"));
@@ -4569,6 +4638,7 @@ mod tests {
             .test_and_apply(PeonTestAndApplyRequest {
                 selection: staged_selection("custom-ai", "bad-model"),
                 generation: 1,
+                skip_test: false,
             })
             .expect_err("invalid Peon output must fail Apply");
 
@@ -4600,6 +4670,7 @@ mod tests {
             .test_and_apply(PeonTestAndApplyRequest {
                 selection: staged_selection("custom-ai", "manual-model"),
                 generation: 1,
+                skip_test: false,
             })
             .expect_err("a superseded invalid response must be reported as stale");
 
@@ -4628,6 +4699,7 @@ mod tests {
             older.test_and_apply(PeonTestAndApplyRequest {
                 selection: staged_selection("custom-ai", "old-model"),
                 generation: 1,
+                skip_test: false,
             })
         });
         std::thread::sleep(Duration::from_millis(10));
@@ -4642,6 +4714,7 @@ mod tests {
             .test_and_apply(PeonTestAndApplyRequest {
                 selection: staged_selection("custom-ai", "new-model"),
                 generation: 2,
+                skip_test: false,
             })
             .expect("newer Apply should supersede the older one");
 
@@ -4700,6 +4773,7 @@ mod tests {
                     ollama_base_url: Some(format!("http://{address}/")),
                 },
                 generation: 1,
+                skip_test: false,
             })
             .expect("draft Ollama URL should be used for Apply");
         server.join().unwrap();
@@ -4748,6 +4822,7 @@ mod tests {
                     ollama_base_url: Some("http://127.0.0.1:49999".into()),
                 },
                 generation: 1,
+                skip_test: false,
             })
             .expect_err("an unverified Ollama connection must not be applyable");
 
@@ -4848,6 +4923,7 @@ mod tests {
                     ollama_base_url: None,
                 },
                 generation: 1,
+                skip_test: false,
             })
             .expect_err("an empty model must be rejected");
 

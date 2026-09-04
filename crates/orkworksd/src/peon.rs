@@ -689,29 +689,38 @@ where
 }
 
 pub fn extract_json(raw: &str) -> Option<String> {
-    let trimmed = raw.trim();
-
-    if trimmed.starts_with('{') {
-        return Some(trimmed.to_string());
+    // Models frequently wrap the JSON object in code fences, leading prose,
+    // or trailing garbage (llama3.2 has been observed emitting a stray
+    // trailing brace). Extract the first balanced `{...}` object instead of
+    // requiring the whole output to be the JSON payload.
+    let start = raw.find('{')?;
+    let mut depth = 0usize;
+    let mut in_string = false;
+    let mut escaped = false;
+    for (offset, byte) in raw[start..].bytes().enumerate() {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == b'"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match byte {
+            b'"' => in_string = true,
+            b'{' => depth += 1,
+            b'}' => {
+                depth = depth.checked_sub(1)?;
+                if depth == 0 {
+                    return Some(raw[start..=start + offset].to_string());
+                }
+            }
+            _ => {}
+        }
     }
-
-    let without_fences = trimmed
-        .strip_prefix("```json\n")
-        .or_else(|| trimmed.strip_prefix("```json"))
-        .or_else(|| trimmed.strip_prefix("```\n"))
-        .or_else(|| trimmed.strip_prefix("```"))
-        .unwrap_or(trimmed);
-
-    let without_suffix = without_fences
-        .strip_suffix("\n```")
-        .or_else(|| without_fences.strip_suffix("```"))
-        .unwrap_or(without_fences);
-
-    if without_suffix.trim().starts_with('{') {
-        Some(without_suffix.trim().to_string())
-    } else {
-        None
-    }
+    None
 }
 
 pub fn is_valid_observed_status(status: &str) -> bool {
@@ -979,6 +988,45 @@ mod tests {
     fn test_extract_json_non_json_returns_none() {
         let raw = "just some terminal output, no json here";
         assert!(extract_json(raw).is_none());
+    }
+
+    #[test]
+    fn test_extract_json_tolerates_trailing_garbage() {
+        // llama3.2 has been observed emitting a stray trailing brace after an
+        // otherwise valid JSON object.
+        let raw = r#"{"observedStatus": "working", "confidence": 0.9}]}"#;
+        let result = extract_json(raw);
+        let parsed: PeonInference = serde_json::from_str(&result.unwrap()).unwrap();
+        assert_eq!(parsed.observed_status, Some("working".into()));
+    }
+
+    #[test]
+    fn test_extract_json_tolerates_leading_prose() {
+        let raw = "Here is the analysis:\n{\"observedStatus\": \"idle\", \"confidence\": 0.5}";
+        let result = extract_json(raw);
+        let parsed: PeonInference = serde_json::from_str(&result.unwrap()).unwrap();
+        assert_eq!(parsed.observed_status, Some("idle".into()));
+    }
+
+    #[test]
+    fn test_extract_json_ignores_braces_inside_strings() {
+        let raw = r#"{"summary": "wrote {a, b} handling", "confidence": 0.7} trailing text"#;
+        let result = extract_json(raw);
+        let parsed: PeonInference = serde_json::from_str(&result.unwrap()).unwrap();
+        assert_eq!(parsed.summary.as_deref(), Some("wrote {a, b} handling"));
+    }
+
+    #[test]
+    fn test_extract_json_returns_none_for_unbalanced_json() {
+        assert!(extract_json(r#"{"confidence": 0.9"#).is_none());
+        assert!(extract_json("} } } no object here").is_none());
+    }
+
+    #[test]
+    fn test_extract_json_skips_garbage_before_the_object() {
+        let result = extract_json(r#"}{"confidence": 0.9}"#);
+        let parsed: PeonInference = serde_json::from_str(&result.unwrap()).unwrap();
+        assert!((parsed.confidence - 0.9).abs() < 0.001);
     }
 
     #[test]

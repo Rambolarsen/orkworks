@@ -32,6 +32,7 @@ export interface PeonApplyRequest {
   generation: number;
   readyPort?: number;
   signal?: AbortSignal;
+  skipTest?: boolean;
 }
 
 export interface PeonSelectionTransport {
@@ -161,13 +162,25 @@ export function createPeonSelectionTransaction(transport: PeonSelectionTransport
     return transport.discover(provider, ollamaBaseUrl);
   }
 
-  async function apply(selection: PeonSelection, signal?: AbortSignal, readyPort?: number): Promise<PeonAppliedState> {
+  async function apply(
+    selection: PeonSelection,
+    signal?: AbortSignal,
+    readyPort?: number,
+    options?: { skipTest?: boolean },
+  ): Promise<PeonAppliedState> {
     return enqueueMutation(async () => {
       const candidate = verified;
       if (!matchesVerified(selection, candidate)) {
         throw new Error("A matching successful Peon provider verification is required before Apply.");
       }
-      const result = await transport.apply({ selection, generation: candidate!.generation, readyPort, signal });
+      const skipTest = options?.skipTest === true;
+      const result = await transport.apply({
+        selection,
+        generation: candidate!.generation,
+        readyPort,
+        signal,
+        ...(skipTest ? { skipTest } : {}),
+      });
       if (!matchesVerified(selection, verified)) {
         throw new Error("The Peon provider Apply was superseded.");
       }
@@ -185,7 +198,10 @@ export function createPeonSelectionTransaction(transport: PeonSelectionTransport
     readyPort?: number,
   ): Promise<PeonAppliedState> {
     await verify(selection.provider, selection.ollamaBaseUrl, signal, readyPort);
-    return apply(selection, signal, readyPort);
+    // The persisted selection was smoke-tested when the user saved it; a
+    // restore must not depend on the model's nondeterministic inference
+    // output (issue #444).
+    return apply(selection, signal, readyPort, { skipTest: true });
   }
 
   async function save(
