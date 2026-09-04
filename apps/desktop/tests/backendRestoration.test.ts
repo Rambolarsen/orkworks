@@ -270,3 +270,44 @@ test("workspace persistence completes before replacement startup", () => {
   assert.equal(result, "replacement readiness");
   assert.deepEqual(calls, ["persist", "start"]);
 });
+
+test("side steps start while workspace restoration is still in flight", async () => {
+  const { coordinator, ready } = createHarness();
+  const started: string[] = [];
+  const workspace = deferred<unknown>();
+
+  coordinator.beginGeneration();
+  const readiness = coordinator.getReadiness();
+  coordinator.restore(7001, {
+    restoreWorkspace: () => {
+      started.push("restoreWorkspace");
+      return workspace.promise;
+    },
+    applyRetentionSettings: async () => {
+      started.push("applyRetentionSettings");
+    },
+    syncProviderSettings: async () => {
+      started.push("syncProviderSettings");
+    },
+  });
+
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.ok(
+    started.includes("applyRetentionSettings"),
+    "retention should start while workspace restoration is pending",
+  );
+  assert.ok(
+    started.includes("syncProviderSettings"),
+    "provider sync should start while workspace restoration is pending",
+  );
+
+  workspace.resolve({ path: "/workspace" });
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.deepEqual(await readiness, 7001);
+  assert.deepEqual(coordinator.getRestoredWorkspace(), { path: "/workspace" });
+  assert.deepEqual(ready, [{ port: 7001, workspace: { path: "/workspace" } }]);
+});

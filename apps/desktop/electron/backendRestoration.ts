@@ -116,11 +116,11 @@ export function createBackendRestorationCoordinator<TWorkspace>(
       }, timeoutMs);
 
       void (async () => {
-        const workspace = await steps.restoreWorkspace(candidate.controller.signal);
-        if (!assertCurrent(candidate)) return;
-        await steps.applyRetentionSettings(candidate.controller.signal);
-        if (!assertCurrent(candidate)) return;
-        await steps.syncProviderSettings(candidate.controller.signal);
+        const [workspace] = await Promise.all([
+          steps.restoreWorkspace(candidate.controller.signal),
+          steps.applyRetentionSettings(candidate.controller.signal),
+          steps.syncProviderSettings(candidate.controller.signal),
+        ]);
         if (!assertCurrent(candidate)) return;
 
         clearTimer(candidate);
