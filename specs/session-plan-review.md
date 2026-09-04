@@ -1,6 +1,6 @@
 # Session Plan Review
 
-Status: proposed
+Status: accepted
 Date: 2026-08-01
 
 ## Purpose
