@@ -2203,17 +2203,17 @@ mod tests {
 
     #[test]
     fn declared_reset_is_scoped_to_the_harness_that_declares_it() {
-        // Codex declares no reset commands, so Claude Code's `/new` is inert
-        // in a Codex session.
-        let id = "label-reset-codex";
+        // Aider declares no reset commands, so Claude Code's `/new` is inert
+        // in an Aider session.
+        let id = "label-reset-aider";
         let (state, _dir) = prompted_session_state(id);
-        set_harness(&state, id, "codex");
+        set_harness(&state, id, "aider");
         set_label(&state, id, "Old conversation title");
         seed_label_hint(&state, id, "old topic", 0);
 
         record_terminal_input(&state, id, "/new\r");
 
-        assert_label_lifecycle_untouched(&state, id, "codex session");
+        assert_label_lifecycle_untouched(&state, id, "aider session");
     }
 
     #[test]
