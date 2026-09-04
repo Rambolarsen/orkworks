@@ -22,7 +22,7 @@ export async function probeBackendHealth(deps: BackendHealthProbeDeps): Promise<
       baseUrl = await deps.getBackendUrl();
       break;
     } catch {
-      await deps.delay(RETRY_DELAY_MS);
+      if (i < urlAttempts - 1) await deps.delay(RETRY_DELAY_MS);
     }
   }
   if (baseUrl === null) return "unreachable";

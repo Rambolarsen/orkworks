@@ -52,7 +52,7 @@ test("reports connected when /health succeeds after the readiness window closes"
 
 test("reports unreachable only after every getBackendUrl attempt is exhausted", async () => {
   let urlAttempts = 0;
-  const { deps } = makeDeps({
+  const { deps, calls } = makeDeps({
     getBackendUrl: async () => {
       urlAttempts += 1;
       throw new Error("Sidecar exited before readiness");
@@ -64,6 +64,7 @@ test("reports unreachable only after every getBackendUrl attempt is exhausted", 
 
   assert.equal(result, "unreachable");
   assert.equal(urlAttempts, 4);
+  assert.deepEqual(calls.delays, [500, 500, 500]);
 });
 
 test("reports unreachable when /health never succeeds", async () => {
