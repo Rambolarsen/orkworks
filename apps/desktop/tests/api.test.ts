@@ -403,3 +403,12 @@ test("App only updates active harness ids after persisted active-harness saves",
     /if \(result\.activeHarnesses\.outcome === "persisted"\)\s*\{\s*setActiveHarnessIds\(ids\);/s,
   );
 });
+
+test("App routes a scoped active-harness save through the single-row immediate-enable preload operation", () => {
+  const source = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+
+  assert.match(
+    source,
+    /const result = scope\s*\n\s*\? await window\.orkworks\.enableHarnessIntegrationImmediate\(ids, scope\.adapterId, scope\.targetId\)\s*\n\s*: await window\.orkworks\.saveActiveHarnessesWithIntegrations\(ids\);/,
+  );
+});

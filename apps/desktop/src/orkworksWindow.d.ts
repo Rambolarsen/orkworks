@@ -88,7 +88,7 @@ declare global {
       getProviderModels: (providerId: string) => Promise<ProviderModelsResponse>;
       getProviderLabels: () => Promise<ProviderLabelsResponse>;
       saveActiveHarnessesWithIntegrations: (ids: string[]) => Promise<ActiveHarnessSaveResult>;
-      reconcileHarnessIntegration: (adapterId: string, targetId: string) => Promise<ActiveHarnessIntegrationResult>;
+      enableHarnessIntegrationImmediate: (ids: string[], adapterId: string, targetId: string) => Promise<ActiveHarnessSaveResult>;
       getHarnessIntegrationStatus: (harnessId: string) => Promise<IntegrationStatusResult>;
       getGroupedHarnessIntegrationStatus: (adapterId: string, targetId: string) => Promise<GroupedIntegrationStatusResult>;
       setHarnessCommandOverride: (

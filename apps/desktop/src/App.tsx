@@ -25,7 +25,7 @@ import { disposeTerminal, getTerminal, pruneTerminals, getLiveTerminalCount, get
 import { captureRendererHealth, type RendererHealthSample } from "./rendererHealthProbe";
 import type { AppSettings } from "./appSettingsTypes";
 import type { CreateSessionOptions } from "./harnessTypes";
-import type { ActiveHarnessSaveResult, BackendLifecycleEvent } from "./orkworksWindow";
+import type { ActiveHarnessSaveResult, BackendLifecycleEvent, IntegrationKey } from "./orkworksWindow";
 import { shouldEnableSessionPolling, type BackendStatus } from "./backendPollingGate";
 import { probeBackendHealth } from "./backendHealthProbe";
 import { createWorkspaceSessionController } from "./workspaceSessionController";
@@ -166,8 +166,10 @@ function App() {
 
   const filteredHarnesses = activeNewSessionHarnesses(harnesses, activeHarnessIds);
 
-  const handleSaveActiveHarnesses = useCallback(async (ids: string[]): Promise<ActiveHarnessSaveResult> => {
-    const result = await window.orkworks.saveActiveHarnessesWithIntegrations(ids);
+  const handleSaveActiveHarnesses = useCallback(async (ids: string[], scope?: IntegrationKey): Promise<ActiveHarnessSaveResult> => {
+    const result = scope
+      ? await window.orkworks.enableHarnessIntegrationImmediate(ids, scope.adapterId, scope.targetId)
+      : await window.orkworks.saveActiveHarnessesWithIntegrations(ids);
     if (result.activeHarnesses.outcome === "persisted") {
       setActiveHarnessIds(ids);
     }

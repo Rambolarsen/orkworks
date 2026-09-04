@@ -93,8 +93,8 @@ contextBridge.exposeInMainWorld("orkworks", {
   getProviderLabels: (): Promise<unknown> => ipcRenderer.invoke("get-provider-labels"),
   saveActiveHarnessesWithIntegrations: (ids: string[]): Promise<ActiveHarnessSaveResult> =>
     ipcRenderer.invoke("save-active-harnesses-with-integrations", ids),
-  reconcileHarnessIntegration: (adapterId: string, targetId: string): Promise<ActiveHarnessIntegrationResult> =>
-    ipcRenderer.invoke("reconcile-harness-integration", adapterId, targetId),
+  enableHarnessIntegrationImmediate: (ids: string[], adapterId: string, targetId: string): Promise<ActiveHarnessSaveResult> =>
+    ipcRenderer.invoke("enable-harness-integration-immediate", ids, adapterId, targetId),
   getHarnessIntegrationStatus: (harnessId: string): Promise<unknown> =>
     ipcRenderer.invoke("get-harness-integration-status", harnessId),
   getGroupedHarnessIntegrationStatus: (adapterId: string, targetId: string): Promise<GroupedIntegrationStatusResult> =>

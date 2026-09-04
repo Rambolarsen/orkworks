@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  enableHarnessImmediate,
   integrationKeyId,
   reconcileGroupedIntegration,
   saveActiveHarnessesWithIntegrations,
@@ -529,4 +530,122 @@ test("a status-unavailable group during save surfaces a failed row, not silent s
   assert.equal(result.integrations["copilot/workspace"]?.outcome, "failed");
   assert.equal(result.integrations["copilot/workspace"]?.diagnosticCode, "status_unavailable");
   assert.equal(result.integrations["copilot/workspace"]?.message, "grouped status route missing");
+});
+
+test("enableHarnessImmediate persists the merged selection and installs the newly enabled group in one call", async () => {
+  const deps = createDeps({
+    listHarnesses: async () => {
+      deps.calls.push("list");
+      return { documentRevision: "doc-1", harnesses: [harness("copilot")] };
+    },
+    getGroupedIntegrationStatus: async (key) => {
+      deps.calls.push(`status:${integrationKeyId(key)}`);
+      return grouped(key, [{ harnessId: "copilot", harnessName: "copilot" }], {
+        registration: "absent",
+        ownership: "none",
+        activation: "unknown",
+      });
+    },
+    confirmMutations: async () => {
+      deps.calls.push("confirm");
+      return true;
+    },
+  });
+
+  const result = await enableHarnessImmediate(
+    ["copilot"],
+    { adapterId: "copilot", targetId: "workspace" },
+    deps,
+  );
+
+  assert.deepEqual(deps.calls, [
+    "persist:7",
+    "list",
+    "status:copilot/workspace",
+    "confirm",
+    "install:copilot/workspace:doc-1:7",
+  ]);
+  assert.deepEqual(result.activeHarnesses, { outcome: "persisted" });
+  assert.equal(result.integrations["copilot/workspace"]?.outcome, "succeeded");
+  assert.equal(result.integrations["copilot/workspace"]?.operation, "install");
+});
+
+test("enableHarnessImmediate does not read or mutate other integration groups", async () => {
+  const deps = createDeps({
+    listHarnesses: async () => {
+      deps.calls.push("list");
+      return { documentRevision: "doc-1", harnesses: [harness("copilot"), harness("codex", "codex")] };
+    },
+    getGroupedIntegrationStatus: async (key) => {
+      deps.calls.push(`status:${integrationKeyId(key)}`);
+      return grouped(key, [{ harnessId: key.adapterId, harnessName: key.adapterId }], {
+        registration: "absent",
+        ownership: "none",
+        activation: "unknown",
+      });
+    },
+  });
+
+  await enableHarnessImmediate(
+    ["copilot", "codex"],
+    { adapterId: "copilot", targetId: "workspace" },
+    deps,
+  );
+
+  assert.equal(deps.calls.filter((call) => call.includes("codex")).length, 0);
+});
+
+test("enableHarnessImmediate reports failed without reconciling when persisting the selection fails", async () => {
+  const deps = createDeps({
+    persistActiveHarnesses: async (_ids, revision) => {
+      deps.calls.push(`persist:${revision}`);
+      return { ok: false, error: "disk full" };
+    },
+  });
+
+  const result = await enableHarnessImmediate(
+    ["copilot"],
+    { adapterId: "copilot", targetId: "workspace" },
+    deps,
+  );
+
+  assert.deepEqual(result, { activeHarnesses: { outcome: "failed", message: "disk full" }, integrations: {} });
+  assert.deepEqual(deps.calls, ["persist:7"]);
+});
+
+test("enableHarnessImmediate reports stale_workspace when the active-selection revision changed", async () => {
+  const deps = createDeps({
+    persistActiveHarnesses: async (_ids, revision) => {
+      deps.calls.push(`persist:${revision}`);
+      return { ok: false, code: "active_harness_revision_changed", error: "selection changed" };
+    },
+  });
+
+  const result = await enableHarnessImmediate(
+    ["copilot"],
+    { adapterId: "copilot", targetId: "workspace" },
+    deps,
+  );
+
+  assert.equal(result.activeHarnesses.outcome, "stale_workspace");
+  assert.deepEqual(deps.calls, ["persist:7"]);
+});
+
+test("enableHarnessImmediate marks the overall result stale when the workspace changes during reconcile", async () => {
+  const deps = createDeps({
+    listHarnesses: async () => ({ documentRevision: "doc-1", harnesses: [harness("copilot")] }),
+    getGroupedIntegrationStatus: async (key) => {
+      deps.setGuard({ workspacePath: "/other", generation: 2, activeHarnessRevision: 1 });
+      return grouped(key, [{ harnessId: "copilot", harnessName: "copilot" }], { registration: "drifted" });
+    },
+  });
+
+  const result = await enableHarnessImmediate(
+    ["copilot"],
+    { adapterId: "copilot", targetId: "workspace" },
+    deps,
+  );
+
+  assert.equal(result.activeHarnesses.outcome, "stale_workspace");
+  assert.equal(result.integrations["copilot/workspace"]?.outcome, "stale_workspace");
 });
