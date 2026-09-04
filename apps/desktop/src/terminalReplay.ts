@@ -7,6 +7,11 @@ export interface ReplayTerminal {
 
 export type TerminalReplayRecord = string | { text: string; delimiter: string };
 
+export function recordedReplaySize(size: { cols?: number; rows?: number }): { cols: number; rows: number } | null {
+  if (size.cols === undefined || size.rows === undefined) return null;
+  return { cols: size.cols, rows: size.rows };
+}
+
 export function writeTerminalReplay(terminal: ReplayTerminal, records: TerminalReplayRecord[]): void {
   for (const record of records) {
     if (typeof record === "string") terminal.writeln(record);

@@ -40,7 +40,7 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 | [0030](./0030-integration-lock-check-await-helper.md) | Integration lock-check-drop-await-relock helper | accepted |
 | [0031](./0031-live-session-cwd-via-sysinfo-probe.md) | Live session cwd via cross-platform sysinfo probe | accepted |
 | [0032](./0032-harness-reported-cwd-via-hook-payload.md) | Harness-reported cwd via existing hook payload | accepted |
-| [0033](./0033-recorded-terminal-replay-size-sidecar.md) | Recorded terminal-replay grid via per-session `.terminal-size` sidecar | accepted |
+| [0033](./0033-recorded-terminal-replay-size-sidecar.md) | Recorded terminal-replay grid via per-session `.terminal-size` sidecar | superseded by [0046](./0046-live-resize-persistence-for-terminal-size-sidecar.md) |
 | [0034](./0034-user-approved-session-review-prompt.md) | User-approved session review prompt | accepted |
 | [0035](./0035-codex-session-start-hook-not-attention-signal.md) | Codex `SessionStart` hook captures session ID, not attention | accepted |
 | [0036](./0036-codex-hooks-portable-reporter-path.md) | Codex hook installation uses a portable, home-relative reporter path | superseded by [0043](./0043-local-harness-hook-configuration.md) |
@@ -53,3 +53,4 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 | [0043](./0043-local-harness-hook-configuration.md) | Harness hook configuration is local; doc checks use a committed shared source | accepted |
 | [0044](./0044-peon-provider-first-selection.md) | Peon provider-first selection | proposed |
 | [0045](./0045-improve-workflow-lifecycle-statuses.md) | improve_workflow reaches only proposed/dismissed; superseded is deserialization-only | accepted |
+| [0046](./0046-live-resize-persistence-for-terminal-size-sidecar.md) | Live-resize persistence for the per-session `.terminal-size` sidecar | accepted |

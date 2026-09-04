@@ -1,6 +1,6 @@
 # Recorded terminal-replay grid via per-session `.terminal-size` sidecar
 
-- Status: accepted
+- Status: superseded by [0046](./0046-live-resize-persistence-for-terminal-size-sidecar.md)
 - Deciders: Rambolarsen
 - Date: 2026-08-01
 
@@ -19,6 +19,13 @@ matters is the one the PTY had when it last emitted. Mid-session resize
 history is not needed for replay.
 
 ## Decision
+
+> **Superseded 2026-09-04:** [ADR 0046](./0046-live-resize-persistence-for-terminal-size-sidecar.md)
+> replaces the write-once model below — the size file is now persisted
+> best-effort on every changed live resize in addition to the authoritative
+> terminal-status write. The remaining bullets describe the original
+> decision; the store format, HTTP fields, renderer behavior, and resume
+> clearing described here are unchanged.
 
 - Persist the PTY's last known `cols × rows` once, in
   `~/.orkworks/workspaces/<hash>/events/<id>.terminal-size`, at the moment a

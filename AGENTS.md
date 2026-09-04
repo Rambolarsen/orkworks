@@ -195,7 +195,7 @@ An ADR earns a bullet below only while it is `accepted` (not superseded), constr
 - ADR 0028: Harness version-probe results are cached with bounded TTLs and generation-aware invalidation, preserving the integration action's post-probe identity revalidation.
 - ADR 0035: Codex's generated/local `SessionStart` hook captures `harness_session_id` at `agent`-tier confidence via the existing `JsonHookHandler`/reporter-script framework; unlike every other integration's hooked event, `SessionStart` is not a "needs input" signal, so the shared reporter script skips its generic attention POST specifically for Codex's marker.
 - ADR 0037: Plan/spec paths can be reported through a dedicated path-only sidecar route (`POST /sessions/:id/plan-path`) that canonicalizes the file and stores its workspace-relative form without changing session attention, superseding terminal-text inference when a harness reports a canonical file path. Codex remains on the conservative terminal fallback because its hook payload provides patch text, not a canonical file path.
-- ADR 0025, 0026, 0031, 0032, 0033, 0042: prose lives in [`docs/agents/architecture.md`](docs/agents/architecture.md).
+- ADR 0025, 0026, 0031, 0032, 0042: prose lives in [`docs/agents/architecture.md`](docs/agents/architecture.md).
 - ADR 0038: prose lives in [`docs/agents/harness-integration-contracts.md`](docs/agents/harness-integration-contracts.md).
 
 ## Metadata protocol

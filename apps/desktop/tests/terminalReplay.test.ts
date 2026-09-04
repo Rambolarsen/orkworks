@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { loadTerminalReplay, writeTerminalReplay } from "../src/terminalReplay.ts";
+import { loadTerminalReplay, recordedReplaySize, writeTerminalReplay } from "../src/terminalReplay.ts";
 import { renderTerminalPresentation, computeTerminalInteractivity } from "../src/terminalPresentation.ts";
 
 test("dead session routing invokes replay instead of interactive terminal creation", () => {
@@ -52,6 +52,16 @@ test("an ended session stays non-interactive even if starting is stale-true", ()
     disableStdin: true,
     cursorBlink: false,
   });
+});
+
+test("in-place replay uses the recorded grid when both cols and rows are present", () => {
+  assert.deepEqual(recordedReplaySize({ cols: 120, rows: 40 }), { cols: 120, rows: 40 });
+});
+
+test("in-place replay falls back to live sizing when either recorded dimension is absent", () => {
+  assert.equal(recordedReplaySize({}), null);
+  assert.equal(recordedReplaySize({ cols: 120 }), null);
+  assert.equal(recordedReplaySize({ rows: 40 }), null);
 });
 
 test("writes persisted replay when the request remains current", async () => {
