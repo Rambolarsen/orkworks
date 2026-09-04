@@ -174,18 +174,50 @@ test("SettingsModal uses a stable integration status effect dependency instead o
   assert.doesNotMatch(source, /\[\s*integrationHarnesses,\s*integrationStatusGeneration\s*\]/);
 });
 
-test("SettingsModal keeps the draft toggle position while a tools save is in progress", () => {
+test("SettingsModal computes the immediate-enable id set from the live draft, not the stale activeHarnessIds prop", () => {
+  const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
+
+  // Regression: enableToolImmediate used to rebuild its id set from the
+  // stale `activeHarnessIds` prop (last-saved state), so enabling one tool
+  // while another had a pending "turn off" draft change silently
+  // re-persisted and re-installed the one still pending off. The fix
+  // computes the next draft in the toggle handler itself and threads it
+  // straight through, so enableToolImmediate never reads the prop.
+  assert.match(
+    source,
+    /function handleToolToggle\(h: HarnessConfig\) \{\s*const turningOn = !activeDraft\.includes\(h\.id\);\s*const nextDraft = turningOn \? \[\.\.\.activeDraft, h\.id\] : activeDraft\.filter\(\(x\) => x !== h\.id\);\s*setActiveDraft\(nextDraft\);\s*if \(!turningOn\) return;\s*const key = integrationKeyForHarness\(h\);\s*if \(key\) void enableToolImmediate\(nextDraft, h\.id, key\);/,
+  );
+  assert.match(source, /async function enableToolImmediate\(ids: string\[\], harnessId: string, key: IntegrationKey\)/);
+  assert.match(source, /const normalizedIds = normalizeActiveHarnessIds\(harnesses, ids\);/);
+
+  const enableToolImmediateBody = source.slice(
+    source.indexOf("async function enableToolImmediate"),
+    source.indexOf("async function saveHotkeysHandler"),
+  );
+  assert.doesNotMatch(enableToolImmediateBody, /activeHarnessIds\.includes/);
+});
+
+test("SettingsModal keeps the draft toggle position while its row is busy, without freezing unrelated rows", () => {
   const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
 
   assert.match(source, /checked=\{activeDraft\.includes\(h\.id\)\}/);
-  assert.match(source, /disabled=\{[^}]*tools[^}]*save[^}]*inProgress[^}]*\}/i);
-  assert.match(source, /inProgress:\s*[^,\n]*tools[^,\n]*save[^,\n]*inProgress/i);
+  assert.match(source, /disabled=\{rowBusy\(h\.id\)\}/);
+  assert.match(source, /inProgress:\s*rowBusy\(harness\.id\)/);
+  // A per-tool immediate-enable must only mark that one harness busy, not every row.
+  assert.match(source, /setSaveActivity\(\{\s*kind:\s*"tool",\s*harnessId\s*\}\)/);
+  assert.match(source, /function rowBusy\(harnessId: string\): boolean \{\s*return saveActivity\.kind === "modal" \|\| \(saveActivity\.kind === "tool" && saveActivity\.harnessId === harnessId\);/);
 });
 
-test("SettingsModal disables mounted command-path controls while the tools batch save is active", () => {
+test("SettingsModal disables mounted command-path controls while that tool's row is busy", () => {
   const settingsSource = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
-  assert.match(settingsSource, /<HarnessCommandPathControl[\s\S]*?disabled=\{toolsSaveInProgress\}/);
+  assert.match(settingsSource, /<HarnessCommandPathControl[\s\S]*?disabled=\{rowBusy\(h\.id\)\}/);
   assert.doesNotMatch(settingsSource, /<HarnessIntegrationSection/);
+});
+
+test("SettingsModal only disables the Save button and shows 'Saving...' for a full modal-wide save, not a per-tool enable", () => {
+  const settingsSource = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
+  assert.match(settingsSource, /onClick=\{saveActiveHarnessesHandler\}\s*\n\s*disabled=\{saveActivity\.kind === "modal"\}/);
+  assert.match(settingsSource, /\{saveActivity\.kind === "modal" \? "Saving\.\.\." : "Save"\}/);
 });
 
 test("SettingsModal keeps each tool's subsection (status, actions, custom-path control) collapsed behind a per-row disclosure by default", () => {

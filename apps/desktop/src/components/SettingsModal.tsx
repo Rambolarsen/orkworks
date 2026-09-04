@@ -138,7 +138,18 @@ export default function SettingsModal({ initialSettings, harnesses, documentRevi
     normalizeActiveHarnessIds(harnesses, activeHarnessIds),
   );
   const [activeSaveStatus, setActiveSaveStatus] = useState<string | null>(null);
-  const [toolsSaveInProgress, setToolsSaveInProgress] = useState(false);
+  // A per-tool immediate-enable only busies its own row (Toggle, command-path
+  // control, status display); a full modal-wide Save busies every row and the
+  // Save button itself. Kept as one value (rather than a boolean plus an id)
+  // because only the most recently started save-family operation is ever
+  // "current" — the toolsSaveGeneration guard below already treats any
+  // earlier one as superseded, so this mirrors that by always reflecting
+  // whichever operation started last.
+  type SaveActivity = { kind: "idle" } | { kind: "modal" } | { kind: "tool"; harnessId: string };
+  const [saveActivity, setSaveActivity] = useState<SaveActivity>({ kind: "idle" });
+  function rowBusy(harnessId: string): boolean {
+    return saveActivity.kind === "modal" || (saveActivity.kind === "tool" && saveActivity.harnessId === harnessId);
+  }
   const [detectionGenerations, setDetectionGenerations] = useState<Record<string, number>>({});
   const [integrationStatuses, setIntegrationStatuses] = useState<Record<string, IntegrationStatusResult>>({});
   const [integrationOperationFailures, setIntegrationOperationFailures] = useState<Record<string, ActiveHarnessIntegrationResult>>({});
@@ -154,12 +165,6 @@ export default function SettingsModal({ initialSettings, harnesses, documentRevi
 
   function toggleToolExpanded(harnessId: string) {
     setExpandedTools((current) => ({ ...current, [harnessId]: !current[harnessId] }));
-  }
-
-  function handleToolRowKeyDown(event: React.KeyboardEvent<HTMLDivElement>, harnessId: string) {
-    if (event.key !== "Enter" && event.key !== " ") return;
-    event.preventDefault();
-    toggleToolExpanded(harnessId);
   }
 
   function invalidateAsyncState() {
@@ -400,7 +405,7 @@ export default function SettingsModal({ initialSettings, harnesses, documentRevi
     setManualModelOverride(false);
     setActiveDraft(normalizeActiveHarnessIds(harnesses, activeHarnessIds));
     setActiveSaveStatus(null);
-    setToolsSaveInProgress(false);
+    setSaveActivity({ kind: "idle" });
     setIntegrationStatuses({});
     setIntegrationOperationFailures({});
     setIntegrationStatusGeneration((current) => current + 1);
@@ -433,22 +438,17 @@ export default function SettingsModal({ initialSettings, harnesses, documentRevi
     }
   }
 
-  function toggleHarness(id: string) {
-    setActiveDraft((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
-    );
-  }
-
   // Turning a tool on takes over the job the removed per-row Reconcile
   // button used to do: it immediately persists and installs/repairs, rather
   // than waiting for the modal-wide Save. Turning a tool off stays a draft
   // change only — disable-time cleanup remains a Save-time retry action.
   function handleToolToggle(h: HarnessConfig) {
     const turningOn = !activeDraft.includes(h.id);
-    toggleHarness(h.id);
+    const nextDraft = turningOn ? [...activeDraft, h.id] : activeDraft.filter((x) => x !== h.id);
+    setActiveDraft(nextDraft);
     if (!turningOn) return;
     const key = integrationKeyForHarness(h);
-    if (key) void enableToolImmediate(h.id, key);
+    if (key) void enableToolImmediate(nextDraft, h.id, key);
   }
 
   function updateIntegrationFailures(results: Record<string, ActiveHarnessIntegrationResult>) {
@@ -459,7 +459,7 @@ export default function SettingsModal({ initialSettings, harnesses, documentRevi
     const lifecycleGeneration = modalLifecycleGeneration.current;
     const requestGeneration = ++toolsSaveGeneration.current;
     setActiveSaveStatus(null);
-    setToolsSaveInProgress(true);
+    setSaveActivity({ kind: "modal" });
     try {
       const normalizedActiveDraft = normalizeActiveHarnessIds(harnesses, activeDraft);
       const result = await onSaveActiveHarnesses(normalizedActiveDraft);
@@ -478,24 +478,25 @@ export default function SettingsModal({ initialSettings, harnesses, documentRevi
       setActiveSaveStatus("Couldn't save active coding tools.");
     } finally {
       if (requestGeneration !== toolsSaveGeneration.current || lifecycleGeneration !== modalLifecycleGeneration.current) return;
-      setToolsSaveInProgress(false);
+      setSaveActivity({ kind: "idle" });
     }
   }
 
-  async function enableToolImmediate(harnessId: string, key: IntegrationKey) {
+  async function enableToolImmediate(ids: string[], harnessId: string, key: IntegrationKey) {
     const lifecycleGeneration = modalLifecycleGeneration.current;
     const requestGeneration = ++toolsSaveGeneration.current;
     setActiveSaveStatus(null);
-    setToolsSaveInProgress(true);
+    setSaveActivity({ kind: "tool", harnessId });
     try {
-      const mergedIds = activeHarnessIds.includes(harnessId) ? activeHarnessIds : [...activeHarnessIds, harnessId];
-      const result = await onSaveActiveHarnesses(mergedIds, key);
+      const normalizedIds = normalizeActiveHarnessIds(harnesses, ids);
+      const result = await onSaveActiveHarnesses(normalizedIds, key);
       if (requestGeneration !== toolsSaveGeneration.current || lifecycleGeneration !== modalLifecycleGeneration.current) return;
       if (result.activeHarnesses.outcome === "persisted") {
         updateIntegrationFailures(result.integrations);
         refreshDetections([
           ...new Set(Object.values(result.integrations).flatMap((operation) => operation.consumerHarnessIds)),
         ]);
+        setActiveDraft(normalizedIds);
         return;
       }
       setActiveSaveStatus(result.activeHarnesses.message ?? "Couldn't enable this coding tool.");
@@ -504,7 +505,7 @@ export default function SettingsModal({ initialSettings, harnesses, documentRevi
       setActiveSaveStatus("Couldn't enable this coding tool.");
     } finally {
       if (requestGeneration !== toolsSaveGeneration.current || lifecycleGeneration !== modalLifecycleGeneration.current) return;
-      setToolsSaveInProgress(false);
+      setSaveActivity({ kind: "idle" });
     }
   }
 
@@ -542,7 +543,7 @@ export default function SettingsModal({ initialSettings, harnesses, documentRevi
   function toolDisplayState(harness: HarnessConfig): IntegrationDisplayState {
     const enabled = activeDraft.includes(harness.id);
     if (harness.integration === null) {
-      if (toolsSaveInProgress) {
+      if (rowBusy(harness.id)) {
         return {
           appearance: "in-progress",
           label: "updating",
@@ -584,7 +585,7 @@ export default function SettingsModal({ initialSettings, harnesses, documentRevi
       enabled,
       status,
       operation: integrationOperationFailures[harness.id],
-      inProgress: toolsSaveInProgress,
+      inProgress: rowBusy(harness.id),
     });
   }
 
@@ -828,13 +829,14 @@ export default function SettingsModal({ initialSettings, harnesses, documentRevi
 
                       return (
                         <div key={h.id} className="settings-config-item-row">
+                          {/* Not role="button": it contains the Toggle switch, and ARIA
+                              disallows nesting one interactive control inside another.
+                              Mouse users can still click anywhere on the row; the
+                              chevron button below is the keyboard-accessible disclosure
+                              control. */}
                           <div
                             className="settings-config-item-header"
-                            role="button"
-                            tabIndex={0}
-                            aria-expanded={expanded}
                             onClick={() => toggleToolExpanded(h.id)}
-                            onKeyDown={(event) => handleToolRowKeyDown(event, h.id)}
                           >
                             <div className="settings-config-item">
                               <HarnessIcon tool={h.name} size={16} />
@@ -862,19 +864,36 @@ export default function SettingsModal({ initialSettings, harnesses, documentRevi
                                 checked={activeDraft.includes(h.id)}
                                 onChange={() => handleToolToggle(h)}
                                 ariaLabel={h.name}
-                                disabled={toolsSaveInProgress}
+                                disabled={rowBusy(h.id)}
                                 visualState={display.appearance}
                                 describedById={statusId}
                                 tooltip={display.tooltip}
                               />
+                              {/* Always in the accessibility tree, even while the
+                                  visible copy below sits behind the collapsed
+                                  subsection's native `hidden` attribute. */}
+                              <span className="sr-only">
+                                <ToggleStatusText id={statusId} description={display.description} glyph={display.glyph} />
+                              </span>
                             </div>
-                            <span className="settings-config-item-chevron" aria-hidden="true">{expanded ? "▾" : "▸"}</span>
+                            <button
+                              type="button"
+                              className="settings-config-item-chevron"
+                              aria-expanded={expanded}
+                              aria-label={`${expanded ? "Collapse" : "Expand"} details for ${h.name}`}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                toggleToolExpanded(h.id);
+                              }}
+                            >
+                              <span aria-hidden="true">{expanded ? "▾" : "▸"}</span>
+                            </button>
                           </div>
                           {/* Stays mounted while hidden (native `hidden` attribute, not
                               conditional rendering) so an in-progress, unsaved path edit
                               survives collapsing the disclosure instead of being discarded. */}
                           <div className="settings-config-item-subsection" hidden={!expanded}>
-                            <ToggleStatusText id={statusId} description={display.description} glyph={display.glyph} />
+                            <ToggleStatusText description={display.description} glyph={display.glyph} />
                             <div className="settings-config-item-subsection-actions">
                               {h.origin !== "builtin" || h.id !== "generic-shell" ? (
                                 <button type="button" onClick={() => openHarnessEditor(h)}>
@@ -892,7 +911,7 @@ export default function SettingsModal({ initialSettings, harnesses, documentRevi
                                 harnessId={h.id}
                                 harnessName={h.name}
                                 harness={h}
-                                disabled={toolsSaveInProgress}
+                                disabled={rowBusy(h.id)}
                                 documentRevision={documentRevision}
                                 onChanged={refreshDetection}
                               />
@@ -908,9 +927,9 @@ export default function SettingsModal({ initialSettings, harnesses, documentRevi
                       variant="secondary"
                       size="sm"
                       onClick={saveActiveHarnessesHandler}
-                      disabled={toolsSaveInProgress}
+                      disabled={saveActivity.kind === "modal"}
                     >
-                      {toolsSaveInProgress ? "Saving..." : "Save"}
+                      {saveActivity.kind === "modal" ? "Saving..." : "Save"}
                     </Button>
                     <Button variant="primary" size="sm" onClick={openNewHarnessEditor}>
                       Add custom coding tool
