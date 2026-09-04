@@ -27,6 +27,7 @@ import type { AppSettings } from "./appSettingsTypes";
 import type { CreateSessionOptions } from "./harnessTypes";
 import type { ActiveHarnessSaveResult, BackendLifecycleEvent } from "./orkworksWindow";
 import { shouldEnableSessionPolling, type BackendStatus } from "./backendPollingGate";
+import { probeBackendHealth } from "./backendHealthProbe";
 import { createWorkspaceSessionController } from "./workspaceSessionController";
 
 function App() {
@@ -133,29 +134,14 @@ function App() {
     if (backendStatus !== "connecting…") return;
     let cancelled = false;
 
-    async function checkHealth() {
-      try {
-        const baseUrl = await window.orkworks.getBackendUrl();
-        for (let i = 0; i < 30; i++) {
-          try {
-            const resp = await fetch(`${baseUrl}/health`);
-            if (resp.ok) {
-              if (!cancelled) {
-                setBackendStatus("connected");
-              }
-              return;
-            }
-          } catch {
-            await new Promise((r) => setTimeout(r, 500));
-          }
-        }
-        if (!cancelled) setBackendStatus("unreachable");
-      } catch {
-        if (!cancelled) setBackendStatus("unreachable");
-      }
-    }
+    void probeBackendHealth({
+      getBackendUrl: () => window.orkworks.getBackendUrl(),
+      fetch: (url) => fetch(url),
+      delay: (ms) => new Promise((r) => setTimeout(r, ms)),
+    }).then((result) => {
+      if (!cancelled) setBackendStatus(result);
+    });
 
-    checkHealth();
     return () => {
       cancelled = true;
     };

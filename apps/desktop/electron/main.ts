@@ -22,7 +22,7 @@ import type { BackendLifecycleEvent, BackendLifecycleWorkspace } from "./backend
 import { sanitizeBackendLifecycleFailure } from "./backendLifecycleFailure";
 import { rendererConsoleDiagnostic, rendererConsoleLevel, rendererOrigin, sanitizeRendererDiagnosticMessage } from "./rendererDiagnostic";
 import { recoveryDocumentUrl } from "./rendererRecoveryDocument";
-import { createRecoveryDocumentGuard } from "./rendererRecoveryState";
+import { createRecoveryDocumentGuard, isSupersededNavigation } from "./rendererRecoveryState";
 import {
   isStale,
   reconcileGroupedIntegration,
@@ -158,6 +158,10 @@ function createWindow(): void {
       reason: sanitizeRendererDiagnosticMessage(errorDescription),
       origin: rendererOrigin(validatedURL),
     });
+    // ERR_ABORTED marks a navigation superseded by another in-flight load
+    // (dev-server reload, a racing loadURL, the recovery page's own retry) —
+    // not a genuine failure, so the recovery document must not load.
+    if (isSupersededNavigation(errorCode)) return;
     loadRecoveryDocument();
   });
 
