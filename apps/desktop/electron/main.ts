@@ -453,12 +453,12 @@ app.whenReady().then(() => {
       if (!response.ok) throw await parsePeonError(response, "Couldn't verify the Peon provider.");
       return await response.json() as PeonProviderVerificationResponse;
     },
-    apply: async ({ selection, generation, readyPort, signal }) => {
+    apply: async ({ selection, generation, readyPort, signal, skipTest }) => {
       const port = readyPort ?? await restoration.getReadiness();
       const response = await fetch(`http://127.0.0.1:${port}/settings/peon/test-and-apply`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ selection, generation }),
+        body: JSON.stringify(skipTest ? { selection, generation, skipTest } : { selection, generation }),
         signal,
       });
       if (!response.ok) throw await parsePeonError(response, "Couldn't apply the Peon provider.");
