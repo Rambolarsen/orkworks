@@ -22,6 +22,85 @@ const TERMINAL_OUTPUT_TRIM_TARGET_LINES: usize = TERMINAL_OUTPUT_MAX_LINES * 3 /
 const TERMINAL_OUTPUT_RECORD_PREFIX: char = '\u{001e}';
 const TERMINAL_OUTPUT_FILE_MARKER: &str = "\u{001e}orkworks-terminal-v1";
 
+/// Single owner of the metadata source-priority ladder (issue #400).
+///
+/// The MVP spec defines the ladder as
+/// `user > agent > peon > backend_inference > process > unknown > debug`.
+/// Every metadata-source merge entry point routes its overwrite decision
+/// through [`source_priority::can_overwrite`], so "can source X overwrite
+/// source Y" is answerable from this one file instead of being re-derived
+/// per write path. The harness session-ID merge
+/// ([`MetadataStore::merge_harness_session_report`]) is deliberately a
+/// separate mechanism: it gates resume-memory writes on captured
+/// confidence rather than on this ladder.
+///
+/// Two deliberate decisions are encoded here:
+///
+/// - **Peon→agent staleness window: 15 seconds.** Peon reacting to genuinely
+///   fresh terminal output is exactly the correction a stuck attention
+///   signal needs, so the window is short: long enough to avoid Peon's
+///   inference racing/flickering against a hook signal that just landed,
+///   short enough that a deterministic hook's `waiting_for_input` doesn't
+///   leave the UI stuck for minutes after fresh terminal output shows the
+///   user answered and work resumed. This resolves the historical
+///   300s-vs-15s contradiction (the 300s variant had no production caller)
+///   in favor of 15 seconds.
+/// - **Debug testing exception.** The ladder puts `debug` last, but debug
+///   injection exists to drive live sessions whose state is `process` or
+///   `peon`; a spec-literal reading would make the debug endpoint a no-op
+///   on every real session. Debug therefore overwrites every source except
+///   the two live-signal tiers (`user`, `agent`).
+pub mod source_priority {
+    /// Seconds Peon must wait before it may overwrite a fresh
+    /// `agent`-sourced status. See the module docs for the rationale.
+    const PEON_AGENT_OVERWRITE_SECS: u64 = 15;
+
+    fn rank(source: &str) -> u8 {
+        match source {
+            "user" => 7,
+            "agent" => 6,
+            "peon" => 5,
+            "backend_inference" => 4,
+            "process" => 3,
+            "debug" => 1,
+            // Absent and unrecognized sources sit with `unknown`.
+            _ => 2,
+        }
+    }
+
+    /// Returns whether a write from `incoming` may overwrite state currently
+    /// owned by `existing`, where `existing_age_secs_ago` is the seconds
+    /// since the session metadata was last modified (None when unknown).
+    /// Equal-priority writes are turn boundaries and always apply.
+    pub(crate) fn can_overwrite(
+        incoming: &str,
+        existing: &str,
+        existing_age_secs_ago: Option<u64>,
+    ) -> bool {
+        if incoming == "debug" {
+            return !matches!(existing, "user" | "agent");
+        }
+        if incoming == "peon" && existing == "agent" {
+            return existing_age_secs_ago.is_some_and(|age| age > PEON_AGENT_OVERWRITE_SECS);
+        }
+        if rank(incoming) < rank(existing) {
+            return false;
+        }
+        true
+    }
+}
+
+/// Outcome of a Peon inference merge. `SkippedHigherPriority` reports that
+/// the merge enforced the source-priority ladder itself, so callers must not
+/// treat the inference as landed; `permanent_hold` is true when the
+/// untouchable `user` source owns the current state and the Peon scheduler
+/// should park the session instead of retrying.
+#[derive(Debug, PartialEq, Eq)]
+pub enum PeonMergeOutcome {
+    Applied,
+    SkippedHigherPriority { permanent_hold: bool },
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(untagged)]
 pub(crate) enum TerminalOutputRecord {
@@ -1458,8 +1537,9 @@ impl MetadataStore {
     }
 
     /// Writes a deterministic attention signal (e.g. from a Claude Code `Notification`
-    /// hook, or a debug injection). Priority-gated: it cannot clobber `user` metadata,
-    /// and a `debug`-sourced write additionally cannot clobber `agent` metadata (the
+    /// hook, or a debug injection). Priority-gated through
+    /// [`source_priority::can_overwrite`]: it cannot clobber `user` metadata, and a
+    /// `debug`-sourced write additionally cannot clobber `agent` metadata (the
     /// other hook-verified, high-confidence tier) — debug injection is meant for
     /// exercising convergence on otherwise-quiet sessions, not for overwriting a live
     /// coding agent's real signal. Every other source pair overwrites unconditionally,
@@ -1502,10 +1582,8 @@ impl MetadataStore {
             None => return AttentionMergeResult::NotFound,
         };
 
-        if meta.metadata_source == "user" {
-            return AttentionMergeResult::Ignored;
-        }
-        if source == "debug" && meta.metadata_source == "agent" {
+        let existing_age = self.session_modified_secs_ago(id);
+        if !source_priority::can_overwrite(source, &meta.metadata_source, existing_age) {
             return AttentionMergeResult::Ignored;
         }
 
@@ -1594,7 +1672,7 @@ impl MetadataStore {
         timestamp: &str,
         provider: Option<&crate::providers::ProviderObservation>,
         history_summary: Option<&str>,
-    ) -> std::io::Result<()> {
+    ) -> std::io::Result<PeonMergeOutcome> {
         self.merge_peon_inference_inner(id, inf, timestamp, provider, history_summary)
     }
 
@@ -1605,7 +1683,7 @@ impl MetadataStore {
         inf: &crate::peon::PeonInference,
         timestamp: &str,
         provider: Option<&crate::providers::ProviderObservation>,
-    ) -> std::io::Result<()> {
+    ) -> std::io::Result<PeonMergeOutcome> {
         self.merge_peon_inference_inner(id, inf, timestamp, provider, inf.summary.as_deref())
     }
 
@@ -1616,11 +1694,22 @@ impl MetadataStore {
         timestamp: &str,
         provider: Option<&crate::providers::ProviderObservation>,
         history_summary: Option<&str>,
-    ) -> std::io::Result<()> {
+    ) -> std::io::Result<PeonMergeOutcome> {
         let mut meta = match self.read_session(id) {
             Some(m) => m,
-            None => return Ok(()),
+            // A vanished session has nothing to defend; report it as applied
+            // so the caller does not schedule a pointless retry.
+            None => return Ok(PeonMergeOutcome::Applied),
         };
+
+        // The merge defends itself: no caller ordering can bypass the
+        // source-priority ladder (issue #400).
+        let existing_age = self.session_modified_secs_ago(id);
+        if !source_priority::can_overwrite("peon", &meta.metadata_source, existing_age) {
+            return Ok(PeonMergeOutcome::SkippedHigherPriority {
+                permanent_hold: meta.metadata_source == "user",
+            });
+        }
         let peon_harness_session_report =
             inf.harness_session_id
                 .as_ref()
@@ -1644,7 +1733,7 @@ impl MetadataStore {
             if let Some(report) = peon_harness_session_report {
                 let _ = self.merge_harness_session_report(id, &report, timestamp);
             }
-            return Ok(());
+            return Ok(PeonMergeOutcome::Applied);
         }
         // Peon reruns on any new PTY output, including non-substantive terminal
         // chatter (TUI redraws, spinner frames), so it can conclude the same
@@ -1758,7 +1847,7 @@ impl MetadataStore {
         if let Some(report) = peon_harness_session_report {
             let _ = self.merge_harness_session_report(id, &report, timestamp);
         }
-        Ok(())
+        Ok(PeonMergeOutcome::Applied)
     }
 
     fn terminal_output_path(&self, id: &str) -> PathBuf {
@@ -3671,6 +3760,173 @@ mod tests {
         );
 
         assert_eq!(result, AttentionMergeResult::NotFound);
+    }
+
+    #[test]
+    fn source_priority_ladder_pins_can_overwrite_per_source_pair() {
+        use super::source_priority::can_overwrite;
+
+        // Spec ladder: user > agent > peon > backend_inference > process >
+        // unknown > debug. Lower-priority sources never overwrite higher ones.
+        assert!(!can_overwrite("agent", "user", None));
+        assert!(!can_overwrite("peon", "user", None));
+        assert!(!can_overwrite("process", "user", None));
+        assert!(!can_overwrite("process", "peon", None));
+        assert!(!can_overwrite("unknown", "process", None));
+
+        // Equal-priority writes are turn boundaries and always apply.
+        assert!(can_overwrite("user", "user", Some(0)));
+        assert!(can_overwrite("agent", "agent", Some(0)));
+        assert!(can_overwrite("peon", "peon", Some(0)));
+
+        // Higher-priority sources overwrite lower ones regardless of age.
+        assert!(can_overwrite("user", "agent", Some(0)));
+        assert!(can_overwrite("agent", "peon", Some(0)));
+        assert!(can_overwrite("peon", "process", None));
+        assert!(can_overwrite("peon", "backend_inference", None));
+        assert!(can_overwrite("peon", "unknown", None));
+        assert!(can_overwrite("peon", "", None));
+    }
+
+    #[test]
+    fn source_priority_peon_may_overwrite_agent_only_after_staleness_window() {
+        use super::source_priority::can_overwrite;
+
+        // Deliberate window (see the source_priority module docs): a fresh
+        // agent signal is protected; a stale one yields to fresh Peon
+        // observation of genuinely new terminal output.
+        assert!(!can_overwrite("peon", "agent", Some(15)));
+        assert!(!can_overwrite("peon", "agent", None));
+        assert!(can_overwrite("peon", "agent", Some(16)));
+    }
+
+    #[test]
+    fn source_priority_debug_keeps_testing_exception() {
+        use super::source_priority::can_overwrite;
+
+        // Debug injection drives live sessions (whose state is process/peon),
+        // so it overwrites everything except the two live-signal tiers — a
+        // documented exception to its ladder-bottom rank (issue #400).
+        assert!(!can_overwrite("debug", "user", None));
+        assert!(!can_overwrite("debug", "agent", None));
+        assert!(can_overwrite("debug", "peon", None));
+        assert!(can_overwrite("debug", "process", None));
+        assert!(can_overwrite("debug", "debug", Some(0)));
+    }
+
+    fn peon_inference(status: &str) -> crate::peon::PeonInference {
+        crate::peon::PeonInference {
+            observed_status: Some(status.into()),
+            phase: None,
+            summary: Some("Peon summary".into()),
+            next_action: None,
+            needs_user_input: None,
+            detected_question: None,
+            suggested_options: None,
+            blocker_description: None,
+            failed_command: None,
+            failed_test: None,
+            capacity_hints: None,
+            confidence: 0.8,
+            detected_harness: None,
+            detected_model: None,
+            harness_session_id: None,
+            workflow_observations: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn merge_peon_inference_defends_itself_against_user_source() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let mut meta = test_metadata("peon-gate-user-test");
+        meta.metadata_source = "user".into();
+        meta.observed_status = Some("working".into());
+        store.write_session(&meta);
+
+        // No caller-side gate: the merge itself must refuse and report the
+        // user hold so the Peon scheduler can park the session.
+        let outcome = store.merge_peon_inference_with_history(
+            "peon-gate-user-test",
+            &peon_inference("blocked"),
+            "2026-06-26T12:00:00Z",
+            None,
+            Some("Peon summary"),
+        );
+
+        assert_eq!(
+            outcome.unwrap(),
+            PeonMergeOutcome::SkippedHigherPriority {
+                permanent_hold: true
+            }
+        );
+        let updated = store.read_session("peon-gate-user-test").unwrap();
+        assert_eq!(updated.metadata_source, "user");
+        assert_eq!(updated.observed_status.as_deref(), Some("working"));
+        assert_eq!(updated.summary.as_deref(), None);
+    }
+
+    #[test]
+    fn merge_peon_inference_defends_itself_against_fresh_agent_source() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let mut meta = test_metadata("peon-gate-agent-test");
+        meta.metadata_source = "agent".into();
+        meta.observed_status = Some("working".into());
+        store.write_session(&meta);
+
+        // The just-written file is fresh (well inside the staleness window),
+        // so the peon write must be skipped without any caller-side check.
+        let outcome = store.merge_peon_inference_with_history(
+            "peon-gate-agent-test",
+            &peon_inference("blocked"),
+            "2026-06-26T12:00:00Z",
+            None,
+            Some("Peon summary"),
+        );
+
+        assert_eq!(
+            outcome.unwrap(),
+            PeonMergeOutcome::SkippedHigherPriority {
+                permanent_hold: false
+            }
+        );
+        let updated = store.read_session("peon-gate-agent-test").unwrap();
+        assert_eq!(updated.metadata_source, "agent");
+        assert_eq!(updated.observed_status.as_deref(), Some("working"));
+    }
+
+    #[test]
+    fn merge_peon_inference_overwrites_agent_after_staleness_window() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let mut meta = test_metadata("peon-gate-stale-agent-test");
+        meta.metadata_source = "agent".into();
+        meta.observed_status = Some("working".into());
+        store.write_session(&meta);
+
+        let path = store.sessions_dir().join("peon-gate-stale-agent-test.json");
+        let file = fs::File::options().write(true).open(&path).unwrap();
+        let stale = SystemTime::now() - std::time::Duration::from_secs(60);
+        file.set_times(
+            std::fs::FileTimes::new()
+                .set_accessed(stale)
+                .set_modified(stale),
+        )
+        .unwrap();
+
+        let outcome = store.merge_peon_inference_with_history(
+            "peon-gate-stale-agent-test",
+            &peon_inference("blocked"),
+            "2026-06-26T12:00:00Z",
+            None,
+            Some("Peon summary"),
+        );
+
+        assert_eq!(outcome.unwrap(), PeonMergeOutcome::Applied);
+        let updated = store.read_session("peon-gate-stale-agent-test").unwrap();
+        assert_eq!(updated.metadata_source, "peon");
+        assert_eq!(updated.observed_status.as_deref(), Some("blocked"));
     }
 
     #[test]
