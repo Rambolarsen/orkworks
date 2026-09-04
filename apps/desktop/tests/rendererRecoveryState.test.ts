@@ -1,7 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createRecoveryDocumentGuard } from "../electron/rendererRecoveryState.ts";
+import { createRecoveryDocumentGuard, isSupersededNavigation } from "../electron/rendererRecoveryState.ts";
+
+test("treats ERR_ABORTED (-3) as a superseded navigation, not a load failure", () => {
+  assert.equal(isSupersededNavigation(-3), true);
+});
+
+test("treats every other load error code as a genuine failure", () => {
+  assert.equal(isSupersededNavigation(-2), false);
+  assert.equal(isSupersededNavigation(-105), false);
+  assert.equal(isSupersededNavigation(0), false);
+});
 
 test("permits recovery again when a second original-document load fails", () => {
   const originalUrl = "file:///Applications/OrkWorks.app/Contents/Resources/dist/index.html";
