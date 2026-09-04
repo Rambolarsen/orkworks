@@ -305,10 +305,10 @@ pub fn detect_usage_limit<S: AsRef<str>>(patterns: &[S], lines: &[String]) -> bo
         return false;
     }
     lines.iter().any(|line| {
-        let lower = strip_ansi(line).to_lowercase();
+        let plain = strip_ansi(line);
         patterns
             .iter()
-            .any(|p| lower.contains(p.as_ref().to_lowercase().as_str()))
+            .any(|p| bounded_limit_match(&plain, &p.as_ref().to_ascii_lowercase()))
     })
 }
 
@@ -501,15 +501,64 @@ fn command_outcome_summary(output: &[String]) -> Option<String> {
     outcome
 }
 
+/// A genuine usage-limit banner is emitted by the harness as its own short
+/// status line, with the pattern near the start and at most a reset hint plus
+/// TUI status decoration after it. The same pattern text buried inside a long
+/// line of displayed content (echoed source code, AI conversation text,
+/// scrollback of either) is display, not a cap signal, and must not latch the
+/// session capped. Both sides of the match are therefore bounded; the
+/// co-located reset-hint fragment does not count toward the suffix budget.
+const LIMIT_CONTEXT_MAX_CHARS: usize = 48;
+/// A real banner is emitted at the start of a status line: at most a spinner
+/// glyph or box-drawing decoration precedes the pattern. Displayed code and
+/// prose routinely carry tens of characters of context before a buried
+/// pattern, so the prefix budget must stay tight.
+const LIMIT_PREFIX_MAX_CHARS: usize = 24;
+/// A real banner's reset hint ("resets in 2h") starts within a couple of
+/// separator characters of the pattern; a later prose mention gets no relief.
+const LIMIT_HINT_ANCHOR_MAX_PREFIX: usize = 4;
+
+fn bounded_limit_match(plain: &str, pattern_lower: &str) -> bool {
+    let lower = plain.to_ascii_lowercase();
+    for (start, matched) in lower.match_indices(pattern_lower) {
+        let end = start + matched.len();
+        let prefix_chars = lower[..start].chars().count();
+        let mut suffix_chars = lower[end..].chars().count();
+        let suffix_plain = &plain[end..];
+        let anchor = suffix_lower_anchor(&lower[end..]);
+        if let Some(anchor_rel) = anchor {
+            if anchor_rel <= LIMIT_HINT_ANCHOR_MAX_PREFIX {
+                if let Some(hint) = extract_reset_hint(suffix_plain, &lower[end..]) {
+                    suffix_chars -= hint.chars().count().min(suffix_chars);
+                }
+            }
+        }
+        if prefix_chars <= LIMIT_PREFIX_MAX_CHARS && suffix_chars <= LIMIT_CONTEXT_MAX_CHARS {
+            return true;
+        }
+    }
+    false
+}
+
+fn suffix_lower_anchor(suffix_lower: &str) -> Option<usize> {
+    suffix_lower
+        .find("resets in")
+        .or_else(|| suffix_lower.find("reset in"))
+        .or_else(|| suffix_lower.find("resets "))
+        .or_else(|| suffix_lower.find("try again at"))
+}
+
 /// Detects usage limit in a raw text blob (for TUI apps that use cursor positioning, not newlines).
 pub fn detect_usage_limit_raw<S: AsRef<str>>(patterns: &[S], text: &str) -> bool {
     if patterns.is_empty() {
         return false;
     }
-    let lower = strip_ansi(text).to_lowercase();
-    patterns
-        .iter()
-        .any(|p| lower.contains(p.as_ref().to_lowercase().as_str()))
+    let plain = strip_ansi(text);
+    plain.split(['\r', '\n']).any(|segment| {
+        patterns
+            .iter()
+            .any(|p| bounded_limit_match(segment, &p.as_ref().to_ascii_lowercase()))
+    })
 }
 
 /// TUI status glyphs (spinners, separators, box drawing) that mark the end of
@@ -1326,6 +1375,80 @@ mod tests {
         let mut lines: Vec<String> = (0..60).map(|_| "no match".into()).collect();
         lines[15] = "usage limit reached".into();
         assert!(detect_usage_limit(&["usage limit reached"], &lines));
+    }
+
+    #[test]
+    fn detect_usage_limit_ignores_pattern_buried_in_a_long_line() {
+        // Echoed source code / AI conversation text can contain the harness's
+        // limit pattern mid-line. A real limit banner is short with the
+        // pattern near the start of the line; a buried match is display
+        // content, not a cap signal.
+        let lines = vec![
+            "                ┃        if re.search(r'usage limit reached', line, re.I):".into(),
+        ];
+        assert!(!detect_usage_limit(&["usage limit reached"], &lines));
+    }
+
+    #[test]
+    fn detect_usage_limit_ignores_pattern_buried_in_prose_line() {
+        let lines = vec![
+            "the way to check is events/<session-id>.terminal for an actual usage limit reached \
+             line from OpenCode itself (I checked your current sessions and found none)"
+                .into(),
+        ];
+        assert!(!detect_usage_limit(&["usage limit reached"], &lines));
+    }
+
+    #[test]
+    fn detect_usage_limit_ignores_pattern_at_prose_wrap_boundary() {
+        // Terminal wrapping can start a display row with the pattern; the
+        // prose continuing after it is what betrays the false positive.
+        let lines = vec![
+            "usage limit reached line from OpenCode itself (I checked your current sessions \
+             and found none) plus trailing prose to push the row well past the suffix budget"
+                .into(),
+        ];
+        assert!(!detect_usage_limit(&["usage limit reached"], &lines));
+    }
+
+    #[test]
+    fn detect_usage_limit_raw_ignores_pattern_buried_in_long_segment() {
+        let text = format!(
+            "{} usage limit reached {}",
+            "the way to check is events/<session-id>.terminal for an actual ".repeat(2),
+            " line from OpenCode itself (I checked your current sessions and found none)".repeat(2)
+        );
+        assert!(!detect_usage_limit_raw(&["usage limit reached"], &text));
+    }
+
+    #[test]
+    fn detect_usage_limit_raw_matches_short_banner_with_reset_hint() {
+        assert!(detect_usage_limit_raw(
+            &["usage limit reached"],
+            "usage limit reached, resets in 2h"
+        ));
+    }
+
+    #[test]
+    fn detect_usage_limit_raw_matches_tui_banner_with_trailing_status_decoration() {
+        // TUI redraws place the banner on a shared segment with spinner and
+        // status-bar content after the reset hint — still a real cap.
+        let text = "✻ You've hit your session limit · resets 1pm (Europe/Oslo) \
+                    ✳Worked for 1s ● high · /effort ────";
+        assert!(detect_usage_limit_raw(
+            &["you've hit your session limit"],
+            text
+        ));
+    }
+
+    #[test]
+    fn detect_usage_limit_raw_matches_pattern_on_short_segment_mid_buffer() {
+        let text = format!(
+            "{}\r\nusage limit reached\r\n{}",
+            "cursor-addressed screen content ".repeat(40),
+            "more screen content ".repeat(40)
+        );
+        assert!(detect_usage_limit_raw(&["usage limit reached"], &text));
     }
 
     #[test]
