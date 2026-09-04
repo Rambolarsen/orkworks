@@ -9,8 +9,8 @@ Use this skill before adding a new harness or changing an existing harness adapt
 
 ## Where harness code lives
 
-- `crates/orkworksd/src/harness_registry.rs` — built-in `HarnessConfig` entries (id, name, command/args, default model, model prefix, voice capabilities) and persistence of user-defined configs to `~/.orkworks/harnesses.json`
-- `crates/orkworksd/src/harness.rs` — `HarnessAdapterConfig`/`HarnessAdapter` (launch/resume command templates, capability flags, resume strategy selection, usage-limit patterns)
+- `crates/orkworksd/src/harness/definition.rs` — `HarnessDefinition` (launch/resume command templates, capability flags, usage-limit patterns, `labelResetCommands`) and the `harnesses-v2.json` builtin document it parses from `crates/orkworksd/resources/harnesses-v2.json`
+- `crates/orkworksd/src/harness/registry.rs` — builtin resolution and persistence of user-defined configs to `~/.orkworks/harnesses.json`
 - `crates/orkworksd/src/providers.rs` — Peon inference provider definitions (`builtin_provider_registry()`). This is currently a separate registry: a harness that should also serve as a Peon inference tool needs a matching `ProviderDefinition` here. (A unification that derives providers from `HarnessConfig` is designed but not yet implemented — `docs/superpowers/specs/2026-07-03-harness-registry-unification-design.md`.)
 - `crates/orkworksd/src/http/harness_handlers.rs` — harness CRUD endpoints
 - `apps/desktop/src/harnessTypes.ts` — renderer-side harness types
@@ -34,8 +34,9 @@ Use this skill before adding a new harness or changing an existing harness adapt
 8. Record provider/model detection behavior and whether Peon is allowed to infer missing fields.
 9. Record native voice support. Voice must remain pass-through unless a spec explicitly says otherwise.
 10. Record capacity/context/status signals the harness exposes and whether they are documented enough to parse.
-11. Add or update tests for launch command rendering, resume strategy selection, session ID capture, and remembered-session UI state.
-12. Update `docs/agents/architecture.md`, relevant specs, and ADRs if the adapter adds routes, metadata fields, protocol changes, or new boundaries.
+11. Record in-session label-reset commands per ADR 0040 (`HarnessDefinition.labelResetCommands`): verify the harness's start-fresh commands against primary documentation or the installed CLI, declare them with cited evidence, or explicitly declare none — an empty declaration must be verified-absent, never unexamined.
+12. Add or update tests for launch command rendering, resume strategy selection, session ID capture, label-reset command declarations, and remembered-session UI state.
+13. Update `docs/agents/architecture.md`, relevant specs, and ADRs if the adapter adds routes, metadata fields, protocol changes, or new boundaries.
 
 ## Output
 
@@ -49,4 +50,5 @@ Before implementation, write a short harness adapter note in the relevant spec o
 - native session ID capture source
 - confidence/source string for capture
 - user-approval requirements
+- label-reset command declaration (with cited evidence, or verified-none)
 - test files to update

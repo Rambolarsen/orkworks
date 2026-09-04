@@ -1502,12 +1502,14 @@ mod tests {
                 .label_reset_commands,
             ["/clear", "/new"]
         );
-        assert!(resolved
-            .get("codex")
-            .unwrap()
-            .definition
-            .label_reset_commands
-            .is_empty());
+        assert_eq!(
+            resolved
+                .get("codex")
+                .unwrap()
+                .definition
+                .label_reset_commands,
+            ["/clear", "/new"]
+        );
     }
 
     #[test]
