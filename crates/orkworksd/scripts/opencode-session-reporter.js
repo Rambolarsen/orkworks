@@ -21,7 +21,11 @@ export const OrkWorksSessionReporter = async () => {
     const port = process.env.ORKWORKS_PORT;
     const orkworksSessionId = process.env.ORKWORKS_SESSION_ID;
     if (!port || !orkworksSessionId) return;
-    const payload = { status, observedAt: new Date().toISOString() };
+    // OrkWorks' attention endpoint parses `observedAt` with microsecond
+    // precision (exactly six fractional digits); `toISOString()` emits
+    // three, so pad milliseconds to microseconds or the POST is rejected.
+    const observedAt = new Date().toISOString().replace(/\.(\d{3})Z$/, ".$1000Z");
+    const payload = { status, observedAt };
     if (message) payload.message = message;
     await fetch(`http://127.0.0.1:${port}/sessions/${orkworksSessionId}/attention`, {
       method: "POST",
