@@ -1,5 +1,5 @@
 import { execSync } from "child_process";
-import { existsSync, writeFileSync } from "fs";
+import { existsSync, readFileSync, writeFileSync } from "fs";
 import { join, resolve } from "path";
 
 // This optimization only applies to macOS ARM64 cached Electron zips.
@@ -16,8 +16,13 @@ if (existsSync(join(distPath, platformPath))) {
   process.exit(0);
 }
 
+// Only extract the cached zip that matches the installed electron version;
+// `find | head -1` alone can pick up a stale zip from a previous version.
+const installedVersion = JSON.parse(
+  readFileSync(join(electronPath, "package.json"), "utf-8")
+).version;
 const zipPath = execSync(
-  `find ~/Library/Caches/electron -name "electron-*-darwin-arm64.zip" 2>/dev/null | head -1`,
+  `find ~/Library/Caches/electron -name "electron-v${installedVersion}-darwin-arm64.zip" 2>/dev/null | head -1`,
   { encoding: "utf-8" }
 ).trim();
 
