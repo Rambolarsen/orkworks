@@ -40,6 +40,7 @@ export default defineConfig({
     '.vscode/**',
     'DESIGN-IS-*/**',
     '**/node_modules/**',
+    'apm_modules/**',
     'docs/.vitepress/**',
     'docs/superpowers/plans/**',
     'docs/adr/template.md',
