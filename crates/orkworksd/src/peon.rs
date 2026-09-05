@@ -631,7 +631,10 @@ fn bounded_limit_match(plain: &str, pattern_lower: &str) -> bool {
 /// Keeps the rolling raw capacity-scan buffer bounded without cutting through
 /// a UTF-8 codepoint or an ANSI escape. If the requested trim point falls
 /// inside an incomplete escape, the escape is retained until a later chunk can
-/// complete it and the next trim can discard it safely.
+/// complete it and the next trim can discard it safely, up to a finite
+/// allowance for malformed or indefinitely open escapes.
+const MAX_INCOMPLETE_ANSI_BYTES: usize = 1024;
+
 pub(crate) fn truncate_usage_scan_buffer(scan_buf: &mut String, max_bytes: usize) {
     if scan_buf.len() <= max_bytes {
         return;
@@ -656,6 +659,9 @@ fn safe_ansi_drop_offset(input: &str, requested_drop: usize) -> usize {
             match ansi_sequence_end(input, offset) {
                 Some(end) if end <= requested_drop => offset = end,
                 Some(end) => return end,
+                None if input.len().saturating_sub(offset) > MAX_INCOMPLETE_ANSI_BYTES => {
+                    return requested_drop;
+                }
                 None => return offset,
             }
         } else {
@@ -1765,6 +1771,13 @@ mod tests {
         let mut retained = format!("old{banner}");
         truncate_usage_scan_buffer(&mut retained, banner.len() - 1);
         assert_eq!(retained, "usage limit reached");
+    }
+
+    #[test]
+    fn truncate_usage_scan_buffer_bounds_unterminated_escape() {
+        let mut retained = format!("\x1b]0;{}", "x".repeat(MAX_INCOMPLETE_ANSI_BYTES * 2));
+        truncate_usage_scan_buffer(&mut retained, 64);
+        assert!(retained.len() <= 64);
     }
 
     #[test]
