@@ -101,11 +101,14 @@ struct WorkspaceState {
 /// A queued `InputLabel` refinement request: the input line Peon should turn
 /// into a topic, tagged with the session's label epoch at the moment it was
 /// queued. A harness-declared reset command bumps that epoch (ADR 0040), so a
-/// refinement from the previous conversation can be recognized as stale.
+/// refinement from the previous conversation can be recognized as stale. The
+/// initial prompt marker prevents a late refinement of an inherited startup
+/// prompt from restoring a label after the first real terminal prompt wins.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct LabelHint {
     text: String,
     epoch: u64,
+    from_initial_prompt: bool,
 }
 
 struct PeonState {
@@ -635,6 +638,7 @@ pub(crate) mod test_support {
         metadata::SessionMetadata {
             id: id.into(),
             label: label.into(),
+            label_from_initial_prompt: false,
             workspace: workspace.into(),
             task: String::new(),
             harness: String::new(),

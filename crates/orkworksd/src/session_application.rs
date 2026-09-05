@@ -697,9 +697,12 @@ impl SessionApplication {
     }
 
     /// Records accepted, non-sensitive user input and seeds the session topic
-    /// exactly once when the persisted label is still the placeholder. The
-    /// caller owns sensitivity/descriptive classification and any epoch guard
-    /// that surrounds this mutation and subsequent refinement queueing.
+    /// when the persisted label is still the placeholder, or replaces a label
+    /// that was seeded only from the session's bootstrap prompt. The latter is
+    /// the one-time handoff from inherited startup context to the first real
+    /// terminal instruction. The caller owns sensitivity/descriptive
+    /// classification and any epoch guard that surrounds this mutation and
+    /// subsequent refinement queueing.
     pub(crate) fn record_user_input_topic(
         &self,
         id: &str,
@@ -710,8 +713,12 @@ impl SessionApplication {
         let workspace_guard = self.state.workspace.lock().unwrap();
         if let Some(workspace) = workspace_guard.as_ref() {
             if let Some(mut metadata) = workspace.metadata.read_session(id) {
-                if label_worthy && is_placeholder_label(&metadata.label, id) {
+                if label_worthy
+                    && (is_placeholder_label(&metadata.label, id)
+                        || metadata.label_from_initial_prompt)
+                {
                     metadata.label = label_line.to_string();
+                    metadata.label_from_initial_prompt = false;
                     seeded_label = true;
                 }
                 metadata.last_user_input = Some(label_line.to_string());
@@ -1197,6 +1204,7 @@ impl SessionApplication {
             if let Some(ref ws) = *ws_guard {
                 if let Some(mut meta) = ws.metadata.read_session(id) {
                     meta.label = placeholder.clone();
+                    meta.label_from_initial_prompt = false;
                     ws.metadata.write_session(&meta);
                 }
             }
@@ -1321,6 +1329,7 @@ impl SessionApplication {
         attempt: &crate::runtime::peon_runtime::PeonDiagnosticAttempt,
         label: String,
         captured_epoch: u64,
+        from_initial_prompt: bool,
     ) -> bool {
         let epochs = self.state.peon.label_epochs.read().unwrap();
         let current_epoch = epochs.get(id).copied().unwrap_or(0);
@@ -1340,10 +1349,17 @@ impl SessionApplication {
         }
         if let Some(ws) = ws_guard.as_ref() {
             if let Some(mut meta) = ws.metadata.read_session(id) {
+                if from_initial_prompt && !meta.label_from_initial_prompt {
+                    return false;
+                }
                 meta.label = label.clone();
                 ws.metadata.write_session(&meta);
                 updated = true;
+            } else if from_initial_prompt {
+                return false;
             }
+        } else if from_initial_prompt {
+            return false;
         }
         if let Some(handle) = sessions.get_mut(id) {
             handle.info.label = label;
@@ -2916,6 +2932,10 @@ async fn create_session_workflow(
 
     let command = resolved_launch.command.clone();
     let initial_prompt = req.initial_prompt.clone();
+    let initial_prompt_label = initial_prompt
+        .as_deref()
+        .map(|prompt| prompt.chars().take(100).collect::<String>())
+        .filter(|label| peon::is_descriptive_input(label));
     // A hookless harness never gets a `report_attention` call, so the initial
     // prompt (written straight to the PTY in `start_session_runtime`) must arm
     // the same fallback a typed-and-submitted command would, or the session's
@@ -2938,12 +2958,15 @@ async fn create_session_workflow(
     // a chance at seeding the label there. Seed it here instead: the
     // synchronous fallback below (so the title is never blank) plus Peon's
     // topic-inference queue for the real, LLM-phrased topic (ADR 0029).
-    if let Some(prompt) = initial_prompt.as_deref() {
-        let label_line: String = prompt.chars().take(100).collect();
-        if peon::is_descriptive_input(&label_line) {
-            info.label = label_line.clone();
-            crate::runtime::terminal_runtime::queue_label_hint(&state, &id, prompt.to_string());
-        }
+    if let (Some(prompt), Some(label_line)) =
+        (initial_prompt.as_deref(), initial_prompt_label.as_ref())
+    {
+        info.label = label_line.clone();
+        crate::runtime::terminal_runtime::queue_initial_prompt_label_hint(
+            &state,
+            &id,
+            prompt.to_string(),
+        );
     }
 
     let (runtime, control_rx) = crate::runtime::session_runtime::SessionRuntime::live(
@@ -2984,6 +3007,7 @@ async fn create_session_workflow(
             ws.metadata.write_session(&metadata::SessionMetadata {
                 id: id.clone(),
                 label: info.label.clone(),
+                label_from_initial_prompt: initial_prompt_label.is_some(),
                 workspace: ws.path.display().to_string(),
                 task: String::new(),
                 harness: resolved_launch
@@ -6571,6 +6595,7 @@ mod tests {
             crate::LabelHint {
                 text: "stale topic".into(),
                 epoch: 4,
+                from_initial_prompt: false,
             },
         );
         state.peon.label_pending.write().unwrap().insert(id.into());
@@ -6682,6 +6707,7 @@ mod tests {
             crate::LabelHint {
                 text: "stale topic".into(),
                 epoch: 4,
+                from_initial_prompt: false,
             },
         );
         state.peon.label_pending.write().unwrap().insert(id.into());
@@ -6751,6 +6777,7 @@ mod tests {
             crate::LabelHint {
                 text: "queued topic".into(),
                 epoch: 7,
+                from_initial_prompt: false,
             },
         );
         state.peon.label_pending.write().unwrap().insert(id.into());
@@ -6769,6 +6796,7 @@ mod tests {
             Some(&crate::LabelHint {
                 text: "queued topic".into(),
                 epoch: 7,
+                from_initial_prompt: false,
             })
         );
         assert!(state.peon.label_pending.read().unwrap().contains(id));

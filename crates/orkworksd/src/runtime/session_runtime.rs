@@ -1404,6 +1404,7 @@ mod tests {
             crate::LabelHint {
                 text: "hello".into(),
                 epoch: 0,
+                from_initial_prompt: false,
             },
         );
         state

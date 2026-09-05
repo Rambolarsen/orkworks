@@ -304,6 +304,10 @@ fn default_lifecycle() -> String {
     "alive".into()
 }
 
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ObservedStatusSnapshotMetadata {
     pub value: Option<String>,
@@ -344,6 +348,14 @@ impl ResumeOption {
 pub struct SessionMetadata {
     pub id: String,
     pub label: String,
+    /// Whether the current label came only from the bootstrap prompt. The
+    /// first later descriptive terminal input may replace it once.
+    #[serde(
+        rename = "labelFromInitialPrompt",
+        default,
+        skip_serializing_if = "is_false"
+    )]
+    pub label_from_initial_prompt: bool,
     pub workspace: String,
     pub task: String,
     #[serde(rename = "harnessId", alias = "harness", default)]
@@ -761,6 +773,7 @@ pub(crate) fn assert_session_metadata_serializes_connectivity_terminal_outcome_a
     let meta = SessionMetadata {
         id: "s1".into(),
         label: "Test".into(),
+        label_from_initial_prompt: false,
         workspace: "/tmp".into(),
         task: String::new(),
         harness: String::new(),
@@ -2159,6 +2172,7 @@ mod tests {
         let meta = SessionMetadata {
             id: "test-1".into(),
             label: "Test".into(),
+            label_from_initial_prompt: false,
             workspace: "/tmp".into(),
             task: "".into(),
             harness: "".into(),
@@ -2668,6 +2682,7 @@ mod tests {
         store.write_session(&SessionMetadata {
             id: "rename-test".into(),
             label: "Session abc12345".into(),
+            label_from_initial_prompt: false,
             workspace: "/tmp".into(),
             task: "".into(),
             harness: "".into(),
@@ -2820,6 +2835,7 @@ mod tests {
         store.write_session(&SessionMetadata {
             id: "test-peon-observer".into(),
             label: "Test".into(),
+            label_from_initial_prompt: false,
             workspace: "/tmp".into(),
             task: "".into(),
             harness: "".into(),
@@ -3183,6 +3199,7 @@ mod tests {
         SessionMetadata {
             id: id.into(),
             label: "Test".into(),
+            label_from_initial_prompt: false,
             workspace: "/tmp".into(),
             task: "".into(),
             harness: "".into(),

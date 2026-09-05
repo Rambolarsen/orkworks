@@ -848,7 +848,11 @@ where
                                             state_clone.clone(),
                                         )
                                         .persist_input_label_for_attempt(
-                                            &id, &attempt, label, hint.epoch,
+                                            &id,
+                                            &attempt,
+                                            label,
+                                            hint.epoch,
+                                            hint.from_initial_prompt,
                                         );
                                     }
                                 }
@@ -1297,6 +1301,142 @@ mod tests {
                 .unwrap()
                 .label,
             placeholder
+        );
+    }
+
+    #[test]
+    fn late_initial_prompt_label_cannot_restore_after_terminal_input() {
+        let _lease_guard = diagnostic_test_guard();
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(dir.path());
+        let session_id = "initial-prompt-label-race";
+        let runtime = crate::runtime::session_runtime::SessionRuntime::detached(24, 80);
+        let runtime_identity = runtime.identity();
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        state.sessions.lock().unwrap().insert(
+            session_id.to_string(),
+            crate::SessionHandle {
+                info: test_session_info(
+                    session_id,
+                    "shared startup context",
+                    dir.path().display().to_string(),
+                    "running",
+                    "now",
+                ),
+                kill_tx,
+                output_buffer: peon::RingBuffer::new(200),
+                scan_buf: String::new(),
+                pending_work_signal: None,
+                runtime,
+                terminal_attached: false,
+                resume_in_progress: false,
+                at_usage_limit_latched: false,
+                capacity_check_pending: false,
+                output_lines_seen: 0,
+                scan_bytes_seen: 0,
+                resume_scan_origin: None,
+                pending_capacity_visible_once: false,
+                active_work_hook: false,
+            },
+        );
+        let mut metadata = crate::test_support::test_session_metadata(
+            session_id,
+            "shared startup context",
+            dir.path().display().to_string(),
+            "running",
+            "now",
+            "now",
+        );
+        metadata.label_from_initial_prompt = true;
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
+        state
+            .peon
+            .label_epochs
+            .write()
+            .unwrap()
+            .insert(session_id.to_string(), 0);
+        state
+            .peon
+            .in_flight
+            .write()
+            .unwrap()
+            .insert(session_id.to_string());
+        state.peon.mark_candidate(session_id);
+        let attempt = state
+            .peon
+            .begin_attempt(session_id, runtime_identity)
+            .expect("initial prompt attempt should start");
+
+        assert!(
+            crate::session_application::SessionApplication::new(state.clone())
+                .record_user_input_topic(session_id, "fix the child-specific task", true)
+        );
+        assert!(
+            !crate::session_application::SessionApplication::new(state.clone())
+                .persist_input_label_for_attempt(
+                    session_id,
+                    &attempt,
+                    "late startup topic".into(),
+                    0,
+                    true,
+                )
+        );
+        assert_eq!(
+            state.sessions.lock().unwrap()[session_id].info.label,
+            "fix the child-specific task"
+        );
+        assert_eq!(
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(session_id)
+                .unwrap()
+                .label,
+            "fix the child-specific task"
+        );
+
+        let switched_workspace = tempfile::tempdir().unwrap();
+        crate::test_support::swap_workspace(state.as_ref(), switched_workspace.path());
+        assert!(
+            !crate::session_application::SessionApplication::new(state.clone())
+                .persist_input_label_for_attempt(
+                    session_id,
+                    &attempt,
+                    "late startup topic after workspace switch".into(),
+                    0,
+                    true,
+                )
+        );
+        assert_eq!(
+            state.sessions.lock().unwrap()[session_id].info.label,
+            "fix the child-specific task"
+        );
+
+        *state.workspace.lock().unwrap() = None;
+        assert!(
+            !crate::session_application::SessionApplication::new(state.clone())
+                .persist_input_label_for_attempt(
+                    session_id,
+                    &attempt,
+                    "late startup topic without workspace".into(),
+                    0,
+                    true,
+                )
+        );
+        assert_eq!(
+            state.sessions.lock().unwrap()[session_id].info.label,
+            "fix the child-specific task"
         );
     }
 
@@ -2169,6 +2309,7 @@ mod tests {
             crate::LabelHint {
                 text: "describe this task".into(),
                 epoch: 0,
+                from_initial_prompt: false,
             },
         );
         state.peon.label_pending.write().unwrap().insert(id.clone());
@@ -2283,6 +2424,7 @@ mod tests {
             crate::LabelHint {
                 text: "describe this task".into(),
                 epoch: 0,
+                from_initial_prompt: false,
             },
         );
         state.peon.label_pending.write().unwrap().insert(id.clone());
@@ -2448,6 +2590,7 @@ mod tests {
             crate::LabelHint {
                 text: "describe this task".into(),
                 epoch: 0,
+                from_initial_prompt: false,
             },
         );
         state.peon.label_pending.write().unwrap().insert(id.clone());
@@ -2596,6 +2739,7 @@ mod tests {
             crate::LabelHint {
                 text: "describe this task".into(),
                 epoch: 0,
+                from_initial_prompt: false,
             },
         );
         state.peon.label_pending.write().unwrap().insert(id.clone());
@@ -2751,6 +2895,7 @@ mod tests {
             crate::LabelHint {
                 text: input_hint,
                 epoch: 0,
+                from_initial_prompt: false,
             },
         );
         state.peon.label_pending.write().unwrap().insert(id.clone());
@@ -2909,6 +3054,7 @@ mod tests {
                 ws.metadata.write_session(&metadata::SessionMetadata {
                     id: session_id.clone(),
                     label: "Test".into(),
+                    label_from_initial_prompt: false,
                     workspace: dir.path().display().to_string(),
                     task: "".into(),
                     harness: "".into(),
@@ -3487,6 +3633,7 @@ mod tests {
                 ws.metadata.write_session(&metadata::SessionMetadata {
                     id: session_id.clone(),
                     label: "Test".into(),
+                    label_from_initial_prompt: false,
                     workspace: dir.path().display().to_string(),
                     task: "".into(),
                     harness: "".into(),
@@ -3656,6 +3803,7 @@ mod tests {
                 ws.metadata.write_session(&metadata::SessionMetadata {
                     id: session_id.clone(),
                     label: "Test".into(),
+                    label_from_initial_prompt: false,
                     workspace: dir.path().display().to_string(),
                     task: "".into(),
                     harness: "".into(),
@@ -3843,6 +3991,7 @@ mod tests {
                 ws.metadata.write_session(&metadata::SessionMetadata {
                     id: session_id.clone(),
                     label: "Test".into(),
+                    label_from_initial_prompt: false,
                     workspace: dir.path().display().to_string(),
                     task: "".into(),
                     harness: "".into(),
@@ -4015,6 +4164,7 @@ mod tests {
                 ws.metadata.write_session(&metadata::SessionMetadata {
                     id: session_id.clone(),
                     label: "Test".into(),
+                    label_from_initial_prompt: false,
                     workspace: dir.path().display().to_string(),
                     task: "".into(),
                     harness: "".into(),
@@ -4185,6 +4335,7 @@ mod tests {
                 ws.metadata.write_session(&metadata::SessionMetadata {
                     id: session_id.clone(),
                     label: "Test".into(),
+                    label_from_initial_prompt: false,
                     workspace: dir.path().display().to_string(),
                     task: "".into(),
                     harness: "".into(),
@@ -4365,6 +4516,7 @@ mod tests {
                 ws.metadata.write_session(&metadata::SessionMetadata {
                     id: session_id.clone(),
                     label: "Test".into(),
+                    label_from_initial_prompt: false,
                     workspace: dir.path().display().to_string(),
                     task: "".into(),
                     harness: "".into(),
@@ -4553,6 +4705,7 @@ mod tests {
                 ws.metadata.write_session(&metadata::SessionMetadata {
                     id: session_id.clone(),
                     label: "Test".into(),
+                    label_from_initial_prompt: false,
                     workspace: dir.path().display().to_string(),
                     task: "".into(),
                     harness: "".into(),

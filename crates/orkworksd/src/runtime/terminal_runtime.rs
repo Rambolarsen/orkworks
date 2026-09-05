@@ -573,12 +573,13 @@ fn record_terminal_input_impl(
     }
     let label_worthy = !is_sensitive && peon::is_descriptive_input(&label_line);
 
-    // Seed-once: the label is a stable topic (ADR 0029), not a running log of
-    // whatever was last typed. Only the still-placeholder label gets replaced
-    // here; once seeded, later lines leave it alone. Keep the epoch read guard
-    // across the complete bookkeeping transaction, including queueing the
-    // refinement, so a reset cannot clear the queue and have this old input
-    // reinserted under the new epoch.
+    // The label is a stable topic (ADR 0029), not a running log of whatever
+    // was last typed. A descriptive terminal line may replace only the
+    // placeholder or the one-time bootstrap-prompt fallback; after that later
+    // lines leave it alone. Keep the epoch read guard across the complete
+    // bookkeeping transaction, including queueing the refinement, so a reset
+    // cannot clear the queue and have this old input reinserted under the new
+    // epoch.
     if !is_sensitive {
         with_label_epoch_read(state, id, |epoch| {
             let queue_topic_inference =
@@ -590,7 +591,7 @@ fn record_terminal_input_impl(
             // copies of the label can never disagree about whether this line
             // seeded it.
             if queue_topic_inference {
-                queue_label_hint_at_epoch(state, id, line, epoch);
+                queue_label_hint_at_epoch(state, id, line, epoch, false);
             }
         });
     }
@@ -623,13 +624,21 @@ fn with_label_epoch_read<T>(state: &Arc<AppState>, id: &str, f: impl FnOnce(u64)
     f(epoch)
 }
 
-fn queue_label_hint_at_epoch(state: &Arc<AppState>, id: &str, line: String, epoch: u64) {
-    state
-        .peon
-        .label_hint
-        .write()
-        .unwrap()
-        .insert(id.to_string(), crate::LabelHint { text: line, epoch });
+fn queue_label_hint_at_epoch(
+    state: &Arc<AppState>,
+    id: &str,
+    line: String,
+    epoch: u64,
+    from_initial_prompt: bool,
+) {
+    state.peon.label_hint.write().unwrap().insert(
+        id.to_string(),
+        crate::LabelHint {
+            text: line,
+            epoch,
+            from_initial_prompt,
+        },
+    );
     state
         .peon
         .label_pending
@@ -640,7 +649,13 @@ fn queue_label_hint_at_epoch(state: &Arc<AppState>, id: &str, line: String, epoc
 
 pub(crate) fn queue_label_hint(state: &Arc<AppState>, id: &str, line: String) {
     with_label_epoch_read(state, id, |epoch| {
-        queue_label_hint_at_epoch(state, id, line, epoch)
+        queue_label_hint_at_epoch(state, id, line, epoch, false)
+    });
+}
+
+pub(crate) fn queue_initial_prompt_label_hint(state: &Arc<AppState>, id: &str, line: String) {
+    with_label_epoch_read(state, id, |epoch| {
+        queue_label_hint_at_epoch(state, id, line, epoch, true)
     });
 }
 
@@ -1804,6 +1819,7 @@ mod tests {
             Some(&crate::LabelHint {
                 text: "fix the login redirect bug".into(),
                 epoch: 0,
+                from_initial_prompt: false,
             })
         );
         assert!(state
@@ -1855,6 +1871,7 @@ mod tests {
             Some(&crate::LabelHint {
                 text: input.clone(),
                 epoch: 0,
+                from_initial_prompt: false,
             })
         );
     }
@@ -1931,6 +1948,7 @@ mod tests {
             crate::LabelHint {
                 text: text.to_string(),
                 epoch,
+                from_initial_prompt: false,
             },
         );
         state
@@ -1960,7 +1978,13 @@ mod tests {
         let worker_id = id.to_string();
         let worker = std::thread::spawn(move || {
             with_label_epoch_read(&worker_state, &worker_id, |epoch| {
-                queue_label_hint_at_epoch(&worker_state, &worker_id, "old topic".into(), epoch);
+                queue_label_hint_at_epoch(
+                    &worker_state,
+                    &worker_id,
+                    "old topic".into(),
+                    epoch,
+                    false,
+                );
                 entered_tx.send(()).unwrap();
                 release_rx.recv().unwrap();
             });
@@ -2058,6 +2082,7 @@ mod tests {
             Some(&crate::LabelHint {
                 text: "old topic".into(),
                 epoch: 0,
+                from_initial_prompt: false,
             }),
             "{case}"
         );
@@ -2101,6 +2126,7 @@ mod tests {
             Some(&crate::LabelHint {
                 text: "fix the next login bug".into(),
                 epoch: 1,
+                from_initial_prompt: false,
             })
         );
     }
@@ -2157,6 +2183,7 @@ mod tests {
             Some(&crate::LabelHint {
                 text: "fix the next login bug".into(),
                 epoch: 1,
+                from_initial_prompt: false,
             })
         );
 
@@ -2176,6 +2203,7 @@ mod tests {
             Some(&crate::LabelHint {
                 text: "then rework the retry policy".into(),
                 epoch: 2,
+                from_initial_prompt: false,
             })
         );
     }
@@ -3204,6 +3232,7 @@ mod tests {
             ws.metadata.write_session(&metadata::SessionMetadata {
                 id: session_id.clone(),
                 label: "Test".into(),
+                label_from_initial_prompt: false,
                 workspace: dir.path().display().to_string(),
                 task: "".into(),
                 harness: "".into(),
@@ -3356,6 +3385,7 @@ mod tests {
             ws.metadata.write_session(&metadata::SessionMetadata {
                 id: session_id.clone(),
                 label: "Test".into(),
+                label_from_initial_prompt: false,
                 workspace: dir.path().display().to_string(),
                 task: "".into(),
                 harness: "".into(),
@@ -3576,6 +3606,7 @@ mod tests {
             ws.metadata.write_session(&metadata::SessionMetadata {
                 id: session_id.clone(),
                 label: "Test".into(),
+                label_from_initial_prompt: false,
                 workspace: dir.path().display().to_string(),
                 task: "".into(),
                 harness: "".into(),

@@ -24,7 +24,7 @@ File: `crates/orkworksd/src/metadata.rs`
 `SessionMetadata` is the persisted record read from and written to `~/.orkworks/workspaces/<hash>/sessions/<id>.json`. It is a flat, serde-mapped struct — not an aggregate with behavior. Notable fields:
 
 - `id`, `workspace`, `task`, `cwd`
-- `label` — the session's display title: a one-shot, Peon-authored topic (ADR 0029), not the turn-by-turn activity in `summary`. Seeded synchronously from the first descriptive user input (typed, or the New Session dialog's initial prompt) as an immediate placeholder, then refined once by Peon's `InputLabel` inference. Not part of the `metadata_source`/`metadata_confidence` precedence system below — it is one-shot-then-frozen, not contended.
+- `label` — the session's display title: a one-shot, Peon-authored topic (ADR 0029), not the turn-by-turn activity in `summary`. A descriptive New Session dialog prompt is an immediate bootstrap fallback; the first later descriptive terminal input may replace that fallback once, so shared startup context does not freeze the title for every child session (ADR 0047). A descriptive terminal input with no bootstrap prompt seeds the title directly. Peon's `InputLabel` inference refines the selected topic; the first later descriptive terminal input clears the bootstrap marker, after which the topic is frozen. Not part of the `metadata_source`/`metadata_confidence` precedence system below — it is one-shot-then-frozen, not contended.
 - `harness: String` (serialized `harnessId`, aliased from legacy `harness`)
 - `model: String` (serialized `modelId`, aliased from legacy `model`)
 - `status: String` — process/terminal state (see vocabulary below)
