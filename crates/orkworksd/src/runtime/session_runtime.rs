@@ -1077,7 +1077,9 @@ pub(crate) async fn start_session_runtime(
                     match event {
                         DriverEvent::Output(data) => {
                             persist_buffer.extend_from_slice(&data);
-                            let stripped = peon::strip_ansi(&String::from_utf8_lossy(&data));
+                            let text = String::from_utf8_lossy(&data);
+                            let stripped = peon::strip_ansi(&text);
+                            let scan_stripped = peon::strip_ansi_for_usage_limit(&text);
                             let raw_persist_lines = drain_persist_records(&mut persist_buffer);
                             let output_at = output_recency_timestamp(
                                 &data,
@@ -1108,8 +1110,8 @@ pub(crate) async fn start_session_runtime(
                                         }
                                     }
                                     handle.output_lines_seen += raw_persist_lines.len() as u64;
-                                    handle.scan_bytes_seen += stripped.len() as u64;
-                                    handle.scan_buf.push_str(&stripped);
+                                    handle.scan_bytes_seen += scan_stripped.len() as u64;
+                                    handle.scan_buf.push_str(&scan_stripped);
                                     const MAX_SCAN: usize = 8192;
                                     if handle.scan_buf.len() > MAX_SCAN {
                                         let drop = handle.scan_buf.len() - MAX_SCAN;
