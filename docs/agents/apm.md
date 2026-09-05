@@ -55,6 +55,13 @@ Ponytail also ships its own `AGENTS.md` — if cross-referenced from this repo's
 - `codebase-design` — shared deep-module vocabulary (module, interface, seam, adapter, leverage, locality) the above skill designs against
 - `grilling` — one-question-at-a-time decision-tree interview, used to walk a chosen deepening candidate to a shared understanding before implementation
 
+## addyosmani/agent-skills (pinned subset)
+
+[addyosmani/agent-skills](https://github.com/addyosmani/agent-skills) — a multi-skill bundle repo; only two skills are pinned via `apm.yml`'s `skills:` list rather than the whole bundle:
+
+- `context-engineering` — optimizes agent context setup: rules files, project context, and session/task-switch hygiene
+- `doubt-driven-development` — subjects non-trivial decisions to a fresh-context adversarial review before they stand
+
 ## MCP servers
 
 MCP servers are declared in `apm.yml` under `dependencies.mcp` and materialized per-client by `apm install` — not by hand-editing `.mcp.json`, `.vscode/mcp.json`, `.codex/config.toml` (gitignored, local-only), or `opencode.json`'s `mcp` key directly. None are currently declared.
