@@ -595,22 +595,33 @@ fn extract_reset_hint(plain: &str, lower: &str) -> Option<String> {
 }
 
 /// Extracts reset hint from a raw text blob (for TUI apps that use cursor positioning, not newlines).
+///
+/// Gated by the same bounded-context match as the cap latch (`bounded_limit_match`,
+/// per newline/CR segment): cap-banner text echoed inside displayed content must
+/// not yield a reset hint for a session that is not capped.
 pub fn detect_usage_limit_hint_raw<S: AsRef<str>>(patterns: &[S], text: &str) -> Option<String> {
     if patterns.is_empty() {
         return None;
     }
     let plain = strip_ansi(text);
-    let lower = plain.to_ascii_lowercase();
-    if !patterns
-        .iter()
-        .any(|p| lower.contains(p.as_ref().to_lowercase().as_str()))
-    {
-        return None;
-    }
-    extract_reset_hint(&plain, &lower)
+    plain.split(['\r', '\n']).find_map(|segment| {
+        let lower = segment.to_ascii_lowercase();
+        if patterns
+            .iter()
+            .any(|p| bounded_limit_match(segment, &p.as_ref().to_ascii_lowercase()))
+        {
+            extract_reset_hint(segment, &lower)
+        } else {
+            None
+        }
+    })
 }
 
 /// Returns the "reset in X" fragment from the usage-limit line, if present.
+///
+/// Gated by the same bounded-context match as the cap latch (`bounded_limit_match`),
+/// so cap-banner text echoed inside a long display line cannot surface a reset
+/// hint on a session that is not capped.
 pub fn detect_usage_limit_hint<S: AsRef<str>>(patterns: &[S], lines: &[String]) -> Option<String> {
     if patterns.is_empty() {
         return None;
@@ -618,13 +629,14 @@ pub fn detect_usage_limit_hint<S: AsRef<str>>(patterns: &[S], lines: &[String]) 
     lines.iter().rev().find_map(|line| {
         let plain = strip_ansi(line);
         let lower = plain.to_ascii_lowercase();
-        if !patterns
+        if patterns
             .iter()
-            .any(|p| lower.contains(p.as_ref().to_lowercase().as_str()))
+            .any(|p| bounded_limit_match(&plain, &p.as_ref().to_ascii_lowercase()))
         {
-            return None;
+            extract_reset_hint(&plain, &lower)
+        } else {
+            None
         }
-        extract_reset_hint(&plain, &lower)
     })
 }
 
@@ -1530,16 +1542,33 @@ mod tests {
 
     #[test]
     fn detect_usage_limit_hint_raw_caps_length_without_terminator() {
+        // A bounded cap match whose unrelieved suffix budget absorbs the hint
+        // still extracts it — and extraction stays capped near 80 chars.
         let text = format!(
             "usage limit reached · resets in 2h {}",
-            "trailing pane text without any glyph or period ".repeat(5)
+            "trailing pane text ".repeat(4)
         );
         let hint = detect_usage_limit_hint_raw(&["usage limit reached"], &text).unwrap();
         assert!(hint.starts_with("resets in 2h"));
         let len = hint.chars().count();
         assert!(
-            (70..=80).contains(&len),
+            (75..=80).contains(&len),
             "cap not applied near 80: {len} ({hint})"
+        );
+    }
+
+    #[test]
+    fn detect_usage_limit_hint_raw_ignores_unbounded_trailing_filler() {
+        // A banner followed by more trailing text than the suffix budget
+        // allows is not a bounded cap match — the latch path refuses it, so
+        // the hint path must not surface a hint either.
+        let text = format!(
+            "usage limit reached · resets in 2h {}",
+            "trailing pane text without any glyph or period ".repeat(5)
+        );
+        assert_eq!(
+            detect_usage_limit_hint_raw(&["usage limit reached"], &text),
+            None
         );
     }
 
@@ -1569,6 +1598,70 @@ mod tests {
         let lines = vec!["You've hit your session limit · resets in 2h │ other column".into()];
         assert_eq!(
             detect_usage_limit_hint(&["you've hit your session limit"], &lines).as_deref(),
+            Some("resets in 2h")
+        );
+    }
+
+    #[test]
+    fn detect_usage_limit_hint_ignores_buried_pattern_with_late_hint_anchor() {
+        // Same echo shape as detect_usage_limit_ignores_pattern_buried_in_prose_line,
+        // but the displayed prose also mentions a reset time. The latch path
+        // already refuses to cap this session; the hint path must not surface
+        // a reset hint for it either.
+        let lines = vec![
+            "the way to check is events/<session-id>.terminal for an actual usage limit reached \
+             line — the banner even said resets in 2h at the time (I checked your current \
+             sessions and found none)"
+                .into(),
+        ];
+        assert_eq!(
+            detect_usage_limit_hint(&["usage limit reached"], &lines),
+            None
+        );
+    }
+
+    #[test]
+    fn detect_usage_limit_hint_ignores_wrap_boundary_pattern_with_late_hint_anchor() {
+        // Terminal wrapping can start a display row with the pattern; the
+        // prose continuing after it (including a far-away reset mention) is
+        // what betrays the false positive.
+        let lines = vec![
+            "usage limit reached line from OpenCode itself (I checked your current sessions \
+             and found none) — the transcript shows it said resets in 2h back then, plus \
+             trailing prose to push the row well past the suffix budget"
+                .into(),
+        ];
+        assert_eq!(
+            detect_usage_limit_hint(&["usage limit reached"], &lines),
+            None
+        );
+    }
+
+    #[test]
+    fn detect_usage_limit_hint_raw_ignores_pattern_buried_in_long_segment() {
+        let text = format!(
+            "{} usage limit reached {}",
+            "the way to check is events/<session-id>.terminal for an actual ".repeat(2),
+            " line — it said resets in 2h at the time (I checked your current sessions and found none)".repeat(2)
+        );
+        assert_eq!(
+            detect_usage_limit_hint_raw(&["usage limit reached"], &text),
+            None
+        );
+    }
+
+    #[test]
+    fn detect_usage_limit_hint_raw_matches_pattern_on_short_segment_mid_buffer() {
+        // Regression guard for the raw path's segmentation: a real banner on a
+        // short segment between long cursor-addressed screen content must
+        // still produce its hint.
+        let text = format!(
+            "{}\r\nusage limit reached · resets in 2h\r\n{}",
+            "cursor-addressed screen content ".repeat(40),
+            "more screen content ".repeat(40)
+        );
+        assert_eq!(
+            detect_usage_limit_hint_raw(&["usage limit reached"], &text).as_deref(),
             Some("resets in 2h")
         );
     }
