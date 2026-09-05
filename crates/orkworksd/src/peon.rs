@@ -548,10 +548,6 @@ const BANNER_PREFIX_GLYPHS: &[char] = &[
     '·', '•', '✳', '✻', '✽', '✶', '●', '○', '◐', '■', '□', '▪', '▫', '█', '▓', '▒', '░', '│', '┃',
     '╭', '╰', '╮', '╯', '─', '━', '═', '—', '…',
 ];
-const BANNER_TAIL_PUNCTUATION: &[char] = &[
-    ',', '.', ':', ';', '(', ')', '[', ']', '{', '}', '/', '\\', '-', '_', '+', '=', '!', '?', '#',
-    '*', '<', '>', '|', '~',
-];
 /// The extracted reset hint may only contain natural-language characters.
 /// A "hint" carrying code punctuation (`,`, `;`, `=`, quotes) is prose or
 /// code the extractor grabbed, not the banner's hint.
@@ -569,7 +565,7 @@ fn is_banner_prefix_char(c: char) -> bool {
 }
 
 fn is_banner_chrome_char(c: char) -> bool {
-    c.is_whitespace() || BANNER_PREFIX_GLYPHS.contains(&c) || BANNER_TAIL_PUNCTUATION.contains(&c)
+    c.is_whitespace() || BANNER_PREFIX_GLYPHS.contains(&c)
 }
 
 fn validated_reset_hint(suffix_plain: &str, suffix_lower: &str) -> Option<String> {
@@ -630,6 +626,89 @@ fn banner_match_end(plain: &str, pattern_lower: &str) -> Option<usize> {
 
 fn bounded_limit_match(plain: &str, pattern_lower: &str) -> bool {
     banner_match_end(plain, pattern_lower).is_some()
+}
+
+/// Keeps the rolling raw capacity-scan buffer bounded without cutting through
+/// a UTF-8 codepoint or an ANSI escape. If the requested trim point falls
+/// inside an incomplete escape, the escape is retained until a later chunk can
+/// complete it and the next trim can discard it safely.
+pub(crate) fn truncate_usage_scan_buffer(scan_buf: &mut String, max_bytes: usize) {
+    if scan_buf.len() <= max_bytes {
+        return;
+    }
+    if max_bytes == 0 {
+        scan_buf.clear();
+        return;
+    }
+    let mut requested_drop = scan_buf.len() - max_bytes;
+    while requested_drop < scan_buf.len() && !scan_buf.is_char_boundary(requested_drop) {
+        requested_drop += 1;
+    }
+    let drop = safe_ansi_drop_offset(scan_buf, requested_drop);
+    scan_buf.drain(..drop);
+}
+
+fn safe_ansi_drop_offset(input: &str, requested_drop: usize) -> usize {
+    let bytes = input.as_bytes();
+    let mut offset = 0;
+    while offset < requested_drop {
+        if bytes[offset] == b'\x1b' {
+            match ansi_sequence_end(input, offset) {
+                Some(end) if end <= requested_drop => offset = end,
+                Some(end) => return end,
+                None => return offset,
+            }
+        } else {
+            offset += input[offset..]
+                .chars()
+                .next()
+                .map(char::len_utf8)
+                .unwrap_or(1);
+        }
+    }
+    requested_drop
+}
+
+/// Returns the byte offset just after one ANSI escape, or None when the escape
+/// is incomplete. This is only used to choose a safe rolling-buffer trim
+/// point; the existing strip_ansi parser remains the source of normalized text.
+fn ansi_sequence_end(input: &str, start: usize) -> Option<usize> {
+    let bytes = input.as_bytes();
+    if bytes.get(start) != Some(&b'\x1b') {
+        return Some(start + 1);
+    }
+    let kind = *bytes.get(start + 1)?;
+    match kind {
+        b'[' => {
+            let mut offset = start + 2;
+            while let Some(&byte) = bytes.get(offset) {
+                if (0x40..=0x7e).contains(&byte) {
+                    return Some(offset + 1);
+                }
+                offset += 1;
+            }
+            None
+        }
+        b']' | b'P' | b'X' | b'^' | b'_' => {
+            let mut offset = start + 2;
+            while let Some(&byte) = bytes.get(offset) {
+                if byte == b'\x07' {
+                    return Some(offset + 1);
+                }
+                if byte == b'\x1b' {
+                    return match bytes.get(offset + 1) {
+                        Some(b'\\') => Some(offset + 2),
+                        Some(_) => Some(offset),
+                        None => None,
+                    };
+                }
+                offset += 1;
+            }
+            None
+        }
+        b'O' | b'(' | b')' | b'%' => bytes.get(start + 2).map(|_| start + 3),
+        _ => Some(start + 2),
+    }
 }
 
 /// Extracts the banner's own reset hint from a row that carries a
@@ -1575,6 +1654,12 @@ mod tests {
     }
 
     #[test]
+    fn detect_usage_limit_ignores_punctuation_only_suffix() {
+        let lines = vec!["usage limit reached.".into(), "usage limit reached;".into()];
+        assert!(!detect_usage_limit(&["usage limit reached"], &lines));
+    }
+
+    #[test]
     fn detect_usage_limit_ignores_untrusted_hint_and_does_not_extract_it() {
         let lines = vec!["usage limit reached; resets in 2h; foo = bar".into()];
         assert!(!detect_usage_limit(&["usage limit reached"], &lines));
@@ -1648,6 +1733,18 @@ mod tests {
             "[H■monthly usage limit reached. It will reset in 5 days",
         ];
         let retained = chunks.concat();
+        assert!(detect_usage_limit_raw(
+            &["monthly usage limit reached"],
+            &retained
+        ));
+    }
+
+    #[test]
+    fn detect_usage_limit_raw_survives_truncation_through_cursor_sequence() {
+        let banner = "\x1b[H■monthly usage limit reached. It will reset in 5 days";
+        let mut retained = format!("old{banner}");
+        let max_bytes = banner.len() - 1;
+        truncate_usage_scan_buffer(&mut retained, max_bytes);
         assert!(detect_usage_limit_raw(
             &["monthly usage limit reached"],
             &retained

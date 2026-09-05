@@ -1112,11 +1112,7 @@ pub(crate) async fn start_session_runtime(
                                     handle.scan_bytes_seen += text.len() as u64;
                                     handle.scan_buf.push_str(&text);
                                     const MAX_SCAN: usize = 8192;
-                                    if handle.scan_buf.len() > MAX_SCAN {
-                                        let drop = handle.scan_buf.len() - MAX_SCAN;
-                                        let drop = (drop..drop + 4).find(|&i| handle.scan_buf.is_char_boundary(i)).unwrap_or(drop);
-                                        handle.scan_buf.drain(..drop);
-                                    }
+                                    peon::truncate_usage_scan_buffer(&mut handle.scan_buf, MAX_SCAN);
                                     let has_qualifying_work_signal = consume_pending_work_signal(
                                         &mut handle.pending_work_signal,
                                         &stripped,
