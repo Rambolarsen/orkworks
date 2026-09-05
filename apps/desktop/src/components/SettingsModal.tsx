@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { ChevronRight } from "lucide-react";
 import { acceleratorFromKeyboardEvent } from "../hotkeyCapture";
 import type { AppSettings, DebugSettings, HotkeySettings, RetentionSettings } from "../appSettingsTypes";
 import { normalizeProviderSettings, type ProviderDefinition, type ProviderId, type ProviderSettings, type PeonSelection, type PeonAppliedState, type PeonProviderVerificationResponse } from "../providerTypes";
@@ -887,7 +888,15 @@ export default function SettingsModal({ initialSection = "tools", initialSetting
                                 toggleToolExpanded(h.id);
                               }}
                             >
-                              <span aria-hidden="true">{expanded ? "▾" : "▸"}</span>
+                              <ChevronRight
+                                aria-hidden="true"
+                                size={18}
+                                className={
+                                  expanded
+                                    ? "settings-config-item-chevron-icon settings-config-item-chevron-icon--expanded"
+                                    : "settings-config-item-chevron-icon"
+                                }
+                              />
                             </button>
                           </div>
                           {/* Stays mounted while hidden (native `hidden` attribute, not
