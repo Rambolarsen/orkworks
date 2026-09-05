@@ -3,6 +3,7 @@ import type { DockviewApi } from "dockview-react";
 import DockviewApp from "./components/DockviewApp";
 import NewSessionDialog from "./components/NewSessionDialog";
 import SettingsModal from "./components/SettingsModal";
+import type { SettingsSection } from "./components/SettingsModal";
 import ToastRack from "./components/ToastRack";
 import { EMPTY_UNREAD_STATE, clearUnread, trackUnread, type UnreadState } from "./sessionUnread";
 import { PANEL_DEFAULTS, buildDefaultLayout } from "./components/DockviewApp";
@@ -25,7 +26,7 @@ import { disposeTerminal, getTerminal, pruneTerminals, getLiveTerminalCount, get
 import { captureRendererHealth, type RendererHealthSample } from "./rendererHealthProbe";
 import type { AppSettings } from "./appSettingsTypes";
 import type { CreateSessionOptions } from "./harnessTypes";
-import type { ActiveHarnessSaveResult, BackendLifecycleEvent } from "./orkworksWindow";
+import type { ActiveHarnessSaveResult, BackendLifecycleEvent, IntegrationKey } from "./orkworksWindow";
 import { shouldEnableSessionPolling, type BackendStatus } from "./backendPollingGate";
 import { probeBackendHealth } from "./backendHealthProbe";
 import { createWorkspaceSessionController } from "./workspaceSessionController";
@@ -39,6 +40,7 @@ function App() {
   const [isSwitchingWorkspace, setIsSwitchingWorkspace] = useState(false);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>("tools");
   const [providerRuntime, setProviderRuntime] = useState<ProviderRuntimeResponse | null>(null);
   const [noProvidersPrompt, setNoProvidersPrompt] = useState(false);
   const [resumeTick, setResumeTick] = useState(0);
@@ -166,8 +168,10 @@ function App() {
 
   const filteredHarnesses = activeNewSessionHarnesses(harnesses, activeHarnessIds);
 
-  const handleSaveActiveHarnesses = useCallback(async (ids: string[]): Promise<ActiveHarnessSaveResult> => {
-    const result = await window.orkworks.saveActiveHarnessesWithIntegrations(ids);
+  const handleSaveActiveHarnesses = useCallback(async (ids: string[], scope?: IntegrationKey): Promise<ActiveHarnessSaveResult> => {
+    const result = scope
+      ? await window.orkworks.enableHarnessIntegrationImmediate(ids, scope.adapterId, scope.targetId)
+      : await window.orkworks.saveActiveHarnessesWithIntegrations(ids);
     if (result.activeHarnesses.outcome === "persisted") {
       setActiveHarnessIds(ids);
     }
@@ -186,16 +190,18 @@ function App() {
     // whole window regardless of outcome (confirmed, cancelled, or failed).
     setIsSwitchingWorkspace(true);
     try {
-      const info = await window.orkworks.openWorkspace();
-      if (info) {
-        await workspaceSessionController.adoptRestoredWorkspace(info);
-      }
+      // Adoption is owned by the backend-lifecycle "ready" handler: main
+      // publishes the restored workspace with that event, and open-workspace
+      // resolves with the same restoration. Adopting here as well would run
+      // the adoption twice — a second /sessions fetch that clears and
+      // repopulates the just-adopted list (the issue #357 flash).
+      await window.orkworks.openWorkspace();
     } catch {
       pushToast("error", "Couldn't open workspace.");
     } finally {
       setIsSwitchingWorkspace(false);
     }
-  }, [workspaceSessionController]);
+  }, []);
 
   useEffect(() => {
     window.orkworks.getSettings().then(setSettings).catch(() => {
@@ -203,7 +209,8 @@ function App() {
     });
   }, []);
 
-  const openSettings = useCallback(async () => {
+  const openSettings = useCallback(async (section: SettingsSection = "tools") => {
+    setSettingsSection(section);
     try {
       const loaded = await window.orkworks.getSettings();
       setSettings(loaded);
@@ -520,6 +527,7 @@ function App() {
         onRefreshReview={() => setReviewTick((tick) => tick + 1)}
         onApplyDebugAttention={handleApplyDebugAttention}
         onFocusTerminal={handleFocusTerminal}
+        onOpenSettings={() => openSettings("providers")}
         onOpenWorkspace={handleOpenWorkspace}
         onReviewPlan={handleReviewPlan}
             onBackendUnavailable={handleBackendUnavailable}
@@ -551,6 +559,7 @@ function App() {
       )}
       {settingsOpen && settings && (
         <SettingsModal
+          initialSection={settingsSection}
           initialSettings={settings}
           harnesses={harnesses}
           documentRevision={harnessDocumentRevision}

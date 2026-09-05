@@ -24,10 +24,9 @@ import { rendererConsoleDiagnostic, rendererConsoleLevel, rendererOrigin, saniti
 import { recoveryDocumentUrl } from "./rendererRecoveryDocument";
 import { createRecoveryDocumentGuard, isSupersededNavigation } from "./rendererRecoveryState";
 import {
+  enableHarnessImmediate,
   isStale,
-  reconcileGroupedIntegration,
   saveActiveHarnessesWithIntegrations,
-  type ActiveHarnessIntegrationResult,
   type ActiveHarnessSaveResult,
   type ElectronHarnessConfig,
   type GroupedIntegrationStatus,
@@ -454,12 +453,12 @@ app.whenReady().then(() => {
       if (!response.ok) throw await parsePeonError(response, "Couldn't verify the Peon provider.");
       return await response.json() as PeonProviderVerificationResponse;
     },
-    apply: async ({ selection, generation, readyPort, signal }) => {
+    apply: async ({ selection, generation, readyPort, signal, skipTest }) => {
       const port = readyPort ?? await restoration.getReadiness();
       const response = await fetch(`http://127.0.0.1:${port}/settings/peon/test-and-apply`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ selection, generation }),
+        body: JSON.stringify(skipTest ? { selection, generation, skipTest } : { selection, generation }),
         signal,
       });
       if (!response.ok) throw await parsePeonError(response, "Couldn't apply the Peon provider.");
@@ -978,29 +977,29 @@ app.whenReady().then(() => {
   });
 
   ipcMain.handle(
-    "reconcile-harness-integration",
-    async (_event, adapterId: unknown, targetId: unknown): Promise<ActiveHarnessIntegrationResult> => {
+    "enable-harness-integration-immediate",
+    async (_event, ids: unknown, adapterId: unknown, targetId: unknown): Promise<ActiveHarnessSaveResult> => {
+      if (!Array.isArray(ids) || ids.some((id) => typeof id !== "string" || !id)) {
+        throw new Error("Invalid active harness IDs.");
+      }
       if (typeof adapterId !== "string" || !adapterId || typeof targetId !== "string" || !targetId) {
         throw new Error("Invalid integration key.");
       }
 
-      return reconcileGroupedIntegration(
-        { adapterId, targetId },
-        new Set(persistedActiveHarnessIds),
-        {
-          captureWorkspaceGuard: () => ({ workspacePath, generation: backendGeneration, activeHarnessRevision }),
-          listHarnesses: fetchHarnessesForSave,
-          getGroupedIntegrationStatus: async (key) =>
-            toGroupedIntegrationStatusResult(await callGroupedIntegrationRoute(key, "status")),
-          installGroupedIntegration: async (key, expected) =>
-            toGroupedIntegrationStatusResult(await callGroupedIntegrationRoute(key, "install", expected)),
-          repairGroupedIntegration: async (key, expected) =>
-            toGroupedIntegrationStatusResult(await callGroupedIntegrationRoute(key, "repair", expected)),
-          uninstallGroupedIntegration: async (key, expected) =>
-            toGroupedIntegrationStatusResult(await callGroupedIntegrationRoute(key, "uninstall", expected)),
-          confirmMutations,
-        },
-      );
+      return enableHarnessImmediate(ids, { adapterId, targetId }, {
+        captureWorkspaceGuard: () => ({ workspacePath, generation: backendGeneration, activeHarnessRevision }),
+        persistActiveHarnesses,
+        listHarnesses: fetchHarnessesForSave,
+        getGroupedIntegrationStatus: async (key) =>
+          toGroupedIntegrationStatusResult(await callGroupedIntegrationRoute(key, "status")),
+        installGroupedIntegration: async (key, expected) =>
+          toGroupedIntegrationStatusResult(await callGroupedIntegrationRoute(key, "install", expected)),
+        repairGroupedIntegration: async (key, expected) =>
+          toGroupedIntegrationStatusResult(await callGroupedIntegrationRoute(key, "repair", expected)),
+        uninstallGroupedIntegration: async (key, expected) =>
+          toGroupedIntegrationStatusResult(await callGroupedIntegrationRoute(key, "uninstall", expected)),
+        confirmMutations,
+      });
     },
   );
 

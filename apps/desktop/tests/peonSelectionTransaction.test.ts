@@ -148,3 +148,30 @@ test("peonErrorFromBody treats an unsafe-integer currentGeneration as absent", (
   assert.ok(error instanceof StaleGenerationError);
   assert.equal((error as StaleGenerationError).currentGeneration, null);
 });
+
+test("syncPersistedSelection applies with skipTest; a user-initiated apply does not", async () => {
+  const applyRequests: { skipTest?: boolean }[] = [];
+  const baseTransport = transportWithVerify(async (request) => verificationResponse(request.generation));
+  const transaction = createPeonSelectionTransaction({
+    ...baseTransport,
+    apply: async (request) => {
+      applyRequests.push({ skipTest: request.skipTest });
+      return {
+        provider: request.selection.provider,
+        model: request.selection.model,
+        ollamaBaseUrl: null,
+        appliedAt: "now",
+        connectionRevision: 1,
+      };
+    },
+  });
+
+  await transaction.verify("opencode");
+  await transaction.apply({ provider: "opencode", model: "gpt-5" });
+  await transaction.syncPersistedSelection({ provider: "opencode", model: "gpt-5" });
+
+  assert.deepEqual(applyRequests, [
+    { skipTest: undefined },
+    { skipTest: true },
+  ]);
+});

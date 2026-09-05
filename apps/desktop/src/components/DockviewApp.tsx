@@ -37,6 +37,7 @@ interface DockviewAppData {
   onRefreshReview: () => void;
   onApplyDebugAttention: (id: string, attention: SessionAttention, message?: string) => void;
   onFocusTerminal: () => void;
+  onOpenSettings: () => void;
   onOpenWorkspace: () => void;
   onReviewPlan: () => void;
   onBackendUnavailable: () => void;
@@ -114,6 +115,7 @@ function DetailPanel() {
       harnesses={ctx.harnesses}
       onResumeSession={ctx.onResumeSession}
       onApplyDebugAttention={ctx.onApplyDebugAttention}
+      onOpenSettings={ctx.onOpenSettings}
       onReviewPlan={ctx.onReviewPlan}
       showDebugMetadata={ctx.debugSettings.showSessionIds}
     />

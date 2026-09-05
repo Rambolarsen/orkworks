@@ -27,6 +27,13 @@ interface ToggleProps {
   statusDescription?: string;
   tooltip?: string;
   statusGlyph?: ToggleStatusGlyph;
+  /**
+   * Id of a status readout rendered elsewhere in the DOM (e.g. a collapsed
+   * disclosure's expanded subsection) that describes this switch. Ignored
+   * when `statusDescription` is given — that case renders its own readout
+   * and points `aria-describedby` at it instead.
+   */
+  describedById?: string;
 }
 
 function glyphText(statusGlyph: ToggleStatusGlyph | undefined): string {
@@ -46,6 +53,32 @@ function glyphText(statusGlyph: ToggleStatusGlyph | undefined): string {
   }
 }
 
+/** Status readout used both inside Toggle and by callers that render it in a separately-disclosed subsection. */
+export function ToggleStatusText({
+  id,
+  description,
+  glyph,
+}: {
+  id?: string;
+  description: string;
+  glyph?: ToggleStatusGlyph;
+}) {
+  return (
+    <span
+      id={id}
+      className={`ui-toggle-status${glyph ? ` ui-toggle-status--${glyph}` : ""}`}
+    >
+      <span
+        className={`ui-toggle-status-glyph${glyph === "spinner" ? " ui-toggle-status-glyph--spinner" : ""}`}
+        aria-hidden="true"
+      >
+        {glyphText(glyph)}
+      </span>
+      <span className="ui-toggle-status-text">{description}</span>
+    </span>
+  );
+}
+
 /** Pill switch used throughout Settings in place of native checkboxes. */
 export default function Toggle({
   checked,
@@ -57,6 +90,7 @@ export default function Toggle({
   statusDescription,
   tooltip,
   statusGlyph,
+  describedById,
 }: ToggleProps) {
   const statusId = useId();
   const hasStatus = Boolean(statusDescription);
@@ -66,7 +100,7 @@ export default function Toggle({
       role="switch"
       aria-checked={checked}
       aria-label={ariaLabel ?? label ?? undefined}
-      aria-describedby={hasStatus ? statusId : undefined}
+      aria-describedby={hasStatus ? statusId : describedById}
       className={`ui-toggle ui-toggle--${visualState}${checked ? " ui-toggle--on" : ""}`}
       onClick={onChange}
       disabled={disabled}
@@ -82,20 +116,7 @@ export default function Toggle({
     <span className="ui-toggle-row">
       {button}
       {label ? <span className="ui-toggle-label">{label}</span> : null}
-      {hasStatus ? (
-        <span
-          id={statusId}
-          className={`ui-toggle-status${statusGlyph ? ` ui-toggle-status--${statusGlyph}` : ""}`}
-        >
-          <span
-            className={`ui-toggle-status-glyph${statusGlyph === "spinner" ? " ui-toggle-status-glyph--spinner" : ""}`}
-            aria-hidden="true"
-          >
-            {glyphText(statusGlyph)}
-          </span>
-          <span className="ui-toggle-status-text">{statusDescription}</span>
-        </span>
-      ) : null}
+      {hasStatus ? <ToggleStatusText id={statusId} description={statusDescription!} glyph={statusGlyph} /> : null}
     </span>
   );
 }

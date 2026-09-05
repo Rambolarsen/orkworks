@@ -5,7 +5,6 @@ import {
   deriveIntegrationDisplayState,
   integrationOperationForHarness,
   isAttentionSignal,
-  isReconcileActionable,
   shouldShowInstalledConfirmation,
 } from "../src/harnessIntegrationPresentation.ts";
 import type {
@@ -33,50 +32,6 @@ test("unsupported tool versions suppress installed confirmation", () => {
     false,
   );
   assert.equal(shouldShowInstalledConfirmation([]), true);
-});
-
-test("isReconcileActionable mirrors the save flow's mutable states for enabled groups", () => {
-  // Drifted/error/absent registrations are mutable.
-  assert.equal(isReconcileActionable(true, integrationStatus({ registration: "drifted" })), true);
-  assert.equal(isReconcileActionable(true, integrationStatus({ registration: "error" })), true);
-  assert.equal(isReconcileActionable(true, integrationStatus({
-    registration: "absent",
-    ownership: "none",
-    activation: "unknown",
-  })), true);
-  // Installed with a repairable diagnostic is mutable.
-  assert.equal(isReconcileActionable(true, integrationStatus({
-    diagnostics: [{ code: "owned_fragment_drifted", message: "differs from the supported shape" }],
-  })), true);
-});
-
-test("isReconcileActionable is false for installed states the save flow would skip", () => {
-  assert.equal(isReconcileActionable(true, integrationStatus()), false);
-  assert.equal(isReconcileActionable(true, integrationStatus({
-    diagnostics: [{ code: "tool_not_detected", message: "tool not found" }],
-  })), false);
-  assert.equal(isReconcileActionable(true, integrationStatus({
-    diagnostics: [{ code: "unsupported_tool_version", message: "unsupported" }],
-  })), false);
-  assert.equal(isReconcileActionable(true, integrationStatus({
-    diagnostics: [{ code: "needs_trust", message: "needs trust" }],
-  })), false);
-  assert.equal(isReconcileActionable(true, integrationStatus({ activation: "needs_trust" })), false);
-  assert.equal(isReconcileActionable(true, integrationStatus({ ownership: "ambiguous" })), false);
-  assert.equal(isReconcileActionable(true, integrationStatus({ registration: "unsupported" })), false);
-  assert.equal(isReconcileActionable(true, { ok: false, error: "route missing" }), false);
-});
-
-test("isReconcileActionable offers cleanup only for OrkWorks-owned integrations when disabled", () => {
-  assert.equal(isReconcileActionable(false, integrationStatus()), true);
-  assert.equal(isReconcileActionable(false, integrationStatus({ registration: "drifted" })), true);
-  assert.equal(isReconcileActionable(false, integrationStatus({
-    registration: "absent",
-    ownership: "none",
-    activation: "unknown",
-  })), false);
-  assert.equal(isReconcileActionable(false, integrationStatus({ ownership: "none" })), false);
-  assert.equal(isReconcileActionable(false, integrationStatus({ ownership: "ambiguous" })), false);
 });
 
 function integrationStatus(
@@ -152,6 +107,7 @@ test("deriveIntegrationDisplayState returns needs-you for enabled but absent int
   assert.notEqual(display.appearance, "warning");
   assert.equal(display.glyph, "warning");
   assert.match(display.description, /needs installation/);
+  assert.match(display.description, /toggle.*off.*on/i);
 });
 
 test("deriveIntegrationDisplayState keeps Codex trust-pending in needs-you state", () => {
@@ -184,6 +140,7 @@ test("deriveIntegrationDisplayState returns needs-you for disabled tools with ow
   assert.equal(display.appearance, "needs-you");
   assert.equal(display.glyph, "warning");
   assert.match(display.description, /cleanup/i);
+  assert.match(display.description, /save.*retry/i);
 });
 
 test("deriveIntegrationDisplayState does not call a disabled shared consumer cleanup-needed while another consumer is active", () => {
@@ -272,6 +229,25 @@ test("deriveIntegrationDisplayState keeps failed operations actionable even when
   assert.equal(display.label, "action required");
   assert.equal(display.glyph, "warning");
   assert.match(display.tooltip, /permission denied/i);
+  assert.match(display.tooltip, /toggle.*off.*on/i);
+});
+
+test("deriveIntegrationDisplayState points a disabled tool's failed cleanup at Save, not the toggle", () => {
+  const display = deriveIntegrationDisplayState({
+    harnessName: "Codex",
+    enabled: false,
+    status: integrationStatus({ ownership: "ork_works" }),
+    operation: integrationOperation({
+      operation: "uninstall",
+      outcome: "failed",
+      message: "Hook removal failed: permission denied.",
+    }),
+  });
+
+  assert.equal(display.appearance, "needs-you");
+  assert.match(display.tooltip, /permission denied/i);
+  assert.match(display.tooltip, /save.*retry/i);
+  assert.doesNotMatch(display.tooltip, /toggle.*off.*on/i);
 });
 
 test("deriveIntegrationDisplayState gives operation failure precedence over status diagnostics", () => {

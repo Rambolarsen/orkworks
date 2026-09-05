@@ -1,6 +1,6 @@
 ---
 name: orchestrating-task-graphs
-description: Use when coordinating multiple agents or subagents on one goal — deciding whether to fan out at all, drawing the plan as a graph of jobs, running parallel workers with separate verifiers, or merging multi-agent results into one deliverable. Triggers include "orchestrate", "fan out", "parallel agents", "multi-agent", or any task you are about to split across subagent dispatches.
+description: Use when coordinating multiple agents or subagents on one goal, or before splitting any task across subagent dispatches. Triggers include "orchestrate", "fan out", "parallel agents", "multi-agent".
 ---
 
 # Orchestrating Task Graphs
@@ -20,8 +20,10 @@ Ask: **where does this work split into pieces that never read each other's resul
 
 ```
         ┌─ worker 1 ─┐
-plan ───┼─ worker 2 ─┼─→ verify ─→ merge ─→ result
-        └─ worker 3 ─┘
+plan ───┼─ worker 2 ─┼─→ merge ─→ verify ─→ apply verdicts ─→ result
+        └─ worker 3 ─┘    ↑        ↑
+                     one owned   separate contexts,
+                     draft       different questions
 ```
 
 - **Plan (orchestrator):** write the routing down *before* dispatching — workers, their exact questions, dependencies, caps. The routing is fixed; agents fill jobs, not redesign the plan mid-flight.
