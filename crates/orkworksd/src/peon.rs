@@ -501,51 +501,125 @@ fn command_outcome_summary(output: &[String]) -> Option<String> {
     outcome
 }
 
-/// A genuine usage-limit banner is emitted by the harness as its own short
-/// status line, with the pattern near the start and at most a reset hint plus
-/// TUI status decoration after it. The same pattern text buried inside a long
-/// line of displayed content (echoed source code, AI conversation text,
-/// scrollback of either) is display, not a cap signal, and must not latch the
-/// session capped. Both sides of the match are therefore bounded; the
-/// co-located reset-hint fragment does not count toward the suffix budget.
+/// A genuine usage-limit banner is emitted by the harness as its own status
+/// row: only whitespace or TUI decoration before the pattern, no quoted
+/// content anywhere in the row, and at most a reset hint plus UI chrome after
+/// it. The same pattern text inside displayed content (echoed source code,
+/// grep output, AI conversation text, scrollback of either) is display, not a
+/// cap signal, and must not latch the session capped.
 const LIMIT_CONTEXT_MAX_CHARS: usize = 48;
-/// A real banner is emitted at the start of a status line: at most a spinner
-/// glyph or box-drawing decoration precedes the pattern. Displayed code and
-/// prose routinely carry tens of characters of context before a buried
-/// pattern, so the prefix budget must stay tight.
-const LIMIT_PREFIX_MAX_CHARS: usize = 24;
-/// A real banner's reset hint ("resets in 2h") starts within a couple of
-/// separator characters of the pattern; a later prose mention gets no relief.
-const LIMIT_HINT_ANCHOR_MAX_PREFIX: usize = 4;
+/// UI chrome tolerated after a clean co-located reset hint (e.g. Copilot's
+/// "… To continue using ... (click to expand) [retry attempt #1]" tail).
+const LIMIT_TAIL_MAX_CHARS: usize = 72;
+/// A real banner's reset hint ("resets in 2h") starts within a short
+/// separator phrase of the pattern ("… reached, resets …", "… reached. It
+/// will reset …"); a later prose mention gets no relief.
+const LIMIT_HINT_ANCHOR_MAX_PREFIX: usize = 12;
+/// Displayed content quotes things: code, shell output, prose citations. A
+/// real banner row is natural UI text and carries no quote characters. This
+/// kills the whole class of false latches where the pattern sits inside a
+/// quoted string (`"usage limit reached, resets in 2h".into(),`), including
+/// rows that wrapping happens to start exactly at the pattern. Single
+/// apostrophes stay allowed — real banners contain them ("You've hit…").
+const BANNER_QUOTE_CHARS: &[char] = &['"', '`'];
+/// The extracted reset hint may only contain natural-language characters.
+/// A "hint" carrying code punctuation (`,`, `;`, `=`, quotes) is prose or
+/// code the extractor grabbed, not the banner's hint.
+fn is_clean_hint_char(c: char) -> bool {
+    c.is_alphanumeric()
+        || c.is_whitespace()
+        || matches!(c, ':' | '(' | ')' | '.' | '/' | '-' | '\u{00b7}')
+}
 
-fn bounded_limit_match(plain: &str, pattern_lower: &str) -> bool {
+/// Only whitespace or TUI decoration (spinner glyphs, box drawing, blocks)
+/// may precede the pattern on a real banner row. Displayed code and grep
+/// output carry line numbers, quotes, or letters before a buried pattern.
+fn is_banner_prefix_char(c: char) -> bool {
+    c.is_whitespace() || (!c.is_alphanumeric() && !c.is_ascii_punctuation())
+}
+
+/// Locates the first banner-shaped occurrence of `pattern_lower` in `plain`
+/// (one display row or raw segment) and returns the byte offset just past the
+/// match, or None if the row cannot plausibly be a real banner.
+fn banner_match_end(plain: &str, pattern_lower: &str) -> Option<usize> {
+    if plain.contains(BANNER_QUOTE_CHARS) {
+        return None;
+    }
     let lower = plain.to_ascii_lowercase();
     for (start, matched) in lower.match_indices(pattern_lower) {
+        if !plain[..start].chars().all(is_banner_prefix_char) {
+            continue;
+        }
         let end = start + matched.len();
-        let prefix_chars = lower[..start].chars().count();
-        let mut suffix_chars = lower[end..].chars().count();
         let suffix_plain = &plain[end..];
-        let anchor = suffix_lower_anchor(&lower[end..]);
-        if let Some(anchor_rel) = anchor {
+        let suffix_lower = &lower[end..];
+        let suffix_chars = suffix_lower.chars().count();
+        if suffix_chars <= LIMIT_CONTEXT_MAX_CHARS {
+            return Some(end);
+        }
+        if let Some(anchor_rel) = suffix_anchor_chars(suffix_lower) {
             if anchor_rel <= LIMIT_HINT_ANCHOR_MAX_PREFIX {
-                if let Some(hint) = extract_reset_hint(suffix_plain, &lower[end..]) {
-                    suffix_chars -= hint.chars().count().min(suffix_chars);
+                if let Some(hint) = extract_reset_hint(suffix_plain, suffix_lower) {
+                    let hint_chars = hint.chars().count();
+                    if hint_chars > 0
+                        && hint.chars().all(is_clean_hint_char)
+                        && suffix_chars.saturating_sub(hint_chars) <= LIMIT_TAIL_MAX_CHARS
+                    {
+                        return Some(end);
+                    }
                 }
             }
         }
-        if prefix_chars <= LIMIT_PREFIX_MAX_CHARS && suffix_chars <= LIMIT_CONTEXT_MAX_CHARS {
-            return true;
-        }
     }
-    false
+    None
 }
 
-fn suffix_lower_anchor(suffix_lower: &str) -> Option<usize> {
-    suffix_lower
+fn bounded_limit_match(plain: &str, pattern_lower: &str) -> bool {
+    banner_match_end(plain, pattern_lower).is_some()
+}
+
+/// Extracts the banner's own reset hint from a row that carries a
+/// banner-prefixed pattern match. The hint must start within a short
+/// separator phrase of the pattern — a later prose mention in the row is not
+/// the banner's hint, and rows without such a match yield nothing. Unlike the
+/// latch path there is no suffix budget here: a long redrawn-screen tail must
+/// not hide the hint, and the extractor's own length cap bounds it.
+fn colocated_banner_hint(plain: &str, pattern_lower: &str) -> Option<String> {
+    let end = hint_match_end(plain, pattern_lower)?;
+    let suffix_plain = &plain[end..];
+    let suffix_lower = suffix_plain.to_ascii_lowercase();
+    let anchor_rel = suffix_anchor_chars(&suffix_lower)?;
+    if anchor_rel > LIMIT_HINT_ANCHOR_MAX_PREFIX {
+        return None;
+    }
+    extract_reset_hint(suffix_plain, &suffix_lower)
+}
+
+fn suffix_anchor_chars(suffix_lower: &str) -> Option<usize> {
+    let found = suffix_lower
         .find("resets in")
         .or_else(|| suffix_lower.find("reset in"))
         .or_else(|| suffix_lower.find("resets "))
-        .or_else(|| suffix_lower.find("try again at"))
+        .or_else(|| suffix_lower.find("try again at"))?;
+    // Char, not byte, offset — codepoints between the pattern and the hint
+    // (e.g. multi-byte glyphs) must not inflate the anchor distance.
+    Some(suffix_lower[..found].chars().count())
+}
+
+/// Locates a banner-prefixed pattern match for hint extraction: quoted
+/// content is rejected, and only whitespace/TUI decoration may precede the
+/// pattern.
+fn hint_match_end(plain: &str, pattern_lower: &str) -> Option<usize> {
+    if plain.contains(BANNER_QUOTE_CHARS) {
+        return None;
+    }
+    let lower = plain.to_ascii_lowercase();
+    for (start, matched) in lower.match_indices(pattern_lower) {
+        if plain[..start].chars().all(is_banner_prefix_char) {
+            return Some(start + matched.len());
+        }
+    }
+    None
 }
 
 /// Detects usage limit in a raw text blob (for TUI apps that use cursor positioning, not newlines).
@@ -595,36 +669,34 @@ fn extract_reset_hint(plain: &str, lower: &str) -> Option<String> {
 }
 
 /// Extracts reset hint from a raw text blob (for TUI apps that use cursor positioning, not newlines).
+/// The blob is matched per newline/CR segment: the hint comes from a row that
+/// itself carries a banner-shaped pattern match, anchored just after that
+/// match — never from an unrelated row elsewhere in the blob.
 pub fn detect_usage_limit_hint_raw<S: AsRef<str>>(patterns: &[S], text: &str) -> Option<String> {
     if patterns.is_empty() {
         return None;
     }
     let plain = strip_ansi(text);
-    let lower = plain.to_ascii_lowercase();
-    if !patterns
-        .iter()
-        .any(|p| lower.contains(p.as_ref().to_lowercase().as_str()))
-    {
-        return None;
-    }
-    extract_reset_hint(&plain, &lower)
+    plain.split(['\r', '\n']).find_map(|segment| {
+        patterns
+            .iter()
+            .find_map(|p| colocated_banner_hint(segment, &p.as_ref().to_ascii_lowercase()))
+    })
 }
 
 /// Returns the "reset in X" fragment from the usage-limit line, if present.
+/// Only rows that carry a banner-shaped pattern match contribute a hint, and
+/// the hint must sit just after the match — prose elsewhere on the row is
+/// ignored.
 pub fn detect_usage_limit_hint<S: AsRef<str>>(patterns: &[S], lines: &[String]) -> Option<String> {
     if patterns.is_empty() {
         return None;
     }
     lines.iter().rev().find_map(|line| {
         let plain = strip_ansi(line);
-        let lower = plain.to_ascii_lowercase();
-        if !patterns
+        patterns
             .iter()
-            .any(|p| lower.contains(p.as_ref().to_lowercase().as_str()))
-        {
-            return None;
-        }
-        extract_reset_hint(&plain, &lower)
+            .find_map(|p| colocated_banner_hint(&plain, &p.as_ref().to_ascii_lowercase()))
     })
 }
 
@@ -1500,6 +1572,105 @@ mod tests {
     }
 
     #[test]
+    fn detect_usage_limit_ignores_grep_output_with_line_number_prefix() {
+        // Regression: an agent session displaying this repo's own peon.rs via
+        // `rg` latched capped — the quoted sample banner sat inside the old
+        // 24-char prefix budget and the reset hint swallowed the suffix.
+        // Real banners never carry grep line numbers or quoted code.
+        let lines = vec!["1397:            \"usage limit reached, resets in 2h\".into(),".into()];
+        assert!(!detect_usage_limit(&["usage limit reached"], &lines));
+    }
+
+    #[test]
+    fn detect_usage_limit_raw_ignores_grep_output_with_line_number_prefix() {
+        let text = "cursor-addressed screen content \r\n1397:            \"usage limit reached, resets in 2h\".into(),";
+        assert!(!detect_usage_limit_raw(&["usage limit reached"], &text));
+    }
+
+    #[test]
+    fn detect_usage_limit_ignores_quoted_code_row_starting_at_pattern() {
+        // Terminal wrapping can start a display row exactly at the pattern
+        // (the old prefix budget passed); the quoted code tail is what
+        // betrays it as displayed content, not a banner.
+        let lines = vec!["usage limit reached, resets in 2h\".into(),".into()];
+        assert!(!detect_usage_limit(&["usage limit reached"], &lines));
+    }
+
+    #[test]
+    fn detect_usage_limit_hint_raw_ignores_hint_in_unrelated_display_row() {
+        // The blob contains the pattern buried in one displayed line and a
+        // "resets in" doc-comment fragment in an entirely different row. The
+        // old extraction searched from the start of the whole blob and
+        // captured the prose fragment as a hint.
+        let text =
+            "the way to check is events/<session-id>.terminal for an actual usage limit reached \
+                     line from OpenCode itself (I checked your current sessions and found none)\n\
+                     /// Extracts the bounded \"resets in X\" fragment from ANSI-stripped text.\n";
+        assert_eq!(
+            detect_usage_limit_hint_raw(&["usage limit reached"], text),
+            None
+        );
+    }
+
+    #[test]
+    fn detect_usage_limit_hint_raw_anchors_hint_after_the_pattern_match() {
+        // Prose mentioning "resets in" precedes the real banner row; the
+        // hint must come from the banner row, not from the earlier prose.
+        let text = "note that the timer resets in the docs\r\nusage limit reached, resets in 2h";
+        assert_eq!(
+            detect_usage_limit_hint_raw(&["usage limit reached"], text).as_deref(),
+            Some("resets in 2h")
+        );
+    }
+
+    #[test]
+    fn detect_usage_limit_hint_ignores_hint_not_colocated_on_line() {
+        let lines = vec![
+            "the docs mention usage limit reached and resets in 2h much later in the sentence"
+                .into(),
+        ];
+        assert_eq!(
+            detect_usage_limit_hint(&["usage limit reached"], &lines),
+            None
+        );
+    }
+
+    #[test]
+    fn detect_usage_limit_matches_real_captured_claude_banner_with_nbsp_prefix() {
+        // Pinned from a real captured cap (session terminal replay): Claude
+        // Code emits the banner as its own row prefixed by a non-breaking
+        // space after a result block.
+        let lines =
+            vec!["\u{00a0}You've hit your session limit · resets 5:10pm (Europe/Oslo)".into()];
+        assert!(detect_usage_limit(
+            &["you've hit your session limit"],
+            &lines
+        ));
+    }
+
+    #[test]
+    fn detect_usage_limit_matches_real_captured_copilot_banner_with_reset_tail() {
+        // Pinned from a real captured cap: the banner carries a long "will
+        // reset in …" tail plus "(click to expand)" chrome after the hint.
+        // The old 48-char suffix budget missed this real banner entirely.
+        let lines = vec![
+            "■monthly usage limit reached. It will reset in 5 days 6 hours. To continue using ... (click to expand) [retry attempt #1]".into(),
+        ];
+        assert!(detect_usage_limit(&["monthly usage limit reached"], &lines));
+    }
+
+    #[test]
+    fn detect_usage_limit_hint_extracts_real_captured_copilot_reset_hint() {
+        let lines = vec![
+            "■monthly usage limit reached. It will reset in 5 days 6 hours. To continue using ... (click to expand) [retry attempt #1]".into(),
+        ];
+        assert_eq!(
+            detect_usage_limit_hint(&["monthly usage limit reached"], &lines).as_deref(),
+            Some("reset in 5 days 6 hours")
+        );
+    }
+
+    #[test]
     fn detect_usage_limit_hint_handles_claude_reset_time() {
         let lines = vec!["You've hit your session limit · resets 5:10pm (Europe/Oslo)".into()];
         assert_eq!(
@@ -1556,8 +1727,10 @@ mod tests {
     fn detect_usage_limit_hint_raw_survives_codepoints_that_shrink_when_lowercased() {
         // Kelvin sign (3 bytes) lowercases to 'k' (1 byte); with Unicode
         // to_lowercase the anchor index found in the lowered string is not a
-        // char boundary in the original and slicing panics.
-        let text = "\u{212A}\u{00E9} session limit reached, resets 5pm (UTC)";
+        // char boundary in the original and slicing panics. The shrinking
+        // codepoints sit between the pattern and the hint so the lowered-
+        // suffix index math is still exercised end to end.
+        let text = "session limit reached\u{212A}\u{00E9}, resets 5pm (UTC)";
         assert_eq!(
             detect_usage_limit_hint_raw(&["session limit"], text).as_deref(),
             Some("resets 5pm (UTC)")
