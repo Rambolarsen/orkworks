@@ -190,16 +190,18 @@ function App() {
     // whole window regardless of outcome (confirmed, cancelled, or failed).
     setIsSwitchingWorkspace(true);
     try {
-      const info = await window.orkworks.openWorkspace();
-      if (info) {
-        await workspaceSessionController.adoptRestoredWorkspace(info);
-      }
+      // Adoption is owned by the backend-lifecycle "ready" handler: main
+      // publishes the restored workspace with that event, and open-workspace
+      // resolves with the same restoration. Adopting here as well would run
+      // the adoption twice — a second /sessions fetch that clears and
+      // repopulates the just-adopted list (the issue #357 flash).
+      await window.orkworks.openWorkspace();
     } catch {
       pushToast("error", "Couldn't open workspace.");
     } finally {
       setIsSwitchingWorkspace(false);
     }
-  }, [workspaceSessionController]);
+  }, []);
 
   useEffect(() => {
     window.orkworks.getSettings().then(setSettings).catch(() => {
