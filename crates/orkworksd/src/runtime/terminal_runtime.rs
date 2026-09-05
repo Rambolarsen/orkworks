@@ -647,12 +647,6 @@ fn queue_label_hint_at_epoch(
         .insert(id.to_string());
 }
 
-pub(crate) fn queue_label_hint(state: &Arc<AppState>, id: &str, line: String) {
-    with_label_epoch_read(state, id, |epoch| {
-        queue_label_hint_at_epoch(state, id, line, epoch, false)
-    });
-}
-
 pub(crate) fn queue_initial_prompt_label_hint(state: &Arc<AppState>, id: &str, line: String) {
     with_label_epoch_read(state, id, |epoch| {
         queue_label_hint_at_epoch(state, id, line, epoch, true)
