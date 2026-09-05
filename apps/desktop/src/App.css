@@ -1434,8 +1434,12 @@ html, body, #root {
 .session-row--remembered { opacity: 0.62; }
 
 /* Which tones are "loud" lives in labels.ts (isLoudTone) — the component
-   stamps session-row--loud so this file never re-lists the tone set. */
+   stamps session-row--loud so this file never re-lists the tone set. Bold
+   nags you to look; once the row is the one you're already looking at,
+   drop back to regular weight — the attention color/label still shows the
+   need is unresolved, but the row shouldn't keep shouting at its own viewer. */
 .session-row--loud .session-row-label { font-weight: var(--weight-semibold); }
+.session-row--loud[aria-selected="true"] .session-row-label { font-weight: var(--weight-regular); }
 
 .session-row-leading {
   display: flex;
