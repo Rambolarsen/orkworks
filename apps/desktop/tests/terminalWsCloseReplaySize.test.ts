@@ -36,3 +36,14 @@ test("ws.onclose in-place replay writes regardless of recorded-size presence", (
     "replay must still be written when the sidecar omitted cols/rows (legacy fallback)",
   );
 });
+
+test("ws.onclose in-place replay resizes to the recorded grid before writing", () => {
+  const block = source.match(/getTerminalOutput\(baseUrl, id\)\.then\(\([\s\S]*?\}\)\.catch\(/)?.[0]
+    ?? "";
+  const resizeAt = block.indexOf("term.resize(size.cols, size.rows)");
+  const writeAt = block.indexOf("writeTerminalReplay(term, payload.lines)");
+  assert.ok(
+    resizeAt !== -1 && writeAt !== -1 && resizeAt < writeAt,
+    "replay text written before the recorded grid is applied would wrap at the old width and then reflow",
+  );
+});
