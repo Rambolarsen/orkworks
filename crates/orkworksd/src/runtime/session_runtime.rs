@@ -1079,7 +1079,6 @@ pub(crate) async fn start_session_runtime(
                             persist_buffer.extend_from_slice(&data);
                             let text = String::from_utf8_lossy(&data);
                             let stripped = peon::strip_ansi(&text);
-                            let scan_stripped = peon::strip_ansi_for_usage_limit(&text);
                             let raw_persist_lines = drain_persist_records(&mut persist_buffer);
                             let output_at = output_recency_timestamp(
                                 &data,
@@ -1110,8 +1109,8 @@ pub(crate) async fn start_session_runtime(
                                         }
                                     }
                                     handle.output_lines_seen += raw_persist_lines.len() as u64;
-                                    handle.scan_bytes_seen += scan_stripped.len() as u64;
-                                    handle.scan_buf.push_str(&scan_stripped);
+                                    handle.scan_bytes_seen += text.len() as u64;
+                                    handle.scan_buf.push_str(&text);
                                     const MAX_SCAN: usize = 8192;
                                     if handle.scan_buf.len() > MAX_SCAN {
                                         let drop = handle.scan_buf.len() - MAX_SCAN;

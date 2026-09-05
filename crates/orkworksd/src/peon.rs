@@ -245,10 +245,7 @@ fn strip_ansi_escape<I: Iterator<Item = char>>(
             // Cursor-positioning finals: insert a space so adjacent screen
             // regions don't merge into a single token after stripping.
             if cursor_row_boundaries
-                && matches!(
-                    final_byte,
-                    'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | 'H' | 'd' | 'f' | 's' | 'u'
-                )
+                && matches!(final_byte, 'A' | 'B' | 'E' | 'F' | 'H' | 'd' | 'f')
             {
                 out.push('\n');
             } else if matches!(
@@ -534,6 +531,8 @@ const LIMIT_CONTEXT_MAX_CHARS: usize = 48;
 /// spinner or status glyph prefix. A finite bound keeps a wrapped prose/code
 /// match from masquerading as a banner even when its prefix is punctuation.
 const LIMIT_PREFIX_MAX_CHARS: usize = 24;
+/// UI chrome tolerated after a clean co-located reset hint.
+const LIMIT_TAIL_MAX_CHARS: usize = 72;
 /// A real banner's reset hint ("resets in 2h") starts within a short
 /// separator phrase of the pattern ("… reached, resets …", "… reached. It
 /// will reset …"); a later prose mention gets no relief.
@@ -580,7 +579,10 @@ fn validated_reset_hint(suffix_plain: &str, suffix_lower: &str) -> Option<String
     }
     let hint = extract_reset_hint(suffix_plain, suffix_lower)?;
     let hint_chars = hint.chars().count();
-    if hint_chars == 0 || !hint.chars().all(is_clean_hint_char) {
+    if hint_chars == 0
+        || !hint.chars().all(is_clean_hint_char)
+        || suffix_lower.chars().count().saturating_sub(hint_chars) > LIMIT_TAIL_MAX_CHARS
+    {
         return None;
     }
     Some(hint)
@@ -1634,6 +1636,25 @@ mod tests {
     }
 
     #[test]
+    fn detect_usage_limit_raw_does_not_split_on_horizontal_cursor_move() {
+        let text = "prefix\x1b[1Cusage limit reached";
+        assert!(!detect_usage_limit_raw(&["usage limit reached"], text));
+    }
+
+    #[test]
+    fn detect_usage_limit_raw_parses_an_escape_split_across_retained_chunks() {
+        let chunks = [
+            "old screen content\x1b",
+            "[H■monthly usage limit reached. It will reset in 5 days",
+        ];
+        let retained = chunks.concat();
+        assert!(detect_usage_limit_raw(
+            &["monthly usage limit reached"],
+            &retained
+        ));
+    }
+
+    #[test]
     fn detect_usage_limit_raw_matches_pattern_on_short_segment_mid_buffer() {
         let text = format!(
             "{}\r\nusage limit reached\r\n{}",
@@ -1777,12 +1798,17 @@ mod tests {
             "usage limit reached · resets in 2h {}",
             "trailing pane text without any glyph or period ".repeat(5)
         );
-        let hint = detect_usage_limit_hint_raw(&["usage limit reached"], &text).unwrap();
+        let hint = extract_reset_hint(&text, &text.to_ascii_lowercase()).unwrap();
         assert!(hint.starts_with("resets in 2h"));
         let len = hint.chars().count();
         assert!(
             (70..=80).contains(&len),
             "cap not applied near 80: {len} ({hint})"
+        );
+        assert!(!detect_usage_limit_raw(&["usage limit reached"], &text));
+        assert_eq!(
+            detect_usage_limit_hint_raw(&["usage limit reached"], &text),
+            None
         );
     }
 
