@@ -472,14 +472,38 @@ html, body, #root {
 }
 
 .settings-config-item-chevron {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
   color: var(--text-faint);
-  font-size: var(--text-sm);
   flex-shrink: 0;
   background: none;
   border: none;
+  border-radius: var(--radius-sm);
   padding: 0;
   cursor: pointer;
   font-family: inherit;
+  transition: var(--transition-control);
+}
+
+.settings-config-item-chevron:hover {
+  background: var(--surface-3);
+  color: var(--text-secondary);
+}
+
+.settings-config-item-chevron:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-offset);
+}
+
+.settings-config-item-chevron-icon {
+  transition: transform var(--duration-fast) var(--ease-standard);
+}
+
+.settings-config-item-chevron-icon--expanded {
+  transform: rotate(90deg);
 }
 
 .sr-only {
