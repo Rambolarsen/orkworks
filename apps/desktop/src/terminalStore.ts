@@ -4,7 +4,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { terminalPtySize } from "./terminalSize";
 import { orkworksTerminalTheme } from "./terminalTheme";
 import { getTerminalOutput } from "./api";
-import { writeTerminalReplay } from "./terminalReplay";
+import { writeTerminalReplay, recordedReplaySize } from "./terminalReplay";
 import { createTerminalPlanLinkProvider, terminalLinkHandler } from "./terminalLinks";
 import {
   parseTerminalControlMessage,
@@ -200,6 +200,14 @@ export function ensureTerminal(id: string, baseUrl: string): TerminalHandle {
     ) {
       getTerminalOutput(baseUrl, id).then((payload) => {
         if (handle.disposed) return;
+        const size = recordedReplaySize(payload);
+        if (size) {
+          // Replay at the recorded grid (ADR 0046): stop fit-to-container
+          // resizing, then reshape the terminal before writing, matching
+          // HistoricalTerminal's recorded-size behavior.
+          handle.resizeObserver.disconnect();
+          term.resize(size.cols, size.rows);
+        }
         writeTerminalReplay(term, payload.lines);
       }).catch(() => {
         /* silently ignore fetch failures */
