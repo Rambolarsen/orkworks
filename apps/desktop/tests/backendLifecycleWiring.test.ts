@@ -24,3 +24,17 @@ test("App exposes a retry action that resets status and invokes the lifecycle br
   assert.match(appSource, /backend-recovery/);
   assert.match(appSource, />\s*Retry\s*</);
 });
+
+test("opening a workspace adopts the restoration once — from the ready handler, not the dialog handler", () => {
+  // One restoration (main publishes the same restored workspace via the
+  // ready lifecycle event and as open-workspace/get-initial-workspace IPC
+  // results) must trigger exactly one adoptRestoredWorkspace. A second
+  // adopt clears the just-populated session list and refetches — the
+  // double /sessions round-trip and visible list flash from issue #357.
+  const start = appSource.indexOf("const handleOpenWorkspace = useCallback");
+  const end = appSource.indexOf("const openSettings = useCallback");
+  assert.ok(start !== -1 && end !== -1 && start < end, "handleOpenWorkspace block not found");
+  const dialogHandler = appSource.slice(start, end);
+  assert.doesNotMatch(dialogHandler, /adoptRestoredWorkspace/);
+  assert.match(appSource, /state === "ready"[\s\S]{0,200}adoptRestoredWorkspace\(event\.workspace\)/);
+});
