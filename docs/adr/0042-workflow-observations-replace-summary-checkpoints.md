@@ -39,9 +39,16 @@ decisions and replaces the durable-summary-checkpoint mechanism:
   trimmed on append; existing oversized dormant files are not proactively
   migrated.
 - **Stable one-shot label stays** (surviving ADR 0029 decision): `label`
-  remains a one-shot, Peon-authored topic seeded synchronously from the first
-  descriptive user input and refined once by Peon's `InputLabel` inference. It
-  remains outside the ADR 0005 metadata source/confidence precedence system.
+  remains a one-shot, Peon-authored topic outside the ADR 0005 metadata
+  source/confidence precedence system. A descriptive New Session dialog prompt
+  is an immediate bootstrap fallback; the first later descriptive terminal
+  input may replace that fallback once. A descriptive terminal input with no
+  bootstrap prompt seeds the label directly. Peon's `InputLabel` inference may
+  refine the selected topic; the first later descriptive terminal input clears
+  the bootstrap marker, after which the topic is frozen. This preserves a
+  stable topic while preventing shared startup context from freezing every
+  child session's title; the persisted marker and stale-inference guard are
+  specified in [ADR 0047](./0047-initial-prompt-label-fallback.md).
 - **Current-summary snapshot replaces borrowed provenance**: `summary`
   becomes a first-class snapshot carrying its own `summarySource` (`agent` |
   `peon`), `summaryConfidence`, and `summaryObservedAt` fields, all four

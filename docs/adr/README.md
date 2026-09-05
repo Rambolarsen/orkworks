@@ -54,3 +54,4 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 | [0044](./0044-peon-provider-first-selection.md) | Peon provider-first selection | proposed |
 | [0045](./0045-improve-workflow-lifecycle-statuses.md) | improve_workflow reaches only proposed/dismissed; superseded is deserialization-only | accepted |
 | [0046](./0046-live-resize-persistence-for-terminal-size-sidecar.md) | Live-resize persistence for the per-session `.terminal-size` sidecar | accepted |
+| [0047](./0047-initial-prompt-label-fallback.md) | Initial-prompt labels are replaceable bootstrap fallbacks | accepted |

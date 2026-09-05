@@ -1194,6 +1194,7 @@ mod tests {
         metadata::SessionMetadata {
             id: id.into(),
             label: "Test".into(),
+            label_from_initial_prompt: false,
             workspace: workspace.clone(),
             task: "".into(),
             harness: "".into(),
@@ -1378,6 +1379,7 @@ mod tests {
                 .write_session(&metadata::SessionMetadata {
                     id: "known".into(),
                     label: "Known".into(),
+                    label_from_initial_prompt: false,
                     workspace: dir.path().display().to_string(),
                     task: "".into(),
                     harness: "codex".into(),
@@ -1523,6 +1525,7 @@ mod tests {
                 .write_session(&metadata::SessionMetadata {
                     id: session_id.clone(),
                     label: "Known".into(),
+                    label_from_initial_prompt: false,
                     workspace: dir.path().display().to_string(),
                     task: "".into(),
                     harness: "opencode".into(),
@@ -2744,6 +2747,7 @@ mod tests {
                 .write_session(&metadata::SessionMetadata {
                     id: session_id.clone(),
                     label: "Resume Attached".into(),
+                    label_from_initial_prompt: false,
                     workspace: dir.path().display().to_string(),
                     task: "".into(),
                     harness: "opencode".into(),
@@ -2860,6 +2864,7 @@ mod tests {
                 .write_session(&metadata::SessionMetadata {
                     id: session_id.clone(),
                     label: "Resume Detached Live".into(),
+                    label_from_initial_prompt: false,
                     workspace: dir.path().display().to_string(),
                     task: "".into(),
                     harness: "opencode".into(),
@@ -2997,6 +3002,7 @@ mod tests {
                 .write_session(&metadata::SessionMetadata {
                     id: "attention-known".into(),
                     label: "Known".into(),
+                    label_from_initial_prompt: false,
                     workspace: dir.path().display().to_string(),
                     task: "".into(),
                     harness: "claude-code".into(),
@@ -4211,6 +4217,7 @@ mod tests {
             Some(&crate::LabelHint {
                 text: "fix the login redirect bug".into(),
                 epoch: 0,
+                from_initial_prompt: true,
             })
         );
         assert!(state
@@ -4230,6 +4237,68 @@ mod tests {
             .read_session(&created_id)
             .unwrap();
         assert_eq!(meta.label, "fix the login redirect bug");
+        assert!(meta.label_from_initial_prompt);
+    }
+
+    #[tokio::test]
+    async fn first_descriptive_terminal_input_replaces_initial_prompt_label() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let response = create_session(
+            State(state.clone()),
+            Json(CreateSessionRequest {
+                harness_id: Some("generic-shell".into()),
+                model: None,
+                initial_prompt: Some("shared startup context".into()),
+            }),
+        )
+        .await
+        .into_response();
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let body: serde_json::Value = serde_json::from_slice(
+            &axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        let created_id = body["id"].as_str().unwrap().to_owned();
+        assert_eq!(body["label"], "shared startup context");
+
+        crate::runtime::terminal_runtime::record_terminal_input(
+            &state,
+            &created_id,
+            "fix the child-specific task\r",
+        );
+
+        assert_eq!(
+            state.sessions.lock().unwrap()[&created_id].info.label,
+            "fix the child-specific task"
+        );
+        assert_eq!(
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(&created_id)
+                .unwrap()
+                .label,
+            "fix the child-specific task"
+        );
+        assert!(
+            !state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(&created_id)
+                .unwrap()
+                .label_from_initial_prompt
+        );
     }
 
     #[tokio::test]
@@ -4263,6 +4332,7 @@ mod tests {
             Some(&crate::LabelHint {
                 text: prompt.clone(),
                 epoch: 0,
+                from_initial_prompt: true,
             })
         );
     }
@@ -4747,6 +4817,7 @@ mod tests {
             ws.metadata.write_session(&metadata::SessionMetadata {
                 id: session_id.clone(),
                 label: "Killed".into(),
+                label_from_initial_prompt: false,
                 workspace: dir.path().display().to_string(),
                 task: "".into(),
                 harness: "".into(),
@@ -5038,6 +5109,7 @@ mod tests {
                 .write_session(&metadata::SessionMetadata {
                     id: session_id.clone(),
                     label: "Delete Ending".into(),
+                    label_from_initial_prompt: false,
                     workspace: dir.path().display().to_string(),
                     task: "".into(),
                     harness: "".into(),
@@ -5998,6 +6070,7 @@ mod tests {
             ws.metadata.write_session(&metadata::SessionMetadata {
                 id: "remembered-derived".into(),
                 label: "Remembered Derived".into(),
+                label_from_initial_prompt: false,
                 workspace: dir.path().display().to_string(),
                 task: "".into(),
                 harness: "opencode".into(),
