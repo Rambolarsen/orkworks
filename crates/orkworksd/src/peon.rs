@@ -706,9 +706,17 @@ fn ansi_sequence_end(input: &str, start: usize) -> Option<usize> {
             }
             None
         }
-        b'O' | b'(' | b')' | b'%' => bytes.get(start + 2).map(|_| start + 3),
-        _ => Some(start + 2),
+        b'O' | b'(' | b')' | b'%' => ansi_char_end(input, start + 2),
+        _ => ansi_char_end(input, start + 1),
     }
+}
+
+fn ansi_char_end(input: &str, start: usize) -> Option<usize> {
+    input
+        .get(start..)?
+        .chars()
+        .next()
+        .map(|character| start + character.len_utf8())
 }
 
 /// Extracts the banner's own reset hint from a row that carries a
@@ -1749,6 +1757,14 @@ mod tests {
             &["monthly usage limit reached"],
             &retained
         ));
+    }
+
+    #[test]
+    fn truncate_usage_scan_buffer_handles_escape_before_multibyte_character() {
+        let banner = "\x1béusage limit reached";
+        let mut retained = format!("old{banner}");
+        truncate_usage_scan_buffer(&mut retained, banner.len() - 1);
+        assert_eq!(retained, "usage limit reached");
     }
 
     #[test]

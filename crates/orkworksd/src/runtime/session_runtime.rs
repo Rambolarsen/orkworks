@@ -112,6 +112,23 @@ pub(crate) fn arm_pending_work_signal(
     }
 }
 
+fn decode_output_chunk(pending: &mut Vec<u8>, data: &[u8]) -> String {
+    let mut bytes = Vec::with_capacity(pending.len() + data.len());
+    bytes.extend_from_slice(pending);
+    bytes.extend_from_slice(data);
+    pending.clear();
+
+    match std::str::from_utf8(&bytes) {
+        Ok(text) => text.to_owned(),
+        Err(error) if error.error_len().is_none() => {
+            let valid_len = error.valid_up_to();
+            pending.extend_from_slice(&bytes[valid_len..]);
+            String::from_utf8_lossy(&bytes[..valid_len]).into_owned()
+        }
+        Err(_) => String::from_utf8_lossy(&bytes).into_owned(),
+    }
+}
+
 /// Re-bases an armed signal's banner grace onto the runtime's post-spawn
 /// startup horizon. The signal is armed pre-spawn in
 /// `create_session_workflow`, but no output can be consumed before this
@@ -988,6 +1005,7 @@ pub(crate) async fn start_session_runtime(
     tokio::spawn(async move {
         let mut writer = writer;
         let mut persist_buffer: Vec<u8> = Vec::new();
+        let mut pending_utf8: Vec<u8> = Vec::new();
         let mut pending_persist_batches: VecDeque<Vec<crate::metadata::TerminalOutputRecord>> =
             VecDeque::new();
         let mut kill_requested = false;
@@ -1077,7 +1095,7 @@ pub(crate) async fn start_session_runtime(
                     match event {
                         DriverEvent::Output(data) => {
                             persist_buffer.extend_from_slice(&data);
-                            let text = String::from_utf8_lossy(&data);
+                            let text = decode_output_chunk(&mut pending_utf8, &data);
                             let stripped = peon::strip_ansi(&text);
                             let raw_persist_lines = drain_persist_records(&mut persist_buffer);
                             let output_at = output_recency_timestamp(
@@ -1313,6 +1331,19 @@ mod tests {
     use std::sync::atomic::AtomicU16;
     use std::sync::{Arc, Mutex, RwLock};
     use std::time::Duration;
+
+    #[test]
+    fn decode_output_chunk_preserves_split_utf8_banner_glyph() {
+        let mut pending = Vec::new();
+
+        assert_eq!(decode_output_chunk(&mut pending, b"\xe2\x96"), "");
+        assert_eq!(pending, b"\xe2\x96");
+        assert_eq!(
+            decode_output_chunk(&mut pending, b"\xa0monthly usage limit reached"),
+            "■monthly usage limit reached"
+        );
+        assert!(pending.is_empty());
+    }
 
     fn test_state_with_runtime_session(id: &str) -> Arc<crate::AppState> {
         let state = Arc::new(crate::AppState {
