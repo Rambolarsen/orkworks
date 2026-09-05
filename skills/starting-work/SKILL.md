@@ -29,6 +29,8 @@ Pick the lowest-overhead option that satisfies the rules in `AGENTS.md`.
 | Code change while another branch is already in flight in the primary checkout, or another agent is running | Worktree |
 | Parallel agents on independent tasks | One worktree per agent, always |
 
+If the work itself is a multi-agent effort being planned or dispatched (not just this skill's one-checkout-per-agent isolation), structure it with the `orchestrating-task-graphs` skill first — it decides whether to fan out at all and how to verify and merge the results.
+
 The triggers for a worktree are **concurrency** and **foreign-branch ownership**. If the primary checkout is on a branch you didn't create and its owner has not explicitly authorized your work, use a worktree — don't stack commits on branches you don't own. The point of the ownership rule is preventing two writers on one branch, not blocking legitimate changes: with the branch owner's explicit permission (e.g. they ask you to land review fixes on their PR branch), pushing to their branch is fine. See "Branch and PR workflow" in `AGENTS.md`.
 
 ## Path and naming convention
