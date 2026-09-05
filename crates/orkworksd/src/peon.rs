@@ -199,13 +199,25 @@ pub(crate) struct PeonOutputCapture {
 
 /// Strips ANSI CSI escape sequences (e.g. \x1b[31m) so pattern matching works on raw PTY output.
 pub fn strip_ansi(s: &str) -> String {
+    strip_ansi_with_cursor_mode(s, false)
+}
+
+/// Strips ANSI sequences while preserving cursor-positioning transitions as
+/// row boundaries for usage-limit detection. The regular `strip_ansi` API
+/// keeps its space-separator behavior because other inference paths rely on
+/// cursor-split words remaining searchable.
+pub(crate) fn strip_ansi_for_usage_limit(s: &str) -> String {
+    strip_ansi_with_cursor_mode(s, true)
+}
+
+fn strip_ansi_with_cursor_mode(s: &str, cursor_row_boundaries: bool) -> String {
     let mut out = String::with_capacity(s.len());
     let mut chars = s.chars().peekable();
     while let Some(c) = chars.next() {
         if c != '\x1b' {
             out.push(c);
         } else {
-            strip_ansi_escape(&mut chars, &mut out);
+            strip_ansi_escape(&mut chars, &mut out, cursor_row_boundaries);
         }
     }
     out
@@ -217,6 +229,7 @@ pub fn strip_ansi(s: &str) -> String {
 fn strip_ansi_escape<I: Iterator<Item = char>>(
     chars: &mut std::iter::Peekable<I>,
     out: &mut String,
+    cursor_row_boundaries: bool,
 ) {
     match chars.peek().copied() {
         Some('[') => {
@@ -231,7 +244,11 @@ fn strip_ansi_escape<I: Iterator<Item = char>>(
             }
             // Cursor-positioning finals: insert a space so adjacent screen
             // regions don't merge into a single token after stripping.
-            if matches!(
+            if cursor_row_boundaries
+                && matches!(final_byte, 'A' | 'B' | 'E' | 'F' | 'H' | 'd' | 'f')
+            {
+                out.push('\n');
+            } else if matches!(
                 final_byte,
                 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | 'H' | 'd' | 'f' | 's' | 'u'
             ) {
@@ -251,7 +268,7 @@ fn strip_ansi_escape<I: Iterator<Item = char>>(
                             // Bare ESC terminates OSC and starts a new sequence;
                             // recurse so the new sequence is handled correctly
                             // (e.g. a cursor-move CSI still emits its space).
-                            strip_ansi_escape(chars, out);
+                            strip_ansi_escape(chars, out, cursor_row_boundaries);
                         }
                         break;
                     }
@@ -269,7 +286,7 @@ fn strip_ansi_escape<I: Iterator<Item = char>>(
                         if chars.peek() == Some(&'\\') {
                             chars.next();
                         } else {
-                            strip_ansi_escape(chars, out);
+                            strip_ansi_escape(chars, out, cursor_row_boundaries);
                         }
                         break;
                     }
@@ -305,10 +322,12 @@ pub fn detect_usage_limit<S: AsRef<str>>(patterns: &[S], lines: &[String]) -> bo
         return false;
     }
     lines.iter().any(|line| {
-        let plain = strip_ansi(line);
-        patterns
-            .iter()
-            .any(|p| bounded_limit_match(&plain, &p.as_ref().to_ascii_lowercase()))
+        let plain = strip_ansi_for_usage_limit(line);
+        plain.split(['\r', '\n']).any(|segment| {
+            patterns
+                .iter()
+                .any(|p| bounded_limit_match(segment, &p.as_ref().to_ascii_lowercase()))
+        })
     })
 }
 
@@ -501,51 +520,230 @@ fn command_outcome_summary(output: &[String]) -> Option<String> {
     outcome
 }
 
-/// A genuine usage-limit banner is emitted by the harness as its own short
-/// status line, with the pattern near the start and at most a reset hint plus
-/// TUI status decoration after it. The same pattern text buried inside a long
-/// line of displayed content (echoed source code, AI conversation text,
-/// scrollback of either) is display, not a cap signal, and must not latch the
-/// session capped. Both sides of the match are therefore bounded; the
-/// co-located reset-hint fragment does not count toward the suffix budget.
+/// A genuine usage-limit banner is emitted by the harness as its own status
+/// row: only whitespace or TUI decoration before the pattern, no quoted
+/// content anywhere in the row, and at most a reset hint plus UI chrome after
+/// it. The same pattern text inside displayed content (echoed source code,
+/// grep output, AI conversation text, scrollback of either) is display, not a
+/// cap signal, and must not latch the session capped.
 const LIMIT_CONTEXT_MAX_CHARS: usize = 48;
-/// A real banner is emitted at the start of a status line: at most a spinner
-/// glyph or box-drawing decoration precedes the pattern. Displayed code and
-/// prose routinely carry tens of characters of context before a buried
-/// pattern, so the prefix budget must stay tight.
+/// A real banner starts at the beginning of a display row, after only a short
+/// spinner or status glyph prefix. A finite bound keeps a wrapped prose/code
+/// match from masquerading as a banner even when its prefix is punctuation.
 const LIMIT_PREFIX_MAX_CHARS: usize = 24;
-/// A real banner's reset hint ("resets in 2h") starts within a couple of
-/// separator characters of the pattern; a later prose mention gets no relief.
-const LIMIT_HINT_ANCHOR_MAX_PREFIX: usize = 4;
-
-fn bounded_limit_match(plain: &str, pattern_lower: &str) -> bool {
-    let lower = plain.to_ascii_lowercase();
-    for (start, matched) in lower.match_indices(pattern_lower) {
-        let end = start + matched.len();
-        let prefix_chars = lower[..start].chars().count();
-        let mut suffix_chars = lower[end..].chars().count();
-        let suffix_plain = &plain[end..];
-        let anchor = suffix_lower_anchor(&lower[end..]);
-        if let Some(anchor_rel) = anchor {
-            if anchor_rel <= LIMIT_HINT_ANCHOR_MAX_PREFIX {
-                if let Some(hint) = extract_reset_hint(suffix_plain, &lower[end..]) {
-                    suffix_chars -= hint.chars().count().min(suffix_chars);
-                }
-            }
-        }
-        if prefix_chars <= LIMIT_PREFIX_MAX_CHARS && suffix_chars <= LIMIT_CONTEXT_MAX_CHARS {
-            return true;
-        }
-    }
-    false
+/// UI chrome tolerated after a clean co-located reset hint.
+const LIMIT_TAIL_MAX_CHARS: usize = 72;
+/// A real banner's reset hint ("resets in 2h") starts within a short
+/// separator phrase of the pattern ("… reached, resets …", "… reached. It
+/// will reset …"); a later prose mention gets no relief.
+const LIMIT_HINT_ANCHOR_MAX_PREFIX: usize = 12;
+/// Displayed content quotes things: code, shell output, prose citations. A
+/// real banner row is natural UI text and carries no quote characters. This
+/// kills the whole class of false latches where the pattern sits inside a
+/// quoted string (`"usage limit reached, resets in 2h".into(),`), including
+/// rows that wrapping happens to start exactly at the pattern. Single
+/// apostrophes stay allowed — real banners contain them ("You've hit…").
+const BANNER_QUOTE_CHARS: &[char] = &['"', '`', '“', '”', '‘', '’'];
+const BANNER_PREFIX_GLYPHS: &[char] = &[
+    '·', '•', '✳', '✻', '✽', '✶', '●', '○', '◐', '■', '□', '▪', '▫', '█', '▓', '▒', '░', '│', '┃',
+    '╭', '╰', '╮', '╯', '─', '━', '═', '—', '…',
+];
+/// The extracted reset hint may only contain natural-language characters.
+/// A "hint" carrying code punctuation (`,`, `;`, `=`, quotes) is prose or
+/// code the extractor grabbed, not the banner's hint.
+fn is_clean_hint_char(c: char) -> bool {
+    c.is_alphanumeric()
+        || c.is_whitespace()
+        || matches!(c, ':' | '(' | ')' | '.' | '/' | '-' | '\u{00b7}')
 }
 
-fn suffix_lower_anchor(suffix_lower: &str) -> Option<usize> {
-    suffix_lower
+/// Only whitespace or TUI decoration (spinner glyphs, box drawing, blocks)
+/// may precede the pattern on a real banner row. Displayed code and grep
+/// output carry line numbers, quotes, or letters before a buried pattern.
+fn is_banner_prefix_char(c: char) -> bool {
+    c.is_whitespace() || BANNER_PREFIX_GLYPHS.contains(&c)
+}
+
+fn is_banner_chrome_char(c: char) -> bool {
+    c.is_whitespace() || BANNER_PREFIX_GLYPHS.contains(&c)
+}
+
+fn validated_reset_hint(suffix_plain: &str, suffix_lower: &str) -> Option<String> {
+    let anchor_rel = suffix_anchor_chars(suffix_lower)?;
+    if anchor_rel > LIMIT_HINT_ANCHOR_MAX_PREFIX {
+        return None;
+    }
+    let hint = extract_reset_hint(suffix_plain, suffix_lower)?;
+    let hint_chars = hint.chars().count();
+    if hint_chars == 0
+        || !hint.chars().all(is_clean_hint_char)
+        || suffix_lower.chars().count().saturating_sub(hint_chars) > LIMIT_TAIL_MAX_CHARS
+    {
+        return None;
+    }
+    Some(hint)
+}
+
+/// Locates the first banner-shaped occurrence of `pattern_lower` in `plain`
+/// (one display row or raw segment), returning its end and an optional
+/// validated reset hint.
+fn banner_match(plain: &str, pattern_lower: &str) -> Option<(usize, Option<String>)> {
+    if plain.contains(BANNER_QUOTE_CHARS) {
+        return None;
+    }
+    let lower = plain.to_ascii_lowercase();
+    for (start, matched) in lower.match_indices(pattern_lower) {
+        let prefix = &plain[..start];
+        if prefix.chars().count() > LIMIT_PREFIX_MAX_CHARS
+            || !prefix.chars().all(is_banner_prefix_char)
+        {
+            continue;
+        }
+        let end = start + matched.len();
+        let suffix_plain = &plain[end..];
+        let suffix_lower = &lower[end..];
+        if suffix_lower.chars().all(is_banner_chrome_char) {
+            return Some((end, None));
+        }
+        if suffix_lower.chars().count() <= LIMIT_CONTEXT_MAX_CHARS {
+            if let Some(hint) = validated_reset_hint(suffix_plain, suffix_lower) {
+                return Some((end, Some(hint)));
+            }
+            continue;
+        }
+        if let Some(hint) = validated_reset_hint(suffix_plain, suffix_lower) {
+            return Some((end, Some(hint)));
+        }
+    }
+    None
+}
+
+/// Locates the first banner-shaped occurrence of `pattern_lower` in `plain`
+/// and returns the byte offset just past the match.
+fn banner_match_end(plain: &str, pattern_lower: &str) -> Option<usize> {
+    banner_match(plain, pattern_lower).map(|(end, _)| end)
+}
+
+fn bounded_limit_match(plain: &str, pattern_lower: &str) -> bool {
+    banner_match_end(plain, pattern_lower).is_some()
+}
+
+/// Keeps the rolling raw capacity-scan buffer bounded without cutting through
+/// a UTF-8 codepoint or an ANSI escape. If the requested trim point falls
+/// inside an incomplete escape, the escape is retained until a later chunk can
+/// complete it and the next trim can discard it safely, up to a finite
+/// allowance for malformed or indefinitely open escapes.
+const MAX_INCOMPLETE_ANSI_BYTES: usize = 1024;
+
+pub(crate) fn truncate_usage_scan_buffer(scan_buf: &mut String, max_bytes: usize) {
+    if scan_buf.len() <= max_bytes {
+        return;
+    }
+    if max_bytes == 0 {
+        scan_buf.clear();
+        return;
+    }
+    let mut requested_drop = scan_buf.len() - max_bytes;
+    while requested_drop < scan_buf.len() && !scan_buf.is_char_boundary(requested_drop) {
+        requested_drop += 1;
+    }
+    let drop = safe_ansi_drop_offset(scan_buf, requested_drop);
+    scan_buf.drain(..drop);
+}
+
+fn safe_ansi_drop_offset(input: &str, requested_drop: usize) -> usize {
+    let bytes = input.as_bytes();
+    let mut offset = 0;
+    while offset < requested_drop {
+        if bytes[offset] == b'\x1b' {
+            match ansi_sequence_end(input, offset) {
+                Some(end) if end <= requested_drop => offset = end,
+                Some(end) => return end,
+                None if input.len().saturating_sub(offset) > MAX_INCOMPLETE_ANSI_BYTES => {
+                    return requested_drop;
+                }
+                None => return offset,
+            }
+        } else {
+            offset += input[offset..]
+                .chars()
+                .next()
+                .map(char::len_utf8)
+                .unwrap_or(1);
+        }
+    }
+    requested_drop
+}
+
+/// Returns the byte offset just after one ANSI escape, or None when the escape
+/// is incomplete. This is only used to choose a safe rolling-buffer trim
+/// point; the existing strip_ansi parser remains the source of normalized text.
+fn ansi_sequence_end(input: &str, start: usize) -> Option<usize> {
+    let bytes = input.as_bytes();
+    if bytes.get(start) != Some(&b'\x1b') {
+        return Some(start + 1);
+    }
+    let kind = *bytes.get(start + 1)?;
+    match kind {
+        b'[' => {
+            let mut offset = start + 2;
+            while let Some(&byte) = bytes.get(offset) {
+                if (0x40..=0x7e).contains(&byte) {
+                    return Some(offset + 1);
+                }
+                offset += 1;
+            }
+            None
+        }
+        b']' | b'P' | b'X' | b'^' | b'_' => {
+            let mut offset = start + 2;
+            while let Some(&byte) = bytes.get(offset) {
+                if byte == b'\x07' {
+                    return Some(offset + 1);
+                }
+                if byte == b'\x1b' {
+                    return match bytes.get(offset + 1) {
+                        Some(b'\\') => Some(offset + 2),
+                        Some(_) => Some(offset),
+                        None => None,
+                    };
+                }
+                offset += 1;
+            }
+            None
+        }
+        b'O' | b'(' | b')' | b'%' => ansi_char_end(input, start + 2),
+        _ => ansi_char_end(input, start + 1),
+    }
+}
+
+fn ansi_char_end(input: &str, start: usize) -> Option<usize> {
+    input
+        .get(start..)?
+        .chars()
+        .next()
+        .map(|character| start + character.len_utf8())
+}
+
+/// Extracts the banner's own reset hint from a row that carries a
+/// banner-prefixed pattern match. The hint must start within a short
+/// separator phrase of the pattern — a later prose mention in the row is not
+/// the banner's hint, and rows without such a match yield nothing. Unlike the
+/// latch path there is no suffix budget here: a long redrawn-screen tail must
+/// not hide the hint, and the extractor's own length cap bounds it.
+fn colocated_banner_hint(plain: &str, pattern_lower: &str) -> Option<String> {
+    banner_match(plain, pattern_lower).and_then(|(_, hint)| hint)
+}
+
+fn suffix_anchor_chars(suffix_lower: &str) -> Option<usize> {
+    let found = suffix_lower
         .find("resets in")
         .or_else(|| suffix_lower.find("reset in"))
         .or_else(|| suffix_lower.find("resets "))
-        .or_else(|| suffix_lower.find("try again at"))
+        .or_else(|| suffix_lower.find("try again at"))?;
+    // Char, not byte, offset — codepoints between the pattern and the hint
+    // (e.g. multi-byte glyphs) must not inflate the anchor distance.
+    Some(suffix_lower[..found].chars().count())
 }
 
 /// Detects usage limit in a raw text blob (for TUI apps that use cursor positioning, not newlines).
@@ -553,7 +751,7 @@ pub fn detect_usage_limit_raw<S: AsRef<str>>(patterns: &[S], text: &str) -> bool
     if patterns.is_empty() {
         return false;
     }
-    let plain = strip_ansi(text);
+    let plain = strip_ansi_for_usage_limit(text);
     plain.split(['\r', '\n']).any(|segment| {
         patterns
             .iter()
@@ -595,36 +793,36 @@ fn extract_reset_hint(plain: &str, lower: &str) -> Option<String> {
 }
 
 /// Extracts reset hint from a raw text blob (for TUI apps that use cursor positioning, not newlines).
+/// The blob is matched per newline/CR segment: the hint comes from a row that
+/// itself carries a banner-shaped pattern match, anchored just after that
+/// match — never from an unrelated row elsewhere in the blob.
 pub fn detect_usage_limit_hint_raw<S: AsRef<str>>(patterns: &[S], text: &str) -> Option<String> {
     if patterns.is_empty() {
         return None;
     }
-    let plain = strip_ansi(text);
-    let lower = plain.to_ascii_lowercase();
-    if !patterns
-        .iter()
-        .any(|p| lower.contains(p.as_ref().to_lowercase().as_str()))
-    {
-        return None;
-    }
-    extract_reset_hint(&plain, &lower)
+    let plain = strip_ansi_for_usage_limit(text);
+    plain.split(['\r', '\n']).find_map(|segment| {
+        patterns
+            .iter()
+            .find_map(|p| colocated_banner_hint(segment, &p.as_ref().to_ascii_lowercase()))
+    })
 }
 
 /// Returns the "reset in X" fragment from the usage-limit line, if present.
+/// Only rows that carry a banner-shaped pattern match contribute a hint, and
+/// the hint must sit just after the match — prose elsewhere on the row is
+/// ignored.
 pub fn detect_usage_limit_hint<S: AsRef<str>>(patterns: &[S], lines: &[String]) -> Option<String> {
     if patterns.is_empty() {
         return None;
     }
     lines.iter().rev().find_map(|line| {
-        let plain = strip_ansi(line);
-        let lower = plain.to_ascii_lowercase();
-        if !patterns
-            .iter()
-            .any(|p| lower.contains(p.as_ref().to_lowercase().as_str()))
-        {
-            return None;
-        }
-        extract_reset_hint(&plain, &lower)
+        let plain = strip_ansi_for_usage_limit(line);
+        plain.split(['\r', '\n']).find_map(|segment| {
+            patterns
+                .iter()
+                .find_map(|p| colocated_banner_hint(segment, &p.as_ref().to_ascii_lowercase()))
+        })
     })
 }
 
@@ -1460,6 +1658,44 @@ mod tests {
     }
 
     #[test]
+    fn detect_usage_limit_ignores_short_prose_suffix_after_pattern() {
+        let lines = vec!["usage limit reached line from OpenCode itself".into()];
+        assert!(!detect_usage_limit(&["usage limit reached"], &lines));
+        assert_eq!(
+            detect_usage_limit_hint(&["usage limit reached"], &lines),
+            None
+        );
+    }
+
+    #[test]
+    fn detect_usage_limit_ignores_punctuation_only_suffix() {
+        let lines = vec!["usage limit reached.".into(), "usage limit reached;".into()];
+        assert!(!detect_usage_limit(&["usage limit reached"], &lines));
+    }
+
+    #[test]
+    fn detect_usage_limit_ignores_untrusted_hint_and_does_not_extract_it() {
+        let lines = vec!["usage limit reached; resets in 2h; foo = bar".into()];
+        assert!(!detect_usage_limit(&["usage limit reached"], &lines));
+        assert_eq!(
+            detect_usage_limit_hint(&["usage limit reached"], &lines),
+            None
+        );
+    }
+
+    #[test]
+    fn detect_usage_limit_rejects_wrapped_unicode_quote_and_long_decoration_prefix() {
+        let quoted = vec!["usage limit reached”".into()];
+        assert!(!detect_usage_limit(&["usage limit reached"], &quoted));
+
+        let overlong_prefix = format!("{}usage limit reached", "─".repeat(25));
+        assert!(!detect_usage_limit(
+            &["usage limit reached"],
+            &[overlong_prefix]
+        ));
+    }
+
+    #[test]
     fn detect_usage_limit_raw_ignores_pattern_buried_in_long_segment() {
         let text = format!(
             "{} usage limit reached {}",
@@ -1490,6 +1726,61 @@ mod tests {
     }
 
     #[test]
+    fn detect_usage_limit_raw_preserves_cursor_redraw_row_boundaries() {
+        let text = "old screen content\x1b[H■monthly usage limit reached. It will reset in 5 days";
+        assert!(detect_usage_limit_raw(
+            &["monthly usage limit reached"],
+            text
+        ));
+    }
+
+    #[test]
+    fn detect_usage_limit_raw_does_not_split_on_horizontal_cursor_move() {
+        let text = "prefix\x1b[1Cusage limit reached";
+        assert!(!detect_usage_limit_raw(&["usage limit reached"], text));
+    }
+
+    #[test]
+    fn detect_usage_limit_raw_parses_an_escape_split_across_retained_chunks() {
+        let chunks = [
+            "old screen content\x1b",
+            "[H■monthly usage limit reached. It will reset in 5 days",
+        ];
+        let retained = chunks.concat();
+        assert!(detect_usage_limit_raw(
+            &["monthly usage limit reached"],
+            &retained
+        ));
+    }
+
+    #[test]
+    fn detect_usage_limit_raw_survives_truncation_through_cursor_sequence() {
+        let banner = "\x1b[H■monthly usage limit reached. It will reset in 5 days";
+        let mut retained = format!("old{banner}");
+        let max_bytes = banner.len() - 1;
+        truncate_usage_scan_buffer(&mut retained, max_bytes);
+        assert!(detect_usage_limit_raw(
+            &["monthly usage limit reached"],
+            &retained
+        ));
+    }
+
+    #[test]
+    fn truncate_usage_scan_buffer_handles_escape_before_multibyte_character() {
+        let banner = "\x1béusage limit reached";
+        let mut retained = format!("old{banner}");
+        truncate_usage_scan_buffer(&mut retained, banner.len() - 1);
+        assert_eq!(retained, "usage limit reached");
+    }
+
+    #[test]
+    fn truncate_usage_scan_buffer_bounds_unterminated_escape() {
+        let mut retained = format!("\x1b]0;{}", "x".repeat(MAX_INCOMPLETE_ANSI_BYTES * 2));
+        truncate_usage_scan_buffer(&mut retained, 64);
+        assert!(retained.len() <= 64);
+    }
+
+    #[test]
     fn detect_usage_limit_raw_matches_pattern_on_short_segment_mid_buffer() {
         let text = format!(
             "{}\r\nusage limit reached\r\n{}",
@@ -1497,6 +1788,105 @@ mod tests {
             "more screen content ".repeat(40)
         );
         assert!(detect_usage_limit_raw(&["usage limit reached"], &text));
+    }
+
+    #[test]
+    fn detect_usage_limit_ignores_grep_output_with_line_number_prefix() {
+        // Regression: an agent session displaying this repo's own peon.rs via
+        // `rg` latched capped — the quoted sample banner sat inside the old
+        // 24-char prefix budget and the reset hint swallowed the suffix.
+        // Real banners never carry grep line numbers or quoted code.
+        let lines = vec!["1397:            \"usage limit reached, resets in 2h\".into(),".into()];
+        assert!(!detect_usage_limit(&["usage limit reached"], &lines));
+    }
+
+    #[test]
+    fn detect_usage_limit_raw_ignores_grep_output_with_line_number_prefix() {
+        let text = "cursor-addressed screen content \r\n1397:            \"usage limit reached, resets in 2h\".into(),";
+        assert!(!detect_usage_limit_raw(&["usage limit reached"], &text));
+    }
+
+    #[test]
+    fn detect_usage_limit_ignores_quoted_code_row_starting_at_pattern() {
+        // Terminal wrapping can start a display row exactly at the pattern
+        // (the old prefix budget passed); the quoted code tail is what
+        // betrays it as displayed content, not a banner.
+        let lines = vec!["usage limit reached, resets in 2h\".into(),".into()];
+        assert!(!detect_usage_limit(&["usage limit reached"], &lines));
+    }
+
+    #[test]
+    fn detect_usage_limit_hint_raw_ignores_hint_in_unrelated_display_row() {
+        // The blob contains the pattern buried in one displayed line and a
+        // "resets in" doc-comment fragment in an entirely different row. The
+        // old extraction searched from the start of the whole blob and
+        // captured the prose fragment as a hint.
+        let text =
+            "the way to check is events/<session-id>.terminal for an actual usage limit reached \
+                     line from OpenCode itself (I checked your current sessions and found none)\n\
+                     /// Extracts the bounded \"resets in X\" fragment from ANSI-stripped text.\n";
+        assert_eq!(
+            detect_usage_limit_hint_raw(&["usage limit reached"], text),
+            None
+        );
+    }
+
+    #[test]
+    fn detect_usage_limit_hint_raw_anchors_hint_after_the_pattern_match() {
+        // Prose mentioning "resets in" precedes the real banner row; the
+        // hint must come from the banner row, not from the earlier prose.
+        let text = "note that the timer resets in the docs\r\nusage limit reached, resets in 2h";
+        assert_eq!(
+            detect_usage_limit_hint_raw(&["usage limit reached"], text).as_deref(),
+            Some("resets in 2h")
+        );
+    }
+
+    #[test]
+    fn detect_usage_limit_hint_ignores_hint_not_colocated_on_line() {
+        let lines = vec![
+            "the docs mention usage limit reached and resets in 2h much later in the sentence"
+                .into(),
+        ];
+        assert_eq!(
+            detect_usage_limit_hint(&["usage limit reached"], &lines),
+            None
+        );
+    }
+
+    #[test]
+    fn detect_usage_limit_matches_real_captured_claude_banner_with_nbsp_prefix() {
+        // Pinned from a real captured cap (session terminal replay): Claude
+        // Code emits the banner as its own row prefixed by a non-breaking
+        // space after a result block.
+        let lines =
+            vec!["\u{00a0}You've hit your session limit · resets 5:10pm (Europe/Oslo)".into()];
+        assert!(detect_usage_limit(
+            &["you've hit your session limit"],
+            &lines
+        ));
+    }
+
+    #[test]
+    fn detect_usage_limit_matches_real_captured_copilot_banner_with_reset_tail() {
+        // Pinned from a real captured cap: the banner carries a long "will
+        // reset in …" tail plus "(click to expand)" chrome after the hint.
+        // The old 48-char suffix budget missed this real banner entirely.
+        let lines = vec![
+            "■monthly usage limit reached. It will reset in 5 days 6 hours. To continue using ... (click to expand) [retry attempt #1]".into(),
+        ];
+        assert!(detect_usage_limit(&["monthly usage limit reached"], &lines));
+    }
+
+    #[test]
+    fn detect_usage_limit_hint_extracts_real_captured_copilot_reset_hint() {
+        let lines = vec![
+            "■monthly usage limit reached. It will reset in 5 days 6 hours. To continue using ... (click to expand) [retry attempt #1]".into(),
+        ];
+        assert_eq!(
+            detect_usage_limit_hint(&["monthly usage limit reached"], &lines).as_deref(),
+            Some("reset in 5 days 6 hours")
+        );
     }
 
     #[test]
@@ -1534,12 +1924,17 @@ mod tests {
             "usage limit reached · resets in 2h {}",
             "trailing pane text without any glyph or period ".repeat(5)
         );
-        let hint = detect_usage_limit_hint_raw(&["usage limit reached"], &text).unwrap();
+        let hint = extract_reset_hint(&text, &text.to_ascii_lowercase()).unwrap();
         assert!(hint.starts_with("resets in 2h"));
         let len = hint.chars().count();
         assert!(
             (70..=80).contains(&len),
             "cap not applied near 80: {len} ({hint})"
+        );
+        assert!(!detect_usage_limit_raw(&["usage limit reached"], &text));
+        assert_eq!(
+            detect_usage_limit_hint_raw(&["usage limit reached"], &text),
+            None
         );
     }
 
@@ -1556,8 +1951,10 @@ mod tests {
     fn detect_usage_limit_hint_raw_survives_codepoints_that_shrink_when_lowercased() {
         // Kelvin sign (3 bytes) lowercases to 'k' (1 byte); with Unicode
         // to_lowercase the anchor index found in the lowered string is not a
-        // char boundary in the original and slicing panics.
-        let text = "\u{212A}\u{00E9} session limit reached, resets 5pm (UTC)";
+        // char boundary in the original and slicing panics. The shrinking
+        // codepoints sit between the pattern and the hint so the lowered-
+        // suffix index math is still exercised end to end.
+        let text = "session limit reached\u{212A}\u{00E9}, resets 5pm (UTC)";
         assert_eq!(
             detect_usage_limit_hint_raw(&["session limit"], text).as_deref(),
             Some("resets 5pm (UTC)")

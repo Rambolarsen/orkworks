@@ -71,7 +71,9 @@ struct SessionHandle {
     active_work_hook: bool,
     kill_tx: tokio::sync::watch::Sender<bool>,
     output_buffer: peon::RingBuffer,
-    // Rolling raw PTY text (ANSI-stripped) for TUI apps that use cursor positioning instead of newlines.
+    // Rolling raw PTY text for TUI apps that use cursor positioning instead of
+    // newlines. Capacity detection strips it after all read chunks are joined,
+    // so an ANSI escape split across chunks remains parseable.
     scan_buf: String,
     pending_work_signal: Option<runtime::session_runtime::PendingWorkSignal>,
     runtime: runtime::session_runtime::SessionRuntime,
