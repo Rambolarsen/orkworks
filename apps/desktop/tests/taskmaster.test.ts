@@ -93,6 +93,32 @@ test("Taskmaster fix prompt is scoped to the target surface and forbids touching
   assert.match(prompt, /Do not resume, reopen, or modify any other session/);
 });
 
+test("Fix with AI always presses Enter regardless of dialog edits", () => {
+  // Regression: the dialog's editable draft has no trailing \r (it shouldn't
+  // show one to the user), but the backend's build_fix_prompt convention
+  // ends every submitted prompt in \r so it's delivered as typed text
+  // followed by Enter. Since the desktop always sends an explicit prompt
+  // override, the backend's own \r-terminated default never applies — the
+  // frontend must append \r itself before sending, or nothing ever gets
+  // submitted to the target session.
+  const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+  const handlerIndex = app.indexOf("const handleConfirmFixWithAi");
+  assert.ok(handlerIndex >= 0, "expected a handleConfirmFixWithAi handler");
+  const handlerBlock = app.slice(handlerIndex, app.indexOf("}, [fixRecommendation", handlerIndex));
+
+  assert.match(handlerBlock, /prompt: `\$\{prompt\}\\r`/);
+});
+
+test("Fix with AI surfaces an error instead of silently closing when no session is active", () => {
+  const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+  const handlerIndex = app.indexOf("const handleConfirmFixWithAi");
+  const handlerBlock = app.slice(handlerIndex, app.indexOf("}, [fixRecommendation", handlerIndex));
+
+  assert.match(handlerBlock, /if \(!recommendation \|\| !activeSessionId\) \{/);
+  const guardBlock = handlerBlock.slice(handlerBlock.indexOf("if (!recommendation"));
+  assert.match(guardBlock.slice(0, guardBlock.indexOf("return;") + "return;".length), /pushToast\("error"/);
+});
+
 test("Recommendations panel exposes evidence, dismissal, and an explicit fix-with-ai action only", () => {
   const source = readFileSync(
     new URL("../src/components/RecommendationsPanel.tsx", import.meta.url),

@@ -273,12 +273,20 @@ function App() {
   const handleConfirmFixWithAi = useCallback(async (prompt: string) => {
     const recommendation = fixRecommendation;
     setFixRecommendation(null);
-    if (!recommendation || !activeSessionId) return;
+    if (!recommendation || !activeSessionId) {
+      pushToast("error", "Couldn't send the fix — no session is active.");
+      return;
+    }
     try {
       const baseUrl = await window.orkworks.getBackendUrl();
       await acceptTaskmasterRecommendation(baseUrl, recommendation.id, {
         sessionId: activeSessionId,
-        prompt,
+        // build_fix_prompt's backend default ends in \r so it submits as
+        // typed text followed by Enter; since the dialog always sends an
+        // explicit override, that default never applies here, so \r must be
+        // added on this side too. The dialog draft omits it deliberately —
+        // the user shouldn't see or edit a raw carriage return.
+        prompt: `${prompt}\r`,
       });
     } catch {
       pushToast("error", "Couldn't send the fix to the session.");

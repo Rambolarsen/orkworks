@@ -298,25 +298,31 @@ impl SessionApplication {
             .await
             .map_err(|_| RecommendationAcceptError::Conflict)?;
 
-        if let Some(workspace) = self.state.workspace.lock().unwrap().as_ref() {
-            workspace.metadata.append_event(
-                session_id,
-                &metadata::Event {
-                    event_type: "taskmaster_fix_requested".into(),
-                    timestamp: iso_now(),
-                    status: "working".into(),
-                    observed_status: Some("working".into()),
-                    confidence: None,
-                    summary: Some(format!("Taskmaster sent a fix prompt for: {title}")),
-                    source: Some("user".into()),
-                },
-            );
-        }
-
+        // The prompt has already been irreversibly delivered to the target
+        // session's PTY at this point. If the workspace vanishes here (e.g.
+        // the user switches workspaces mid-request — rare, and equally
+        // possible for `dismiss_recommendation`'s own single post-write
+        // lock), the event append and status transition below are skipped
+        // or reported as a conflict even though the prompt was sent; one
+        // lock acquisition instead of two shrinks that window but cannot
+        // close it without holding the lock across the `.await` above,
+        // which existing session-creation code already avoids doing.
         let workspace_guard = self.state.workspace.lock().unwrap();
         let workspace = workspace_guard
             .as_ref()
             .ok_or(RecommendationAcceptError::Conflict)?;
+        workspace.metadata.append_event(
+            session_id,
+            &metadata::Event {
+                event_type: "taskmaster_fix_requested".into(),
+                timestamp: iso_now(),
+                status: "working".into(),
+                observed_status: Some("working".into()),
+                confidence: None,
+                summary: Some(format!("Taskmaster sent a fix prompt for: {title}")),
+                source: Some("user".into()),
+            },
+        );
         workspace
             .recommendation_store
             .accept(id, session_id.to_string(), chrono::Utc::now().to_rfc3339())
