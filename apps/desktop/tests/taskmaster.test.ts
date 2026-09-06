@@ -119,6 +119,24 @@ test("Fix with AI surfaces an error instead of silently closing when no session 
   assert.match(guardBlock.slice(0, guardBlock.indexOf("return;") + "return;".length), /pushToast\("error"/);
 });
 
+test("Fix with AI is gated on the active session actually being alive, not merely selected", () => {
+  // Regression: a dead session stays selected (activeSessionId survives it
+  // exiting), so gating on the id's mere presence left the button enabled
+  // for a session the backend will unconditionally reject.
+  const panel = readFileSync(
+    new URL("../src/components/RecommendationsPanel.tsx", import.meta.url),
+    "utf8",
+  );
+  const dockview = readFileSync(
+    new URL("../src/components/DockviewApp.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(panel, /canFixWithAi: boolean/);
+  assert.doesNotMatch(panel, /activeSessionId/);
+  assert.match(dockview, /\.lifecycle === "alive"/);
+});
+
 test("Recommendations panel exposes evidence, dismissal, and an explicit fix-with-ai action only", () => {
   const source = readFileSync(
     new URL("../src/components/RecommendationsPanel.tsx", import.meta.url),

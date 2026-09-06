@@ -259,6 +259,14 @@ impl SessionApplication {
     /// through the same `submit_approved_input` path `request_plan_review`
     /// already uses — no session is created, resumed, or reconfigured; the
     /// prompt is delivered exactly as a keystroke followed by Enter would be.
+    ///
+    /// The recommendation is reserved (`Proposed` → `Executing`) *before*
+    /// the PTY write, synchronously within the same lock acquisition as the
+    /// eligibility checks. Without this, two concurrent accept requests for
+    /// the same recommendation could both observe `Proposed`, both write to
+    /// the terminal, and only one would win the later store transition —
+    /// this reservation makes the second request lose at the eligibility
+    /// check instead, before any write happens.
     pub(crate) async fn accept_recommendation(
         &self,
         id: &str,
@@ -291,22 +299,36 @@ impl SessionApplication {
             }
             let prompt = prompt_override
                 .unwrap_or_else(|| crate::taskmaster::build_fix_prompt(&recommendation));
+            workspace
+                .recommendation_store
+                .begin_execution(id, session_id.to_string(), chrono::Utc::now().to_rfc3339())
+                .map_err(RecommendationAcceptError::Store)?
+                .ok_or(RecommendationAcceptError::Conflict)?;
             (prompt, recommendation.title.clone())
         };
 
-        crate::runtime::terminal_runtime::submit_approved_input(&self.state, session_id, prompt)
-            .await
-            .map_err(|_| RecommendationAcceptError::Conflict)?;
+        let delivery = crate::runtime::terminal_runtime::submit_approved_input(
+            &self.state,
+            session_id,
+            prompt,
+        )
+        .await;
 
-        // The prompt has already been irreversibly delivered to the target
-        // session's PTY at this point. If the workspace vanishes here (e.g.
-        // the user switches workspaces mid-request — rare, and equally
-        // possible for `dismiss_recommendation`'s own single post-write
-        // lock), the event append and status transition below are skipped
-        // or reported as a conflict even though the prompt was sent; one
-        // lock acquisition instead of two shrinks that window but cannot
-        // close it without holding the lock across the `.await` above,
-        // which existing session-creation code already avoids doing.
+        // The lock acquisitions below finalize a reservation already made
+        // above; if the workspace vanished in between (e.g. a mid-request
+        // workspace switch — rare, and an accepted limitation elsewhere in
+        // this call chain too), the recommendation is left `Executing`
+        // rather than corrupted, and `dismiss` accepts `Executing` as a
+        // manual escape hatch for that case.
+        if delivery.is_err() {
+            if let Some(workspace) = self.state.workspace.lock().unwrap().as_ref() {
+                let _ = workspace
+                    .recommendation_store
+                    .cancel_execution(id, chrono::Utc::now().to_rfc3339());
+            }
+            return Err(RecommendationAcceptError::Conflict);
+        }
+
         let workspace_guard = self.state.workspace.lock().unwrap();
         let workspace = workspace_guard
             .as_ref()
@@ -325,7 +347,7 @@ impl SessionApplication {
         );
         workspace
             .recommendation_store
-            .accept(id, session_id.to_string(), chrono::Utc::now().to_rfc3339())
+            .complete_execution(id, chrono::Utc::now().to_rfc3339())
             .map_err(RecommendationAcceptError::Store)
     }
 

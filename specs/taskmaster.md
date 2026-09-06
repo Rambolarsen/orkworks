@@ -446,7 +446,7 @@ workflowImprovement
 
 Each canonical `evidence` entry embeds an immutable snapshot of a cited observation (ID, sequence, session ID, kind, description, evidence text, impact, source, confidence, observed time), so ordinary observation-segment trimming cannot invalidate an existing proposed or dismissed card. A recommendation cannot claim more recurrences or sessions than its evidence contains. A proposed recommendation may be updated with later qualifying evidence while retaining its identity and lifecycle history.
 
-For this passive variant, `proposed`, `dismissed`, and `accepted` are reachable in this version; the remaining canonical statuses, including `superseded`, stay valid for shared deserialization but are never produced by this evaluator. A dismissed record remains immutable history even when its evidence later qualifies for a resurfaced successor — the successor's `supersedesRecommendationId` records the lineage, and the predecessor's status is never rewritten. `accepted` is likewise terminal for the evaluator: once accepted, a recommendation is never resurfaced or rewritten by later qualifying evidence under the same dedupe family in this version.
+For this passive variant, `proposed`, `dismissed`, `executing`, and `accepted` are reachable in this version; the remaining canonical statuses, including `superseded`, stay valid for shared deserialization but are never produced by this evaluator. A dismissed record remains immutable history even when its evidence later qualifies for a resurfaced successor — the successor's `supersedesRecommendationId` records the lineage, and the predecessor's status is never rewritten. `executing` is a brief reservation the `accept` action holds while it delivers the fix prompt, before resolving to `accepted` (delivered) or rolling back to `proposed` (delivery failed); `dismiss` accepts `executing` too, as a manual recovery path if a crash ever leaves one stuck there. `executing` and `accepted` are both terminal for the evaluator: once a recommendation leaves `proposed`, it is never resurfaced or rewritten by later qualifying evidence under the same dedupe family in this version.
 
 ### Deduplication and dismissal watermark
 
@@ -876,7 +876,7 @@ The action overview continues to answer what needs attention now. Taskmaster rec
 - [ ] Capacity changes can supersede or rerank a proposed recommendation.
 - [ ] Taskmaster never writes terminal input, modifies source files, or performs Git workflow actions directly, except through the user-confirmed `improve_workflow` `accept` action, which submits a generated prompt into the user's own active session (never a session Taskmaster chose or started) and never edits files itself.
 - [ ] Two sessions that each produce a matching workflow observation (same fingerprint, confidence ≥ `0.6`) can produce one evidence-backed `improve_workflow` recommendation citing both.
-- [ ] `improve_workflow` recommendations expose exactly one explicit `accept` action (no automatic/background execution, and it never starts a new session) and only ever reach `proposed`, `dismissed`, or `accepted` status.
+- [ ] `improve_workflow` recommendations expose exactly one explicit `accept` action (no automatic/background execution, and it never starts a new session) and only ever reach `proposed`, `dismissed`, `executing`, or `accepted` status.
 - [ ] Dismissing an `improve_workflow` recommendation persists an evidence watermark and does not resurface it from unchanged evidence.
 
 ## Non-goals reaffirmed

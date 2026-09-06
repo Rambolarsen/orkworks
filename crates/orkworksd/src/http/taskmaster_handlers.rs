@@ -253,11 +253,20 @@ mod tests {
             .as_ref()
             .unwrap()
             .recommendation_store
-            .accept(
+            .begin_execution(
                 &recommendation_id,
                 "already-accepted-target".into(),
                 "2026-09-06T00:00:00Z".into(),
             )
+            .unwrap();
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .recommendation_store
+            .complete_execution(&recommendation_id, "2026-09-06T00:00:01Z".into())
             .unwrap();
 
         let response = accept_recommendation(

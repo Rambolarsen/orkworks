@@ -52,7 +52,7 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 | [0042](./0042-workflow-observations-replace-summary-checkpoints.md) | Workflow observations replace summary checkpoints | accepted |
 | [0043](./0043-local-harness-hook-configuration.md) | Harness hook configuration is local; doc checks use a committed shared source | accepted |
 | [0044](./0044-peon-provider-first-selection.md) | Peon provider-first selection | proposed |
-| [0045](./0045-improve-workflow-lifecycle-statuses.md) | improve_workflow reaches only proposed/dismissed; superseded is deserialization-only | accepted |
+| [0045](./0045-improve-workflow-lifecycle-statuses.md) | improve_workflow reaches only proposed/dismissed; superseded is deserialization-only | superseded by [0048](./0048-improve-workflow-accept-sends-fix-prompt-to-active-session.md) |
 | [0046](./0046-live-resize-persistence-for-terminal-size-sidecar.md) | Live-resize persistence for the per-session `.terminal-size` sidecar | accepted |
 | [0047](./0047-initial-prompt-label-fallback.md) | Initial-prompt labels are replaceable bootstrap fallbacks | accepted |
 | [0048](./0048-improve-workflow-accept-sends-fix-prompt-to-active-session.md) | improve_workflow gains an explicit accept action that sends a fix prompt to the active session | accepted |

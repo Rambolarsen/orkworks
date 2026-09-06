@@ -145,10 +145,11 @@ function CapPanel() {
 
 function RecPanel() {
   const ctx = useContext(DockviewContext);
+  const activeSession = ctx.sessions.find((s) => s.id === ctx.activeSessionId);
   return (
     <RecommendationsPanel
       hasWorkspace={!!ctx.workspace && !ctx.isSwitchingWorkspace}
-      activeSessionId={ctx.activeSessionId}
+      canFixWithAi={activeSession?.lifecycle === "alive"}
       onSelectSession={ctx.onSelectSession}
       onFixWithAi={ctx.onFixWithAi}
     />

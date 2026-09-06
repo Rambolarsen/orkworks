@@ -10,7 +10,7 @@ import EmptyState from "./EmptyState";
 
 interface RecommendationsPanelProps {
   hasWorkspace: boolean;
-  activeSessionId: string | null;
+  canFixWithAi: boolean;
   onSelectSession?: (id: string) => void;
   onFixWithAi?: (recommendation: WorkflowRecommendation) => void;
 }
@@ -102,7 +102,7 @@ function RecommendationCard({
   );
 }
 
-function RecommendationsPanel({ hasWorkspace, activeSessionId, onSelectSession, onFixWithAi }: RecommendationsPanelProps) {
+function RecommendationsPanel({ hasWorkspace, canFixWithAi, onSelectSession, onFixWithAi }: RecommendationsPanelProps) {
   const [recommendations, setRecommendations] = useState<WorkflowRecommendation[]>([]);
   const [diagnostics, setDiagnostics] = useState<ObservationDiagnostic[]>([]);
   const [error, setError] = useState<string>();
@@ -182,7 +182,7 @@ function RecommendationsPanel({ hasWorkspace, activeSessionId, onSelectSession, 
             onDismiss={dismiss}
             onSelectSession={onSelectSession}
             onFixWithAi={onFixWithAi}
-            canFixWithAi={!!activeSessionId}
+            canFixWithAi={canFixWithAi}
             dismissing={dismissing === recommendation.id}
             error={dismissErrors[recommendation.id] || undefined}
           />

@@ -1,7 +1,6 @@
 # improve_workflow recommendation lifecycle statuses
 
-- Status: accepted (the "only proposed and dismissed are reachable" clause
-  below is amended by ADR 0048, which adds `accepted` as a reachable status)
+- Status: superseded by [ADR 0048](./0048-improve-workflow-accept-sends-fix-prompt-to-active-session.md)
 - Deciders: Rambolarsen
 - Date: 2026-08-31
 
