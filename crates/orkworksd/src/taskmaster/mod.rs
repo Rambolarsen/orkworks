@@ -156,6 +156,15 @@ pub(crate) fn evaluate_workflow_improvements(
             .filter(|recommendation| recommendation.dedupe_key == dedupe_key)
             .max_by(|left, right| left.updated_at.cmp(&right.updated_at));
 
+        if prior.is_some_and(|recommendation| {
+            !matches!(
+                recommendation.status,
+                RecommendationStatus::Proposed | RecommendationStatus::Dismissed
+            )
+        }) {
+            continue;
+        }
+
         let mut evidence: Vec<WorkflowObservationEvidence> = prior
             .filter(|recommendation| recommendation.status == RecommendationStatus::Proposed)
             .map(|recommendation| recommendation.evidence.clone())
@@ -295,6 +304,25 @@ pub(crate) fn evaluate_workflow_improvements(
     }
     proposals.sort_by(|left, right| left.dedupe_key.cmp(&right.dedupe_key));
     proposals
+}
+
+/// Builds the prompt submitted into the user's active session when they
+/// accept an `improve_workflow` recommendation. Ends in `\r` so it is
+/// delivered exactly as a typed prompt followed by Enter (see
+/// `terminal_runtime::submit_approved_input`'s existing convention).
+pub(crate) fn build_fix_prompt(recommendation: &Recommendation) -> String {
+    let improvement = &recommendation.workflow_improvement;
+    let surface = target_surface_name(improvement.target_surface);
+    format!(
+        "Implement the following workflow improvement so future sessions don't hit this recurring issue: {}\n\n\
+         Target surface: {surface} (edit the repository's {surface} accordingly).\n\n\
+         Why: {} Expected benefit: {}\n\n\
+         Scope: only modify repository-level instructions, skills, tests, tooling, or documentation to address this recurring issue. \
+         Do not resume, reopen, or modify any other session — this request applies only to the session you are currently running in.\r",
+        improvement.proposed_improvement,
+        recommendation.reason.join(" "),
+        improvement.expected_benefit,
+    )
 }
 
 fn target_surface(kind: ObservationKind) -> TargetSurface {
@@ -459,6 +487,76 @@ mod tests {
         );
 
         assert_eq!(proposals.len(), 1);
+    }
+
+    #[test]
+    fn accepted_recommendation_is_never_overwritten_by_reevaluation() {
+        let first = observation("one", 1, "session-a", 0.8, Impact::Low);
+        let second = observation("two", 2, "session-b", 0.8, Impact::Low);
+        let mut existing = evaluate_workflow_improvements(
+            &[first.clone(), second.clone()],
+            &[],
+            "workspace-1",
+            "2026-08-21T12:00:00Z",
+        );
+        assert_eq!(existing.len(), 1);
+        existing[0].status = RecommendationStatus::Accepted;
+        existing[0].target_session_id = Some("session-active".into());
+
+        let reevaluated = evaluate_workflow_improvements(
+            &[
+                first,
+                second,
+                observation("three", 3, "session-c", 0.8, Impact::Low),
+            ],
+            &existing,
+            "workspace-1",
+            "2026-08-21T12:01:00Z",
+        );
+
+        assert!(
+            reevaluated.is_empty(),
+            "an accepted recommendation must never be resurfaced or overwritten by later evidence"
+        );
+    }
+
+    #[test]
+    fn build_fix_prompt_includes_proposed_improvement_and_target_surface_and_ends_with_cr() {
+        let proposals = evaluate_workflow_improvements(
+            &[
+                observation("one", 1, "session-a", 0.8, Impact::Low),
+                observation("two", 2, "session-b", 0.8, Impact::Low),
+            ],
+            &[],
+            "workspace-1",
+            "2026-08-21T12:00:00Z",
+        );
+        let recommendation = &proposals[0];
+
+        let prompt = build_fix_prompt(recommendation);
+
+        assert!(prompt.contains(&recommendation.workflow_improvement.proposed_improvement));
+        assert!(prompt.contains(target_surface_name(
+            recommendation.workflow_improvement.target_surface
+        )));
+        assert!(prompt.ends_with('\r'));
+    }
+
+    #[test]
+    fn build_fix_prompt_forbids_touching_other_sessions() {
+        let proposals = evaluate_workflow_improvements(
+            &[
+                observation("one", 1, "session-a", 0.8, Impact::Low),
+                observation("two", 2, "session-b", 0.8, Impact::Low),
+            ],
+            &[],
+            "workspace-1",
+            "2026-08-21T12:00:00Z",
+        );
+
+        let prompt = build_fix_prompt(&proposals[0]);
+
+        assert!(prompt.contains("Do not resume, reopen, or modify any other session"));
     }
 
     #[test]

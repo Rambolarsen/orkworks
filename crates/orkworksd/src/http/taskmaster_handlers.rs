@@ -1,6 +1,7 @@
 use crate::http::ErrorResponse;
 use crate::session_application::{
-    RecommendationDismissError, RecommendationQueryError, SessionApplication,
+    RecommendationAcceptError, RecommendationDismissError, RecommendationQueryError,
+    SessionApplication,
 };
 use crate::taskmaster::store::StoreError;
 use crate::taskmaster::Recommendation;
@@ -24,6 +25,14 @@ struct RecommendationListResponse {
 #[derive(Deserialize, Default)]
 pub(crate) struct DismissRequest {
     reason: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct AcceptRequest {
+    #[serde(rename = "sessionId")]
+    session_id: String,
+    #[serde(default)]
+    prompt: Option<String>,
 }
 
 fn store_error(error: StoreError) -> Response {
@@ -84,6 +93,23 @@ pub(crate) async fn dismiss_recommendation(
     }
 }
 
+pub(crate) async fn accept_recommendation(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(request): Json<AcceptRequest>,
+) -> Response {
+    match SessionApplication::new(state)
+        .accept_recommendation(&id, &request.session_id, request.prompt)
+        .await
+    {
+        Ok(Some(recommendation)) => Json(recommendation).into_response(),
+        Ok(None) => StatusCode::NOT_FOUND.into_response(),
+        Err(RecommendationAcceptError::Conflict) => StatusCode::CONFLICT.into_response(),
+        Err(RecommendationAcceptError::SessionNotFound) => StatusCode::NOT_FOUND.into_response(),
+        Err(RecommendationAcceptError::Store(error)) => store_error(error),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -111,5 +137,138 @@ mod tests {
                 .status(),
             StatusCode::NOT_FOUND
         );
+    }
+
+    #[tokio::test]
+    async fn accept_returns_not_found_for_unknown_recommendation() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = State(test_app_state_with_workspace(dir.path()));
+        let response = accept_recommendation(
+            state,
+            Path("missing".into()),
+            Json(AcceptRequest {
+                session_id: "no-session".into(),
+                prompt: None,
+            }),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn accept_returns_not_found_when_target_session_is_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        {
+            let workspace = state.workspace.lock().unwrap();
+            let workspace = workspace.as_ref().unwrap();
+            for key in ["one", "two"] {
+                workspace
+                    .workflow_observations
+                    .record_observation(
+                        "http-accept-session",
+                        crate::workflow_observations::ObservationOrigin::Peon,
+                        key,
+                        crate::workflow_observations::ObservationCandidate {
+                            kind: crate::workflow_observations::ObservationKind::Obstacle,
+                            description: "The setup blocks progress".into(),
+                            evidence: "The same command failed twice".into(),
+                            reported_impact: crate::workflow_observations::Impact::Medium,
+                            confidence: Some(0.8),
+                        },
+                    )
+                    .unwrap();
+            }
+        }
+        crate::session_application::SessionApplication::new(state.clone())
+            .refresh_workflow_recommendations();
+        let recommendation_id = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .recommendation_store
+            .list()
+            .unwrap()
+            .pop()
+            .unwrap()
+            .id;
+
+        let response = accept_recommendation(
+            State(state),
+            Path(recommendation_id),
+            Json(AcceptRequest {
+                session_id: "no-such-session".into(),
+                prompt: None,
+            }),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn accept_returns_conflict_for_already_accepted_recommendation() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        {
+            let workspace = state.workspace.lock().unwrap();
+            let workspace = workspace.as_ref().unwrap();
+            for key in ["one", "two"] {
+                workspace
+                    .workflow_observations
+                    .record_observation(
+                        "http-accept-conflict-session",
+                        crate::workflow_observations::ObservationOrigin::Peon,
+                        key,
+                        crate::workflow_observations::ObservationCandidate {
+                            kind: crate::workflow_observations::ObservationKind::Obstacle,
+                            description: "The setup blocks progress".into(),
+                            evidence: "The same command failed twice".into(),
+                            reported_impact: crate::workflow_observations::Impact::Medium,
+                            confidence: Some(0.8),
+                        },
+                    )
+                    .unwrap();
+            }
+        }
+        crate::session_application::SessionApplication::new(state.clone())
+            .refresh_workflow_recommendations();
+        let recommendation_id = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .recommendation_store
+            .list()
+            .unwrap()
+            .pop()
+            .unwrap()
+            .id;
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .recommendation_store
+            .accept(
+                &recommendation_id,
+                "already-accepted-target".into(),
+                "2026-09-06T00:00:00Z".into(),
+            )
+            .unwrap();
+
+        let response = accept_recommendation(
+            State(state),
+            Path(recommendation_id),
+            Json(AcceptRequest {
+                session_id: "some-other-session".into(),
+                prompt: None,
+            }),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::CONFLICT);
     }
 }

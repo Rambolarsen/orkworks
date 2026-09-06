@@ -124,6 +124,27 @@ impl RecommendationStore {
         Ok(Some(recommendation))
     }
 
+    pub(crate) fn accept(
+        &self,
+        id: &str,
+        target_session_id: String,
+        accepted_at: String,
+    ) -> Result<Option<Recommendation>, StoreError> {
+        let Some(mut recommendation) = self.get(id)? else {
+            return Ok(None);
+        };
+        if recommendation.recommendation_type != RecommendationType::ImproveWorkflow
+            || recommendation.status != RecommendationStatus::Proposed
+        {
+            return Err(StoreError::InvalidTransition);
+        }
+        recommendation.status = RecommendationStatus::Accepted;
+        recommendation.target_session_id = Some(target_session_id);
+        recommendation.updated_at = accepted_at;
+        self.put(&recommendation)?;
+        Ok(Some(recommendation))
+    }
+
     pub(crate) fn delete_referencing_session(&self, session_id: &str) -> Result<(), StoreError> {
         for recommendation in self.list()? {
             if references_session(&recommendation, session_id) {
@@ -319,6 +340,68 @@ mod tests {
                 .dismissed_through_sequence,
             4
         );
+    }
+
+    #[test]
+    fn accepts_in_place_and_sets_target_session_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = RecommendationStore::open(dir.path().to_path_buf()).unwrap();
+        store
+            .put(&recommendation("recommendation-1", "session-1"))
+            .unwrap();
+
+        let accepted = store
+            .accept(
+                "recommendation-1",
+                "session-active".into(),
+                "2026-08-21T12:00:00Z".into(),
+            )
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(accepted.status, RecommendationStatus::Accepted);
+        assert_eq!(accepted.target_session_id, Some("session-active".into()));
+        assert_eq!(accepted.updated_at, "2026-08-21T12:00:00Z");
+        assert_eq!(
+            store.get("recommendation-1").unwrap().unwrap().status,
+            RecommendationStatus::Accepted
+        );
+    }
+
+    #[test]
+    fn accept_rejects_non_proposed_status() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = RecommendationStore::open(dir.path().to_path_buf()).unwrap();
+        store
+            .put(&recommendation("recommendation-1", "session-1"))
+            .unwrap();
+        store
+            .dismiss("recommendation-1", "2026-08-21T12:00:00Z".into())
+            .unwrap();
+
+        let result = store.accept(
+            "recommendation-1",
+            "session-active".into(),
+            "2026-08-21T12:01:00Z".into(),
+        );
+
+        assert!(matches!(result, Err(StoreError::InvalidTransition)));
+    }
+
+    #[test]
+    fn accept_returns_none_for_unknown_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = RecommendationStore::open(dir.path().to_path_buf()).unwrap();
+
+        let result = store
+            .accept(
+                "missing",
+                "session-active".into(),
+                "2026-08-21T12:00:00Z".into(),
+            )
+            .unwrap();
+
+        assert!(result.is_none());
     }
 
     #[test]
