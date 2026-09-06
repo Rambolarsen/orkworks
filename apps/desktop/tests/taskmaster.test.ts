@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 
 import type { WorkflowRecommendation } from "../src/api.ts";
 import {
+  buildFixPromptDraft,
   formatImpact,
   formatRecurrence,
   formatTargetSurface,
@@ -84,7 +85,15 @@ test("Taskmaster evidence is displayed in observation order without mutating the
   assert.deepEqual(recommendation.evidence.map((item) => item.sequence), [2, 1]);
 });
 
-test("Recommendations panel exposes evidence and dismissal only", () => {
+test("Taskmaster fix prompt is scoped to the target surface and forbids touching other sessions", () => {
+  const prompt = buildFixPromptDraft(recommendation);
+
+  assert.match(prompt, /Add a review handoff step\./);
+  assert.match(prompt, /instructions/);
+  assert.match(prompt, /Do not resume, reopen, or modify any other session/);
+});
+
+test("Recommendations panel exposes evidence, dismissal, and an explicit fix-with-ai action only", () => {
   const source = readFileSync(
     new URL("../src/components/RecommendationsPanel.tsx", import.meta.url),
     "utf8",
@@ -92,6 +101,7 @@ test("Recommendations panel exposes evidence and dismissal only", () => {
 
   assert.match(source, /<details\b/);
   assert.match(source, /Dismiss/);
+  assert.match(source, /Fix with AI/);
   assert.doesNotMatch(source, />Accept</);
   assert.doesNotMatch(source, />Execute</);
   assert.doesNotMatch(source, /Start session/);

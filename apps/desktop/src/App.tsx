@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { DockviewApi } from "dockview-react";
 import DockviewApp from "./components/DockviewApp";
 import NewSessionDialog from "./components/NewSessionDialog";
+import FixWithAiDialog from "./components/FixWithAiDialog";
 import SettingsModal from "./components/SettingsModal";
 import type { SettingsSection } from "./components/SettingsModal";
 import ToastRack from "./components/ToastRack";
@@ -17,11 +18,14 @@ import {
   type ProviderRuntimeResponse,
   type HarnessConfigEntry,
   type HarnessListResponse,
+  type WorkflowRecommendation,
   listHarnesses,
   applyDebugAttention,
   setActiveWorkspaceSession,
   getProviders,
+  acceptTaskmasterRecommendation,
 } from "./api";
+import { buildFixPromptDraft } from "./taskmaster";
 import { disposeTerminal, getTerminal, pruneTerminals, getLiveTerminalCount, getLiveTerminalIds } from "./terminalStore";
 import { captureRendererHealth, type RendererHealthSample } from "./rendererHealthProbe";
 import type { AppSettings } from "./appSettingsTypes";
@@ -259,6 +263,27 @@ function App() {
       pushToast("error", "Couldn't start a new session.");
     }
   }, [workspaceSessionController]);
+
+  const [fixRecommendation, setFixRecommendation] = useState<WorkflowRecommendation | null>(null);
+
+  const handleFixWithAi = useCallback((recommendation: WorkflowRecommendation) => {
+    setFixRecommendation(recommendation);
+  }, []);
+
+  const handleConfirmFixWithAi = useCallback(async (prompt: string) => {
+    const recommendation = fixRecommendation;
+    setFixRecommendation(null);
+    if (!recommendation || !activeSessionId) return;
+    try {
+      const baseUrl = await window.orkworks.getBackendUrl();
+      await acceptTaskmasterRecommendation(baseUrl, recommendation.id, {
+        sessionId: activeSessionId,
+        prompt,
+      });
+    } catch {
+      pushToast("error", "Couldn't send the fix to the session.");
+    }
+  }, [fixRecommendation, activeSessionId]);
 
   // Unread ("changed since you looked") is derived by diffing attention
   // status between session snapshots; selecting a session marks it read.
@@ -527,6 +552,7 @@ function App() {
         resumeTick={resumeTick}
         reviewTick={reviewTick}
         onSelectSession={handleSelectSession}
+        onFixWithAi={handleFixWithAi}
         onCreateSession={handleCreateSession}
         onKillSession={handleKillSession}
         onForgetSession={handleForgetSession}
@@ -562,6 +588,13 @@ function App() {
           providerRuntime={providerRuntime}
           onConfirm={handleConfirmNewSession}
           onCancel={() => setNewSessionDialogOpen(false)}
+        />
+      )}
+      {fixRecommendation && (
+        <FixWithAiDialog
+          initialPrompt={buildFixPromptDraft(fixRecommendation)}
+          onConfirm={handleConfirmFixWithAi}
+          onCancel={() => setFixRecommendation(null)}
         />
       )}
       {settingsOpen && settings && (

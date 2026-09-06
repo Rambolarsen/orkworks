@@ -616,3 +616,21 @@ export async function dismissTaskmasterRecommendation(
     body: JSON.stringify(reason === undefined ? {} : { reason }),
   });
 }
+
+export interface AcceptRecommendationOptions {
+  sessionId: string;
+  prompt?: string;
+}
+
+export async function acceptTaskmasterRecommendation(
+  baseUrl: string,
+  id: string,
+  opts: AcceptRecommendationOptions,
+): Promise<WorkflowRecommendation> {
+  const response = await taskmasterRequest(baseUrl, `/taskmaster/recommendations/${encodeURIComponent(id)}/accept`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(opts),
+  });
+  return response.json();
+}
