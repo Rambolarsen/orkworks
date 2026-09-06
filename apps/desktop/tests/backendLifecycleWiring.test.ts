@@ -25,6 +25,19 @@ test("App exposes a retry action that resets status and invokes the lifecycle br
   assert.match(appSource, />\s*Retry\s*</);
 });
 
+test("a stale retry rejection is guarded so it cannot clobber a newer retry — issue #356", () => {
+  const start = appSource.indexOf("const handleRetryBackend = useCallback");
+  const end = appSource.indexOf("const handleBackendUnavailable = useCallback");
+  assert.ok(start !== -1 && end !== -1 && start < end, "handleRetryBackend block not found");
+  const handler = appSource.slice(start, end);
+
+  assert.match(handler, /backendRetryGuardRef\.current\.begin\(\)/);
+  // The unreachable transition on rejection must be gated by isCurrent(token),
+  // not applied unconditionally — otherwise a superseded retry's rejection can
+  // overwrite a newer retry's success (double-click Retry race, issue #356).
+  assert.match(handler, /catch\(\(\) => \{\s*[\s\S]*?if \(backendRetryGuardRef\.current\.isCurrent\(token\)\)\s*\{\s*setBackendStatus\("unreachable"\);/);
+});
+
 test("opening a workspace adopts the restoration once — from the ready handler, not the dialog handler", () => {
   // One restoration (main publishes the same restored workspace via the
   // ready lifecycle event and as open-workspace/get-initial-workspace IPC

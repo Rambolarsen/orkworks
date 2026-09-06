@@ -29,6 +29,7 @@ import type { CreateSessionOptions } from "./harnessTypes";
 import type { ActiveHarnessSaveResult, BackendLifecycleEvent, IntegrationKey } from "./orkworksWindow";
 import { shouldEnableSessionPolling, type BackendStatus } from "./backendPollingGate";
 import { probeBackendHealth } from "./backendHealthProbe";
+import { createBackendRetryGuard } from "./backendRetryGuard";
 import { createWorkspaceSessionController } from "./workspaceSessionController";
 
 function App() {
@@ -51,6 +52,7 @@ function App() {
   const [newSessionDialogOpen, setNewSessionDialogOpen] = useState(false);
   const dockviewApiRef = useRef<DockviewApi | null>(null);
   const sessionsHiddenLayoutRef = useRef<string | null>(null);
+  const backendRetryGuardRef = useRef(createBackendRetryGuard());
   const workspaceSessionControllerRef = useRef<ReturnType<typeof createWorkspaceSessionController> | null>(null);
   if (!workspaceSessionControllerRef.current) {
     workspaceSessionControllerRef.current = createWorkspaceSessionController({
@@ -88,8 +90,13 @@ function App() {
 
   const handleRetryBackend = useCallback(() => {
     setBackendStatus("connecting…");
+    const token = backendRetryGuardRef.current.begin();
     void window.orkworks.retryBackend().catch(() => {
-      setBackendStatus("unreachable");
+      // A rejection from a superseded retry (e.g. a rapid double-click) must not
+      // clobber a newer retry that is still in flight or already succeeded — see #356.
+      if (backendRetryGuardRef.current.isCurrent(token)) {
+        setBackendStatus("unreachable");
+      }
     });
   }, []);
 
