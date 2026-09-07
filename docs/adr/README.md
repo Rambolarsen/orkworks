@@ -42,7 +42,7 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 | [0032](./0032-harness-reported-cwd-via-hook-payload.md) | Harness-reported cwd via existing hook payload | accepted |
 | [0033](./0033-recorded-terminal-replay-size-sidecar.md) | Recorded terminal-replay grid via per-session `.terminal-size` sidecar | superseded by [0046](./0046-live-resize-persistence-for-terminal-size-sidecar.md) |
 | [0034](./0034-user-approved-session-review-prompt.md) | User-approved session review prompt | accepted |
-| [0035](./0035-codex-session-start-hook-not-attention-signal.md) | Codex `SessionStart` hook captures session ID, not attention | superseded by [0049](./0049-codex-deterministic-attention-hooks.md) |
+| [0035](./0035-codex-session-start-hook-not-attention-signal.md) | Codex `SessionStart` hook captures session ID, not attention | superseded by [0051](./0051-codex-deterministic-attention-hooks.md) |
 | [0036](./0036-codex-hooks-portable-reporter-path.md) | Codex hook installation uses a portable, home-relative reporter path | superseded by [0043](./0043-local-harness-hook-configuration.md) |
 | [0037](./0037-hook-reported-plan-paths.md) | Hook-reported plan paths | accepted |
 | [0038](./0038-claude-plan-path-post-tool-use-hook.md) | Claude `PostToolUse` plan-path transport | accepted |
@@ -56,6 +56,6 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 | [0046](./0046-live-resize-persistence-for-terminal-size-sidecar.md) | Live-resize persistence for the per-session `.terminal-size` sidecar | accepted |
 | [0047](./0047-initial-prompt-label-fallback.md) | Initial-prompt labels are replaceable bootstrap fallbacks | accepted |
 | [0048](./0048-improve-workflow-accept-sends-fix-prompt-to-active-session.md) | improve_workflow gains an explicit accept action that sends a fix prompt to the active session | accepted |
-| [0049](./0049-codex-deterministic-attention-hooks.md) | Codex deterministic attention hooks | accepted |
 | [0049](./0049-codex-app-server-peon-model-discovery.md) | Codex app-server is the live Peon model catalog | accepted |
 | [0050](./0050-taskmaster-recommendation-aware-agent-handoff.md) | Taskmaster recommendation-aware agent handoff | accepted |
+| [0051](./0051-codex-deterministic-attention-hooks.md) | Codex deterministic attention hooks | accepted |
