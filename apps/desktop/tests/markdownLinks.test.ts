@@ -63,3 +63,36 @@ test("does not cross a blank line while looking for a multiline destination", ()
 
   assert.equal(normalizeMarkdownLinkDestinations(markdown), markdown);
 });
+
+test("preserves whitespace inside multiline link titles", () => {
+  const markdown = "[title](https://example.com/\n  \"A long\n  title\")";
+
+  assert.equal(
+    normalizeMarkdownLinkDestinations(markdown),
+    "[title](https://example.com/ \"A long title\")",
+  );
+});
+
+test("does not treat a fenced code content line with an info string as a closer", () => {
+  const markdown = [
+    "```md",
+    "```sh",
+    "[code](https://example.com/",
+    "  wrapped)",
+    "```",
+    "",
+    "[real](https://example.com/",
+    "  wrapped)",
+  ].join("\n");
+
+  assert.equal(
+    normalizeMarkdownLinkDestinations(markdown),
+    markdown.slice(0, markdown.indexOf("[real]")) + "[real](https://example.com/wrapped)",
+  );
+});
+
+test("does not normalize a destination-like sequence after an inline-code label", () => {
+  const markdown = "`[placeholder` then ](docs/\n  path)";
+
+  assert.equal(normalizeMarkdownLinkDestinations(markdown), markdown);
+});

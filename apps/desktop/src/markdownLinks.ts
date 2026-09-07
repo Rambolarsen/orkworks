@@ -13,24 +13,15 @@ function fenceAt(source: string, start: number): Fence | null {
   return match ? { marker: match[1][0] as Fence["marker"], length: match[1].length } : null;
 }
 
-function hasLinkLabelBefore(source: string, closeBracket: number): boolean {
-  let nestedBrackets = 0;
-  for (let index = closeBracket - 1; index >= 0; index -= 1) {
-    const character = source[index];
-    if (character === "\\") {
-      index -= 1;
-      continue;
-    }
-    if (character === "]") {
-      nestedBrackets += 1;
-    } else if (character === "[") {
-      if (nestedBrackets === 0) return true;
-      nestedBrackets -= 1;
-    } else if (character === "\n" && source[index - 1] === "\n") {
-      return false;
-    }
-  }
-  return false;
+function closesFenceAt(source: string, start: number, fence: Fence): boolean {
+  const end = lineEnd(source, start);
+  const line = source.slice(start, end).replace(/\r?\n$/, "");
+  const match = line.match(/^ {0,3}(`{3,}|~{3,})[ \t]*$/);
+  return Boolean(
+    match &&
+      match[1][0] === fence.marker &&
+      match[1].length >= fence.length,
+  );
 }
 
 function multilineDestination(source: string, start: number): { value: string; end: number } | null {
@@ -39,6 +30,7 @@ function multilineDestination(source: string, start: number): { value: string; e
   let angleDestination = false;
   let changed = false;
   let value = "";
+  let title: { delimiter: "\"" | "'" | "("; depth: number } | null = null;
 
   while (index < source.length) {
     const character = source[index];
@@ -54,12 +46,37 @@ function multilineDestination(source: string, start: number): { value: string; e
       let next = nextLine;
       while (next < source.length && (source[next] === " " || source[next] === "\t")) next += 1;
       if (next < source.length && (source[next] === "\r" || source[next] === "\n")) return null;
-      // A line break before a link title is whitespace; a break inside a URL
-      // is a wrapped destination and should disappear with its indentation.
-      value += next < source.length && parentheses === 0 && /["'(]/.test(source[next]) ? " " : "";
+      // A line break before or inside a link title is whitespace; a break
+      // inside a URL is a wrapped destination and should disappear with its
+      // indentation.
+      value += title || (next < source.length && parentheses === 0 && /["'(]/.test(source[next])) ? " " : "";
       changed = true;
       index = next;
       continue;
+    }
+
+    if (title) {
+      if (title.delimiter === "(") {
+        if (character === "(") title.depth += 1;
+        if (character === ")") {
+          title.depth -= 1;
+          if (title.depth === 0) title = null;
+        }
+      } else if (character === title.delimiter) {
+        title = null;
+      }
+      value += character;
+      index += 1;
+      continue;
+    }
+
+    if (
+      parentheses === 0 &&
+      !angleDestination &&
+      /["'(]/.test(character) &&
+      /[ \t]$/.test(value)
+    ) {
+      title = { delimiter: character as "\"" | "'" | "(", depth: character === "(" ? 1 : 0 };
     }
 
     if (character === "<" && parentheses === 0) angleDestination = true;
@@ -83,13 +100,14 @@ export function normalizeMarkdownLinkDestinations(source: string): string {
   let index = 0;
   let fence: Fence | null = null;
   let inlineCodeLength: number | null = null;
+  let openLabels = 0;
 
   while (index < source.length) {
     if (index === 0 || source[index - 1] === "\n") {
       const marker = fenceAt(source, index);
       if (fence) {
         const end = lineEnd(source, index);
-        const closing = marker && marker.marker === fence.marker && marker.length >= fence.length;
+        const closing = marker && closesFenceAt(source, index, fence);
         result += source.slice(index, end);
         index = end;
         if (closing) fence = null;
@@ -140,12 +158,18 @@ export function normalizeMarkdownLinkDestinations(source: string): string {
       continue;
     }
 
-    if (source[index] === "]" && source[index + 1] === "(" && hasLinkLabelBefore(source, index)) {
-      const link = multilineDestination(source, index + 2);
-      if (link) {
-        result += `](${link.value}`;
-        index = link.end;
-        continue;
+    if (source[index] === "[") {
+      openLabels += 1;
+    } else if (source[index] === "]") {
+      const hasLinkLabel = openLabels > 0;
+      if (hasLinkLabel) openLabels -= 1;
+      if (source[index + 1] === "(" && hasLinkLabel) {
+        const link = multilineDestination(source, index + 2);
+        if (link) {
+          result += `](${link.value}`;
+          index = link.end;
+          continue;
+        }
       }
     }
 
