@@ -550,12 +550,18 @@ fn provider_from_harness(harness: &ResolvedHarness) -> Option<ProviderDefinition
         supports_model,
         timeout_secs,
         prompt_transport,
+        reasoning_effort_args,
     } = harness.definition.peon.as_ref()?.clone();
     let (list_models_command, list_models_args, static_models) = match &harness.definition.models {
         Some(ModelCapability::Static { models }) => (None, Vec::new(), models.clone()),
         Some(ModelCapability::Command { command, args }) => {
             (Some(command.clone()), args.clone(), Vec::new())
         }
+        Some(ModelCapability::CodexAppServer) => (
+            Some("codex".into()),
+            vec!["app-server".into(), "--stdio".into()],
+            Vec::new(),
+        ),
         Some(ModelCapability::Http) => (None, Vec::new(), Vec::new()),
         None => (None, Vec::new(), Vec::new()),
     };
@@ -569,6 +575,7 @@ fn provider_from_harness(harness: &ResolvedHarness) -> Option<ProviderDefinition
         supports_model,
         timeout_secs,
         prompt_transport,
+        reasoning_effort_args,
         list_models_command,
         list_models_args,
         static_models,

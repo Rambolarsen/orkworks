@@ -348,7 +348,7 @@ function normalizePeonSelection(
   if (candidate && typeof candidate === "object" && !Array.isArray(candidate)) {
     const selection = candidate as Record<string, unknown>;
     if (!isProviderId(selection.provider) || !entries.has(selection.provider)) return null;
-    return normalizedSelection(selection.provider, selection.model, selection.ollamaBaseUrl);
+    return normalizedSelection(selection.provider, selection.model, selection.ollamaBaseUrl, selection.reasoningEffort);
   }
 
   if (raw.version === 2) return null;
@@ -356,14 +356,24 @@ function normalizePeonSelection(
   const modeled = Array.from(entries.values()).filter((entry) => entry.model !== null);
   if (modeled.length !== 1) return null;
   const entry = modeled[0];
-  return normalizedSelection(entry.id, entry.model, raw.ollamaBaseUrl);
+  return normalizedSelection(entry.id, entry.model, raw.ollamaBaseUrl, null);
 }
 
-function normalizedSelection(provider: unknown, model: unknown, ollamaBaseUrl: unknown): PeonSelection | null {
-  if (!isProviderId(provider) || typeof model !== "string") return null;
-  const normalizedModel = model.trim();
+function normalizedSelection(provider: unknown, model: unknown, ollamaBaseUrl: unknown, reasoningEffort: unknown): PeonSelection | null {
+  if (!isProviderId(provider)) return null;
+  const normalizedModel = typeof model === "string" ? model.trim() : "";
+  const normalizedEffort = typeof reasoningEffort === "string" && reasoningEffort.trim()
+    ? reasoningEffort.trim()
+    : null;
+  if (!normalizedModel && provider !== "codex") return null;
+  if (provider !== "ollama") {
+    return {
+      provider: provider as ProviderId,
+      model: normalizedModel,
+      ...(normalizedEffort ? { reasoningEffort: normalizedEffort } : {}),
+    };
+  }
   if (!normalizedModel) return null;
-  if (provider !== "ollama") return { provider: provider as ProviderId, model: normalizedModel };
   const normalizedUrl = ollamaBaseUrl == null
     ? DEFAULT_PROVIDER_SETTINGS.ollamaBaseUrl
     : parseOllamaBaseUrl(ollamaBaseUrl);

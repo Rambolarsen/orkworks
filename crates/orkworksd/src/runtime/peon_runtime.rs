@@ -2258,6 +2258,7 @@ mod tests {
                     peon_selection: Some(providers::PeonSelection {
                         provider: "opencode".into(),
                         model: "test-model".into(),
+                        reasoning_effort: None,
                         ollama_base_url: None,
                     }),
                     ollama_base_url: providers::default_ollama_base_url(),
@@ -2373,6 +2374,7 @@ mod tests {
                     peon_selection: Some(providers::PeonSelection {
                         provider: "opencode".into(),
                         model: "test-model".into(),
+                        reasoning_effort: None,
                         ollama_base_url: None,
                     }),
                     ollama_base_url: providers::default_ollama_base_url(),
@@ -2516,6 +2518,7 @@ mod tests {
                     peon_selection: Some(providers::PeonSelection {
                         provider: "opencode".into(),
                         model: "test-model".into(),
+                        reasoning_effort: None,
                         ollama_base_url: None,
                     }),
                     ollama_base_url: providers::default_ollama_base_url(),
@@ -2676,6 +2679,7 @@ mod tests {
                     peon_selection: Some(providers::PeonSelection {
                         provider: "opencode".into(),
                         model: "test-model".into(),
+                        reasoning_effort: None,
                         ollama_base_url: None,
                     }),
                     ollama_base_url: providers::default_ollama_base_url(),
@@ -2829,6 +2833,7 @@ mod tests {
                     peon_selection: Some(providers::PeonSelection {
                         provider: "opencode".into(),
                         model: "test-model".into(),
+                        reasoning_effort: None,
                         ollama_base_url: None,
                     }),
                     ollama_base_url: providers::default_ollama_base_url(),
@@ -2988,6 +2993,7 @@ mod tests {
                     peon_selection: Some(providers::PeonSelection {
                         provider: "opencode".into(),
                         model: "test-model".into(),
+                        reasoning_effort: None,
                         ollama_base_url: None,
                     }),
                     ollama_base_url: providers::default_ollama_base_url(),
@@ -3203,6 +3209,7 @@ mod tests {
                     peon_selection: Some(providers::PeonSelection {
                         provider: "opencode".into(),
                         model: "test-model".into(),
+                        reasoning_effort: None,
                         ollama_base_url: None,
                     }),
                     ollama_base_url: providers::default_ollama_base_url(),
@@ -3338,6 +3345,7 @@ mod tests {
                     peon_selection: Some(providers::PeonSelection {
                         provider: "opencode".into(),
                         model: "test-model".into(),
+                        reasoning_effort: None,
                         ollama_base_url: None,
                     }),
                     ollama_base_url: providers::default_ollama_base_url(),
@@ -4638,6 +4646,7 @@ mod tests {
                     peon_selection: Some(providers::PeonSelection {
                         provider: "opencode".into(),
                         model: "test-model".into(),
+                        reasoning_effort: None,
                         ollama_base_url: None,
                     }),
                     ollama_base_url: providers::default_ollama_base_url(),
@@ -4826,6 +4835,7 @@ mod tests {
                     peon_selection: Some(providers::PeonSelection {
                         provider: "opencode".into(),
                         model: "test-model".into(),
+                        reasoning_effort: None,
                         ollama_base_url: None,
                     }),
                     ollama_base_url: providers::default_ollama_base_url(),
@@ -4955,6 +4965,7 @@ mod tests {
                     peon_selection: Some(providers::PeonSelection {
                         provider: "opencode".into(),
                         model: "test-model".into(),
+                        reasoning_effort: None,
                         ollama_base_url: None,
                     }),
                     ollama_base_url: providers::default_ollama_base_url(),
