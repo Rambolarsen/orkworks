@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
-use std::io::Read;
 use std::io::Write as IoWrite;
+use std::io::{BufRead, Read};
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex, RwLock};
 
@@ -79,6 +79,12 @@ pub enum AttemptOutcome {
 pub struct PeonSelection {
     pub provider: String,
     pub model: String,
+    #[serde(
+        rename = "reasoningEffort",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub reasoning_effort: Option<String>,
     #[serde(rename = "ollamaBaseUrl", default)]
     pub ollama_base_url: Option<String>,
 }
@@ -90,10 +96,14 @@ pub(crate) fn normalize_peon_selection(
     let mut selection = selection?;
     selection.provider = selection.provider.trim().to_string();
     selection.model = selection.model.trim().to_string();
-    if selection.provider.is_empty()
-        || selection.model.is_empty()
-        || !valid_provider_ids.contains(&selection.provider)
-    {
+    selection.reasoning_effort = selection
+        .reasoning_effort
+        .map(|effort| effort.trim().to_string())
+        .filter(|effort| !effort.is_empty());
+    if selection.provider.is_empty() || !valid_provider_ids.contains(&selection.provider) {
+        return None;
+    }
+    if selection.model.is_empty() && selection.provider != "codex" {
         return None;
     }
     if selection.provider == "ollama" {
@@ -251,6 +261,8 @@ pub struct PeonProviderVerificationResponse {
     pub provider: String,
     pub capabilities: ProviderCapabilities,
     pub models: Vec<String>,
+    #[serde(rename = "modelOptions")]
+    pub model_options: Vec<ProviderModelOption>,
     #[serde(rename = "ollamaBaseUrl")]
     pub ollama_base_url: Option<String>,
     pub generation: u64,
@@ -271,6 +283,8 @@ pub struct PeonTestAndApplyRequest {
 pub struct PeonAppliedState {
     pub provider: Option<String>,
     pub model: Option<String>,
+    #[serde(rename = "reasoningEffort")]
+    pub reasoning_effort: Option<String>,
     #[serde(rename = "ollamaBaseUrl")]
     pub ollama_base_url: Option<String>,
     #[serde(rename = "appliedAt")]
@@ -445,10 +459,110 @@ pub struct ProviderDefinition {
     pub supports_model: bool,
     pub timeout_secs: u64,
     pub prompt_transport: PromptTransport,
+    pub reasoning_effort_args: Vec<String>,
     pub list_models_command: Option<String>,
     pub list_models_args: Vec<String>,
     pub static_models: Vec<String>,
     pub http_list_models: bool,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderReasoningEffort {
+    pub id: String,
+    pub description: String,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderModelOption {
+    pub id: String,
+    pub display_name: String,
+    pub reasoning_efforts: Vec<ProviderReasoningEffort>,
+    pub default_reasoning_effort: Option<String>,
+}
+
+fn parse_codex_model_list(payload: &str) -> Result<Vec<ProviderModelOption>, String> {
+    let value: serde_json::Value = serde_json::from_str(payload)
+        .map_err(|error| format!("failed to parse Codex app-server response: {error}"))?;
+    if let Some(error) = value.get("error") {
+        let message = error
+            .get("message")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("Codex app-server returned an error");
+        return Err(message.to_string());
+    }
+    let data = value
+        .get("result")
+        .and_then(|result| result.get("data"))
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| "Codex app-server response did not contain model data".to_string())?;
+    data.iter()
+        .map(|entry| {
+            let id = entry
+                .get("id")
+                .or_else(|| entry.get("model"))
+                .and_then(serde_json::Value::as_str)
+                .filter(|id| !id.trim().is_empty())
+                .ok_or_else(|| "Codex model entry did not contain an id".to_string())?
+                .to_string();
+            let display_name = entry
+                .get("displayName")
+                .and_then(serde_json::Value::as_str)
+                .filter(|name| !name.trim().is_empty())
+                .unwrap_or(&id)
+                .to_string();
+            let reasoning_efforts = entry
+                .get("supportedReasoningEfforts")
+                .and_then(serde_json::Value::as_array)
+                .unwrap_or(&Vec::new())
+                .iter()
+                .filter_map(|effort| {
+                    let id = effort.get("reasoningEffort")?.as_str()?.to_string();
+                    Some(ProviderReasoningEffort {
+                        id,
+                        description: effort
+                            .get("description")
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or("")
+                            .to_string(),
+                    })
+                })
+                .collect();
+            let default_reasoning_effort = entry
+                .get("defaultReasoningEffort")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string);
+            Ok(ProviderModelOption {
+                id,
+                display_name,
+                reasoning_efforts,
+                default_reasoning_effort,
+            })
+        })
+        .collect()
+}
+
+fn simple_model_options(models: Vec<String>) -> Vec<ProviderModelOption> {
+    models
+        .into_iter()
+        .map(|id| ProviderModelOption {
+            display_name: id.clone(),
+            id,
+            reasoning_efforts: Vec::new(),
+            default_reasoning_effort: None,
+        })
+        .collect()
+}
+
+fn is_codex_app_server(definition: &ProviderDefinition) -> bool {
+    definition
+        .list_models_command
+        .as_deref()
+        .and_then(|command| std::path::Path::new(command).file_name())
+        .and_then(|name| name.to_str())
+        == Some("codex")
+        && definition.list_models_args == ["app-server", "--stdio"]
 }
 
 pub fn builtin_provider_registry() -> Vec<ProviderDefinition> {
@@ -461,6 +575,7 @@ pub fn builtin_provider_registry() -> Vec<ProviderDefinition> {
         supports_model: false,
         timeout_secs: 30,
         prompt_transport: PromptTransport::Stdin,
+        reasoning_effort_args: vec![],
         list_models_command: None,
         list_models_args: vec![],
         static_models: vec![],
@@ -1409,6 +1524,7 @@ impl ProviderManager {
         &self,
         definition: &ProviderDefinition,
         model: Option<&str>,
+        reasoning_effort: Option<&str>,
         ollama_base_url: Option<&str>,
     ) -> InvocationResult {
         let prompt = peon::build_prompt(&[]);
@@ -1422,16 +1538,30 @@ impl ProviderManager {
         } else {
             None
         };
+        let effort_args = if let Some(effort) = reasoning_effort {
+            definition
+                .reasoning_effort_args
+                .iter()
+                .map(|arg| arg.replace("{effort}", effort))
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
         let mut args = Vec::with_capacity(
-            definition.default_args.len() + model_arg.as_ref().map_or(0, |_| 1) + 1,
+            definition.default_args.len()
+                + effort_args.len()
+                + model_arg.as_ref().map_or(0, |_| 1)
+                + 1,
         );
         match (&model_arg, &definition.prompt_transport) {
             (Some(rendered), PromptTransport::Argument) => {
                 args.push(rendered.clone());
+                args.extend(effort_args);
                 args.extend(definition.default_args.iter().cloned());
             }
             _ => {
                 args.extend(definition.default_args.iter().cloned());
+                args.extend(effort_args);
                 if let Some(rendered) = &model_arg {
                     args.push(rendered.clone());
                 }
@@ -1513,7 +1643,7 @@ impl ProviderManager {
         let definition = self.definition(provider_id)?;
         let capabilities = self.capabilities(&definition.id)?;
         let mut normalized_url = None;
-        let models = if definition.id == "ollama" {
+        let model_options = if definition.id == "ollama" {
             let base_url = request
                 .ollama_base_url
                 .as_deref()
@@ -1526,16 +1656,28 @@ impl ProviderManager {
                 self.ensure_current_generation(request.generation)?;
                 return Err(error);
             }
-            response.models
+            simple_model_options(response.models)
         } else {
-            let result = self.invoke_provider(&definition, None, None);
+            let result = self.invoke_provider(&definition, None, None, None);
             if !result.success {
                 let error = invocation_operation_error(&result.stderr);
                 self.ensure_current_generation(request.generation)?;
                 return Err(error);
             }
-            match self.discover_models(&definition.id) {
+            let discovered = if is_codex_app_server(&definition) {
+                self.discover_codex_models(&definition)
+            } else {
+                self.discover_models(&definition.id)
+                    .map(simple_model_options)
+            };
+            match discovered {
                 Ok(models) => models,
+                Err(error) if is_codex_app_server(&definition) => {
+                    // A live Codex process is still usable with its own default
+                    // when an older CLI cannot answer model/list yet.
+                    tracing::warn!("Codex model discovery unavailable: {error}");
+                    Vec::new()
+                }
                 Err(error) => {
                     self.ensure_current_generation(request.generation)?;
                     return Err(ProviderOperationError {
@@ -1551,11 +1693,13 @@ impl ProviderManager {
             connection: normalized_url.clone(),
         };
         self.record_successful_verification(request.generation, fingerprint)?;
+        let models = model_options.iter().map(|model| model.id.clone()).collect();
         Ok(PeonProviderVerificationResponse {
             ok: true,
             provider: definition.id,
             capabilities,
             models,
+            model_options,
             ollama_base_url: normalized_url,
             generation: request.generation,
         })
@@ -1600,7 +1744,8 @@ impl ProviderManager {
         if !request.skip_test {
             let result = self.invoke_provider(
                 &definition,
-                Some(&selection.model),
+                (!selection.model.is_empty()).then_some(selection.model.as_str()),
+                selection.reasoning_effort.as_deref(),
                 selection.ollama_base_url.as_deref(),
             );
             if !result.success {
@@ -1647,7 +1792,8 @@ impl ProviderManager {
         }
         state.applied.connection_revision = state.applied.connection_revision.saturating_add(1);
         state.applied.provider = Some(selection.provider);
-        state.applied.model = Some(selection.model);
+        state.applied.model = (!selection.model.is_empty()).then_some(selection.model);
+        state.applied.reasoning_effort = selection.reasoning_effort;
         state.applied.ollama_base_url = selection.ollama_base_url;
         state.applied.applied_at = Some(applied_at);
         Ok(state.applied.clone())
@@ -1726,6 +1872,12 @@ impl ProviderManager {
 
         if definition.http_list_models {
             return self.discover_models_http(provider_id);
+        }
+
+        if is_codex_app_server(definition) {
+            return self
+                .discover_codex_models(definition)
+                .map(|models| models.into_iter().map(|model| model.id).collect());
         }
 
         if definition.list_models_command.is_none() {
@@ -1817,6 +1969,86 @@ impl ProviderManager {
         };
 
         Ok(models)
+    }
+
+    fn discover_codex_models(
+        &self,
+        definition: &ProviderDefinition,
+    ) -> Result<Vec<ProviderModelOption>, String> {
+        let command = definition
+            .list_models_command
+            .as_deref()
+            .ok_or_else(|| "Codex app-server command is not configured".to_string())?;
+        let mut child = Command::new(command)
+            .args(&definition.list_models_args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|error| format!("failed to run {command}: {error}"))?;
+        let mut stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| "Codex app-server stdin was unavailable".to_string())?;
+        let requests = [
+            r#"{"method":"initialize","id":1,"params":{"clientInfo":{"name":"orkworks","title":"OrkWorks","version":"0.1.0"},"capabilities":{}}}"#,
+            r#"{"method":"initialized"}"#,
+            r#"{"method":"model/list","id":2,"params":{}}"#,
+        ];
+        for request in requests {
+            stdin
+                .write_all(request.as_bytes())
+                .and_then(|_| stdin.write_all(b"\n"))
+                .map_err(|error| format!("failed to write Codex app-server request: {error}"))?;
+        }
+        drop(stdin);
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| "Codex app-server stdout was unavailable".to_string())?;
+        let (tx, rx) = std::sync::mpsc::channel::<std::io::Result<String>>();
+        std::thread::spawn(move || {
+            let mut reader = std::io::BufReader::new(stdout);
+            loop {
+                let mut line = String::new();
+                match reader.read_line(&mut line) {
+                    Ok(0) => break,
+                    Ok(_) => {
+                        if tx.send(Ok(line)).is_err() {
+                            break;
+                        }
+                    }
+                    Err(error) => {
+                        let _ = tx.send(Err(error));
+                        break;
+                    }
+                }
+            }
+        });
+        let result = loop {
+            match rx.recv_timeout(Duration::from_secs(definition.timeout_secs)) {
+                Ok(Ok(line)) => match parse_codex_model_list(line.trim()) {
+                    Ok(models) => break Ok(models),
+                    Err(_error) if !line.contains("\"error\"") => continue,
+                    Err(error) => break Err(error),
+                },
+                Ok(Err(error)) => {
+                    break Err(format!("failed to read Codex app-server output: {error}"))
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    break Err(format!(
+                        "{command} timed out after {}s",
+                        definition.timeout_secs
+                    ))
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    break Err("Codex app-server exited before returning model/list".into())
+                }
+            }
+        };
+        let _ = child.kill();
+        let _ = child.wait();
+        result
     }
 
     pub fn verify_ollama(&self, base_url: &str) -> OllamaVerificationResponse {
@@ -2049,8 +2281,22 @@ impl ProviderManager {
             } else {
                 None
             };
+            let effort_args = applied
+                .reasoning_effort
+                .as_deref()
+                .map(|effort| {
+                    definition
+                        .reasoning_effort_args
+                        .iter()
+                        .map(|arg| arg.replace("{effort}", effort))
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
             let mut args: Vec<String> = Vec::with_capacity(
-                definition.default_args.len() + model_arg.as_ref().map_or(0, |_| 1) + 1,
+                definition.default_args.len()
+                    + effort_args.len()
+                    + model_arg.as_ref().map_or(0, |_| 1)
+                    + 1,
             );
             // Argument prompt transport ends with a prompt-consuming flag
             // (e.g. Copilot's `-p`), so the rendered model argument must
@@ -2060,10 +2306,12 @@ impl ProviderManager {
             match (&model_arg, &definition.prompt_transport) {
                 (Some(rendered), PromptTransport::Argument) => {
                     args.push(rendered.clone());
+                    args.extend(effort_args);
                     args.extend(definition.default_args.iter().cloned());
                 }
                 _ => {
                     args.extend(definition.default_args.iter().cloned());
+                    args.extend(effort_args);
                     if let Some(rendered) = &model_arg {
                         args.push(rendered.clone());
                     }
@@ -2625,6 +2873,7 @@ mod tests {
             peon_selection: Some(PeonSelection {
                 provider: "copilot-local".into(),
                 model: "local-model".into(),
+                reasoning_effort: None,
                 ollama_base_url: None,
             }),
             providers: vec![
@@ -2663,6 +2912,7 @@ mod tests {
                     supports_model: true,
                     timeout_secs: 30,
                     prompt_transport: PromptTransport::Argument,
+                    reasoning_effort_args: vec![],
                     list_models_command: None,
                     list_models_args: vec![],
                     static_models: vec![],
@@ -2677,6 +2927,7 @@ mod tests {
                     supports_model: true,
                     timeout_secs: 30,
                     prompt_transport: PromptTransport::Argument,
+                    reasoning_effort_args: vec![],
                     list_models_command: None,
                     list_models_args: vec![],
                     static_models: vec![],
@@ -2691,6 +2942,7 @@ mod tests {
                     supports_model: false,
                     timeout_secs: 30,
                     prompt_transport: PromptTransport::Stdin,
+                    reasoning_effort_args: vec![],
                     list_models_command: None,
                     list_models_args: vec![],
                     static_models: vec![],
@@ -2739,6 +2991,7 @@ mod tests {
             peon_selection: Some(PeonSelection {
                 provider: "copilot-local".into(),
                 model: "local-model".into(),
+                reasoning_effort: None,
                 ollama_base_url: None,
             }),
             providers: vec![ProviderSettingsEntry {
@@ -2761,6 +3014,7 @@ mod tests {
                 supports_model: false,
                 timeout_secs: 30,
                 prompt_transport: PromptTransport::Stdin,
+                reasoning_effort_args: vec![],
                 list_models_command: None,
                 list_models_args: vec![],
                 static_models: vec![],
@@ -3092,6 +3346,7 @@ mod tests {
                 supports_model: true,
                 timeout_secs: 30,
                 prompt_transport: PromptTransport::Stdin,
+                reasoning_effort_args: vec![],
                 list_models_command: None,
                 list_models_args: vec![],
                 static_models: vec![],
@@ -3166,6 +3421,7 @@ mod tests {
                 supports_model: true,
                 timeout_secs: 30,
                 prompt_transport: PromptTransport::Stdin,
+                reasoning_effort_args: vec![],
                 list_models_command: None,
                 list_models_args: vec![],
                 static_models: vec![],
@@ -3212,6 +3468,7 @@ mod tests {
                 supports_model: false,
                 timeout_secs: 30,
                 prompt_transport: PromptTransport::Stdin,
+                reasoning_effort_args: vec![],
                 list_models_command: None,
                 list_models_args: vec![],
                 static_models: vec![],
@@ -3572,6 +3829,7 @@ mod tests {
                 supports_model: false,
                 timeout_secs: 30,
                 prompt_transport: PromptTransport::Argument,
+                reasoning_effort_args: vec![],
                 list_models_command: None,
                 list_models_args: vec![],
                 static_models: vec![],
@@ -3616,6 +3874,7 @@ mod tests {
                 supports_model: true,
                 timeout_secs: 30,
                 prompt_transport: PromptTransport::Argument,
+                reasoning_effort_args: vec!["--config".into(), "reasoning={effort}".into()],
                 list_models_command: None,
                 list_models_args: vec![],
                 static_models: vec![],
@@ -3630,19 +3889,27 @@ mod tests {
                 .with_invocations(invocations.clone())],
         );
         mark_applied(&manager, "copilot", Some("claude-sonnet-4.6"));
+        manager
+            .operation_state
+            .lock()
+            .unwrap()
+            .applied
+            .reasoning_effort = Some("high".into());
 
         manager.run_inference(PeonScope::Session, &["terminal line".to_owned()]);
 
         let captured = invocations.lock().unwrap();
         assert_eq!(captured.len(), 1);
         let args = &captured[0].0;
-        // Model flag first, before the harness's own tail flags…
+        // Model and effort flags first, before the harness's own tail flags…
         assert_eq!(args[0], "--model=claude-sonnet-4.6");
-        assert_eq!(args[1], "--available-tools=");
+        assert_eq!(args[1], "--config");
+        assert_eq!(args[2], "reasoning=high");
+        assert_eq!(args[3], "--available-tools=");
         // …and the prompt stays last, directly after `-p`.
-        assert_eq!(args[5], "-p");
-        assert_eq!(args.len(), 7);
-        assert!(args[6].contains("terminal line"));
+        assert_eq!(args[7], "-p");
+        assert_eq!(args.len(), 9);
+        assert!(args[8].contains("terminal line"));
         assert_eq!(captured[0].1, "");
     }
 
@@ -3789,6 +4056,7 @@ mod tests {
                 supports_model: false,
                 timeout_secs: 30,
                 prompt_transport: PromptTransport::Stdin,
+                reasoning_effort_args: vec![],
                 list_models_command: None,
                 list_models_args: vec![],
                 static_models: vec![],
@@ -3814,6 +4082,7 @@ mod tests {
                 supports_model: false,
                 timeout_secs: 30,
                 prompt_transport: PromptTransport::Stdin,
+                reasoning_effort_args: vec![],
                 list_models_command: None,
                 list_models_args: vec![],
                 static_models: vec!["sonnet".into(), "opus".into(), "haiku".into()],
@@ -3839,6 +4108,7 @@ mod tests {
                 supports_model: true,
                 timeout_secs: 7,
                 prompt_transport: PromptTransport::Stdin,
+                reasoning_effort_args: vec![],
                 list_models_command: None,
                 list_models_args: vec![],
                 static_models: vec!["custom-small".into(), "custom-large".into()],
@@ -3872,6 +4142,7 @@ mod tests {
                 supports_model: true,
                 timeout_secs: 1,
                 prompt_transport: PromptTransport::Stdin,
+                reasoning_effort_args: vec![],
                 list_models_command: Some(command.to_string_lossy().into_owned()),
                 list_models_args: vec![],
                 static_models: vec![],
@@ -3891,6 +4162,49 @@ mod tests {
             manager.discover_models("command-provider").unwrap(),
             vec!["command-model"]
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn codex_app_server_discovery_performs_handshake_and_returns_capabilities() {
+        use crate::test_support::make_test_executable;
+
+        let dir = tempfile::tempdir().unwrap();
+        let command = dir.path().join("codex");
+        std::fs::write(
+            &command,
+            "#!/bin/sh\nprintf '%s\\n' '{\"id\":1,\"result\":{}}' '{\"id\":2,\"result\":{\"data\":[{\"id\":\"gpt-live\",\"displayName\":\"GPT Live\",\"supportedReasoningEfforts\":[{\"reasoningEffort\":\"high\",\"description\":\"Deep\"}],\"defaultReasoningEffort\":\"high\"}]}}'\n",
+        )
+        .unwrap();
+        make_test_executable(&command);
+        let manager = ProviderManager::for_tests_with_registry(
+            vec![ProviderDefinition {
+                id: "codex".into(),
+                label: "Codex".into(),
+                command: "codex".into(),
+                default_args: vec!["exec".into()],
+                model_arg_template: Some("--model={model}".into()),
+                supports_model: true,
+                timeout_secs: 2,
+                prompt_transport: PromptTransport::Stdin,
+                reasoning_effort_args: vec![
+                    "--config".into(),
+                    "model_reasoning_effort={effort}".into(),
+                ],
+                list_models_command: Some(command.display().to_string()),
+                list_models_args: vec!["app-server".into(), "--stdio".into()],
+                static_models: vec![],
+                http_list_models: false,
+            }],
+            sample_settings(vec![]),
+            vec![],
+        );
+
+        let options = manager
+            .discover_codex_models(&manager.definitions()[0])
+            .unwrap();
+        assert_eq!(options[0].display_name, "GPT Live");
+        assert_eq!(options[0].reasoning_efforts[0].id, "high");
     }
 
     #[test]
@@ -4044,6 +4358,7 @@ mod tests {
                 peon_selection: Some(PeonSelection {
                     provider: " ollama ".into(),
                     model: " llama3.2:3b ".into(),
+                    reasoning_effort: None,
                     ollama_base_url: Some(" http://127.0.0.1:11434/ ".into()),
                 }),
                 ..ProviderSettingsPayload::default()
@@ -4054,6 +4369,7 @@ mod tests {
             peon_selection: Some(PeonSelection {
                 provider: "ollama".into(),
                 model: " llama3.2:3b ".into(),
+                reasoning_effort: None,
                 ollama_base_url: Some(" http://127.0.0.1:11434/ ".into()),
             }),
             ..ProviderSettingsPayload::default()
@@ -4090,6 +4406,7 @@ mod tests {
         let selection = PeonSelection {
             provider: " ollama ".into(),
             model: " llama3.2:3b ".into(),
+            reasoning_effort: None,
             ollama_base_url: Some(" http://127.0.0.1:11434/ ".into()),
         };
 
@@ -4098,6 +4415,7 @@ mod tests {
             Some(PeonSelection {
                 provider: "ollama".into(),
                 model: "llama3.2:3b".into(),
+                reasoning_effort: None,
                 ollama_base_url: Some("http://127.0.0.1:11434".into()),
             })
         );
@@ -4111,6 +4429,7 @@ mod tests {
                 Some(PeonSelection {
                     provider: "gemini".into(),
                     model: "model".into(),
+                    reasoning_effort: None,
                     ollama_base_url: None
                 }),
                 &valid,
@@ -4122,6 +4441,7 @@ mod tests {
                 Some(PeonSelection {
                     provider: "copilot".into(),
                     model: "  ".into(),
+                    reasoning_effort: None,
                     ollama_base_url: None
                 }),
                 &valid,
@@ -4194,6 +4514,7 @@ mod tests {
             supports_model: true,
             timeout_secs: 1,
             prompt_transport: PromptTransport::Stdin,
+            reasoning_effort_args: vec![],
             list_models_command: None,
             list_models_args: vec![],
             static_models: vec!["discovered-model".into()],
@@ -4211,6 +4532,7 @@ mod tests {
             supports_model: true,
             timeout_secs: 1,
             prompt_transport: PromptTransport::Stdin,
+            reasoning_effort_args: vec![],
             list_models_command: None,
             list_models_args: vec![],
             static_models: vec!["other-model".into()],
@@ -4222,8 +4544,30 @@ mod tests {
         PeonSelection {
             provider: provider.into(),
             model: model.into(),
+            reasoning_effort: None,
             ollama_base_url: None,
         }
+    }
+
+    #[test]
+    fn codex_model_list_parser_preserves_display_names_and_reasoning_efforts() {
+        let options = parse_codex_model_list(
+            r#"{"id":1,"result":{"data":[{"id":"gpt-5.3-codex","model":"gpt-5.3-codex","displayName":"GPT-5.3-Codex","supportedReasoningEfforts":[{"reasoningEffort":"low","description":"Fast"},{"reasoningEffort":"high","description":"Deep"}],"defaultReasoningEffort":"low"}]}}"#,
+        )
+        .expect("valid app-server model/list response");
+        assert_eq!(options[0].id, "gpt-5.3-codex");
+        assert_eq!(options[0].display_name, "GPT-5.3-Codex");
+        assert_eq!(options[0].reasoning_efforts[1].id, "high");
+        assert_eq!(options[0].default_reasoning_effort.as_deref(), Some("low"));
+    }
+
+    #[test]
+    fn codex_model_list_parser_rejects_error_responses() {
+        let error = parse_codex_model_list(
+            r#"{"id":1,"error":{"code":-32601,"message":"method not found"}}"#,
+        )
+        .expect_err("app-server errors must not become an empty catalog");
+        assert!(error.contains("method not found"));
     }
 
     #[test]
@@ -4426,11 +4770,13 @@ mod tests {
         let tempdir = tempfile::tempdir().unwrap();
         let capture_path = tempdir.path().join("argv-model");
         let mut definition = custom_provider_definition();
+        definition.reasoning_effort_args =
+            vec!["--config".into(), "model_reasoning_effort={effort}".into()];
         definition.command = "sh".into();
         definition.default_args = vec![
             "-c".into(),
             format!(
-                "printf '%s' \"$1\" > '{}' && printf '%s' '{{\"observedStatus\":\"working\",\"confidence\":0.9}}'",
+                "printf '%s|%s|%s' \"$1\" \"$2\" \"$3\" > '{}' && printf '%s' '{{\"observedStatus\":\"working\",\"confidence\":0.9}}'",
                 capture_path.display()
             ),
             "provider".into(),
@@ -4449,9 +4795,11 @@ mod tests {
                 generation: 1,
             })
             .expect("the real provider process should verify");
+        let mut selection = staged_selection("custom-ai", "manual-model");
+        selection.reasoning_effort = Some("high".into());
         manager
             .test_and_apply(PeonTestAndApplyRequest {
-                selection: staged_selection("custom-ai", "manual-model"),
+                selection,
                 generation: 1,
                 skip_test: false,
             })
@@ -4459,7 +4807,7 @@ mod tests {
 
         assert_eq!(
             std::fs::read_to_string(capture_path).unwrap(),
-            "--model=manual-model"
+            "--config|model_reasoning_effort=high|--model=manual-model"
         );
     }
 
@@ -4819,6 +5167,7 @@ mod tests {
                 selection: PeonSelection {
                     provider: "ollama".into(),
                     model: "draft-model".into(),
+                    reasoning_effort: None,
                     ollama_base_url: Some(format!("http://{address}/")),
                 },
                 generation: 1,
@@ -4868,6 +5217,7 @@ mod tests {
                 selection: PeonSelection {
                     provider: "ollama".into(),
                     model: "manual-model".into(),
+                    reasoning_effort: None,
                     ollama_base_url: Some("http://127.0.0.1:49999".into()),
                 },
                 generation: 1,
@@ -4969,6 +5319,7 @@ mod tests {
                 selection: PeonSelection {
                     provider: "ollama".into(),
                     model: "".into(),
+                    reasoning_effort: None,
                     ollama_base_url: None,
                 },
                 generation: 1,

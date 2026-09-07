@@ -106,7 +106,7 @@ const PATCH_FIELDS = new Set([
   "minVersion",
   "labelResetCommands",
 ]);
-const PLACEHOLDERS = new Set(["{model}", "{cwd}", "{repoRoot}", "{harnessSessionId}"]);
+const PLACEHOLDERS = new Set(["{model}", "{effort}", "{cwd}", "{repoRoot}", "{harnessSessionId}"]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -340,8 +340,8 @@ function validateModels(value: unknown, path: string, complete: boolean, diagnos
     diagnostics.push({ code: "invalid_schema", message: "Expected a string.", path: `${path}.kind` });
     return;
   }
-  if (!["static", "command", "http"].includes(object.kind)) {
-    diagnostics.push({ code: "invalid_schema", message: "Model kind must be static, command, or http.", path: `${path}.kind` });
+  if (!["static", "command", "codex-app-server", "http"].includes(object.kind)) {
+    diagnostics.push({ code: "invalid_schema", message: "Model kind must be static, command, codex-app-server, or http.", path: `${path}.kind` });
     return;
   }
   if (object.kind === "static") {
@@ -364,6 +364,8 @@ function validateModels(value: unknown, path: string, complete: boolean, diagnos
     }
     if ("args" in object) validateStringArrayIfPresent(object.args, `${path}.args`, diagnostics);
     if ("models" in object) diagnostics.push({ code: "invalid_capability_combination", message: "Field models is not valid for command models.", path: `${path}.models` });
+  } else if (object.kind === "codex-app-server") {
+    for (const field of ["models", "command", "args"]) if (field in object) diagnostics.push({ code: "invalid_capability_combination", message: `Field ${field} is not valid for codex-app-server models.`, path: `${path}.${field}` });
   } else {
     for (const field of ["models", "command", "args"]) if (field in object) diagnostics.push({ code: "invalid_capability_combination", message: `Field ${field} is not valid for http models.`, path: `${path}.${field}` });
   }
@@ -373,7 +375,7 @@ function validatePeon(value: unknown, path: string, complete: boolean, diagnosti
   if (value === undefined || value === null) return;
   const object = expectObject(value, path, diagnostics);
   if (!object) return;
-  rejectUnknown(object, path, new Set(["commandOverride", "args", "modelArgTemplate", "supportsModel", "timeoutSecs", "promptTransport"]), diagnostics);
+  rejectUnknown(object, path, new Set(["commandOverride", "args", "modelArgTemplate", "supportsModel", "timeoutSecs", "promptTransport", "reasoningEffortArgs"]), diagnostics);
   for (const field of ["commandOverride", "modelArgTemplate"]) {
     if (field in object) validateNullableStringIfPresent(object[field], `${path}.${field}`, diagnostics);
   }
@@ -383,12 +385,18 @@ function validatePeon(value: unknown, path: string, complete: boolean, diagnosti
     requireNestedField(object, "timeoutSecs", path, diagnostics);
   }
   if ("args" in object) validateStringArrayIfPresent(object.args, `${path}.args`, diagnostics);
+  if ("reasoningEffortArgs" in object) validateStringArrayIfPresent(object.reasoningEffortArgs, `${path}.reasoningEffortArgs`, diagnostics);
   if ("supportsModel" in object) validateBoolean(object.supportsModel, `${path}.supportsModel`, diagnostics);
   if ("timeoutSecs" in object) validateNonNegativeInteger(object.timeoutSecs, `${path}.timeoutSecs`, diagnostics);
   if ("promptTransport" in object && object.promptTransport !== "stdin" && object.promptTransport !== "argument") {
     diagnostics.push({ code: "invalid_schema", message: "promptTransport must be stdin or argument.", path: `${path}.promptTransport` });
   }
   if (typeof object.modelArgTemplate === "string") validateTemplate(object.modelArgTemplate, `${path}.modelArgTemplate`, diagnostics);
+  if (Array.isArray(object.reasoningEffortArgs)) {
+    object.reasoningEffortArgs.forEach((arg, index) => {
+      if (typeof arg === "string") validateTemplate(arg, `${path}.reasoningEffortArgs[${index}]`, diagnostics);
+    });
+  }
 }
 
 function validateCapacity(value: unknown, path: string, complete: boolean, diagnostics: HarnessValidationDiagnostic[]) {
@@ -441,13 +449,13 @@ function validateTemplate(value: string, path: string, diagnostics: HarnessValid
     const open = value.indexOf("{", cursor);
     const close = value.indexOf("}", cursor);
     if (close !== -1 && (open === -1 || close < open)) {
-      diagnostics.push({ code: "invalid_placeholder", message: "Command templates use only {model}, {cwd}, {repoRoot}, or {harnessSessionId}.", path });
+      diagnostics.push({ code: "invalid_placeholder", message: "Command templates use only {model}, {effort}, {cwd}, {repoRoot}, or {harnessSessionId}.", path });
       return;
     }
     if (open === -1) return;
     const end = value.indexOf("}", open + 1);
     if (end === -1 || !PLACEHOLDERS.has(value.slice(open, end + 1))) {
-      diagnostics.push({ code: "invalid_placeholder", message: "Command templates use only {model}, {cwd}, {repoRoot}, or {harnessSessionId}.", path });
+      diagnostics.push({ code: "invalid_placeholder", message: "Command templates use only {model}, {effort}, {cwd}, {repoRoot}, or {harnessSessionId}.", path });
       return;
     }
     cursor = end + 1;

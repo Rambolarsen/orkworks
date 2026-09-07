@@ -5,7 +5,20 @@ export type ProviderEffectiveState = ProviderCapacityState | "disabled" | "check
 export interface PeonSelection {
   provider: ProviderId;
   model: string;
+  reasoningEffort?: string | null;
   ollamaBaseUrl?: string;
+}
+
+export interface ProviderReasoningEffort {
+  id: string;
+  description: string;
+}
+
+export interface ProviderModelOption {
+  id: string;
+  displayName: string;
+  reasoningEfforts: ProviderReasoningEffort[];
+  defaultReasoningEffort: string | null;
 }
 
 export interface PeonProviderVerificationResponse {
@@ -18,13 +31,17 @@ export interface PeonProviderVerificationResponse {
     testInference: boolean;
   };
   models: string[];
+  modelOptions?: ProviderModelOption[];
   ollamaBaseUrl: string | null;
   generation: number;
+  catalogStale?: boolean;
+  catalogObservedAt?: string;
 }
 
 export interface PeonAppliedState {
   provider: string | null;
   model: string | null;
+  reasoningEffort?: string | null;
   ollamaBaseUrl: string | null;
   appliedAt: string | null;
   connectionRevision: number;
