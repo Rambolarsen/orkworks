@@ -8,19 +8,31 @@ if [[ ! -f "$config_path" ]]; then
   exit 0
 fi
 
-temporary_path="$(mktemp "${TMPDIR:-/tmp}/orkworks-codex-hooks.XXXXXX")"
+config_directory="$(dirname "$config_path")"
+temporary_path="$(mktemp "$config_directory/.orkworks-codex-hooks.XXXXXX")"
 trap 'rm -f "$temporary_path"' EXIT
 
 jq '
+  def incompatible_superpowers_session_start:
+    if (.command? | type) != "string" then
+      false
+    else
+      (.command
+       | contains(".codex/hooks/superpowers/hooks/run-hook.cmd")
+       and endswith("session-start"))
+    end;
+
   if (.hooks? | type) != "object" or (.hooks.SessionStart? | type) != "array" then
     .
   else
     .hooks.SessionStart = [
       .hooks.SessionStart[]
-      | select(
-          ([.hooks[]?.command // empty] | any(contains("superpowers/hooks/run-hook.cmd")))
-          | not
-        )
+      | if (.hooks? | type) != "array" then
+          .
+        else
+          .hooks = [.hooks[] | select(incompatible_superpowers_session_start | not)]
+        end
+      | select((.hooks? | type) != "array" or (.hooks | length) > 0)
     ]
   end
 ' "$config_path" > "$temporary_path"
