@@ -464,6 +464,7 @@ export interface SummaryLogEntry {
   summary: string;
   source: string;
   confidence: number | null;
+  recommendationId?: string;
 }
 
 export async function getSummaryLog(
@@ -632,5 +633,22 @@ export async function acceptTaskmasterRecommendation(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(opts),
   });
+  return response.json();
+}
+
+export async function completeTaskmasterRecommendation(
+  baseUrl: string,
+  id: string,
+  summary?: string,
+): Promise<WorkflowRecommendation> {
+  const response = await taskmasterRequest(
+    baseUrl,
+    `/taskmaster/recommendations/${encodeURIComponent(id)}/complete`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(summary === undefined ? {} : { summary }),
+    },
+  );
   return response.json();
 }

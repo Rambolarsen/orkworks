@@ -13,6 +13,7 @@ interface RecommendationsPanelProps {
   canFixWithAi: boolean;
   onSelectSession?: (id: string) => void;
   onFixWithAi?: (recommendation: WorkflowRecommendation) => void;
+  focusedRecommendationId?: string | null;
 }
 
 function DiagnosticList({ diagnostics }: { diagnostics: ObservationDiagnostic[] }) {
@@ -35,6 +36,7 @@ function RecommendationCard({
   canFixWithAi,
   dismissing,
   error,
+  focused,
 }: {
   recommendation: WorkflowRecommendation;
   onDismiss: (id: string) => void;
@@ -43,10 +45,11 @@ function RecommendationCard({
   canFixWithAi: boolean;
   dismissing: boolean;
   error?: string;
+  focused?: boolean;
 }) {
   const improvement = recommendation.workflowImprovement;
   return (
-    <article className="recommendation-card">
+    <article className={`recommendation-card${focused ? " recommendation-card--focused" : ""}`}>
       <header className="recommendation-card-header">
         <div>
           <h3>{recommendation.title}</h3>
@@ -56,6 +59,12 @@ function RecommendationCard({
           {formatImpact(recommendation.priority)} impact
         </span>
       </header>
+      <div className="recommendation-status-row">
+        <span className={`recommendation-status recommendation-status--${recommendation.status}`}>
+          {recommendation.status}
+        </span>
+        <span className="recommendation-updated">Updated {recommendation.updatedAt}</span>
+      </div>
       <p className="recommendation-proposal">{improvement.proposedImprovement}</p>
       <p className="recommendation-reason">{recommendation.reason.join(" ")}</p>
       <dl className="recommendation-facts">
@@ -84,25 +93,27 @@ function RecommendationCard({
         ))}
       </details>
       {error && <p className="recommendation-error" role="alert">{error}</p>}
-      <div className="recommendation-actions">
-        <button
-          className="recommendation-fix"
-          type="button"
-          disabled={dismissing || !canFixWithAi}
-          title={canFixWithAi ? undefined : "Open a session to send this fix to"}
-          onClick={() => onFixWithAi?.(recommendation)}
-        >
-          Fix with AI
-        </button>
-        <button className="recommendation-dismiss" type="button" disabled={dismissing} onClick={() => onDismiss(recommendation.id)}>
-          {dismissing ? "Dismissing…" : "Dismiss"}
-        </button>
-      </div>
+      {recommendation.status === "proposed" && (
+        <div className="recommendation-actions">
+          <button
+            className="recommendation-fix"
+            type="button"
+            disabled={dismissing || !canFixWithAi}
+            title={canFixWithAi ? undefined : "Open a session to send this fix to"}
+            onClick={() => onFixWithAi?.(recommendation)}
+          >
+            Fix with AI
+          </button>
+          <button className="recommendation-dismiss" type="button" disabled={dismissing} onClick={() => onDismiss(recommendation.id)}>
+            {dismissing ? "Dismissing…" : "Dismiss"}
+          </button>
+        </div>
+      )}
     </article>
   );
 }
 
-function RecommendationsPanel({ hasWorkspace, canFixWithAi, onSelectSession, onFixWithAi }: RecommendationsPanelProps) {
+function RecommendationsPanel({ hasWorkspace, canFixWithAi, onSelectSession, onFixWithAi, focusedRecommendationId }: RecommendationsPanelProps) {
   const [recommendations, setRecommendations] = useState<WorkflowRecommendation[]>([]);
   const [diagnostics, setDiagnostics] = useState<ObservationDiagnostic[]>([]);
   const [error, setError] = useState<string>();
@@ -113,7 +124,7 @@ function RecommendationsPanel({ hasWorkspace, canFixWithAi, onSelectSession, onF
     try {
       const baseUrl = await window.orkworks.getBackendUrl();
       const response = await getTaskmasterRecommendations(baseUrl);
-      setRecommendations(response.recommendations.filter((item) => item.status === "proposed"));
+      setRecommendations(response.recommendations);
       setDiagnostics(response.diagnostics);
       setError(undefined);
     } catch (cause) {
@@ -164,6 +175,10 @@ function RecommendationsPanel({ hasWorkspace, canFixWithAi, onSelectSession, onF
     }
   }
 
+  const visibleRecommendations = recommendations.filter(
+    (item) => item.status === "proposed" || item.id === focusedRecommendationId,
+  );
+
   return (
     <section className="recommendations-panel">
       <div className="recommendations-panel-header">
@@ -172,10 +187,10 @@ function RecommendationsPanel({ hasWorkspace, canFixWithAi, onSelectSession, onF
       </div>
       {error && <p className="recommendation-error" role="alert">{error}</p>}
       <DiagnosticList diagnostics={diagnostics} />
-      {recommendations.length === 0 && diagnostics.length === 0 && !error ? (
+      {visibleRecommendations.length === 0 && diagnostics.length === 0 && !error ? (
         <EmptyState message="No workflow recommendations yet." />
       ) : (
-        recommendations.map((recommendation) => (
+        visibleRecommendations.map((recommendation) => (
           <RecommendationCard
             key={recommendation.id}
             recommendation={recommendation}
@@ -185,6 +200,7 @@ function RecommendationsPanel({ hasWorkspace, canFixWithAi, onSelectSession, onF
             canFixWithAi={canFixWithAi}
             dismissing={dismissing === recommendation.id}
             error={dismissErrors[recommendation.id] || undefined}
+            focused={recommendation.id === focusedRecommendationId}
           />
         ))
       )}

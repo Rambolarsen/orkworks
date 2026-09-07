@@ -25,11 +25,13 @@ interface DockviewAppData {
   debugSettings: DebugSettings;
   sessions: SessionInfo[];
   activeSessionId: string | null;
+  focusedRecommendationId: string | null;
   unreadIds: ReadonlySet<string>;
   harnesses: HarnessConfig[];
   resumeTick: number;
   reviewTick: number;
   onSelectSession: (id: string) => void;
+  onOpenRecommendation: (id: string) => void;
   onFixWithAi: (recommendation: WorkflowRecommendation) => void;
   onCreateSession: () => void;
   onKillSession: (id: string) => void;
@@ -118,6 +120,7 @@ function DetailPanel() {
       onApplyDebugAttention={ctx.onApplyDebugAttention}
       onOpenSettings={ctx.onOpenSettings}
       onReviewPlan={ctx.onReviewPlan}
+      onOpenRecommendation={ctx.onOpenRecommendation}
       showDebugMetadata={ctx.debugSettings.showSessionIds}
     />
   );
@@ -152,6 +155,7 @@ function RecPanel() {
       canFixWithAi={activeSession?.lifecycle === "alive"}
       onSelectSession={ctx.onSelectSession}
       onFixWithAi={ctx.onFixWithAi}
+      focusedRecommendationId={ctx.focusedRecommendationId}
     />
   );
 }

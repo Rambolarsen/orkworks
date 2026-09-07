@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import type { PeonDiagnostics, SessionInfo, WorkspaceInfo } from "../src/api.ts";
 import {
   acceptTaskmasterRecommendation,
+  completeTaskmasterRecommendation,
   deleteHarness,
   dismissTaskmasterRecommendation,
   duplicateHarness,
@@ -413,6 +414,26 @@ test("Taskmaster accept sends the session id and prompt and returns the updated 
     assert.equal(init?.headers && (init.headers as Record<string, string>)["Content-Type"], "application/json");
     assert.equal(init?.body, JSON.stringify({ sessionId: "session-active", prompt: "Implement the fix" }));
     assert.equal((accepted as { targetSessionId: string }).targetSessionId, "session-active");
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+});
+
+test("Taskmaster completion targets the recommendation id and sends the verification summary", async () => {
+  const origFetch = globalThis.fetch;
+  let requestUrl = "";
+  let init: RequestInit | undefined;
+  globalThis.fetch = (url: string | URL | Request, requestInit?: RequestInit) => {
+    requestUrl = String(url);
+    init = requestInit;
+    return Promise.resolve(new Response(JSON.stringify({ id: "rec-1", status: "completed" }), { status: 200 }));
+  };
+  try {
+    const completed = await completeTaskmasterRecommendation("http://localhost:0", "rec/with spaces", "Verified");
+    assert.match(requestUrl, /rec%2Fwith%20spaces\/complete$/);
+    assert.equal(init?.method, "POST");
+    assert.equal(init?.body, JSON.stringify({ summary: "Verified" }));
+    assert.equal((completed as { status: string }).status, "completed");
   } finally {
     globalThis.fetch = origFetch;
   }

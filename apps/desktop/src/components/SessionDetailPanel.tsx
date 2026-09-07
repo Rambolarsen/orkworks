@@ -41,10 +41,11 @@ interface SessionDetailPanelProps {
   onApplyDebugAttention: (id: string, attention: SessionAttention, message?: string) => void;
   onOpenSettings: () => void;
   onReviewPlan: () => void;
+  onOpenRecommendation?: (id: string) => void;
   showDebugMetadata: boolean;
 }
 
-function SessionDetailPanel({ sessions, activeSessionId, harnesses, onResumeSession, onApplyDebugAttention, onOpenSettings, showDebugMetadata, onReviewPlan }: SessionDetailPanelProps) {
+function SessionDetailPanel({ sessions, activeSessionId, harnesses, onResumeSession, onApplyDebugAttention, onOpenSettings, showDebugMetadata, onReviewPlan, onOpenRecommendation }: SessionDetailPanelProps) {
   const [debugAttention, setDebugAttention] = useState<SessionAttention>("working");
   const [debugMessage, setDebugMessage] = useState("");
   const [reviewingSessionId, setReviewingSessionId] = useState<string | null>(null);
@@ -383,6 +384,15 @@ function SessionDetailPanel({ sessions, activeSessionId, harnesses, onResumeSess
                   {relativeTime(entry.timestamp, now) || entry.timestamp}
                 </span>
                 <span className="detail-task-history-summary">{entry.summary}</span>
+                {entry.recommendationId && (
+                  <button
+                    className="detail-task-history-recommendation"
+                    type="button"
+                    onClick={() => onOpenRecommendation?.(entry.recommendationId!)}
+                  >
+                    Recommendation {entry.recommendationId.slice(0, 8)}
+                  </button>
+                )}
                 <SourceBadge source={entry.source}>
                   {sourceWithConfidence(entry.source, entry.confidence ?? undefined)}
                 </SourceBadge>

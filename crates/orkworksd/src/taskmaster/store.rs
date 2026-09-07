@@ -175,6 +175,27 @@ impl RecommendationStore {
         Ok(Some(recommendation))
     }
 
+    /// Marks an accepted recommendation complete after the agent reports that
+    /// it acted on the recommendation and verified the result.
+    pub(crate) fn complete_accepted(
+        &self,
+        id: &str,
+        completed_at: String,
+    ) -> Result<Option<Recommendation>, StoreError> {
+        let Some(mut recommendation) = self.get(id)? else {
+            return Ok(None);
+        };
+        if recommendation.recommendation_type != RecommendationType::ImproveWorkflow
+            || recommendation.status != RecommendationStatus::Accepted
+        {
+            return Err(StoreError::InvalidTransition);
+        }
+        recommendation.status = RecommendationStatus::Completed;
+        recommendation.updated_at = completed_at;
+        self.put(&recommendation)?;
+        Ok(Some(recommendation))
+    }
+
     /// Rolls a reservation back to `Proposed` after the PTY write fails, so
     /// the user can retry rather than being stuck.
     pub(crate) fn cancel_execution(
@@ -493,6 +514,47 @@ mod tests {
             .unwrap();
 
         let result = store.complete_execution("recommendation-1", "2026-08-21T12:00:00Z".into());
+
+        assert!(matches!(result, Err(StoreError::InvalidTransition)));
+    }
+
+    #[test]
+    fn complete_accepted_transitions_to_completed_and_preserves_target_session() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = RecommendationStore::open(dir.path().to_path_buf()).unwrap();
+        store
+            .put(&recommendation("recommendation-1", "session-1"))
+            .unwrap();
+        store
+            .begin_execution(
+                "recommendation-1",
+                "session-active".into(),
+                "2026-08-21T12:00:00Z".into(),
+            )
+            .unwrap();
+        store
+            .complete_execution("recommendation-1", "2026-08-21T12:00:05Z".into())
+            .unwrap();
+
+        let completed = store
+            .complete_accepted("recommendation-1", "2026-08-21T12:01:00Z".into())
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(completed.status, RecommendationStatus::Completed);
+        assert_eq!(completed.target_session_id, Some("session-active".into()));
+        assert_eq!(completed.updated_at, "2026-08-21T12:01:00Z");
+    }
+
+    #[test]
+    fn complete_accepted_rejects_non_accepted_status() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = RecommendationStore::open(dir.path().to_path_buf()).unwrap();
+        store
+            .put(&recommendation("recommendation-1", "session-1"))
+            .unwrap();
+
+        let result = store.complete_accepted("recommendation-1", "2026-08-21T12:00:00Z".into());
 
         assert!(matches!(result, Err(StoreError::InvalidTransition)));
     }

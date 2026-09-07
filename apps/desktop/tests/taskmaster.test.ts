@@ -90,7 +90,11 @@ test("Taskmaster fix prompt is scoped to the target surface and forbids touching
 
   assert.match(prompt, /Add a review handoff step\./);
   assert.match(prompt, /instructions/);
-  assert.match(prompt, /Do not resume, reopen, or modify any other session/);
+  assert.match(prompt, /Work on Taskmaster recommendation rec-1/);
+  assert.match(prompt, /GET \/taskmaster\/recommendations\/rec-1/);
+  assert.match(prompt, /working-on-recommendation/);
+  assert.match(prompt, /POSTing to \/taskmaster\/recommendations\/rec-1\/complete/);
+  assert.match(prompt, /Work only in the current session/);
 });
 
 test("Fix with AI always presses Enter regardless of dialog edits", () => {

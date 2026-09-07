@@ -27,6 +27,8 @@ pub(crate) struct SummaryLogEntry {
     pub(crate) summary: String,
     pub(crate) source: String,
     pub(crate) confidence: Option<f64>,
+    #[serde(rename = "recommendationId", skip_serializing_if = "Option::is_none")]
+    pub(crate) recommendation_id: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -69,6 +71,7 @@ pub(crate) async fn get_summary_log(
                 summary: entry.summary,
                 source: entry.source,
                 confidence: entry.confidence,
+                recommendation_id: entry.recommendation_id,
             })
             .collect()
     })
@@ -240,6 +243,7 @@ mod tests {
                     confidence: Some(0.5),
                     summary: None,
                     source: None,
+                    recommendation_id: None,
                 },
                 metadata::Event {
                     event_type: "peon.checkpoint".into(),
@@ -249,6 +253,7 @@ mod tests {
                     confidence: Some(0.91),
                     summary: Some("First checkpoint".into()),
                     source: Some("peon".into()),
+                    recommendation_id: None,
                 },
                 metadata::Event {
                     event_type: "peon.checkpoint".into(),
@@ -258,6 +263,7 @@ mod tests {
                     confidence: None,
                     summary: Some("Missing provenance".into()),
                     source: None,
+                    recommendation_id: None,
                 },
                 metadata::Event {
                     event_type: "peon.checkpoint".into(),
@@ -267,6 +273,7 @@ mod tests {
                     confidence: None,
                     summary: Some("Second checkpoint".into()),
                     source: Some("agent".into()),
+                    recommendation_id: Some("recommendation-1".into()),
                 },
             ] {
                 store.append_event(&session_id, &event);
@@ -289,7 +296,8 @@ mod tests {
                         "timestamp": "t3",
                         "summary": "Second checkpoint",
                         "source": "agent",
-                        "confidence": null
+                        "confidence": null,
+                        "recommendationId": "recommendation-1"
                     }
                 ]
             })
@@ -319,6 +327,7 @@ mod tests {
                     confidence: None,
                     summary: None,
                     source: None,
+                    recommendation_id: None,
                 },
             );
         }
@@ -350,6 +359,7 @@ mod tests {
                     confidence: Some(0.9),
                     summary: Some("Orphaned checkpoint".into()),
                     source: Some("peon".into()),
+                    recommendation_id: None,
                 },
             );
         }
