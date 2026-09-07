@@ -4,7 +4,7 @@ use crate::plan_handoff::{
 use crate::runtime::observed_status::apply_live_attention_fields;
 use crate::session_types::{MemoryState, SessionInfo};
 use crate::session_view::{connectivity_for_status, terminal_outcome_for_status};
-use crate::taskmaster::{RecommendationStatus, RecommendationType};
+use crate::taskmaster::{Recommendation, RecommendationStatus, RecommendationType};
 use crate::workspace_runtime::parse_hook_observed_at;
 use crate::workspace_runtime::{iso_now, orkworks_global_dir};
 use crate::{git, metadata, migration, plan_handoff, watcher, AppState, WorkspaceState};
@@ -70,6 +70,33 @@ pub(crate) struct WorkspaceSnapshot {
 
 pub(crate) struct SessionApplication {
     state: Arc<AppState>,
+}
+
+fn ensure_recommendation_handoff_contract(
+    prompt: String,
+    recommendation: &Recommendation,
+) -> String {
+    let mut prompt = prompt.trim_end_matches('\r').to_string();
+    if !prompt.contains(&recommendation.id) {
+        prompt.push_str(&format!(
+            "\n\nTaskmaster recommendation ID: {}. Keep this ID in the work context and use it when reporting completion.",
+            recommendation.id
+        ));
+    }
+    let recommendation_route = format!("GET /taskmaster/recommendations/{}", recommendation.id);
+    let completion_route = format!(
+        "POSTing to /taskmaster/recommendations/{}/complete",
+        recommendation.id
+    );
+    if !prompt.contains(&recommendation_route)
+        || !prompt.contains("working-on-recommendation")
+        || !prompt.contains(&completion_route)
+    {
+        prompt.push_str(&format!(
+            "\n\nTaskmaster handoff requirements: before acting, read the authoritative recommendation from {recommendation_route}. Follow the repository skill `working-on-recommendation` and inspect its source sessions. Work only in the current session. After acting, verify the change, then report completion by {completion_route} with Authorization: Bearer $ORKWORKS_REPORT_TOKEN and an optional JSON summary. Do not mark the recommendation complete before verification."
+        ));
+    }
+    format!("{prompt}\r")
 }
 
 pub(crate) struct CreateSessionCommand {
@@ -305,17 +332,7 @@ impl SessionApplication {
                 return Err(RecommendationAcceptError::Conflict);
             }
             let prompt = prompt_override
-                .map(|prompt| {
-                    let prompt = prompt.trim_end_matches('\r');
-                    if prompt.contains(&recommendation.id) {
-                        format!("{prompt}\r")
-                    } else {
-                        format!(
-                            "{prompt}\n\nTaskmaster recommendation ID: {}. Keep this ID in the work context and use it when reporting completion.\r",
-                            recommendation.id
-                        )
-                    }
-                })
+                .map(|prompt| ensure_recommendation_handoff_contract(prompt, &recommendation))
                 .unwrap_or_else(|| crate::taskmaster::build_fix_prompt(&recommendation));
             workspace
                 .recommendation_store
@@ -7628,9 +7645,14 @@ mod tests {
             .insert(session_id.into(), handle);
 
         let application = SessionApplication::new(state.clone());
+        let recommendation_id_for_task = recommendation_id.clone();
         let mut request = tokio::spawn(async move {
             application
-                .accept_recommendation(&recommendation_id, session_id, Some("custom text\r".into()))
+                .accept_recommendation(
+                    &recommendation_id_for_task,
+                    session_id,
+                    Some("custom text\r".into()),
+                )
                 .await
         });
         let crate::runtime::session_runtime::RuntimeCommand::Input { data, accepted } = (tokio::select! {
@@ -7640,7 +7662,14 @@ mod tests {
             panic!("expected terminal input");
         };
         assert!(data.starts_with("custom text\n\nTaskmaster recommendation ID: "));
-        assert!(data.ends_with(" when reporting completion.\r"));
+        assert!(data.contains(&format!(
+            "GET /taskmaster/recommendations/{recommendation_id}"
+        )));
+        assert!(data.contains("working-on-recommendation"));
+        assert!(data.contains(&format!(
+            "POSTing to /taskmaster/recommendations/{recommendation_id}/complete"
+        )));
+        assert!(data.ends_with(" Do not mark the recommendation complete before verification.\r"));
         accepted.unwrap().send(Ok(())).unwrap();
         assert!(request.await.unwrap().unwrap().is_some());
     }

@@ -141,6 +141,16 @@ test("Fix with AI is gated on the active session actually being alive, not merel
   assert.match(dockview, /\.lifecycle === "alive"/);
 });
 
+test("recommendation history links add the panel without requiring an absent reference panel", () => {
+  const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+  const handlerIndex = app.indexOf("const handleOpenRecommendation");
+  const handlerBlock = app.slice(handlerIndex, app.indexOf("}, []);", handlerIndex));
+
+  assert.match(handlerBlock, /const position = PANEL_DEFAULTS\.recommendations\.position/);
+  assert.match(handlerBlock, /if \(position && api\.getPanel\(position\.referencePanel\)\)/);
+  assert.match(handlerBlock, /options\.position = position/);
+});
+
 test("Recommendations panel exposes evidence, dismissal, and an explicit fix-with-ai action only", () => {
   const source = readFileSync(
     new URL("../src/components/RecommendationsPanel.tsx", import.meta.url),

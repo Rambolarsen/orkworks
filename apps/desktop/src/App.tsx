@@ -353,12 +353,16 @@ function App() {
     setFocusedRecommendationId(id);
     const api = dockviewApiRef.current;
     if (!api) return;
-    const panel = api.getPanel("recommendations") ?? api.addPanel({
+    const options: Parameters<typeof api.addPanel>[0] = {
       id: "recommendations",
       component: "recommendations",
       title: PANEL_DEFAULTS.recommendations.title,
-      position: PANEL_DEFAULTS.recommendations.position,
-    });
+    };
+    const position = PANEL_DEFAULTS.recommendations.position;
+    if (position && api.getPanel(position.referencePanel)) {
+      options.position = position;
+    }
+    const panel = api.getPanel("recommendations") ?? api.addPanel(options);
     panel?.api.setActive();
   }, []);
 
