@@ -7,10 +7,13 @@ request validation, service errors, or local connectivity problems.
 
 ## First response
 
-Run the repository-local, read-only diagnostic helper:
+Run the repository-local, read-only diagnostic helper into a securely created
+temporary file:
 
 ```bash
-bash scripts/codex-api-diagnostics.sh > /tmp/codex-api-diagnostics.txt
+diagnostics_file="$(mktemp "${TMPDIR:-/tmp}/orkworks-codex-api-diagnostics.XXXXXX")"
+bash scripts/codex-api-diagnostics.sh > "$diagnostics_file"
+printf 'Diagnostics saved to %s\n' "$diagnostics_file"
 ```
 
 The output records the Codex CLI version, repository/branch, config-file
@@ -36,7 +39,7 @@ session/tool invocation only.
 | --- | --- | --- |
 | `401`, unauthorized, invalid API key | Authentication or expired credentials | Re-authenticate or refresh the configured credential, then retry once. Never paste the credential into a prompt, issue, or log. |
 | `403`, permission denied, model unavailable | Organization, project, workspace, or model access | Verify the selected organization/project and that the account may use the requested model. |
-| `429` with a rate-limit message | Request/token burst or concurrent usage | Reduce the burst and follow the server retry guidance. Do not start another session just to bypass the limit. |
+| `429` with a rate-limit message | Request/token burst or concurrent usage | Reduce the burst, honor `Retry-After` when present, and retry at most 3 attempts within 60 seconds total. Do not start another session just to bypass the limit. |
 | `429` with `insufficient_quota`, `credit_balance_exhausted`, or a spend/usage-limit code | Credits, quota, or a hard spend limit | Check the relevant billing/limits owner or wait for the documented reset; repeated retries do not restore access. |
 | `400` or `422` with a request-validation message | Invalid model, parameter, input, or context size | Preserve the full message and inspect the request-producing tool/config. Change only the named invalid input. |
 | `5xx`, `server_error`, timeout, or connection failure | Service incident or local network/TLS/proxy problem | Check service status and local connectivity, then retry once after a short delay. Escalate if it persists. |

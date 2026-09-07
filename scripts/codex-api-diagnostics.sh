@@ -5,9 +5,13 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 codex_home="${CODEX_HOME:-${HOME:-$repo_root}/.codex}"
 
 if command -v codex >/dev/null 2>&1; then
-  codex_version="$(codex --version 2>/dev/null || true)"
-  codex_version="${codex_version%%$'\n'*}"
-  [ -n "$codex_version" ] || codex_version="available (version command returned no output)"
+  codex_version_output="$(codex --version 2>/dev/null || true)"
+  codex_version_output="${codex_version_output%%$'\n'*}"
+  if [[ "$codex_version_output" =~ ^[[:alnum:]_-]+[[:space:]]+([0-9]+\.[0-9]+(\.[0-9]+){0,2})$ ]]; then
+    codex_version="version ${BASH_REMATCH[1]}"
+  else
+    codex_version="available (version output not recognized)"
+  fi
 else
   codex_version="unavailable (codex is not on PATH)"
 fi
@@ -45,6 +49,7 @@ printf 'Codex CLI: %s\n' "$codex_version"
 printf 'CODEX_HOME: %s\n' "$codex_home"
 printf 'Project Codex config: %s\n' "$(file_state "$repo_root/.codex/config.toml")"
 printf 'User Codex config: %s\n' "$(file_state "$codex_home/config.toml")"
+printf 'Codex auth file: %s\n' "$(file_state "$codex_home/auth.json")"
 printf 'OPENAI_API_KEY: %s\n' "$(presence OPENAI_API_KEY)"
 printf 'CODEX_API_KEY: %s\n' "$(presence CODEX_API_KEY)"
 printf 'OPENAI_BASE_URL: %s\n' "$(presence OPENAI_BASE_URL)"
