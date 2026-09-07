@@ -251,6 +251,15 @@ Preserve the exact error, status/code, request ID, timestamp, and timezone
 before retrying. Do not loop blind retries, print credentials or config
 contents, or resume/reopen another session to work around the failure.
 
+## Peon provider timeouts
+
+When Peon reports a provider timeout, use the read-only repository helper
+`bash scripts/peon-timeout-diagnostics.sh` and follow
+[`docs/agents/peon-timeout-troubleshooting.md`](docs/agents/peon-timeout-troubleshooting.md).
+`PEON_TIMEOUT` is legacy and does not control current session inference; check
+the applied provider/model in Settings instead. Retry the current session once
+after verification and do not resume or reopen another session as a workaround.
+
 ## MCP configuration
 
 Project-scoped MCP servers are declared in `apm.yml` under `dependencies.mcp`.
