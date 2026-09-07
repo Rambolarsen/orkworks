@@ -4173,7 +4173,16 @@ mod tests {
         let command = dir.path().join("codex");
         std::fs::write(
             &command,
-            "#!/bin/sh\nprintf '%s\\n' '{\"id\":1,\"result\":{}}' '{\"id\":2,\"result\":{\"data\":[{\"id\":\"gpt-live\",\"displayName\":\"GPT Live\",\"supportedReasoningEfforts\":[{\"reasoningEffort\":\"high\",\"description\":\"Deep\"}],\"defaultReasoningEffort\":\"high\"}]}}'\n",
+            r#"#!/bin/sh
+while IFS= read -r line; do
+  case "$line" in
+    *'"method":"model/list"'*)
+      printf '%s\n' '{"id":1,"result":{}}' '{"id":2,"result":{"data":[{"id":"gpt-live","displayName":"GPT Live","supportedReasoningEfforts":[{"reasoningEffort":"high","description":"Deep"}],"defaultReasoningEffort":"high"}]}}'
+      break
+      ;;
+  esac
+done
+"#,
         )
         .unwrap();
         make_test_executable(&command);
