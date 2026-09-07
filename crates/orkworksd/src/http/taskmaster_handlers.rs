@@ -1,5 +1,5 @@
 use crate::http::ErrorResponse;
-use crate::runtime::terminal_runtime::workflow_report_session_for_token;
+use crate::runtime::terminal_runtime::{record_report_attempt, workflow_report_session_for_token};
 use crate::session_application::{
     RecommendationAcceptError, RecommendationCompleteError, RecommendationDismissError,
     RecommendationQueryError, SessionApplication,
@@ -141,6 +141,9 @@ pub(crate) async fn complete_recommendation(
     let Some(session_id) = workflow_report_session_for_token(token) else {
         return StatusCode::UNAUTHORIZED.into_response();
     };
+    if !record_report_attempt(&session_id) {
+        return StatusCode::TOO_MANY_REQUESTS.into_response();
+    }
     let summary = if body.is_empty() {
         None
     } else {
@@ -168,7 +171,7 @@ pub(crate) async fn complete_recommendation(
 mod tests {
     use super::*;
     use crate::runtime::terminal_runtime::{
-        clear_workflow_report_token, set_workflow_report_token,
+        clear_workflow_report_token, set_workflow_report_token, WORKFLOW_REPORT_RATE_LIMIT,
     };
     use crate::test_support::test_app_state_with_workspace;
     use axum::body::Bytes;
@@ -390,6 +393,40 @@ mod tests {
         );
         clear_workflow_report_token("complete-session");
     }
+
+    #[tokio::test]
+    async fn complete_applies_the_authenticated_report_rate_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let recommendation_id = accepted_recommendation(
+            &state,
+            "rate-limited-session",
+            "rate-limited-session",
+            "rate-limit-token",
+        );
+
+        for _ in 0..WORKFLOW_REPORT_RATE_LIMIT {
+            let response = complete_recommendation(
+                State(state.clone()),
+                Path(recommendation_id.clone()),
+                authorization("rate-limit-token"),
+                Bytes::new(),
+            )
+            .await;
+            assert_eq!(response.status(), StatusCode::OK);
+        }
+
+        let rejected = complete_recommendation(
+            State(state),
+            Path(recommendation_id),
+            authorization("rate-limit-token"),
+            Bytes::new(),
+        )
+        .await;
+        clear_workflow_report_token("rate-limited-session");
+        assert_eq!(rejected.status(), StatusCode::TOO_MANY_REQUESTS);
+    }
+
     #[tokio::test]
     async fn list_returns_empty_recommendations_for_a_new_workspace() {
         let dir = tempfile::tempdir().unwrap();
