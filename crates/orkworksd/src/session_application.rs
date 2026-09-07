@@ -305,6 +305,17 @@ impl SessionApplication {
                 return Err(RecommendationAcceptError::Conflict);
             }
             let prompt = prompt_override
+                .map(|prompt| {
+                    let prompt = prompt.trim_end_matches('\r');
+                    if prompt.contains(&recommendation.id) {
+                        format!("{prompt}\r")
+                    } else {
+                        format!(
+                            "{prompt}\n\nTaskmaster recommendation ID: {}. Keep this ID in the work context and use it when reporting completion.\r",
+                            recommendation.id
+                        )
+                    }
+                })
                 .unwrap_or_else(|| crate::taskmaster::build_fix_prompt(&recommendation));
             workspace
                 .recommendation_store
@@ -7628,7 +7639,8 @@ mod tests {
         }) else {
             panic!("expected terminal input");
         };
-        assert_eq!(data, "custom text\r");
+        assert!(data.starts_with("custom text\n\nTaskmaster recommendation ID: "));
+        assert!(data.ends_with(" when reporting completion.\r"));
         accepted.unwrap().send(Ok(())).unwrap();
         assert!(request.await.unwrap().unwrap().is_some());
     }
