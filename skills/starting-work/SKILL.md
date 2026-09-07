@@ -11,6 +11,22 @@ OrkWorks is built to coordinate parallel AI sessions, and the dev workflow is pa
 
 Use this skill at the start of any task that will produce changes (code or docs). Skip it for pure conversation, exploration, or read-only investigation.
 
+## Session scope and supported handoff
+
+One coding session owns one task from its prompt through verification. Do not
+launch another coding harness from an active session, and do not schedule a
+wakeup or `/loop` continuation to revive a completed task or babysit its PR.
+That nests session lifecycles and can duplicate work or leave cleanup running
+against stale state.
+
+If a separate task or follow-up needs its own context, finish or pause the
+current task, report the handoff point, and stop and let the user start a
+separate session from the appropriate repository root or sibling worktree.
+For code changes that need parallel isolation, use the sibling-worktree path
+below and let the new session start there; never launch the second harness
+inside the current session. Use the repository's explicit `/code-review low`
+gate in the current session when review is required.
+
 ## Preflight: establish checkout ownership
 
 Run `git worktree list --porcelain` before selecting a checkout. The local `main` branch may be checked out only in the primary checkout; linked worktrees must be attached to an explicitly agent-owned or owner-authorized feature or fix branch.
