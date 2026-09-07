@@ -10,7 +10,7 @@ import { readLayoutMemory, writeLayoutMemory } from "./layoutMemory";
 import type { AppSettings } from "./settingsMemory";
 import { DEFAULT_HOTKEYS, DEFAULT_RETENTION, loadSettingsForStartup, normalizeDebugSettings, normalizeProviderSettings, normalizeRetention, providerDefinitionsForStoredSettings, readSettings, settingsWithHotkeys, settingsWithPeonSelection, validateHotkeys, writeSettings } from "./settingsMemory";
 import { providerSettingsSyncError, pushProviderSettings } from "./providerSettingsSync";
-import type { PeonAppliedState, PeonProviderVerificationResponse, PeonSelection, ProviderApplyStatus, ProviderDefinition, ProviderId, ProviderSettings } from "./providerTypes";
+import type { PeonAppliedState, PeonProviderVerificationResponse, PeonSelection, ProviderApplyStatus, ProviderDefinition, ProviderId, ProviderModelOption, ProviderSettings } from "./providerTypes";
 import { createPeonSelectionTransaction, normalizePeonSelectionInput, peonErrorFromBody, type PeonSelectionTransaction } from "./peonSelectionTransaction";
 import { buildMenuTemplate } from "./menuTemplate";
 import { getSessionPlanContent, requestSessionPlanReview, selectTerminalPlan } from "./planOpener";
@@ -47,6 +47,7 @@ let workspacePath: string | null = null;
 let menuPanelItems: Record<string, Electron.MenuItem> = {};
 let currentSettings: AppSettings | null = null;
 let providerModels: Map<string, string[]> = new Map();
+const peonModelCatalogCache = new Map<string, { models: ProviderModelOption[]; observedAt: string }>();
 let providerLabels: Record<string, string> = {};
 let hotkeyCaptureActive = false;
 let openPlanToken = "";
@@ -451,7 +452,16 @@ app.whenReady().then(() => {
         signal,
       });
       if (!response.ok) throw await parsePeonError(response, "Couldn't verify the Peon provider.");
-      return await response.json() as PeonProviderVerificationResponse;
+      const result = await response.json() as PeonProviderVerificationResponse;
+      const cacheKey = providerModelCacheKey(provider, provider === "ollama" ? (result.ollamaBaseUrl ?? ollamaBaseUrl) : undefined);
+      const modelOptions = result.modelOptions ?? result.models.map((id) => ({ id, displayName: id, reasoningEfforts: [], defaultReasoningEffort: null }));
+      if (result.ok && modelOptions.length > 0) {
+        peonModelCatalogCache.set(cacheKey, { models: modelOptions, observedAt: new Date().toISOString() });
+      } else if (result.ok && result.capabilities.modelDiscovery) {
+        const cached = peonModelCatalogCache.get(cacheKey);
+        if (cached) return { ...result, models: cached.models.map((model) => model.id), modelOptions: cached.models, catalogStale: true, catalogObservedAt: cached.observedAt };
+      }
+      return result;
     },
     apply: async ({ selection, generation, readyPort, signal, skipTest }) => {
       const port = readyPort ?? await restoration.getReadiness();

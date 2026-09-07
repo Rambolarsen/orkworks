@@ -80,6 +80,7 @@ pub(crate) struct ResumeCapability {
 pub(crate) enum ModelCapability {
     Static { models: Vec<String> },
     Command { command: String, args: Vec<String> },
+    CodexAppServer,
     Http,
 }
 
@@ -93,6 +94,8 @@ pub(crate) struct PeonCapability {
     pub timeout_secs: u64,
     #[serde(default)]
     pub prompt_transport: PromptTransport,
+    #[serde(default)]
+    pub reasoning_effort_args: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -296,6 +299,8 @@ pub(crate) struct PeonPatch {
     pub timeout_secs: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prompt_transport: Option<PromptTransport>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort_args: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
@@ -399,6 +404,7 @@ impl<'de> Deserialize<'de> for PeonPatch {
                 "supportsModel",
                 "timeoutSecs",
                 "promptTransport",
+                "reasoningEffortArgs",
             ],
         )?;
         Ok(Self {
@@ -408,6 +414,7 @@ impl<'de> Deserialize<'de> for PeonPatch {
             supports_model: required_patch_field(&fields, "supportsModel")?,
             timeout_secs: required_patch_field(&fields, "timeoutSecs")?,
             prompt_transport: required_patch_field(&fields, "promptTransport")?,
+            reasoning_effort_args: required_patch_field(&fields, "reasoningEffortArgs")?,
         })
     }
 }
@@ -795,13 +802,16 @@ fn validate_custom_schema(value: &serde_json::Value) -> Result<(), Vec<HarnessDi
                 validate_string_value(models.get("command"), "$.models.command")?;
                 validate_string_array(models.get("args"), "$.models.args")?;
             }
+            Some("codex-app-server") => {
+                reject_fields(models, "$.models", &["kind"])?;
+            }
             Some("http") => {
                 reject_fields(models, "$.models", &["kind"])?;
             }
             _ => {
                 return Err(vec![HarnessDiagnostic::document(
                     "invalid_schema",
-                    "Model kind must be static, command, or http.",
+                    "Model kind must be static, command, codex-app-server, or http.",
                     Some("$.models.kind"),
                 )]);
             }
@@ -817,6 +827,7 @@ fn validate_custom_schema(value: &serde_json::Value) -> Result<(), Vec<HarnessDi
             "supportsModel",
             "timeoutSecs",
             "promptTransport",
+            "reasoningEffortArgs",
         ],
     )?;
     validate_json_object_fields(
@@ -1299,6 +1310,7 @@ impl HarnessDefinition {
             if let Some(template) = &peon.model_arg_template {
                 validate_templates(&self.id, std::slice::from_ref(template), &mut errors);
             }
+            validate_templates(&self.id, &peon.reasoning_effort_args, &mut errors);
         }
         if matches!(origin, DefinitionOrigin::Custom)
             && (self.integration.is_some() || self.session_signals.is_some())
@@ -1338,6 +1350,7 @@ fn patch_peon(existing: Option<&PeonCapability>, patch: &PeonPatch) -> PeonCapab
         supports_model: false,
         timeout_secs: 30,
         prompt_transport: PromptTransport::Stdin,
+        reasoning_effort_args: Vec::new(),
     });
     PeonCapability {
         command_override: patch
@@ -1355,6 +1368,10 @@ fn patch_peon(existing: Option<&PeonCapability>, patch: &PeonPatch) -> PeonCapab
             .prompt_transport
             .clone()
             .unwrap_or(existing.prompt_transport),
+        reasoning_effort_args: patch
+            .reasoning_effort_args
+            .clone()
+            .unwrap_or(existing.reasoning_effort_args),
     }
 }
 
@@ -1389,14 +1406,19 @@ fn validate_templates(id: &str, values: &[String], errors: &mut Vec<HarnessDiagn
             };
             index += offset;
             let token = &value[index..];
-            let Some(placeholder) = ["{model}", "{cwd}", "{repoRoot}", "{harnessSessionId}"]
-                .iter()
-                .find(|placeholder| token.starts_with(**placeholder))
-            else {
+            let Some(placeholder) = [
+                "{model}",
+                "{effort}",
+                "{cwd}",
+                "{repoRoot}",
+                "{harnessSessionId}",
+            ]
+            .iter()
+            .find(|placeholder| token.starts_with(**placeholder)) else {
                 errors.push(HarnessDiagnostic::for_id(
                     id,
                     "invalid_placeholder",
-                    "Command templates use only {model}, {cwd}, {repoRoot}, or {harnessSessionId}.",
+                    "Command templates use only {model}, {effort}, {cwd}, {repoRoot}, or {harnessSessionId}.",
                 ));
                 break;
             };
@@ -1891,6 +1913,31 @@ mod tests {
         assert!(error
             .iter()
             .any(|diagnostic| diagnostic.code == "invalid_placeholder"));
+    }
+
+    #[test]
+    fn codex_uses_live_app_server_models_and_effort_arguments() {
+        let definition = codex();
+        assert!(matches!(
+            definition.models,
+            Some(ModelCapability::CodexAppServer)
+        ));
+        assert_eq!(
+            definition.peon.unwrap().reasoning_effort_args,
+            vec!["--config", "model_reasoning_effort={effort}"]
+        );
+    }
+
+    #[test]
+    fn custom_json_accepts_codex_app_server_model_capability() {
+        let definition = parse_custom_definition(
+            br#"{"id":"codex-local","name":"Codex Local","launch":{"kind":"command-template","command":"codex","args":[],"modelPrefix":null},"models":{"kind":"codex-app-server"},"peon":{"commandOverride":null,"args":["exec"],"modelArgTemplate":"--model={model}","supportsModel":true,"timeoutSecs":30,"promptTransport":"stdin","reasoningEffortArgs":["--config","model_reasoning_effort={effort}"]}}"#,
+        )
+        .expect("custom Codex model capability");
+        assert!(matches!(
+            definition.models,
+            Some(ModelCapability::CodexAppServer)
+        ));
     }
 
     #[test]

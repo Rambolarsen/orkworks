@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useRef, useState, type ComponentProps } f
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import EmptyState from "./EmptyState";
+import { normalizeMarkdownLinkDestinations } from "../markdownLinks";
 
 // A same-document "#fragment" link is safe to leave to the browser's native
 // handling (in-page scroll, no navigation event). Anything else — a relative
@@ -76,7 +77,7 @@ function ReviewPanel({ sessionId, reviewTick }: ReviewPanelProps) {
   if (content === null) return <EmptyState message="Loading plan…" />;
   return (
     <div className="review-plan-content">
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{content}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{normalizeMarkdownLinkDestinations(content)}</ReactMarkdown>
     </div>
   );
 }

@@ -502,6 +502,7 @@ fn legacy_peon_patch(
             supports_model: Some(entry.supports_model),
             timeout_secs: Some(entry.timeout_secs),
             prompt_transport: None,
+            reasoning_effort_args: None,
         })),
         (Some(entry), Some(baseline)) => {
             let patch = PeonPatch {
@@ -515,6 +516,7 @@ fn legacy_peon_patch(
                 timeout_secs: (entry.timeout_secs != baseline.timeout_secs)
                     .then_some(entry.timeout_secs),
                 prompt_transport: None,
+                reasoning_effort_args: None,
             };
             (patch != PeonPatch::default()).then_some(Some(patch))
         }
@@ -590,6 +592,7 @@ fn legacy_definition(
             supports_model: peon.supports_model,
             timeout_secs: peon.timeout_secs,
             prompt_transport: super::definition::PromptTransport::Stdin,
+            reasoning_effort_args: Vec::new(),
         }),
         capacity: safe_adapter.and_then(|definition| definition.capacity.clone()),
         session_signals: None,
