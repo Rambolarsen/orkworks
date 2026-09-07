@@ -446,7 +446,7 @@ workflowImprovement
 
 Each canonical `evidence` entry embeds an immutable snapshot of a cited observation (ID, sequence, session ID, kind, description, evidence text, impact, source, confidence, observed time), so ordinary observation-segment trimming cannot invalidate an existing proposed or dismissed card. A recommendation cannot claim more recurrences or sessions than its evidence contains. A proposed recommendation may be updated with later qualifying evidence while retaining its identity and lifecycle history.
 
-For this passive variant, `proposed`, `dismissed`, `executing`, and `accepted` are reachable in this version; the remaining canonical statuses, including `superseded`, stay valid for shared deserialization but are never produced by this evaluator. A dismissed record remains immutable history even when its evidence later qualifies for a resurfaced successor — the successor's `supersedesRecommendationId` records the lineage, and the predecessor's status is never rewritten. `executing` is a brief reservation the `accept` action holds while it delivers the fix prompt, before resolving to `accepted` (delivered) or rolling back to `proposed` (delivery failed); `dismiss` accepts `executing` too, as a manual recovery path if a crash ever leaves one stuck there. `executing` and `accepted` are both terminal for the evaluator: once a recommendation leaves `proposed`, it is never resurfaced or rewritten by later qualifying evidence under the same dedupe family in this version.
+For this passive variant, `proposed`, `dismissed`, `executing`, `accepted`, and `completed` are reachable in this version; the remaining canonical statuses, including `superseded`, stay valid for shared deserialization but are never produced by this evaluator. A dismissed record remains immutable history even when its evidence later qualifies for a resurfaced successor — the successor's `supersedesRecommendationId` records the lineage, and the predecessor's status is never rewritten. `executing` is a brief reservation the `accept` action holds while it delivers the fix prompt, before resolving to `accepted` (delivered) or rolling back to `proposed` (delivery failed). An authenticated agent completion report transitions `accepted` to `completed` after verified work; a repeated completion report from the same target session is idempotent. `dismiss` accepts `executing` too, as a manual recovery path if a crash ever leaves one stuck there. `executing`, `accepted`, and `completed` are terminal for the evaluator: once a recommendation leaves `proposed`, it is never resurfaced or rewritten by later qualifying evidence under the same dedupe family in this version.
 
 ### Deduplication and dismissal watermark
 
@@ -461,7 +461,7 @@ When either condition holds, Taskmaster creates one new `proposed` recommendatio
 
 ### Presentation
 
-The Taskmaster surface presents one card per active `improve_workflow` recommendation, showing the proposed improvement and target surface, why Taskmaster is suggesting it now, recurrence count and affected sessions, impact/confidence/expected benefit, expandable supporting observations (source and timestamp), and two actions: `Dismiss` and `Fix with AI` (sends a generated fix prompt into the user's currently active session, scoped to the recommended target surface; disabled when no session is active). This version does not create a GitHub issue or edit repository files itself — only the explicit `Fix with AI` action submits a prompt that may result in an edit, carried out by the session the user already has open.
+The Taskmaster surface presents one card per active `improve_workflow` recommendation, showing the proposed improvement and target surface, why Taskmaster is suggesting it now, recurrence count and affected sessions, impact/confidence/expected benefit, expandable supporting observations (source and timestamp), and two actions: `Dismiss` and `Fix with AI` (sends a generated prompt containing the stable recommendation ID and the `working-on-recommendation` skill handoff into the user's currently active session, scoped to the recommended target surface; disabled when no session is active). This version does not create a GitHub issue or edit repository files itself — only the explicit `Fix with AI` action submits a prompt that may result in an edit, carried out by the session the user already has open. A target agent may report verified completion through the authenticated completion route; Taskmaster never infers completion from terminal text.
 
 ## Review-session handoff
 
@@ -683,6 +683,7 @@ Proposed HTTP endpoints:
 - `GET /taskmaster/recommendations` — list recommendations for the active workspace
 - `GET /taskmaster/recommendations/:id` — get one recommendation
 - `POST /taskmaster/recommendations/:id/accept` — approve and execute the proposed action
+- `POST /taskmaster/recommendations/:id/complete` — authenticated target-agent completion report
 - `POST /taskmaster/recommendations/:id/dismiss` — dismiss with an optional reason
 - `POST /taskmaster/recommendations/:id/refresh` — reevaluate against current state
 
@@ -695,6 +696,12 @@ Workflow observations reach Taskmaster through a session-scoped sidecar route ra
 - `POST /sessions/:id/workflow-observations` — authenticated, harness-neutral explicit workflow-observation report (see `specs/orkworks-mvp.md`)
 
 `improve_workflow` recommendations use `GET /taskmaster/recommendations` (list), `POST /taskmaster/recommendations/:id/dismiss`, and `POST /taskmaster/recommendations/:id/accept` from the API above — `refresh` has no effect for this passive variant, since Taskmaster's five-second correlation debounce drives its own reevaluation. Unlike the general `accept` contract below (which starts a session), `improve_workflow`'s `accept` takes a caller-supplied `sessionId` identifying the user's currently active session and submits a generated fix prompt into it through the same mechanism as a live keystroke — it starts no session.
+
+The `complete` action is separate from user acceptance: the agent uses its
+current session's `ORKWORKS_REPORT_TOKEN` and supplies only an optional bounded
+summary. The sidecar resolves the token to the session, verifies the
+recommendation target and `accepted` status, and transitions it to
+`completed`.
 
 Accepting a recommendation that starts a session should use the existing session creation path. The created session records:
 
@@ -876,7 +883,9 @@ The action overview continues to answer what needs attention now. Taskmaster rec
 - [ ] Capacity changes can supersede or rerank a proposed recommendation.
 - [ ] Taskmaster never writes terminal input, modifies source files, or performs Git workflow actions directly, except through the user-confirmed `improve_workflow` `accept` action, which submits a generated prompt into the user's own active session (never a session Taskmaster chose or started) and never edits files itself.
 - [ ] Two sessions that each produce a matching workflow observation (same fingerprint, confidence ≥ `0.6`) can produce one evidence-backed `improve_workflow` recommendation citing both.
-- [ ] `improve_workflow` recommendations expose exactly one explicit `accept` action (no automatic/background execution, and it never starts a new session) and only ever reach `proposed`, `dismissed`, `executing`, or `accepted` status.
+- [ ] `improve_workflow` recommendations expose exactly one explicit `accept` action (no automatic/background execution, and it never starts a new session) and only ever reach `proposed`, `dismissed`, `executing`, `accepted`, or `completed` status.
+- [ ] A Fix with AI prompt contains the stable recommendation ID and directs the target agent to use the `working-on-recommendation` skill to read the recommendation and its source-session evidence.
+- [ ] An authenticated target agent can transition an accepted `improve_workflow` recommendation to `completed`; the callback cannot name a different target session or lifecycle state, and retries are idempotent.
 - [ ] Dismissing an `improve_workflow` recommendation persists an evidence watermark and does not resurface it from unchanged evidence.
 
 ## Non-goals reaffirmed
