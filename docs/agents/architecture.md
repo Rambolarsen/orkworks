@@ -29,18 +29,19 @@ process instead of leaving API callers waiting on a stale promise.
 
 Sidecar readiness is followed by a separate generation-owned restoration gate
 in `electron/backendRestoration.ts`. After the port is known, Electron main
-restores the remembered workspace, applies persisted retention settings, and
-pushes persisted provider settings. These operations share an abort signal. A
-restoration timeout or workspace-restoration failure rejects readiness and
-publishes an unavailable state; retention-setting and provider-setting failures
-are logged as best-effort application failures, and readiness proceeds. The
-workspace restoration and settings attempts complete before `get-backend-url`
-resolves or the renderer receives the `ready` lifecycle event. Initial startup
-uses the last existing workspace path when available, otherwise the
-development repository or the packaged home directory. A workspace switch
-persists the selected path before starting its replacement generation, and
-stale restoration work is aborted so an older workspace cannot become ready
-afterward.
+restores the remembered workspace as the critical prerequisite for readiness.
+Once that succeeds, `get-backend-url` resolves and the renderer receives the
+`ready` lifecycle event; the renderer can therefore adopt the restored
+workspace and recover its sessions even if a secondary settings replay is
+unavailable. Persisted retention and provider settings are then applied as
+abortable best-effort steps in the same generation. Their failures are logged
+without invalidating workspace readiness, and replacement/disposal aborts any
+in-flight step. A restoration timeout or workspace-restoration failure still
+rejects readiness and publishes an unavailable state. Initial startup uses the
+last existing workspace path when available, otherwise the development
+repository or the packaged home directory. A workspace switch persists the
+selected path before starting its replacement generation, and stale restoration
+work is aborted so an older workspace cannot become ready afterward.
 
 Automatic recovery is bounded: one recovery sequence makes at most three
 sidecar launches in total (the initial launch plus two automatic retries), with

@@ -28,6 +28,10 @@ test("Electron main restores workspace and settings before publishing ready", ()
   assert.match(mainSource, /state: "ready", port, workspace/);
 });
 
+test("secondary restoration failures are logged without failing backend readiness", () => {
+  assert.match(mainSource, /onStepFailure: \(step, error\) => \{\s*logBackendLifecycleFailure\(`restoration:\$\{step\}`, error\);/);
+});
+
 test("Electron main logs raw lifecycle failures but publishes only stable copy", () => {
   assert.match(mainSource, /sanitizeBackendLifecycleFailure/);
   assert.match(mainSource, /console\.error\(/);

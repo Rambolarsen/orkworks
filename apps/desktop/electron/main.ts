@@ -496,6 +496,9 @@ app.whenReady().then(() => {
       lastBackendFailure = sanitizeBackendLifecycleFailure(error);
       publishBackendLifecycle({ state: "failed", message: lastBackendFailure });
     },
+    onStepFailure: (step, error) => {
+      logBackendLifecycleFailure(`restoration:${step}`, error);
+    },
   });
   backendRestoration = restoration;
 

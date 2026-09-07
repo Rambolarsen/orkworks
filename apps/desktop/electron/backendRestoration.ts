@@ -30,6 +30,7 @@ export interface BackendRestorationOptions<TWorkspace> {
   clearTimeout(timer: unknown): void;
   onReady(port: number, workspace: TWorkspace | null): void;
   onFailure(error: Error): void;
+  onStepFailure?(step: "retention" | "provider", error: Error): void;
   timeoutMs?: number;
 }
 
@@ -116,11 +117,7 @@ export function createBackendRestorationCoordinator<TWorkspace>(
       }, timeoutMs);
 
       void (async () => {
-        const [workspace] = await Promise.all([
-          steps.restoreWorkspace(candidate.controller.signal),
-          steps.applyRetentionSettings(candidate.controller.signal),
-          steps.syncProviderSettings(candidate.controller.signal),
-        ]);
+        const workspace = await steps.restoreWorkspace(candidate.controller.signal);
         if (!assertCurrent(candidate)) return;
 
         clearTimer(candidate);
@@ -129,6 +126,22 @@ export function createBackendRestorationCoordinator<TWorkspace>(
         candidate.settled = true;
         candidate.resolve(port);
         options.onReady(port, workspace);
+
+        const runSecondaryStep = async (
+          step: "retention" | "provider",
+          operation: (signal: AbortSignal) => Promise<void>,
+        ): Promise<void> => {
+          try {
+            await operation(candidate.controller.signal);
+          } catch (error: unknown) {
+            if (assertCurrent(candidate)) {
+              options.onStepFailure?.(step, errorFrom(error));
+            }
+          }
+        };
+
+        void runSecondaryStep("retention", steps.applyRetentionSettings);
+        void runSecondaryStep("provider", steps.syncProviderSettings);
       })().catch((error: unknown) => {
         if (!assertCurrent(candidate)) return;
         failGeneration(candidate, errorFrom(error));
@@ -167,4 +180,3 @@ export function switchWorkspaceBackend<TResult>(
   persist(workspacePath);
   return startReplacement(workspacePath);
 }
-
