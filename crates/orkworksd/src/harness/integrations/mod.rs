@@ -73,6 +73,9 @@ pub(crate) struct ToolHookContract {
     #[allow(dead_code)]
     pub ownership_marker: &'static str,
     pub coverage: IntegrationCoverage,
+    /// True when the integration owns an event that reports deterministic
+    /// attention in addition to any native session identity.
+    pub reports_attention: bool,
     pub activation: IntegrationActivation,
     /// True when this integration installs at least one owned hook that
     /// reports a written plan/spec path to `/sessions/:id/plan-path`
@@ -138,13 +141,10 @@ impl JsonHookHandler {
         activation: IntegrationActivation,
         diagnostics: Vec<IntegrationDiagnostic>,
     ) -> IntegrationStatus {
-        // Every JsonHookHandler except Codex hooks a genuine "needs input"
-        // event and reports it via the generic attention endpoint (ADR
-        // 0034) — Codex's SessionStart hook only ever reports a session ID.
-        // A per-handler marker-string special case, not a framework field,
-        // for the same reason the reporter script branches on the marker
-        // rather than a declared contract property (see issue #271).
-        let is_attention_signal = self.contract.harness_id != "codex";
+        // The contract declares whether this integration owns a deterministic
+        // attention event. The reporter still owns the event-specific mapping;
+        // this flag only describes the integration to the UI.
+        let is_attention_signal = self.contract.reports_attention;
         let coverage_summary = if is_attention_signal {
             "Limited harness notifications"
         } else {
@@ -576,6 +576,29 @@ mod tests {
         assert!(
             !trace.contains("attention_payload="),
             "codex marker must not post generic attention; trace:\n{trace}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn report_harness_event_maps_codex_prompt_submission_to_working_attention() {
+        let trace = run_report_harness_event_sh_trace_with_args(
+            "orkworks:harness-integration:v2:codex",
+            r#"{"session_id":"thr_123","hook_event_name":"UserPromptSubmit"}"#,
+            &[
+                "--event",
+                "UserPromptSubmit",
+                "--hook-fingerprint",
+                "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+            ],
+        );
+        assert!(
+            trace.contains(r#""status": "working""#),
+            "expected a working attention payload for UserPromptSubmit; trace:\n{trace}"
+        );
+        assert!(
+            trace.contains(r#""event": "UserPromptSubmit""#),
+            "expected the Codex event provenance in the attention payload; trace:\n{trace}"
         );
     }
 

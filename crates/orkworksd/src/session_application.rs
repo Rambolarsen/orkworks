@@ -2598,9 +2598,7 @@ async fn resume_session_workflow(
             .and_then(|id| registry.get(id))
             .or_else(|| registry.get("generic-shell"))
             .expect("generic-shell builtin exists");
-        let active_work_hook = harness
-            .effective_capabilities
-            .contains(&crate::harness::registry::CapabilityName::Attention);
+        let active_work_hook = harness.initial_work_hook_active();
         let strategy = harness.select_resume_strategy(resume);
         if strategy == harness::ResumeStrategy::None {
             return Err(crate::session_application::SessionError::EmptyBadRequest);
@@ -2870,9 +2868,7 @@ pub(crate) fn resolve_session_launch(
         .or_else(|| harness.definition.default_model.clone());
     ResolvedSessionLaunch {
         session_harness_id: Some(harness.definition.id.clone()),
-        active_work_hook: harness
-            .effective_capabilities
-            .contains(&crate::harness::registry::CapabilityName::Attention),
+        active_work_hook: harness.initial_work_hook_active(),
         command: harness.build_launch(&cwd, model.as_deref()),
         provider_id: None,
         provider_label: None,

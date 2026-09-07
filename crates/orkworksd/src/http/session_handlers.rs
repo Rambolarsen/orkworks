@@ -6550,6 +6550,7 @@ mod tests {
 
         assert_eq!(launch.session_harness_id.as_deref(), Some("codex"));
         assert_eq!(launch.model.as_deref(), Some("gpt-5"));
+        assert!(!launch.active_work_hook);
         assert_eq!(launch.provider_id, None);
         assert_eq!(launch.provider_label, None);
     }

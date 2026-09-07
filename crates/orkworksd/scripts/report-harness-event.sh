@@ -4,6 +4,7 @@ set -u
 marker=""
 status="waiting_for_input"
 hook_fingerprint=""
+event=""
 # Plan-path mode (ADR 0038): set by an installed hook entry passing
 # `--report-plan-path` (currently Claude's PostToolUse Write|Edit). In this
 # mode the reporter forwards the harness payload's `tool_input.file_path`
@@ -36,6 +37,14 @@ while [ $# -gt 0 ]; do
     --hook-fingerprint)
       if [ $# -ge 2 ]; then
         hook_fingerprint="$2"
+        shift 2
+      else
+        shift 1
+      fi
+      ;;
+    --event)
+      if [ $# -ge 2 ]; then
+        event="$2"
         shift 2
       else
         shift 1
@@ -107,6 +116,7 @@ fi
 reported_cwd=""
 harness_session_id=""
 session_source=""
+codex_attention="no"
 case "$marker" in
   *:claude-code)
     # Single line delimited by the ASCII unit separator (0x1F), not two
@@ -128,6 +138,18 @@ case "$marker" in
         python3 -c 'import json,sys; print(json.load(sys.stdin).get("session_id") or "")' 2>/dev/null
     )" || true
     session_source="codex_hook"
+    case "$event" in
+      UserPromptSubmit)
+        status="working"
+        codex_attention="yes"
+        ;;
+      PermissionRequest|Stop)
+        status="waiting_for_input"
+        codex_attention="yes"
+        ;;
+      SessionStart)
+        ;;
+    esac
     ;;
   *:copilot)
     copilot_fields="$(
@@ -139,21 +161,25 @@ case "$marker" in
     ;;
 esac
 
-# Codex's marker is installed on SessionStart, which fires at session
-# start/resume/clear/compact — not a "needs input" signal like every other
-# marker here (Claude/Gemini/Copilot/Aider all hook a genuine notification
-# event). Posting the generic attention update for codex would mislabel
-# every freshly launched session as waiting_for_input.
-if [ -n "${ORKWORKS_SESSION_ID:-}" ] && [ -n "${ORKWORKS_PORT:-}" ] && [ "$session_source" != "codex_hook" ]; then
+# Codex's SessionStart event captures identity only. Turn events carry their
+# explicit normalized status and provenance so the sidecar can validate the
+# deterministic signal without trusting mutable payload text.
+if [ -n "${ORKWORKS_SESSION_ID:-}" ] && [ -n "${ORKWORKS_PORT:-}" ] && \
+  { [ "$session_source" != "codex_hook" ] || [ "$codex_attention" = "yes" ]; }; then
   observed_at="$(python3 -c 'from datetime import datetime, timezone; print(datetime.now(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z"))')"
   attention_payload="$(python3 -c '
 import json, sys
 payload = {"status":sys.argv[1], "observedAt":sys.argv[2]}
-cwd = sys.argv[3]
+cwd, source, event_name, fingerprint = sys.argv[3:]
 if cwd:
     payload["cwd"] = cwd
+if source == "codex_hook":
+    payload["source"] = source
+    payload["event"] = event_name
+    if fingerprint:
+        payload["hookFingerprint"] = fingerprint
 print(json.dumps(payload))
-' "$status" "$observed_at" "$reported_cwd")"
+' "$status" "$observed_at" "$reported_cwd" "$session_source" "$event" "$hook_fingerprint")"
   curl -sS --max-time 5 --connect-timeout 2 -X POST "http://127.0.0.1:$ORKWORKS_PORT/sessions/$ORKWORKS_SESSION_ID/attention" \
     -H "Content-Type: application/json" \
     -d "$attention_payload" >/dev/null || true
