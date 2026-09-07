@@ -244,7 +244,14 @@ impl SessionProjection {
             .unwrap_or_default();
 
         let mut pending_transitions: Vec<(String, bool, bool)> = Vec::new();
-        let mut capped_recheck_resets: HashSet<String> = HashSet::new();
+        // Advances the scoped recheck window to the point just scanned,
+        // whether that scan found the session still capped or newly clear.
+        // Without this, a scoped recheck that still finds the banner has
+        // nowhere to leave the window (the old behavior dropped it back to
+        // `None`), so a session that recovers on its own after that one
+        // recheck — with no further keystroke from the user to re-arm it —
+        // stays latched capped forever.
+        let mut capped_recheck_advance: HashMap<String, (u64, u64)> = HashMap::new();
         let mut capped_clear_baselines: HashMap<String, (u64, u64)> = HashMap::new();
         let capacity_infos: Vec<SessionInfo> = live_sessions
             .into_iter()
@@ -308,8 +315,10 @@ impl SessionProjection {
                             let detected_scoped =
                                 peon::detect_usage_limit(limit_patterns, fresh_lines)
                                     || peon::detect_usage_limit_raw(limit_patterns, fresh_scan);
-                            capped_recheck_resets.insert(id.clone());
-                            if !detected_scoped {
+                            if detected_scoped {
+                                capped_recheck_advance
+                                    .insert(id.clone(), (output_lines_seen, scan_bytes_seen));
+                            } else {
                                 capped_clear_baselines
                                     .insert(id.clone(), (output_lines_seen, scan_bytes_seen));
                             }
@@ -334,7 +343,8 @@ impl SessionProjection {
                                 peon::detect_usage_limit(limit_patterns, fresh_lines)
                                     || peon::detect_usage_limit_raw(limit_patterns, fresh_scan);
                             if detected_scoped {
-                                capped_recheck_resets.insert(id.clone());
+                                capped_recheck_advance
+                                    .insert(id.clone(), (output_lines_seen, scan_bytes_seen));
                             }
                             detected_scoped
                         } else {
@@ -503,8 +513,8 @@ impl SessionProjection {
                 if let Some(origin) = capped_clear_baselines.get(&info.id) {
                     handle.resume_scan_origin = Some(*origin);
                     handle.at_usage_limit_latched = false;
-                } else if capped_recheck_resets.contains(&info.id) {
-                    handle.resume_scan_origin = None;
+                } else if let Some(origin) = capped_recheck_advance.get(&info.id) {
+                    handle.resume_scan_origin = Some(*origin);
                 }
             }
         }

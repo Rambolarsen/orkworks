@@ -5942,6 +5942,127 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn list_sessions_clears_live_capped_after_lingering_banner_recheck_once_new_clean_output_arrives_without_further_input(
+    ) {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+
+        let session_id = "codex-cap-recovers-after-lingering-banner".to_string();
+        {
+            let ws = state.workspace.lock().unwrap();
+            let ws = ws.as_ref().unwrap();
+            let mut meta = test_session_metadata(
+                session_id.clone(),
+                "Codex Cap Recovers",
+                dir.path().display().to_string(),
+                "running",
+                "2026-07-05T09:00:00Z",
+                "2026-07-05T09:05:00Z",
+            );
+            meta.harness = "codex".into();
+            meta.cwd = dir.path().display().to_string();
+            meta.status = "running".into();
+            meta.lifecycle_phase = "active".into();
+            meta.connectivity = "online".into();
+            meta.terminal_outcome = None;
+            meta.final_observed_status_snapshot = None;
+            ws.metadata.write_session(&meta);
+        }
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        let mut output_buffer = peon::RingBuffer::new(200);
+        output_buffer.push("You've hit your usage limit".into());
+        output_buffer.push("You've hit your usage limit".into());
+        state.sessions.lock().unwrap().insert(
+            session_id.clone(),
+            SessionHandle {
+                info: SessionInfo {
+                    harness_id: Some("codex".into()),
+                    harness: Some("codex".into()),
+                    ..test_session_info(
+                        session_id.clone(),
+                        "Codex Cap Recovers",
+                        dir.path().display().to_string(),
+                        "running",
+                        "now",
+                    )
+                },
+                kill_tx,
+                output_buffer,
+                scan_buf: String::new(),
+                pending_work_signal: None,
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                ),
+                terminal_attached: false,
+                resume_in_progress: false,
+                at_usage_limit_latched: true,
+                capacity_check_pending: false,
+                output_lines_seen: 2,
+                scan_bytes_seen: 0,
+                resume_scan_origin: Some((1, 0)),
+                pending_capacity_visible_once: false,
+                active_work_hook: false,
+            },
+        );
+
+        // First poll: the armed recheck's fresh window still contains the
+        // lingering banner line, same as
+        // `list_sessions_keeps_live_capped_when_fresh_post_input_output_still_contains_limit`.
+        let response = list_sessions(State(state.clone())).await.into_response();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let sessions: Vec<serde_json::Value> = serde_json::from_slice(&bytes).unwrap();
+        let session = sessions
+            .iter()
+            .find(|session| {
+                session.get("id").and_then(|id| id.as_str()) == Some(session_id.as_str())
+            })
+            .unwrap();
+        assert_eq!(
+            session
+                .get("atUsageLimit")
+                .and_then(|value| value.as_bool()),
+            Some(true)
+        );
+
+        // The harness keeps running on its own and produces real, clean
+        // output past the lingering banner — no further keystroke from the
+        // user arms anything.
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut(&session_id).unwrap();
+            handle
+                .output_buffer
+                .push("Back in the thread and working again".into());
+            handle.output_lines_seen += 1;
+        }
+
+        // Second poll, still with no new user input: the one-shot recheck
+        // that fired on the first poll must not have permanently consumed
+        // itself — it should keep rechecking fresh output and clear once the
+        // banner is no longer present.
+        let response = list_sessions(State(state.clone())).await.into_response();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let sessions: Vec<serde_json::Value> = serde_json::from_slice(&bytes).unwrap();
+        let session = sessions
+            .iter()
+            .find(|session| {
+                session.get("id").and_then(|id| id.as_str()) == Some(session_id.as_str())
+            })
+            .unwrap();
+        assert_eq!(
+            session
+                .get("atUsageLimit")
+                .and_then(|value| value.as_bool()),
+            Some(false)
+        );
+    }
+
+    #[tokio::test]
     async fn list_sessions_clears_live_capped_even_when_ring_buffer_length_stays_flat() {
         let dir = tempfile::tempdir().unwrap();
         let state = test_app_state_with_workspace(dir.path());
