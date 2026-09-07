@@ -114,3 +114,6 @@ jobs:
           if [ -n "$OUTPUT" ]; then
             echo "$OUTPUT" | tee -a "$GITHUB_STEP_SUMMARY" || true
           fi
+
+      - name: Check branch-protection policy guidance
+        run: bash scripts/branch-protection-policy-check.sh
