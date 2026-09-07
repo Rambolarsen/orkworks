@@ -1,14 +1,16 @@
 use crate::http::ErrorResponse;
+use crate::runtime::terminal_runtime::{record_report_attempt, workflow_report_session_for_token};
 use crate::session_application::{
-    RecommendationAcceptError, RecommendationDismissError, RecommendationQueryError,
-    SessionApplication,
+    RecommendationAcceptError, RecommendationCompleteError, RecommendationDismissError,
+    RecommendationQueryError, SessionApplication,
 };
 use crate::taskmaster::store::StoreError;
 use crate::taskmaster::Recommendation;
 use crate::AppState;
 use axum::{
+    body::Bytes,
     extract::{Path, State},
-    http::StatusCode,
+    http::{header::AUTHORIZATION, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     Json,
 };
@@ -33,6 +35,23 @@ pub(crate) struct AcceptRequest {
     session_id: String,
     #[serde(default)]
     prompt: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct CompleteRequest {
+    #[serde(default)]
+    summary: Option<String>,
+}
+
+const MAX_COMPLETION_SUMMARY_CHARS: usize = 2_000;
+
+fn bearer_token(headers: &HeaderMap) -> Option<&str> {
+    headers
+        .get(AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .filter(|token| !token.is_empty())
 }
 
 fn store_error(error: StoreError) -> Response {
@@ -110,10 +129,304 @@ pub(crate) async fn accept_recommendation(
     }
 }
 
+pub(crate) async fn complete_recommendation(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let Some(token) = bearer_token(&headers) else {
+        return StatusCode::UNAUTHORIZED.into_response();
+    };
+    let Some(session_id) = workflow_report_session_for_token(token) else {
+        return StatusCode::UNAUTHORIZED.into_response();
+    };
+    if !record_report_attempt(&session_id) {
+        return StatusCode::TOO_MANY_REQUESTS.into_response();
+    }
+    let summary = if body.is_empty() {
+        None
+    } else {
+        let Ok(request) = serde_json::from_slice::<CompleteRequest>(&body) else {
+            return StatusCode::BAD_REQUEST.into_response();
+        };
+        request.summary
+    };
+    if summary
+        .as_deref()
+        .is_some_and(|value| value.chars().count() > MAX_COMPLETION_SUMMARY_CHARS)
+    {
+        return StatusCode::UNPROCESSABLE_ENTITY.into_response();
+    }
+
+    match SessionApplication::new(state).complete_recommendation(&id, &session_id, summary) {
+        Ok(Some(recommendation)) => Json(recommendation).into_response(),
+        Ok(None) => StatusCode::NOT_FOUND.into_response(),
+        Err(RecommendationCompleteError::Conflict) => StatusCode::CONFLICT.into_response(),
+        Err(RecommendationCompleteError::Store(error)) => store_error(error),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::runtime::terminal_runtime::{
+        clear_workflow_report_token, set_workflow_report_token, WORKFLOW_REPORT_RATE_LIMIT,
+    };
     use crate::test_support::test_app_state_with_workspace;
+    use axum::body::Bytes;
+    use axum::http::header::AUTHORIZATION;
+
+    fn accepted_recommendation(
+        state: &std::sync::Arc<crate::AppState>,
+        target_session_id: &str,
+        token_session_id: &str,
+        token: &str,
+    ) -> String {
+        {
+            let workspace = state.workspace.lock().unwrap();
+            let workspace = workspace.as_ref().unwrap();
+            for key in ["complete-one", "complete-two"] {
+                workspace
+                    .workflow_observations
+                    .record_observation(
+                        target_session_id,
+                        crate::workflow_observations::ObservationOrigin::Peon,
+                        key,
+                        crate::workflow_observations::ObservationCandidate {
+                            kind: crate::workflow_observations::ObservationKind::Obstacle,
+                            description: "The setup blocks progress".into(),
+                            evidence: "The same command failed twice".into(),
+                            reported_impact: crate::workflow_observations::Impact::Medium,
+                            confidence: Some(0.8),
+                        },
+                    )
+                    .unwrap();
+            }
+        }
+        crate::session_application::SessionApplication::new(state.clone())
+            .refresh_workflow_recommendations();
+        let recommendation_id = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .recommendation_store
+            .list()
+            .unwrap()
+            .pop()
+            .unwrap()
+            .id;
+        let workspace = state.workspace.lock().unwrap();
+        let store = &workspace.as_ref().unwrap().recommendation_store;
+        store
+            .begin_execution(
+                &recommendation_id,
+                target_session_id.into(),
+                "2026-09-07T10:00:00Z".into(),
+            )
+            .unwrap();
+        store
+            .complete_execution(&recommendation_id, "2026-09-07T10:00:01Z".into())
+            .unwrap();
+        set_workflow_report_token(token_session_id, token.into());
+        recommendation_id
+    }
+
+    fn authorization(token: &str) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert(AUTHORIZATION, format!("Bearer {token}").parse().unwrap());
+        headers
+    }
+
+    #[tokio::test]
+    async fn complete_requires_a_valid_reporting_token() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = State(test_app_state_with_workspace(dir.path()));
+
+        assert_eq!(
+            complete_recommendation(
+                state.clone(),
+                Path("missing".into()),
+                HeaderMap::new(),
+                Bytes::new(),
+            )
+            .await
+            .status(),
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            complete_recommendation(
+                state,
+                Path("missing".into()),
+                authorization("wrong-token"),
+                Bytes::new(),
+            )
+            .await
+            .status(),
+            StatusCode::UNAUTHORIZED
+        );
+    }
+
+    #[tokio::test]
+    async fn complete_rejects_an_oversized_summary_before_mutation() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        set_workflow_report_token("summary-limit-session", "summary-limit-token".into());
+
+        let response = complete_recommendation(
+            State(state),
+            Path("missing".into()),
+            authorization("summary-limit-token"),
+            Bytes::from(format!(
+                "{{\"summary\":\"{}\"}}",
+                "x".repeat(MAX_COMPLETION_SUMMARY_CHARS + 1)
+            )),
+        )
+        .await;
+        clear_workflow_report_token("summary-limit-session");
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
+    #[tokio::test]
+    async fn complete_rejects_malformed_body_before_mutation() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let recommendation_id = accepted_recommendation(
+            &state,
+            "malformed-body-session",
+            "malformed-body-session",
+            "malformed-body-token",
+        );
+
+        let response = complete_recommendation(
+            State(state.clone()),
+            Path(recommendation_id.clone()),
+            authorization("malformed-body-token"),
+            Bytes::from_static(br#"{"unknown":true}"#),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .recommendation_store
+                .get(&recommendation_id)
+                .unwrap()
+                .unwrap()
+                .status,
+            crate::taskmaster::RecommendationStatus::Accepted
+        );
+        clear_workflow_report_token("malformed-body-session");
+    }
+
+    #[tokio::test]
+    async fn complete_uses_the_token_session_and_rejects_a_different_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let recommendation_id = accepted_recommendation(
+            &state,
+            "target-session",
+            "different-session",
+            "complete-token",
+        );
+
+        let response = complete_recommendation(
+            State(state),
+            Path(recommendation_id),
+            authorization("complete-token"),
+            Bytes::new(),
+        )
+        .await;
+        clear_workflow_report_token("different-session");
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+    }
+
+    #[tokio::test]
+    async fn complete_returns_completed_recommendation_and_is_idempotent() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let recommendation_id = accepted_recommendation(
+            &state,
+            "complete-session",
+            "complete-session",
+            "complete-token-unique",
+        );
+
+        let first = complete_recommendation(
+            State(state.clone()),
+            Path(recommendation_id.clone()),
+            authorization("complete-token-unique"),
+            Bytes::from_static(br#"{"summary":"Verified by the agent."}"#),
+        )
+        .await;
+        assert_eq!(first.status(), StatusCode::OK);
+
+        let second = complete_recommendation(
+            State(state.clone()),
+            Path(recommendation_id.clone()),
+            authorization("complete-token-unique"),
+            Bytes::new(),
+        )
+        .await;
+        assert_eq!(second.status(), StatusCode::OK);
+
+        let events = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_events("complete-session");
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event.event_type == "taskmaster_fix_completed")
+                .count(),
+            1
+        );
+        clear_workflow_report_token("complete-session");
+    }
+
+    #[tokio::test]
+    async fn complete_applies_the_authenticated_report_rate_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let recommendation_id = accepted_recommendation(
+            &state,
+            "rate-limited-session",
+            "rate-limited-session",
+            "rate-limit-token",
+        );
+
+        for _ in 0..WORKFLOW_REPORT_RATE_LIMIT {
+            let response = complete_recommendation(
+                State(state.clone()),
+                Path(recommendation_id.clone()),
+                authorization("rate-limit-token"),
+                Bytes::new(),
+            )
+            .await;
+            assert_eq!(response.status(), StatusCode::OK);
+        }
+
+        let rejected = complete_recommendation(
+            State(state),
+            Path(recommendation_id),
+            authorization("rate-limit-token"),
+            Bytes::new(),
+        )
+        .await;
+        clear_workflow_report_token("rate-limited-session");
+        assert_eq!(rejected.status(), StatusCode::TOO_MANY_REQUESTS);
+    }
+
     #[tokio::test]
     async fn list_returns_empty_recommendations_for_a_new_workspace() {
         let dir = tempfile::tempdir().unwrap();

@@ -4,7 +4,7 @@ use crate::plan_handoff::{
 use crate::runtime::observed_status::apply_live_attention_fields;
 use crate::session_types::{MemoryState, SessionInfo};
 use crate::session_view::{connectivity_for_status, terminal_outcome_for_status};
-use crate::taskmaster::{RecommendationStatus, RecommendationType};
+use crate::taskmaster::{Recommendation, RecommendationStatus, RecommendationType};
 use crate::workspace_runtime::parse_hook_observed_at;
 use crate::workspace_runtime::{iso_now, orkworks_global_dir};
 use crate::{git, metadata, migration, plan_handoff, watcher, AppState, WorkspaceState};
@@ -50,6 +50,12 @@ pub(crate) enum RecommendationAcceptError {
     Store(crate::taskmaster::store::StoreError),
 }
 
+#[derive(Debug)]
+pub(crate) enum RecommendationCompleteError {
+    Conflict,
+    Store(crate::taskmaster::store::StoreError),
+}
+
 pub(crate) struct WorkspaceSnapshot {
     pub(crate) path: String,
     pub(crate) repo_root: Option<String>,
@@ -64,6 +70,33 @@ pub(crate) struct WorkspaceSnapshot {
 
 pub(crate) struct SessionApplication {
     state: Arc<AppState>,
+}
+
+fn ensure_recommendation_handoff_contract(
+    prompt: String,
+    recommendation: &Recommendation,
+) -> String {
+    let mut prompt = prompt.trim_end_matches('\r').to_string();
+    if !prompt.contains(&recommendation.id) {
+        prompt.push_str(&format!(
+            "\n\nTaskmaster recommendation ID: {}. Keep this ID in the work context and use it when reporting completion.",
+            recommendation.id
+        ));
+    }
+    let recommendation_route = format!("GET /taskmaster/recommendations/{}", recommendation.id);
+    let completion_route = format!(
+        "POSTing to /taskmaster/recommendations/{}/complete",
+        recommendation.id
+    );
+    if !prompt.contains(&recommendation_route)
+        || !prompt.contains("working-on-recommendation")
+        || !prompt.contains(&completion_route)
+    {
+        prompt.push_str(&format!(
+            "\n\nTaskmaster handoff requirements: before acting, read the authoritative recommendation from {recommendation_route}. Follow the repository skill `working-on-recommendation` and inspect its source sessions. Work only in the current session. After acting, verify the change, then report completion by {completion_route} with Authorization: Bearer $ORKWORKS_REPORT_TOKEN and an optional JSON summary. Do not mark the recommendation complete before verification."
+        ));
+    }
+    format!("{prompt}\r")
 }
 
 pub(crate) struct CreateSessionCommand {
@@ -152,6 +185,7 @@ pub(crate) struct SummaryLogQueryEntry {
     pub(crate) summary: String,
     pub(crate) source: String,
     pub(crate) confidence: Option<f64>,
+    pub(crate) recommendation_id: Option<String>,
 }
 
 fn is_placeholder_label(label: &str, id: &str) -> bool {
@@ -301,6 +335,7 @@ impl SessionApplication {
                 return Err(RecommendationAcceptError::Conflict);
             }
             let prompt = prompt_override
+                .map(|prompt| ensure_recommendation_handoff_contract(prompt, &recommendation))
                 .unwrap_or_else(|| crate::taskmaster::build_fix_prompt(&recommendation));
             workspace
                 .recommendation_store
@@ -346,12 +381,79 @@ impl SessionApplication {
                 confidence: None,
                 summary: Some(format!("Taskmaster sent a fix prompt for: {title}")),
                 source: Some("user".into()),
+                recommendation_id: Some(id.to_string()),
             },
         );
         workspace
             .recommendation_store
             .complete_execution(id, chrono::Utc::now().to_rfc3339())
             .map_err(RecommendationAcceptError::Store)
+    }
+
+    /// Completes an accepted Taskmaster recommendation from the reporting
+    /// capability owned by the session that received its fix prompt.
+    pub(crate) fn complete_recommendation(
+        &self,
+        id: &str,
+        session_id: &str,
+        summary: Option<String>,
+    ) -> Result<Option<crate::taskmaster::Recommendation>, RecommendationCompleteError> {
+        let workspace_guard = self.state.workspace.lock().unwrap();
+        let workspace = workspace_guard
+            .as_ref()
+            .ok_or(RecommendationCompleteError::Conflict)?;
+        let Some(existing) = workspace
+            .recommendation_store
+            .get(id)
+            .map_err(RecommendationCompleteError::Store)?
+        else {
+            return Ok(None);
+        };
+
+        if existing.recommendation_type != RecommendationType::ImproveWorkflow
+            || existing.target_session_id.as_deref() != Some(session_id)
+        {
+            return Err(RecommendationCompleteError::Conflict);
+        }
+
+        // A retry after the agent has already reported completion is safe and
+        // does not append a duplicate history event.
+        if existing.status == RecommendationStatus::Completed {
+            return Ok(Some(existing));
+        }
+        if existing.status != RecommendationStatus::Accepted {
+            return Err(RecommendationCompleteError::Conflict);
+        }
+
+        let completed = workspace
+            .recommendation_store
+            .complete_accepted(id, chrono::Utc::now().to_rfc3339())
+            .map_err(RecommendationCompleteError::Store)?
+            .ok_or(RecommendationCompleteError::Conflict)?;
+        let event = metadata::Event {
+            event_type: "taskmaster_fix_completed".into(),
+            timestamp: iso_now(),
+            status: "working".into(),
+            observed_status: Some("working".into()),
+            confidence: None,
+            summary: Some(summary.unwrap_or_else(|| "Taskmaster fix completed.".into())),
+            source: Some("agent".into()),
+            recommendation_id: Some(id.to_string()),
+        };
+        if let Err(error) = workspace.metadata.try_append_event(session_id, &event) {
+            if let Err(rollback_error) = workspace.recommendation_store.put(&existing) {
+                tracing::error!(
+                    recommendation_id = %id,
+                    %error,
+                    %rollback_error,
+                    "failed to roll back recommendation after completion event persistence failure"
+                );
+            }
+            return Err(RecommendationCompleteError::Store(
+                crate::taskmaster::store::StoreError::Io(error),
+            ));
+        }
+        Ok(Some(completed))
     }
 
     /// Persists one Peon observation under one workspace snapshot.
@@ -1005,6 +1107,7 @@ impl SessionApplication {
                             confidence: None,
                             summary: None,
                             source: None,
+                            recommendation_id: None,
                         },
                     );
                 }
@@ -1146,6 +1249,7 @@ impl SessionApplication {
                     confidence,
                     summary: Some(summary),
                     source: Some(source),
+                    recommendation_id,
                     ..
                 } = event
                 else {
@@ -1156,6 +1260,7 @@ impl SessionApplication {
                     summary,
                     source,
                     confidence,
+                    recommendation_id,
                 })
             })
             .collect()
@@ -1532,6 +1637,7 @@ impl SessionApplication {
                             confidence: final_snapshot.confidence,
                             summary: None,
                             source: None,
+                            recommendation_id: None,
                         },
                     );
                     final_status = Some(pending);
@@ -1956,6 +2062,7 @@ impl SessionApplication {
                 confidence: Some(1.0),
                 summary: None,
                 source: Some("agent".into()),
+                recommendation_id: None,
             },
         );
         Ok(())
@@ -2069,6 +2176,7 @@ impl SessionApplication {
                     confidence: None,
                     summary: Some("User requested plan review.".into()),
                     source: Some("user".into()),
+                    recommendation_id: None,
                 },
             );
         }
@@ -2280,7 +2388,7 @@ impl SessionApplication {
             workspace.metadata.append_event(&id, &metadata::Event {
                 event_type: "session.plan_selected_by_user".into(), timestamp: iso_now(),
                 status: meta.status, observed_status: meta.observed_status,
-                confidence: Some(1.0), summary: None, source: Some("user".into()),
+                confidence: Some(1.0), summary: None, source: Some("user".into()), recommendation_id: None,
             });
             Ok(())
         }).await.map_err(|_| SessionError::Internal("application operation failed"))??;
@@ -2905,6 +3013,7 @@ async fn resume_session_workflow(
                     confidence: None,
                     summary: None,
                     source: None,
+                    recommendation_id: None,
                 },
             );
         }
@@ -3273,6 +3382,7 @@ async fn create_session_workflow(
                             confidence: None,
                             summary: None,
                             source: None,
+                            recommendation_id: None,
                         },
                     );
                 }
@@ -4781,6 +4891,7 @@ mod tests {
                     confidence: None,
                     summary: None,
                     source: None,
+                    recommendation_id: None,
                 },
                 metadata::Event {
                     event_type: "checkpoint".into(),
@@ -4790,6 +4901,7 @@ mod tests {
                     confidence: Some(0.9),
                     summary: Some("Checkpoint".into()),
                     source: Some("peon".into()),
+                    recommendation_id: None,
                 },
                 metadata::Event {
                     event_type: "checkpoint".into(),
@@ -4799,6 +4911,7 @@ mod tests {
                     confidence: None,
                     summary: Some("No source".into()),
                     source: None,
+                    recommendation_id: None,
                 },
             ] {
                 workspace.metadata.append_event(id, &event);
@@ -6284,6 +6397,7 @@ mod tests {
                     confidence: None,
                     summary: None,
                     source: None,
+                    recommendation_id: None,
                 },
             );
             store.write_workspace_memory(&metadata::WorkspaceMemory {
@@ -7597,6 +7711,129 @@ mod tests {
             .any(|event| event.event_type == "taskmaster_fix_requested"));
     }
 
+    #[test]
+    fn complete_recommendation_records_id_and_summary_in_session_history() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let recommendation_id = proposed_recommendation_id(&state, "complete-happy");
+        let session_id = "complete-target-session";
+        write_alive_session(&state, root.path(), session_id);
+
+        {
+            let workspace = state.workspace.lock().unwrap();
+            let store = &workspace.as_ref().unwrap().recommendation_store;
+            store
+                .begin_execution(
+                    &recommendation_id,
+                    session_id.into(),
+                    "2026-09-07T10:00:00Z".into(),
+                )
+                .unwrap();
+            store
+                .complete_execution(&recommendation_id, "2026-09-07T10:00:01Z".into())
+                .unwrap();
+        }
+
+        let application = SessionApplication::new(state.clone());
+        let completed = application
+            .complete_recommendation(
+                &recommendation_id,
+                session_id,
+                Some("Verified the fix in the target session.".into()),
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(completed.status, RecommendationStatus::Completed);
+
+        let repeated = application
+            .complete_recommendation(&recommendation_id, session_id, None)
+            .unwrap()
+            .unwrap();
+        assert_eq!(repeated.status, RecommendationStatus::Completed);
+
+        let events = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_events(session_id);
+        let completions: Vec<_> = events
+            .iter()
+            .filter(|event| event.event_type == "taskmaster_fix_completed")
+            .collect();
+        assert_eq!(completions.len(), 1);
+        assert_eq!(
+            completions[0].recommendation_id.as_deref(),
+            Some(recommendation_id.as_str())
+        );
+        assert_eq!(
+            completions[0].summary.as_deref(),
+            Some("Verified the fix in the target session.")
+        );
+    }
+
+    #[test]
+    fn complete_recommendation_keeps_accepted_state_when_completion_event_fails() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let recommendation_id = proposed_recommendation_id(&state, "complete-event-failure");
+        let session_id = "complete-event-failure-session";
+        write_alive_session(&state, root.path(), session_id);
+
+        {
+            let workspace = state.workspace.lock().unwrap();
+            let store = &workspace.as_ref().unwrap().recommendation_store;
+            store
+                .begin_execution(
+                    &recommendation_id,
+                    session_id.into(),
+                    "2026-09-07T10:00:00Z".into(),
+                )
+                .unwrap();
+            store
+                .complete_execution(&recommendation_id, "2026-09-07T10:00:01Z".into())
+                .unwrap();
+        }
+
+        let events_dir = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .events_dir();
+        std::fs::write(events_dir, "not a directory").unwrap();
+
+        let result = SessionApplication::new(state.clone()).complete_recommendation(
+            &recommendation_id,
+            session_id,
+            Some("The event cannot be persisted.".into()),
+        );
+        assert!(matches!(
+            result,
+            Err(RecommendationCompleteError::Store(
+                crate::taskmaster::store::StoreError::Io(_)
+            ))
+        ));
+        assert_eq!(
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .recommendation_store
+                .get(&recommendation_id)
+                .unwrap()
+                .unwrap()
+                .status,
+            RecommendationStatus::Accepted
+        );
+    }
+
     #[tokio::test]
     async fn accept_recommendation_honors_client_supplied_prompt_override() {
         let root = tempfile::tempdir().unwrap();
@@ -7615,9 +7852,14 @@ mod tests {
             .insert(session_id.into(), handle);
 
         let application = SessionApplication::new(state.clone());
+        let recommendation_id_for_task = recommendation_id.clone();
         let mut request = tokio::spawn(async move {
             application
-                .accept_recommendation(&recommendation_id, session_id, Some("custom text\r".into()))
+                .accept_recommendation(
+                    &recommendation_id_for_task,
+                    session_id,
+                    Some("custom text\r".into()),
+                )
                 .await
         });
         let crate::runtime::session_runtime::RuntimeCommand::Input { data, accepted } = (tokio::select! {
@@ -7626,7 +7868,15 @@ mod tests {
         }) else {
             panic!("expected terminal input");
         };
-        assert_eq!(data, "custom text\r");
+        assert!(data.starts_with("custom text\n\nTaskmaster recommendation ID: "));
+        assert!(data.contains(&format!(
+            "GET /taskmaster/recommendations/{recommendation_id}"
+        )));
+        assert!(data.contains("working-on-recommendation"));
+        assert!(data.contains(&format!(
+            "POSTing to /taskmaster/recommendations/{recommendation_id}/complete"
+        )));
+        assert!(data.ends_with(" Do not mark the recommendation complete before verification.\r"));
         accepted.unwrap().send(Ok(())).unwrap();
         assert!(request.await.unwrap().unwrap().is_some());
     }

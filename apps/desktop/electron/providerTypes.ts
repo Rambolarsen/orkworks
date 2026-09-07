@@ -12,7 +12,20 @@ export interface ProviderDefinition {
 export interface PeonSelection {
   provider: ProviderId;
   model: string;
+  reasoningEffort?: string | null;
   ollamaBaseUrl?: string;
+}
+
+export interface ProviderReasoningEffort {
+  id: string;
+  description: string;
+}
+
+export interface ProviderModelOption {
+  id: string;
+  displayName: string;
+  reasoningEfforts: ProviderReasoningEffort[];
+  defaultReasoningEffort: string | null;
 }
 
 export interface PeonProviderVerificationResponse {
@@ -25,13 +38,17 @@ export interface PeonProviderVerificationResponse {
     testInference: boolean;
   };
   models: string[];
+  modelOptions?: ProviderModelOption[];
   ollamaBaseUrl: string | null;
   generation: number;
+  catalogStale?: boolean;
+  catalogObservedAt?: string;
 }
 
 export interface PeonAppliedState {
   provider: string | null;
   model: string | null;
+  reasoningEffort?: string | null;
   ollamaBaseUrl: string | null;
   appliedAt: string | null;
   connectionRevision: number;
@@ -45,7 +62,8 @@ export function peonSelectionMatchesAppliedState(
   selection: PeonSelection,
   applied: PeonAppliedState,
 ): boolean {
-  if (selection.provider !== applied.provider || selection.model !== applied.model) return false;
+  if (selection.provider !== applied.provider || selection.model !== (applied.model ?? "")) return false;
+  if ((selection.reasoningEffort ?? null) !== (applied.reasoningEffort ?? null)) return false;
   return selection.provider === "ollama"
     ? selection.ollamaBaseUrl === applied.ollamaBaseUrl
     : applied.ollamaBaseUrl === null;

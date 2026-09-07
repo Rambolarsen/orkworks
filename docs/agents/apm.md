@@ -17,6 +17,8 @@ Dependencies are managed by [APM](https://github.com/anthropics/apm) at the repo
 
 The committed `scripts/doc-check.sh` is the harness-neutral doc-diff detector. The committed `scripts/codex-doc-check-stop.sh` adapter wraps that output into valid Stop-hook JSON so Codex can surface the message without rejecting the hook output; the Codex hook configuration and its local adapter entry remain gitignored because OrkWorks installs machine-specific hook entries.
 
+The APM lifecycle in `apm.yml` removes the incompatible Superpowers `SessionStart` registration from generated Codex hooks after installs and updates. Lifecycle commands are trust-gated; on a new checkout, run `apm lifecycle trust` once before `apm install` or `apm update` if you want that repair to run automatically. The repair is also available directly as `bash scripts/repair-codex-session-start-hooks.sh`.
+
 ## Superpowers
 
 [obra/superpowers](https://github.com/obra/superpowers) — agentic skills framework & software development methodology. Installed per-harness. OpenCode is configured through the repo-root `opencode.json`:
@@ -75,6 +77,7 @@ The `skills/` directory contains repo-level agent skills committed with the proj
 | `starting-work` | Branch/worktree setup and per-checkout workflow for new code changes |
 | `cutting-release` | Version bump, tag push, CI monitoring, and release verification workflow |
 | `adding-harness` | Checklist for adding or changing a harness adapter |
+| `working-on-recommendation` | Resolves a Taskmaster recommendation, scopes the work, and reports verified completion |
 | `writing-skills` | TDD-based skill creation following the Agent Skills standard |
 | `clean-ddd-hexagonal` | Clean Architecture + DDD + Hexagonal patterns, language-agnostic |
 | `surfacing-blind-spots` | End-of-session self-critique and codebase audit that files scoped quality issues |

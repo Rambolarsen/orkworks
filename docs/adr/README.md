@@ -57,3 +57,5 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 | [0047](./0047-initial-prompt-label-fallback.md) | Initial-prompt labels are replaceable bootstrap fallbacks | accepted |
 | [0048](./0048-improve-workflow-accept-sends-fix-prompt-to-active-session.md) | improve_workflow gains an explicit accept action that sends a fix prompt to the active session | accepted |
 | [0049](./0049-codex-deterministic-attention-hooks.md) | Codex deterministic attention hooks | accepted |
+| [0049](./0049-codex-app-server-peon-model-discovery.md) | Codex app-server is the live Peon model catalog | accepted |
+| [0050](./0050-taskmaster-recommendation-aware-agent-handoff.md) | Taskmaster recommendation-aware agent handoff | accepted |

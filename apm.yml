@@ -28,3 +28,14 @@ dependencies:
         - doubt-driven-development
 includes: auto
 scripts: {}
+lifecycle:
+  post-install:
+    - type: command
+      description: Remove the incompatible Superpowers SessionStart hook from Codex
+      command: bash scripts/repair-codex-session-start-hooks.sh
+      timeoutSec: 30
+  post-update:
+    - type: command
+      description: Remove the incompatible Superpowers SessionStart hook from Codex
+      command: bash scripts/repair-codex-session-start-hooks.sh
+      timeoutSec: 30

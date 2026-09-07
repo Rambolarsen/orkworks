@@ -487,6 +487,12 @@ pub struct Event {
     pub summary: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
+    #[serde(
+        rename = "recommendationId",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub recommendation_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -1318,7 +1324,7 @@ impl MetadataStore {
         }
     }
 
-    fn try_append_event(&self, id: &str, event: &Event) -> std::io::Result<()> {
+    pub(crate) fn try_append_event(&self, id: &str, event: &Event) -> std::io::Result<()> {
         let dir = self.events_dir();
         fs::create_dir_all(&dir)?;
         let path = dir.join(format!("{}.ndjson", id));
@@ -1544,6 +1550,7 @@ impl MetadataStore {
                 confidence: Some(report.confidence),
                 summary: None,
                 source: None,
+                recommendation_id: None,
             },
         );
 
@@ -1650,6 +1657,7 @@ impl MetadataStore {
             confidence: Some(confidence),
             summary: checkpoint,
             source: checkpoint_source,
+            recommendation_id: None,
         };
         if event.summary.is_some() {
             if let Err(error) = self.try_append_event(id, &event) {
@@ -1852,6 +1860,7 @@ impl MetadataStore {
             confidence: Some(inf.confidence),
             summary: checkpoint,
             source: checkpoint_source,
+            recommendation_id: None,
         };
         if event.summary.is_some() {
             self.try_append_event(id, &event)?;
@@ -2168,6 +2177,32 @@ mod tests {
     }
 
     #[test]
+    fn event_replays_recommendation_id_and_accepts_legacy_events_without_it() {
+        let event: Event = serde_json::from_value(serde_json::json!({
+            "type": "taskmaster_fix_requested",
+            "timestamp": "2026-09-07T10:00:00Z",
+            "status": "working",
+            "observedStatus": "working",
+            "confidence": null,
+            "summary": "Fix requested",
+            "source": "user",
+            "recommendationId": "recommendation-1"
+        }))
+        .unwrap();
+        assert_eq!(event.recommendation_id.as_deref(), Some("recommendation-1"));
+
+        let legacy: Event = serde_json::from_value(serde_json::json!({
+            "type": "session.status",
+            "timestamp": "2026-09-07T10:00:00Z",
+            "status": "working",
+            "observedStatus": null,
+            "confidence": null
+        }))
+        .unwrap();
+        assert_eq!(legacy.recommendation_id, None);
+    }
+
+    #[test]
     fn write_and_read_session() {
         let dir = tempfile::tempdir().unwrap();
         let store = MetadataStore::new(dir.path());
@@ -2243,6 +2278,7 @@ mod tests {
                 confidence: None,
                 summary: None,
                 source: None,
+                recommendation_id: None,
             },
         );
         store.append_event(
@@ -2255,6 +2291,7 @@ mod tests {
                 confidence: None,
                 summary: None,
                 source: None,
+                recommendation_id: None,
             },
         );
         let path = store.events_dir().join("test-2.ndjson");
@@ -2280,6 +2317,7 @@ mod tests {
                 confidence: None,
                 summary: None,
                 source: None,
+                recommendation_id: None,
             },
         );
         store.append_event(
@@ -2292,6 +2330,7 @@ mod tests {
                 confidence: None,
                 summary: None,
                 source: None,
+                recommendation_id: None,
             },
         );
         let events = store.read_events("test-3");
@@ -2504,6 +2543,7 @@ mod tests {
                 confidence: None,
                 summary: None,
                 source: None,
+                recommendation_id: None,
             },
         );
 
@@ -2575,6 +2615,7 @@ mod tests {
             confidence: Some(0.9),
             summary: Some("B".into()),
             source: Some("agent".into()),
+            recommendation_id: None,
         })
         .unwrap();
         let path = store.events_dir().join(format!("{id}.ndjson"));
@@ -2616,6 +2657,7 @@ mod tests {
             confidence: Some(0.9),
             summary: Some("B".into()),
             source: Some("agent".into()),
+            recommendation_id: None,
         })
         .unwrap();
         let injected = Arc::new(AtomicBool::new(false));
@@ -3504,6 +3546,7 @@ mod tests {
                 confidence: None,
                 summary: None,
                 source: None,
+                recommendation_id: None,
             },
         );
 
@@ -3564,6 +3607,7 @@ mod tests {
                 confidence: None,
                 summary: Some("unrelated".into()),
                 source: None,
+                recommendation_id: None,
             },
         );
 
@@ -4499,6 +4543,7 @@ mod tests {
                 confidence: None,
                 summary: None,
                 source: None,
+                recommendation_id: None,
             },
         );
         store.append_terminal_output_lines("del-test", &["line 1".into(), "line 2".into()]);

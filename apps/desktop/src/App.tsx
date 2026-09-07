@@ -347,6 +347,25 @@ function App() {
     setReviewTick((tick) => tick + 1);
   }, []);
 
+  const [focusedRecommendationId, setFocusedRecommendationId] = useState<string | null>(null);
+
+  const handleOpenRecommendation = useCallback((id: string) => {
+    setFocusedRecommendationId(id);
+    const api = dockviewApiRef.current;
+    if (!api) return;
+    const options: Parameters<typeof api.addPanel>[0] = {
+      id: "recommendations",
+      component: "recommendations",
+      title: PANEL_DEFAULTS.recommendations.title,
+    };
+    const position = PANEL_DEFAULTS.recommendations.position;
+    if (position && api.getPanel(position.referencePanel)) {
+      options.position = position;
+    }
+    const panel = api.getPanel("recommendations") ?? api.addPanel(options);
+    panel?.api.setActive();
+  }, []);
+
   useEffect(() => {
     const onSelected = (event: Event) => {
       const sessionId = (event as CustomEvent<{ sessionId?: unknown }>).detail?.sessionId;
@@ -560,6 +579,8 @@ function App() {
         resumeTick={resumeTick}
         reviewTick={reviewTick}
         onSelectSession={handleSelectSession}
+        focusedRecommendationId={focusedRecommendationId}
+        onOpenRecommendation={handleOpenRecommendation}
         onFixWithAi={handleFixWithAi}
         onCreateSession={handleCreateSession}
         onKillSession={handleKillSession}

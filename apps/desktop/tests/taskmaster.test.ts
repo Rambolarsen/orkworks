@@ -90,7 +90,11 @@ test("Taskmaster fix prompt is scoped to the target surface and forbids touching
 
   assert.match(prompt, /Add a review handoff step\./);
   assert.match(prompt, /instructions/);
-  assert.match(prompt, /Do not resume, reopen, or modify any other session/);
+  assert.match(prompt, /Work on Taskmaster recommendation rec-1/);
+  assert.match(prompt, /GET \/taskmaster\/recommendations\/rec-1/);
+  assert.match(prompt, /working-on-recommendation/);
+  assert.match(prompt, /POSTing to \/taskmaster\/recommendations\/rec-1\/complete/);
+  assert.match(prompt, /Work only in the current session/);
 });
 
 test("Fix with AI always presses Enter regardless of dialog edits", () => {
@@ -135,6 +139,36 @@ test("Fix with AI is gated on the active session actually being alive, not merel
   assert.match(panel, /canFixWithAi: boolean/);
   assert.doesNotMatch(panel, /activeSessionId/);
   assert.match(dockview, /\.lifecycle === "alive"/);
+});
+
+test("recommendation history links add the panel without requiring an absent reference panel", () => {
+  const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+  const handlerIndex = app.indexOf("const handleOpenRecommendation");
+  const handlerBlock = app.slice(handlerIndex, app.indexOf("}, []);", handlerIndex));
+
+  assert.match(handlerBlock, /const position = PANEL_DEFAULTS\.recommendations\.position/);
+  assert.match(handlerBlock, /if \(position && api\.getPanel\(position\.referencePanel\)\)/);
+  assert.match(handlerBlock, /options\.position = position/);
+});
+
+test("recommendation history labels expose a distinguishing id suffix", () => {
+  const panel = readFileSync(
+    new URL("../src/components/SessionDetailPanel.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(panel, /recommendationId\.replace\(\/\^recommendation-\//);
+  assert.doesNotMatch(panel, /recommendationId\.slice\(0, 8\)/);
+});
+
+test("task history refreshes independently of session metadata timestamps", () => {
+  const panel = readFileSync(
+    new URL("../src/components/SessionDetailPanel.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(panel, /const summaryLogTimer = window\.setInterval/);
+  assert.match(panel, /window\.clearInterval\(summaryLogTimer\)/);
 });
 
 test("Recommendations panel exposes evidence, dismissal, and an explicit fix-with-ai action only", () => {

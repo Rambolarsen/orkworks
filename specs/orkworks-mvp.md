@@ -336,6 +336,20 @@ POST /sessions/:id/workflow-observations
 
 Every live session receives an independent 256-bit random reporting capability in `ORKWORKS_REPORT_TOKEN` (not persisted, replaced on resume), alongside the existing `ORKWORKS_SESSION_ID` and `ORKWORKS_PORT`. The route requires `Authorization: Bearer <ORKWORKS_REPORT_TOKEN>` and an `Idempotency-Key` header (1–128 visible ASCII characters), rejects missing/malformed/wrong capabilities without recording an observation, accepts only `kind`, `description`, `evidence`, and `reportedImpact` in the request body (workspace identity, source, confidence, fingerprint, and recommendation fields are all server-derived), limits the complete body to 8 KiB, and enforces at most 30 reports per session in a rolling 60-second window (`429` beyond that). The route reports evidence only; it cannot create or mutate a Taskmaster recommendation directly.
 
+The same per-session capability authenticates the agent completion handoff:
+
+```text
+POST /taskmaster/recommendations/:id/complete
+```
+
+The sidecar derives the caller's live session from `ORKWORKS_REPORT_TOKEN`,
+requires the recommendation's `targetSessionId` to match that session, accepts
+only an optional bounded completion summary, and transitions an accepted
+`improve_workflow` recommendation to `completed`. It rejects caller-supplied
+session IDs, target sessions, recommendation content, and lifecycle states.
+Missing or failed completion reports leave the recommendation accepted rather
+than inferring completion from terminal output.
+
 ### Storage and limits
 
 ```text
